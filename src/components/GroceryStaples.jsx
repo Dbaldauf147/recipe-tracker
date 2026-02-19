@@ -2,43 +2,124 @@ import { useState, useEffect } from 'react';
 import { fetchStaplesFromSheet } from '../utils/sheetRecipes';
 import styles from './GroceryStaples.module.css';
 
+const STORAGE_KEY = 'sunday-grocery-staples';
+
+function loadStaples() {
+  try {
+    const data = localStorage.getItem(STORAGE_KEY);
+    return data ? JSON.parse(data) : null;
+  } catch {
+    return null;
+  }
+}
+
+function saveStaples(staples) {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(staples));
+}
+
 export function GroceryStaples() {
   const [staples, setStaples] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetchStaplesFromSheet()
-      .then(setStaples)
-      .catch(() => setStaples([]))
-      .finally(() => setLoading(false));
+    const saved = loadStaples();
+    if (saved) {
+      setStaples(saved);
+      setLoading(false);
+    } else {
+      fetchStaplesFromSheet()
+        .then(data => {
+          setStaples(data);
+          saveStaples(data);
+        })
+        .catch(() => setStaples([]))
+        .finally(() => setLoading(false));
+    }
   }, []);
+
+  useEffect(() => {
+    if (!loading) {
+      saveStaples(staples);
+    }
+  }, [staples, loading]);
+
+  function updateItem(index, field, value) {
+    setStaples(prev =>
+      prev.map((item, i) => (i === index ? { ...item, [field]: value } : item))
+    );
+  }
+
+  function removeItem(index) {
+    setStaples(prev => prev.filter((_, i) => i !== index));
+  }
+
+  function addItem() {
+    setStaples(prev => [...prev, { quantity: '', measurement: '', ingredient: '' }]);
+  }
 
   return (
     <div className={styles.panel}>
       <h2 className={styles.heading}>Grocery Staples</h2>
       {loading ? (
         <p className={styles.loading}>Loading...</p>
-      ) : staples.length === 0 ? (
-        <p className={styles.loading}>No staples found</p>
       ) : (
-        <table className={styles.table}>
-          <thead>
-            <tr>
-              <th>Qty</th>
-              <th>Measurement</th>
-              <th>Ingredient</th>
-            </tr>
-          </thead>
-          <tbody>
-            {staples.map((item, i) => (
-              <tr key={i}>
-                <td>{item.quantity}</td>
-                <td>{item.measurement}</td>
-                <td>{item.ingredient}</td>
+        <>
+          <table className={styles.table}>
+            <thead>
+              <tr>
+                <th>Qty</th>
+                <th>Measurement</th>
+                <th>Ingredient</th>
+                <th></th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {staples.map((item, i) => (
+                <tr key={i}>
+                  <td>
+                    <input
+                      className={styles.cellInput}
+                      type="text"
+                      value={item.quantity}
+                      onChange={e => updateItem(i, 'quantity', e.target.value)}
+                      placeholder="1"
+                    />
+                  </td>
+                  <td>
+                    <input
+                      className={styles.cellInput}
+                      type="text"
+                      value={item.measurement}
+                      onChange={e => updateItem(i, 'measurement', e.target.value)}
+                      placeholder="unit"
+                    />
+                  </td>
+                  <td>
+                    <input
+                      className={styles.cellInput}
+                      type="text"
+                      value={item.ingredient}
+                      onChange={e => updateItem(i, 'ingredient', e.target.value)}
+                      placeholder="ingredient"
+                    />
+                  </td>
+                  <td>
+                    <button
+                      className={styles.removeBtn}
+                      onClick={() => removeItem(i)}
+                      title="Remove"
+                    >
+                      &times;
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <button className={styles.addBtn} onClick={addItem}>
+            + Add item
+          </button>
+        </>
       )}
     </div>
   );

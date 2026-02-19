@@ -31,13 +31,75 @@
 }
 
 .table td {
-  padding: 0.4rem 0.5rem;
+  padding: 0.2rem 0.15rem;
   border-bottom: 1px solid var(--color-border-light);
-  color: var(--color-text-secondary);
 }
 
 .table tbody tr:last-child td {
   border-bottom: none;
+}
+
+.cellInput {
+  width: 100%;
+  padding: 0.25rem 0.35rem;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  font-size: 0.85rem;
+  font-family: inherit;
+  color: var(--color-text-secondary);
+  background: transparent;
+  box-sizing: border-box;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.cellInput:hover {
+  border-color: var(--color-border);
+}
+
+.cellInput:focus {
+  outline: none;
+  border-color: var(--color-accent);
+  background: var(--color-surface);
+}
+
+.removeBtn {
+  background: none;
+  border: none;
+  color: var(--color-text-muted);
+  font-size: 1rem;
+  cursor: pointer;
+  padding: 0.15rem 0.3rem;
+  line-height: 1;
+  border-radius: 4px;
+  transition: color 0.15s ease, background 0.15s ease;
+  opacity: 0;
+}
+
+.table tbody tr:hover .removeBtn {
+  opacity: 1;
+}
+
+.removeBtn:hover {
+  color: var(--color-danger);
+  background: var(--color-danger-light);
+}
+
+.addBtn {
+  display: block;
+  margin-top: 0.5rem;
+  background: none;
+  border: none;
+  color: var(--color-accent);
+  font-size: 0.82rem;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  padding: 0.25rem 0;
+  transition: opacity 0.15s ease;
+}
+
+.addBtn:hover {
+  opacity: 0.8;
 }
 
 .loading {
