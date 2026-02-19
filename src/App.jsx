@@ -4,6 +4,7 @@ import { RecipeList } from './components/RecipeList';
 import { RecipeDetail } from './components/RecipeDetail';
 import { RecipeForm } from './components/RecipeForm';
 import { GroceryStaples } from './components/GroceryStaples';
+import { ShoppingList } from './components/ShoppingList';
 import styles from './App.module.css';
 
 const WEEKLY_KEY = 'sunday-weekly-plan';
@@ -78,47 +79,60 @@ function App() {
       </header>
 
       <main className={styles.main}>
-        {view === 'list' && (
-          <div className={styles.homeLayout}>
-            <aside className={styles.sidebar}>
-              <GroceryStaples />
-            </aside>
-            <div className={styles.content}>
-              <RecipeList
-                recipes={recipes}
-                onSelect={handleSelect}
-                onAdd={() => setView('add')}
-                onImport={importRecipes}
-                weeklyPlan={weeklyPlan}
-                onAddToWeek={handleAddToWeek}
-                onRemoveFromWeek={handleRemoveFromWeek}
-                onClearWeek={handleClearWeek}
-                onCategoryChange={handleCategoryChange}
-                getRecipe={getRecipe}
+        <div className={styles.homeLayout}>
+          <aside className={styles.sidebar}>
+            <ShoppingList
+              weeklyRecipes={weeklyPlan.map(id => getRecipe(id)).filter(Boolean)}
+            />
+            <GroceryStaples />
+          </aside>
+          <div className={styles.content}>
+            <RecipeList
+              recipes={recipes}
+              onSelect={handleSelect}
+              onAdd={() => setView('add')}
+              onImport={importRecipes}
+              weeklyPlan={weeklyPlan}
+              onAddToWeek={handleAddToWeek}
+              onRemoveFromWeek={handleRemoveFromWeek}
+              onClearWeek={handleClearWeek}
+              onCategoryChange={handleCategoryChange}
+              getRecipe={getRecipe}
+            />
+          </div>
+        </div>
+
+        {view === 'detail' && selectedId && (
+          <div className={styles.overlay} onClick={() => setView('list')}>
+            <div className={styles.modal} onClick={e => e.stopPropagation()}>
+              <RecipeDetail
+                recipe={getRecipe(selectedId)}
+                onEdit={() => setView('edit')}
+                onDelete={handleDelete}
+                onBack={() => setView('list')}
               />
             </div>
           </div>
         )}
 
-        {view === 'detail' && selectedId && (
-          <RecipeDetail
-            recipe={getRecipe(selectedId)}
-            onEdit={() => setView('edit')}
-            onDelete={handleDelete}
-            onBack={() => setView('list')}
-          />
-        )}
-
         {view === 'add' && (
-          <RecipeForm onSave={handleAdd} onCancel={() => setView('list')} />
+          <div className={styles.overlay} onClick={() => setView('list')}>
+            <div className={styles.modal} onClick={e => e.stopPropagation()}>
+              <RecipeForm onSave={handleAdd} onCancel={() => setView('list')} />
+            </div>
+          </div>
         )}
 
         {view === 'edit' && selectedId && (
-          <RecipeForm
-            recipe={getRecipe(selectedId)}
-            onSave={handleUpdate}
-            onCancel={() => setView('detail')}
-          />
+          <div className={styles.overlay} onClick={() => setView('detail')}>
+            <div className={styles.modal} onClick={e => e.stopPropagation()}>
+              <RecipeForm
+                recipe={getRecipe(selectedId)}
+                onSave={handleUpdate}
+                onCancel={() => setView('detail')}
+              />
+            </div>
+          </div>
         )}
       </main>
     </div>

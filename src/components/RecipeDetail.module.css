@@ -33,6 +33,13 @@
   line-height: 1.6;
 }
 
+.servings {
+  margin: -1rem 0 1.5rem;
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: var(--color-text-muted);
+}
+
 .columns {
   display: flex;
   gap: 1.5rem;

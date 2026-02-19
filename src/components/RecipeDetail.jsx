@@ -14,6 +14,10 @@ export function RecipeDetail({ recipe, onEdit, onDelete, onBack }) {
         <p className={styles.description}>{recipe.description}</p>
       )}
 
+      {recipe.servings && (
+        <p className={styles.servings}>Serves {recipe.servings}</p>
+      )}
+
       <div className={styles.columns}>
         <div className={styles.ingredientsCol}>
           <h3>Ingredients</h3>
@@ -38,7 +42,7 @@ export function RecipeDetail({ recipe, onEdit, onDelete, onBack }) {
         </div>
 
         <div className={styles.nutritionCol}>
-          <NutritionPanel ingredients={recipe.ingredients} />
+          <NutritionPanel ingredients={recipe.ingredients} servings={parseInt(recipe.servings) || 1} />
         </div>
       </div>
 

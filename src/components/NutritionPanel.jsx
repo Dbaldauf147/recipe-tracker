@@ -7,33 +7,53 @@ const SUGARS_FIBER = ['sugar', 'addedSugar', 'fiber'];
 const MINERALS = ['sodium', 'potassium', 'calcium', 'iron', 'magnesium', 'zinc'];
 const VITAMINS_AMINOS = ['vitaminB12', 'vitaminC', 'leucine'];
 
-function NutrientRow({ nutrient, value }) {
+function NutrientRow({ nutrient, total, perServing, showPerServing }) {
   return (
     <div className={styles.nutrientRow}>
       <span className={styles.nutrientLabel}>{nutrient.label}</span>
       <span className={styles.nutrientValue}>
-        {value}{nutrient.unit}
+        {showPerServing ? perServing : total}{nutrient.unit}
       </span>
     </div>
   );
 }
 
-function NutrientGroup({ title, keys, totals }) {
+function divideNutrients(totals, servings) {
+  const result = {};
+  for (const key in totals) {
+    const val = totals[key];
+    result[key] = typeof val === 'number'
+      ? Math.round((val / servings) * 10) / 10
+      : val;
+  }
+  return result;
+}
+
+function NutrientGroup({ title, keys, totals, perServing, showPerServing }) {
   return (
     <div className={styles.group}>
       <h4 className={styles.groupTitle}>{title}</h4>
       {keys.map(key => {
         const n = NUTRIENTS.find(x => x.key === key);
-        return <NutrientRow key={key} nutrient={n} value={totals[key]} />;
+        return (
+          <NutrientRow
+            key={key}
+            nutrient={n}
+            total={totals[key]}
+            perServing={perServing[key]}
+            showPerServing={showPerServing}
+          />
+        );
       })}
     </div>
   );
 }
 
-export function NutritionPanel({ ingredients }) {
+export function NutritionPanel({ ingredients, servings = 1 }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [showPerServing, setShowPerServing] = useState(true);
 
   async function calculate() {
     setLoading(true);
@@ -70,16 +90,34 @@ export function NutritionPanel({ ingredients }) {
   }
 
   const { items, totals } = data;
+  const perServing = divideNutrients(totals, servings);
 
   return (
     <div className={styles.container}>
       <h3>Nutrition <span className={styles.estimate}>(estimate)</span></h3>
 
+      {servings > 1 && (
+        <div className={styles.servingsToggle}>
+          <button
+            className={`${styles.toggleBtn} ${showPerServing ? styles.toggleActive : ''}`}
+            onClick={() => setShowPerServing(true)}
+          >
+            Per serving ({servings} servings)
+          </button>
+          <button
+            className={`${styles.toggleBtn} ${!showPerServing ? styles.toggleActive : ''}`}
+            onClick={() => setShowPerServing(false)}
+          >
+            Total recipe
+          </button>
+        </div>
+      )}
+
       <div className={styles.groups}>
-        <NutrientGroup title="Macros" keys={MACROS} totals={totals} />
-        <NutrientGroup title="Sugars & Fiber" keys={SUGARS_FIBER} totals={totals} />
-        <NutrientGroup title="Minerals" keys={MINERALS} totals={totals} />
-        <NutrientGroup title="Vitamins & Aminos" keys={VITAMINS_AMINOS} totals={totals} />
+        <NutrientGroup title="Macros" keys={MACROS} totals={totals} perServing={perServing} showPerServing={showPerServing && servings > 1} />
+        <NutrientGroup title="Sugars & Fiber" keys={SUGARS_FIBER} totals={totals} perServing={perServing} showPerServing={showPerServing && servings > 1} />
+        <NutrientGroup title="Minerals" keys={MINERALS} totals={totals} perServing={perServing} showPerServing={showPerServing && servings > 1} />
+        <NutrientGroup title="Vitamins & Aminos" keys={VITAMINS_AMINOS} totals={totals} perServing={perServing} showPerServing={showPerServing && servings > 1} />
       </div>
 
       <details className={styles.details}>

@@ -121,7 +121,7 @@
 /* ── This Week's Menu ── */
 
 .weekBox {
-  margin-top: 2rem;
+  margin-bottom: 1.5rem;
   background: var(--color-surface);
   border: 2px dashed var(--color-border);
   border-radius: var(--radius-md);
@@ -226,68 +226,10 @@
   background: var(--color-danger-light);
 }
 
-/* ── Shopping List ── */
-
-.shoppingBox {
-  margin-top: 1.5rem;
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  padding: 1.25rem;
-  box-shadow: var(--shadow-sm);
-}
-
-.shoppingHeading {
-  margin: 0;
-  font-size: 0.9rem;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--color-text-muted);
-}
-
-.shoppingSubtext {
-  margin: 0.25rem 0 1rem;
-  font-size: 0.82rem;
-  color: var(--color-text-muted);
-}
-
-.shoppingList {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  columns: 2;
-  column-gap: 2rem;
-}
-
-.shoppingItem {
-  padding: 0.35rem 0;
-  border-bottom: 1px solid var(--color-border-light);
-  font-size: 0.92rem;
-  break-inside: avoid;
-  display: flex;
-  gap: 0.5rem;
-}
-
-.shoppingQty {
-  color: var(--color-accent);
-  font-weight: 600;
-  white-space: nowrap;
-  min-width: 4.5rem;
-}
-
-.shoppingName {
-  color: var(--color-text);
-}
-
 /* ── Responsive ── */
 
 @media (max-width: 768px) {
   .columns {
     grid-template-columns: 1fr;
-  }
-
-  .shoppingList {
-    columns: 1;
   }
 }

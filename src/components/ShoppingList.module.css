@@ -1,0 +1,75 @@
+.panel {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 1rem 1.25rem;
+  box-shadow: var(--shadow-sm);
+}
+
+.heading {
+  margin: 0 0 0.15rem;
+  font-size: 1.05rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.subtext {
+  margin: 0 0 0.75rem;
+  font-size: 0.78rem;
+  color: var(--color-text-muted);
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+.table th {
+  text-align: left;
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text-muted);
+  padding: 0.3rem 0.5rem;
+  border-bottom: 2px solid var(--color-border);
+}
+
+.table td {
+  padding: 0.4rem 0.5rem;
+  border-bottom: 1px solid var(--color-border-light);
+  color: var(--color-text-secondary);
+}
+
+.table tbody tr {
+  cursor: pointer;
+  transition: background 0.1s ease;
+}
+
+.table tbody tr:hover {
+  background: var(--color-surface-alt);
+}
+
+.table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.checkCell {
+  width: 1.5rem;
+  padding-right: 0;
+}
+
+.checkbox {
+  cursor: pointer;
+  accent-color: var(--color-accent);
+}
+
+.checkedRow td {
+  text-decoration: line-through;
+  color: var(--color-text-muted);
+}
+
+.checkedRow .checkCell {
+  text-decoration: none;
+}
