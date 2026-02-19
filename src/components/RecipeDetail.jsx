@@ -14,29 +14,33 @@ export function RecipeDetail({ recipe, onEdit, onDelete, onBack }) {
         <p className={styles.description}>{recipe.description}</p>
       )}
 
-      <div className={styles.section}>
-        <h3>Ingredients</h3>
-        <table className={styles.ingredientTable}>
-          <thead>
-            <tr>
-              <th>Quantity</th>
-              <th>Measurement</th>
-              <th>Ingredient</th>
-            </tr>
-          </thead>
-          <tbody>
-            {recipe.ingredients.map((item, i) => (
-              <tr key={i}>
-                <td>{item.quantity}</td>
-                <td>{item.measurement}</td>
-                <td>{item.ingredient}</td>
+      <div className={styles.columns}>
+        <div className={styles.ingredientsCol}>
+          <h3>Ingredients</h3>
+          <table className={styles.ingredientTable}>
+            <thead>
+              <tr>
+                <th>Quantity</th>
+                <th>Measurement</th>
+                <th>Ingredient</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+            </thead>
+            <tbody>
+              {recipe.ingredients.map((item, i) => (
+                <tr key={i}>
+                  <td>{item.quantity}</td>
+                  <td>{item.measurement}</td>
+                  <td>{item.ingredient}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
 
-      <NutritionPanel ingredients={recipe.ingredients} />
+        <div className={styles.nutritionCol}>
+          <NutritionPanel ingredients={recipe.ingredients} />
+        </div>
+      </div>
 
       <div className={styles.section}>
         <h3>Instructions</h3>
