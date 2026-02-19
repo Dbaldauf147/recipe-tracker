@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useRecipes } from './hooks/useRecipes';
 import { RecipeList } from './components/RecipeList';
 import { RecipeDetail } from './components/RecipeDetail';
@@ -26,10 +26,37 @@ function App() {
   const [view, setView] = useState('list');
   const [selectedId, setSelectedId] = useState(null);
   const [weeklyPlan, setWeeklyPlan] = useState(loadWeeklyPlan);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef(null);
 
   useEffect(() => {
     localStorage.setItem(WEEKLY_KEY, JSON.stringify(weeklyPlan));
   }, [weeklyPlan]);
+
+  useEffect(() => {
+    function handleClickOutside(e) {
+      if (menuRef.current && !menuRef.current.contains(e.target)) {
+        setMenuOpen(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  function scrollTo(id) {
+    setMenuOpen(false);
+    const el = document.getElementById(id);
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  const NAV_ITEMS = [
+    { label: 'Ingredients', id: 'shopping-list' },
+    { label: 'Grocery Staples', id: 'grocery-staples' },
+    { label: "This Week's Menu", id: 'weekly-menu' },
+    { label: 'Breakfast', id: 'cat-breakfast' },
+    { label: 'Lunch & Dinner', id: 'cat-lunch-dinner' },
+    { label: 'Snacks', id: 'cat-snacks-desserts' },
+  ];
 
   function handleSelect(id) {
     setSelectedId(id);
@@ -76,15 +103,42 @@ function App() {
           Sunday
         </h1>
         <span className={styles.tagline}>meal planning, simplified</span>
+        <div className={styles.navMenu} ref={menuRef}>
+          <button
+            className={styles.menuBtn}
+            onClick={() => setMenuOpen(prev => !prev)}
+            aria-expanded={menuOpen}
+          >
+            Menu <span className={styles.menuArrow}>{menuOpen ? '\u25B4' : '\u25BE'}</span>
+          </button>
+          {menuOpen && (
+            <ul className={styles.dropdown}>
+              {NAV_ITEMS.map(item => (
+                <li key={item.id}>
+                  <button
+                    className={styles.dropdownItem}
+                    onClick={() => scrollTo(item.id)}
+                  >
+                    {item.label}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
       </header>
 
       <main className={styles.main}>
         <div className={styles.homeLayout}>
           <aside className={styles.sidebar}>
-            <ShoppingList
-              weeklyRecipes={weeklyPlan.map(id => getRecipe(id)).filter(Boolean)}
-            />
-            <GroceryStaples />
+            <div id="shopping-list">
+              <ShoppingList
+                weeklyRecipes={weeklyPlan.map(id => getRecipe(id)).filter(Boolean)}
+              />
+            </div>
+            <div id="grocery-staples">
+              <GroceryStaples />
+            </div>
           </aside>
           <div className={styles.content}>
             <RecipeList

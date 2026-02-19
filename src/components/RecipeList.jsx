@@ -124,6 +124,7 @@ export function RecipeList({
 
       {/* This Week's Menu */}
       <div
+        id="weekly-menu"
         className={`${styles.weekBox} ${dragOverTarget === 'weekly' ? styles.weekBoxDragOver : ''}`}
         onDragOver={handleWeekDragOver}
         onDrop={handleWeekDrop}
@@ -174,6 +175,7 @@ export function RecipeList({
           {CATEGORIES.map(cat => (
             <div
               key={cat.key}
+              id={`cat-${cat.key}`}
               className={`${styles.column} ${dragOverTarget === cat.key ? styles.columnDragOver : ''}`}
               onDragOver={handleColumnDragOver}
               onDrop={e => handleColumnDrop(e, cat.key)}
