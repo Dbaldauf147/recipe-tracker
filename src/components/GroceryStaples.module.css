@@ -33,3 +33,9 @@
 .table tbody tr:last-child td {
   border-bottom: none;
 }
+
+.loading {
+  color: #9ca3af;
+  font-size: 0.9rem;
+  margin: 0;
+}

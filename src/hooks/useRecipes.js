@@ -41,5 +41,19 @@ export function useRecipes() {
     return recipes.find(r => r.id === id) || null;
   }
 
-  return { recipes, addRecipe, updateRecipe, deleteRecipe, getRecipe };
+  function importRecipes(newRecipes) {
+    setRecipes(prev => {
+      const existingTitles = new Set(prev.map(r => r.title.toLowerCase()));
+      const toAdd = newRecipes
+        .filter(r => !existingTitles.has(r.title.toLowerCase()))
+        .map(r => ({
+          ...r,
+          id: crypto.randomUUID(),
+          createdAt: new Date().toISOString(),
+        }));
+      return [...toAdd, ...prev];
+    });
+  }
+
+  return { recipes, addRecipe, updateRecipe, deleteRecipe, getRecipe, importRecipes };
 }

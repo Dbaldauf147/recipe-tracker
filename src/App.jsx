@@ -8,7 +8,7 @@ import styles from './App.module.css';
 
 // Views: "list" | "detail" | "add" | "edit"
 function App() {
-  const { recipes, addRecipe, updateRecipe, deleteRecipe, getRecipe } =
+  const { recipes, addRecipe, updateRecipe, deleteRecipe, getRecipe, importRecipes } =
     useRecipes();
 
   const [view, setView] = useState('list');
@@ -54,6 +54,7 @@ function App() {
                 recipes={recipes}
                 onSelect={handleSelect}
                 onAdd={() => setView('add')}
+                onImport={importRecipes}
               />
             </div>
           </div>
