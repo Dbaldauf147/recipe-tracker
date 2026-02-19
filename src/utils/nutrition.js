@@ -1,3 +1,5 @@
+import { lookupFromSheet } from './sheetNutrition.js';
+
 const API_KEY = import.meta.env.VITE_USDA_API_KEY || 'DEMO_KEY';
 const BASE_URL = 'https://api.nal.usda.gov/fdc/v1/foods/search';
 
@@ -188,7 +190,7 @@ function roundNutrient(value, decimals) {
   return Math.round(value * factor) / factor;
 }
 
-export async function fetchNutritionForIngredient(ingredient) {
+async function fetchFromUSDA(ingredient) {
   const { quantity, measurement, ingredient: name } = ingredient;
   if (!name.trim()) return null;
 
@@ -220,7 +222,15 @@ export async function fetchNutritionForIngredient(ingredient) {
     matchedTo: name,
     grams: Math.round(grams),
     nutrients,
+    source: 'usda',
   };
+}
+
+// Try Google Sheet first, fall back to USDA.
+export async function fetchNutritionForIngredient(ingredient) {
+  const sheetResult = await lookupFromSheet(ingredient).catch(() => null);
+  if (sheetResult) return sheetResult;
+  return fetchFromUSDA(ingredient);
 }
 
 export async function fetchNutritionForRecipe(ingredients) {
