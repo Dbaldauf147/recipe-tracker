@@ -3,6 +3,7 @@ import { useRecipes } from './hooks/useRecipes';
 import { RecipeList } from './components/RecipeList';
 import { RecipeDetail } from './components/RecipeDetail';
 import { RecipeForm } from './components/RecipeForm';
+import { GroceryStaples } from './components/GroceryStaples';
 import styles from './App.module.css';
 
 // Views: "list" | "detail" | "add" | "edit"
@@ -44,11 +45,18 @@ function App() {
 
       <main className={styles.main}>
         {view === 'list' && (
-          <RecipeList
-            recipes={recipes}
-            onSelect={handleSelect}
-            onAdd={() => setView('add')}
-          />
+          <div className={styles.homeLayout}>
+            <aside className={styles.sidebar}>
+              <GroceryStaples />
+            </aside>
+            <div className={styles.content}>
+              <RecipeList
+                recipes={recipes}
+                onSelect={handleSelect}
+                onAdd={() => setView('add')}
+              />
+            </div>
+          </div>
         )}
 
         {view === 'detail' && selectedId && (
