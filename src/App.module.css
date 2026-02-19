@@ -1,0 +1,22 @@
+.app {
+  min-height: 100vh;
+  background: #f9fafb;
+}
+
+.header {
+  background: #fff;
+  border-bottom: 1px solid #e5e7eb;
+  padding: 1rem 2rem;
+  margin-bottom: 2rem;
+}
+
+.logo {
+  margin: 0;
+  font-size: 1.4rem;
+  cursor: pointer;
+  color: #111827;
+}
+
+.main {
+  padding: 0 2rem 3rem;
+}

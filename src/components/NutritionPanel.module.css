@@ -1,0 +1,167 @@
+.container {
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  border-radius: 10px;
+  padding: 1.25rem;
+  margin-bottom: 1.5rem;
+}
+
+.container h3 {
+  margin: 0 0 0.75rem;
+  font-size: 1.15rem;
+}
+
+.estimate {
+  font-weight: 400;
+  color: #6b7280;
+  font-size: 0.85rem;
+}
+
+.calcBtn {
+  padding: 0.5rem 1.25rem;
+  background: #16a34a;
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.calcBtn:hover {
+  background: #15803d;
+}
+
+.loading {
+  color: #6b7280;
+  font-style: italic;
+  margin: 0;
+}
+
+.error {
+  color: #dc2626;
+  margin: 0 0 0.5rem;
+  font-size: 0.9rem;
+}
+
+/* Nutrient summary groups */
+.groups {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.group {
+  background: #fff;
+  border-radius: 8px;
+  padding: 0.75rem;
+}
+
+.groupTitle {
+  margin: 0 0 0.5rem;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #6b7280;
+}
+
+.nutrientRow {
+  display: flex;
+  justify-content: space-between;
+  padding: 0.2rem 0;
+  font-size: 0.9rem;
+}
+
+.nutrientLabel {
+  color: #374151;
+}
+
+.nutrientValue {
+  font-weight: 600;
+  color: #111827;
+}
+
+/* Per-ingredient breakdown table */
+.details {
+  margin-bottom: 0.75rem;
+}
+
+.details summary {
+  cursor: pointer;
+  font-size: 0.9rem;
+  color: #374151;
+  font-weight: 600;
+  margin-bottom: 0.5rem;
+}
+
+.tableWrap {
+  overflow-x: auto;
+  margin: 0 -0.25rem;
+}
+
+.table {
+  width: max-content;
+  min-width: 100%;
+  border-collapse: collapse;
+  font-size: 0.78rem;
+  white-space: nowrap;
+}
+
+.table th {
+  text-align: left;
+  font-weight: 600;
+  color: #6b7280;
+  padding: 0.35rem 0.5rem;
+  border-bottom: 2px solid #d1d5db;
+  font-size: 0.72rem;
+  position: sticky;
+  top: 0;
+  background: #f0fdf4;
+}
+
+.table td {
+  padding: 0.35rem 0.5rem;
+  border-bottom: 1px solid #f3f4f6;
+}
+
+.ingredientCell {
+  display: flex;
+  flex-direction: column;
+  white-space: normal;
+  min-width: 120px;
+}
+
+.matchNote {
+  font-size: 0.68rem;
+  color: #9ca3af;
+}
+
+.totalRow {
+  background: #f0fdf4;
+}
+
+.totalRow td {
+  border-top: 2px solid #bbf7d0;
+  border-bottom: none;
+}
+
+.recalcBtn {
+  background: none;
+  border: none;
+  color: #16a34a;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0;
+}
+
+.recalcBtn:hover {
+  text-decoration: underline;
+}
+
+.disclaimer {
+  margin: 0.75rem 0 0;
+  font-size: 0.75rem;
+  color: #9ca3af;
+}

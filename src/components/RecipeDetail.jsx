@@ -1,0 +1,61 @@
+import { NutritionPanel } from './NutritionPanel';
+import styles from './RecipeDetail.module.css';
+
+export function RecipeDetail({ recipe, onEdit, onDelete, onBack }) {
+  return (
+    <div className={styles.container}>
+      <button className={styles.backBtn} onClick={onBack}>
+        &larr; Back to recipes
+      </button>
+
+      <h2 className={styles.title}>{recipe.title}</h2>
+
+      {recipe.description && (
+        <p className={styles.description}>{recipe.description}</p>
+      )}
+
+      <div className={styles.section}>
+        <h3>Ingredients</h3>
+        <table className={styles.ingredientTable}>
+          <thead>
+            <tr>
+              <th>Quantity</th>
+              <th>Measurement</th>
+              <th>Ingredient</th>
+            </tr>
+          </thead>
+          <tbody>
+            {recipe.ingredients.map((item, i) => (
+              <tr key={i}>
+                <td>{item.quantity}</td>
+                <td>{item.measurement}</td>
+                <td>{item.ingredient}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <NutritionPanel ingredients={recipe.ingredients} />
+
+      <div className={styles.section}>
+        <h3>Instructions</h3>
+        <p className={styles.instructions}>{recipe.instructions}</p>
+      </div>
+
+      <div className={styles.actions}>
+        <button className={styles.editBtn} onClick={() => onEdit(recipe.id)}>
+          Edit
+        </button>
+        <button
+          className={styles.deleteBtn}
+          onClick={() => {
+            if (confirm('Delete this recipe?')) onDelete(recipe.id);
+          }}
+        >
+          Delete
+        </button>
+      </div>
+    </div>
+  );
+}
