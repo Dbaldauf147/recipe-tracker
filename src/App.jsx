@@ -109,7 +109,9 @@ function App() {
             onClick={() => setMenuOpen(prev => !prev)}
             aria-expanded={menuOpen}
           >
-            Menu <span className={styles.menuArrow}>{menuOpen ? '\u25B4' : '\u25BE'}</span>
+            <span className={styles.hamburger}>
+              <span /><span /><span />
+            </span>
           </button>
           {menuOpen && (
             <ul className={styles.dropdown}>
