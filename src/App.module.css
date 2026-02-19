@@ -98,15 +98,13 @@
 }
 
 .main {
-  padding: 0 2rem 3rem;
+  padding: 0 0.75rem 3rem;
 }
 
 .homeLayout {
   display: grid;
   grid-template-columns: 1fr 2fr;
   gap: 1.5rem;
-  max-width: 1440px;
-  margin: 0 auto;
   align-items: start;
 }
 
