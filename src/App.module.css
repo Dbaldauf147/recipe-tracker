@@ -1,20 +1,31 @@
 .app {
   min-height: 100vh;
-  background: #f9fafb;
+  background: var(--color-bg);
 }
 
 .header {
-  background: #fff;
-  border-bottom: 1px solid #e5e7eb;
+  background: var(--color-surface);
+  box-shadow: var(--shadow-header);
   padding: 1rem 2rem;
   margin-bottom: 2rem;
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
 }
 
 .logo {
   margin: 0;
   font-size: 1.4rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
   cursor: pointer;
-  color: #111827;
+  color: var(--color-text);
+}
+
+.tagline {
+  font-size: 0.85rem;
+  color: var(--color-text-muted);
+  font-weight: 400;
 }
 
 .main {

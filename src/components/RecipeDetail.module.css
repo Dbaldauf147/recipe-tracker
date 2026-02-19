@@ -6,27 +6,31 @@
 .backBtn {
   background: none;
   border: none;
-  color: #3b82f6;
-  font-size: 0.95rem;
+  color: var(--color-text-muted);
+  font-size: 0.9rem;
+  font-weight: 500;
   cursor: pointer;
   padding: 0;
-  margin-bottom: 1rem;
+  margin-bottom: 1.25rem;
+  transition: color 0.15s ease;
 }
 
 .backBtn:hover {
-  text-decoration: underline;
+  color: var(--color-accent);
 }
 
 .title {
   margin: 0 0 0.5rem;
   font-size: 1.75rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
 }
 
 .description {
-  color: #6b7280;
+  color: var(--color-text-secondary);
   margin: 0 0 1.5rem;
   font-size: 1.05rem;
-  line-height: 1.5;
+  line-height: 1.6;
 }
 
 .columns {
@@ -39,11 +43,18 @@
 .ingredientsCol {
   flex: 1;
   min-width: 0;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 1.25rem;
+  box-shadow: var(--shadow-sm);
 }
 
 .ingredientsCol h3 {
-  margin: 0 0 0.5rem;
-  font-size: 1.15rem;
+  margin: 0 0 0.75rem;
+  font-size: 1rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
 }
 
 .nutritionCol {
@@ -59,11 +70,18 @@
 
 .section {
   margin-bottom: 1.5rem;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 1.25rem;
+  box-shadow: var(--shadow-sm);
 }
 
 .section h3 {
-  margin: 0 0 0.5rem;
-  font-size: 1.15rem;
+  margin: 0 0 0.75rem;
+  font-size: 1rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
 }
 
 .ingredientTable {
@@ -73,16 +91,18 @@
 
 .ingredientTable th {
   text-align: left;
-  font-size: 0.8rem;
+  font-size: 0.72rem;
   font-weight: 600;
-  color: #6b7280;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text-muted);
   padding: 0.4rem 0.75rem;
-  border-bottom: 2px solid #e5e7eb;
+  border-bottom: 2px solid var(--color-border);
 }
 
 .ingredientTable td {
   padding: 0.5rem 0.75rem;
-  border-bottom: 1px solid #f3f4f6;
+  border-bottom: 1px solid var(--color-border-light);
 }
 
 .ingredientTable tbody tr:last-child td {
@@ -92,39 +112,39 @@
 .instructions {
   margin: 0;
   white-space: pre-wrap;
-  line-height: 1.7;
+  line-height: 1.75;
+  color: var(--color-text-secondary);
 }
 
 .actions {
   display: flex;
   gap: 0.75rem;
   margin-top: 2rem;
-  padding-top: 1.5rem;
-  border-top: 1px solid #e5e7eb;
 }
 
 .editBtn,
 .deleteBtn {
-  padding: 0.5rem 1.25rem;
+  padding: 0.55rem 1.25rem;
   border: none;
-  border-radius: 6px;
-  font-size: 0.95rem;
+  border-radius: 50px;
+  font-size: 0.9rem;
   font-weight: 600;
   cursor: pointer;
+  transition: background 0.15s ease;
 }
 
 .editBtn {
-  background: #3b82f6;
+  background: var(--color-accent);
   color: #fff;
 }
 
 .editBtn:hover {
-  background: #2563eb;
+  background: var(--color-accent-hover);
 }
 
 .deleteBtn {
-  background: #fee2e2;
-  color: #dc2626;
+  background: var(--color-danger-light);
+  color: var(--color-danger);
 }
 
 .deleteBtn:hover {

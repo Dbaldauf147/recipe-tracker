@@ -1,10 +1,21 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRecipes } from './hooks/useRecipes';
 import { RecipeList } from './components/RecipeList';
 import { RecipeDetail } from './components/RecipeDetail';
 import { RecipeForm } from './components/RecipeForm';
 import { GroceryStaples } from './components/GroceryStaples';
 import styles from './App.module.css';
+
+const WEEKLY_KEY = 'sunday-weekly-plan';
+
+function loadWeeklyPlan() {
+  try {
+    const data = localStorage.getItem(WEEKLY_KEY);
+    return data ? JSON.parse(data) : [];
+  } catch {
+    return [];
+  }
+}
 
 // Views: "list" | "detail" | "add" | "edit"
 function App() {
@@ -13,6 +24,11 @@ function App() {
 
   const [view, setView] = useState('list');
   const [selectedId, setSelectedId] = useState(null);
+  const [weeklyPlan, setWeeklyPlan] = useState(loadWeeklyPlan);
+
+  useEffect(() => {
+    localStorage.setItem(WEEKLY_KEY, JSON.stringify(weeklyPlan));
+  }, [weeklyPlan]);
 
   function handleSelect(id) {
     setSelectedId(id);
@@ -32,15 +48,33 @@ function App() {
   function handleDelete(id) {
     deleteRecipe(id);
     setSelectedId(null);
+    setWeeklyPlan(prev => prev.filter(wid => wid !== id));
     setView('list');
+  }
+
+  function handleAddToWeek(id) {
+    setWeeklyPlan(prev => prev.includes(id) ? prev : [...prev, id]);
+  }
+
+  function handleRemoveFromWeek(id) {
+    setWeeklyPlan(prev => prev.filter(wid => wid !== id));
+  }
+
+  function handleClearWeek() {
+    setWeeklyPlan([]);
+  }
+
+  function handleCategoryChange(id, newCategory) {
+    updateRecipe(id, { category: newCategory });
   }
 
   return (
     <div className={styles.app}>
       <header className={styles.header}>
         <h1 className={styles.logo} onClick={() => setView('list')}>
-          Recipe Tracker
+          Sunday
         </h1>
+        <span className={styles.tagline}>meal planning, simplified</span>
       </header>
 
       <main className={styles.main}>
@@ -55,6 +89,12 @@ function App() {
                 onSelect={handleSelect}
                 onAdd={() => setView('add')}
                 onImport={importRecipes}
+                weeklyPlan={weeklyPlan}
+                onAddToWeek={handleAddToWeek}
+                onRemoveFromWeek={handleRemoveFromWeek}
+                onClearWeek={handleClearWeek}
+                onCategoryChange={handleCategoryChange}
+                getRecipe={getRecipe}
               />
             </div>
           </div>

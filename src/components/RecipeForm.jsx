@@ -7,6 +7,7 @@ const fields = ['quantity', 'measurement', 'ingredient'];
 export function RecipeForm({ recipe, onSave, onCancel }) {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
+  const [category, setCategory] = useState('lunch-dinner');
   const [ingredients, setIngredients] = useState([{ ...emptyRow }]);
   const [instructions, setInstructions] = useState('');
 
@@ -14,6 +15,7 @@ export function RecipeForm({ recipe, onSave, onCancel }) {
     if (recipe) {
       setTitle(recipe.title);
       setDescription(recipe.description);
+      setCategory(recipe.category || 'lunch-dinner');
       setIngredients(
         recipe.ingredients.length > 0
           ? recipe.ingredients
@@ -79,6 +81,7 @@ export function RecipeForm({ recipe, onSave, onCancel }) {
     onSave({
       title: title.trim(),
       description: description.trim(),
+      category,
       ingredients: ingredients.filter(row => row.ingredient.trim() !== ''),
       instructions: instructions.trim(),
     });
@@ -110,6 +113,19 @@ export function RecipeForm({ recipe, onSave, onCancel }) {
           onChange={e => setDescription(e.target.value)}
           placeholder="Short description"
         />
+      </label>
+
+      <label className={styles.label}>
+        Category
+        <select
+          className={styles.select}
+          value={category}
+          onChange={e => setCategory(e.target.value)}
+        >
+          <option value="breakfast">Breakfast</option>
+          <option value="lunch-dinner">Lunch & Dinner</option>
+          <option value="snacks-desserts">Snacks & Desserts</option>
+        </select>
       </label>
 
       <fieldset className={styles.fieldset}>
