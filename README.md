@@ -1,16 +1,64 @@
-# React + Vite
+# Recipe Tracker
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+A React web app for tracking recipes with nutrition lookup powered by the USDA FoodData Central API.
 
-Currently, two official plugins are available:
+## Features
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+- **Add, view, edit, and delete recipes** with localStorage persistence
+- **Structured ingredient table** with Quantity, Measurement, and Ingredient columns
+- **Spreadsheet-style paste** — copy 3 columns from Excel/Google Sheets and paste directly into the ingredients table
+- **Nutrition calculator** — fetches data from the USDA FoodData Central API with 17 tracked nutrients:
+  - Macros: Calories, Protein, Carbs, Fat, Saturated Fat
+  - Sugars & Fiber: Sugar, Added Sugar, Fiber
+  - Minerals: Salt, Potassium, Calcium, Iron, Magnesium, Zinc
+  - Vitamins & Aminos: B12, Vitamin C, Leucine
+- **Per-ingredient breakdown** showing USDA matches and individual nutrient values
 
-## React Compiler
+## Setup
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+### Prerequisites
 
-## Expanding the ESLint configuration
+- [Node.js](https://nodejs.org/) (v18+)
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+### Install
+
+```bash
+git clone https://github.com/Dbaldauf147/recipe-tracker.git
+cd recipe-tracker
+npm install
+```
+
+### Configure API Key
+
+Get a free API key from [USDA FoodData Central](https://fdc.nal.usda.gov/api-key-signup/).
+
+Create a `.env` file in the project root:
+
+```
+VITE_USDA_API_KEY=your_api_key_here
+```
+
+Without a key, the app falls back to `DEMO_KEY` (limited to ~30 requests/hour).
+
+### Run
+
+```bash
+npm run dev
+```
+
+Open http://localhost:5173 in your browser.
+
+### Build for Production
+
+```bash
+npm run build
+```
+
+Output goes to the `dist/` folder.
+
+## Tech Stack
+
+- React + Vite
+- CSS Modules
+- localStorage for data persistence
+- USDA FoodData Central API for nutrition data
