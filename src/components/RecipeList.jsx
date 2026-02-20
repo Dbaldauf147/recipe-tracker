@@ -135,6 +135,7 @@ export function RecipeList({
           { key: 'all', label: 'All' },
           { key: 'common', label: 'Common' },
           { key: 'rare', label: 'Rare' },
+          { key: 'retired', label: 'Retired' },
         ].map(opt => (
           <button
             key={opt.key}

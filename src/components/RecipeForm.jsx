@@ -143,6 +143,7 @@ export function RecipeForm({ recipe, onSave, onCancel }) {
         >
           <option value="common">Common</option>
           <option value="rare">Rare</option>
+          <option value="retired">Retired</option>
         </select>
       </label>
 
