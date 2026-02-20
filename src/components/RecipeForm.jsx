@@ -133,7 +133,9 @@ export function RecipeForm({ recipe, onSave, onCancel }) {
         >
           <option value="breakfast">Breakfast</option>
           <option value="lunch-dinner">Lunch & Dinner</option>
-          <option value="snacks-desserts">Snacks & Desserts</option>
+          <option value="snacks">Snacks</option>
+          <option value="desserts">Desserts</option>
+          <option value="drinks">Drinks</option>
         </select>
       </label>
 

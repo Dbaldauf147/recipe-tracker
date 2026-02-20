@@ -6,7 +6,9 @@ import styles from './RecipeList.module.css';
 const CATEGORIES = [
   { key: 'breakfast', label: 'Breakfast' },
   { key: 'lunch-dinner', label: 'Lunch & Dinner' },
-  { key: 'snacks-desserts', label: 'Snacks & Desserts' },
+  { key: 'snacks', label: 'Snacks' },
+  { key: 'desserts', label: 'Desserts' },
+  { key: 'drinks', label: 'Drinks' },
 ];
 
 export function RecipeList({
@@ -55,6 +57,8 @@ export function RecipeList({
     const key = recipe.category || 'lunch-dinner';
     if (grouped[key]) {
       grouped[key].push(recipe);
+    } else if (key === 'snacks-desserts') {
+      grouped['snacks'].push(recipe);
     } else {
       grouped['lunch-dinner'].push(recipe);
     }
