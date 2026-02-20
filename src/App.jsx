@@ -5,6 +5,7 @@ import { RecipeDetail } from './components/RecipeDetail';
 import { RecipeForm } from './components/RecipeForm';
 import { GroceryStaples } from './components/GroceryStaples';
 import { ShoppingList } from './components/ShoppingList';
+import { IngredientsPage } from './components/IngredientsPage';
 import styles from './App.module.css';
 
 const WEEKLY_KEY = 'sunday-weekly-plan';
@@ -43,20 +44,24 @@ function App() {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  function scrollTo(id) {
-    setMenuOpen(false);
-    const el = document.getElementById(id);
-    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  }
-
   const NAV_ITEMS = [
-    { label: 'Ingredients', id: 'shopping-list' },
+    { label: 'Ingredients', action: 'ingredients' },
     { label: 'Grocery Staples', id: 'grocery-staples' },
     { label: "This Week's Menu", id: 'weekly-menu' },
     { label: 'Breakfast', id: 'cat-breakfast' },
     { label: 'Lunch & Dinner', id: 'cat-lunch-dinner' },
     { label: 'Snacks', id: 'cat-snacks-desserts' },
   ];
+
+  function handleNavClick(item) {
+    setMenuOpen(false);
+    if (item.action === 'ingredients') {
+      setView('ingredients');
+    } else if (item.id) {
+      const el = document.getElementById(item.id);
+      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  }
 
   function handleSelect(id) {
     setSelectedId(id);
@@ -129,10 +134,10 @@ function App() {
           {menuOpen && (
             <ul className={styles.dropdown}>
               {NAV_ITEMS.map(item => (
-                <li key={item.id}>
+                <li key={item.action || item.id}>
                   <button
                     className={styles.dropdownItem}
-                    onClick={() => scrollTo(item.id)}
+                    onClick={() => handleNavClick(item)}
                   >
                     {item.label}
                   </button>
@@ -200,6 +205,14 @@ function App() {
                 onSave={handleUpdate}
                 onCancel={() => setView('detail')}
               />
+            </div>
+          </div>
+        )}
+
+        {view === 'ingredients' && (
+          <div className={styles.overlay} onClick={() => setView('list')}>
+            <div className={styles.modalWide} onClick={e => e.stopPropagation()}>
+              <IngredientsPage onClose={() => setView('list')} />
             </div>
           </div>
         )}

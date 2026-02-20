@@ -157,3 +157,14 @@
   max-width: 900px;
   padding: 2rem;
 }
+
+.modalWide {
+  background: var(--color-bg);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  width: 100%;
+  max-width: 95vw;
+  max-height: 85vh;
+  padding: 2rem;
+  overflow-y: auto;
+}
