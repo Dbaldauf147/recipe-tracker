@@ -49,7 +49,28 @@ function NutrientGroup({ title, keys, totals, perServing, showPerServing }) {
   );
 }
 
-export function NutritionPanel({ ingredients, servings = 1 }) {
+const NUTRITION_CACHE_KEY = 'sunday-nutrition-cache';
+
+function loadCachedNutrition(recipeId) {
+  try {
+    const cache = JSON.parse(localStorage.getItem(NUTRITION_CACHE_KEY) || '{}');
+    return cache[recipeId] || null;
+  } catch {
+    return null;
+  }
+}
+
+function saveCachedNutrition(recipeId, data) {
+  try {
+    const cache = JSON.parse(localStorage.getItem(NUTRITION_CACHE_KEY) || '{}');
+    cache[recipeId] = data;
+    localStorage.setItem(NUTRITION_CACHE_KEY, JSON.stringify(cache));
+  } catch {
+    // storage full
+  }
+}
+
+export function NutritionPanel({ recipeId, ingredients, servings = 1 }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -61,6 +82,7 @@ export function NutritionPanel({ ingredients, servings = 1 }) {
     try {
       const result = await fetchNutritionForRecipe(ingredients);
       setData(result);
+      if (recipeId) saveCachedNutrition(recipeId, result);
     } catch (err) {
       setError('Failed to fetch nutrition data. Try again later.');
     } finally {
@@ -69,7 +91,11 @@ export function NutritionPanel({ ingredients, servings = 1 }) {
   }
 
   useEffect(() => {
-    if (ingredients && ingredients.length > 0) {
+    if (!ingredients || ingredients.length === 0) return;
+    const cached = recipeId ? loadCachedNutrition(recipeId) : null;
+    if (cached) {
+      setData(cached);
+    } else {
       calculate();
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps

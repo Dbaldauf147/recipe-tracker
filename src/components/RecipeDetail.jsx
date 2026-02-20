@@ -60,7 +60,7 @@ export function RecipeDetail({ recipe, onEdit, onDelete, onBack }) {
         </div>
 
         <div className={styles.nutritionCol}>
-          <NutritionPanel ingredients={recipe.ingredients} servings={parseInt(recipe.servings) || 1} />
+          <NutritionPanel recipeId={recipe.id} ingredients={recipe.ingredients} servings={parseInt(recipe.servings) || 1} />
         </div>
       </div>
 
