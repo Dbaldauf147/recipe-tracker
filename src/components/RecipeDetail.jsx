@@ -14,8 +14,14 @@ export function RecipeDetail({ recipe, onEdit, onDelete, onBack }) {
         <p className={styles.description}>{recipe.description}</p>
       )}
 
-      {recipe.servings && (
-        <p className={styles.servings}>Serves {recipe.servings}</p>
+      {(recipe.servings || recipe.prepTime || recipe.cookTime) && (
+        <p className={styles.servings}>
+          {recipe.servings && <>Serves {recipe.servings}</>}
+          {recipe.servings && recipe.prepTime && <> &middot; </>}
+          {recipe.prepTime && <>Prep: {recipe.prepTime}</>}
+          {(recipe.servings || recipe.prepTime) && recipe.cookTime && <> &middot; </>}
+          {recipe.cookTime && <>Cook: {recipe.cookTime}</>}
+        </p>
       )}
 
       {recipe.sourceUrl && (

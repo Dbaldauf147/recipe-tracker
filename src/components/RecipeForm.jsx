@@ -12,6 +12,8 @@ export function RecipeForm({ recipe, onSave, onCancel }) {
   const [mealType, setMealType] = useState('');
   const [customMealType, setCustomMealType] = useState('');
   const [servings, setServings] = useState('1');
+  const [prepTime, setPrepTime] = useState('');
+  const [cookTime, setCookTime] = useState('');
   const [sourceUrl, setSourceUrl] = useState('');
   const [ingredients, setIngredients] = useState([{ ...emptyRow }]);
   const [instructions, setInstructions] = useState('');
@@ -32,6 +34,8 @@ export function RecipeForm({ recipe, onSave, onCancel }) {
         setCustomMealType(type);
       }
       setServings(recipe.servings || '1');
+      setPrepTime(recipe.prepTime || '');
+      setCookTime(recipe.cookTime || '');
       setSourceUrl(recipe.sourceUrl || '');
       setIngredients(
         recipe.ingredients.length > 0
@@ -102,6 +106,8 @@ export function RecipeForm({ recipe, onSave, onCancel }) {
       frequency,
       mealType: mealType === 'custom' ? customMealType.trim() : mealType,
       servings: servings.trim() || '1',
+      prepTime: prepTime.trim(),
+      cookTime: cookTime.trim(),
       sourceUrl: sourceUrl.trim(),
       ingredients: ingredients.filter(row => row.ingredient.trim() !== ''),
       instructions: instructions.trim(),
@@ -202,6 +208,28 @@ export function RecipeForm({ recipe, onSave, onCancel }) {
           value={servings}
           onChange={e => setServings(e.target.value)}
           placeholder="1"
+        />
+      </label>
+
+      <label className={styles.label}>
+        Prep Time
+        <input
+          className={styles.input}
+          type="text"
+          value={prepTime}
+          onChange={e => setPrepTime(e.target.value)}
+          placeholder="e.g. 15 min"
+        />
+      </label>
+
+      <label className={styles.label}>
+        Cook Time
+        <input
+          className={styles.input}
+          type="text"
+          value={cookTime}
+          onChange={e => setCookTime(e.target.value)}
+          placeholder="e.g. 30 min"
         />
       </label>
 
