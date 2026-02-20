@@ -100,11 +100,12 @@ export function NutritionPanel({ recipeId, ingredients, servings = 1 }) {
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  if (loading) {
+  if (!data || loading) {
     return (
       <div className={styles.container}>
         <h3>Nutrition</h3>
-        <p className={styles.loading}>Looking up ingredients...</p>
+        {loading && <p className={styles.loading}>Looking up ingredients...</p>}
+        {error && <p className={styles.error}>{error}</p>}
       </div>
     );
   }
