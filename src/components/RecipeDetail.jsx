@@ -60,7 +60,18 @@ export function RecipeDetail({ recipe, onEdit, onDelete, onBack }) {
 
       <div className={styles.section}>
         <h3>Instructions</h3>
-        <p className={styles.instructions}>{recipe.instructions}</p>
+        <ol className={styles.steps}>
+          {recipe.instructions
+            .split('\n')
+            .map(s => s.replace(/^\d+[\.\)]\s*/, '').trim())
+            .filter(Boolean)
+            .map((step, i) => (
+              <li key={i} className={styles.step}>
+                <span className={styles.stepLabel}>Step {i + 1}</span>
+                {step}
+              </li>
+            ))}
+        </ol>
       </div>
 
       <div className={styles.actions}>
