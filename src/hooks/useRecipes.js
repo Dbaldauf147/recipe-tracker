@@ -5,7 +5,41 @@ const STORAGE_KEY = 'recipe-tracker-recipes';
 function loadRecipes() {
   try {
     const data = localStorage.getItem(STORAGE_KEY);
-    return data ? JSON.parse(data) : [];
+    const recipes = data ? JSON.parse(data) : [];
+
+    // One-time migration: mark recipes with "special" in description as rare
+    const MIGRATION_KEY = 'recipe-tracker-migrated-special-rare';
+    if (recipes.length > 0 && !localStorage.getItem(MIGRATION_KEY)) {
+      let changed = false;
+      for (const r of recipes) {
+        if (r.description && r.description.toLowerCase().includes('special') && r.frequency !== 'rare') {
+          r.frequency = 'rare';
+          changed = true;
+        }
+      }
+      if (changed) {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(recipes));
+      }
+      localStorage.setItem(MIGRATION_KEY, '1');
+    }
+
+    // One-time migration: mark recipes with "regular" in description as common
+    const MIGRATION_KEY_2 = 'recipe-tracker-migrated-regular-common';
+    if (recipes.length > 0 && !localStorage.getItem(MIGRATION_KEY_2)) {
+      let changed = false;
+      for (const r of recipes) {
+        if (r.description && r.description.toLowerCase().includes('regular') && r.frequency !== 'common') {
+          r.frequency = 'common';
+          changed = true;
+        }
+      }
+      if (changed) {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(recipes));
+      }
+      localStorage.setItem(MIGRATION_KEY_2, '1');
+    }
+
+    return recipes;
   } catch {
     return [];
   }
