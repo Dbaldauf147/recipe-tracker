@@ -110,7 +110,7 @@
 }
 
 .table td {
-  padding: 0.4rem 0.6rem;
+  padding: 0.15rem 0.1rem;
   border-bottom: 1px solid var(--color-border-light);
   color: var(--color-text-secondary);
 }
@@ -130,9 +130,12 @@
   left: 0;
   background: var(--color-surface);
   z-index: 1;
+  min-width: 160px;
+}
+
+.table td:first-child .cellInput {
   font-weight: 600;
   color: var(--color-text);
-  min-width: 160px;
 }
 
 .table tbody tr:hover td:first-child {
@@ -147,4 +150,80 @@
 
 .link:hover {
   text-decoration: underline;
+}
+
+/* Editable cell inputs */
+.cellInput {
+  width: 100%;
+  padding: 0.25rem 0.35rem;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  font-size: 0.78rem;
+  font-family: inherit;
+  color: var(--color-text-secondary);
+  background: transparent;
+  box-sizing: border-box;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.cellInput:hover {
+  border-color: var(--color-border);
+}
+
+.cellInput:focus {
+  outline: none;
+  border-color: var(--color-accent);
+  background: var(--color-surface);
+}
+
+/* Hover-reveal delete button */
+.removeBtn {
+  background: none;
+  border: none;
+  color: var(--color-text-muted);
+  font-size: 1rem;
+  cursor: pointer;
+  padding: 0.15rem 0.3rem;
+  line-height: 1;
+  border-radius: 4px;
+  transition: color 0.15s ease, background 0.15s ease;
+  opacity: 0;
+}
+
+.table tbody tr:hover .removeBtn {
+  opacity: 1;
+}
+
+.removeBtn:hover {
+  color: var(--color-danger);
+  background: var(--color-danger-light);
+}
+
+/* Add ingredient button */
+.addBtn {
+  display: block;
+  margin-top: 0.5rem;
+  background: none;
+  border: none;
+  color: var(--color-accent);
+  font-size: 0.82rem;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  padding: 0.25rem 0;
+  transition: opacity 0.15s ease;
+}
+
+.addBtn:hover {
+  opacity: 0.8;
+}
+
+/* Narrow action column for delete button */
+.actionTh {
+  width: 2rem;
+  cursor: default !important;
+}
+
+.actionTh:hover {
+  color: var(--color-text-muted) !important;
 }

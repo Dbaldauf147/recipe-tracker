@@ -8,6 +8,7 @@ export function RecipeForm({ recipe, onSave, onCancel }) {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [category, setCategory] = useState('lunch-dinner');
+  const [frequency, setFrequency] = useState('common');
   const [servings, setServings] = useState('1');
   const [ingredients, setIngredients] = useState([{ ...emptyRow }]);
   const [instructions, setInstructions] = useState('');
@@ -17,6 +18,7 @@ export function RecipeForm({ recipe, onSave, onCancel }) {
       setTitle(recipe.title);
       setDescription(recipe.description);
       setCategory(recipe.category || 'lunch-dinner');
+      setFrequency(recipe.frequency || 'common');
       setServings(recipe.servings || '1');
       setIngredients(
         recipe.ingredients.length > 0
@@ -84,6 +86,7 @@ export function RecipeForm({ recipe, onSave, onCancel }) {
       title: title.trim(),
       description: description.trim(),
       category,
+      frequency,
       servings: servings.trim() || '1',
       ingredients: ingredients.filter(row => row.ingredient.trim() !== ''),
       instructions: instructions.trim(),
@@ -128,6 +131,18 @@ export function RecipeForm({ recipe, onSave, onCancel }) {
           <option value="breakfast">Breakfast</option>
           <option value="lunch-dinner">Lunch & Dinner</option>
           <option value="snacks-desserts">Snacks & Desserts</option>
+        </select>
+      </label>
+
+      <label className={styles.label}>
+        Frequency
+        <select
+          className={styles.select}
+          value={frequency}
+          onChange={e => setFrequency(e.target.value)}
+        >
+          <option value="common">Common</option>
+          <option value="rare">Rare</option>
         </select>
       </label>
 

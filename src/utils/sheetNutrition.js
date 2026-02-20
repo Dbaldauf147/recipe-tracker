@@ -1,3 +1,5 @@
+import { loadIngredients } from './ingredientsStore.js';
+
 const SHEET_CSV_URL =
   'https://docs.google.com/spreadsheets/d/e/2PACX-1vRg2H-pU53B_n0WCG3f_vz3ye-8IicvsqvTM2xohwVaEitNIZr6PbrgRn8-5qlTn-cSwnt2m3FjXIae/pub?gid=960892864&single=true&output=csv';
 
@@ -63,6 +65,36 @@ function parseCSVLine(line) {
 }
 
 async function fetchSheetData() {
+  // Check local ingredients database first (editable local copy)
+  const localData = loadIngredients();
+  if (localData && localData.length > 0) {
+    return localData.map(item => ({
+      name: (item.ingredient || '').trim(),
+      measurement: (item.measurement || '').trim(),
+      grams: parseFloat(item.grams) || 0,
+      nutrients: {
+        protein: parseFloat(item.protein) || 0,
+        carbs: parseFloat(item.carbs) || 0,
+        fat: parseFloat(item.fat) || 0,
+        sugar: parseFloat(item.sugar) || 0,
+        sodium: parseFloat(item.sodium) || 0,
+        potassium: parseFloat(item.potassium) || 0,
+        vitaminB12: parseFloat(item.vitaminB12) || 0,
+        vitaminC: parseFloat(item.vitaminC) || 0,
+        magnesium: parseFloat(item.magnesium) || 0,
+        fiber: parseFloat(item.fiber) || 0,
+        zinc: parseFloat(item.zinc) || 0,
+        iron: parseFloat(item.iron) || 0,
+        calcium: parseFloat(item.calcium) || 0,
+        calories: parseFloat(item.calories) || 0,
+        addedSugar: parseFloat(item.addedSugar) || 0,
+        saturatedFat: parseFloat(item.saturatedFat) || 0,
+        leucine: parseFloat(item.leucine) || 0,
+      },
+    })).filter(r => r.name);
+  }
+
+  // Fall back to Google Sheet CSV
   if (cachedRows && Date.now() - cacheTime < CACHE_TTL) return cachedRows;
 
   const res = await fetch(SHEET_CSV_URL);

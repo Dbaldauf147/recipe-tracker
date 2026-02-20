@@ -1,117 +1,94 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
+import {
+  INGREDIENT_FIELDS,
+  loadIngredients,
+  saveIngredients,
+  fetchAndSeedIngredients,
+} from '../utils/ingredientsStore.js';
 import styles from './IngredientsPage.module.css';
 
-const CSV_URL =
-  'https://docs.google.com/spreadsheets/d/e/2PACX-1vRg2H-pU53B_n0WCG3f_vz3ye-8IicvsqvTM2xohwVaEitNIZr6PbrgRn8-5qlTn-cSwnt2m3FjXIae/pub?gid=960892864&single=true&output=csv';
-
-function parseCSVLine(line) {
-  const result = [];
-  let current = '';
-  let inQuotes = false;
-  for (let i = 0; i < line.length; i++) {
-    const ch = line[i];
-    if (inQuotes) {
-      if (ch === '"' && line[i + 1] === '"') {
-        current += '"';
-        i++;
-      } else if (ch === '"') {
-        inQuotes = false;
-      } else {
-        current += ch;
-      }
-    } else if (ch === '"') {
-      inQuotes = true;
-    } else if (ch === ',') {
-      result.push(current);
-      current = '';
-    } else {
-      current += ch;
-    }
-  }
-  result.push(current);
-  return result;
-}
-
-// Columns to display (index into CSV row, label)
-const COLUMNS = [
-  { idx: 7, label: 'Ingredient' },
-  { idx: 9, label: 'Measurement' },
-  { idx: 23, label: 'Calories' },
-  { idx: 10, label: 'Protein (g)' },
-  { idx: 11, label: 'Carbs (g)' },
-  { idx: 12, label: 'Fat (g)' },
-  { idx: 19, label: 'Fiber (g)' },
-  { idx: 13, label: 'Sugar (g)' },
-  { idx: 25, label: 'Sat Fat' },
-  { idx: 24, label: 'Added Sugar' },
-  { idx: 14, label: 'Salt (mg)' },
-  { idx: 15, label: 'Potassium (mg)' },
-  { idx: 16, label: 'B12 (µg)' },
-  { idx: 17, label: 'Vit C (mg)' },
-  { idx: 18, label: 'Magnesium (mg)' },
-  { idx: 20, label: 'Zinc (mg)' },
-  { idx: 21, label: 'Iron (mg)' },
-  { idx: 22, label: 'Calcium (mg)' },
-  { idx: 26, label: 'Leucine (g)' },
-  { idx: 35, label: 'Omega 3' },
-  { idx: 37, label: 'Protein/Cal' },
-  { idx: 38, label: 'Fiber/Cal' },
-  { idx: 27, label: 'Notes' },
-  { idx: 39, label: 'Last Bought' },
-  { idx: 40, label: 'Storage' },
-  { idx: 41, label: 'Min Shelf (days)' },
-  { idx: 42, label: 'Max Shelf (days)' },
-  { idx: 32, label: 'Processed?' },
-  { idx: 31, label: 'Link' },
+// Display order of columns (by field key)
+const DISPLAY_KEYS = [
+  'ingredient', 'measurement', 'calories', 'protein', 'carbs', 'fat',
+  'fiber', 'sugar', 'saturatedFat', 'addedSugar', 'sodium', 'potassium',
+  'vitaminB12', 'vitaminC', 'magnesium', 'zinc', 'iron', 'calcium',
+  'leucine', 'omega3', 'proteinPerCal', 'fiberPerCal', 'notes',
+  'lastBought', 'storage', 'minShelf', 'maxShelf', 'processed', 'link',
 ];
+
+const FIELD_MAP = Object.fromEntries(INGREDIENT_FIELDS.map(f => [f.key, f]));
 
 export function IngredientsPage({ onClose }) {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [search, setSearch] = useState('');
-  const [sortCol, setSortCol] = useState(null);
+  const [sortKey, setSortKey] = useState(null);
   const [sortAsc, setSortAsc] = useState(true);
 
   useEffect(() => {
-    fetch(CSV_URL)
-      .then(res => {
-        if (!res.ok) throw new Error('Failed to fetch');
-        return res.text();
-      })
-      .then(text => {
-        const lines = text.split('\n').map(l => l.replace(/\r$/, ''));
-        // Row 3 (index 2) is the header, data starts at index 3
-        const dataRows = [];
-        for (let i = 3; i < lines.length; i++) {
-          const cols = parseCSVLine(lines[i]);
-          const ingredient = (cols[7] || '').trim();
-          if (!ingredient) continue;
-          dataRows.push(cols);
-        }
-        setRows(dataRows);
-      })
-      .catch(() => setError('Failed to load ingredients data.'))
-      .finally(() => setLoading(false));
+    const data = loadIngredients();
+    if (data && data.length > 0) {
+      setRows(data);
+      setLoading(false);
+    } else {
+      fetchAndSeedIngredients()
+        .then(setRows)
+        .catch(() => setError('Failed to load ingredients data.'))
+        .finally(() => setLoading(false));
+    }
   }, []);
 
-  function handleSort(colIdx) {
-    if (sortCol === colIdx) {
+  const updateField = useCallback((origIdx, key, value) => {
+    setRows(prev => {
+      const updated = prev.map((row, i) =>
+        i === origIdx ? { ...row, [key]: value } : row
+      );
+      saveIngredients(updated);
+      return updated;
+    });
+  }, []);
+
+  const addRow = useCallback(() => {
+    setRows(prev => {
+      const empty = {};
+      for (const f of INGREDIENT_FIELDS) empty[f.key] = '';
+      const updated = [...prev, empty];
+      saveIngredients(updated);
+      return updated;
+    });
+  }, []);
+
+  const removeRow = useCallback((origIdx) => {
+    setRows(prev => {
+      const updated = prev.filter((_, i) => i !== origIdx);
+      saveIngredients(updated);
+      return updated;
+    });
+  }, []);
+
+  function handleSort(key) {
+    if (sortKey === key) {
       setSortAsc(prev => !prev);
     } else {
-      setSortCol(colIdx);
+      setSortKey(key);
       setSortAsc(true);
     }
   }
 
-  const filtered = search
-    ? rows.filter(r => (r[7] || '').toLowerCase().includes(search.toLowerCase()))
-    : rows;
+  // Index rows first so we can track original position through filter/sort
+  const indexed = rows.map((row, i) => ({ row, origIdx: i }));
 
-  const sorted = sortCol !== null
+  const filtered = search
+    ? indexed.filter(({ row }) =>
+        (row.ingredient || '').toLowerCase().includes(search.toLowerCase())
+      )
+    : indexed;
+
+  const sorted = sortKey !== null
     ? [...filtered].sort((a, b) => {
-        const aVal = (a[sortCol] || '').trim();
-        const bVal = (b[sortCol] || '').trim();
+        const aVal = (a.row[sortKey] || '').trim();
+        const bVal = (b.row[sortKey] || '').trim();
         const aNum = parseFloat(aVal);
         const bNum = parseFloat(bVal);
         if (!isNaN(aNum) && !isNaN(bNum)) {
@@ -149,48 +126,58 @@ export function IngredientsPage({ onClose }) {
           <table className={styles.table}>
             <thead>
               <tr>
-                {COLUMNS.map(col => (
-                  <th
-                    key={col.idx}
-                    onClick={() => handleSort(col.idx)}
-                    className={sortCol === col.idx ? styles.sortedTh : ''}
-                  >
-                    {col.label}
-                    {sortCol === col.idx && (
-                      <span className={styles.sortArrow}>
-                        {sortAsc ? ' \u25B2' : ' \u25BC'}
-                      </span>
-                    )}
-                  </th>
-                ))}
+                {DISPLAY_KEYS.map(key => {
+                  const field = FIELD_MAP[key];
+                  return (
+                    <th
+                      key={key}
+                      onClick={() => handleSort(key)}
+                      className={sortKey === key ? styles.sortedTh : ''}
+                    >
+                      {field.label}
+                      {sortKey === key && (
+                        <span className={styles.sortArrow}>
+                          {sortAsc ? ' \u25B2' : ' \u25BC'}
+                        </span>
+                      )}
+                    </th>
+                  );
+                })}
+                <th className={styles.actionTh} />
               </tr>
             </thead>
             <tbody>
-              {sorted.map((row, i) => (
-                <tr key={i}>
-                  {COLUMNS.map(col => {
-                    const val = (row[col.idx] || '').trim();
-                    if (col.label === 'Link' && val) {
-                      return (
-                        <td key={col.idx}>
-                          <a
-                            href={val.startsWith('http') ? val : `https://${val}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className={styles.link}
-                          >
-                            View
-                          </a>
-                        </td>
-                      );
-                    }
-                    return <td key={col.idx}>{val}</td>;
-                  })}
+              {sorted.map(({ row, origIdx }) => (
+                <tr key={origIdx}>
+                  {DISPLAY_KEYS.map(key => (
+                    <td key={key}>
+                      <input
+                        className={styles.cellInput}
+                        value={row[key] || ''}
+                        onChange={e => updateField(origIdx, key, e.target.value)}
+                      />
+                    </td>
+                  ))}
+                  <td>
+                    <button
+                      className={styles.removeBtn}
+                      onClick={() => removeRow(origIdx)}
+                      title="Remove ingredient"
+                    >
+                      ×
+                    </button>
+                  </td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
+      )}
+
+      {!loading && !error && (
+        <button className={styles.addBtn} onClick={addRow}>
+          + Add ingredient
+        </button>
       )}
     </div>
   );

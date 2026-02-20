@@ -24,6 +24,7 @@ export function RecipeList({
   const [importing, setImporting] = useState(false);
   const [importResult, setImportResult] = useState(null);
   const [dragOverTarget, setDragOverTarget] = useState(null);
+  const [freqFilter, setFreqFilter] = useState('all');
 
   async function handleImport() {
     setImporting(true);
@@ -41,18 +42,25 @@ export function RecipeList({
     }
   }
 
-  // Group recipes by category
+  // Filter by frequency, then group by category
+  const visible = freqFilter === 'all'
+    ? recipes
+    : recipes.filter(r => (r.frequency || 'common') === freqFilter);
+
   const grouped = {};
   for (const cat of CATEGORIES) {
     grouped[cat.key] = [];
   }
-  for (const recipe of recipes) {
+  for (const recipe of visible) {
     const key = recipe.category || 'lunch-dinner';
     if (grouped[key]) {
       grouped[key].push(recipe);
     } else {
       grouped['lunch-dinner'].push(recipe);
     }
+  }
+  for (const cat of CATEGORIES) {
+    grouped[cat.key].sort((a, b) => a.title.localeCompare(b.title));
   }
 
   // Weekly plan recipes
@@ -121,6 +129,22 @@ export function RecipeList({
       {importResult && (
         <p className={styles.importResult}>{importResult}</p>
       )}
+
+      <div className={styles.filterBar}>
+        {[
+          { key: 'all', label: 'All' },
+          { key: 'common', label: 'Common' },
+          { key: 'rare', label: 'Rare' },
+        ].map(opt => (
+          <button
+            key={opt.key}
+            className={`${styles.filterBtn} ${freqFilter === opt.key ? styles.filterBtnActive : ''}`}
+            onClick={() => setFreqFilter(opt.key)}
+          >
+            {opt.label}
+          </button>
+        ))}
+      </div>
 
       {/* This Week's Menu */}
       <div

@@ -66,6 +66,43 @@
   margin: -0.75rem 0 1rem;
 }
 
+/* ── Frequency filter ── */
+
+.filterBar {
+  display: flex;
+  gap: 0.4rem;
+  margin-bottom: 1.25rem;
+}
+
+.filterBtn {
+  padding: 0.35rem 1rem;
+  border: 1px solid var(--color-border);
+  border-radius: 50px;
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+  font-size: 0.82rem;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+.filterBtn:hover {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+
+.filterBtnActive {
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+  color: #fff;
+}
+
+.filterBtnActive:hover {
+  background: var(--color-accent-hover);
+  color: #fff;
+}
+
 /* ── Category columns ── */
 
 .columns {
