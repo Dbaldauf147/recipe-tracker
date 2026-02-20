@@ -24,7 +24,7 @@ export function RecipeList({
   const [importing, setImporting] = useState(false);
   const [importResult, setImportResult] = useState(null);
   const [dragOverTarget, setDragOverTarget] = useState(null);
-  const [freqFilter, setFreqFilter] = useState('all');
+  const [freqFilter, setFreqFilter] = useState('common');
 
   async function handleImport() {
     setImporting(true);
