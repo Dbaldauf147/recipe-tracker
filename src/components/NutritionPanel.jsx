@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { fetchNutritionForRecipe, NUTRIENTS } from '../utils/nutrition';
 import styles from './NutritionPanel.module.css';
 
@@ -68,17 +68,11 @@ export function NutritionPanel({ ingredients, servings = 1 }) {
     }
   }
 
-  if (!data && !loading) {
-    return (
-      <div className={styles.container}>
-        <h3>Nutrition</h3>
-        {error && <p className={styles.error}>{error}</p>}
-        <button className={styles.calcBtn} onClick={calculate}>
-          Calculate Nutrition
-        </button>
-      </div>
-    );
-  }
+  useEffect(() => {
+    if (ingredients && ingredients.length > 0) {
+      calculate();
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (loading) {
     return (
