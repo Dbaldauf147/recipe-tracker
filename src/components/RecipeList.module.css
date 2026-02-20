@@ -66,12 +66,48 @@
   margin: -0.75rem 0 1rem;
 }
 
-/* ── Frequency filter ── */
+/* ── Filters ── */
+
+.filterRow {
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+  margin-bottom: 1.25rem;
+  flex-wrap: wrap;
+}
 
 .filterBar {
   display: flex;
   gap: 0.4rem;
-  margin-bottom: 1.25rem;
+}
+
+.checkboxGroup {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.checkboxLabel {
+  font-size: 0.78rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text-muted);
+}
+
+.checkbox {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.85rem;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  user-select: none;
+}
+
+.checkbox input {
+  accent-color: var(--color-accent);
+  cursor: pointer;
 }
 
 .filterBtn {

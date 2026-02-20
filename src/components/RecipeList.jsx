@@ -30,7 +30,7 @@ export function RecipeList({
   const [importResult, setImportResult] = useState(null);
   const [dragOverTarget, setDragOverTarget] = useState(null);
   const [freqFilter, setFreqFilter] = useState('common');
-  const [typeFilter, setTypeFilter] = useState('all');
+  const [checkedTypes, setCheckedTypes] = useState(new Set());
 
   async function handleImport() {
     setImporting(true);
@@ -55,8 +55,8 @@ export function RecipeList({
   let visible = freqFilter === 'all'
     ? recipes
     : recipes.filter(r => (r.frequency || 'common') === freqFilter);
-  if (typeFilter !== 'all') {
-    visible = visible.filter(r => (r.mealType || '') === typeFilter);
+  if (checkedTypes.size > 0) {
+    visible = visible.filter(r => checkedTypes.has(r.mealType || ''));
   }
 
   const grouped = {};
@@ -144,42 +144,47 @@ export function RecipeList({
         <p className={styles.importResult}>{importResult}</p>
       )}
 
-      <div className={styles.filterBar}>
-        {[
-          { key: 'all', label: 'All' },
-          { key: 'common', label: 'Common' },
-          { key: 'rare', label: 'Rare' },
-          { key: 'retired', label: 'Retired' },
-        ].map(opt => (
-          <button
-            key={opt.key}
-            className={`${styles.filterBtn} ${freqFilter === opt.key ? styles.filterBtnActive : ''}`}
-            onClick={() => setFreqFilter(opt.key)}
-          >
-            {opt.label}
-          </button>
-        ))}
-      </div>
-
-      {mealTypes.length > 0 && (
+      <div className={styles.filterRow}>
         <div className={styles.filterBar}>
-          <button
-            className={`${styles.filterBtn} ${typeFilter === 'all' ? styles.filterBtnActive : ''}`}
-            onClick={() => setTypeFilter('all')}
-          >
-            All Types
-          </button>
-          {mealTypes.map(type => (
+          {[
+            { key: 'all', label: 'All' },
+            { key: 'common', label: 'Common' },
+            { key: 'rare', label: 'Rare' },
+            { key: 'retired', label: 'Retired' },
+          ].map(opt => (
             <button
-              key={type}
-              className={`${styles.filterBtn} ${typeFilter === type ? styles.filterBtnActive : ''}`}
-              onClick={() => setTypeFilter(type)}
+              key={opt.key}
+              className={`${styles.filterBtn} ${freqFilter === opt.key ? styles.filterBtnActive : ''}`}
+              onClick={() => setFreqFilter(opt.key)}
             >
-              {type.charAt(0).toUpperCase() + type.slice(1)}
+              {opt.label}
             </button>
           ))}
         </div>
-      )}
+
+        {mealTypes.length > 0 && (
+          <div className={styles.checkboxGroup}>
+            <span className={styles.checkboxLabel}>Meal Type</span>
+            {mealTypes.map(type => (
+              <label key={type} className={styles.checkbox}>
+                <input
+                  type="checkbox"
+                  checked={checkedTypes.has(type)}
+                  onChange={() => {
+                    setCheckedTypes(prev => {
+                      const next = new Set(prev);
+                      if (next.has(type)) next.delete(type);
+                      else next.add(type);
+                      return next;
+                    });
+                  }}
+                />
+                {type.charAt(0).toUpperCase() + type.slice(1)}
+              </label>
+            ))}
+          </div>
+        )}
+      </div>
 
       {/* This Week's Menu */}
       <div
