@@ -11,6 +11,9 @@ const CATEGORIES = [
   { key: 'drinks', label: 'Drinks' },
 ];
 
+const MAIN_CATS = CATEGORIES.filter(c => c.key === 'breakfast' || c.key === 'lunch-dinner');
+const SIDE_CATS = CATEGORIES.filter(c => c.key === 'snacks' || c.key === 'desserts' || c.key === 'drinks');
+
 export function RecipeList({
   recipes,
   onSelect,
@@ -201,7 +204,7 @@ export function RecipeList({
         </p>
       ) : (
         <div className={styles.columns}>
-          {CATEGORIES.map(cat => (
+          {MAIN_CATS.map(cat => (
             <div
               key={cat.key}
               id={`cat-${cat.key}`}
@@ -228,6 +231,35 @@ export function RecipeList({
               )}
             </div>
           ))}
+          <div className={styles.stackedCol}>
+            {SIDE_CATS.map(cat => (
+              <div
+                key={cat.key}
+                id={`cat-${cat.key}`}
+                className={`${styles.column} ${dragOverTarget === cat.key ? styles.columnDragOver : ''}`}
+                onDragOver={handleColumnDragOver}
+                onDrop={e => handleColumnDrop(e, cat.key)}
+                onDragEnter={() => handleDragEnter(cat.key)}
+                onDragLeave={e => handleDragLeave(e, cat.key)}
+              >
+                <h3 className={styles.columnHeading}>{cat.label}</h3>
+                {grouped[cat.key].length === 0 ? (
+                  <p className={styles.columnEmpty}>Drop recipes here</p>
+                ) : (
+                  <div className={styles.list}>
+                    {grouped[cat.key].map(recipe => (
+                      <RecipeCard
+                        key={recipe.id}
+                        recipe={recipe}
+                        onClick={onSelect}
+                        draggable
+                      />
+                    ))}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
         </div>
       )}
     </div>
