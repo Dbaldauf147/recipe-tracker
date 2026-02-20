@@ -18,6 +18,18 @@ export function RecipeDetail({ recipe, onEdit, onDelete, onBack }) {
         <p className={styles.servings}>Serves {recipe.servings}</p>
       )}
 
+      {recipe.sourceUrl && (
+        <p className={styles.sourceLink}>
+          <a
+            href={recipe.sourceUrl.startsWith('http') ? recipe.sourceUrl : `https://${recipe.sourceUrl}`}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            View original recipe &#x2197;
+          </a>
+        </p>
+      )}
+
       <div className={styles.columns}>
         <div className={styles.ingredientsCol}>
           <h3>Ingredients</h3>

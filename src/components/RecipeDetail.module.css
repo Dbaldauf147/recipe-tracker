@@ -40,6 +40,23 @@
   color: var(--color-text-muted);
 }
 
+.sourceLink {
+  margin: -0.75rem 0 1.5rem;
+  font-size: 0.9rem;
+}
+
+.sourceLink a {
+  color: var(--color-accent);
+  text-decoration: none;
+  font-weight: 500;
+  transition: opacity 0.15s ease;
+}
+
+.sourceLink a:hover {
+  opacity: 0.8;
+  text-decoration: underline;
+}
+
 .columns {
   display: flex;
   gap: 1.5rem;

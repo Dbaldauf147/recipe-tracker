@@ -10,6 +10,7 @@ export function RecipeForm({ recipe, onSave, onCancel }) {
   const [category, setCategory] = useState('lunch-dinner');
   const [frequency, setFrequency] = useState('common');
   const [servings, setServings] = useState('1');
+  const [sourceUrl, setSourceUrl] = useState('');
   const [ingredients, setIngredients] = useState([{ ...emptyRow }]);
   const [instructions, setInstructions] = useState('');
 
@@ -20,6 +21,7 @@ export function RecipeForm({ recipe, onSave, onCancel }) {
       setCategory(recipe.category || 'lunch-dinner');
       setFrequency(recipe.frequency || 'common');
       setServings(recipe.servings || '1');
+      setSourceUrl(recipe.sourceUrl || '');
       setIngredients(
         recipe.ingredients.length > 0
           ? recipe.ingredients
@@ -88,6 +90,7 @@ export function RecipeForm({ recipe, onSave, onCancel }) {
       category,
       frequency,
       servings: servings.trim() || '1',
+      sourceUrl: sourceUrl.trim(),
       ingredients: ingredients.filter(row => row.ingredient.trim() !== ''),
       instructions: instructions.trim(),
     });
@@ -156,6 +159,17 @@ export function RecipeForm({ recipe, onSave, onCancel }) {
           value={servings}
           onChange={e => setServings(e.target.value)}
           placeholder="1"
+        />
+      </label>
+
+      <label className={styles.label}>
+        Source URL
+        <input
+          className={styles.input}
+          type="url"
+          value={sourceUrl}
+          onChange={e => setSourceUrl(e.target.value)}
+          placeholder="Instagram video or recipe website link"
         />
       </label>
 
