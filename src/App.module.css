@@ -102,39 +102,7 @@
 }
 
 .homeLayout {
-  display: grid;
-  grid-template-columns: 1fr 2fr;
-  gap: 1.5rem;
-  align-items: start;
-}
-
-.sidebar {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 1rem;
-  align-items: start;
-  position: sticky;
-  top: 1rem;
-}
-
-.content {
-  min-width: 0;
-}
-
-@media (max-width: 1100px) {
-  .homeLayout {
-    grid-template-columns: 1fr;
-  }
-
-  .sidebar {
-    position: static;
-  }
-}
-
-@media (max-width: 600px) {
-  .sidebar {
-    grid-template-columns: 1fr;
-  }
+  max-width: 100%;
 }
 
 .overlay {

@@ -3,9 +3,8 @@ import { useRecipes } from './hooks/useRecipes';
 import { RecipeList } from './components/RecipeList';
 import { RecipeDetail } from './components/RecipeDetail';
 import { RecipeForm } from './components/RecipeForm';
-import { GroceryStaples } from './components/GroceryStaples';
-import { ShoppingList } from './components/ShoppingList';
 import { IngredientsPage } from './components/IngredientsPage';
+import { ShoppingListPage } from './components/ShoppingListPage';
 import styles from './App.module.css';
 
 const WEEKLY_KEY = 'sunday-weekly-plan';
@@ -46,7 +45,7 @@ function App() {
 
   const NAV_ITEMS = [
     { label: 'Ingredients', action: 'ingredients' },
-    { label: 'Grocery Staples', id: 'grocery-staples' },
+    { label: 'Shopping List', action: 'shopping' },
     { label: "This Week's Menu", id: 'weekly-menu' },
     { label: 'Breakfast', id: 'cat-breakfast' },
     { label: 'Lunch & Dinner', id: 'cat-lunch-dinner' },
@@ -59,6 +58,8 @@ function App() {
     setMenuOpen(false);
     if (item.action === 'ingredients') {
       setView('ingredients');
+    } else if (item.action === 'shopping') {
+      setView('shopping');
     } else if (item.id) {
       const el = document.getElementById(item.id);
       if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -152,17 +153,6 @@ function App() {
 
       <main className={styles.main}>
         <div className={styles.homeLayout}>
-          <aside className={styles.sidebar}>
-            <div id="shopping-list">
-              <ShoppingList
-                weeklyRecipes={weeklyPlan.map(id => getRecipe(id)).filter(Boolean)}
-              />
-            </div>
-            <div id="grocery-staples">
-              <GroceryStaples />
-            </div>
-          </aside>
-          <div className={styles.content}>
             <RecipeList
               recipes={recipes}
               onSelect={handleSelect}
@@ -175,7 +165,6 @@ function App() {
               onCategoryChange={handleCategoryChange}
               getRecipe={getRecipe}
             />
-          </div>
         </div>
 
         {view === 'detail' && selectedId && (
@@ -215,6 +204,17 @@ function App() {
           <div className={styles.overlay} onClick={() => setView('list')}>
             <div className={styles.modalWide} onClick={e => e.stopPropagation()}>
               <IngredientsPage onClose={() => setView('list')} />
+            </div>
+          </div>
+        )}
+
+        {view === 'shopping' && (
+          <div className={styles.overlay} onClick={() => setView('list')}>
+            <div className={styles.modalWide} onClick={e => e.stopPropagation()}>
+              <ShoppingListPage
+                weeklyRecipes={weeklyPlan.map(id => getRecipe(id)).filter(Boolean)}
+                onClose={() => setView('list')}
+              />
             </div>
           </div>
         )}
