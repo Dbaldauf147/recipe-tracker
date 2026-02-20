@@ -30,6 +30,7 @@ export function RecipeList({
   const [importResult, setImportResult] = useState(null);
   const [dragOverTarget, setDragOverTarget] = useState(null);
   const [freqFilter, setFreqFilter] = useState('common');
+  const [typeFilter, setTypeFilter] = useState('all');
 
   async function handleImport() {
     setImporting(true);
@@ -47,10 +48,16 @@ export function RecipeList({
     }
   }
 
-  // Filter by frequency, then group by category
-  const visible = freqFilter === 'all'
+  // Collect unique meal types for filter buttons
+  const mealTypes = [...new Set(recipes.map(r => r.mealType).filter(Boolean))].sort();
+
+  // Filter by frequency and meal type, then group by category
+  let visible = freqFilter === 'all'
     ? recipes
     : recipes.filter(r => (r.frequency || 'common') === freqFilter);
+  if (typeFilter !== 'all') {
+    visible = visible.filter(r => (r.mealType || '') === typeFilter);
+  }
 
   const grouped = {};
   for (const cat of CATEGORIES) {
@@ -153,6 +160,26 @@ export function RecipeList({
           </button>
         ))}
       </div>
+
+      {mealTypes.length > 0 && (
+        <div className={styles.filterBar}>
+          <button
+            className={`${styles.filterBtn} ${typeFilter === 'all' ? styles.filterBtnActive : ''}`}
+            onClick={() => setTypeFilter('all')}
+          >
+            All Types
+          </button>
+          {mealTypes.map(type => (
+            <button
+              key={type}
+              className={`${styles.filterBtn} ${typeFilter === type ? styles.filterBtnActive : ''}`}
+              onClick={() => setTypeFilter(type)}
+            >
+              {type.charAt(0).toUpperCase() + type.slice(1)}
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* This Week's Menu */}
       <div

@@ -9,6 +9,8 @@ export function RecipeForm({ recipe, onSave, onCancel }) {
   const [description, setDescription] = useState('');
   const [category, setCategory] = useState('lunch-dinner');
   const [frequency, setFrequency] = useState('common');
+  const [mealType, setMealType] = useState('');
+  const [customMealType, setCustomMealType] = useState('');
   const [servings, setServings] = useState('1');
   const [sourceUrl, setSourceUrl] = useState('');
   const [ingredients, setIngredients] = useState([{ ...emptyRow }]);
@@ -20,6 +22,15 @@ export function RecipeForm({ recipe, onSave, onCancel }) {
       setDescription(recipe.description);
       setCategory(recipe.category || 'lunch-dinner');
       setFrequency(recipe.frequency || 'common');
+      const type = recipe.mealType || '';
+      const presets = ['meat', 'pescatarian', 'vegan', 'vegetarian', ''];
+      if (presets.includes(type)) {
+        setMealType(type);
+        setCustomMealType('');
+      } else {
+        setMealType('custom');
+        setCustomMealType(type);
+      }
       setServings(recipe.servings || '1');
       setSourceUrl(recipe.sourceUrl || '');
       setIngredients(
@@ -89,6 +100,7 @@ export function RecipeForm({ recipe, onSave, onCancel }) {
       description: description.trim(),
       category,
       frequency,
+      mealType: mealType === 'custom' ? customMealType.trim() : mealType,
       servings: servings.trim() || '1',
       sourceUrl: sourceUrl.trim(),
       ingredients: ingredients.filter(row => row.ingredient.trim() !== ''),
@@ -151,6 +163,35 @@ export function RecipeForm({ recipe, onSave, onCancel }) {
           <option value="retired">Retired</option>
         </select>
       </label>
+
+      <label className={styles.label}>
+        Meal Type
+        <select
+          className={styles.select}
+          value={mealType}
+          onChange={e => { setMealType(e.target.value); if (e.target.value !== 'custom') setCustomMealType(''); }}
+        >
+          <option value="">— None —</option>
+          <option value="meat">Meat</option>
+          <option value="pescatarian">Pescatarian</option>
+          <option value="vegan">Vegan</option>
+          <option value="vegetarian">Vegetarian</option>
+          <option value="custom">Custom...</option>
+        </select>
+      </label>
+
+      {mealType === 'custom' && (
+        <label className={styles.label}>
+          Custom Meal Type
+          <input
+            className={styles.input}
+            type="text"
+            value={customMealType}
+            onChange={e => setCustomMealType(e.target.value)}
+            placeholder="e.g. Keto, Paleo"
+          />
+        </label>
+      )}
 
       <label className={styles.label}>
         Servings
