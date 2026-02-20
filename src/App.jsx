@@ -29,9 +29,9 @@ function App() {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef(null);
 
-  useEffect(() => {
-    localStorage.setItem(WEEKLY_KEY, JSON.stringify(weeklyPlan));
-  }, [weeklyPlan]);
+  function saveWeek(plan) {
+    try { localStorage.setItem(WEEKLY_KEY, JSON.stringify(plan)); } catch {}
+  }
 
   useEffect(() => {
     function handleClickOutside(e) {
@@ -76,19 +76,32 @@ function App() {
   function handleDelete(id) {
     deleteRecipe(id);
     setSelectedId(null);
-    setWeeklyPlan(prev => prev.filter(wid => wid !== id));
+    setWeeklyPlan(prev => {
+      const next = prev.filter(wid => wid !== id);
+      saveWeek(next);
+      return next;
+    });
     setView('list');
   }
 
   function handleAddToWeek(id) {
-    setWeeklyPlan(prev => prev.includes(id) ? prev : [...prev, id]);
+    setWeeklyPlan(prev => {
+      const next = prev.includes(id) ? prev : [...prev, id];
+      saveWeek(next);
+      return next;
+    });
   }
 
   function handleRemoveFromWeek(id) {
-    setWeeklyPlan(prev => prev.filter(wid => wid !== id));
+    setWeeklyPlan(prev => {
+      const next = prev.filter(wid => wid !== id);
+      saveWeek(next);
+      return next;
+    });
   }
 
   function handleClearWeek() {
+    saveWeek([]);
     setWeeklyPlan([]);
   }
 

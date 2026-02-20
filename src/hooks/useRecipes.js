@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 
 const STORAGE_KEY = 'recipe-tracker-recipes';
 
@@ -11,12 +11,16 @@ function loadRecipes() {
   }
 }
 
+function save(recipes) {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(recipes));
+  } catch {
+    // storage full or unavailable
+  }
+}
+
 export function useRecipes() {
   const [recipes, setRecipes] = useState(loadRecipes);
-
-  useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(recipes));
-  }, [recipes]);
 
   function addRecipe(recipe) {
     const newRecipe = {
@@ -24,17 +28,27 @@ export function useRecipes() {
       id: crypto.randomUUID(),
       createdAt: new Date().toISOString(),
     };
-    setRecipes(prev => [newRecipe, ...prev]);
+    setRecipes(prev => {
+      const next = [newRecipe, ...prev];
+      save(next);
+      return next;
+    });
   }
 
   function updateRecipe(id, updates) {
-    setRecipes(prev =>
-      prev.map(r => (r.id === id ? { ...r, ...updates } : r))
-    );
+    setRecipes(prev => {
+      const next = prev.map(r => (r.id === id ? { ...r, ...updates } : r));
+      save(next);
+      return next;
+    });
   }
 
   function deleteRecipe(id) {
-    setRecipes(prev => prev.filter(r => r.id !== id));
+    setRecipes(prev => {
+      const next = prev.filter(r => r.id !== id);
+      save(next);
+      return next;
+    });
   }
 
   function getRecipe(id) {
@@ -51,7 +65,9 @@ export function useRecipes() {
           id: crypto.randomUUID(),
           createdAt: new Date().toISOString(),
         }));
-      return [...toAdd, ...prev];
+      const next = [...toAdd, ...prev];
+      save(next);
+      return next;
     });
   }
 

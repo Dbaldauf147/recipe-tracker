@@ -106,7 +106,7 @@ export function ShoppingList({ weeklyRecipes }) {
                     onClick={e => e.stopPropagation()}
                   />
                 </td>
-                <td>{formatQuantity(item.quantity)}</td>
+                <td className={styles.qtyCell}>{formatQuantity(item.quantity)}</td>
                 <td>{item.measurement}</td>
                 <td>{item.ingredient}</td>
               </tr>
