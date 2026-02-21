@@ -1,7 +1,10 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { RecipeCard } from './RecipeCard';
 import { fetchRecipesFromSheet } from '../utils/sheetRecipes';
+import { KEY_INGREDIENTS, normalize, recipeHasIngredient } from '../utils/keyIngredients';
 import styles from './RecipeList.module.css';
+
+const HISTORY_KEY = 'sunday-plan-history';
 
 const CATEGORIES = [
   { key: 'breakfast', label: 'Breakfast' },
@@ -130,6 +133,95 @@ export function RecipeList({
     }
   }
 
+  // Suggested meals: score recipes by staleness + neglected key ingredients
+  const suggestions = useMemo(() => {
+    let history;
+    try {
+      const data = localStorage.getItem(HISTORY_KEY);
+      history = data ? JSON.parse(data) : [];
+    } catch {
+      history = [];
+    }
+
+    const weekSet = new Set(weeklyPlan);
+    const candidates = recipes.filter(r => !weekSet.has(r.id));
+    if (candidates.length === 0) return [];
+
+    // Sort history newest-first
+    const byRecent = [...history].sort(
+      (a, b) => new Date(b.timestamp) - new Date(a.timestamp)
+    );
+
+    // Build map: recipeId → most recent date it was cooked
+    const lastCookedMap = {};
+    for (const entry of byRecent) {
+      for (const rid of entry.recipeIds) {
+        if (!lastCookedMap[rid]) lastCookedMap[rid] = entry.date;
+      }
+    }
+
+    // Build map: normalized key ingredient → most recent date it was eaten
+    const ingredientDateMap = {};
+    for (const keyIng of KEY_INGREDIENTS) {
+      const normKey = normalize(keyIng);
+      for (const entry of byRecent) {
+        if (ingredientDateMap[normKey]) break;
+        for (const rid of entry.recipeIds) {
+          if (ingredientDateMap[normKey]) break;
+          const recipe = getRecipe(rid);
+          if (recipeHasIngredient(recipe, normKey)) {
+            ingredientDateMap[normKey] = entry.date;
+          }
+        }
+      }
+    }
+
+    function daysSince(dateStr) {
+      const then = new Date(dateStr + 'T00:00:00');
+      const now = new Date();
+      now.setHours(0, 0, 0, 0);
+      return Math.round((now - then) / (1000 * 60 * 60 * 24));
+    }
+
+    const scored = candidates.map(recipe => {
+      const lastCooked = lastCookedMap[recipe.id];
+      const recipeDays = lastCooked ? daysSince(lastCooked) : 9999;
+
+      // Sum days-since-last-eaten for each key ingredient this recipe has
+      let ingredientScore = 0;
+      const neglectedIngredients = [];
+      for (const keyIng of KEY_INGREDIENTS) {
+        const normKey = normalize(keyIng);
+        if (recipeHasIngredient(recipe, normKey)) {
+          const ingDate = ingredientDateMap[normKey];
+          const ingDays = ingDate ? daysSince(ingDate) : 9999;
+          ingredientScore += ingDays;
+          if (ingDays >= 14) {
+            const label = keyIng.replace(/_/g, ' ');
+            neglectedIngredients.push(label);
+          }
+        }
+      }
+
+      const totalScore = recipeDays + ingredientScore;
+
+      // Build reason text
+      const parts = [];
+      if (recipeDays === 9999) parts.push('never cooked');
+      else if (recipeDays >= 7) parts.push(`not cooked in ${recipeDays} days`);
+      if (neglectedIngredients.length > 0) {
+        parts.push('has ' + neglectedIngredients.slice(0, 3).join(', '));
+      }
+      const reason = parts.join(' · ') || 'good variety pick';
+
+      return { recipe, totalScore, reason };
+    });
+
+    scored.sort((a, b) => b.totalScore - a.totalScore);
+    return scored.slice(0, 5);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [recipes, weeklyPlan]);
+
   return (
     <div className={styles.container}>
       <div className={styles.header}>
@@ -245,6 +337,35 @@ export function RecipeList({
           </div>
         )}
       </div>
+
+      {/* Suggested Meals */}
+      {suggestions.length > 0 && (
+        <div className={styles.suggestBox}>
+          <h3 className={styles.suggestHeading}>Suggested Meals</h3>
+          <div className={styles.suggestList}>
+            {suggestions.map(({ recipe, reason }) => (
+              <div key={recipe.id} className={styles.suggestItem}>
+                <div className={styles.suggestInfo}>
+                  <button
+                    className={styles.suggestName}
+                    onClick={() => onSelect(recipe.id)}
+                  >
+                    {recipe.title}
+                  </button>
+                  <span className={styles.suggestReason}>{reason}</span>
+                </div>
+                <button
+                  className={styles.suggestAddBtn}
+                  onClick={() => onAddToWeek(recipe.id)}
+                  title="Add to this week"
+                >
+                  +
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {recipes.length === 0 ? (
         <p className={styles.empty}>
