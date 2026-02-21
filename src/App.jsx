@@ -150,6 +150,7 @@ function App() {
           />
         ) : view === 'key-ingredients' ? (
           <KeyIngredientsPage
+            recipes={recipes}
             getRecipe={getRecipe}
             onClose={() => setView('list')}
           />

@@ -82,39 +82,49 @@ function loadHistory() {
   }
 }
 
-export function KeyIngredientsPage({ getRecipe, onClose }) {
-  const { sorted, lastEatenMap, neverCount } = useMemo(() => {
+/** Check if a recipe contains a key ingredient */
+function recipeHasIngredient(recipe, normKey) {
+  if (!recipe || !recipe.ingredients) return false;
+  return recipe.ingredients.some(ing => {
+    const normIng = normalize(ing.ingredient || '');
+    return normIng && (normIng.includes(normKey) || normKey.includes(normIng));
+  });
+}
+
+export function KeyIngredientsPage({ recipes, getRecipe, onClose }) {
+  const { sorted, lastEatenMap, mealsMap, neverCount } = useMemo(() => {
     const history = loadHistory();
     const byRecent = [...history].sort(
       (a, b) => new Date(b.timestamp) - new Date(a.timestamp)
     );
 
-    const map = {};
+    const dateMap = {};
+    const meals = {};
     for (const keyIng of KEY_INGREDIENTS) {
       const normKey = normalize(keyIng);
-      map[keyIng] = null;
+      dateMap[keyIng] = null;
 
+      // Find last-eaten date from history
       for (const entry of byRecent) {
-        if (map[keyIng]) break;
+        if (dateMap[keyIng]) break;
         for (const recipeId of entry.recipeIds) {
-          if (map[keyIng]) break;
+          if (dateMap[keyIng]) break;
           const recipe = getRecipe(recipeId);
-          if (!recipe || !recipe.ingredients) continue;
-          for (const ing of recipe.ingredients) {
-            const normIng = normalize(ing.ingredient || '');
-            if (!normIng) continue;
-            if (normIng.includes(normKey) || normKey.includes(normIng)) {
-              map[keyIng] = entry.date;
-              break;
-            }
+          if (recipeHasIngredient(recipe, normKey)) {
+            dateMap[keyIng] = entry.date;
           }
         }
       }
+
+      // Find all recipes that contain this ingredient
+      meals[keyIng] = recipes
+        .filter(r => recipeHasIngredient(r, normKey))
+        .map(r => r.title);
     }
 
     const sortedKeys = KEY_INGREDIENTS.slice().sort((a, b) => {
-      const dateA = map[a];
-      const dateB = map[b];
+      const dateA = dateMap[a];
+      const dateB = dateMap[b];
       if (!dateA && !dateB) return a.localeCompare(b);
       if (!dateA) return -1;
       if (!dateB) return 1;
@@ -123,11 +133,12 @@ export function KeyIngredientsPage({ getRecipe, onClose }) {
 
     return {
       sorted: sortedKeys,
-      lastEatenMap: map,
-      neverCount: sortedKeys.filter(k => !map[k]).length,
+      lastEatenMap: dateMap,
+      mealsMap: meals,
+      neverCount: sortedKeys.filter(k => !dateMap[k]).length,
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [recipes]);
 
   return (
     <div className={styles.container}>
@@ -148,12 +159,14 @@ export function KeyIngredientsPage({ getRecipe, onClose }) {
               <th>Ingredient</th>
               <th>Last Eaten</th>
               <th>Days Since</th>
+              <th>Meals</th>
             </tr>
           </thead>
           <tbody>
             {sorted.map(key => {
               const date = lastEatenMap[key];
               const days = date ? daysSince(date) : null;
+              const meals = mealsMap[key] || [];
               return (
                 <tr key={key}>
                   <td className={styles.ingredientName}>{displayName(key)}</td>
@@ -171,10 +184,20 @@ export function KeyIngredientsPage({ getRecipe, onClose }) {
                       <span className={styles.never}>&mdash;</span>
                     )}
                   </td>
+                  <td>
+                    {meals.length > 0 ? (
+                      <ul className={styles.mealsList}>
+                        {meals.map(title => (
+                          <li key={title}>{title}</li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <span className={styles.never}>None</span>
+                    )}
+                  </td>
                 </tr>
               );
-            }
-            ))}
+            })}
           </tbody>
         </table>
       </div>

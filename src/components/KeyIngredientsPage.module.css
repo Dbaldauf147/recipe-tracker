@@ -92,3 +92,15 @@
   font-weight: 600;
   font-variant-numeric: tabular-nums;
 }
+
+.mealsList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  font-size: 0.82rem;
+  color: var(--color-text-secondary);
+}
+
+.mealsList li {
+  padding: 0.1rem 0;
+}
