@@ -1,5 +1,5 @@
 /**
- * Fetches a recipe from a URL via CORS proxy, extracts structured data
+ * Fetches a recipe from a URL via server-side proxy, extracts structured data
  * (Schema.org JSON-LD), and returns a recipe object matching the app's shape.
  * Falls back to plain-text parsing when no structured data is found.
  */
@@ -7,23 +7,17 @@
 import { parseRecipeText } from './parseRecipeText';
 import { normalizeFractions, parseIngredientLine } from './parseRecipeText';
 
-// ── CORS proxy helpers ──
+// ── Server-side proxy (Vite dev middleware + Netlify function in prod) ──
 
-async function fetchViaProxy(url) {
-  const proxies = [
-    u => `https://api.allorigins.win/raw?url=${encodeURIComponent(u)}`,
-    u => `https://corsproxy.io/?${encodeURIComponent(u)}`,
-  ];
-
-  for (const makeUrl of proxies) {
-    try {
-      const res = await fetch(makeUrl(url));
-      if (res.ok) return await res.text();
-    } catch {
-      // try next proxy
-    }
+async function fetchHtml(url) {
+  const res = await fetch(`/api/fetch-url?url=${encodeURIComponent(url)}`);
+  if (!res.ok) {
+    const body = await res.text();
+    let message = 'Could not fetch the URL.';
+    try { message = JSON.parse(body).error || message; } catch {}
+    throw new Error(message);
   }
-  throw new Error('Could not fetch the URL. The site may be blocking access.');
+  return await res.text();
 }
 
 // ── JSON-LD extraction ──
@@ -118,7 +112,7 @@ function htmlToPlainText(html) {
 // ── Main export ──
 
 export async function fetchRecipeFromUrl(url) {
-  const html = await fetchViaProxy(url);
+  const html = await fetchHtml(url);
 
   // Try structured data first
   const ld = extractJsonLdRecipe(html);
