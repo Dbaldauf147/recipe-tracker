@@ -254,6 +254,18 @@
   color: var(--color-accent);
 }
 
+.savedToast {
+  color: var(--color-success, #16a34a);
+  font-size: 0.82rem;
+  font-weight: 600;
+  animation: fadeOut 3s ease forwards;
+}
+
+@keyframes fadeOut {
+  0%, 50% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
 .clearBtn {
   background: none;
   border: none;

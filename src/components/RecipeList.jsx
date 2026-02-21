@@ -32,6 +32,13 @@ export function RecipeList({
   const [dragOverTarget, setDragOverTarget] = useState(null);
   const [freqFilter, setFreqFilter] = useState('common');
   const [checkedTypes, setCheckedTypes] = useState(new Set());
+  const [showSaved, setShowSaved] = useState(false);
+
+  function handleSaveClick() {
+    onSaveToHistory();
+    setShowSaved(true);
+    setTimeout(() => setShowSaved(false), 3000);
+  }
 
   async function handleImport() {
     setImporting(true);
@@ -200,9 +207,12 @@ export function RecipeList({
           <h3 className={styles.weekHeading}>This Week's Menu</h3>
           {weeklyRecipes.length > 0 && (
             <div className={styles.weekActions}>
-              <button className={styles.saveHistoryBtn} onClick={onSaveToHistory}>
+              <button className={styles.saveHistoryBtn} onClick={handleSaveClick}>
                 Save to History
               </button>
+              {showSaved && (
+                <span className={styles.savedToast}>Saved!</span>
+              )}
               <button className={styles.clearBtn} onClick={onClearWeek}>
                 Clear all
               </button>
