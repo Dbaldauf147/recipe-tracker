@@ -88,8 +88,9 @@ export function RecipeList({
   }
 
   // Collect all preset meal types + any custom ones from recipes
-  const PRESET_TYPES = ['Meat', 'Pescatarian', 'Vegan', 'Vegetarian'];
-  const customTypes = recipes.map(r => r.mealType).filter(Boolean).filter(t => !PRESET_TYPES.includes(t));
+  const PRESET_TYPES = ['meat', 'pescatarian', 'vegan', 'vegetarian'];
+  const customTypes = recipes.map(r => r.mealType).filter(Boolean)
+    .filter(t => !PRESET_TYPES.includes(t.toLowerCase()));
   const mealTypes = [...new Set([...PRESET_TYPES, ...customTypes])].sort();
 
   // Filter by frequency and meal type, then group by category
