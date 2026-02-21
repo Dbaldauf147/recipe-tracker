@@ -391,22 +391,13 @@ export function RecipeList({
                   >
                     {recipe.title}
                   </button>
-                  <div className={styles.weekItemActions}>
-                    <button
-                      className={`${styles.weekShopBtn} ${shopSelection.has(recipe.id) ? styles.weekShopBtnActive : ''}`}
-                      onClick={() => toggleShopRecipe(recipe.id)}
-                      title={shopSelection.has(recipe.id) ? 'Remove from shopping list' : 'Add to shopping list'}
-                    >
-                      +
-                    </button>
-                    <button
-                      className={styles.weekRemoveBtn}
-                      onClick={() => onRemoveFromWeek(recipe.id)}
-                      title="Remove from this week"
-                    >
-                      &times;
-                    </button>
-                  </div>
+                  <button
+                    className={styles.weekRemoveBtn}
+                    onClick={() => onRemoveFromWeek(recipe.id)}
+                    title="Remove from this week"
+                  >
+                    &times;
+                  </button>
                 </div>
               ))}
             </div>
@@ -506,6 +497,7 @@ export function RecipeList({
                       recipe={recipe}
                       onClick={onSelect}
                       draggable
+                      onAdd={onAddToWeek}
                     />
                   ))}
                 </div>
@@ -534,6 +526,7 @@ export function RecipeList({
                         recipe={recipe}
                         onClick={onSelect}
                         draggable
+                        onAdd={onAddToWeek}
                       />
                     ))}
                   </div>
