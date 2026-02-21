@@ -34,11 +34,6 @@ function App() {
     { label: 'Ingredients', action: 'ingredients' },
     { label: 'Shopping List', action: 'shopping' },
     { label: "This Week's Menu", id: 'weekly-menu' },
-    { label: 'Breakfast', id: 'cat-breakfast' },
-    { label: 'Lunch & Dinner', id: 'cat-lunch-dinner' },
-    { label: 'Snacks', id: 'cat-snacks' },
-    { label: 'Desserts', id: 'cat-desserts' },
-    { label: 'Drinks', id: 'cat-drinks' },
   ];
 
   function handleNavClick(item) {
