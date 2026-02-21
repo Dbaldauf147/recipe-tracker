@@ -184,13 +184,9 @@ export function KeyIngredientsPage({ recipes, getRecipe, onClose }) {
                       <span className={styles.never}>&mdash;</span>
                     )}
                   </td>
-                  <td>
+                  <td className={styles.meals}>
                     {meals.length > 0 ? (
-                      <ul className={styles.mealsList}>
-                        {meals.map(title => (
-                          <li key={title}>{title}</li>
-                        ))}
-                      </ul>
+                      meals.join(', ')
                     ) : (
                       <span className={styles.never}>None</span>
                     )}
