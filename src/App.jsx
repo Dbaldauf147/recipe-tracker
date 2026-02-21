@@ -157,6 +157,7 @@ function App() {
         ) : view === 'history' ? (
           <HistoryPage
             getRecipe={getRecipe}
+            recipes={recipes}
             onClose={() => setView('list')}
           />
         ) : view === 'ingredients' ? (
