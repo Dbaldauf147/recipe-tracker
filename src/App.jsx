@@ -157,6 +157,8 @@ function App() {
             weeklyRecipes={weeklyPlan.map(id => getRecipe(id)).filter(Boolean)}
             onClose={() => setView('list')}
           />
+        ) : view === 'ingredients' ? (
+          <IngredientsPage onClose={() => setView('list')} />
         ) : (
           <div className={styles.homeLayout}>
             <RecipeList
@@ -207,13 +209,6 @@ function App() {
           </div>
         )}
 
-        {view === 'ingredients' && (
-          <div className={styles.overlay} onClick={() => setView('list')}>
-            <div className={styles.modalWide} onClick={e => e.stopPropagation()}>
-              <IngredientsPage onClose={() => setView('list')} />
-            </div>
-          </div>
-        )}
 
       </main>
     </div>
