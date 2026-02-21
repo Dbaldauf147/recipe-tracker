@@ -13,11 +13,19 @@ export function ShoppingListPage({ weeklyRecipes, onClose }) {
         <h2 className={styles.title}>Shopping List</h2>
       </div>
 
-      <div className={styles.sections}>
-        <ShoppingList weeklyRecipes={weeklyRecipes} />
-        <GroceryStaples />
-        <PantryList title="Spices" storageKey="sunday-pantry-spices" />
-        <PantryList title="Sauces" storageKey="sunday-pantry-sauces" />
+      <div className={styles.grid}>
+        <div className={styles.cell}>
+          <ShoppingList weeklyRecipes={weeklyRecipes} />
+        </div>
+        <div className={styles.cell}>
+          <GroceryStaples />
+        </div>
+        <div className={styles.cell}>
+          <PantryList title="Spices" storageKey="sunday-pantry-spices" />
+        </div>
+        <div className={styles.cell}>
+          <PantryList title="Sauces" storageKey="sunday-pantry-sauces" />
+        </div>
       </div>
     </div>
   );
