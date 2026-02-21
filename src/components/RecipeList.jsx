@@ -5,6 +5,7 @@ import { KEY_INGREDIENTS, normalize, recipeHasIngredient } from '../utils/keyIng
 import styles from './RecipeList.module.css';
 
 const HISTORY_KEY = 'sunday-plan-history';
+const SHOP_KEY = 'sunday-shopping-selection';
 
 const CATEGORIES = [
   { key: 'breakfast', label: 'Breakfast' },
@@ -36,6 +37,21 @@ export function RecipeList({
   const [freqFilter, setFreqFilter] = useState('common');
   const [checkedTypes, setCheckedTypes] = useState(new Set());
   const [showSaved, setShowSaved] = useState(false);
+  const [shopSelection, setShopSelection] = useState(() => {
+    try {
+      const data = localStorage.getItem(SHOP_KEY);
+      return data ? new Set(JSON.parse(data)) : new Set();
+    } catch { return new Set(); }
+  });
+
+  function toggleShopRecipe(id) {
+    setShopSelection(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      try { localStorage.setItem(SHOP_KEY, JSON.stringify([...next])); } catch {}
+      return next;
+    });
+  }
 
   function handleSaveClick() {
     onSaveToHistory();
@@ -92,6 +108,32 @@ export function RecipeList({
   const weeklyRecipes = weeklyPlan
     .map(id => getRecipe(id))
     .filter(Boolean);
+
+  // Aggregated shopping list from selected recipes
+  const shopItems = useMemo(() => {
+    const selected = weeklyRecipes.filter(r => shopSelection.has(r.id));
+    if (selected.length === 0) return [];
+    const map = new Map();
+    for (const recipe of selected) {
+      for (const ing of (recipe.ingredients || [])) {
+        const name = (ing.ingredient || '').toLowerCase().trim();
+        if (!name) continue;
+        const meas = (ing.measurement || '').toLowerCase().trim();
+        const key = `${name}|||${meas}`;
+        const qty = parseFloat(ing.quantity) || 0;
+        if (map.has(key)) {
+          map.get(key).quantity += qty;
+        } else {
+          map.set(key, {
+            ingredient: ing.ingredient.trim(),
+            measurement: ing.measurement || '',
+            quantity: qty,
+          });
+        }
+      }
+    }
+    return Array.from(map.values()).sort((a, b) => a.ingredient.localeCompare(b.ingredient));
+  }, [weeklyRecipes, shopSelection]);
 
   // Drag handlers for category columns
   function handleColumnDragOver(e) {
@@ -337,13 +379,22 @@ export function RecipeList({
                   >
                     {recipe.title}
                   </button>
-                  <button
-                    className={styles.weekRemoveBtn}
-                    onClick={() => onRemoveFromWeek(recipe.id)}
-                    title="Remove from this week"
-                  >
-                    &times;
-                  </button>
+                  <div className={styles.weekItemActions}>
+                    <button
+                      className={`${styles.weekShopBtn} ${shopSelection.has(recipe.id) ? styles.weekShopBtnActive : ''}`}
+                      onClick={() => toggleShopRecipe(recipe.id)}
+                      title={shopSelection.has(recipe.id) ? 'Remove from shopping list' : 'Add to shopping list'}
+                    >
+                      +
+                    </button>
+                    <button
+                      className={styles.weekRemoveBtn}
+                      onClick={() => onRemoveFromWeek(recipe.id)}
+                      title="Remove from this week"
+                    >
+                      &times;
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>
@@ -379,6 +430,42 @@ export function RecipeList({
           </div>
         )}
       </div>
+
+      {/* Shopping List (from + selections) */}
+      {shopItems.length > 0 && (
+        <div className={styles.shopBox}>
+          <div className={styles.shopHeader}>
+            <h3 className={styles.shopHeading}>Shopping List</h3>
+            <button
+              className={styles.clearBtn}
+              onClick={() => {
+                setShopSelection(new Set());
+                try { localStorage.removeItem(SHOP_KEY); } catch {}
+              }}
+            >
+              Clear
+            </button>
+          </div>
+          <table className={styles.shopTable}>
+            <thead>
+              <tr>
+                <th>Qty</th>
+                <th>Measure</th>
+                <th>Ingredient</th>
+              </tr>
+            </thead>
+            <tbody>
+              {shopItems.map((item, i) => (
+                <tr key={i}>
+                  <td>{item.quantity || ''}</td>
+                  <td>{item.measurement}</td>
+                  <td>{item.ingredient}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
 
       {recipes.length === 0 ? (
         <p className={styles.empty}>
