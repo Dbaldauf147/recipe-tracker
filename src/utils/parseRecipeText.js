@@ -36,7 +36,11 @@ const URL_LINE = /^\s*https?:\/\//i;
 const DECORATIVE_LINE = /^[-=_*~]{3,}\s*$/;
 
 function normalizeFractions(text) {
-  return text.replace(/[¼½¾⅐⅑⅒⅓⅔⅕⅖⅗⅘⅙⅚⅛⅜⅝⅞]/g, ch => UNICODE_FRACTIONS[ch] || ch);
+  // Insert a space before the fraction if preceded by a digit (e.g. 1½ → 1 1/2)
+  return text.replace(/(\d)?([¼½¾⅐⅑⅒⅓⅔⅕⅖⅗⅘⅙⅚⅛⅜⅝⅞])/g, (_, leading, ch) => {
+    const frac = UNICODE_FRACTIONS[ch] || ch;
+    return leading ? leading + ' ' + frac : frac;
+  });
 }
 
 function isIngredientLine(line) {
