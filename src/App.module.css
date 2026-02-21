@@ -104,35 +104,3 @@
 .homeLayout {
   max-width: 100%;
 }
-
-.overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.4);
-  z-index: 100;
-  display: flex;
-  align-items: flex-start;
-  justify-content: center;
-  padding: 3rem 2rem;
-  overflow-y: auto;
-}
-
-.modal {
-  background: var(--color-bg);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-lg);
-  width: 100%;
-  max-width: 900px;
-  padding: 2rem;
-}
-
-.modalWide {
-  background: var(--color-bg);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-lg);
-  width: 100%;
-  max-width: 95vw;
-  max-height: 85vh;
-  padding: 2rem;
-  overflow-y: auto;
-}
