@@ -152,7 +152,13 @@ function App() {
       </header>
 
       <main className={styles.main}>
-        <div className={styles.homeLayout}>
+        {view === 'shopping' ? (
+          <ShoppingListPage
+            weeklyRecipes={weeklyPlan.map(id => getRecipe(id)).filter(Boolean)}
+            onClose={() => setView('list')}
+          />
+        ) : (
+          <div className={styles.homeLayout}>
             <RecipeList
               recipes={recipes}
               onSelect={handleSelect}
@@ -165,7 +171,8 @@ function App() {
               onCategoryChange={handleCategoryChange}
               getRecipe={getRecipe}
             />
-        </div>
+          </div>
+        )}
 
         {view === 'detail' && selectedId && (
           <div className={styles.overlay} onClick={() => setView('list')}>
@@ -208,16 +215,6 @@ function App() {
           </div>
         )}
 
-        {view === 'shopping' && (
-          <div className={styles.overlay} onClick={() => setView('list')}>
-            <div className={styles.modalWide} onClick={e => e.stopPropagation()}>
-              <ShoppingListPage
-                weeklyRecipes={weeklyPlan.map(id => getRecipe(id)).filter(Boolean)}
-                onClose={() => setView('list')}
-              />
-            </div>
-          </div>
-        )}
       </main>
     </div>
   );
