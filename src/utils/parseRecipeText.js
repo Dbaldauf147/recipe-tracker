@@ -35,7 +35,7 @@ const HASHTAG_LINE = /^\s*#\w/;
 const URL_LINE = /^\s*https?:\/\//i;
 const DECORATIVE_LINE = /^[-=_*~]{3,}\s*$/;
 
-function normalizeFractions(text) {
+export function normalizeFractions(text) {
   // Insert a space before the fraction if preceded by a digit (e.g. 1½ → 1 1/2)
   return text.replace(/(\d)?([¼½¾⅐⅑⅒⅓⅔⅕⅖⅗⅘⅙⅚⅛⅜⅝⅞])/g, (_, leading, ch) => {
     const frac = UNICODE_FRACTIONS[ch] || ch;
@@ -49,7 +49,7 @@ function isIngredientLine(line) {
   return QTY_PATTERN.test(trimmed);
 }
 
-function parseIngredientLine(line) {
+export function parseIngredientLine(line) {
   let text = line.trim();
 
   // Strip leading bullet/dash

@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { parseRecipeText } from '../utils/parseRecipeText';
+import { fetchRecipeFromUrl } from '../utils/fetchRecipeFromUrl';
 import { RecipeForm } from './RecipeForm';
 import styles from './ImportRecipePage.module.css';
 
@@ -8,6 +9,8 @@ export function ImportRecipePage({ onSave, onCancel }) {
   const [rawText, setRawText] = useState('');
   const [sourceUrl, setSourceUrl] = useState('');
   const [parsedRecipe, setParsedRecipe] = useState(null);
+  const [fetching, setFetching] = useState(false);
+  const [fetchError, setFetchError] = useState('');
 
   function handleParse() {
     const result = parseRecipeText(rawText);
@@ -25,6 +28,22 @@ export function ImportRecipePage({ onSave, onCancel }) {
       instructions: result.instructions,
     });
     setPhase('review');
+  }
+
+  async function handleFetchFromUrl() {
+    const url = sourceUrl.trim();
+    if (!url) return;
+    setFetching(true);
+    setFetchError('');
+    try {
+      const recipe = await fetchRecipeFromUrl(url);
+      setParsedRecipe(recipe);
+      setPhase('review');
+    } catch (err) {
+      setFetchError(err.message || 'Failed to fetch recipe from URL.');
+    } finally {
+      setFetching(false);
+    }
   }
 
   function handleSave(data) {
@@ -62,18 +81,34 @@ export function ImportRecipePage({ onSave, onCancel }) {
 
       <div className={styles.card}>
         <label className={styles.label}>
-          Source URL (optional)
+          Recipe URL
           <input
             className={styles.input}
             type="url"
             value={sourceUrl}
             onChange={e => setSourceUrl(e.target.value)}
-            placeholder="Instagram, TikTok, or recipe website link"
+            placeholder="https://www.allrecipes.com/recipe/..."
+            disabled={fetching}
           />
         </label>
-        <p className={styles.hint}>
-          Save the link for your reference — paste the recipe text below.
-        </p>
+
+        <div className={styles.urlActions}>
+          <button
+            className={styles.fetchBtn}
+            onClick={handleFetchFromUrl}
+            disabled={!sourceUrl.trim() || fetching}
+          >
+            {fetching ? 'Fetching...' : 'Fetch from URL'}
+          </button>
+        </div>
+
+        {fetchError && (
+          <div className={styles.fetchError}>{fetchError}</div>
+        )}
+
+        <div className={styles.divider}>
+          <span className={styles.dividerText}>or paste manually</span>
+        </div>
 
         <label className={styles.label}>
           Recipe Text
@@ -83,13 +118,14 @@ export function ImportRecipePage({ onSave, onCancel }) {
             value={rawText}
             onChange={e => setRawText(e.target.value)}
             placeholder="Paste recipe text from a website, Instagram caption, or TikTok description..."
+            disabled={fetching}
           />
         </label>
 
         <button
           className={styles.parseBtn}
           onClick={handleParse}
-          disabled={!rawText.trim()}
+          disabled={!rawText.trim() || fetching}
         >
           Parse Recipe
         </button>
