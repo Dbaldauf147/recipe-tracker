@@ -1,13 +1,17 @@
 import { useState, useEffect } from 'react';
 import styles from './GroceryStaples.module.css';
 
-export function PantryList({ title, storageKey }) {
+export function PantryList({ title, storageKey, initialItems }) {
   const [items, setItems] = useState([]);
 
   useEffect(() => {
     try {
       const data = localStorage.getItem(storageKey);
-      if (data) setItems(JSON.parse(data));
+      if (data) {
+        setItems(JSON.parse(data));
+      } else if (initialItems) {
+        setItems(initialItems);
+      }
     } catch {}
   }, [storageKey]);
 
