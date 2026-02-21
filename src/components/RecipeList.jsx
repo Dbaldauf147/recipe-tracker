@@ -533,9 +533,9 @@ export function RecipeList({
         </div>
 
         {/* Suggested Meals */}
-        <div className={styles.suggestBox}>
-          <h3 className={styles.suggestHeading}>Suggested Meals</h3>
-          {suggestions.length > 0 ? (
+        {suggestions.length > 0 && (
+          <div className={styles.suggestBox}>
+            <h3 className={styles.suggestHeading}>Suggested Meals</h3>
             <div className={styles.suggestList}>
               {suggestions.map(({ recipe, reason }) => (
                 <div key={recipe.id} className={styles.suggestItem}>
@@ -558,10 +558,8 @@ export function RecipeList({
                 </div>
               ))}
             </div>
-          ) : (
-            <p className={styles.weekEmpty}>No recommended recipes</p>
-          )}
-        </div>
+          </div>
+        )}
       </div>
 
       {/* Discover Recipes (fixed sidebar) */}
