@@ -76,7 +76,7 @@
   width: max-content;
   min-width: 100%;
   border-collapse: collapse;
-  font-size: 0.78rem;
+  font-size: 0.68rem;
   white-space: nowrap;
 }
 
@@ -84,9 +84,9 @@
   text-align: left;
   font-weight: 600;
   color: var(--color-text-muted);
-  padding: 0.3rem 0.25rem;
+  padding: 0.2rem 0.15rem;
   border-bottom: 2px solid var(--color-border);
-  font-size: 0.65rem;
+  font-size: 0.58rem;
   text-transform: uppercase;
   letter-spacing: 0.04em;
   position: sticky;
@@ -130,7 +130,7 @@
   left: 0;
   background: var(--color-surface);
   z-index: 1;
-  min-width: 120px;
+  min-width: 90px;
 }
 
 .table td:first-child .cellInput {
@@ -155,10 +155,11 @@
 /* Editable cell inputs */
 .cellInput {
   width: 100%;
-  padding: 0.15rem 0.2rem;
+  max-width: 70px;
+  padding: 0.1rem 0.15rem;
   border: 1px solid transparent;
-  border-radius: 4px;
-  font-size: 0.72rem;
+  border-radius: 3px;
+  font-size: 0.65rem;
   font-family: inherit;
   color: var(--color-text-secondary);
   background: transparent;
