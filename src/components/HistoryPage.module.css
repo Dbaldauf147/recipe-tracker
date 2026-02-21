@@ -1,0 +1,108 @@
+.container {
+  max-width: 100%;
+}
+
+.header {
+  display: flex;
+  align-items: baseline;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.backBtn {
+  background: none;
+  border: none;
+  color: var(--color-text-muted);
+  font-size: 0.9rem;
+  font-weight: 500;
+  cursor: pointer;
+  padding: 0;
+  transition: color 0.15s ease;
+}
+
+.backBtn:hover {
+  color: var(--color-accent);
+}
+
+.title {
+  margin: 0;
+  font-size: 1.4rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.empty {
+  color: var(--color-text-muted);
+  font-size: 0.95rem;
+  text-align: center;
+  margin-top: 2rem;
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.entry {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 1rem 1.25rem;
+}
+
+.entryHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.5rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid var(--color-border-light);
+}
+
+.entryDate {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--color-accent);
+}
+
+.deleteBtn {
+  background: none;
+  border: none;
+  color: var(--color-text-muted);
+  font-size: 1.2rem;
+  cursor: pointer;
+  padding: 0.1rem 0.35rem;
+  line-height: 1;
+  border-radius: var(--radius-sm);
+  transition: color 0.15s ease, background 0.15s ease;
+}
+
+.deleteBtn:hover {
+  color: var(--color-danger);
+  background: var(--color-danger-light);
+}
+
+.noRecipes {
+  color: var(--color-text-muted);
+  font-size: 0.88rem;
+  font-style: italic;
+  margin: 0;
+}
+
+.recipeList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.recipeName {
+  font-size: 0.92rem;
+  color: var(--color-text);
+  padding: 0.25rem 0;
+  border-bottom: 1px solid var(--color-border-light);
+}
+
+.recipeName:last-child {
+  border-bottom: none;
+}

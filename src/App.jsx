@@ -5,6 +5,7 @@ import { RecipeDetail } from './components/RecipeDetail';
 import { RecipeForm } from './components/RecipeForm';
 import { IngredientsPage } from './components/IngredientsPage';
 import { ShoppingListPage } from './components/ShoppingListPage';
+import { HistoryPage } from './components/HistoryPage';
 import styles from './App.module.css';
 
 const WEEKLY_KEY = 'sunday-weekly-plan';
@@ -34,6 +35,7 @@ function App() {
     { label: 'Ingredients', action: 'ingredients' },
     { label: 'Shopping List', action: 'shopping' },
     { label: "This Week's Menu", id: 'weekly-menu' },
+    { label: 'History', action: 'history' },
   ];
 
   function handleNavClick(item) {
@@ -41,6 +43,8 @@ function App() {
       setView('ingredients');
     } else if (item.action === 'shopping') {
       setView('shopping');
+    } else if (item.action === 'history') {
+      setView('history');
     } else if (item.id) {
       if (view !== 'list') setView('list');
       setTimeout(() => {
@@ -101,6 +105,19 @@ function App() {
     updateRecipe(id, { category: newCategory });
   }
 
+  function handleSaveToHistory() {
+    if (weeklyPlan.length === 0) return;
+    const entry = {
+      date: new Date().toISOString().slice(0, 10),
+      recipeIds: [...weeklyPlan],
+      timestamp: new Date().toISOString(),
+    };
+    try {
+      const existing = JSON.parse(localStorage.getItem('sunday-plan-history') || '[]');
+      localStorage.setItem('sunday-plan-history', JSON.stringify([...existing, entry]));
+    } catch {}
+  }
+
   return (
     <div className={styles.app}>
       <header className={styles.header}>
@@ -125,6 +142,11 @@ function App() {
         {view === 'shopping' ? (
           <ShoppingListPage
             weeklyRecipes={weeklyPlan.map(id => getRecipe(id)).filter(Boolean)}
+            onClose={() => setView('list')}
+          />
+        ) : view === 'history' ? (
+          <HistoryPage
+            getRecipe={getRecipe}
             onClose={() => setView('list')}
           />
         ) : view === 'ingredients' ? (
@@ -157,6 +179,7 @@ function App() {
               onClearWeek={handleClearWeek}
               onCategoryChange={handleCategoryChange}
               getRecipe={getRecipe}
+              onSaveToHistory={handleSaveToHistory}
             />
           </div>
         )}

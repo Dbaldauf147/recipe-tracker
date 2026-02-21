@@ -25,6 +25,7 @@ export function RecipeList({
   onClearWeek,
   onCategoryChange,
   getRecipe,
+  onSaveToHistory,
 }) {
   const [importing, setImporting] = useState(false);
   const [importResult, setImportResult] = useState(null);
@@ -198,9 +199,14 @@ export function RecipeList({
         <div className={styles.weekHeader}>
           <h3 className={styles.weekHeading}>This Week's Menu</h3>
           {weeklyRecipes.length > 0 && (
-            <button className={styles.clearBtn} onClick={onClearWeek}>
-              Clear all
-            </button>
+            <div className={styles.weekActions}>
+              <button className={styles.saveHistoryBtn} onClick={onSaveToHistory}>
+                Save to History
+              </button>
+              <button className={styles.clearBtn} onClick={onClearWeek}>
+                Clear all
+              </button>
+            </div>
           )}
         </div>
         {weeklyRecipes.length === 0 ? (
