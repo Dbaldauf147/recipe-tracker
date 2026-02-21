@@ -1,7 +1,24 @@
+import { useState } from 'react';
 import { NutritionPanel } from './NutritionPanel';
 import styles from './RecipeDetail.module.css';
 
+const STOP_WORDS = new Set([
+  'the','a','an','and','or','with','in','on','of','for','my','our','easy',
+  'best','quick','simple','classic','homemade','style','recipe',
+]);
+
+function buildImageUrl(recipe) {
+  const words = recipe.title.toLowerCase().replace(/[^a-z\s]/g, '').split(/\s+/)
+    .filter(w => w.length > 2 && !STOP_WORDS.has(w));
+  const keywords = words.slice(0, 2).join(',');
+  let hash = 0;
+  for (const ch of recipe.id) hash = ((hash << 5) - hash + ch.charCodeAt(0)) | 0;
+  return `https://loremflickr.com/800/400/food,${keywords}?lock=${Math.abs(hash)}`;
+}
+
 export function RecipeDetail({ recipe, onEdit, onDelete, onBack }) {
+  const [imgError, setImgError] = useState(false);
+
   if (!recipe) {
     return (
       <div className={styles.container}>
@@ -18,6 +35,17 @@ export function RecipeDetail({ recipe, onEdit, onDelete, onBack }) {
       <button className={styles.backBtn} onClick={onBack}>
         &larr; Back to recipes
       </button>
+
+      {!imgError && (
+        <div className={styles.heroWrap}>
+          <img
+            className={styles.heroImg}
+            src={buildImageUrl(recipe)}
+            alt={recipe.title}
+            onError={() => setImgError(true)}
+          />
+        </div>
+      )}
 
       <h2 className={styles.title}>{recipe.title}</h2>
 

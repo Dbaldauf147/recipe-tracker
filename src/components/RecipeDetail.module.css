@@ -19,6 +19,28 @@
   color: var(--color-accent);
 }
 
+.heroWrap {
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  margin-bottom: 1.25rem;
+  box-shadow: var(--shadow-md);
+  line-height: 0;
+}
+
+.heroImg {
+  width: 100%;
+  height: 280px;
+  object-fit: cover;
+  display: block;
+  filter: saturate(1.8) contrast(1.15) brightness(1.05);
+}
+
+@media (max-width: 600px) {
+  .heroImg {
+    height: 180px;
+  }
+}
+
 .title {
   margin: 0 0 0.5rem;
   font-size: 1.75rem;

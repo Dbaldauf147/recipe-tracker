@@ -87,8 +87,10 @@ export function RecipeList({
     }
   }
 
-  // Collect unique meal types for filter buttons
-  const mealTypes = [...new Set(recipes.map(r => r.mealType).filter(Boolean))].sort();
+  // Collect all preset meal types + any custom ones from recipes
+  const PRESET_TYPES = ['Meat', 'Pescatarian', 'Vegan', 'Vegetarian'];
+  const customTypes = recipes.map(r => r.mealType).filter(Boolean).filter(t => !PRESET_TYPES.includes(t));
+  const mealTypes = [...new Set([...PRESET_TYPES, ...customTypes])].sort();
 
   // Filter by frequency and meal type, then group by category
   let visible = freqFilter === 'all'
