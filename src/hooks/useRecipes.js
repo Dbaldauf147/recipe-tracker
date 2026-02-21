@@ -1,4 +1,6 @@
 import { useState } from 'react';
+import { auth } from '../firebase';
+import { saveField } from '../utils/firestoreSync';
 
 const STORAGE_KEY = 'recipe-tracker-recipes';
 
@@ -81,6 +83,8 @@ function save(recipes) {
   } catch {
     // storage full or unavailable
   }
+  const user = auth.currentUser;
+  if (user) saveField(user.uid, 'recipes', recipes);
 }
 
 export function useRecipes() {

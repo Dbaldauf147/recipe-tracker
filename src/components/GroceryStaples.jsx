@@ -1,5 +1,7 @@
 import { useState, useEffect } from 'react';
 import { fetchStaplesFromSheet } from '../utils/sheetRecipes';
+import { auth } from '../firebase';
+import { saveField } from '../utils/firestoreSync';
 import styles from './GroceryStaples.module.css';
 
 const STORAGE_KEY = 'sunday-grocery-staples';
@@ -15,6 +17,8 @@ function loadStaples() {
 
 function saveStaples(staples) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(staples));
+  const user = auth.currentUser;
+  if (user) saveField(user.uid, 'groceryStaples', staples);
 }
 
 export function GroceryStaples({ onMoveToShop }) {

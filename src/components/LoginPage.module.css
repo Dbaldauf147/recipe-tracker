@@ -1,0 +1,56 @@
+.page {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--color-bg);
+}
+
+.card {
+  text-align: center;
+  background: var(--color-surface);
+  padding: 3rem 2.5rem;
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-lg);
+  max-width: 360px;
+  width: 100%;
+}
+
+.logo {
+  margin: 0 0 0.25rem;
+  font-size: 2rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--color-accent);
+}
+
+.tagline {
+  margin: 0 0 2rem;
+  font-size: 0.95rem;
+  color: var(--color-text-muted);
+}
+
+.googleBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.65rem 1.5rem;
+  font-size: 0.95rem;
+  font-family: inherit;
+  font-weight: 500;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-text);
+  cursor: pointer;
+  transition: box-shadow 0.15s ease, background 0.15s ease;
+}
+
+.googleBtn:hover {
+  background: var(--color-surface-alt);
+  box-shadow: var(--shadow-md);
+}
+
+.googleIcon {
+  flex-shrink: 0;
+}

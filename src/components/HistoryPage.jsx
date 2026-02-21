@@ -1,4 +1,6 @@
 import { useState } from 'react';
+import { auth } from '../firebase';
+import { saveField } from '../utils/firestoreSync';
 import styles from './HistoryPage.module.css';
 
 const HISTORY_KEY = 'sunday-plan-history';
@@ -16,6 +18,8 @@ function saveHistory(entries) {
   try {
     localStorage.setItem(HISTORY_KEY, JSON.stringify(entries));
   } catch {}
+  const user = auth.currentUser;
+  if (user) saveField(user.uid, 'planHistory', entries);
 }
 
 export function HistoryPage({ getRecipe, recipes, onClose }) {

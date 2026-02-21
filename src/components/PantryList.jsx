@@ -1,5 +1,12 @@
 import { useState, useEffect } from 'react';
+import { auth } from '../firebase';
+import { saveField } from '../utils/firestoreSync';
 import styles from './GroceryStaples.module.css';
+
+const STORAGE_TO_FIELD = {
+  'sunday-pantry-spices': 'pantrySpices',
+  'sunday-pantry-sauces': 'pantrySauces',
+};
 
 export function PantryList({ title, subtitle, storageKey, initialItems, onMoveToShop, source }) {
   const [items, setItems] = useState([]);
@@ -18,6 +25,9 @@ export function PantryList({ title, subtitle, storageKey, initialItems, onMoveTo
 
   useEffect(() => {
     localStorage.setItem(storageKey, JSON.stringify(items));
+    const user = auth.currentUser;
+    const field = STORAGE_TO_FIELD[storageKey];
+    if (user && field) saveField(user.uid, field, items);
   }, [items, storageKey]);
 
   function updateItem(index, field, value) {

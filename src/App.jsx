@@ -1,5 +1,7 @@
 import { useState } from 'react';
 import { useRecipes } from './hooks/useRecipes';
+import { useAuth } from './contexts/AuthContext';
+import { saveField } from './utils/firestoreSync';
 import { RecipeList } from './components/RecipeList';
 import { RecipeDetail } from './components/RecipeDetail';
 import { RecipeForm } from './components/RecipeForm';
@@ -8,6 +10,7 @@ import { ShoppingListPage } from './components/ShoppingListPage';
 import { HistoryPage } from './components/HistoryPage';
 import { KeyIngredientsPage } from './components/KeyIngredientsPage';
 import { ImportRecipePage } from './components/ImportRecipePage';
+import { LoginPage } from './components/LoginPage';
 import styles from './App.module.css';
 
 const WEEKLY_KEY = 'sunday-weekly-plan';
@@ -23,6 +26,7 @@ function loadWeeklyPlan() {
 
 // Views: "list" | "detail" | "add"
 function App() {
+  const { user, loading, logOut } = useAuth();
   const { recipes, addRecipe, updateRecipe, deleteRecipe, getRecipe, importRecipes } =
     useRecipes();
 
@@ -31,6 +35,7 @@ function App() {
   const [weeklyPlan, setWeeklyPlan] = useState(loadWeeklyPlan);
   function saveWeek(plan) {
     try { localStorage.setItem(WEEKLY_KEY, JSON.stringify(plan)); } catch {}
+    if (user) saveField(user.uid, 'weeklyPlan', plan);
   }
 
   const NAV_ITEMS = [
@@ -122,8 +127,22 @@ function App() {
     };
     try {
       const existing = JSON.parse(localStorage.getItem('sunday-plan-history') || '[]');
-      localStorage.setItem('sunday-plan-history', JSON.stringify([...existing, entry]));
+      const next = [...existing, entry];
+      localStorage.setItem('sunday-plan-history', JSON.stringify(next));
+      if (user) saveField(user.uid, 'planHistory', next);
     } catch {}
+  }
+
+  if (loading) {
+    return (
+      <div className={styles.app}>
+        <div className={styles.loadingScreen}>Loading...</div>
+      </div>
+    );
+  }
+
+  if (!user) {
+    return <LoginPage />;
   }
 
   return (
@@ -149,6 +168,20 @@ function App() {
             );
           })}
         </nav>
+        <div className={styles.userInfo}>
+          {user.photoURL && (
+            <img
+              className={styles.avatar}
+              src={user.photoURL}
+              alt=""
+              referrerPolicy="no-referrer"
+            />
+          )}
+          <span className={styles.userName}>{user.displayName}</span>
+          <button className={styles.signOutBtn} onClick={logOut}>
+            Sign out
+          </button>
+        </div>
       </header>
 
       <main className={styles.main}>
