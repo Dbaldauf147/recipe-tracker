@@ -7,6 +7,7 @@ import { IngredientsPage } from './components/IngredientsPage';
 import { ShoppingListPage } from './components/ShoppingListPage';
 import { HistoryPage } from './components/HistoryPage';
 import { KeyIngredientsPage } from './components/KeyIngredientsPage';
+import { ImportRecipePage } from './components/ImportRecipePage';
 import styles from './App.module.css';
 
 const WEEKLY_KEY = 'sunday-weekly-plan';
@@ -38,6 +39,7 @@ function App() {
     { label: "This Week's Menu", id: 'weekly-menu' },
     { label: 'History', action: 'history' },
     { label: 'Key Ingredients', action: 'key-ingredients' },
+    { label: 'Import Recipe', action: 'import' },
   ];
 
   function handleNavClick(item) {
@@ -49,6 +51,8 @@ function App() {
       setView('history');
     } else if (item.action === 'key-ingredients') {
       setView('key-ingredients');
+    } else if (item.action === 'import') {
+      setView('import');
     } else if (item.id) {
       if (view !== 'list') setView('list');
       setTimeout(() => {
@@ -143,7 +147,12 @@ function App() {
       </header>
 
       <main className={styles.main}>
-        {view === 'shopping' ? (
+        {view === 'import' ? (
+          <ImportRecipePage
+            onSave={handleAdd}
+            onCancel={() => setView('list')}
+          />
+        ) : view === 'shopping' ? (
           <ShoppingListPage
             weeklyRecipes={weeklyPlan.map(id => getRecipe(id)).filter(Boolean)}
             onClose={() => setView('list')}
