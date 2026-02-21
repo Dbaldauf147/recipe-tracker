@@ -144,7 +144,14 @@ export function RecipeList({
     }
 
     const weekSet = new Set(weeklyPlan);
-    const candidates = recipes.filter(r => !weekSet.has(r.id));
+    // Apply same filters as the recipe list
+    let filtered = freqFilter === 'all'
+      ? recipes
+      : recipes.filter(r => (r.frequency || 'common') === freqFilter);
+    if (checkedTypes.size > 0) {
+      filtered = filtered.filter(r => checkedTypes.has(r.mealType || ''));
+    }
+    const candidates = filtered.filter(r => !weekSet.has(r.id));
     if (candidates.length === 0) return [];
 
     // Sort history newest-first
@@ -224,7 +231,7 @@ export function RecipeList({
     const lunchDinner = scored.filter(s => s.recipe.category === 'lunch-dinner').slice(0, 2);
     return [...breakfast, ...lunchDinner];
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [recipes, weeklyPlan]);
+  }, [recipes, weeklyPlan, freqFilter, checkedTypes]);
 
   return (
     <div className={styles.container}>
