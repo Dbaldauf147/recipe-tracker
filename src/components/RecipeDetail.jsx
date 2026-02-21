@@ -2,6 +2,17 @@ import { NutritionPanel } from './NutritionPanel';
 import styles from './RecipeDetail.module.css';
 
 export function RecipeDetail({ recipe, onEdit, onDelete, onBack }) {
+  if (!recipe) {
+    return (
+      <div className={styles.container}>
+        <button className={styles.backBtn} onClick={onBack}>
+          &larr; Back to recipes
+        </button>
+        <p>Recipe not found.</p>
+      </div>
+    );
+  }
+
   return (
     <div className={styles.container}>
       <button className={styles.backBtn} onClick={onBack}>
@@ -67,7 +78,7 @@ export function RecipeDetail({ recipe, onEdit, onDelete, onBack }) {
       <div className={styles.section}>
         <h3>Instructions</h3>
         <ol className={styles.steps}>
-          {recipe.instructions
+          {(recipe.instructions || '')
             .split('\n')
             .map(s => s.replace(/^\d+[\.\)]\s*/, '').trim())
             .filter(Boolean)
