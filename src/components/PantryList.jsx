@@ -7,8 +7,9 @@ export function PantryList({ title, storageKey, initialItems }) {
   useEffect(() => {
     try {
       const data = localStorage.getItem(storageKey);
-      if (data) {
-        setItems(JSON.parse(data));
+      const parsed = data ? JSON.parse(data) : [];
+      if (parsed.length > 0) {
+        setItems(parsed);
       } else if (initialItems) {
         setItems(initialItems);
       }
