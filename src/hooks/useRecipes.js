@@ -40,7 +40,7 @@ function loadRecipes() {
     }
 
     // One-time migration: tag recipes containing meat as mealType "meat"
-    const MIGRATION_KEY_3 = 'recipe-tracker-migrated-meat-type';
+    const MIGRATION_KEY_3 = 'recipe-tracker-migrated-meat-type-v2';
     if (recipes.length > 0 && !localStorage.getItem(MIGRATION_KEY_3)) {
       const MEAT_WORDS = [
         'chicken', 'beef', 'pork', 'lamb', 'turkey', 'steak', 'bacon',
@@ -53,11 +53,12 @@ function loadRecipes() {
       let changed = false;
       for (const r of recipes) {
         if (r.mealType) continue; // don't overwrite existing
-        const hasMatch = (r.ingredients || []).some(ing => {
-          const text = [ing.ingredient, ing.quantity, ing.measurement].join(' ');
-          return meatPattern.test(text);
-        }) || meatPattern.test(r.title || '');
-        if (hasMatch) {
+        const ingredientText = (r.ingredients || []).map(ing => {
+          if (typeof ing === 'string') return ing;
+          return [ing.ingredient, ing.quantity, ing.measurement].filter(Boolean).join(' ');
+        }).join(' ');
+        const allText = [r.title || '', ingredientText].join(' ');
+        if (meatPattern.test(allText)) {
           r.mealType = 'meat';
           changed = true;
         }
