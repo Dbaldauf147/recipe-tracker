@@ -369,35 +369,6 @@ export function RecipeList({
         )}
       </div>
 
-      {/* Suggested Meals */}
-      {suggestions.length > 0 && (
-        <div className={styles.suggestBox}>
-          <h3 className={styles.suggestHeading}>Suggested Meals</h3>
-          <div className={styles.suggestList}>
-            {suggestions.map(({ recipe, reason }) => (
-              <div key={recipe.id} className={styles.suggestItem}>
-                <div className={styles.suggestInfo}>
-                  <button
-                    className={styles.suggestName}
-                    onClick={() => onSelect(recipe.id)}
-                  >
-                    {recipe.title}
-                  </button>
-                  <span className={styles.suggestReason}>{reason}</span>
-                </div>
-                <button
-                  className={styles.suggestAddBtn}
-                  onClick={() => onAddToWeek(recipe.id)}
-                  title="Add to this week"
-                >
-                  +
-                </button>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
       {recipes.length === 0 ? (
         <p className={styles.empty}>
           No recipes yet. Add your first one!
