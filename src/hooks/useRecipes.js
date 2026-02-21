@@ -39,6 +39,35 @@ function loadRecipes() {
       localStorage.setItem(MIGRATION_KEY_2, '1');
     }
 
+    // One-time migration: tag recipes containing meat as mealType "meat"
+    const MIGRATION_KEY_3 = 'recipe-tracker-migrated-meat-type';
+    if (recipes.length > 0 && !localStorage.getItem(MIGRATION_KEY_3)) {
+      const MEAT_WORDS = [
+        'chicken', 'beef', 'pork', 'lamb', 'turkey', 'steak', 'bacon',
+        'sausage', 'ham', 'salami', 'pepperoni', 'prosciutto', 'pancetta',
+        'ground beef', 'ground turkey', 'ground pork', 'ground chicken',
+        'meatball', 'brisket', 'ribs', 'roast', 'veal', 'duck',
+        'chorizo', 'hot dog', 'bratwurst', 'kielbasa',
+      ];
+      const meatPattern = new RegExp('\\b(' + MEAT_WORDS.join('|') + ')\\b', 'i');
+      let changed = false;
+      for (const r of recipes) {
+        if (r.mealType) continue; // don't overwrite existing
+        const hasMatch = (r.ingredients || []).some(ing => {
+          const text = [ing.ingredient, ing.quantity, ing.measurement].join(' ');
+          return meatPattern.test(text);
+        }) || meatPattern.test(r.title || '');
+        if (hasMatch) {
+          r.mealType = 'meat';
+          changed = true;
+        }
+      }
+      if (changed) {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(recipes));
+      }
+      localStorage.setItem(MIGRATION_KEY_3, '1');
+    }
+
     return recipes;
   } catch {
     return [];
