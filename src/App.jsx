@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState } from 'react';
 import { useRecipes } from './hooks/useRecipes';
 import { RecipeList } from './components/RecipeList';
 import { RecipeDetail } from './components/RecipeDetail';
@@ -26,22 +26,9 @@ function App() {
   const [view, setView] = useState('list');
   const [selectedId, setSelectedId] = useState(null);
   const [weeklyPlan, setWeeklyPlan] = useState(loadWeeklyPlan);
-  const [menuOpen, setMenuOpen] = useState(false);
-  const menuRef = useRef(null);
-
   function saveWeek(plan) {
     try { localStorage.setItem(WEEKLY_KEY, JSON.stringify(plan)); } catch {}
   }
-
-  useEffect(() => {
-    function handleClickOutside(e) {
-      if (menuRef.current && !menuRef.current.contains(e.target)) {
-        setMenuOpen(false);
-      }
-    }
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
 
   const NAV_ITEMS = [
     { label: 'Ingredients', action: 'ingredients' },
@@ -55,14 +42,16 @@ function App() {
   ];
 
   function handleNavClick(item) {
-    setMenuOpen(false);
     if (item.action === 'ingredients') {
       setView('ingredients');
     } else if (item.action === 'shopping') {
       setView('shopping');
     } else if (item.id) {
-      const el = document.getElementById(item.id);
-      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      if (view !== 'list') setView('list');
+      setTimeout(() => {
+        const el = document.getElementById(item.id);
+        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }, 0);
     }
   }
 
@@ -124,31 +113,17 @@ function App() {
           Sunday
         </h1>
         <span className={styles.tagline}>meal planning, simplified</span>
-        <div className={styles.navMenu} ref={menuRef}>
-          <button
-            className={styles.menuBtn}
-            onClick={() => setMenuOpen(prev => !prev)}
-            aria-expanded={menuOpen}
-          >
-            <span className={styles.hamburger}>
-              <span /><span /><span />
-            </span>
-          </button>
-          {menuOpen && (
-            <ul className={styles.dropdown}>
-              {NAV_ITEMS.map(item => (
-                <li key={item.action || item.id}>
-                  <button
-                    className={styles.dropdownItem}
-                    onClick={() => handleNavClick(item)}
-                  >
-                    {item.label}
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
+        <nav className={styles.nav}>
+          {NAV_ITEMS.map(item => (
+            <button
+              key={item.action || item.id}
+              className={styles.navItem}
+              onClick={() => handleNavClick(item)}
+            >
+              {item.label}
+            </button>
+          ))}
+        </nav>
       </header>
 
       <main className={styles.main}>
