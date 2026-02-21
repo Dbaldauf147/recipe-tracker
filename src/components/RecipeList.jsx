@@ -218,7 +218,11 @@ export function RecipeList({
     });
 
     scored.sort((a, b) => b.totalScore - a.totalScore);
-    return scored.slice(0, 5);
+
+    // Pick top 2 breakfast + top 2 lunch-dinner
+    const breakfast = scored.filter(s => s.recipe.category === 'breakfast').slice(0, 2);
+    const lunchDinner = scored.filter(s => s.recipe.category === 'lunch-dinner').slice(0, 2);
+    return [...breakfast, ...lunchDinner];
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [recipes, weeklyPlan]);
 
