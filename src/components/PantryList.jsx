@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import styles from './GroceryStaples.module.css';
 
-export function PantryList({ title, storageKey, initialItems }) {
+export function PantryList({ title, subtitle, storageKey, initialItems, onMoveToShop, source }) {
   const [items, setItems] = useState([]);
 
   useEffect(() => {
@@ -27,7 +27,9 @@ export function PantryList({ title, storageKey, initialItems }) {
   }
 
   function removeItem(index) {
+    const item = items[index];
     setItems(prev => prev.filter((_, i) => i !== index));
+    if (onMoveToShop) onMoveToShop(item, source);
   }
 
   function addItem() {
@@ -36,7 +38,7 @@ export function PantryList({ title, storageKey, initialItems }) {
 
   return (
     <div className={styles.panel}>
-      <h2 className={styles.heading}>{title}</h2>
+      <h2 className={styles.heading}>{title} {subtitle && <span className={styles.subtitle}>{subtitle}</span>}</h2>
       <table className={styles.table}>
         <thead>
           <tr>
@@ -45,7 +47,10 @@ export function PantryList({ title, storageKey, initialItems }) {
           </tr>
         </thead>
         <tbody>
-          {items.map((item, i) => (
+          {[...items]
+            .map((item, i) => ({ ...item, _i: i }))
+            .sort((a, b) => (a.ingredient || '').localeCompare(b.ingredient || ''))
+            .map(({ _i: i, ...item }) => (
             <tr key={i}>
               <td>
                 <input

@@ -13,6 +13,12 @@
   letter-spacing: -0.01em;
 }
 
+.subtitle {
+  font-weight: 400;
+  font-size: 0.82rem;
+  color: var(--color-text-muted);
+}
+
 .table {
   width: 100%;
   border-collapse: collapse;

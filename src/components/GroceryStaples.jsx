@@ -17,7 +17,7 @@ function saveStaples(staples) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(staples));
 }
 
-export function GroceryStaples() {
+export function GroceryStaples({ onMoveToShop }) {
   const [staples, setStaples] = useState([]);
   const [loading, setLoading] = useState(true);
 
@@ -50,7 +50,9 @@ export function GroceryStaples() {
   }
 
   function removeItem(index) {
+    const item = staples[index];
     setStaples(prev => prev.filter((_, i) => i !== index));
+    if (onMoveToShop) onMoveToShop(item, 'staples');
   }
 
   function addItem() {
@@ -59,7 +61,7 @@ export function GroceryStaples() {
 
   return (
     <div className={styles.panel}>
-      <h2 className={styles.heading}>Grocery Staples</h2>
+      <h2 className={styles.heading}>Grocery Staples <span className={styles.subtitle}>(Things you want everytime)</span></h2>
       {loading ? (
         <p className={styles.loading}>Loading...</p>
       ) : (
@@ -74,7 +76,10 @@ export function GroceryStaples() {
               </tr>
             </thead>
             <tbody>
-              {staples.map((item, i) => (
+              {[...staples]
+                .map((item, i) => ({ ...item, _i: i }))
+                .sort((a, b) => (a.ingredient || '').localeCompare(b.ingredient || ''))
+                .map(({ _i: i, ...item }) => (
                 <tr key={i}>
                   <td>
                     <input
