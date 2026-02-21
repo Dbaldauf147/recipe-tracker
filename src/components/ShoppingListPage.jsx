@@ -1,5 +1,6 @@
 import { ShoppingList } from './ShoppingList';
 import { GroceryStaples } from './GroceryStaples';
+import { PantryList } from './PantryList';
 import styles from './ShoppingListPage.module.css';
 
 export function ShoppingListPage({ weeklyRecipes, onClose }) {
@@ -13,12 +14,10 @@ export function ShoppingListPage({ weeklyRecipes, onClose }) {
       </div>
 
       <div className={styles.sections}>
-        <div className={styles.section}>
-          <ShoppingList weeklyRecipes={weeklyRecipes} />
-        </div>
-        <div className={styles.section}>
-          <GroceryStaples />
-        </div>
+        <ShoppingList weeklyRecipes={weeklyRecipes} />
+        <GroceryStaples />
+        <PantryList title="Spices" storageKey="sunday-pantry-spices" />
+        <PantryList title="Sauces" storageKey="sunday-pantry-sauces" />
       </div>
     </div>
   );
