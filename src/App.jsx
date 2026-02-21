@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Analytics } from '@vercel/analytics/react';
 import { useRecipes } from './hooks/useRecipes';
 import { RecipeList } from './components/RecipeList';
 import { RecipeDetail } from './components/RecipeDetail';
@@ -186,6 +187,7 @@ function App() {
 
 
       </main>
+      <Analytics />
     </div>
   );
 }
