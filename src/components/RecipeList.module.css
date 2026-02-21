@@ -404,6 +404,7 @@
   padding: 1.25rem;
   box-shadow: var(--shadow-md);
   margin-bottom: 1.5rem;
+  max-width: 600px;
 }
 
 .shopHeader {
@@ -432,18 +433,41 @@
 
 .shopTable th {
   text-align: left;
-  font-size: 0.75rem;
+  font-size: 0.72rem;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.04em;
   color: var(--color-text-muted);
-  padding: 0.3rem 0.5rem;
+  padding: 0.35rem 0.75rem 0.35rem 0;
   border-bottom: 1px solid var(--color-border);
 }
 
+.shopTable th:first-child {
+  width: 3rem;
+  text-align: right;
+  padding-right: 0.75rem;
+}
+
+.shopTable th:nth-child(2) {
+  width: 5.5rem;
+}
+
 .shopTable td {
-  padding: 0.3rem 0.5rem;
+  padding: 0.35rem 0.75rem 0.35rem 0;
+  color: var(--color-text);
   border-bottom: 1px solid var(--color-border-light);
+}
+
+.shopTable td:first-child {
+  text-align: right;
+  padding-right: 0.75rem;
+  color: var(--color-text-secondary);
+  font-weight: 500;
+}
+
+.shopTable td:nth-child(2) {
+  color: var(--color-text-muted);
+  font-size: 0.82rem;
 }
 
 .shopTable tr:last-child td {

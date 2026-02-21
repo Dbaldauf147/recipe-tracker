@@ -7,6 +7,18 @@ import styles from './RecipeList.module.css';
 const HISTORY_KEY = 'sunday-plan-history';
 const SHOP_KEY = 'sunday-shopping-selection';
 
+function formatQty(n) {
+  if (!n) return '';
+  if (Number.isInteger(n)) return String(n);
+  const whole = Math.floor(n);
+  const frac = n - whole;
+  const fracs = { 0.25: '\u00BC', 0.333: '\u2153', 0.5: '\u00BD', 0.667: '\u2154', 0.75: '\u00BE' };
+  for (const [dec, ch] of Object.entries(fracs)) {
+    if (Math.abs(frac - parseFloat(dec)) < 0.05) return whole ? `${whole} ${ch}` : ch;
+  }
+  return n % 1 === 0 ? String(n) : n.toFixed(1);
+}
+
 const CATEGORIES = [
   { key: 'breakfast', label: 'Breakfast' },
   { key: 'lunch-dinner', label: 'Lunch & Dinner' },
@@ -457,7 +469,7 @@ export function RecipeList({
             <tbody>
               {shopItems.map((item, i) => (
                 <tr key={i}>
-                  <td>{item.quantity || ''}</td>
+                  <td>{formatQty(item.quantity)}</td>
                   <td>{item.measurement}</td>
                   <td>{item.ingredient}</td>
                 </tr>
