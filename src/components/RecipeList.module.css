@@ -37,6 +37,10 @@
   background: var(--color-accent-hover);
 }
 
+.addBtn {
+  box-shadow: 0 2px 8px rgba(201, 100, 66, 0.3);
+}
+
 .importBtn {
   padding: 0.55rem 1.25rem;
   background: var(--color-surface);
@@ -155,12 +159,17 @@
 
 .column {
   background: var(--color-surface);
-  border: 2px solid var(--color-border);
+  border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
   padding: 1.25rem;
-  box-shadow: var(--shadow-sm);
+  box-shadow: var(--shadow-md);
   min-height: 120px;
-  transition: border-color 0.15s ease, background 0.15s ease;
+  transition: border-color 0.15s ease, background 0.15s ease, box-shadow 0.2s ease, transform 0.2s ease;
+}
+
+.column:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-lift);
 }
 
 .columnDragOver {
@@ -176,7 +185,7 @@
   letter-spacing: 0.04em;
   color: var(--color-text-muted);
   padding-bottom: 0.5rem;
-  border-bottom: 2px solid var(--color-border);
+  border-bottom: 1px solid var(--color-border);
 }
 
 .columnEmpty {
@@ -197,15 +206,25 @@
   font-size: 1.05rem;
 }
 
+/* ── Week Row (side-by-side layout) ── */
+
+.weekRow {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+  align-items: start;
+}
+
 /* ── This Week's Menu ── */
 
 .weekBox {
-  margin-bottom: 1.5rem;
   background: var(--color-surface);
-  border: 2px dashed var(--color-border);
+  border: 1px dashed var(--color-border);
   border-radius: var(--radius-md);
   padding: 1.25rem;
   min-height: 100px;
+  box-shadow: var(--shadow-md);
   transition: border-color 0.15s ease, background 0.15s ease;
 }
 
@@ -221,7 +240,7 @@
   align-items: center;
   margin-bottom: 0.75rem;
   padding-bottom: 0.5rem;
-  border-bottom: 2px solid var(--color-border);
+  border-bottom: 1px solid var(--color-border);
 }
 
 .weekHeading {
@@ -341,11 +360,11 @@
 /* ── Suggested Meals ── */
 
 .suggestBox {
-  margin-bottom: 1.5rem;
   background: var(--color-surface);
-  border: 2px solid var(--color-border);
+  border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
   padding: 1.25rem;
+  box-shadow: var(--shadow-md);
 }
 
 .suggestHeading {
@@ -356,7 +375,7 @@
   letter-spacing: 0.04em;
   color: var(--color-text-muted);
   padding-bottom: 0.5rem;
-  border-bottom: 2px solid var(--color-border);
+  border-bottom: 1px solid var(--color-border);
 }
 
 .suggestList {
@@ -430,6 +449,10 @@
 /* ── Responsive ── */
 
 @media (max-width: 768px) {
+  .weekRow {
+    grid-template-columns: 1fr;
+  }
+
   .columns {
     grid-template-columns: 1fr;
   }

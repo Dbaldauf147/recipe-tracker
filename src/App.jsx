@@ -134,15 +134,20 @@ function App() {
         </h1>
         <span className={styles.tagline}>meal planning, simplified</span>
         <nav className={styles.nav}>
-          {NAV_ITEMS.map(item => (
-            <button
-              key={item.action || item.id}
-              className={styles.navItem}
-              onClick={() => handleNavClick(item)}
-            >
-              {item.label}
-            </button>
-          ))}
+          {NAV_ITEMS.map(item => {
+            const isActive = item.action
+              ? view === item.action
+              : item.id && view === 'list';
+            return (
+              <button
+                key={item.action || item.id}
+                className={`${styles.navItem}${isActive ? ` ${styles.navItemActive}` : ''}`}
+                onClick={() => handleNavClick(item)}
+              >
+                {item.label}
+              </button>
+            );
+          })}
         </nav>
       </header>
 
