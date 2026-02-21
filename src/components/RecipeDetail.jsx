@@ -16,8 +16,135 @@ function buildImageUrl(recipe) {
   return `https://loremflickr.com/800/400/food,${keywords}?lock=${Math.abs(hash)}`;
 }
 
-export function RecipeDetail({ recipe, onEdit, onDelete, onBack }) {
+const emptyRow = { quantity: '', measurement: '', ingredient: '' };
+const ingredientFields = ['quantity', 'measurement', 'ingredient'];
+
+function initFields(recipe) {
+  const type = recipe.mealType || '';
+  const presets = ['meat', 'pescatarian', 'vegan', 'vegetarian', ''];
+  return {
+    title: recipe.title || '',
+    description: recipe.description || '',
+    category: recipe.category || 'lunch-dinner',
+    frequency: recipe.frequency || 'common',
+    mealType: presets.includes(type) ? type : 'custom',
+    customMealType: presets.includes(type) ? '' : type,
+    servings: recipe.servings || '1',
+    prepTime: recipe.prepTime || '',
+    cookTime: recipe.cookTime || '',
+    sourceUrl: recipe.sourceUrl || '',
+    ingredients: recipe.ingredients.length > 0
+      ? recipe.ingredients.map(r => ({ ...r }))
+      : [{ ...emptyRow }],
+    steps: (() => {
+      const parsed = (recipe.instructions || '')
+        .split('\n')
+        .map(s => s.replace(/^\d+[\.\)]\s*/, '').trim())
+        .filter(Boolean);
+      return parsed.length > 0 ? parsed : [''];
+    })(),
+  };
+}
+
+export function RecipeDetail({ recipe, onSave, onDelete, onBack }) {
   const [imgError, setImgError] = useState(false);
+  const [fields, setFields] = useState(() => recipe ? initFields(recipe) : null);
+
+  function setField(key, value) {
+    setFields(prev => ({ ...prev, [key]: value }));
+  }
+
+  function updateIngredient(index, field, value) {
+    setFields(prev => ({
+      ...prev,
+      ingredients: prev.ingredients.map((row, i) =>
+        i === index ? { ...row, [field]: value } : row
+      ),
+    }));
+  }
+
+  function addRow() {
+    setFields(prev => ({
+      ...prev,
+      ingredients: [...prev.ingredients, { ...emptyRow }],
+    }));
+  }
+
+  function removeRow(index) {
+    setFields(prev => ({
+      ...prev,
+      ingredients: prev.ingredients.filter((_, i) => i !== index),
+    }));
+  }
+
+  function handlePaste(e, rowIndex, colIndex) {
+    const text = e.clipboardData.getData('text');
+    if (!text.includes('\t') && !text.includes('\n')) return;
+    e.preventDefault();
+
+    const pastedRows = text
+      .replace(/\r\n/g, '\n')
+      .replace(/\r/g, '\n')
+      .trimEnd()
+      .split('\n')
+      .map(line => line.split('\t'));
+
+    setFields(prev => {
+      const updated = prev.ingredients.map(row => ({ ...row }));
+      const neededRows = rowIndex + pastedRows.length;
+      while (updated.length < neededRows) updated.push({ ...emptyRow });
+
+      for (let r = 0; r < pastedRows.length; r++) {
+        const cells = pastedRows[r];
+        for (let c = 0; c < cells.length; c++) {
+          const targetCol = colIndex + c;
+          if (targetCol < ingredientFields.length) {
+            updated[rowIndex + r][ingredientFields[targetCol]] = cells[c].trim();
+          }
+        }
+      }
+      return { ...prev, ingredients: updated };
+    });
+  }
+
+  function updateStep(index, value) {
+    setFields(prev => ({
+      ...prev,
+      steps: prev.steps.map((s, i) => (i === index ? value : s)),
+    }));
+  }
+
+  function addStep() {
+    setFields(prev => ({ ...prev, steps: [...prev.steps, ''] }));
+  }
+
+  function removeStep(index) {
+    setFields(prev => ({
+      ...prev,
+      steps: prev.steps.filter((_, i) => i !== index),
+    }));
+  }
+
+  function handleSave() {
+    onSave({
+      title: fields.title.trim(),
+      description: fields.description.trim(),
+      category: fields.category,
+      frequency: fields.frequency,
+      mealType: fields.mealType === 'custom' ? fields.customMealType.trim() : fields.mealType,
+      servings: fields.servings.trim() || '1',
+      prepTime: fields.prepTime.trim(),
+      cookTime: fields.cookTime.trim(),
+      sourceUrl: fields.sourceUrl.trim(),
+      ingredients: fields.ingredients.filter(row => row.ingredient.trim() !== ''),
+      instructions: fields.steps.filter(s => s.trim()).join('\n'),
+    });
+  }
+
+  function handleCancel() {
+    setFields(initFields(recipe));
+    onBack();
+  }
 
   if (!recipe) {
     return (
@@ -47,33 +174,122 @@ export function RecipeDetail({ recipe, onEdit, onDelete, onBack }) {
         </div>
       )}
 
-      <h2 className={styles.title}>{recipe.title}</h2>
+      <input
+        className={`${styles.inlineInput} ${styles.titleInput}`}
+        type="text"
+        value={fields.title}
+        onChange={e => setField('title', e.target.value)}
+      />
 
-      {recipe.description && (
-        <p className={styles.description}>{recipe.description}</p>
-      )}
+      <input
+        className={styles.inlineInput}
+        type="text"
+        value={fields.description}
+        onChange={e => setField('description', e.target.value)}
+        placeholder="Short description"
+      />
 
-      {(recipe.servings || recipe.prepTime || recipe.cookTime) && (
-        <p className={styles.servings}>
-          {recipe.servings && <>Serves {recipe.servings}</>}
-          {recipe.servings && recipe.prepTime && <> &middot; </>}
-          {recipe.prepTime && <>Prep: {recipe.prepTime}</>}
-          {(recipe.servings || recipe.prepTime) && recipe.cookTime && <> &middot; </>}
-          {recipe.cookTime && <>Cook: {recipe.cookTime}</>}
-        </p>
-      )}
+      <div className={styles.metaRow}>
+        <label className={styles.metaLabel}>
+          Serves
+          <input
+            className={`${styles.inlineInput} ${styles.metaInput}`}
+            type="number"
+            min="1"
+            value={fields.servings}
+            onChange={e => setField('servings', e.target.value)}
+          />
+        </label>
+        <label className={styles.metaLabel}>
+          Prep
+          <input
+            className={`${styles.inlineInput} ${styles.metaInput}`}
+            type="text"
+            value={fields.prepTime}
+            onChange={e => setField('prepTime', e.target.value)}
+            placeholder="15 min"
+          />
+        </label>
+        <label className={styles.metaLabel}>
+          Cook
+          <input
+            className={`${styles.inlineInput} ${styles.metaInput}`}
+            type="text"
+            value={fields.cookTime}
+            onChange={e => setField('cookTime', e.target.value)}
+            placeholder="30 min"
+          />
+        </label>
+      </div>
 
-      {recipe.sourceUrl && (
-        <p className={styles.sourceLink}>
-          <a
-            href={recipe.sourceUrl.startsWith('http') ? recipe.sourceUrl : `https://${recipe.sourceUrl}`}
-            target="_blank"
-            rel="noopener noreferrer"
+      <div className={styles.metaRow}>
+        <label className={styles.metaLabel}>
+          Category
+          <select
+            className={styles.inlineSelect}
+            value={fields.category}
+            onChange={e => setField('category', e.target.value)}
           >
-            View original recipe &#x2197;
-          </a>
-        </p>
-      )}
+            <option value="breakfast">Breakfast</option>
+            <option value="lunch-dinner">Lunch & Dinner</option>
+            <option value="snacks">Snacks</option>
+            <option value="desserts">Desserts</option>
+            <option value="drinks">Drinks</option>
+          </select>
+        </label>
+        <label className={styles.metaLabel}>
+          Frequency
+          <select
+            className={styles.inlineSelect}
+            value={fields.frequency}
+            onChange={e => setField('frequency', e.target.value)}
+          >
+            <option value="common">Common</option>
+            <option value="rare">Rare</option>
+            <option value="retired">Retired</option>
+          </select>
+        </label>
+        <label className={styles.metaLabel}>
+          Meal Type
+          <select
+            className={styles.inlineSelect}
+            value={fields.mealType}
+            onChange={e => {
+              setField('mealType', e.target.value);
+              if (e.target.value !== 'custom') setField('customMealType', '');
+            }}
+          >
+            <option value="">— None —</option>
+            <option value="meat">Meat</option>
+            <option value="pescatarian">Pescatarian</option>
+            <option value="vegan">Vegan</option>
+            <option value="vegetarian">Vegetarian</option>
+            <option value="custom">Custom...</option>
+          </select>
+        </label>
+        {fields.mealType === 'custom' && (
+          <input
+            className={`${styles.inlineInput} ${styles.metaInput}`}
+            type="text"
+            value={fields.customMealType}
+            onChange={e => setField('customMealType', e.target.value)}
+            placeholder="e.g. Keto, Paleo"
+          />
+        )}
+      </div>
+
+      <div className={styles.metaRow}>
+        <label className={styles.metaLabel} style={{ flex: 1 }}>
+          Source URL
+          <input
+            className={styles.inlineInput}
+            type="text"
+            value={fields.sourceUrl}
+            onChange={e => setField('sourceUrl', e.target.value)}
+            placeholder="Recipe link"
+          />
+        </label>
+      </div>
 
       <div className={styles.columns}>
         <div className={styles.ingredientsCol}>
@@ -84,18 +300,45 @@ export function RecipeDetail({ recipe, onEdit, onDelete, onBack }) {
                 <th>Quantity</th>
                 <th>Measurement</th>
                 <th>Ingredient</th>
+                <th></th>
               </tr>
             </thead>
             <tbody>
-              {recipe.ingredients.map((item, i) => (
+              {fields.ingredients.map((row, i) => (
                 <tr key={i}>
-                  <td>{item.quantity}</td>
-                  <td>{item.measurement}</td>
-                  <td>{item.ingredient}</td>
+                  {ingredientFields.map((field, colIdx) => (
+                    <td key={field}>
+                      <input
+                        className={styles.cellInput}
+                        type="text"
+                        value={row[field]}
+                        onChange={e => updateIngredient(i, field, e.target.value)}
+                        onPaste={e => handlePaste(e, i, colIdx)}
+                        placeholder={
+                          field === 'quantity' ? '1' :
+                          field === 'measurement' ? 'cup' : 'flour'
+                        }
+                      />
+                    </td>
+                  ))}
+                  <td>
+                    {fields.ingredients.length > 1 && (
+                      <button
+                        className={styles.removeBtn}
+                        type="button"
+                        onClick={() => removeRow(i)}
+                      >
+                        &times;
+                      </button>
+                    )}
+                  </td>
                 </tr>
               ))}
             </tbody>
           </table>
+          <button className={styles.addRowBtn} type="button" onClick={addRow}>
+            + Add ingredient
+          </button>
         </div>
 
         <div className={styles.nutritionCol}>
@@ -105,23 +348,42 @@ export function RecipeDetail({ recipe, onEdit, onDelete, onBack }) {
 
       <div className={styles.section}>
         <h3>Instructions</h3>
-        <ol className={styles.steps}>
-          {(recipe.instructions || '')
-            .split('\n')
-            .map(s => s.replace(/^\d+[\.\)]\s*/, '').trim())
-            .filter(Boolean)
-            .map((step, i) => (
-              <li key={i} className={styles.step}>
-                <span className={styles.stepLabel}>Step {i + 1}</span>
-                {step}
-              </li>
-            ))}
+        <ol className={styles.stepsList}>
+          {fields.steps.map((step, i) => (
+            <li key={i} className={styles.stepRow}>
+              <span className={styles.stepLabel}>Step {i + 1}</span>
+              <div className={styles.stepInputWrap}>
+                <textarea
+                  className={styles.stepInput}
+                  value={step}
+                  rows={2}
+                  onChange={e => updateStep(i, e.target.value)}
+                  placeholder={`Step ${i + 1}...`}
+                />
+                {fields.steps.length > 1 && (
+                  <button
+                    className={styles.removeBtn}
+                    type="button"
+                    onClick={() => removeStep(i)}
+                  >
+                    &times;
+                  </button>
+                )}
+              </div>
+            </li>
+          ))}
         </ol>
+        <button className={styles.addRowBtn} type="button" onClick={addStep}>
+          + Add step
+        </button>
       </div>
 
       <div className={styles.actions}>
-        <button className={styles.editBtn} onClick={() => onEdit(recipe.id)}>
-          Edit
+        <button className={styles.saveBtn} onClick={handleSave}>
+          Save
+        </button>
+        <button className={styles.cancelBtn} onClick={handleCancel}>
+          Cancel
         </button>
         <button
           className={styles.deleteBtn}

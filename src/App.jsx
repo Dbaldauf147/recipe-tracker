@@ -21,7 +21,7 @@ function loadWeeklyPlan() {
   }
 }
 
-// Views: "list" | "detail" | "add" | "edit"
+// Views: "list" | "detail" | "add"
 function App() {
   const { recipes, addRecipe, updateRecipe, deleteRecipe, getRecipe, importRecipes } =
     useRecipes();
@@ -179,18 +179,12 @@ function App() {
         ) : view === 'detail' && selectedId ? (
           <RecipeDetail
             recipe={getRecipe(selectedId)}
-            onEdit={() => setView('edit')}
+            onSave={handleUpdate}
             onDelete={handleDelete}
             onBack={() => setView('list')}
           />
         ) : view === 'add' ? (
           <RecipeForm onSave={handleAdd} onCancel={() => setView('list')} />
-        ) : view === 'edit' && selectedId ? (
-          <RecipeForm
-            recipe={getRecipe(selectedId)}
-            onSave={handleUpdate}
-            onCancel={() => setView('detail')}
-          />
         ) : (
           <div className={styles.homeLayout}>
             <RecipeList

@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'react';
+import { loadIngredients } from '../utils/ingredientsStore.js';
 import styles from './ShoppingList.module.css';
 
 function parseFraction(str) {
@@ -56,6 +57,17 @@ export function ShoppingList({ weeklyRecipes }) {
     [weeklyRecipes]
   );
 
+  const ingredientLinks = useMemo(() => {
+    const db = loadIngredients() || [];
+    const map = {};
+    for (const row of db) {
+      if (row.ingredient && row.link) {
+        map[row.ingredient.toLowerCase().trim()] = row.link;
+      }
+    }
+    return map;
+  }, []);
+
   const [checked, setChecked] = useState(new Set());
 
   function toggleItem(key) {
@@ -85,12 +97,14 @@ export function ShoppingList({ weeklyRecipes }) {
             <th>Qty</th>
             <th>Measurement</th>
             <th>Ingredient</th>
+            <th>Link</th>
           </tr>
         </thead>
         <tbody>
           {items.map((item, i) => {
             const key = `${item.ingredient}|||${item.measurement}`;
             const done = checked.has(key);
+            const link = ingredientLinks[item.ingredient.toLowerCase().trim()];
             return (
               <tr
                 key={i}
@@ -109,6 +123,19 @@ export function ShoppingList({ weeklyRecipes }) {
                 <td className={styles.qtyCell}>{formatQuantity(item.quantity)}</td>
                 <td>{item.measurement}</td>
                 <td>{item.ingredient}</td>
+                <td className={styles.linkCell}>
+                  {link && (
+                    <a
+                      href={link.startsWith('http') ? link : `https://${link}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      onClick={e => e.stopPropagation()}
+                      className={styles.searchLink}
+                    >
+                      &#x1F50D;
+                    </a>
+                  )}
+                </td>
               </tr>
             );
           })}

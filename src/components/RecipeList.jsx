@@ -94,12 +94,14 @@ export function RecipeList({
   const mealTypes = [...new Set([...PRESET_TYPES, ...customTypes])].sort();
 
   // Filter by frequency and meal type, then group by category
+  const weekSet = new Set(weeklyPlan);
   let visible = freqFilter === 'all'
     ? recipes
     : recipes.filter(r => (r.frequency || 'common') === freqFilter);
   if (checkedTypes.size > 0) {
     visible = visible.filter(r => checkedTypes.has(r.mealType || ''));
   }
+  visible = visible.filter(r => !weekSet.has(r.id));
 
   const grouped = {};
   for (const cat of CATEGORIES) {
@@ -200,7 +202,6 @@ export function RecipeList({
       history = [];
     }
 
-    const weekSet = new Set(weeklyPlan);
     // Apply same filters as the recipe list
     let filtered = freqFilter === 'all'
       ? recipes
@@ -331,24 +332,22 @@ export function RecipeList({
         </div>
 
         {mealTypes.length > 0 && (
-          <div className={styles.checkboxGroup}>
-            <span className={styles.checkboxLabel}>Meal Type</span>
+          <div className={styles.filterBar}>
             {mealTypes.map(type => (
-              <label key={type} className={styles.checkbox}>
-                <input
-                  type="checkbox"
-                  checked={checkedTypes.has(type)}
-                  onChange={() => {
-                    setCheckedTypes(prev => {
-                      const next = new Set(prev);
-                      if (next.has(type)) next.delete(type);
-                      else next.add(type);
-                      return next;
-                    });
-                  }}
-                />
+              <button
+                key={type}
+                className={`${styles.filterBtn} ${checkedTypes.has(type) ? styles.filterBtnActive : ''}`}
+                onClick={() => {
+                  setCheckedTypes(prev => {
+                    const next = new Set(prev);
+                    if (next.has(type)) next.delete(type);
+                    else next.add(type);
+                    return next;
+                  });
+                }}
+              >
                 {type.charAt(0).toUpperCase() + type.slice(1)}
-              </label>
+              </button>
             ))}
           </div>
         )}

@@ -41,43 +41,6 @@
   }
 }
 
-.title {
-  margin: 0 0 0.5rem;
-  font-size: 1.75rem;
-  font-weight: 700;
-  letter-spacing: -0.02em;
-}
-
-.description {
-  color: var(--color-text-secondary);
-  margin: 0 0 1.5rem;
-  font-size: 1.05rem;
-  line-height: 1.6;
-}
-
-.servings {
-  margin: -1rem 0 1.5rem;
-  font-size: 0.9rem;
-  font-weight: 500;
-  color: var(--color-text-muted);
-}
-
-.sourceLink {
-  margin: -0.75rem 0 1.5rem;
-  font-size: 0.9rem;
-}
-
-.sourceLink a {
-  color: var(--color-accent);
-  text-decoration: none;
-  font-weight: 500;
-  transition: opacity 0.15s ease;
-}
-
-.sourceLink a:hover {
-  opacity: 0.8;
-  text-decoration: underline;
-}
 
 .columns {
   display: flex;
@@ -130,6 +93,55 @@
   letter-spacing: -0.01em;
 }
 
+.stepsList {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.stepRow {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.stepLabel {
+  font-size: 0.78rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-accent);
+}
+
+.stepInputWrap {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.4rem;
+}
+
+.stepInput {
+  flex: 1;
+  padding: 0.3rem 0.4rem;
+  font-size: 0.9rem;
+  font-family: inherit;
+  line-height: 1.5;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm, 6px);
+  background: var(--color-surface);
+  color: var(--color-text);
+  outline: none;
+  box-sizing: border-box;
+  resize: vertical;
+  transition: border-color 0.15s ease;
+}
+
+.stepInput:focus {
+  border-color: var(--color-accent);
+}
+
 .ingredientTable {
   width: 100%;
   border-collapse: collapse;
@@ -155,29 +167,6 @@
   border-bottom: none;
 }
 
-.steps {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
-}
-
-.step {
-  line-height: 1.65;
-  color: var(--color-text-secondary);
-}
-
-.stepLabel {
-  display: block;
-  font-size: 0.78rem;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--color-accent);
-  margin-bottom: 0.15rem;
-}
 
 .actions {
   display: flex;
@@ -185,7 +174,6 @@
   margin-top: 2rem;
 }
 
-.editBtn,
 .deleteBtn {
   padding: 0.55rem 1.25rem;
   border: none;
@@ -194,23 +182,181 @@
   font-weight: 600;
   cursor: pointer;
   transition: background 0.15s ease;
-}
-
-.editBtn {
-  background: var(--color-accent);
-  color: #fff;
-  box-shadow: 0 2px 8px rgba(201, 100, 66, 0.3);
-}
-
-.editBtn:hover {
-  background: var(--color-accent-hover);
-}
-
-.deleteBtn {
   background: var(--color-danger-light);
   color: var(--color-danger);
 }
 
 .deleteBtn:hover {
   background: #fecaca;
+}
+
+/* --- Inline editing styles --- */
+
+.inlineInput {
+  width: 100%;
+  padding: 0.4rem 0.5rem;
+  font-size: 1rem;
+  font-family: inherit;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm, 6px);
+  background: var(--color-surface);
+  color: var(--color-text);
+  outline: none;
+  transition: border-color 0.15s ease;
+  box-sizing: border-box;
+}
+
+.inlineInput:focus {
+  border-color: var(--color-accent);
+}
+
+.titleInput {
+  font-size: 1.75rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  margin-bottom: 0.5rem;
+  padding: 0.25rem 0.4rem;
+}
+
+.inlineSelect {
+  padding: 0.4rem 0.5rem;
+  font-size: 0.9rem;
+  font-family: inherit;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm, 6px);
+  background: var(--color-surface);
+  color: var(--color-text);
+  outline: none;
+  cursor: pointer;
+  transition: border-color 0.15s ease;
+}
+
+.inlineSelect:focus {
+  border-color: var(--color-accent);
+}
+
+.inlineTextarea {
+  width: 100%;
+  padding: 0.5rem 0.6rem;
+  font-size: 0.95rem;
+  font-family: inherit;
+  line-height: 1.65;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm, 6px);
+  background: var(--color-surface);
+  color: var(--color-text);
+  outline: none;
+  resize: vertical;
+  transition: border-color 0.15s ease;
+  box-sizing: border-box;
+}
+
+.inlineTextarea:focus {
+  border-color: var(--color-accent);
+}
+
+.metaRow {
+  display: flex;
+  gap: 1rem;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  margin-bottom: 1rem;
+}
+
+.metaLabel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.metaInput {
+  width: 90px;
+}
+
+.cellInput {
+  width: 100%;
+  padding: 0.3rem 0.4rem;
+  font-size: 0.9rem;
+  font-family: inherit;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm, 6px);
+  background: var(--color-surface);
+  color: var(--color-text);
+  outline: none;
+  box-sizing: border-box;
+  transition: border-color 0.15s ease;
+}
+
+.cellInput:focus {
+  border-color: var(--color-accent);
+}
+
+.addRowBtn {
+  margin-top: 0.5rem;
+  background: none;
+  border: none;
+  color: var(--color-accent);
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0.25rem 0;
+  transition: opacity 0.15s ease;
+}
+
+.addRowBtn:hover {
+  opacity: 0.75;
+}
+
+.removeBtn {
+  background: none;
+  border: none;
+  color: var(--color-danger, #ef4444);
+  font-size: 1.2rem;
+  cursor: pointer;
+  padding: 0.1rem 0.4rem;
+  line-height: 1;
+  border-radius: 4px;
+  transition: background 0.15s ease;
+}
+
+.removeBtn:hover {
+  background: var(--color-danger-light, #fee2e2);
+}
+
+.saveBtn {
+  padding: 0.55rem 1.25rem;
+  border: none;
+  border-radius: 50px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease;
+  background: var(--color-accent);
+  color: #fff;
+  box-shadow: 0 2px 8px rgba(201, 100, 66, 0.3);
+}
+
+.saveBtn:hover {
+  background: var(--color-accent-hover);
+}
+
+.cancelBtn {
+  padding: 0.55rem 1.25rem;
+  border: none;
+  border-radius: 50px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease;
+  background: var(--color-border-light, #e5e7eb);
+  color: var(--color-text-secondary);
+}
+
+.cancelBtn:hover {
+  background: var(--color-border);
 }

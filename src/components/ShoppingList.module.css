@@ -78,3 +78,20 @@
 .checkedRow .checkCell {
   text-decoration: none;
 }
+
+.linkCell {
+  width: 2rem;
+  text-align: center;
+  text-decoration: none !important;
+}
+
+.searchLink {
+  text-decoration: none;
+  font-size: 0.85rem;
+  opacity: 0.6;
+  transition: opacity 0.15s ease;
+}
+
+.searchLink:hover {
+  opacity: 1;
+}
