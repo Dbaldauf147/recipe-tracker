@@ -31,7 +31,7 @@ export function PantryList({ title, storageKey, initialItems }) {
   }
 
   function addItem() {
-    setItems(prev => [...prev, { quantity: '', measurement: '', ingredient: '' }]);
+    setItems(prev => [...prev, { ingredient: '' }]);
   }
 
   return (
@@ -40,8 +40,6 @@ export function PantryList({ title, storageKey, initialItems }) {
       <table className={styles.table}>
         <thead>
           <tr>
-            <th>Qty</th>
-            <th>Measurement</th>
             <th>Item</th>
             <th></th>
           </tr>
@@ -49,24 +47,6 @@ export function PantryList({ title, storageKey, initialItems }) {
         <tbody>
           {items.map((item, i) => (
             <tr key={i}>
-              <td>
-                <input
-                  className={styles.cellInput}
-                  type="text"
-                  value={item.quantity}
-                  onChange={e => updateItem(i, 'quantity', e.target.value)}
-                  placeholder="1"
-                />
-              </td>
-              <td>
-                <input
-                  className={styles.cellInput}
-                  type="text"
-                  value={item.measurement}
-                  onChange={e => updateItem(i, 'measurement', e.target.value)}
-                  placeholder="unit"
-                />
-              </td>
               <td>
                 <input
                   className={styles.cellInput}

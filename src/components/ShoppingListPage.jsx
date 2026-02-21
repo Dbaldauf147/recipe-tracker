@@ -25,7 +25,7 @@ const DEFAULT_SPICES = [
   'Oregano (Dried)',
   'Old Bay Seasoning',
   'Harissa Powder',
-].map(name => ({ quantity: '', measurement: '', ingredient: name }));
+].map(name => ({ ingredient: name }));
 
 const DEFAULT_SAUCES = [
   'Balsamic Vinegar',
@@ -37,7 +37,7 @@ const DEFAULT_SAUCES = [
   "Frank's RedHot",
   'Brown Mustard',
   'Honey',
-].map(name => ({ quantity: '', measurement: '', ingredient: name }));
+].map(name => ({ ingredient: name }));
 
 export function ShoppingListPage({ weeklyRecipes, onClose }) {
   return (
