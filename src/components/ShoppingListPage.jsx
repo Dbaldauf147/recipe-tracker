@@ -27,6 +27,18 @@ const DEFAULT_SPICES = [
   'Harissa Powder',
 ].map(name => ({ quantity: '', measurement: '', ingredient: name }));
 
+const DEFAULT_SAUCES = [
+  'Balsamic Vinegar',
+  'Olive Oil',
+  'Dijon Mustard',
+  'Sesame Oil',
+  'Vegetable Oil',
+  'Teriyaki Sauce',
+  "Frank's RedHot",
+  'Brown Mustard',
+  'Honey',
+].map(name => ({ quantity: '', measurement: '', ingredient: name }));
+
 export function ShoppingListPage({ weeklyRecipes, onClose }) {
   return (
     <div className={styles.container}>
@@ -48,7 +60,7 @@ export function ShoppingListPage({ weeklyRecipes, onClose }) {
           <PantryList title="Spices" storageKey="sunday-pantry-spices" initialItems={DEFAULT_SPICES} />
         </div>
         <div className={styles.cell}>
-          <PantryList title="Sauces" storageKey="sunday-pantry-sauces" />
+          <PantryList title="Sauces" storageKey="sunday-pantry-sauces" initialItems={DEFAULT_SAUCES} />
         </div>
       </div>
     </div>
