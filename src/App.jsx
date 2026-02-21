@@ -34,12 +34,12 @@ function App() {
   }
 
   const NAV_ITEMS = [
-    { label: 'Ingredients', action: 'ingredients' },
     { label: 'Shopping List', action: 'shopping' },
     { label: "This Week's Menu", id: 'weekly-menu' },
     { label: 'History', action: 'history' },
     { label: 'Key Ingredients', action: 'key-ingredients' },
     { label: 'Import Recipe', action: 'import' },
+    { label: 'Ingredients', action: 'ingredients' },
   ];
 
   function handleNavClick(item) {
