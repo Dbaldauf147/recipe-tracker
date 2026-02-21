@@ -159,6 +159,21 @@ function App() {
           />
         ) : view === 'ingredients' ? (
           <IngredientsPage onClose={() => setView('list')} />
+        ) : view === 'detail' && selectedId ? (
+          <RecipeDetail
+            recipe={getRecipe(selectedId)}
+            onEdit={() => setView('edit')}
+            onDelete={handleDelete}
+            onBack={() => setView('list')}
+          />
+        ) : view === 'add' ? (
+          <RecipeForm onSave={handleAdd} onCancel={() => setView('list')} />
+        ) : view === 'edit' && selectedId ? (
+          <RecipeForm
+            recipe={getRecipe(selectedId)}
+            onSave={handleUpdate}
+            onCancel={() => setView('detail')}
+          />
         ) : (
           <div className={styles.homeLayout}>
             <RecipeList
@@ -173,39 +188,6 @@ function App() {
               onCategoryChange={handleCategoryChange}
               getRecipe={getRecipe}
             />
-          </div>
-        )}
-
-        {view === 'detail' && selectedId && (
-          <div className={styles.overlay} onClick={() => setView('list')}>
-            <div className={styles.modal} onClick={e => e.stopPropagation()}>
-              <RecipeDetail
-                recipe={getRecipe(selectedId)}
-                onEdit={() => setView('edit')}
-                onDelete={handleDelete}
-                onBack={() => setView('list')}
-              />
-            </div>
-          </div>
-        )}
-
-        {view === 'add' && (
-          <div className={styles.overlay} onClick={() => setView('list')}>
-            <div className={styles.modal} onClick={e => e.stopPropagation()}>
-              <RecipeForm onSave={handleAdd} onCancel={() => setView('list')} />
-            </div>
-          </div>
-        )}
-
-        {view === 'edit' && selectedId && (
-          <div className={styles.overlay} onClick={() => setView('detail')}>
-            <div className={styles.modal} onClick={e => e.stopPropagation()}>
-              <RecipeForm
-                recipe={getRecipe(selectedId)}
-                onSave={handleUpdate}
-                onCancel={() => setView('detail')}
-              />
-            </div>
           </div>
         )}
 
