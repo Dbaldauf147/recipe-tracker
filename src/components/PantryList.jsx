@@ -8,7 +8,7 @@ const STORAGE_TO_FIELD = {
   'sunday-pantry-sauces': 'pantrySauces',
 };
 
-export function PantryList({ title, subtitle, storageKey, initialItems, onMoveToShop, source }) {
+export function PantryList({ title, subtitle, storageKey, initialItems, onMoveToShop, source, highlightNames }) {
   const [items, setItems] = useState([]);
 
   useEffect(() => {
@@ -60,8 +60,10 @@ export function PantryList({ title, subtitle, storageKey, initialItems, onMoveTo
           {[...items]
             .map((item, i) => ({ ...item, _i: i }))
             .sort((a, b) => (a.ingredient || '').localeCompare(b.ingredient || ''))
-            .map(({ _i: i, ...item }) => (
-            <tr key={i}>
+            .map(({ _i: i, ...item }) => {
+              const highlighted = highlightNames && highlightNames.has((item.ingredient || '').toLowerCase().trim());
+              return (
+            <tr key={i} className={highlighted ? styles.highlightRow : ''}>
               <td>
                 <input
                   className={styles.cellInput}
@@ -81,7 +83,8 @@ export function PantryList({ title, subtitle, storageKey, initialItems, onMoveTo
                 </button>
               </td>
             </tr>
-          ))}
+              );
+            })}
         </tbody>
       </table>
       <button className={styles.addBtn} onClick={addItem}>

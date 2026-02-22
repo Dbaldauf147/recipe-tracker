@@ -133,12 +133,15 @@
   border: none;
   color: var(--color-accent);
   font-size: 0.82rem;
+  font-weight: 600;
+  font-family: inherit;
   cursor: pointer;
   padding: 0.25rem 0;
+  transition: opacity 0.15s ease;
 }
 
 .addToggle:hover {
-  text-decoration: underline;
+  opacity: 0.8;
 }
 
 .addRow {

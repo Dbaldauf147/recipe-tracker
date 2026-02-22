@@ -143,7 +143,7 @@ export function ShoppingListPage({ weeklyRecipes, onClose }) {
         matched.set(name, e.ingredient.trim());
       }
     }
-    return [...matched.values()].sort();
+    return { names: new Set(matched.keys()), labels: [...matched.values()].sort() };
   }, [weeklyRecipes, extras, pantryNames]);
 
   return (
@@ -166,14 +166,14 @@ export function ShoppingListPage({ weeklyRecipes, onClose }) {
           />
         </div>
         <div className={styles.cell}>
-          {pantryMatchedItems.length > 0 && (
+          {pantryMatchedItems.labels.length > 0 && (
             <div className={styles.pantryMatchBox}>
               <h3 className={styles.pantryMatchHeading}>Already In Your Pantry</h3>
               <p className={styles.pantryMatchSubtext}>
                 These recipe ingredients were removed from the shopping list
               </p>
               <ul className={styles.pantryMatchList}>
-                {pantryMatchedItems.map(name => (
+                {pantryMatchedItems.labels.map(name => (
                   <li key={name} className={styles.pantryMatchItem}>{name}</li>
                 ))}
               </ul>
@@ -190,6 +190,7 @@ export function ShoppingListPage({ weeklyRecipes, onClose }) {
             initialItems={DEFAULT_SPICES}
             onMoveToShop={handleMoveToShop}
             source="spices"
+            highlightNames={pantryMatchedItems.names}
           />
         </div>
         <div className={styles.cell}>
@@ -201,6 +202,7 @@ export function ShoppingListPage({ weeklyRecipes, onClose }) {
             initialItems={DEFAULT_SAUCES}
             onMoveToShop={handleMoveToShop}
             source="sauces"
+            highlightNames={pantryMatchedItems.names}
           />
         </div>
       </div>

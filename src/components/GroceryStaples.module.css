@@ -90,6 +90,15 @@
   background: var(--color-danger-light);
 }
 
+.highlightRow td {
+  background: var(--color-accent-light, #fff3ed);
+}
+
+.highlightRow .cellInput {
+  color: var(--color-accent);
+  font-weight: 600;
+}
+
 .addBtn {
   display: block;
   margin-top: 0.5rem;
