@@ -53,23 +53,14 @@ function getEmoji(key) {
 }
 
 export function OnboardingPage({ onComplete }) {
-  const [selected, setSelected] = useState(() => new Set(DEFAULT_KEY_INGREDIENTS));
+  const [selected, setSelected] = useState(() => new Set());
   const [customIngredients, setCustomIngredients] = useState([]);
   const [customInput, setCustomInput] = useState('');
-  const [search, setSearch] = useState('');
 
   const allIngredients = useMemo(
     () => [...DEFAULT_KEY_INGREDIENTS, ...customIngredients],
     [customIngredients]
   );
-
-  const filtered = useMemo(() => {
-    if (!search.trim()) return allIngredients;
-    const q = search.toLowerCase();
-    return allIngredients.filter(key =>
-      displayName(key).toLowerCase().includes(q)
-    );
-  }, [allIngredients, search]);
 
   function toggle(key) {
     setSelected(prev => {
@@ -109,9 +100,9 @@ export function OnboardingPage({ onComplete }) {
   // Split ingredients into 3 columns
   const columns = useMemo(() => {
     const cols = [[], [], []];
-    filtered.forEach((key, i) => cols[i % 3].push(key));
+    allIngredients.forEach((key, i) => cols[i % 3].push(key));
     return cols;
-  }, [filtered]);
+  }, [allIngredients]);
 
   function renderItem(key) {
     return (
@@ -150,14 +141,6 @@ export function OnboardingPage({ onComplete }) {
         <img className={styles.logo} src="/sunday-logo.png" alt="Sunday" />
         <h2 className={styles.title}>What kinds of food would you like to eat on a regular basis?</h2>
         <p className={styles.subtitle}>(Don't worry, you can update this later)</p>
-
-        <input
-          className={styles.searchInput}
-          type="text"
-          placeholder="Search ingredients..."
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-        />
 
         <div className={styles.grid}>
           {columns.map((col, ci) => (

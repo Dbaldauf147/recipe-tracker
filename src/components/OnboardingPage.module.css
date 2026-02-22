@@ -36,25 +36,6 @@
   color: var(--color-text-muted);
 }
 
-.searchInput {
-  width: 100%;
-  max-width: 360px;
-  padding: 0.55rem 0.9rem;
-  font-size: 0.9rem;
-  font-family: inherit;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  background: var(--color-surface);
-  color: var(--color-text);
-  outline: none;
-  margin-bottom: 1.25rem;
-  transition: border-color 0.15s ease;
-}
-
-.searchInput:focus {
-  border-color: var(--color-accent);
-}
-
 .grid {
   display: grid;
   grid-template-columns: 1fr 1fr 1fr;
