@@ -27,48 +27,46 @@ function formatQuantity(n) {
   return n.toFixed(2).replace(/\.?0+$/, '');
 }
 
+function mergeIntoMap(map, ingredient, measurement, quantity) {
+  const name = ingredient.toLowerCase().trim();
+  if (!name) return;
+  const qty = parseFraction(quantity);
+  if (map.has(name)) {
+    const entry = map.get(name);
+    entry.quantity += qty;
+    // Keep the first non-empty measurement
+    if (!entry.measurement && measurement) {
+      entry.measurement = measurement;
+    }
+  } else {
+    map.set(name, {
+      ingredient: ingredient.trim(),
+      measurement: measurement || '',
+      quantity: qty,
+    });
+  }
+}
+
 function buildShoppingList(recipes) {
   const map = new Map();
   for (const recipe of recipes) {
     for (const ing of recipe.ingredients) {
-      const name = ing.ingredient.toLowerCase().trim();
-      if (!name) continue;
-      const meas = (ing.measurement || '').toLowerCase().trim();
-      const key = `${name}|||${meas}`;
-      if (map.has(key)) {
-        map.get(key).quantity += parseFraction(ing.quantity);
-      } else {
-        map.set(key, {
-          ingredient: ing.ingredient.trim(),
-          measurement: ing.measurement || '',
-          quantity: parseFraction(ing.quantity),
-        });
-      }
+      mergeIntoMap(map, ing.ingredient, ing.measurement, ing.quantity);
     }
   }
-  return Array.from(map.values()).sort((a, b) =>
-    a.ingredient.localeCompare(b.ingredient)
-  );
+  return map;
 }
 
 export function ShoppingList({ weeklyRecipes, extraItems = [], onClearExtras, onAddCustomItem, pantryNames, dismissedNames, onDismissItem }) {
-  const recipeItems = useMemo(
-    () => buildShoppingList(weeklyRecipes),
-    [weeklyRecipes]
-  );
-
   const items = useMemo(() => {
-    if (extraItems.length === 0) return recipeItems;
-    const extras = extraItems.map(e => ({
-      ingredient: e.ingredient || '',
-      measurement: e.measurement || '',
-      quantity: parseFraction(e.quantity),
-      isExtra: true,
-    }));
-    return [...recipeItems, ...extras].sort((a, b) =>
+    const map = buildShoppingList(weeklyRecipes);
+    for (const e of extraItems) {
+      mergeIntoMap(map, e.ingredient || '', e.measurement || '', e.quantity);
+    }
+    return Array.from(map.values()).sort((a, b) =>
       a.ingredient.localeCompare(b.ingredient)
     );
-  }, [recipeItems, extraItems]);
+  }, [weeklyRecipes, extraItems]);
 
   const displayItems = useMemo(() => {
     return items.filter(item => {
