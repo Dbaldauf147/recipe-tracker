@@ -23,6 +23,7 @@ function saveStaples(staples) {
 export function GroceryStaples({ onMoveToShop, highlightNames }) {
   const [staples, setStaples] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [checked, setChecked] = useState(new Set());
 
   useEffect(() => {
     const saved = loadStaples();
@@ -62,6 +63,7 @@ export function GroceryStaples({ onMoveToShop, highlightNames }) {
           <table className={styles.table}>
             <thead>
               <tr>
+                <th></th>
                 <th>Qty</th>
                 <th>Measurement</th>
                 <th>Ingredient</th>
@@ -74,8 +76,35 @@ export function GroceryStaples({ onMoveToShop, highlightNames }) {
                 .sort((a, b) => (a.ingredient || '').localeCompare(b.ingredient || ''))
                 .map(({ _i: i, ...item }) => {
                   const highlighted = highlightNames && highlightNames.has((item.ingredient || '').toLowerCase().trim());
+                  const key = (item.ingredient || '').toLowerCase().trim();
+                  const done = checked.has(key);
+                  const rowClass = [
+                    highlighted ? styles.highlightRow : '',
+                    done ? styles.checkedRow : '',
+                  ].filter(Boolean).join(' ');
                   return (
-                <tr key={i} className={highlighted ? styles.highlightRow : ''}>
+                <tr key={i} className={rowClass} onClick={() => {
+                  setChecked(prev => {
+                    const next = new Set(prev);
+                    if (next.has(key)) next.delete(key); else next.add(key);
+                    return next;
+                  });
+                }}>
+                  <td className={styles.checkCell}>
+                    <input
+                      type="checkbox"
+                      className={styles.checkbox}
+                      checked={done}
+                      onChange={() => {
+                        setChecked(prev => {
+                          const next = new Set(prev);
+                          if (next.has(key)) next.delete(key); else next.add(key);
+                          return next;
+                        });
+                      }}
+                      onClick={e => e.stopPropagation()}
+                    />
+                  </td>
                   <td>
                     <input
                       className={styles.cellInput}

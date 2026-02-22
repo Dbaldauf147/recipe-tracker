@@ -90,6 +90,29 @@
   background: var(--color-danger-light);
 }
 
+.table tbody tr {
+  cursor: pointer;
+}
+
+.checkCell {
+  width: 1.5rem;
+  padding-right: 0;
+}
+
+.checkbox {
+  cursor: pointer;
+  accent-color: var(--color-accent);
+}
+
+.checkedRow .cellInput {
+  text-decoration: line-through;
+  color: var(--color-text-muted);
+}
+
+.checkedRow .checkCell {
+  text-decoration: none;
+}
+
 .highlightRow td {
   background: #fdf0ef;
   border-bottom-color: #e8b4b0;
