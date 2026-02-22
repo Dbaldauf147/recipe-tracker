@@ -2,7 +2,7 @@ import { useState, useMemo, useEffect, useRef } from 'react';
 import { RecipeCard } from './RecipeCard';
 import { fetchRecipesFromSheet } from '../utils/sheetRecipes';
 import { getUserKeyIngredients, normalize, recipeHasIngredient } from '../utils/keyIngredients';
-import { exportToCSV } from '../utils/exportData';
+import { exportToCSV, importFromCSV } from '../utils/exportData';
 import { useAuth } from '../contexts/AuthContext';
 import { loadUserData, saveField } from '../utils/firestoreSync';
 import styles from './RecipeList.module.css';
@@ -67,6 +67,7 @@ export function RecipeList({
     } catch { return new Set(); }
   });
 
+  const importFileRef = useRef(null);
   const scrolledRef = useRef(false);
   useEffect(() => {
     if (isNewUser && !scrolledRef.current) {
@@ -109,6 +110,23 @@ export function RecipeList({
     } finally {
       setImporting(false);
     }
+  }
+
+  function handleImportCSV(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const result = importFromCSV(event.target.result);
+        alert(`Imported ${result.newRecipes} new recipe${result.newRecipes !== 1 ? 's' : ''} (${result.totalRecipes - result.newRecipes} already existed). Reloading...`);
+        window.location.reload();
+      } catch (err) {
+        alert('Import failed: ' + err.message);
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = '';
   }
 
   // Collect all preset meal types + any custom ones from recipes
@@ -375,11 +393,24 @@ export function RecipeList({
       <div className={styles.header}>
         <h2 className={styles.heading}>My Recipes</h2>
         <div className={styles.actions}>
+          <input
+            ref={importFileRef}
+            type="file"
+            accept=".csv"
+            style={{ display: 'none' }}
+            onChange={handleImportCSV}
+          />
+          <button
+            className={styles.importBtn}
+            onClick={() => importFileRef.current?.click()}
+          >
+            Import Recipe Data
+          </button>
           <button
             className={styles.importBtn}
             onClick={exportToCSV}
           >
-            Export Data
+            Export Recipe Data
           </button>
           {user?.email === 'baldaufdan@gmail.com' && (
             <button

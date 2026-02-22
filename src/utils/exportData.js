@@ -1,3 +1,153 @@
+function parseCSVLine(line) {
+  const values = [];
+  let current = '';
+  let inQuotes = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (inQuotes) {
+      if (ch === '"') {
+        if (i + 1 < line.length && line[i + 1] === '"') {
+          current += '"';
+          i++;
+        } else {
+          inQuotes = false;
+        }
+      } else {
+        current += ch;
+      }
+    } else {
+      if (ch === '"') {
+        inQuotes = true;
+      } else if (ch === ',') {
+        values.push(current);
+        current = '';
+      } else {
+        current += ch;
+      }
+    }
+  }
+  values.push(current);
+  return values;
+}
+
+function parseCSVSections(text) {
+  const lines = text.split('\n');
+  const sections = {};
+  let currentSection = null;
+  let headers = null;
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+
+    const sectionMatch = trimmed.match(/^=== (.+) ===$/);
+    if (sectionMatch) {
+      currentSection = sectionMatch[1];
+      sections[currentSection] = [];
+      headers = null;
+      continue;
+    }
+
+    if (currentSection && !headers) {
+      headers = parseCSVLine(trimmed);
+      continue;
+    }
+
+    if (currentSection && headers) {
+      const values = parseCSVLine(trimmed);
+      const row = {};
+      headers.forEach((h, i) => { row[h] = values[i] || ''; });
+      sections[currentSection].push(row);
+    }
+  }
+
+  return sections;
+}
+
+export function importFromCSV(fileContent) {
+  const sections = parseCSVSections(fileContent);
+
+  // Build recipe objects from Recipes + Recipe Ingredients
+  const recipeRows = sections['Recipes'] || [];
+  const ingredientRows = sections['Recipe Ingredients'] || [];
+
+  const ingByTitle = {};
+  for (const row of ingredientRows) {
+    const title = row['Recipe Title'];
+    if (!title) continue;
+    if (!ingByTitle[title]) ingByTitle[title] = [];
+    ingByTitle[title].push({
+      quantity: row['Quantity'],
+      measurement: row['Measurement'],
+      ingredient: row['Ingredient'],
+    });
+  }
+
+  const importedRecipes = recipeRows
+    .filter(r => r['Title'])
+    .map(r => ({
+      title: r['Title'],
+      category: r['Category'],
+      frequency: r['Frequency'],
+      mealType: r['Meal Type'],
+      servings: r['Servings'],
+      prepTime: r['Prep Time'],
+      cookTime: r['Cook Time'],
+      description: r['Description'],
+      sourceUrl: r['Source URL'],
+      instructions: r['Instructions'],
+      ingredients: ingByTitle[r['Title']] || [],
+    }));
+
+  // Merge recipes (add new, skip existing by title)
+  const existing = JSON.parse(localStorage.getItem('recipe-tracker-recipes') || '[]');
+  const existingTitles = new Set(existing.map(r => r.title.toLowerCase()));
+  const newRecipes = importedRecipes
+    .filter(r => !existingTitles.has(r.title.toLowerCase()))
+    .map(r => ({ ...r, id: crypto.randomUUID(), createdAt: new Date().toISOString() }));
+  const allRecipes = [...newRecipes, ...existing];
+  localStorage.setItem('recipe-tracker-recipes', JSON.stringify(allRecipes));
+
+  // Build title→id map for resolving references
+  const titleToId = new Map(allRecipes.map(r => [r.title, r.id]));
+
+  // Key Ingredients
+  const keyRows = (sections['Key Ingredients'] || []).map(r => r['Ingredient']).filter(Boolean);
+  if (keyRows.length) localStorage.setItem('sunday-key-ingredients', JSON.stringify(keyRows));
+
+  // Weekly Plan — resolve titles back to IDs
+  const weekRows = (sections['Weekly Plan'] || []);
+  const weekIds = weekRows.map(r => titleToId.get(r['Recipe Title'])).filter(Boolean);
+  if (weekIds.length) localStorage.setItem('sunday-weekly-plan', JSON.stringify(weekIds));
+
+  // Plan History — resolve titles back to IDs
+  const historyRows = sections['Plan History'] || [];
+  if (historyRows.length) {
+    const history = historyRows.map(r => {
+      const titles = (r['Recipe Titles'] || '').split('; ').filter(Boolean);
+      const recipeIds = titles.map(t => titleToId.get(t)).filter(Boolean);
+      return { date: r['Date'], recipeIds, timestamp: r['Timestamp'] };
+    });
+    localStorage.setItem('sunday-plan-history', JSON.stringify(history));
+  }
+
+  // Grocery Staples
+  const staples = (sections['Grocery Staples'] || [])
+    .filter(r => r['Ingredient'])
+    .map(r => ({ quantity: r['Quantity'], measurement: r['Measurement'], ingredient: r['Ingredient'] }));
+  if (staples.length) localStorage.setItem('sunday-grocery-staples', JSON.stringify(staples));
+
+  // Pantry Spices
+  const spices = (sections['Pantry Spices'] || []).map(r => r['Ingredient']).filter(Boolean);
+  if (spices.length) localStorage.setItem('sunday-pantry-spices', JSON.stringify(spices));
+
+  // Pantry Sauces
+  const sauces = (sections['Pantry Sauces'] || []).map(r => r['Ingredient']).filter(Boolean);
+  if (sauces.length) localStorage.setItem('sunday-pantry-sauces', JSON.stringify(sauces));
+
+  return { newRecipes: newRecipes.length, totalRecipes: importedRecipes.length };
+}
+
 function csvEscape(value) {
   const str = String(value ?? '');
   if (str.includes(',') || str.includes('"') || str.includes('\n')) {
