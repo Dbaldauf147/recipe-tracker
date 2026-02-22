@@ -36,11 +36,16 @@
   color: var(--color-text-muted);
 }
 
+.topRow {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.75rem;
+}
+
 .actions {
   display: flex;
   gap: 0.5rem;
-  justify-content: center;
-  margin-bottom: 1rem;
 }
 
 .actionBtn {
@@ -159,8 +164,6 @@
 .addRow {
   display: flex;
   gap: 0.5rem;
-  margin-bottom: 1.25rem;
-  justify-content: center;
 }
 
 .addInput {

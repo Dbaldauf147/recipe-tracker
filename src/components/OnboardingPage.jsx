@@ -148,19 +148,38 @@ export function OnboardingPage({ onComplete }) {
         <h2 className={styles.title}>What kinds of food would you like to eat on a regular basis?</h2>
         <p className={styles.subtitle}>(Don't worry, you can update this later)</p>
 
-        <div className={styles.actions}>
-          <button
-            className={styles.actionBtn}
-            onClick={() => setSelected(new Set(allIngredientKeys))}
-          >
-            Select All
-          </button>
-          <button
-            className={styles.actionBtn}
-            onClick={() => setSelected(new Set())}
-          >
-            Deselect All
-          </button>
+        <div className={styles.topRow}>
+          <div className={styles.actions}>
+            <button
+              className={styles.actionBtn}
+              onClick={() => setSelected(new Set(allIngredientKeys))}
+            >
+              Select All
+            </button>
+            <button
+              className={styles.actionBtn}
+              onClick={() => setSelected(new Set())}
+            >
+              Deselect All
+            </button>
+          </div>
+          <div className={styles.addRow}>
+            <input
+              className={styles.addInput}
+              type="text"
+              placeholder="Add custom ingredient"
+              value={customInput}
+              onChange={e => setCustomInput(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') handleAddCustom(); }}
+            />
+            <button
+              className={styles.addBtn}
+              onClick={handleAddCustom}
+              disabled={!customInput.trim()}
+            >
+              Add
+            </button>
+          </div>
         </div>
 
         <div className={styles.grid}>
@@ -180,26 +199,6 @@ export function OnboardingPage({ onComplete }) {
             </div>
           </div>
         )}
-
-        <div className={styles.addRow}>
-          <input
-            className={styles.addInput}
-            type="text"
-            placeholder="Add custom ingredient"
-            value={customInput}
-            onChange={e => setCustomInput(e.target.value)}
-            onKeyDown={e => { if (e.key === 'Enter') handleAddCustom(); }}
-          />
-          <button
-            className={styles.addBtn}
-            onClick={handleAddCustom}
-            disabled={!customInput.trim()}
-          >
-            Add
-          </button>
-        </div>
-
-        <p className={styles.counter}>{selected.size} ingredients selected</p>
 
         <button
           className={styles.startBtn}
