@@ -50,6 +50,17 @@
   }
 }
 
+.mealsLine {
+  margin: 0 0 0.5rem;
+  font-size: 0.85rem;
+  color: var(--color-text-secondary);
+}
+
+.mealsLabel {
+  font-weight: 600;
+  color: var(--color-text-muted);
+}
+
 .pantryMatchBox {
   background: var(--color-surface);
   border: 1px solid var(--color-border);

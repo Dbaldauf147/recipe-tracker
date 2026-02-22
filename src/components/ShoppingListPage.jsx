@@ -122,8 +122,11 @@ export function ShoppingListPage({ weeklyRecipes, onClose }) {
 
     setExtras([]);
     saveExtras([]);
+    setDismissed([]);
+    localStorage.setItem(DISMISSED_KEY, JSON.stringify([]));
+    if (user) saveField(user.uid, 'shopDismissed', []);
     setResetKey(k => k + 1);
-  }, [extras]);
+  }, [extras, user]);
 
   const handleDismissItem = useCallback((ingredientName) => {
     setDismissed(prev => {
@@ -203,6 +206,13 @@ export function ShoppingListPage({ weeklyRecipes, onClose }) {
         </button>
         <h2 className={styles.title}>Shopping List</h2>
       </div>
+
+      {weeklyRecipes.length > 0 && (
+        <p className={styles.mealsLine}>
+          <span className={styles.mealsLabel}>Meals: </span>
+          {weeklyRecipes.map(r => r.title).join(', ')}
+        </p>
+      )}
 
       <div className={styles.grid}>
         <div className={styles.cell}>
