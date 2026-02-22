@@ -106,6 +106,44 @@ export function OnboardingPage({ onComplete }) {
 
   const isCustom = key => customIngredients.includes(key);
 
+  // Split ingredients into 3 columns
+  const columns = useMemo(() => {
+    const cols = [[], [], []];
+    filtered.forEach((key, i) => cols[i % 3].push(key));
+    return cols;
+  }, [filtered]);
+
+  function renderItem(key) {
+    return (
+      <div
+        key={key}
+        className={`${styles.item} ${selected.has(key) ? styles.itemSelected : ''}`}
+        onClick={() => toggle(key)}
+      >
+        <input
+          type="checkbox"
+          className={styles.checkbox}
+          checked={selected.has(key)}
+          onChange={() => toggle(key)}
+          onClick={e => e.stopPropagation()}
+        />
+        <span className={styles.emoji}>{getEmoji(key)}</span>
+        <span className={styles.name}>
+          {displayName(key)}
+        </span>
+        {isCustom(key) && (
+          <button
+            className={styles.removeBtn}
+            onClick={e => { e.stopPropagation(); handleRemoveCustom(key); }}
+            title="Remove custom ingredient"
+          >
+            &times;
+          </button>
+        )}
+      </div>
+    );
+  }
+
   return (
     <div className={styles.page}>
       <div className={styles.card}>
@@ -121,41 +159,12 @@ export function OnboardingPage({ onComplete }) {
           onChange={e => setSearch(e.target.value)}
         />
 
-        <div className={styles.tableWrap}>
-          <table className={styles.table}>
-            <tbody>
-              {filtered.map(key => (
-                <tr
-                  key={key}
-                  className={`${styles.row} ${selected.has(key) ? styles.rowSelected : ''}`}
-                  onClick={() => toggle(key)}
-                >
-                  <td className={styles.checkCell}>
-                    <input
-                      type="checkbox"
-                      className={styles.checkbox}
-                      checked={selected.has(key)}
-                      onChange={() => toggle(key)}
-                      onClick={e => e.stopPropagation()}
-                    />
-                  </td>
-                  <td className={styles.emojiCell}>{getEmoji(key)}</td>
-                  <td className={styles.nameCell}>
-                    {displayName(key)}
-                    {isCustom(key) && (
-                      <button
-                        className={styles.removeBtn}
-                        onClick={e => { e.stopPropagation(); handleRemoveCustom(key); }}
-                        title="Remove custom ingredient"
-                      >
-                        &times;
-                      </button>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <div className={styles.grid}>
+          {columns.map((col, ci) => (
+            <div key={ci} className={styles.column}>
+              {col.map(key => renderItem(key))}
+            </div>
+          ))}
         </div>
 
         <div className={styles.addRow}>
