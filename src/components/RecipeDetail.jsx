@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { NutritionPanel } from './NutritionPanel';
 import styles from './RecipeDetail.module.css';
 
@@ -145,6 +145,18 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack }) {
     setFields(initFields(recipe));
     onBack();
   }
+
+  // Auto-save after 500ms of inactivity
+  const initialRef = useRef(true);
+  useEffect(() => {
+    if (!fields || initialRef.current) {
+      initialRef.current = false;
+      return;
+    }
+    const timer = setTimeout(() => handleSave(), 500);
+    return () => clearTimeout(timer);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fields]);
 
   if (!recipe) {
     return (
@@ -379,12 +391,6 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack }) {
       </div>
 
       <div className={styles.actions}>
-        <button className={styles.saveBtn} onClick={handleSave}>
-          Save
-        </button>
-        <button className={styles.cancelBtn} onClick={handleCancel}>
-          Cancel
-        </button>
         <button
           className={styles.deleteBtn}
           onClick={() => {
