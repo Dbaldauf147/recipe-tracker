@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { loadUserData } from '../utils/firestoreSync';
+import { getUserKeyIngredients, normalize, recipeHasIngredient } from '../utils/keyIngredients';
 import styles from './RecipePickerPage.module.css';
 
 const ADMIN_UID = import.meta.env.VITE_ADMIN_UID;
@@ -12,10 +13,24 @@ const CATEGORIES = [
   { key: 'drinks', label: 'Drinks' },
 ];
 
+function countMatchingIngredients(recipe, normKeys) {
+  let count = 0;
+  for (const nk of normKeys) {
+    if (recipeHasIngredient(recipe, nk)) count++;
+  }
+  return count;
+}
+
 export function RecipePickerPage({ onComplete }) {
   const [adminRecipes, setAdminRecipes] = useState(null);
   const [selected, setSelected] = useState(() => new Set());
   const [error, setError] = useState(null);
+
+  const userKeyIngredients = useMemo(() => getUserKeyIngredients(), []);
+  const normKeys = useMemo(
+    () => userKeyIngredients.map(k => normalize(k)),
+    [userKeyIngredients]
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -25,8 +40,9 @@ export function RecipePickerPage({ onComplete }) {
         if (cancelled) return;
         const recipes = data?.recipes || [];
         setAdminRecipes(recipes);
-        // Pre-select all recipes
-        setSelected(new Set(recipes.map(r => r.id)));
+        // Pre-select only recipes that match at least one key ingredient
+        const matching = recipes.filter(r => countMatchingIngredients(r, normKeys) > 0);
+        setSelected(new Set(matching.map(r => r.id)));
       } catch (err) {
         if (!cancelled) setError('Failed to load starter recipes');
         console.error('Failed to load admin recipes:', err);
@@ -34,13 +50,21 @@ export function RecipePickerPage({ onComplete }) {
     }
     fetchAdminRecipes();
     return () => { cancelled = true; };
-  }, []);
+  }, [normKeys]);
 
-  const grouped = useMemo(() => {
-    if (!adminRecipes) return null;
+  // Filter to only recipes matching at least one key ingredient, grouped by category
+  const { grouped, matchCounts } = useMemo(() => {
+    if (!adminRecipes) return { grouped: null, matchCounts: {} };
+    const counts = {};
+    const matching = [];
+    for (const recipe of adminRecipes) {
+      const mc = countMatchingIngredients(recipe, normKeys);
+      counts[recipe.id] = mc;
+      if (mc > 0) matching.push(recipe);
+    }
     const groups = {};
     for (const cat of CATEGORIES) groups[cat.key] = [];
-    for (const recipe of adminRecipes) {
+    for (const recipe of matching) {
       const key = recipe.category || 'lunch-dinner';
       if (groups[key]) {
         groups[key].push(recipe);
@@ -48,12 +72,14 @@ export function RecipePickerPage({ onComplete }) {
         groups['lunch-dinner'].push(recipe);
       }
     }
-    // Sort alphabetically within each group
+    // Sort by match count (descending), then alphabetically
     for (const cat of CATEGORIES) {
-      groups[cat.key].sort((a, b) => a.title.localeCompare(b.title));
+      groups[cat.key].sort((a, b) =>
+        counts[b.id] - counts[a.id] || a.title.localeCompare(b.title)
+      );
     }
-    return groups;
-  }, [adminRecipes]);
+    return { grouped: groups, matchCounts: counts };
+  }, [adminRecipes, normKeys]);
 
   function toggle(id) {
     setSelected(prev => {
@@ -66,7 +92,8 @@ export function RecipePickerPage({ onComplete }) {
 
   function selectAll() {
     if (!adminRecipes) return;
-    setSelected(new Set(adminRecipes.map(r => r.id)));
+    const matching = adminRecipes.filter(r => (matchCounts[r.id] || 0) > 0);
+    setSelected(new Set(matching.map(r => r.id)));
   }
 
   function deselectAll() {
@@ -76,10 +103,6 @@ export function RecipePickerPage({ onComplete }) {
   function handleSubmit() {
     const chosen = (adminRecipes || []).filter(r => selected.has(r.id));
     onComplete(chosen);
-  }
-
-  function ingredientCount(recipe) {
-    return (recipe.ingredients || []).length;
   }
 
   if (error) {
@@ -112,7 +135,7 @@ export function RecipePickerPage({ onComplete }) {
     <div className={styles.page}>
       <div className={styles.card}>
         <img className={styles.logo} src="/sunday-logo.png" alt="Sunday" />
-        <h2 className={styles.title}>Pick some recipes to get started</h2>
+        <h2 className={styles.title}>Recipes matching your ingredients</h2>
         <p className={styles.subtitle}>(You can always add or remove recipes later)</p>
 
         <div className={styles.actions}>
@@ -141,8 +164,8 @@ export function RecipePickerPage({ onComplete }) {
                       onClick={e => e.stopPropagation()}
                     />
                     <span className={styles.recipeTitle}>{recipe.title}</span>
-                    <span className={styles.ingredientCount}>
-                      {ingredientCount(recipe)} ingredient{ingredientCount(recipe) !== 1 ? 's' : ''}
+                    <span className={styles.matchCount}>
+                      {matchCounts[recipe.id]} match{matchCounts[recipe.id] !== 1 ? 'es' : ''}
                     </span>
                   </div>
                 ))}
