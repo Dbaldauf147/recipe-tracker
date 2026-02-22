@@ -228,6 +228,7 @@
   gap: 1rem;
   margin-bottom: 1.5rem;
   align-items: start;
+  max-width: 45%;
 }
 
 /* ── This Week's Menu ── */
@@ -580,9 +581,8 @@
 /* ── Add Recipe Box ── */
 
 .addRecipeBox {
-  position: fixed;
-  right: 1in;
-  top: 8rem;
+  position: sticky;
+  top: 1rem;
   width: 320px;
   background: var(--color-surface);
   border: 1px solid var(--color-border);
@@ -590,6 +590,7 @@
   padding: 1.25rem;
   box-shadow: var(--shadow-md);
   z-index: 10;
+  align-self: start;
 }
 
 .addRecipeHeading {
