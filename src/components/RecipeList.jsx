@@ -516,81 +516,42 @@ export function RecipeList({
         </div>
       </div>
 
-      {/* Add Recipe (fixed sidebar) */}
+      {/* Discover Recipes (fixed sidebar) */}
       <div className={styles.addRecipeBox}>
-        <h3 className={styles.addRecipeHeading}>Add Recipe</h3>
-        <form
-          className={styles.addRecipeForm}
-          onSubmit={e => {
-            e.preventDefault();
-            const trimmed = quickTitle.trim();
-            if (!trimmed) return;
-            onAddRecipe({ title: trimmed, category: quickCategory });
-            setQuickTitle('');
-            setQuickCategory('lunch-dinner');
-          }}
-        >
-          <input
-            className={styles.addRecipeInput}
-            type="text"
-            placeholder="Recipe title"
-            value={quickTitle}
-            onChange={e => setQuickTitle(e.target.value)}
-          />
-          <select
-            className={styles.addRecipeSelect}
-            value={quickCategory}
-            onChange={e => setQuickCategory(e.target.value)}
-          >
-            {CATEGORIES.map(cat => (
-              <option key={cat.key} value={cat.key}>{cat.label}</option>
-            ))}
-          </select>
-          <button
-            className={styles.addRecipeSubmit}
-            type="submit"
-            disabled={!quickTitle.trim()}
-          >
-            Add
-          </button>
-        </form>
-
-        <div className={styles.importSection}>
-          <h4 className={styles.importSectionHeading}>Import Recipe</h4>
-          <input
-            className={styles.addRecipeInput}
-            type="text"
-            placeholder="Search recipes..."
-            value={importSearch}
-            onChange={e => setImportSearch(e.target.value)}
-          />
-          <div className={styles.importList}>
-            {importableRecipes.slice(0, 5).map(recipe => (
-              <div key={recipe.id} className={styles.importItem}>
-                <div className={styles.importInfo}>
-                  <span className={styles.importName}>{recipe.title}</span>
-                  <span className={styles.importCategory}>
-                    {CATEGORIES.find(c => c.key === (recipe.category || 'lunch-dinner'))?.label || 'Lunch & Dinner'}
-                  </span>
-                </div>
-                <button
-                  className={styles.importAddBtn}
-                  onClick={() => handleAddDiscover(recipe)}
-                  title="Import recipe"
-                >
-                  +
-                </button>
+        <h3 className={styles.addRecipeHeading}>Discover Recipes</h3>
+        <input
+          className={styles.addRecipeInput}
+          type="text"
+          placeholder="Search recipes..."
+          value={importSearch}
+          onChange={e => setImportSearch(e.target.value)}
+        />
+        <div className={styles.importList}>
+          {importableRecipes.slice(0, 5).map(recipe => (
+            <div key={recipe.id} className={styles.importItem}>
+              <div className={styles.importInfo}>
+                <span className={styles.importName}>{recipe.title}</span>
+                <span className={styles.importCategory}>
+                  {CATEGORIES.find(c => c.key === (recipe.category || 'lunch-dinner'))?.label || 'Lunch & Dinner'}
+                </span>
               </div>
-            ))}
-            {adminRecipes && importableRecipes.length === 0 && (
-              <p className={styles.importEmpty}>
-                {importSearch.trim() ? 'No matches' : 'All imported'}
-              </p>
-            )}
-            {!adminRecipes && (
-              <p className={styles.importEmpty}>Loading...</p>
-            )}
-          </div>
+              <button
+                className={styles.importAddBtn}
+                onClick={() => handleAddDiscover(recipe)}
+                title="Add to My Recipes"
+              >
+                +
+              </button>
+            </div>
+          ))}
+          {adminRecipes && importableRecipes.length === 0 && (
+            <p className={styles.importEmpty}>
+              {importSearch.trim() ? 'No matches' : 'All imported'}
+            </p>
+          )}
+          {!adminRecipes && (
+            <p className={styles.importEmpty}>Loading...</p>
+          )}
         </div>
       </div>
 
@@ -691,31 +652,6 @@ export function RecipeList({
           ))}
         </div>
       </div>
-      {discoverRecipes.length > 0 && (
-        <div className={styles.discoverBox}>
-          <h3 className={styles.discoverHeading}>Discover Recipes</h3>
-          <p className={styles.discoverSubtext}>Based on your key ingredients</p>
-          <div className={styles.discoverList}>
-            {discoverRecipes.map(recipe => (
-              <div key={recipe.id} className={styles.discoverItem}>
-                <div className={styles.discoverInfo}>
-                  <span className={styles.discoverName}>{recipe.title}</span>
-                  <span className={styles.discoverCategory}>
-                    {CATEGORIES.find(c => c.key === (recipe.category || 'lunch-dinner'))?.label || 'Lunch & Dinner'}
-                  </span>
-                </div>
-                <button
-                  className={styles.discoverAddBtn}
-                  onClick={() => handleAddDiscover(recipe)}
-                  title="Add to My Recipes"
-                >
-                  +
-                </button>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
     </div>
   );
 }
