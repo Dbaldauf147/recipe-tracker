@@ -51,7 +51,7 @@ function buildShoppingList(recipes) {
   );
 }
 
-export function ShoppingList({ weeklyRecipes, extraItems = [], onClearExtras, onAddCustomItem }) {
+export function ShoppingList({ weeklyRecipes, extraItems = [], onClearExtras, onAddCustomItem, pantryNames }) {
   const recipeItems = useMemo(
     () => buildShoppingList(weeklyRecipes),
     [weeklyRecipes]
@@ -69,6 +69,11 @@ export function ShoppingList({ weeklyRecipes, extraItems = [], onClearExtras, on
       a.ingredient.localeCompare(b.ingredient)
     );
   }, [recipeItems, extraItems]);
+
+  const displayItems = useMemo(() => {
+    if (!pantryNames || pantryNames.size === 0) return items;
+    return items.filter(item => !pantryNames.has(item.ingredient.toLowerCase().trim()));
+  }, [items, pantryNames]);
 
   const ingredientLinks = useMemo(() => {
     const db = loadIngredients() || [];
@@ -104,7 +109,7 @@ export function ShoppingList({ weeklyRecipes, extraItems = [], onClearExtras, on
     setNewItem('');
   }
 
-  if (items.length === 0) {
+  if (displayItems.length === 0) {
     return (
       <div className={styles.panel}>
         <h2 className={styles.heading}>Shopping List</h2>
@@ -116,18 +121,32 @@ export function ShoppingList({ weeklyRecipes, extraItems = [], onClearExtras, on
   return (
     <div className={styles.panel}>
       <div className={styles.headingRow}>
-        <div>
-          <h2 className={styles.heading}>Shopping List</h2>
-          <p className={styles.subtext}>
-            {weeklyRecipes.length} recipe{weeklyRecipes.length !== 1 ? 's' : ''} this week
-          </p>
-        </div>
+        <h2 className={styles.heading}>Shopping List</h2>
         {extraItems.length > 0 && (
           <button className={styles.clearBtn} onClick={onClearExtras}>
             Return items ({extraItems.length})
           </button>
         )}
       </div>
+      {onAddCustomItem && (
+        adding ? (
+          <div className={styles.addRow}>
+            <input
+              className={styles.addInput}
+              type="text"
+              placeholder="Item name"
+              value={newItem}
+              onChange={e => setNewItem(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') handleAddSubmit(); }}
+              autoFocus
+            />
+            <button className={styles.addBtn} onClick={handleAddSubmit}>Add</button>
+            <button className={styles.addBtn} onClick={() => { setAdding(false); setNewItem(''); }}>Cancel</button>
+          </div>
+        ) : (
+          <button className={styles.addToggle} onClick={() => setAdding(true)}>+ Add item</button>
+        )
+      )}
       <table className={styles.table}>
         <thead>
           <tr>
@@ -139,7 +158,7 @@ export function ShoppingList({ weeklyRecipes, extraItems = [], onClearExtras, on
           </tr>
         </thead>
         <tbody>
-          {items.map((item, i) => {
+          {displayItems.map((item, i) => {
             const key = `${item.ingredient}|||${item.measurement}`;
             const done = checked.has(key);
             const link = ingredientLinks[item.ingredient.toLowerCase().trim()];
@@ -179,25 +198,6 @@ export function ShoppingList({ weeklyRecipes, extraItems = [], onClearExtras, on
           })}
         </tbody>
       </table>
-      {onAddCustomItem && (
-        adding ? (
-          <div className={styles.addRow}>
-            <input
-              className={styles.addInput}
-              type="text"
-              placeholder="Item name"
-              value={newItem}
-              onChange={e => setNewItem(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter') handleAddSubmit(); }}
-              autoFocus
-            />
-            <button className={styles.addBtn} onClick={handleAddSubmit}>Add</button>
-            <button className={styles.addBtn} onClick={() => { setAdding(false); setNewItem(''); }}>Cancel</button>
-          </div>
-        ) : (
-          <button className={styles.addToggle} onClick={() => setAdding(true)}>+ Add item</button>
-        )
-      )}
     </div>
   );
 }

@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import { ShoppingList } from './ShoppingList';
 import { GroceryStaples } from './GroceryStaples';
 import { PantryList } from './PantryList';
@@ -114,6 +114,38 @@ export function ShoppingListPage({ weeklyRecipes, onClose }) {
     setResetKey(k => k + 1);
   }, [extras]);
 
+  const pantryNames = useMemo(() => {
+    const names = new Set();
+    try {
+      const spices = JSON.parse(localStorage.getItem('sunday-pantry-spices') || '[]');
+      const sauces = JSON.parse(localStorage.getItem('sunday-pantry-sauces') || '[]');
+      for (const item of [...spices, ...sauces]) {
+        if (item.ingredient) names.add(item.ingredient.toLowerCase().trim());
+      }
+    } catch {}
+    return names;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [resetKey, extras.length]);
+
+  const pantryMatchedItems = useMemo(() => {
+    const matched = new Map();
+    for (const recipe of weeklyRecipes) {
+      for (const ing of (recipe.ingredients || [])) {
+        const name = (ing.ingredient || '').toLowerCase().trim();
+        if (name && pantryNames.has(name) && !matched.has(name)) {
+          matched.set(name, ing.ingredient.trim());
+        }
+      }
+    }
+    for (const e of extras) {
+      const name = (e.ingredient || '').toLowerCase().trim();
+      if (name && pantryNames.has(name) && !matched.has(name)) {
+        matched.set(name, e.ingredient.trim());
+      }
+    }
+    return [...matched.values()].sort();
+  }, [weeklyRecipes, extras, pantryNames]);
+
   return (
     <div className={styles.container}>
       <div className={styles.header}>
@@ -130,9 +162,23 @@ export function ShoppingListPage({ weeklyRecipes, onClose }) {
             extraItems={extras}
             onClearExtras={handleClearExtras}
             onAddCustomItem={handleAddCustomItem}
+            pantryNames={pantryNames}
           />
         </div>
         <div className={styles.cell}>
+          {pantryMatchedItems.length > 0 && (
+            <div className={styles.pantryMatchBox}>
+              <h3 className={styles.pantryMatchHeading}>Already In Your Pantry</h3>
+              <p className={styles.pantryMatchSubtext}>
+                These recipe ingredients were removed from the shopping list
+              </p>
+              <ul className={styles.pantryMatchList}>
+                {pantryMatchedItems.map(name => (
+                  <li key={name} className={styles.pantryMatchItem}>{name}</li>
+                ))}
+              </ul>
+            </div>
+          )}
           <GroceryStaples key={resetKey} onMoveToShop={handleMoveToShop} />
         </div>
         <div className={styles.cell}>
