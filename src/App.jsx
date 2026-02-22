@@ -195,6 +195,7 @@ function AppContent({ user, logOut, isNewUser }) {
           })}
         </nav>
         <div className={styles.settingsWrapper} ref={settingsRef}>
+          <span className={styles.userName}>{user.displayName}</span>
           <button
             className={styles.settingsBtn}
             onClick={() => setSettingsOpen(prev => !prev)}

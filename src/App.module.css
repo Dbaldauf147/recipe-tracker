@@ -67,6 +67,15 @@
   margin-left: 0.75rem;
   padding-left: 0.75rem;
   border-left: 1px solid rgba(255, 255, 255, 0.2);
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.userName {
+  font-size: 0.82rem;
+  color: rgba(255, 255, 255, 0.7);
+  white-space: nowrap;
 }
 
 .settingsBtn {
