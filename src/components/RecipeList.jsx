@@ -2,7 +2,7 @@ import { useState, useMemo, useEffect, useRef } from 'react';
 import { RecipeCard } from './RecipeCard';
 import { fetchRecipesFromSheet } from '../utils/sheetRecipes';
 import { getUserKeyIngredients, normalize, recipeHasIngredient } from '../utils/keyIngredients';
-import { exportToExcel } from '../utils/exportData';
+import { exportToCSV } from '../utils/exportData';
 import { useAuth } from '../contexts/AuthContext';
 import { loadUserData, saveField } from '../utils/firestoreSync';
 import styles from './RecipeList.module.css';
@@ -377,17 +377,19 @@ export function RecipeList({
         <div className={styles.actions}>
           <button
             className={styles.importBtn}
-            onClick={exportToExcel}
+            onClick={exportToCSV}
           >
             Export Data
           </button>
-          <button
-            className={styles.importBtn}
-            onClick={handleImport}
-            disabled={importing}
-          >
-            {importing ? 'Importing...' : 'Import from Sheet'}
-          </button>
+          {user?.email === 'baldaufdan@gmail.com' && (
+            <button
+              className={styles.importBtn}
+              onClick={handleImport}
+              disabled={importing}
+            >
+              {importing ? 'Importing...' : 'Import from Sheet'}
+            </button>
+          )}
           <button className={styles.addBtn} onClick={onAdd}>
             + Add Recipe
           </button>

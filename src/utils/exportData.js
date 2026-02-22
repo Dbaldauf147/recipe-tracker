@@ -1,78 +1,78 @@
-import * as XLSX from 'xlsx';
+function csvEscape(value) {
+  const str = String(value ?? '');
+  if (str.includes(',') || str.includes('"') || str.includes('\n')) {
+    return '"' + str.replace(/"/g, '""') + '"';
+  }
+  return str;
+}
 
-export function exportToExcel() {
-  const wb = XLSX.utils.book_new();
+function toCSVSection(title, headers, rows) {
+  const lines = [`=== ${title} ===`];
+  lines.push(headers.map(csvEscape).join(','));
+  for (const row of rows) {
+    lines.push(row.map(csvEscape).join(','));
+  }
+  lines.push('');
+  return lines.join('\n');
+}
 
-  // --- Recipes ---
+export function exportToCSV() {
   const recipes = JSON.parse(localStorage.getItem('recipe-tracker-recipes') || '[]');
-  const recipeRows = recipes.map(r => ({
-    Title: r.title || '',
-    Category: r.category || '',
-    Frequency: r.frequency || '',
-    'Meal Type': r.mealType || '',
-    Servings: r.servings || '',
-    'Prep Time': r.prepTime || '',
-    'Cook Time': r.cookTime || '',
-    Description: r.description || '',
-    'Source URL': r.sourceUrl || '',
-    Instructions: r.instructions || '',
-  }));
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(recipeRows.length ? recipeRows : [{}]), 'Recipes');
+  const recipeMap = new Map(recipes.map(r => [r.id, r.title]));
+  const sections = [];
 
-  // --- Recipe Ingredients ---
-  const ingredientRows = [];
+  // Recipes
+  sections.push(toCSVSection('Recipes',
+    ['Title', 'Category', 'Frequency', 'Meal Type', 'Servings', 'Prep Time', 'Cook Time', 'Description', 'Source URL', 'Instructions'],
+    recipes.map(r => [r.title, r.category, r.frequency, r.mealType, r.servings, r.prepTime, r.cookTime, r.description, r.sourceUrl, r.instructions])
+  ));
+
+  // Recipe Ingredients
+  const ingRows = [];
   for (const r of recipes) {
     for (const ing of r.ingredients || []) {
-      ingredientRows.push({
-        'Recipe Title': r.title || '',
-        Quantity: ing.quantity || '',
-        Measurement: ing.measurement || '',
-        Ingredient: ing.ingredient || '',
-      });
+      ingRows.push([r.title, ing.quantity, ing.measurement, ing.ingredient]);
     }
   }
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(ingredientRows.length ? ingredientRows : [{}]), 'Recipe Ingredients');
+  sections.push(toCSVSection('Recipe Ingredients',
+    ['Recipe Title', 'Quantity', 'Measurement', 'Ingredient'], ingRows));
 
-  // --- Key Ingredients ---
+  // Key Ingredients
   const keyIngredients = JSON.parse(localStorage.getItem('sunday-key-ingredients') || '[]');
-  const keyRows = keyIngredients.map(i => ({ Ingredient: i }));
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(keyRows.length ? keyRows : [{}]), 'Key Ingredients');
+  sections.push(toCSVSection('Key Ingredients', ['Ingredient'],
+    keyIngredients.map(i => [i])));
 
-  // --- Weekly Plan ---
+  // Weekly Plan
   const weeklyPlan = JSON.parse(localStorage.getItem('sunday-weekly-plan') || '[]');
-  const recipeMap = new Map(recipes.map(r => [r.id, r.title]));
-  const weekRows = weeklyPlan.map(id => ({ 'Recipe Title': recipeMap.get(id) || id }));
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(weekRows.length ? weekRows : [{}]), 'Weekly Plan');
+  sections.push(toCSVSection('Weekly Plan', ['Recipe Title'],
+    weeklyPlan.map(id => [recipeMap.get(id) || id])));
 
-  // --- Plan History ---
+  // Plan History
   const history = JSON.parse(localStorage.getItem('sunday-plan-history') || '[]');
-  const historyRows = history.map(entry => ({
-    Date: entry.date || '',
-    'Recipe Titles': (entry.recipeIds || []).map(id => recipeMap.get(id) || id).join(', '),
-    Timestamp: entry.timestamp || '',
-  }));
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(historyRows.length ? historyRows : [{}]), 'Plan History');
+  sections.push(toCSVSection('Plan History', ['Date', 'Recipe Titles', 'Timestamp'],
+    history.map(e => [e.date, (e.recipeIds || []).map(id => recipeMap.get(id) || id).join('; '), e.timestamp])));
 
-  // --- Grocery Staples ---
+  // Grocery Staples
   const staples = JSON.parse(localStorage.getItem('sunday-grocery-staples') || '[]');
-  const stapleRows = staples.map(s => ({
-    Quantity: s.quantity || '',
-    Measurement: s.measurement || '',
-    Ingredient: s.ingredient || '',
-  }));
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(stapleRows.length ? stapleRows : [{}]), 'Grocery Staples');
+  sections.push(toCSVSection('Grocery Staples', ['Quantity', 'Measurement', 'Ingredient'],
+    staples.map(s => [s.quantity, s.measurement, s.ingredient])));
 
-  // --- Pantry Spices ---
+  // Pantry Spices
   const spices = JSON.parse(localStorage.getItem('sunday-pantry-spices') || '[]');
-  const spiceRows = spices.map(s => ({ Ingredient: s }));
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(spiceRows.length ? spiceRows : [{}]), 'Pantry Spices');
+  sections.push(toCSVSection('Pantry Spices', ['Ingredient'], spices.map(s => [s])));
 
-  // --- Pantry Sauces ---
+  // Pantry Sauces
   const sauces = JSON.parse(localStorage.getItem('sunday-pantry-sauces') || '[]');
-  const sauceRows = sauces.map(s => ({ Ingredient: s }));
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(sauceRows.length ? sauceRows : [{}]), 'Pantry Sauces');
+  sections.push(toCSVSection('Pantry Sauces', ['Ingredient'], sauces.map(s => [s])));
 
-  // --- Download ---
+  // Download
+  const csv = sections.join('\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
   const today = new Date().toISOString().slice(0, 10);
-  XLSX.writeFile(wb, `sunday-backup-${today}.xlsx`);
+  a.download = `sunday-backup-${today}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
 }
