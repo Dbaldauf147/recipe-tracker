@@ -90,7 +90,7 @@ export function HistoryPage({ getRecipe, recipes, onClose }) {
 
       {sorted.length === 0 ? (
         <p className={styles.empty}>
-          No saved plans yet. Use "Save to History" in This Week's Menu to archive a plan.
+          No history yet — save a weekly menu to start tracking your meal history
         </p>
       ) : (
         <div className={styles.tableWrap}>

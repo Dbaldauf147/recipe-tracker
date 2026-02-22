@@ -118,3 +118,10 @@
 .searchLink:hover {
   opacity: 1;
 }
+
+.emptyMsg {
+  margin: 1.5rem 0;
+  font-size: 0.9rem;
+  color: var(--color-text-muted);
+  text-align: center;
+}

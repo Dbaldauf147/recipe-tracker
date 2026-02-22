@@ -12,6 +12,7 @@ import { KeyIngredientsPage } from './components/KeyIngredientsPage';
 import { ImportRecipePage } from './components/ImportRecipePage';
 import { LoginPage } from './components/LoginPage';
 import { OnboardingPage } from './components/OnboardingPage';
+import { RecipePickerPage } from './components/RecipePickerPage';
 import styles from './App.module.css';
 
 const WEEKLY_KEY = 'sunday-weekly-plan';
@@ -29,7 +30,7 @@ function loadWeeklyPlan() {
  * Authenticated app content — rendered with key={user.uid} so it
  * remounts when the user changes, re-initializing all useState from localStorage.
  */
-function AppContent({ user, logOut }) {
+function AppContent({ user, logOut, isNewUser }) {
   const { recipes, addRecipe, updateRecipe, deleteRecipe, getRecipe, importRecipes } =
     useRecipes();
 
@@ -225,6 +226,7 @@ function AppContent({ user, logOut }) {
               onCategoryChange={handleCategoryChange}
               getRecipe={getRecipe}
               onSaveToHistory={handleSaveToHistory}
+              isNewUser={isNewUser}
             />
           </div>
         )}
@@ -237,7 +239,7 @@ function AppContent({ user, logOut }) {
 
 // Views: "list" | "detail" | "add"
 function App() {
-  const { user, loading, dataReady, needsOnboarding, logOut, completeOnboarding } = useAuth();
+  const { user, loading, dataReady, onboardingStep, justOnboarded, logOut, completeIngredientStep, completeRecipeStep } = useAuth();
 
   if (loading || (user && !dataReady)) {
     return (
@@ -251,13 +253,17 @@ function App() {
     return <LoginPage />;
   }
 
-  if (needsOnboarding) {
-    return <OnboardingPage onComplete={completeOnboarding} />;
+  if (onboardingStep === 'ingredients') {
+    return <OnboardingPage onComplete={completeIngredientStep} />;
+  }
+
+  if (onboardingStep === 'recipes') {
+    return <RecipePickerPage onComplete={completeRecipeStep} />;
   }
 
   // key={user.uid} forces full remount when the user changes,
   // so all useState initializers re-read from freshly-hydrated localStorage
-  return <AppContent key={user.uid} user={user} logOut={logOut} />;
+  return <AppContent key={user.uid} user={user} logOut={logOut} isNewUser={justOnboarded} />;
 }
 
 export default App;

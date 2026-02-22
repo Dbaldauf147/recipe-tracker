@@ -32,7 +32,9 @@ export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [dataReady, setDataReady] = useState(false);
-  const [needsOnboarding, setNeedsOnboarding] = useState(false);
+  // null = done, 'ingredients' = step 1, 'recipes' = step 2
+  const [onboardingStep, setOnboardingStep] = useState(null);
+  const [justOnboarded, setJustOnboarded] = useState(false);
 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (firebaseUser) => {
@@ -51,16 +53,23 @@ export function AuthProvider({ children }) {
           await migrateToFirestore(firebaseUser.uid);
         }
 
-        // Check if user has completed onboarding (has keyIngredients)
+        // Determine onboarding step
         const hasKeyIngredients = userData?.keyIngredients?.length > 0;
-        setNeedsOnboarding(!hasKeyIngredients);
+        const hasRecipes = userData?.recipes?.length > 0;
+        if (!hasKeyIngredients) {
+          setOnboardingStep('ingredients');
+        } else if (!hasRecipes) {
+          setOnboardingStep('recipes');
+        } else {
+          setOnboardingStep(null);
+        }
 
         setUser(firebaseUser);
         setDataReady(true);
       } else {
         setUser(null);
         setDataReady(false);
-        setNeedsOnboarding(false);
+        setOnboardingStep(null);
       }
       setLoading(false);
     });
@@ -79,7 +88,7 @@ export function AuthProvider({ children }) {
     }
   }
 
-  async function completeOnboarding(ingredients) {
+  async function completeIngredientStep(ingredients) {
     localStorage.setItem('sunday-key-ingredients', JSON.stringify(ingredients));
     if (user) {
       // Ensure the user doc exists, then save keyIngredients
@@ -89,7 +98,24 @@ export function AuthProvider({ children }) {
       }
       await saveField(user.uid, 'keyIngredients', ingredients);
     }
-    setNeedsOnboarding(false);
+    setOnboardingStep('recipes');
+  }
+
+  async function completeRecipeStep(selectedRecipes) {
+    if (selectedRecipes.length > 0) {
+      // Give each recipe a new ID and timestamp for the user's collection
+      const newRecipes = selectedRecipes.map(r => ({
+        ...r,
+        id: crypto.randomUUID(),
+        createdAt: new Date().toISOString(),
+      }));
+      localStorage.setItem('recipe-tracker-recipes', JSON.stringify(newRecipes));
+      if (user) {
+        await saveField(user.uid, 'recipes', newRecipes);
+      }
+    }
+    setJustOnboarded(true);
+    setOnboardingStep(null);
   }
 
   async function logOut() {
@@ -97,7 +123,10 @@ export function AuthProvider({ children }) {
     await signOut(auth);
   }
 
-  const value = { user, loading, dataReady, needsOnboarding, authError, signInWithGoogle, logOut, completeOnboarding };
+  const value = {
+    user, loading, dataReady, onboardingStep, justOnboarded, authError,
+    signInWithGoogle, logOut, completeIngredientStep, completeRecipeStep,
+  };
 
   return (
     <AuthContext.Provider value={value}>

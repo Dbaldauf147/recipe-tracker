@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
 import { RecipeCard } from './RecipeCard';
 import { fetchRecipesFromSheet } from '../utils/sheetRecipes';
 import { getUserKeyIngredients, normalize, recipeHasIngredient } from '../utils/keyIngredients';
@@ -44,12 +44,13 @@ export function RecipeList({
   onCategoryChange,
   getRecipe,
   onSaveToHistory,
+  isNewUser,
 }) {
   const { user } = useAuth();
   const [importing, setImporting] = useState(false);
   const [importResult, setImportResult] = useState(null);
   const [dragOverTarget, setDragOverTarget] = useState(null);
-  const [freqFilter, setFreqFilter] = useState('common');
+  const [freqFilter, setFreqFilter] = useState(isNewUser ? 'all' : 'common');
   const [checkedTypes, setCheckedTypes] = useState(new Set());
   const [showSaved, setShowSaved] = useState(false);
   const [shopSelection, setShopSelection] = useState(() => {
@@ -58,6 +59,17 @@ export function RecipeList({
       return data ? new Set(JSON.parse(data)) : new Set();
     } catch { return new Set(); }
   });
+
+  const scrolledRef = useRef(false);
+  useEffect(() => {
+    if (isNewUser && !scrolledRef.current) {
+      scrolledRef.current = true;
+      setTimeout(() => {
+        const el = document.getElementById('weekly-menu');
+        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }, 100);
+    }
+  }, [isNewUser]);
 
   function toggleShopRecipe(id) {
     setShopSelection(prev => {

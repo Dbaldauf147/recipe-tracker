@@ -95,7 +95,14 @@ export function ShoppingList({ weeklyRecipes, extraItems = [], onClearExtras }) 
     });
   }
 
-  if (items.length === 0) return null;
+  if (items.length === 0) {
+    return (
+      <div className={styles.panel}>
+        <h2 className={styles.heading}>Shopping List</h2>
+        <p className={styles.emptyMsg}>Shopping list is empty — add meals to populate</p>
+      </div>
+    );
+  }
 
   return (
     <div className={styles.panel}>
