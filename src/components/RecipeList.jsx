@@ -227,6 +227,7 @@ export function RecipeList({
         if (!cancelled) setAdminRecipes(data?.recipes || []);
       } catch (err) {
         console.error('Failed to load admin recipes:', err);
+        if (!cancelled) setAdminRecipes([]);
       }
     }
     fetchAdmin();
