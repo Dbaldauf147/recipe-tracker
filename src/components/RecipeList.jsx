@@ -32,7 +32,7 @@ const CATEGORIES = [
   { key: 'drinks', label: 'Drinks' },
 ];
 
-const MAIN_CATS = CATEGORIES.filter(c => c.key === 'breakfast' || c.key === 'lunch-dinner');
+const MAIN_CATS = CATEGORIES.filter(c => c.key === 'breakfast');
 const SIDE_CATS = CATEGORIES.filter(c => c.key === 'snacks' || c.key === 'desserts' || c.key === 'drinks');
 
 export function RecipeList({
@@ -661,6 +661,43 @@ export function RecipeList({
             )}
           </div>
         ))}
+        {(() => {
+          const ld = grouped['lunch-dinner'];
+          const mid = Math.ceil(ld.length / 2);
+          const ld1 = ld.slice(0, mid);
+          const ld2 = ld.slice(mid);
+          return [
+            { key: 'ld1', label: 'Lunch & Dinner 1', items: ld1 },
+            { key: 'ld2', label: 'Lunch & Dinner 2', items: ld2 },
+          ].map(col => (
+            <div
+              key={col.key}
+              id={`cat-lunch-dinner-${col.key}`}
+              className={`${styles.column} ${dragOverTarget === col.key ? styles.columnDragOver : ''}`}
+              onDragOver={handleColumnDragOver}
+              onDrop={e => handleColumnDrop(e, 'lunch-dinner')}
+              onDragEnter={() => handleDragEnter(col.key)}
+              onDragLeave={e => handleDragLeave(e, col.key)}
+            >
+              <h3 className={styles.columnHeading}>{col.label}</h3>
+              {col.items.length === 0 ? (
+                <p className={styles.columnEmpty}>Drop recipes here</p>
+              ) : (
+                <div className={styles.list}>
+                  {col.items.map(recipe => (
+                    <RecipeCard
+                      key={recipe.id}
+                      recipe={recipe}
+                      onClick={onSelect}
+                      draggable
+                      onAdd={onAddToWeek}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
+          ));
+        })()}
         <div className={styles.stackedCol}>
           {SIDE_CATS.map(cat => (
             <div

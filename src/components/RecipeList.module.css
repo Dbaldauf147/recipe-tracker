@@ -1,6 +1,5 @@
 .container {
-  max-width: 1280px;
-  margin: 0 auto;
+  max-width: 100%;
 }
 
 .header {
@@ -147,7 +146,7 @@
 
 .columns {
   display: grid;
-  grid-template-columns: 1fr 1fr 1fr;
+  grid-template-columns: 1fr 1fr 1fr 1fr;
   gap: 1.5rem;
 }
 
