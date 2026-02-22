@@ -12,7 +12,6 @@ import { KeyIngredientsPage } from './components/KeyIngredientsPage';
 import { ImportRecipePage } from './components/ImportRecipePage';
 import { LoginPage } from './components/LoginPage';
 import { OnboardingPage } from './components/OnboardingPage';
-import { RecipePickerPage } from './components/RecipePickerPage';
 import styles from './App.module.css';
 
 const WEEKLY_KEY = 'sunday-weekly-plan';
@@ -239,7 +238,7 @@ function AppContent({ user, logOut, isNewUser }) {
 
 // Views: "list" | "detail" | "add"
 function App() {
-  const { user, loading, dataReady, onboardingStep, justOnboarded, logOut, completeIngredientStep, completeRecipeStep } = useAuth();
+  const { user, loading, dataReady, onboardingStep, justOnboarded, logOut, completeOnboarding } = useAuth();
 
   if (loading || (user && !dataReady)) {
     return (
@@ -254,11 +253,7 @@ function App() {
   }
 
   if (onboardingStep === 'ingredients') {
-    return <OnboardingPage onComplete={completeIngredientStep} />;
-  }
-
-  if (onboardingStep === 'recipes') {
-    return <RecipePickerPage onComplete={completeRecipeStep} />;
+    return <OnboardingPage onComplete={completeOnboarding} />;
   }
 
   // key={user.uid} forces full remount when the user changes,

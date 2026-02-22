@@ -2,6 +2,9 @@ import { createContext, useContext, useState, useEffect } from 'react';
 import { onAuthStateChanged, signInWithPopup, signOut } from 'firebase/auth';
 import { auth, googleProvider } from '../firebase';
 import { loadUserData, migrateToFirestore, hydrateLocalStorage, saveField } from '../utils/firestoreSync';
+import { normalize, recipeHasIngredient } from '../utils/keyIngredients';
+
+const ADMIN_UID = import.meta.env.VITE_ADMIN_UID;
 
 const AuthContext = createContext(null);
 
@@ -55,11 +58,8 @@ export function AuthProvider({ children }) {
 
         // Determine onboarding step
         const hasKeyIngredients = userData?.keyIngredients?.length > 0;
-        const hasRecipes = userData?.recipes?.length > 0;
         if (!hasKeyIngredients) {
           setOnboardingStep('ingredients');
-        } else if (!hasRecipes) {
-          setOnboardingStep('recipes');
         } else {
           setOnboardingStep(null);
         }
@@ -88,32 +88,39 @@ export function AuthProvider({ children }) {
     }
   }
 
-  async function completeIngredientStep(ingredients) {
+  async function completeOnboarding(ingredients) {
     localStorage.setItem('sunday-key-ingredients', JSON.stringify(ingredients));
     if (user) {
-      // Ensure the user doc exists, then save keyIngredients
       const userData = await loadUserData(user.uid);
       if (!userData) {
         await migrateToFirestore(user.uid);
       }
       await saveField(user.uid, 'keyIngredients', ingredients);
     }
-    setOnboardingStep('recipes');
-  }
 
-  async function completeRecipeStep(selectedRecipes) {
-    if (selectedRecipes.length > 0) {
-      // Give each recipe a new ID and timestamp for the user's collection
-      const newRecipes = selectedRecipes.map(r => ({
-        ...r,
-        id: crypto.randomUUID(),
-        createdAt: new Date().toISOString(),
-      }));
-      localStorage.setItem('recipe-tracker-recipes', JSON.stringify(newRecipes));
-      if (user) {
-        await saveField(user.uid, 'recipes', newRecipes);
+    // Auto-import admin recipes that match selected key ingredients
+    try {
+      const adminData = await loadUserData(ADMIN_UID);
+      const adminRecipes = adminData?.recipes || [];
+      const normKeys = ingredients.map(k => normalize(k));
+      const matching = adminRecipes.filter(r =>
+        normKeys.some(nk => recipeHasIngredient(r, nk))
+      );
+      if (matching.length > 0) {
+        const newRecipes = matching.map(r => ({
+          ...r,
+          id: crypto.randomUUID(),
+          createdAt: new Date().toISOString(),
+        }));
+        localStorage.setItem('recipe-tracker-recipes', JSON.stringify(newRecipes));
+        if (user) {
+          await saveField(user.uid, 'recipes', newRecipes);
+        }
       }
+    } catch (err) {
+      console.error('Failed to import admin recipes:', err);
     }
+
     setJustOnboarded(true);
     setOnboardingStep(null);
   }
@@ -125,7 +132,7 @@ export function AuthProvider({ children }) {
 
   const value = {
     user, loading, dataReady, onboardingStep, justOnboarded, authError,
-    signInWithGoogle, logOut, completeIngredientStep, completeRecipeStep,
+    signInWithGoogle, logOut, completeOnboarding,
   };
 
   return (
