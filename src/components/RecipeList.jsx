@@ -536,13 +536,37 @@ export function RecipeList({
         </div>
       )}
 
-      {recipes.length === 0 ? (
-        <p className={styles.empty}>
-          No recipes yet. Add your first one!
-        </p>
-      ) : (
-        <div className={styles.columns}>
-          {MAIN_CATS.map(cat => (
+      <div className={styles.columns}>
+        {MAIN_CATS.map(cat => (
+          <div
+            key={cat.key}
+            id={`cat-${cat.key}`}
+            className={`${styles.column} ${dragOverTarget === cat.key ? styles.columnDragOver : ''}`}
+            onDragOver={handleColumnDragOver}
+            onDrop={e => handleColumnDrop(e, cat.key)}
+            onDragEnter={() => handleDragEnter(cat.key)}
+            onDragLeave={e => handleDragLeave(e, cat.key)}
+          >
+            <h3 className={styles.columnHeading}>{cat.label}</h3>
+            {grouped[cat.key].length === 0 ? (
+              <p className={styles.columnEmpty}>Drop recipes here</p>
+            ) : (
+              <div className={styles.list}>
+                {grouped[cat.key].map(recipe => (
+                  <RecipeCard
+                    key={recipe.id}
+                    recipe={recipe}
+                    onClick={onSelect}
+                    draggable
+                    onAdd={onAddToWeek}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+        ))}
+        <div className={styles.stackedCol}>
+          {SIDE_CATS.map(cat => (
             <div
               key={cat.key}
               id={`cat-${cat.key}`}
@@ -570,38 +594,8 @@ export function RecipeList({
               )}
             </div>
           ))}
-          <div className={styles.stackedCol}>
-            {SIDE_CATS.map(cat => (
-              <div
-                key={cat.key}
-                id={`cat-${cat.key}`}
-                className={`${styles.column} ${dragOverTarget === cat.key ? styles.columnDragOver : ''}`}
-                onDragOver={handleColumnDragOver}
-                onDrop={e => handleColumnDrop(e, cat.key)}
-                onDragEnter={() => handleDragEnter(cat.key)}
-                onDragLeave={e => handleDragLeave(e, cat.key)}
-              >
-                <h3 className={styles.columnHeading}>{cat.label}</h3>
-                {grouped[cat.key].length === 0 ? (
-                  <p className={styles.columnEmpty}>Drop recipes here</p>
-                ) : (
-                  <div className={styles.list}>
-                    {grouped[cat.key].map(recipe => (
-                      <RecipeCard
-                        key={recipe.id}
-                        recipe={recipe}
-                        onClick={onSelect}
-                        draggable
-                        onAdd={onAddToWeek}
-                      />
-                    ))}
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
         </div>
-      )}
+      </div>
       {discoverRecipes.length > 0 && (
         <div className={styles.discoverBox}>
           <h3 className={styles.discoverHeading}>Discover Recipes</h3>
