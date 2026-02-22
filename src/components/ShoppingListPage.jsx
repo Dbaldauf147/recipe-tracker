@@ -155,6 +155,21 @@ export function ShoppingListPage({ weeklyRecipes, onClose }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [resetKey, extras.length]);
 
+  const shopIngredientNames = useMemo(() => {
+    const names = new Set();
+    for (const recipe of weeklyRecipes) {
+      for (const ing of (recipe.ingredients || [])) {
+        const name = (ing.ingredient || '').toLowerCase().trim();
+        if (name) names.add(name);
+      }
+    }
+    for (const e of extras) {
+      const name = (e.ingredient || '').toLowerCase().trim();
+      if (name) names.add(name);
+    }
+    return names;
+  }, [weeklyRecipes, extras]);
+
   const pantryMatchedItems = useMemo(() => {
     const matched = new Map();
     for (const recipe of weeklyRecipes) {
@@ -215,7 +230,7 @@ export function ShoppingListPage({ weeklyRecipes, onClose }) {
               </ul>
             </div>
           )}
-          <GroceryStaples key={resetKey} onMoveToShop={handleMoveToShop} />
+          <GroceryStaples key={resetKey} onMoveToShop={handleMoveToShop} highlightNames={shopIngredientNames} />
         </div>
         <div className={styles.cell}>
           <PantryList

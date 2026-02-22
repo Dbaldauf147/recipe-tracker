@@ -20,7 +20,7 @@ function saveStaples(staples) {
   if (user) saveField(user.uid, 'groceryStaples', staples);
 }
 
-export function GroceryStaples({ onMoveToShop }) {
+export function GroceryStaples({ onMoveToShop, highlightNames }) {
   const [staples, setStaples] = useState([]);
   const [loading, setLoading] = useState(true);
 
@@ -72,8 +72,10 @@ export function GroceryStaples({ onMoveToShop }) {
               {[...staples]
                 .map((item, i) => ({ ...item, _i: i }))
                 .sort((a, b) => (a.ingredient || '').localeCompare(b.ingredient || ''))
-                .map(({ _i: i, ...item }) => (
-                <tr key={i}>
+                .map(({ _i: i, ...item }) => {
+                  const highlighted = highlightNames && highlightNames.has((item.ingredient || '').toLowerCase().trim());
+                  return (
+                <tr key={i} className={highlighted ? styles.highlightRow : ''}>
                   <td>
                     <input
                       className={styles.cellInput}
@@ -111,7 +113,8 @@ export function GroceryStaples({ onMoveToShop }) {
                     </button>
                   </td>
                 </tr>
-              ))}
+                  );
+                })}
             </tbody>
           </table>
           <button className={styles.addBtn} onClick={addItem}>
