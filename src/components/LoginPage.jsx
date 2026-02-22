@@ -2,13 +2,14 @@ import { useAuth } from '../contexts/AuthContext';
 import styles from './LoginPage.module.css';
 
 export function LoginPage() {
-  const { signInWithGoogle } = useAuth();
+  const { signInWithGoogle, authError } = useAuth();
 
   return (
     <div className={styles.page}>
       <div className={styles.card}>
         <h1 className={styles.logo}>Sunday</h1>
         <p className={styles.tagline}>meal planning, simplified</p>
+        {authError && <p className={styles.error}>{authError}</p>}
         <button className={styles.googleBtn} onClick={signInWithGoogle}>
           <svg className={styles.googleIcon} viewBox="0 0 24 24" width="20" height="20">
             <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z" fill="#4285F4"/>

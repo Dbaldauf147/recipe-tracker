@@ -51,11 +51,24 @@ function buildShoppingList(recipes) {
   );
 }
 
-export function ShoppingList({ weeklyRecipes }) {
-  const items = useMemo(
+export function ShoppingList({ weeklyRecipes, extraItems = [], onClearExtras }) {
+  const recipeItems = useMemo(
     () => buildShoppingList(weeklyRecipes),
     [weeklyRecipes]
   );
+
+  const items = useMemo(() => {
+    if (extraItems.length === 0) return recipeItems;
+    const extras = extraItems.map(e => ({
+      ingredient: e.ingredient || '',
+      measurement: e.measurement || '',
+      quantity: parseFraction(e.quantity),
+      isExtra: true,
+    }));
+    return [...recipeItems, ...extras].sort((a, b) =>
+      a.ingredient.localeCompare(b.ingredient)
+    );
+  }, [recipeItems, extraItems]);
 
   const ingredientLinks = useMemo(() => {
     const db = loadIngredients() || [];
@@ -86,10 +99,19 @@ export function ShoppingList({ weeklyRecipes }) {
 
   return (
     <div className={styles.panel}>
-      <h2 className={styles.heading}>Shopping List</h2>
-      <p className={styles.subtext}>
-        {weeklyRecipes.length} recipe{weeklyRecipes.length !== 1 ? 's' : ''} this week
-      </p>
+      <div className={styles.headingRow}>
+        <div>
+          <h2 className={styles.heading}>Shopping List</h2>
+          <p className={styles.subtext}>
+            {weeklyRecipes.length} recipe{weeklyRecipes.length !== 1 ? 's' : ''} this week
+          </p>
+        </div>
+        {extraItems.length > 0 && (
+          <button className={styles.clearBtn} onClick={onClearExtras}>
+            Return items ({extraItems.length})
+          </button>
+        )}
+      </div>
       <table className={styles.table}>
         <thead>
           <tr>
