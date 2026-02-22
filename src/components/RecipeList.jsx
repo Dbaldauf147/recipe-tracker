@@ -2,6 +2,7 @@ import { useState, useMemo, useEffect, useRef } from 'react';
 import { RecipeCard } from './RecipeCard';
 import { fetchRecipesFromSheet } from '../utils/sheetRecipes';
 import { getUserKeyIngredients, normalize, recipeHasIngredient } from '../utils/keyIngredients';
+import { exportToExcel } from '../utils/exportData';
 import { useAuth } from '../contexts/AuthContext';
 import { loadUserData, saveField } from '../utils/firestoreSync';
 import styles from './RecipeList.module.css';
@@ -374,6 +375,12 @@ export function RecipeList({
       <div className={styles.header}>
         <h2 className={styles.heading}>My Recipes</h2>
         <div className={styles.actions}>
+          <button
+            className={styles.importBtn}
+            onClick={exportToExcel}
+          >
+            Export Data
+          </button>
           <button
             className={styles.importBtn}
             onClick={handleImport}
