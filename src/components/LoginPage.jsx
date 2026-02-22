@@ -7,7 +7,7 @@ export function LoginPage() {
   return (
     <div className={styles.page}>
       <div className={styles.card}>
-        <h1 className={styles.logo}>Sunday</h1>
+        <img className={styles.logoImg} src="/sunday-logo.png" alt="Sunday" />
         <p className={styles.tagline}>meal planning, simplified</p>
         {authError && <p className={styles.error}>{authError}</p>}
         <button className={styles.googleBtn} onClick={signInWithGoogle}>

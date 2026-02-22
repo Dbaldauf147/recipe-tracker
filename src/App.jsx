@@ -138,10 +138,12 @@ function AppContent({ user, logOut }) {
   return (
     <div className={styles.app}>
       <header className={styles.header}>
-        <h1 className={styles.logo} onClick={() => setView('list')}>
-          Sunday
-        </h1>
-        <span className={styles.tagline}>meal planning, simplified</span>
+        <img
+          className={styles.logo}
+          src="/sunday-logo.png"
+          alt="Sunday"
+          onClick={() => setView('list')}
+        />
         <nav className={styles.nav}>
           {NAV_ITEMS.map(item => {
             const isActive = item.action
