@@ -62,13 +62,51 @@
   max-width: 100%;
 }
 
-.userInfo {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
+.settingsWrapper {
+  position: relative;
   margin-left: 0.75rem;
   padding-left: 0.75rem;
   border-left: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.settingsBtn {
+  background: none;
+  border: none;
+  font-size: 1.25rem;
+  color: rgba(255, 255, 255, 0.65);
+  cursor: pointer;
+  padding: 0.4rem 0.5rem;
+  border-radius: var(--radius-md);
+  transition: background 0.12s ease, color 0.12s ease;
+  line-height: 1;
+}
+
+.settingsBtn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #ffffff;
+}
+
+.settingsDropdown {
+  position: absolute;
+  top: calc(100% + 0.5rem);
+  right: 0;
+  background: #111111;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: var(--radius-md);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  min-width: 180px;
+  z-index: 200;
+  overflow: hidden;
+}
+
+.settingsUserRow {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1rem;
+  font-size: 0.82rem;
+  color: rgba(255, 255, 255, 0.7);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
 }
 
 .avatar {
@@ -77,27 +115,24 @@
   border-radius: 50%;
 }
 
-.userName {
-  font-size: 0.82rem;
-  color: rgba(255, 255, 255, 0.7);
-  white-space: nowrap;
-}
-
-.signOutBtn {
+.settingsMenuItem {
+  display: block;
+  width: 100%;
   background: none;
   border: none;
-  font-size: 0.78rem;
+  font-size: 0.82rem;
   font-family: inherit;
-  color: rgba(255, 255, 255, 0.5);
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.65);
   cursor: pointer;
-  padding: 0.25rem 0.5rem;
-  border-radius: var(--radius-sm);
-  transition: color 0.12s ease, background 0.12s ease;
+  padding: 0.6rem 1rem;
+  text-align: left;
+  transition: background 0.12s ease, color 0.12s ease;
 }
 
-.signOutBtn:hover {
-  color: #ff6b6b;
+.settingsMenuItem:hover {
   background: rgba(255, 255, 255, 0.1);
+  color: #ffffff;
 }
 
 .loadingScreen {

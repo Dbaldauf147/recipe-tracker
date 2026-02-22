@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useRecipes } from './hooks/useRecipes';
 import { useAuth } from './contexts/AuthContext';
 import { saveField } from './utils/firestoreSync';
@@ -37,6 +37,19 @@ function AppContent({ user, logOut, isNewUser }) {
   const [selectedId, setSelectedId] = useState(null);
   const [viewHistory, setViewHistory] = useState([]);
   const [weeklyPlan, setWeeklyPlan] = useState(loadWeeklyPlan);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const settingsRef = useRef(null);
+
+  useEffect(() => {
+    if (!settingsOpen) return;
+    function handleClickOutside(e) {
+      if (settingsRef.current && !settingsRef.current.contains(e.target)) {
+        setSettingsOpen(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [settingsOpen]);
 
   function navigateTo(nextView, nextSelectedId) {
     setViewHistory(prev => [...prev.slice(-19), { view, selectedId }]);
@@ -69,13 +82,10 @@ function AppContent({ user, logOut, isNewUser }) {
     { label: 'History', action: 'history' },
     { label: 'Key Ingredients', action: 'key-ingredients' },
     { label: 'Import Recipe', action: 'import' },
-    { label: 'Ingredients', action: 'ingredients' },
   ];
 
   function handleNavClick(item) {
-    if (item.action === 'ingredients') {
-      navigateTo('ingredients');
-    } else if (item.action === 'shopping') {
+    if (item.action === 'shopping') {
       navigateTo('shopping');
     } else if (item.action === 'history') {
       navigateTo('history');
@@ -184,19 +194,41 @@ function AppContent({ user, logOut, isNewUser }) {
             );
           })}
         </nav>
-        <div className={styles.userInfo}>
-          {user.photoURL && (
-            <img
-              className={styles.avatar}
-              src={user.photoURL}
-              alt=""
-              referrerPolicy="no-referrer"
-            />
-          )}
-          <span className={styles.userName}>{user.displayName}</span>
-          <button className={styles.signOutBtn} onClick={logOut}>
-            Sign out
+        <div className={styles.settingsWrapper} ref={settingsRef}>
+          <button
+            className={styles.settingsBtn}
+            onClick={() => setSettingsOpen(prev => !prev)}
+            aria-label="Settings"
+          >
+            ⚙
           </button>
+          {settingsOpen && (
+            <div className={styles.settingsDropdown}>
+              <div className={styles.settingsUserRow}>
+                {user.photoURL && (
+                  <img
+                    className={styles.avatar}
+                    src={user.photoURL}
+                    alt=""
+                    referrerPolicy="no-referrer"
+                  />
+                )}
+                <span>{user.displayName}</span>
+              </div>
+              <button
+                className={styles.settingsMenuItem}
+                onClick={() => { navigateTo('ingredients'); setSettingsOpen(false); }}
+              >
+                Ingredients
+              </button>
+              <button
+                className={styles.settingsMenuItem}
+                onClick={() => { logOut(); setSettingsOpen(false); }}
+              >
+                Sign Out
+              </button>
+            </div>
+          )}
         </div>
       </header>
 
