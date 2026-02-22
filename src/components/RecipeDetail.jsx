@@ -193,12 +193,12 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack }) {
         onChange={e => setField('title', e.target.value)}
       />
 
-      <input
-        className={styles.inlineInput}
-        type="text"
+      <textarea
+        className={styles.inlineTextarea}
         value={fields.description}
         onChange={e => setField('description', e.target.value)}
         placeholder="Short description"
+        rows={2}
       />
 
       <div className={styles.metaRow}>
