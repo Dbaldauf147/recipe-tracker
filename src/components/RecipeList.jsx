@@ -564,7 +564,7 @@ export function RecipeList({
             onChange={e => setImportSearch(e.target.value)}
           />
           <div className={styles.importList}>
-            {importableRecipes.map(recipe => (
+            {importableRecipes.slice(0, 5).map(recipe => (
               <div key={recipe.id} className={styles.importItem}>
                 <div className={styles.importInfo}>
                   <span className={styles.importName}>{recipe.title}</span>
