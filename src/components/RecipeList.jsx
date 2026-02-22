@@ -2,6 +2,8 @@ import { useState, useMemo } from 'react';
 import { RecipeCard } from './RecipeCard';
 import { fetchRecipesFromSheet } from '../utils/sheetRecipes';
 import { KEY_INGREDIENTS, normalize, recipeHasIngredient } from '../utils/keyIngredients';
+import { useAuth } from '../contexts/AuthContext';
+import { saveField } from '../utils/firestoreSync';
 import styles from './RecipeList.module.css';
 
 const HISTORY_KEY = 'sunday-plan-history';
@@ -43,6 +45,7 @@ export function RecipeList({
   getRecipe,
   onSaveToHistory,
 }) {
+  const { user } = useAuth();
   const [importing, setImporting] = useState(false);
   const [importResult, setImportResult] = useState(null);
   const [dragOverTarget, setDragOverTarget] = useState(null);
@@ -60,7 +63,9 @@ export function RecipeList({
     setShopSelection(prev => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id); else next.add(id);
-      try { localStorage.setItem(SHOP_KEY, JSON.stringify([...next])); } catch {}
+      const arr = [...next];
+      try { localStorage.setItem(SHOP_KEY, JSON.stringify(arr)); } catch {}
+      if (user) saveField(user.uid, 'shoppingSelection', arr);
       return next;
     });
   }
@@ -445,7 +450,8 @@ export function RecipeList({
               className={styles.clearBtn}
               onClick={() => {
                 setShopSelection(new Set());
-                try { localStorage.removeItem(SHOP_KEY); } catch {}
+                try { localStorage.setItem(SHOP_KEY, JSON.stringify([])); } catch {}
+                if (user) saveField(user.uid, 'shoppingSelection', []);
               }}
             >
               Clear

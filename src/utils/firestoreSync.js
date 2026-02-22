@@ -65,6 +65,16 @@ export async function migrateToFirestore(uid) {
     if (sauces) data.pantrySauces = JSON.parse(sauces);
   } catch {}
 
+  try {
+    const extras = localStorage.getItem('sunday-shop-extras');
+    if (extras) data.shopExtras = JSON.parse(extras);
+  } catch {}
+
+  try {
+    const selection = localStorage.getItem('sunday-shopping-selection');
+    if (selection) data.shoppingSelection = JSON.parse(selection);
+  } catch {}
+
   if (Object.keys(data).length === 0) return;
 
   try {
@@ -77,26 +87,17 @@ export async function migrateToFirestore(uid) {
 
 /**
  * Load Firestore data into localStorage so the app can read it normally.
+ * Always writes every key (using empty defaults) so stale data is overwritten.
  */
 export function hydrateLocalStorage(userData) {
   if (!userData) return;
 
-  if (userData.recipes) {
-    localStorage.setItem('recipe-tracker-recipes', JSON.stringify(userData.recipes));
-  }
-  if (userData.weeklyPlan) {
-    localStorage.setItem('sunday-weekly-plan', JSON.stringify(userData.weeklyPlan));
-  }
-  if (userData.planHistory) {
-    localStorage.setItem('sunday-plan-history', JSON.stringify(userData.planHistory));
-  }
-  if (userData.groceryStaples) {
-    localStorage.setItem('sunday-grocery-staples', JSON.stringify(userData.groceryStaples));
-  }
-  if (userData.pantrySpices) {
-    localStorage.setItem('sunday-pantry-spices', JSON.stringify(userData.pantrySpices));
-  }
-  if (userData.pantrySauces) {
-    localStorage.setItem('sunday-pantry-sauces', JSON.stringify(userData.pantrySauces));
-  }
+  localStorage.setItem('recipe-tracker-recipes', JSON.stringify(userData.recipes || []));
+  localStorage.setItem('sunday-weekly-plan', JSON.stringify(userData.weeklyPlan || []));
+  localStorage.setItem('sunday-plan-history', JSON.stringify(userData.planHistory || []));
+  localStorage.setItem('sunday-grocery-staples', JSON.stringify(userData.groceryStaples || []));
+  localStorage.setItem('sunday-pantry-spices', JSON.stringify(userData.pantrySpices || []));
+  localStorage.setItem('sunday-pantry-sauces', JSON.stringify(userData.pantrySauces || []));
+  localStorage.setItem('sunday-shop-extras', JSON.stringify(userData.shopExtras || []));
+  localStorage.setItem('sunday-shopping-selection', JSON.stringify(userData.shoppingSelection || []));
 }

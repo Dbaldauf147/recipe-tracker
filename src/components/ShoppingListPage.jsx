@@ -2,6 +2,8 @@ import { useState, useCallback } from 'react';
 import { ShoppingList } from './ShoppingList';
 import { GroceryStaples } from './GroceryStaples';
 import { PantryList } from './PantryList';
+import { useAuth } from '../contexts/AuthContext';
+import { saveField } from '../utils/firestoreSync';
 import styles from './ShoppingListPage.module.css';
 
 const DEFAULT_SPICES = [
@@ -51,7 +53,7 @@ function loadExtras() {
   }
 }
 
-function saveExtras(extras) {
+function saveExtrasToStorage(extras) {
   localStorage.setItem(EXTRAS_KEY, JSON.stringify(extras));
 }
 
@@ -62,8 +64,14 @@ const SOURCE_KEYS = {
 };
 
 export function ShoppingListPage({ weeklyRecipes, onClose }) {
+  const { user } = useAuth();
   const [extras, setExtras] = useState(loadExtras);
   const [resetKey, setResetKey] = useState(0);
+
+  function saveExtras(list) {
+    saveExtrasToStorage(list);
+    if (user) saveField(user.uid, 'shopExtras', list);
+  }
 
   const handleMoveToShop = useCallback((item, source) => {
     setExtras(prev => {
@@ -71,7 +79,8 @@ export function ShoppingListPage({ weeklyRecipes, onClose }) {
       saveExtras(next);
       return next;
     });
-  }, []);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user]);
 
   const handleClearExtras = useCallback(() => {
     // Group extras by source and append back to their localStorage keys

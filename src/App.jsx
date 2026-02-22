@@ -24,9 +24,11 @@ function loadWeeklyPlan() {
   }
 }
 
-// Views: "list" | "detail" | "add"
-function App() {
-  const { user, loading, logOut } = useAuth();
+/**
+ * Authenticated app content — rendered with key={user.uid} so it
+ * remounts when the user changes, re-initializing all useState from localStorage.
+ */
+function AppContent({ user, logOut }) {
   const { recipes, addRecipe, updateRecipe, deleteRecipe, getRecipe, importRecipes } =
     useRecipes();
 
@@ -133,18 +135,6 @@ function App() {
     } catch {}
   }
 
-  if (loading) {
-    return (
-      <div className={styles.app}>
-        <div className={styles.loadingScreen}>Loading...</div>
-      </div>
-    );
-  }
-
-  if (!user) {
-    return <LoginPage />;
-  }
-
   return (
     <div className={styles.app}>
       <header className={styles.header}>
@@ -240,6 +230,27 @@ function App() {
       </main>
     </div>
   );
+}
+
+// Views: "list" | "detail" | "add"
+function App() {
+  const { user, loading, dataReady, logOut } = useAuth();
+
+  if (loading || (user && !dataReady)) {
+    return (
+      <div className={styles.app}>
+        <div className={styles.loadingScreen}>Loading...</div>
+      </div>
+    );
+  }
+
+  if (!user) {
+    return <LoginPage />;
+  }
+
+  // key={user.uid} forces full remount when the user changes,
+  // so all useState initializers re-read from freshly-hydrated localStorage
+  return <AppContent key={user.uid} user={user} logOut={logOut} />;
 }
 
 export default App;
