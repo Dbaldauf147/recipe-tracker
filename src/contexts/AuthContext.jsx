@@ -2,9 +2,6 @@ import { createContext, useContext, useState, useEffect } from 'react';
 import { onAuthStateChanged, signInWithPopup, signOut } from 'firebase/auth';
 import { auth, googleProvider } from '../firebase';
 import { loadUserData, migrateToFirestore, hydrateLocalStorage, saveField } from '../utils/firestoreSync';
-import { normalize, recipeHasIngredient } from '../utils/keyIngredients';
-
-const ADMIN_UID = import.meta.env.VITE_ADMIN_UID;
 
 const AuthContext = createContext(null);
 
@@ -96,29 +93,6 @@ export function AuthProvider({ children }) {
         await migrateToFirestore(user.uid);
       }
       await saveField(user.uid, 'keyIngredients', ingredients);
-    }
-
-    // Auto-import admin recipes that match selected key ingredients
-    try {
-      const adminData = await loadUserData(ADMIN_UID);
-      const adminRecipes = adminData?.recipes || [];
-      const normKeys = ingredients.map(k => normalize(k));
-      const matching = adminRecipes.filter(r =>
-        normKeys.some(nk => recipeHasIngredient(r, nk))
-      );
-      if (matching.length > 0) {
-        const newRecipes = matching.map(r => ({
-          ...r,
-          id: crypto.randomUUID(),
-          createdAt: new Date().toISOString(),
-        }));
-        localStorage.setItem('recipe-tracker-recipes', JSON.stringify(newRecipes));
-        if (user) {
-          await saveField(user.uid, 'recipes', newRecipes);
-        }
-      }
-    } catch (err) {
-      console.error('Failed to import admin recipes:', err);
     }
 
     setJustOnboarded(true);
