@@ -6,14 +6,17 @@ import styles from './ImportRecipePage.module.css';
 
 export function ImportRecipePage({ onSave, onCancel }) {
   const [phase, setPhase] = useState('paste'); // 'paste' | 'review'
+  const [importMode, setImportMode] = useState('url'); // 'url' | 'instagram' | 'paste'
   const [rawText, setRawText] = useState('');
   const [sourceUrl, setSourceUrl] = useState('');
+  const [instagramUrl, setInstagramUrl] = useState('');
   const [parsedRecipe, setParsedRecipe] = useState(null);
   const [fetching, setFetching] = useState(false);
   const [fetchError, setFetchError] = useState('');
 
   function handleParse() {
     const result = parseRecipeText(rawText);
+    const url = importMode === 'instagram' ? instagramUrl.trim() : sourceUrl.trim();
     setParsedRecipe({
       title: result.title,
       description: '',
@@ -23,7 +26,7 @@ export function ImportRecipePage({ onSave, onCancel }) {
       servings: '1',
       prepTime: '',
       cookTime: '',
-      sourceUrl: sourceUrl.trim(),
+      sourceUrl: url,
       ingredients: result.ingredients.length > 0 ? result.ingredients : [],
       instructions: result.instructions,
     });
@@ -79,56 +82,117 @@ export function ImportRecipePage({ onSave, onCancel }) {
         <h2 className={styles.title}>Import Recipe</h2>
       </div>
 
-      <div className={styles.card}>
-        <label className={styles.label}>
-          Recipe URL
-          <input
-            className={styles.input}
-            type="url"
-            value={sourceUrl}
-            onChange={e => setSourceUrl(e.target.value)}
-            placeholder="https://www.allrecipes.com/recipe/..."
-            disabled={fetching}
-          />
-        </label>
-
-        <div className={styles.urlActions}>
+      <div className={styles.tabs}>
+        {[
+          ['url', 'URL'],
+          ['instagram', 'Instagram'],
+          ['paste', 'Paste'],
+        ].map(([mode, label]) => (
           <button
-            className={styles.fetchBtn}
-            onClick={handleFetchFromUrl}
-            disabled={!sourceUrl.trim() || fetching}
+            key={mode}
+            className={`${styles.tab} ${importMode === mode ? styles.tabActive : ''}`}
+            onClick={() => setImportMode(mode)}
           >
-            {fetching ? 'Fetching...' : 'Fetch from URL'}
+            {label}
           </button>
-        </div>
+        ))}
+      </div>
 
-        {fetchError && (
-          <div className={styles.fetchError}>{fetchError}</div>
+      <div className={styles.card}>
+        {importMode === 'url' && (
+          <>
+            <label className={styles.label}>
+              Recipe URL
+              <input
+                className={styles.input}
+                type="url"
+                value={sourceUrl}
+                onChange={e => setSourceUrl(e.target.value)}
+                placeholder="https://www.allrecipes.com/recipe/..."
+                disabled={fetching}
+              />
+            </label>
+
+            <div className={styles.urlActions}>
+              <button
+                className={styles.fetchBtn}
+                onClick={handleFetchFromUrl}
+                disabled={!sourceUrl.trim() || fetching}
+              >
+                {fetching ? 'Fetching...' : 'Fetch from URL'}
+              </button>
+            </div>
+
+            {fetchError && (
+              <div className={styles.fetchError}>{fetchError}</div>
+            )}
+          </>
         )}
 
-        <div className={styles.divider}>
-          <span className={styles.dividerText}>or paste manually</span>
-        </div>
+        {importMode === 'instagram' && (
+          <>
+            <label className={styles.label}>
+              Instagram Post URL
+              <input
+                className={styles.input}
+                type="url"
+                value={instagramUrl}
+                onChange={e => setInstagramUrl(e.target.value)}
+                placeholder="https://www.instagram.com/p/..."
+                disabled={fetching}
+              />
+            </label>
 
-        <label className={styles.label}>
-          Recipe Text
-          <textarea
-            className={styles.textarea}
-            rows={14}
-            value={rawText}
-            onChange={e => setRawText(e.target.value)}
-            placeholder="Paste recipe text from a website, Instagram caption, or TikTok description..."
-            disabled={fetching}
-          />
-        </label>
+            <p className={styles.instagramHelp}>
+              Copy the caption text from the Instagram post and paste it below.
+              Open the post, tap the caption to expand it, then select and copy the text.
+            </p>
 
-        <button
-          className={styles.parseBtn}
-          onClick={handleParse}
-          disabled={!rawText.trim() || fetching}
-        >
-          Parse Recipe
-        </button>
+            <label className={styles.label}>
+              Caption Text
+              <textarea
+                className={styles.textarea}
+                rows={14}
+                value={rawText}
+                onChange={e => setRawText(e.target.value)}
+                placeholder="Paste the Instagram caption here..."
+                disabled={fetching}
+              />
+            </label>
+
+            <button
+              className={styles.parseBtn}
+              onClick={handleParse}
+              disabled={!rawText.trim() || fetching}
+            >
+              Parse Recipe
+            </button>
+          </>
+        )}
+
+        {importMode === 'paste' && (
+          <>
+            <label className={styles.label}>
+              Recipe Text
+              <textarea
+                className={styles.textarea}
+                rows={14}
+                value={rawText}
+                onChange={e => setRawText(e.target.value)}
+                placeholder="Paste recipe text from a website, TikTok description, or any other source..."
+                disabled={fetching}
+              />
+            </label>
+
+            <button
+              className={styles.parseBtn}
+              onClick={handleParse}
+              disabled={!rawText.trim() || fetching}
+            >
+              Parse Recipe
+            </button>
+          </>
+        )}
       </div>
     </div>
   );
