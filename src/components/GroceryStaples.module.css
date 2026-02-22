@@ -90,9 +90,9 @@
   background: var(--color-danger-light);
 }
 
-.highlightRow .cellInput {
-  outline: 1.5px solid #a33;
-  border-radius: 4px;
+.highlightRow td {
+  background: #fdf0ef;
+  border-bottom-color: #e8b4b0;
 }
 
 .addBtn {
