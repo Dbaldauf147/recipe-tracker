@@ -1,64 +1,80 @@
 import { useState, useMemo } from 'react';
-import { DEFAULT_KEY_INGREDIENTS, displayName } from '../utils/keyIngredients';
+import { INGREDIENT_CATEGORIES, displayName } from '../utils/keyIngredients';
 import styles from './OnboardingPage.module.css';
 
 const INGREDIENT_EMOJI = {
-  almonds: '\u{1F330}',
-  avocado: '\u{1F951}',
-  beets: '\u{1FAD1}',
-  bell_pepper: '\u{1FAD1}',
+  // Protein
   black_beans: '\u{1FAD8}',
-  blueberries: '\u{1FAD0}',
-  broccoli: '\u{1F966}',
-  brown_rice: '\u{1F35A}',
-  brussels_sprouts: '\u{1F966}',
-  carrots_baby: '\u{1F955}',
-  cauliflower: '\u{1F966}',
   chicken_breast: '\u{1F357}',
   chickpeas: '\u{1FAD8}',
-  cottage_cheese: '\u{1F9C0}',
   edamame: '\u{1FAD8}',
   eggs: '\u{1F95A}',
-  garlic: '\u{1F9C4}',
-  ginger: '\u{1FAD0}',
   greek_yogurt: '\u{1F95B}',
-  green_beans: '\u{1FAD8}',
-  kale: '\u{1F96C}',
+  kefir: '\u{1F95B}',
   lentils: '\u{1FAD8}',
-  mushrooms: '\u{1F344}',
-  oats: '\u{1F33E}',
-  onion: '\u{1F9C5}',
-  peanut_butter: '\u{1F95C}',
-  peas: '\u{1FAD1}',
-  potatoes: '\u{1F954}',
-  quinoa: '\u{1F33E}',
   salmon: '\u{1F41F}',
   sardines: '\u{1F41F}',
-  shrimp: '\u{1F990}',
-  spinach: '\u{1F96C}',
-  strawberries: '\u{1F353}',
-  sweet_potato: '\u{1F360}',
+  soy_milk: '\u{1F95B}',
   tempeh: '\u{1F96A}',
   tofu: '\u{1F96A}',
-  tomatoes: '\u{1F345}',
-  tuna: '\u{1F41F}',
+  trout: '\u{1F41F}',
   turkey_breast: '\u{1F983}',
-  walnuts: '\u{1F330}',
+  // Carbs
+  apples: '\u{1F34E}',
+  barley: '\u{1F33E}',
+  brown_rice: '\u{1F35A}',
+  buckwheat_groats: '\u{1F33E}',
+  kiwi: '\u{1F95D}',
+  oats: '\u{1F33E}',
+  oranges: '\u{1F34A}',
+  potatoes: '\u{1F954}',
+  quinoa: '\u{1F33E}',
+  sweet_potatoes: '\u{1F360}',
   whole_wheat_pasta: '\u{1F35D}',
-  zucchini: '\u{1F952}',
+  // Fiber
+  asparagus: '\u{1F96C}',
+  bell_peppers: '\u{1FAD1}',
+  blueberries: '\u{1FAD0}',
+  broccoli: '\u{1F966}',
+  brussels_sprouts: '\u{1F966}',
+  cabbage: '\u{1F96C}',
+  carrots: '\u{1F955}',
+  cauliflower: '\u{1F966}',
+  kale: '\u{1F96C}',
+  mushrooms: '\u{1F344}',
+  raspberries: '\u{1FAD0}',
+  spinach: '\u{1F96C}',
+  strawberries: '\u{1F353}',
+  tomatoes: '\u{1F345}',
+  // Fats
+  almonds: '\u{1F330}',
+  avocado: '\u{1F951}',
+  chia_seeds: '\u{1F331}',
+  dark_chocolate: '\u{1F36B}',
+  extra_virgin_olive_oil: '\u{1FAD2}',
+  ground_flaxseed: '\u{1F331}',
+  parmesan_cheese: '\u{1F9C0}',
+  popcorn_kernels: '\u{1F37F}',
+  pumpkin_seeds: '\u{1F383}',
+  walnuts: '\u{1F330}',
 };
 
 function getEmoji(key) {
   return INGREDIENT_EMOJI[key] || '\u{1F372}';
 }
 
+const CATEGORY_ORDER = ['Protein', 'Carbs', 'Fiber', 'Fats'];
+
 export function OnboardingPage({ onComplete }) {
   const [selected, setSelected] = useState(() => new Set());
   const [customIngredients, setCustomIngredients] = useState([]);
   const [customInput, setCustomInput] = useState('');
 
-  const allIngredients = useMemo(
-    () => [...DEFAULT_KEY_INGREDIENTS, ...customIngredients],
+  const allIngredientKeys = useMemo(
+    () => [
+      ...Object.values(INGREDIENT_CATEGORIES).flat(),
+      ...customIngredients,
+    ],
     [customIngredients]
   );
 
@@ -75,7 +91,7 @@ export function OnboardingPage({ onComplete }) {
     const raw = customInput.trim();
     if (!raw) return;
     const key = raw.toLowerCase().replace(/\s+/g, '_');
-    if (allIngredients.includes(key)) return;
+    if (allIngredientKeys.includes(key)) return;
     setCustomIngredients(prev => [...prev, key]);
     setSelected(prev => new Set(prev).add(key));
     setCustomInput('');
@@ -91,18 +107,11 @@ export function OnboardingPage({ onComplete }) {
   }
 
   function handleSubmit() {
-    const result = allIngredients.filter(k => selected.has(k));
+    const result = allIngredientKeys.filter(k => selected.has(k));
     onComplete(result);
   }
 
   const isCustom = key => customIngredients.includes(key);
-
-  // Split ingredients into 3 columns
-  const columns = useMemo(() => {
-    const cols = [[], [], []];
-    allIngredients.forEach((key, i) => cols[i % 3].push(key));
-    return cols;
-  }, [allIngredients]);
 
   function renderItem(key) {
     return (
@@ -143,12 +152,22 @@ export function OnboardingPage({ onComplete }) {
         <p className={styles.subtitle}>(Don't worry, you can update this later)</p>
 
         <div className={styles.grid}>
-          {columns.map((col, ci) => (
-            <div key={ci} className={styles.column}>
-              {col.map(key => renderItem(key))}
+          {CATEGORY_ORDER.map(cat => (
+            <div key={cat} className={styles.column}>
+              <h3 className={styles.categoryHeading}>{cat}</h3>
+              {INGREDIENT_CATEGORIES[cat].map(key => renderItem(key))}
             </div>
           ))}
         </div>
+
+        {customIngredients.length > 0 && (
+          <div className={styles.customSection}>
+            <h3 className={styles.categoryHeading}>Custom</h3>
+            <div className={styles.customList}>
+              {customIngredients.map(key => renderItem(key))}
+            </div>
+          </div>
+        )}
 
         <div className={styles.addRow}>
           <input
