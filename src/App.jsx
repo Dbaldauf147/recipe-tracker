@@ -35,7 +35,29 @@ function AppContent({ user, logOut, isNewUser }) {
 
   const [view, setView] = useState('list');
   const [selectedId, setSelectedId] = useState(null);
+  const [viewHistory, setViewHistory] = useState([]);
   const [weeklyPlan, setWeeklyPlan] = useState(loadWeeklyPlan);
+
+  function navigateTo(nextView, nextSelectedId) {
+    setViewHistory(prev => [...prev.slice(-19), { view, selectedId }]);
+    if (nextSelectedId !== undefined) setSelectedId(nextSelectedId);
+    setView(nextView);
+  }
+
+  function goBack() {
+    setViewHistory(prev => {
+      if (prev.length === 0) {
+        setView('list');
+        setSelectedId(null);
+        return prev;
+      }
+      const next = [...prev];
+      const last = next.pop();
+      setView(last.view);
+      setSelectedId(last.selectedId);
+      return next;
+    });
+  }
   function saveWeek(plan) {
     try { localStorage.setItem(WEEKLY_KEY, JSON.stringify(plan)); } catch {}
     if (user) saveField(user.uid, 'weeklyPlan', plan);
@@ -52,17 +74,17 @@ function AppContent({ user, logOut, isNewUser }) {
 
   function handleNavClick(item) {
     if (item.action === 'ingredients') {
-      setView('ingredients');
+      navigateTo('ingredients');
     } else if (item.action === 'shopping') {
-      setView('shopping');
+      navigateTo('shopping');
     } else if (item.action === 'history') {
-      setView('history');
+      navigateTo('history');
     } else if (item.action === 'key-ingredients') {
-      setView('key-ingredients');
+      navigateTo('key-ingredients');
     } else if (item.action === 'import') {
-      setView('import');
+      navigateTo('import');
     } else if (item.id) {
-      if (view !== 'list') setView('list');
+      if (view !== 'list') navigateTo('list');
       setTimeout(() => {
         const el = document.getElementById(item.id);
         if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -71,13 +93,13 @@ function AppContent({ user, logOut, isNewUser }) {
   }
 
   function handleSelect(id) {
-    setSelectedId(id);
-    setView('detail');
+    navigateTo('detail', id);
   }
 
   function handleAdd(data) {
     addRecipe(data);
     setView('list');
+    setViewHistory([]);
   }
 
   function handleUpdate(data) {
@@ -94,6 +116,7 @@ function AppContent({ user, logOut, isNewUser }) {
       return next;
     });
     setView('list');
+    setViewHistory([]);
   }
 
   function handleAddToWeek(id) {
@@ -143,7 +166,7 @@ function AppContent({ user, logOut, isNewUser }) {
           className={styles.logo}
           src="/sunday-logo.png"
           alt="Sunday"
-          onClick={() => setView('list')}
+          onClick={() => { setView('list'); setSelectedId(null); setViewHistory([]); }}
         />
         <nav className={styles.nav}>
           {NAV_ITEMS.map(item => {
@@ -181,42 +204,42 @@ function AppContent({ user, logOut, isNewUser }) {
         {view === 'import' ? (
           <ImportRecipePage
             onSave={handleAdd}
-            onCancel={() => setView('list')}
+            onCancel={goBack}
           />
         ) : view === 'shopping' ? (
           <ShoppingListPage
             weeklyRecipes={weeklyPlan.map(id => getRecipe(id)).filter(Boolean)}
-            onClose={() => setView('list')}
+            onClose={goBack}
           />
         ) : view === 'key-ingredients' ? (
           <KeyIngredientsPage
             recipes={recipes}
             getRecipe={getRecipe}
-            onClose={() => setView('list')}
+            onClose={goBack}
           />
         ) : view === 'history' ? (
           <HistoryPage
             getRecipe={getRecipe}
             recipes={recipes}
-            onClose={() => setView('list')}
+            onClose={goBack}
           />
         ) : view === 'ingredients' ? (
-          <IngredientsPage onClose={() => setView('list')} />
+          <IngredientsPage onClose={goBack} />
         ) : view === 'detail' && selectedId ? (
           <RecipeDetail
             recipe={getRecipe(selectedId)}
             onSave={handleUpdate}
             onDelete={handleDelete}
-            onBack={() => setView('list')}
+            onBack={goBack}
           />
         ) : view === 'add' ? (
-          <RecipeForm onSave={handleAdd} onCancel={() => setView('list')} />
+          <RecipeForm onSave={handleAdd} onCancel={goBack} />
         ) : (
           <div className={styles.homeLayout}>
             <RecipeList
               recipes={recipes}
               onSelect={handleSelect}
-              onAdd={() => setView('add')}
+              onAdd={() => navigateTo('add')}
               onImport={importRecipes}
               weeklyPlan={weeklyPlan}
               onAddToWeek={handleAddToWeek}
