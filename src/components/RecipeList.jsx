@@ -571,9 +571,6 @@ export function RecipeList({
             <div key={recipe.id} className={styles.importItem}>
               <div className={styles.importInfo}>
                 <span className={styles.importName}>{recipe.title}</span>
-                <span className={styles.importCategory}>
-                  {CATEGORIES.find(c => c.key === (recipe.category || 'lunch-dinner'))?.label || 'Lunch & Dinner'}
-                </span>
               </div>
               <button
                 className={styles.importAddBtn}
