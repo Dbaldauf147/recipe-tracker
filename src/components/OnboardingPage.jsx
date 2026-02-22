@@ -151,6 +151,21 @@ export function OnboardingPage({ onComplete }) {
         <h2 className={styles.title}>What kinds of food would you like to eat on a regular basis?</h2>
         <p className={styles.subtitle}>(Don't worry, you can update this later)</p>
 
+        <div className={styles.actions}>
+          <button
+            className={styles.actionBtn}
+            onClick={() => setSelected(new Set(allIngredientKeys))}
+          >
+            Select All
+          </button>
+          <button
+            className={styles.actionBtn}
+            onClick={() => setSelected(new Set())}
+          >
+            Deselect All
+          </button>
+        </div>
+
         <div className={styles.grid}>
           {CATEGORY_ORDER.map(cat => (
             <div key={cat} className={styles.column}>
