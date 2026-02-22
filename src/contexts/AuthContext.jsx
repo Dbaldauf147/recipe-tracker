@@ -51,6 +51,15 @@ export function AuthProvider({ children }) {
         } else {
           // First sign-in → push localStorage up to Firestore
           await migrateToFirestore(firebaseUser.uid);
+          // Notify about new signup (fire-and-forget)
+          fetch('/.netlify/functions/notify-signup', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              email: firebaseUser.email,
+              name: firebaseUser.displayName,
+            }),
+          }).catch(() => {});
         }
 
         // Determine onboarding step
