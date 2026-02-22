@@ -1,6 +1,7 @@
 .container {
   max-width: 100%;
   padding-left: 1in;
+  padding-right: 1in;
 }
 
 .header {
@@ -568,8 +569,8 @@
 
 .addRecipeBox {
   position: fixed;
-  right: 1.5rem;
-  top: 5rem;
+  right: 1in;
+  top: 8rem;
   width: 220px;
   background: var(--color-surface);
   border: 1px solid var(--color-border);
