@@ -1,6 +1,6 @@
 import styles from './RecipeCard.module.css';
 
-export function RecipeCard({ recipe, onClick, draggable = false, onAdd }) {
+export function RecipeCard({ recipe, onClick, draggable = false, onAdd, editMode, onDelete }) {
   function handleDragStart(e) {
     e.dataTransfer.setData('text/plain', recipe.id);
     e.dataTransfer.effectAllowed = 'copyMove';
@@ -17,7 +17,15 @@ export function RecipeCard({ recipe, onClick, draggable = false, onAdd }) {
       onDragStart={draggable ? handleDragStart : undefined}
     >
       <span className={styles.name}>{recipe.title}</span>
-      {onAdd && (
+      {editMode && onDelete ? (
+        <button
+          className={styles.deleteBtn}
+          onClick={e => { e.stopPropagation(); if (confirm(`Delete "${recipe.title}"?`)) onDelete(recipe.id); }}
+          title="Delete recipe"
+        >
+          &minus;
+        </button>
+      ) : onAdd ? (
         <button
           className={styles.addBtn}
           onClick={e => { e.stopPropagation(); onAdd(recipe.id); }}
@@ -25,7 +33,7 @@ export function RecipeCard({ recipe, onClick, draggable = false, onAdd }) {
         >
           +
         </button>
-      )}
+      ) : null}
     </div>
   );
 }

@@ -64,6 +64,18 @@
   cursor: not-allowed;
 }
 
+.editBtnActive {
+  background: var(--color-danger, #ef4444);
+  border-color: var(--color-danger, #ef4444);
+  color: #fff;
+}
+
+.editBtnActive:hover {
+  background: #dc2626;
+  border-color: #dc2626;
+  color: #fff;
+}
+
 .importResult {
   color: var(--color-success);
   font-size: 0.88rem;

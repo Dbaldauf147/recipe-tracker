@@ -293,6 +293,7 @@ function AppContent({ user, logOut, isNewUser }) {
               getRecipe={getRecipe}
               onSaveToHistory={handleSaveToHistory}
               onAddRecipe={addRecipe}
+              onDelete={handleDelete}
               isNewUser={isNewUser}
             />
           </div>

@@ -47,6 +47,30 @@
   color: #fff;
 }
 
+.deleteBtn {
+  background: none;
+  border: 1px solid var(--color-danger, #ef4444);
+  color: var(--color-danger, #ef4444);
+  font-size: 1.1rem;
+  font-weight: 600;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  margin-left: 0.5rem;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.deleteBtn:hover {
+  background: var(--color-danger, #ef4444);
+  border-color: var(--color-danger, #ef4444);
+  color: #fff;
+}
+
 .link:last-child {
   border-bottom: none;
 }

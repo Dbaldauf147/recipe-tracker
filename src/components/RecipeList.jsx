@@ -48,6 +48,7 @@ export function RecipeList({
   getRecipe,
   onSaveToHistory,
   onAddRecipe,
+  onDelete,
   isNewUser,
 }) {
   const { user } = useAuth();
@@ -60,6 +61,7 @@ export function RecipeList({
   const [quickTitle, setQuickTitle] = useState('');
   const [quickCategory, setQuickCategory] = useState('lunch-dinner');
   const [importSearch, setImportSearch] = useState('');
+  const [editMode, setEditMode] = useState(false);
   const [shopSelection, setShopSelection] = useState(() => {
     try {
       const data = localStorage.getItem(SHOP_KEY);
@@ -407,6 +409,12 @@ export function RecipeList({
             Import Recipe Data
           </button>
           <button
+            className={`${styles.importBtn}${editMode ? ` ${styles.editBtnActive}` : ''}`}
+            onClick={() => setEditMode(prev => !prev)}
+          >
+            {editMode ? 'Done Editing' : 'Edit Recipes'}
+          </button>
+          <button
             className={styles.importBtn}
             onClick={exportToCSV}
           >
@@ -650,8 +658,10 @@ export function RecipeList({
                     key={recipe.id}
                     recipe={recipe}
                     onClick={onSelect}
-                    draggable
-                    onAdd={onAddToWeek}
+                    draggable={!editMode}
+                    onAdd={editMode ? undefined : onAddToWeek}
+                    editMode={editMode}
+                    onDelete={onDelete}
                   />
                 ))}
               </div>
@@ -686,8 +696,10 @@ export function RecipeList({
                       key={recipe.id}
                       recipe={recipe}
                       onClick={onSelect}
-                      draggable
-                      onAdd={onAddToWeek}
+                      draggable={!editMode}
+                      onAdd={editMode ? undefined : onAddToWeek}
+                      editMode={editMode}
+                      onDelete={onDelete}
                     />
                   ))}
                 </div>
@@ -716,8 +728,10 @@ export function RecipeList({
                       key={recipe.id}
                       recipe={recipe}
                       onClick={onSelect}
-                      draggable
-                      onAdd={onAddToWeek}
+                      draggable={!editMode}
+                      onAdd={editMode ? undefined : onAddToWeek}
+                      editMode={editMode}
+                      onDelete={onDelete}
                     />
                   ))}
                 </div>
