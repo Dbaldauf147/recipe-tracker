@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { parseRecipeText } from '../utils/parseRecipeText';
 import { fetchRecipeFromUrl } from '../utils/fetchRecipeFromUrl';
+import { fetchInstagramCaption } from '../utils/fetchInstagramCaption';
 import { RecipeForm } from './RecipeForm';
 import styles from './ImportRecipePage.module.css';
 
@@ -44,6 +45,21 @@ export function ImportRecipePage({ onSave, onCancel }) {
       setPhase('review');
     } catch (err) {
       setFetchError(err.message || 'Failed to fetch recipe from URL.');
+    } finally {
+      setFetching(false);
+    }
+  }
+
+  async function handleFetchCaption() {
+    const url = instagramUrl.trim();
+    if (!url) return;
+    setFetching(true);
+    setFetchError('');
+    try {
+      const caption = await fetchInstagramCaption(url);
+      setRawText(caption);
+    } catch (err) {
+      setFetchError(err.message || 'Failed to fetch Instagram caption.');
     } finally {
       setFetching(false);
     }
@@ -143,9 +159,22 @@ export function ImportRecipePage({ onSave, onCancel }) {
               />
             </label>
 
+            <div className={styles.urlActions}>
+              <button
+                className={styles.fetchBtn}
+                onClick={handleFetchCaption}
+                disabled={!instagramUrl.trim() || fetching}
+              >
+                {fetching ? 'Fetching...' : 'Fetch Caption'}
+              </button>
+            </div>
+
+            {fetchError && (
+              <div className={styles.fetchError}>{fetchError}</div>
+            )}
+
             <p className={styles.instagramHelp}>
-              Copy the caption text from the Instagram post and paste it below.
-              Open the post, tap the caption to expand it, then select and copy the text.
+              Or copy the caption text from the Instagram app and paste it below.
             </p>
 
             <label className={styles.label}>
