@@ -1,15 +1,8 @@
 import { useMemo } from 'react';
-import { KEY_INGREDIENTS, normalize, recipeHasIngredient } from '../utils/keyIngredients';
+import { getUserKeyIngredients, normalize, recipeHasIngredient, displayName } from '../utils/keyIngredients';
 import styles from './KeyIngredientsPage.module.css';
 
 const HISTORY_KEY = 'sunday-plan-history';
-
-/** Format an ingredient key for display */
-function displayName(key) {
-  return key
-    .replace(/_/g, ' ')
-    .replace(/\b\w/g, c => c.toUpperCase());
-}
 
 /** Calculate days between a date string (YYYY-MM-DD) and today */
 function daysSince(dateStr) {
@@ -29,6 +22,8 @@ function loadHistory() {
 }
 
 export function KeyIngredientsPage({ recipes, getRecipe, onClose }) {
+  const userIngredients = getUserKeyIngredients();
+
   const { sorted, lastEatenMap, mealsMap, neverCount } = useMemo(() => {
     const history = loadHistory();
     const byRecent = [...history].sort(
@@ -37,7 +32,7 @@ export function KeyIngredientsPage({ recipes, getRecipe, onClose }) {
 
     const dateMap = {};
     const meals = {};
-    for (const keyIng of KEY_INGREDIENTS) {
+    for (const keyIng of userIngredients) {
       const normKey = normalize(keyIng);
       dateMap[keyIng] = null;
 
@@ -59,7 +54,7 @@ export function KeyIngredientsPage({ recipes, getRecipe, onClose }) {
         .map(r => r.title);
     }
 
-    const sortedKeys = KEY_INGREDIENTS.slice().sort((a, b) => {
+    const sortedKeys = userIngredients.slice().sort((a, b) => {
       const dateA = dateMap[a];
       const dateB = dateMap[b];
       if (!dateA && !dateB) return a.localeCompare(b);
@@ -85,7 +80,7 @@ export function KeyIngredientsPage({ recipes, getRecipe, onClose }) {
         </button>
         <h2 className={styles.title}>Key Ingredients</h2>
         <span className={styles.count}>
-          {neverCount} of {KEY_INGREDIENTS.length} never eaten
+          {neverCount} of {userIngredients.length} never eaten
         </span>
       </div>
 

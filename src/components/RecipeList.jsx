@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react';
 import { RecipeCard } from './RecipeCard';
 import { fetchRecipesFromSheet } from '../utils/sheetRecipes';
-import { KEY_INGREDIENTS, normalize, recipeHasIngredient } from '../utils/keyIngredients';
+import { getUserKeyIngredients, normalize, recipeHasIngredient } from '../utils/keyIngredients';
 import { useAuth } from '../contexts/AuthContext';
 import { saveField } from '../utils/firestoreSync';
 import styles from './RecipeList.module.css';
@@ -231,8 +231,9 @@ export function RecipeList({
     }
 
     // Build map: normalized key ingredient → most recent date it was eaten
+    const userIngredients = getUserKeyIngredients();
     const ingredientDateMap = {};
-    for (const keyIng of KEY_INGREDIENTS) {
+    for (const keyIng of userIngredients) {
       const normKey = normalize(keyIng);
       for (const entry of byRecent) {
         if (ingredientDateMap[normKey]) break;
@@ -260,7 +261,7 @@ export function RecipeList({
       // Sum days-since-last-eaten for each key ingredient this recipe has
       let ingredientScore = 0;
       const neglectedIngredients = [];
-      for (const keyIng of KEY_INGREDIENTS) {
+      for (const keyIng of userIngredients) {
         const normKey = normalize(keyIng);
         if (recipeHasIngredient(recipe, normKey)) {
           const ingDate = ingredientDateMap[normKey];

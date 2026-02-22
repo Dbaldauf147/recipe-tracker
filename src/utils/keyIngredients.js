@@ -1,4 +1,4 @@
-export const KEY_INGREDIENTS = [
+export const DEFAULT_KEY_INGREDIENTS = [
   'almonds',
   'avocado',
   'beets',
@@ -43,6 +43,30 @@ export const KEY_INGREDIENTS = [
   'whole_wheat_pasta',
   'zucchini',
 ];
+
+/** Backwards-compatible alias */
+export const KEY_INGREDIENTS = DEFAULT_KEY_INGREDIENTS;
+
+const KEY_INGREDIENTS_STORAGE = 'sunday-key-ingredients';
+
+/** Get the user's chosen key ingredients (falls back to defaults) */
+export function getUserKeyIngredients() {
+  try {
+    const data = localStorage.getItem(KEY_INGREDIENTS_STORAGE);
+    if (data) {
+      const parsed = JSON.parse(data);
+      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+    }
+  } catch {}
+  return DEFAULT_KEY_INGREDIENTS;
+}
+
+/** Format a snake_case ingredient key for display */
+export function displayName(key) {
+  return key
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, c => c.toUpperCase());
+}
 
 /** Normalize a string for fuzzy matching */
 export function normalize(str) {

@@ -1,7 +1,7 @@
 import { createContext, useContext, useState, useEffect } from 'react';
 import { onAuthStateChanged, signInWithPopup, signOut } from 'firebase/auth';
 import { auth, googleProvider } from '../firebase';
-import { loadUserData, migrateToFirestore, hydrateLocalStorage } from '../utils/firestoreSync';
+import { loadUserData, migrateToFirestore, hydrateLocalStorage, saveField } from '../utils/firestoreSync';
 
 const AuthContext = createContext(null);
 
@@ -19,6 +19,7 @@ const APP_STORAGE_KEYS = [
   'sunday-shop-extras',
   'sunday-shopping-selection',
   'sunday-nutrition-cache',
+  'sunday-key-ingredients',
 ];
 
 function clearAppStorage() {
@@ -31,6 +32,7 @@ export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [dataReady, setDataReady] = useState(false);
+  const [needsOnboarding, setNeedsOnboarding] = useState(false);
 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (firebaseUser) => {
@@ -48,11 +50,17 @@ export function AuthProvider({ children }) {
           // First sign-in → push localStorage up to Firestore
           await migrateToFirestore(firebaseUser.uid);
         }
+
+        // Check if user has completed onboarding (has keyIngredients)
+        const hasKeyIngredients = userData?.keyIngredients?.length > 0;
+        setNeedsOnboarding(!hasKeyIngredients);
+
         setUser(firebaseUser);
         setDataReady(true);
       } else {
         setUser(null);
         setDataReady(false);
+        setNeedsOnboarding(false);
       }
       setLoading(false);
     });
@@ -71,12 +79,25 @@ export function AuthProvider({ children }) {
     }
   }
 
+  async function completeOnboarding(ingredients) {
+    localStorage.setItem('sunday-key-ingredients', JSON.stringify(ingredients));
+    if (user) {
+      // Ensure the user doc exists, then save keyIngredients
+      const userData = await loadUserData(user.uid);
+      if (!userData) {
+        await migrateToFirestore(user.uid);
+      }
+      await saveField(user.uid, 'keyIngredients', ingredients);
+    }
+    setNeedsOnboarding(false);
+  }
+
   async function logOut() {
     clearAppStorage();
     await signOut(auth);
   }
 
-  const value = { user, loading, dataReady, authError, signInWithGoogle, logOut };
+  const value = { user, loading, dataReady, needsOnboarding, authError, signInWithGoogle, logOut, completeOnboarding };
 
   return (
     <AuthContext.Provider value={value}>

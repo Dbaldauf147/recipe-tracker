@@ -75,6 +75,11 @@ export async function migrateToFirestore(uid) {
     if (selection) data.shoppingSelection = JSON.parse(selection);
   } catch {}
 
+  try {
+    const keyIngs = localStorage.getItem('sunday-key-ingredients');
+    if (keyIngs) data.keyIngredients = JSON.parse(keyIngs);
+  } catch {}
+
   if (Object.keys(data).length === 0) return;
 
   try {
@@ -100,4 +105,8 @@ export function hydrateLocalStorage(userData) {
   localStorage.setItem('sunday-pantry-sauces', JSON.stringify(userData.pantrySauces || []));
   localStorage.setItem('sunday-shop-extras', JSON.stringify(userData.shopExtras || []));
   localStorage.setItem('sunday-shopping-selection', JSON.stringify(userData.shoppingSelection || []));
+
+  if (userData.keyIngredients) {
+    localStorage.setItem('sunday-key-ingredients', JSON.stringify(userData.keyIngredients));
+  }
 }

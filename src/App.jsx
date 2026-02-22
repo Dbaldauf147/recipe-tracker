@@ -11,6 +11,7 @@ import { HistoryPage } from './components/HistoryPage';
 import { KeyIngredientsPage } from './components/KeyIngredientsPage';
 import { ImportRecipePage } from './components/ImportRecipePage';
 import { LoginPage } from './components/LoginPage';
+import { OnboardingPage } from './components/OnboardingPage';
 import styles from './App.module.css';
 
 const WEEKLY_KEY = 'sunday-weekly-plan';
@@ -236,7 +237,7 @@ function AppContent({ user, logOut }) {
 
 // Views: "list" | "detail" | "add"
 function App() {
-  const { user, loading, dataReady, logOut } = useAuth();
+  const { user, loading, dataReady, needsOnboarding, logOut, completeOnboarding } = useAuth();
 
   if (loading || (user && !dataReady)) {
     return (
@@ -248,6 +249,10 @@ function App() {
 
   if (!user) {
     return <LoginPage />;
+  }
+
+  if (needsOnboarding) {
+    return <OnboardingPage onComplete={completeOnboarding} />;
   }
 
   // key={user.uid} forces full remount when the user changes,
