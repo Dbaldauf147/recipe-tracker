@@ -21,7 +21,7 @@ function loadHistory() {
   }
 }
 
-export function KeyIngredientsPage({ recipes, getRecipe, onClose }) {
+export function KeyIngredientsPage({ recipes, getRecipe, onClose, onSetup }) {
   const userIngredients = getUserKeyIngredients();
 
   const { sorted, lastEatenMap, mealsMap, neverCount } = useMemo(() => {
@@ -82,6 +82,9 @@ export function KeyIngredientsPage({ recipes, getRecipe, onClose }) {
         <span className={styles.count}>
           {neverCount} of {userIngredients.length} never eaten
         </span>
+        <button className={styles.setupBtn} onClick={onSetup}>
+          Edit Key Ingredients
+        </button>
       </div>
 
       <div className={styles.tableWrap}>

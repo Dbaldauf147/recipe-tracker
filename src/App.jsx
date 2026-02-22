@@ -211,11 +211,22 @@ function AppContent({ user, logOut, isNewUser }) {
             weeklyRecipes={weeklyPlan.map(id => getRecipe(id)).filter(Boolean)}
             onClose={goBack}
           />
+        ) : view === 'setup' ? (
+          <OnboardingPage
+            initialIngredients={JSON.parse(localStorage.getItem('sunday-key-ingredients') || '[]')}
+            onComplete={(ingredients) => {
+              localStorage.setItem('sunday-key-ingredients', JSON.stringify(ingredients));
+              if (user) saveField(user.uid, 'keyIngredients', ingredients);
+              goBack();
+            }}
+            onCancel={goBack}
+          />
         ) : view === 'key-ingredients' ? (
           <KeyIngredientsPage
             recipes={recipes}
             getRecipe={getRecipe}
             onClose={goBack}
+            onSetup={() => navigateTo('setup')}
           />
         ) : view === 'history' ? (
           <HistoryPage

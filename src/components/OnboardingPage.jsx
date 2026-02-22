@@ -62,9 +62,14 @@ function getEmoji(key) {
 
 const CATEGORY_ORDER = ['Protein', 'Carbs', 'Fiber', 'Fats'];
 
-export function OnboardingPage({ onComplete }) {
-  const [selected, setSelected] = useState(() => new Set());
-  const [customIngredients, setCustomIngredients] = useState([]);
+export function OnboardingPage({ onComplete, initialIngredients, onCancel }) {
+  const knownKeys = new Set(Object.values(INGREDIENT_CATEGORIES).flat());
+  const [selected, setSelected] = useState(() =>
+    initialIngredients ? new Set(initialIngredients) : new Set()
+  );
+  const [customIngredients, setCustomIngredients] = useState(() =>
+    initialIngredients ? initialIngredients.filter(k => !knownKeys.has(k)) : []
+  );
   const [customInput, setCustomInput] = useState('');
 
   const allIngredientKeys = useMemo(
@@ -200,13 +205,20 @@ export function OnboardingPage({ onComplete }) {
           </div>
         )}
 
-        <button
-          className={styles.startBtn}
-          onClick={handleSubmit}
-          disabled={selected.size === 0}
-        >
-          Get Started
-        </button>
+        <div className={styles.bottomActions}>
+          {onCancel && (
+            <button className={styles.cancelBtn} onClick={onCancel}>
+              &larr; Back
+            </button>
+          )}
+          <button
+            className={styles.startBtn}
+            onClick={handleSubmit}
+            disabled={selected.size === 0}
+          >
+            {initialIngredients ? 'Save Changes' : 'Get Started'}
+          </button>
+        </div>
       </div>
     </div>
   );

@@ -36,6 +36,24 @@
   color: var(--color-text-muted);
 }
 
+.setupBtn {
+  padding: 0.45rem 1rem;
+  background: var(--color-surface);
+  color: var(--color-accent);
+  border: 1px solid var(--color-border);
+  border-radius: 50px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.setupBtn:hover {
+  background: var(--color-accent-light);
+  border-color: var(--color-accent);
+}
+
 .tableWrap {
   overflow-x: auto;
   border: 1px solid var(--color-border);
