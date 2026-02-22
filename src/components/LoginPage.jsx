@@ -1,8 +1,22 @@
+import { useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import styles from './LoginPage.module.css';
 
 export function LoginPage() {
-  const { signInWithGoogle, authError } = useAuth();
+  const { signInWithGoogle, signUpWithEmail, signInWithEmail, authError } = useAuth();
+  const [isSignUp, setIsSignUp] = useState(false);
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [name, setName] = useState('');
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    if (isSignUp) {
+      await signUpWithEmail(email, password, name);
+    } else {
+      await signInWithEmail(email, password);
+    }
+  }
 
   return (
     <div className={styles.page}>
@@ -10,6 +24,44 @@ export function LoginPage() {
         <img className={styles.logoImg} src="/sunday-logo.png" alt="Sunday" />
         <p className={styles.tagline}>meal planning, simplified</p>
         {authError && <p className={styles.error}>{authError}</p>}
+        <form className={styles.form} onSubmit={handleSubmit}>
+          {isSignUp && (
+            <input
+              className={styles.input}
+              type="text"
+              placeholder="Name"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+            />
+          )}
+          <input
+            className={styles.input}
+            type="email"
+            placeholder="Email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            required
+          />
+          <input
+            className={styles.input}
+            type="password"
+            placeholder="Password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            required
+            minLength={6}
+          />
+          <button className={styles.submitBtn} type="submit">
+            {isSignUp ? 'Sign up' : 'Sign in'}
+          </button>
+        </form>
+        <p className={styles.toggleLink}>
+          {isSignUp ? 'Already have an account?' : "Don't have an account?"}{' '}
+          <a href="#" onClick={(e) => { e.preventDefault(); setIsSignUp(!isSignUp); }}>
+            {isSignUp ? 'Sign in' : 'Sign up'}
+          </a>
+        </p>
+        <div className={styles.divider}><span>or</span></div>
         <button className={styles.googleBtn} onClick={signInWithGoogle}>
           <svg className={styles.googleIcon} viewBox="0 0 24 24" width="20" height="20">
             <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z" fill="#4285F4"/>

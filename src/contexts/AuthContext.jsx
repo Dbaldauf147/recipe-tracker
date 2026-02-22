@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useEffect } from 'react';
-import { onAuthStateChanged, signInWithPopup, signOut } from 'firebase/auth';
+import { onAuthStateChanged, signInWithPopup, signOut, createUserWithEmailAndPassword, signInWithEmailAndPassword, updateProfile } from 'firebase/auth';
 import { auth, googleProvider } from '../firebase';
 import { loadUserData, migrateToFirestore, hydrateLocalStorage, saveField } from '../utils/firestoreSync';
 
@@ -108,6 +108,30 @@ export function AuthProvider({ children }) {
     setOnboardingStep(null);
   }
 
+  async function signUpWithEmail(email, password, name) {
+    try {
+      setAuthError(null);
+      const { user: newUser } = await createUserWithEmailAndPassword(auth, email, password);
+      if (name) {
+        await updateProfile(newUser, { displayName: name });
+      }
+      // onAuthStateChanged will handle migration, notify, and onboarding
+    } catch (err) {
+      console.error('Sign-up error:', err);
+      setAuthError(err.message || 'Sign-up failed');
+    }
+  }
+
+  async function signInWithEmail(email, password) {
+    try {
+      setAuthError(null);
+      await signInWithEmailAndPassword(auth, email, password);
+    } catch (err) {
+      console.error('Sign-in error:', err);
+      setAuthError(err.message || 'Sign-in failed');
+    }
+  }
+
   async function logOut() {
     clearAppStorage();
     await signOut(auth);
@@ -115,7 +139,7 @@ export function AuthProvider({ children }) {
 
   const value = {
     user, loading, dataReady, onboardingStep, justOnboarded, authError,
-    signInWithGoogle, logOut, completeOnboarding,
+    signInWithGoogle, signUpWithEmail, signInWithEmail, logOut, completeOnboarding,
   };
 
   return (
