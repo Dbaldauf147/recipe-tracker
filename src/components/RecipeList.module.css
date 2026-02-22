@@ -563,6 +563,95 @@
   color: #fff;
 }
 
+/* ── Discover Recipes ── */
+
+.discoverBox {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 1.25rem;
+  box-shadow: var(--shadow-md);
+  margin-top: 1.5rem;
+  max-width: 480px;
+}
+
+.discoverHeading {
+  margin: 0 0 0.15rem;
+  font-size: 0.9rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-accent);
+}
+
+.discoverSubtext {
+  margin: 0 0 0.75rem;
+  font-size: 0.78rem;
+  color: var(--color-text-muted);
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.discoverList {
+  display: flex;
+  flex-direction: column;
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+.discoverItem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.45rem 0;
+  border-bottom: 1px solid var(--color-border-light);
+}
+
+.discoverItem:last-child {
+  border-bottom: none;
+}
+
+.discoverInfo {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 0;
+}
+
+.discoverName {
+  font-size: 0.95rem;
+  font-weight: 500;
+  color: var(--color-text);
+}
+
+.discoverCategory {
+  font-size: 0.78rem;
+  color: var(--color-text-muted);
+}
+
+.discoverAddBtn {
+  background: none;
+  border: 1px solid var(--color-border);
+  color: var(--color-accent);
+  font-size: 1.1rem;
+  font-weight: 600;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.discoverAddBtn:hover {
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+  color: #fff;
+}
+
 /* ── Responsive ── */
 
 @media (max-width: 768px) {

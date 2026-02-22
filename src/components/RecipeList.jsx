@@ -3,8 +3,10 @@ import { RecipeCard } from './RecipeCard';
 import { fetchRecipesFromSheet } from '../utils/sheetRecipes';
 import { getUserKeyIngredients, normalize, recipeHasIngredient } from '../utils/keyIngredients';
 import { useAuth } from '../contexts/AuthContext';
-import { saveField } from '../utils/firestoreSync';
+import { loadUserData, saveField } from '../utils/firestoreSync';
 import styles from './RecipeList.module.css';
+
+const ADMIN_UID = import.meta.env.VITE_ADMIN_UID;
 
 const HISTORY_KEY = 'sunday-plan-history';
 const SHOP_KEY = 'sunday-shopping-selection';
@@ -44,6 +46,7 @@ export function RecipeList({
   onCategoryChange,
   getRecipe,
   onSaveToHistory,
+  onAddRecipe,
   isNewUser,
 }) {
   const { user } = useAuth();
@@ -207,6 +210,48 @@ export function RecipeList({
     if (!e.currentTarget.contains(e.relatedTarget)) {
       if (dragOverTarget === target) setDragOverTarget(null);
     }
+  }
+
+  // Discover recipes: admin recipes matching key ingredients not yet in user's collection
+  const [adminRecipes, setAdminRecipes] = useState(null);
+  const [addedIds, setAddedIds] = useState(() => new Set());
+
+  useEffect(() => {
+    let cancelled = false;
+    async function fetchAdmin() {
+      try {
+        const data = await loadUserData(ADMIN_UID);
+        if (!cancelled) setAdminRecipes(data?.recipes || []);
+      } catch (err) {
+        console.error('Failed to load admin recipes:', err);
+      }
+    }
+    fetchAdmin();
+    return () => { cancelled = true; };
+  }, []);
+
+  const discoverRecipes = useMemo(() => {
+    if (!adminRecipes) return [];
+    const userKeys = getUserKeyIngredients();
+    const normKeys = userKeys.map(k => normalize(k));
+    const existingTitles = new Set(recipes.map(r => r.title.toLowerCase()));
+    return adminRecipes
+      .filter(r => {
+        if (existingTitles.has(r.title.toLowerCase())) return false;
+        if (addedIds.has(r.title.toLowerCase())) return false;
+        return normKeys.some(nk => recipeHasIngredient(r, nk));
+      })
+      .sort((a, b) => {
+        const aCount = normKeys.filter(nk => recipeHasIngredient(a, nk)).length;
+        const bCount = normKeys.filter(nk => recipeHasIngredient(b, nk)).length;
+        return bCount - aCount || a.title.localeCompare(b.title);
+      });
+  }, [adminRecipes, recipes, addedIds]);
+
+  function handleAddDiscover(recipe) {
+    const { id, createdAt, ...rest } = recipe;
+    onAddRecipe(rest);
+    setAddedIds(prev => new Set(prev).add(recipe.title.toLowerCase()));
   }
 
   // Suggested meals: score recipes by staleness + neglected key ingredients
@@ -552,6 +597,31 @@ export function RecipeList({
                     ))}
                   </div>
                 )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+      {discoverRecipes.length > 0 && (
+        <div className={styles.discoverBox}>
+          <h3 className={styles.discoverHeading}>Discover Recipes</h3>
+          <p className={styles.discoverSubtext}>Based on your key ingredients</p>
+          <div className={styles.discoverList}>
+            {discoverRecipes.map(recipe => (
+              <div key={recipe.id} className={styles.discoverItem}>
+                <div className={styles.discoverInfo}>
+                  <span className={styles.discoverName}>{recipe.title}</span>
+                  <span className={styles.discoverCategory}>
+                    {CATEGORIES.find(c => c.key === (recipe.category || 'lunch-dinner'))?.label || 'Lunch & Dinner'}
+                  </span>
+                </div>
+                <button
+                  className={styles.discoverAddBtn}
+                  onClick={() => handleAddDiscover(recipe)}
+                  title="Add to My Recipes"
+                >
+                  +
+                </button>
               </div>
             ))}
           </div>

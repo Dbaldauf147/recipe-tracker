@@ -225,6 +225,7 @@ function AppContent({ user, logOut, isNewUser }) {
               onCategoryChange={handleCategoryChange}
               getRecipe={getRecipe}
               onSaveToHistory={handleSaveToHistory}
+              onAddRecipe={addRecipe}
               isNewUser={isNewUser}
             />
           </div>
