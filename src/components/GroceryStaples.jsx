@@ -1,5 +1,4 @@
 import { useState, useEffect } from 'react';
-import { fetchStaplesFromSheet } from '../utils/sheetRecipes';
 import { auth } from '../firebase';
 import { saveField } from '../utils/firestoreSync';
 import styles from './GroceryStaples.module.css';
@@ -27,18 +26,8 @@ export function GroceryStaples({ onMoveToShop }) {
 
   useEffect(() => {
     const saved = loadStaples();
-    if (saved) {
-      setStaples(saved);
-      setLoading(false);
-    } else {
-      fetchStaplesFromSheet()
-        .then(data => {
-          setStaples(data);
-          saveStaples(data);
-        })
-        .catch(() => setStaples([]))
-        .finally(() => setLoading(false));
-    }
+    setStaples(saved || []);
+    setLoading(false);
   }, []);
 
   useEffect(() => {

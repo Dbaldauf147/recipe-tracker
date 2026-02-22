@@ -1,6 +1,5 @@
 export const INGREDIENT_CATEGORIES = {
   Protein: [
-    'black_beans',
     'chicken_breast',
     'chickpeas',
     'edamame',
@@ -19,8 +18,8 @@ export const INGREDIENT_CATEGORIES = {
   Carbs: [
     'apples',
     'barley',
+    'black_beans',
     'brown_rice',
-    'buckwheat_groats',
     'kiwi',
     'oats',
     'oranges',
@@ -49,11 +48,9 @@ export const INGREDIENT_CATEGORIES = {
     'almonds',
     'avocado',
     'chia_seeds',
-    'dark_chocolate',
     'extra_virgin_olive_oil',
     'ground_flaxseed',
     'parmesan_cheese',
-    'popcorn_kernels',
     'pumpkin_seeds',
     'walnuts',
   ],
