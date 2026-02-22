@@ -51,7 +51,7 @@ function buildShoppingList(recipes) {
   );
 }
 
-export function ShoppingList({ weeklyRecipes, extraItems = [], onClearExtras, onAddCustomItem, pantryNames }) {
+export function ShoppingList({ weeklyRecipes, extraItems = [], onClearExtras, onAddCustomItem, pantryNames, dismissedNames, onDismissItem }) {
   const recipeItems = useMemo(
     () => buildShoppingList(weeklyRecipes),
     [weeklyRecipes]
@@ -71,9 +71,13 @@ export function ShoppingList({ weeklyRecipes, extraItems = [], onClearExtras, on
   }, [recipeItems, extraItems]);
 
   const displayItems = useMemo(() => {
-    if (!pantryNames || pantryNames.size === 0) return items;
-    return items.filter(item => !pantryNames.has(item.ingredient.toLowerCase().trim()));
-  }, [items, pantryNames]);
+    return items.filter(item => {
+      const norm = item.ingredient.toLowerCase().trim();
+      if (pantryNames && pantryNames.has(norm)) return false;
+      if (dismissedNames && dismissedNames.has(norm)) return false;
+      return true;
+    });
+  }, [items, pantryNames, dismissedNames]);
 
   const ingredientLinks = useMemo(() => {
     const db = loadIngredients() || [];
@@ -155,6 +159,7 @@ export function ShoppingList({ weeklyRecipes, extraItems = [], onClearExtras, on
             <th>Measurement</th>
             <th>Ingredient</th>
             <th>Link</th>
+            <th></th>
           </tr>
         </thead>
         <tbody>
@@ -191,6 +196,17 @@ export function ShoppingList({ weeklyRecipes, extraItems = [], onClearExtras, on
                     >
                       &#x1F50D;
                     </a>
+                  )}
+                </td>
+                <td className={styles.dismissCell}>
+                  {onDismissItem && (
+                    <button
+                      className={styles.dismissBtn}
+                      onClick={e => { e.stopPropagation(); onDismissItem(item.ingredient); }}
+                      title="Remove from list"
+                    >
+                      &times;
+                    </button>
                   )}
                 </td>
               </tr>

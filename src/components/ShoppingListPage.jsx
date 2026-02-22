@@ -43,6 +43,7 @@ const DEFAULT_SAUCES = [
 ].map(name => ({ ingredient: name }));
 
 const EXTRAS_KEY = 'sunday-shop-extras';
+const DISMISSED_KEY = 'sunday-shop-dismissed';
 
 function loadExtras() {
   try {
@@ -57,6 +58,15 @@ function saveExtrasToStorage(extras) {
   localStorage.setItem(EXTRAS_KEY, JSON.stringify(extras));
 }
 
+function loadDismissed() {
+  try {
+    const data = localStorage.getItem(DISMISSED_KEY);
+    return data ? JSON.parse(data) : [];
+  } catch {
+    return [];
+  }
+}
+
 const SOURCE_KEYS = {
   staples: 'sunday-grocery-staples',
   spices: 'sunday-pantry-spices',
@@ -66,6 +76,7 @@ const SOURCE_KEYS = {
 export function ShoppingListPage({ weeklyRecipes, onClose }) {
   const { user } = useAuth();
   const [extras, setExtras] = useState(loadExtras);
+  const [dismissed, setDismissed] = useState(loadDismissed);
   const [resetKey, setResetKey] = useState(0);
 
   function saveExtras(list) {
@@ -114,6 +125,23 @@ export function ShoppingListPage({ weeklyRecipes, onClose }) {
     setResetKey(k => k + 1);
   }, [extras]);
 
+  const handleDismissItem = useCallback((ingredientName) => {
+    setDismissed(prev => {
+      const norm = ingredientName.toLowerCase().trim();
+      if (prev.some(d => d.name === norm)) return prev;
+      const next = [...prev, { name: norm, label: ingredientName.trim() }];
+      localStorage.setItem(DISMISSED_KEY, JSON.stringify(next));
+      if (user) saveField(user.uid, 'shopDismissed', next);
+      return next;
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user]);
+
+  const dismissedNames = useMemo(
+    () => new Set(dismissed.map(d => d.name)),
+    [dismissed]
+  );
+
   const pantryNames = useMemo(() => {
     const names = new Set();
     try {
@@ -143,8 +171,14 @@ export function ShoppingListPage({ weeklyRecipes, onClose }) {
         matched.set(name, e.ingredient.trim());
       }
     }
+    // Also include dismissed items not already matched by pantry
+    for (const d of dismissed) {
+      if (!matched.has(d.name)) {
+        matched.set(d.name, d.label);
+      }
+    }
     return { names: new Set(matched.keys()), labels: [...matched.values()].sort() };
-  }, [weeklyRecipes, extras, pantryNames]);
+  }, [weeklyRecipes, extras, pantryNames, dismissed]);
 
   return (
     <div className={styles.container}>
@@ -163,6 +197,8 @@ export function ShoppingListPage({ weeklyRecipes, onClose }) {
             onClearExtras={handleClearExtras}
             onAddCustomItem={handleAddCustomItem}
             pantryNames={pantryNames}
+            dismissedNames={dismissedNames}
+            onDismissItem={handleDismissItem}
           />
         </div>
         <div className={styles.cell}>

@@ -126,6 +126,34 @@
   text-align: center;
 }
 
+.dismissCell {
+  width: 1.5rem;
+  text-align: center;
+  padding-left: 0;
+}
+
+.dismissBtn {
+  background: none;
+  border: none;
+  color: var(--color-text-muted);
+  font-size: 1rem;
+  cursor: pointer;
+  padding: 0.1rem 0.25rem;
+  line-height: 1;
+  border-radius: 4px;
+  opacity: 0;
+  transition: color 0.15s ease, opacity 0.15s ease, background 0.15s ease;
+}
+
+.table tbody tr:hover .dismissBtn {
+  opacity: 1;
+}
+
+.dismissBtn:hover {
+  color: var(--color-danger, #ef4444);
+  background: var(--color-danger-light, #fef2f2);
+}
+
 .addToggle {
   display: block;
   margin-bottom: 0.5rem;
