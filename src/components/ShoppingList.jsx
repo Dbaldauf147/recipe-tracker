@@ -51,7 +51,7 @@ function buildShoppingList(recipes) {
   );
 }
 
-export function ShoppingList({ weeklyRecipes, extraItems = [], onClearExtras }) {
+export function ShoppingList({ weeklyRecipes, extraItems = [], onClearExtras, onAddCustomItem }) {
   const recipeItems = useMemo(
     () => buildShoppingList(weeklyRecipes),
     [weeklyRecipes]
@@ -82,6 +82,8 @@ export function ShoppingList({ weeklyRecipes, extraItems = [], onClearExtras }) 
   }, []);
 
   const [checked, setChecked] = useState(new Set());
+  const [adding, setAdding] = useState(false);
+  const [newItem, setNewItem] = useState('');
 
   function toggleItem(key) {
     setChecked(prev => {
@@ -93,6 +95,13 @@ export function ShoppingList({ weeklyRecipes, extraItems = [], onClearExtras }) 
       }
       return next;
     });
+  }
+
+  function handleAddSubmit() {
+    const name = newItem.trim();
+    if (!name || !onAddCustomItem) return;
+    onAddCustomItem({ ingredient: name, quantity: '', measurement: '' });
+    setNewItem('');
   }
 
   if (items.length === 0) {
@@ -170,6 +179,25 @@ export function ShoppingList({ weeklyRecipes, extraItems = [], onClearExtras }) 
           })}
         </tbody>
       </table>
+      {onAddCustomItem && (
+        adding ? (
+          <div className={styles.addRow}>
+            <input
+              className={styles.addInput}
+              type="text"
+              placeholder="Item name"
+              value={newItem}
+              onChange={e => setNewItem(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') handleAddSubmit(); }}
+              autoFocus
+            />
+            <button className={styles.addBtn} onClick={handleAddSubmit}>Add</button>
+            <button className={styles.addBtn} onClick={() => { setAdding(false); setNewItem(''); }}>Cancel</button>
+          </div>
+        ) : (
+          <button className={styles.addToggle} onClick={() => setAdding(true)}>+ Add item</button>
+        )
+      )}
     </div>
   );
 }

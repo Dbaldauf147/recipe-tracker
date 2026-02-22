@@ -82,6 +82,15 @@ export function ShoppingListPage({ weeklyRecipes, onClose }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);
 
+  const handleAddCustomItem = useCallback((item) => {
+    setExtras(prev => {
+      const next = [...prev, { ...item, source: 'custom' }];
+      saveExtras(next);
+      return next;
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user]);
+
   const handleClearExtras = useCallback(() => {
     // Group extras by source and append back to their localStorage keys
     const bySource = {};
@@ -120,6 +129,7 @@ export function ShoppingListPage({ weeklyRecipes, onClose }) {
             weeklyRecipes={weeklyRecipes}
             extraItems={extras}
             onClearExtras={handleClearExtras}
+            onAddCustomItem={handleAddCustomItem}
           />
         </div>
         <div className={styles.cell}>
