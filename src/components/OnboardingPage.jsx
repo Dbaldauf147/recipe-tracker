@@ -2,6 +2,56 @@ import { useState, useMemo } from 'react';
 import { DEFAULT_KEY_INGREDIENTS, displayName } from '../utils/keyIngredients';
 import styles from './OnboardingPage.module.css';
 
+const INGREDIENT_EMOJI = {
+  almonds: '\u{1F330}',
+  avocado: '\u{1F951}',
+  beets: '\u{1FAD1}',
+  bell_pepper: '\u{1FAD1}',
+  black_beans: '\u{1FAD8}',
+  blueberries: '\u{1FAD0}',
+  broccoli: '\u{1F966}',
+  brown_rice: '\u{1F35A}',
+  brussels_sprouts: '\u{1F966}',
+  carrots_baby: '\u{1F955}',
+  cauliflower: '\u{1F966}',
+  chicken_breast: '\u{1F357}',
+  chickpeas: '\u{1FAD8}',
+  cottage_cheese: '\u{1F9C0}',
+  edamame: '\u{1FAD8}',
+  eggs: '\u{1F95A}',
+  garlic: '\u{1F9C4}',
+  ginger: '\u{1FAD0}',
+  greek_yogurt: '\u{1F95B}',
+  green_beans: '\u{1FAD8}',
+  kale: '\u{1F96C}',
+  lentils: '\u{1FAD8}',
+  mushrooms: '\u{1F344}',
+  oats: '\u{1F33E}',
+  onion: '\u{1F9C5}',
+  peanut_butter: '\u{1F95C}',
+  peas: '\u{1FAD1}',
+  potatoes: '\u{1F954}',
+  quinoa: '\u{1F33E}',
+  salmon: '\u{1F41F}',
+  sardines: '\u{1F41F}',
+  shrimp: '\u{1F990}',
+  spinach: '\u{1F96C}',
+  strawberries: '\u{1F353}',
+  sweet_potato: '\u{1F360}',
+  tempeh: '\u{1F96A}',
+  tofu: '\u{1F96A}',
+  tomatoes: '\u{1F345}',
+  tuna: '\u{1F41F}',
+  turkey_breast: '\u{1F983}',
+  walnuts: '\u{1F330}',
+  whole_wheat_pasta: '\u{1F35D}',
+  zucchini: '\u{1F952}',
+};
+
+function getEmoji(key) {
+  return INGREDIENT_EMOJI[key] || '\u{1F372}';
+}
+
 export function OnboardingPage({ onComplete }) {
   const [selected, setSelected] = useState(() => new Set(DEFAULT_KEY_INGREDIENTS));
   const [customIngredients, setCustomIngredients] = useState([]);
@@ -60,7 +110,8 @@ export function OnboardingPage({ onComplete }) {
     <div className={styles.page}>
       <div className={styles.card}>
         <img className={styles.logo} src="/sunday-logo.png" alt="Sunday" />
-        <p className={styles.subtitle}>Choose the ingredients you want to track</p>
+        <h2 className={styles.title}>What kinds of food would you like to eat on a regular basis?</h2>
+        <p className={styles.subtitle}>(Don't worry, you can update this later)</p>
 
         <input
           className={styles.searchInput}
@@ -70,24 +121,41 @@ export function OnboardingPage({ onComplete }) {
           onChange={e => setSearch(e.target.value)}
         />
 
-        <div className={styles.chipGrid}>
-          {filtered.map(key => (
-            <button
-              key={key}
-              className={`${styles.chip} ${selected.has(key) ? styles.chipSelected : ''}`}
-              onClick={() => isCustom(key) ? (selected.has(key) ? toggle(key) : toggle(key)) : toggle(key)}
-            >
-              {displayName(key)}
-              {isCustom(key) && (
-                <span
-                  className={styles.chipRemove}
-                  onClick={e => { e.stopPropagation(); handleRemoveCustom(key); }}
+        <div className={styles.tableWrap}>
+          <table className={styles.table}>
+            <tbody>
+              {filtered.map(key => (
+                <tr
+                  key={key}
+                  className={`${styles.row} ${selected.has(key) ? styles.rowSelected : ''}`}
+                  onClick={() => toggle(key)}
                 >
-                  &times;
-                </span>
-              )}
-            </button>
-          ))}
+                  <td className={styles.checkCell}>
+                    <input
+                      type="checkbox"
+                      className={styles.checkbox}
+                      checked={selected.has(key)}
+                      onChange={() => toggle(key)}
+                      onClick={e => e.stopPropagation()}
+                    />
+                  </td>
+                  <td className={styles.emojiCell}>{getEmoji(key)}</td>
+                  <td className={styles.nameCell}>
+                    {displayName(key)}
+                    {isCustom(key) && (
+                      <button
+                        className={styles.removeBtn}
+                        onClick={e => { e.stopPropagation(); handleRemoveCustom(key); }}
+                        title="Remove custom ingredient"
+                      >
+                        &times;
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
 
         <div className={styles.addRow}>
