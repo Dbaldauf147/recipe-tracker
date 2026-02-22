@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { auth } from '../firebase';
 import { saveField } from '../utils/firestoreSync';
+import { importSheetHistory } from '../utils/importHistory';
 import styles from './HistoryPage.module.css';
 
 const HISTORY_KEY = 'sunday-plan-history';
@@ -26,6 +27,13 @@ export function HistoryPage({ getRecipe, recipes, onClose }) {
   const [entries, setEntries] = useState(loadHistory);
   const [editingDate, setEditingDate] = useState(null);
   const [editingCell, setEditingCell] = useState(null); // { timestamp, index }
+  const [importStatus, setImportStatus] = useState(null); // null | 'done' | { imported, skipped, unmatched }
+
+  function handleImport() {
+    const result = importSheetHistory(recipes);
+    setImportStatus(result);
+    setEntries(loadHistory());
+  }
 
   function persist(next) {
     saveHistory(next);
@@ -86,6 +94,17 @@ export function HistoryPage({ getRecipe, recipes, onClose }) {
           &larr; Back
         </button>
         <h2 className={styles.title}>History</h2>
+        {importStatus === null ? (
+          <button className={styles.importBtn} onClick={handleImport}>
+            Import History
+          </button>
+        ) : (
+          <span className={styles.importResult}>
+            Imported {importStatus.imported} weeks
+            {importStatus.skipped > 0 && `, ${importStatus.skipped} skipped`}
+            {importStatus.unmatched > 0 && `, ${importStatus.unmatched} unmatched recipes`}
+          </span>
+        )}
       </div>
 
       {sorted.length === 0 ? (

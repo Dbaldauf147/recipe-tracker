@@ -31,6 +31,30 @@
   letter-spacing: -0.02em;
 }
 
+.importBtn {
+  margin-left: auto;
+  background: var(--color-accent);
+  color: #fff;
+  border: none;
+  font-size: 0.82rem;
+  font-weight: 600;
+  font-family: inherit;
+  padding: 0.35rem 0.85rem;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: opacity 0.15s ease;
+}
+
+.importBtn:hover {
+  opacity: 0.85;
+}
+
+.importResult {
+  margin-left: auto;
+  font-size: 0.82rem;
+  color: var(--color-text-muted);
+}
+
 .empty {
   color: var(--color-text-muted);
   font-size: 0.95rem;
