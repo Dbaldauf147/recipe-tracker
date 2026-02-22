@@ -409,12 +409,6 @@ export function RecipeList({
             Import Recipe Data
           </button>
           <button
-            className={`${styles.importBtn}${editMode ? ` ${styles.editBtnActive}` : ''}`}
-            onClick={() => setEditMode(prev => !prev)}
-          >
-            {editMode ? 'Done Editing' : 'Edit Recipes'}
-          </button>
-          <button
             className={styles.importBtn}
             onClick={exportToCSV}
           >
@@ -429,6 +423,12 @@ export function RecipeList({
               {importing ? 'Importing...' : 'Import from Sheet'}
             </button>
           )}
+          <button
+            className={`${styles.importBtn}${editMode ? ` ${styles.editBtnActive}` : ''}`}
+            onClick={() => setEditMode(prev => !prev)}
+          >
+            {editMode ? 'Done Editing' : 'Edit Recipes'}
+          </button>
           <button className={styles.addBtn} onClick={onAdd}>
             + Add Recipe
           </button>
