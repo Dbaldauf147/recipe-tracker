@@ -56,6 +56,9 @@ export function RecipeList({
   const [freqFilter, setFreqFilter] = useState(isNewUser ? 'all' : 'common');
   const [checkedTypes, setCheckedTypes] = useState(new Set());
   const [showSaved, setShowSaved] = useState(false);
+  const [quickTitle, setQuickTitle] = useState('');
+  const [quickCategory, setQuickCategory] = useState('lunch-dinner');
+  const [importSearch, setImportSearch] = useState('');
   const [shopSelection, setShopSelection] = useState(() => {
     try {
       const data = localStorage.getItem(SHOP_KEY);
@@ -247,6 +250,17 @@ export function RecipeList({
         return bCount - aCount || a.title.localeCompare(b.title);
       });
   }, [adminRecipes, recipes, addedIds]);
+
+  const importableRecipes = useMemo(() => {
+    if (!adminRecipes) return [];
+    const existingTitles = new Set(recipes.map(r => r.title.toLowerCase()));
+    const available = adminRecipes
+      .filter(r => !existingTitles.has(r.title.toLowerCase()) && !addedIds.has(r.title.toLowerCase()))
+      .sort((a, b) => a.title.localeCompare(b.title));
+    if (!importSearch.trim()) return available;
+    const q = importSearch.trim().toLowerCase();
+    return available.filter(r => r.title.toLowerCase().includes(q));
+  }, [adminRecipes, recipes, addedIds, importSearch]);
 
   function handleAddDiscover(recipe) {
     const { id, createdAt, ...rest } = recipe;
@@ -498,6 +512,84 @@ export function RecipeList({
           ) : (
             <p className={styles.weekEmpty}>No recommended recipes</p>
           )}
+        </div>
+      </div>
+
+      {/* Add Recipe (fixed sidebar) */}
+      <div className={styles.addRecipeBox}>
+        <h3 className={styles.addRecipeHeading}>Add Recipe</h3>
+        <form
+          className={styles.addRecipeForm}
+          onSubmit={e => {
+            e.preventDefault();
+            const trimmed = quickTitle.trim();
+            if (!trimmed) return;
+            onAddRecipe({ title: trimmed, category: quickCategory });
+            setQuickTitle('');
+            setQuickCategory('lunch-dinner');
+          }}
+        >
+          <input
+            className={styles.addRecipeInput}
+            type="text"
+            placeholder="Recipe title"
+            value={quickTitle}
+            onChange={e => setQuickTitle(e.target.value)}
+          />
+          <select
+            className={styles.addRecipeSelect}
+            value={quickCategory}
+            onChange={e => setQuickCategory(e.target.value)}
+          >
+            {CATEGORIES.map(cat => (
+              <option key={cat.key} value={cat.key}>{cat.label}</option>
+            ))}
+          </select>
+          <button
+            className={styles.addRecipeSubmit}
+            type="submit"
+            disabled={!quickTitle.trim()}
+          >
+            Add
+          </button>
+        </form>
+
+        <div className={styles.importSection}>
+          <h4 className={styles.importSectionHeading}>Import Recipe</h4>
+          <input
+            className={styles.addRecipeInput}
+            type="text"
+            placeholder="Search recipes..."
+            value={importSearch}
+            onChange={e => setImportSearch(e.target.value)}
+          />
+          <div className={styles.importList}>
+            {importableRecipes.map(recipe => (
+              <div key={recipe.id} className={styles.importItem}>
+                <div className={styles.importInfo}>
+                  <span className={styles.importName}>{recipe.title}</span>
+                  <span className={styles.importCategory}>
+                    {CATEGORIES.find(c => c.key === (recipe.category || 'lunch-dinner'))?.label || 'Lunch & Dinner'}
+                  </span>
+                </div>
+                <button
+                  className={styles.importAddBtn}
+                  onClick={() => handleAddDiscover(recipe)}
+                  title="Import recipe"
+                >
+                  +
+                </button>
+              </div>
+            ))}
+            {adminRecipes && importableRecipes.length === 0 && (
+              <p className={styles.importEmpty}>
+                {importSearch.trim() ? 'No matches' : 'All imported'}
+              </p>
+            )}
+            {!adminRecipes && (
+              <p className={styles.importEmpty}>Loading...</p>
+            )}
+          </div>
         </div>
       </div>
 
