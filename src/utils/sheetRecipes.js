@@ -30,8 +30,37 @@ function parseCSVLine(line) {
 }
 
 /**
+ * Parse the tags string from the sheet into category, frequency, and mealType.
+ * Tags look like: "Vegetarian, Breakfast - Regular, Workout, Healthy"
+ */
+function parseTags(tags) {
+  const lower = tags.toLowerCase();
+  const parts = tags.split(',').map(s => s.trim().toLowerCase());
+
+  // Category
+  let category = 'lunch-dinner';
+  if (lower.includes('breakfast')) category = 'breakfast';
+  else if (lower.includes('drink')) category = 'drinks';
+  else if (lower.includes('desert') || lower.includes('dessert')) category = 'desserts';
+  else if (lower.includes('snack')) category = 'snacks';
+
+  // Frequency (Regular → common, Special → rare)
+  let frequency = 'common';
+  if (lower.includes('special')) frequency = 'rare';
+
+  // Meal type (meat, pescatarian, vegan, vegetarian)
+  let mealType = '';
+  if (parts.some(p => p === 'meat')) mealType = 'meat';
+  else if (parts.some(p => p === 'pescatarian')) mealType = 'pescatarian';
+  else if (parts.some(p => p === 'vegan')) mealType = 'vegan';
+  else if (parts.some(p => p === 'vegetarian')) mealType = 'vegetarian';
+
+  return { category, frequency, mealType };
+}
+
+/**
  * Fetch and parse all recipes from the Google Sheet.
- * Returns an array of { title, description, servings, stars, ingredients: [{quantity, measurement, ingredient}] }
+ * Returns an array of { title, description, servings, stars, category, frequency, mealType, ingredients }
  */
 export async function fetchRecipesFromSheet() {
   const res = await fetch(RECIPE_CSV_URL);
@@ -100,11 +129,15 @@ export async function fetchRecipesFromSheet() {
       }
 
       if (ingredients.length > 0) {
+        const { category, frequency, mealType } = parseTags(description);
         recipes.push({
           title: recipeName,
           description,
           servings,
           stars,
+          category,
+          frequency,
+          mealType,
           ingredients,
         });
       }
