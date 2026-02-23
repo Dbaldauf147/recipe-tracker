@@ -12,6 +12,7 @@ import { KeyIngredientsPage } from './components/KeyIngredientsPage';
 import { ImportRecipePage } from './components/ImportRecipePage';
 import { LoginPage } from './components/LoginPage';
 import { OnboardingPage } from './components/OnboardingPage';
+import { GoalsPage } from './components/GoalsPage';
 import styles from './App.module.css';
 
 const WEEKLY_KEY = 'sunday-weekly-plan';
@@ -307,7 +308,7 @@ function AppContent({ user, logOut, isNewUser }) {
 
 // Views: "list" | "detail" | "add"
 function App() {
-  const { user, loading, dataReady, onboardingStep, justOnboarded, logOut, completeOnboarding } = useAuth();
+  const { user, loading, dataReady, onboardingStep, justOnboarded, logOut, completeGoals, completeOnboarding } = useAuth();
 
   if (loading || (user && !dataReady)) {
     return (
@@ -319,6 +320,10 @@ function App() {
 
   if (!user) {
     return <LoginPage />;
+  }
+
+  if (onboardingStep === 'goals') {
+    return <GoalsPage onComplete={completeGoals} />;
   }
 
   if (onboardingStep === 'ingredients') {

@@ -20,6 +20,7 @@ const APP_STORAGE_KEYS = [
   'sunday-shopping-selection',
   'sunday-nutrition-cache',
   'sunday-key-ingredients',
+  'sunday-user-goals',
 ];
 
 function clearAppStorage() {
@@ -64,10 +65,13 @@ export function AuthProvider({ children }) {
 
         // Determine onboarding step
         const hasKeyIngredients = userData?.keyIngredients?.length > 0;
-        if (!hasKeyIngredients) {
+        const hasGoals = userData?.userGoals != null;
+        if (hasKeyIngredients) {
+          setOnboardingStep(null);
+        } else if (hasGoals) {
           setOnboardingStep('ingredients');
         } else {
-          setOnboardingStep(null);
+          setOnboardingStep('goals');
         }
 
         setUser(firebaseUser);
@@ -92,6 +96,14 @@ export function AuthProvider({ children }) {
       console.error('Sign-in error:', err);
       setAuthError(err.message || 'Sign-in failed');
     }
+  }
+
+  async function completeGoals(goals) {
+    localStorage.setItem('sunday-user-goals', JSON.stringify(goals));
+    if (user) {
+      await saveField(user.uid, 'userGoals', goals);
+    }
+    setOnboardingStep('ingredients');
   }
 
   async function completeOnboarding(ingredients) {
@@ -139,7 +151,7 @@ export function AuthProvider({ children }) {
 
   const value = {
     user, loading, dataReady, onboardingStep, justOnboarded, authError,
-    signInWithGoogle, signUpWithEmail, signInWithEmail, logOut, completeOnboarding,
+    signInWithGoogle, signUpWithEmail, signInWithEmail, logOut, completeGoals, completeOnboarding,
   };
 
   return (
