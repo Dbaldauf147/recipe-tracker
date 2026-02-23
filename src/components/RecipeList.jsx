@@ -481,101 +481,102 @@ export function RecipeList({
         )}
       </div>
 
-      <div className={styles.weekRow}>
-        {/* This Week's Menu */}
-        <div
-          id="weekly-menu"
-          className={`${styles.weekBox} ${dragOverTarget === 'weekly' ? styles.weekBoxDragOver : ''}`}
-          onDragOver={handleWeekDragOver}
-          onDrop={handleWeekDrop}
-          onDragEnter={() => handleDragEnter('weekly')}
-          onDragLeave={e => handleDragLeave(e, 'weekly')}
-        >
-          <div className={styles.weekHeader}>
-            <h3 className={styles.weekHeading}>This Week's Menu</h3>
-            {weeklyRecipes.length > 0 && (
-              <div className={styles.weekActions}>
-                <button className={styles.saveHistoryBtn} onClick={handleSaveClick}>
-                  Save to History
-                </button>
-                {showSaved && (
-                  <span className={styles.savedToast}>Saved!</span>
-                )}
-                <button className={styles.clearBtn} onClick={onClearWeek}>
-                  Clear all
-                </button>
+      <div className={styles.topRow}>
+        <div className={styles.weekRow}>
+          {/* This Week's Menu */}
+          <div
+            id="weekly-menu"
+            className={`${styles.weekBox} ${dragOverTarget === 'weekly' ? styles.weekBoxDragOver : ''}`}
+            onDragOver={handleWeekDragOver}
+            onDrop={handleWeekDrop}
+            onDragEnter={() => handleDragEnter('weekly')}
+            onDragLeave={e => handleDragLeave(e, 'weekly')}
+          >
+            <div className={styles.weekHeader}>
+              <h3 className={styles.weekHeading}>This Week's Menu</h3>
+              {weeklyRecipes.length > 0 && (
+                <div className={styles.weekActions}>
+                  <button className={styles.saveHistoryBtn} onClick={handleSaveClick}>
+                    Save to History
+                  </button>
+                  {showSaved && (
+                    <span className={styles.savedToast}>Saved!</span>
+                  )}
+                  <button className={styles.clearBtn} onClick={onClearWeek}>
+                    Clear all
+                  </button>
+                </div>
+              )}
+            </div>
+            {weeklyRecipes.length === 0 ? (
+              <p className={styles.weekEmpty}>
+                Drag recipes here to plan your week
+              </p>
+            ) : (
+              <div className={styles.weekList}>
+                {weeklyRecipes.map(recipe => (
+                  <div key={recipe.id} className={styles.weekItem}>
+                    <button
+                      className={styles.weekItemName}
+                      onClick={() => onSelect(recipe.id)}
+                    >
+                      {recipe.title}
+                    </button>
+                    <button
+                      className={styles.weekRemoveBtn}
+                      onClick={() => onRemoveFromWeek(recipe.id)}
+                      title="Remove from this week"
+                    >
+                      &times;
+                    </button>
+                  </div>
+                ))}
               </div>
             )}
           </div>
-          {weeklyRecipes.length === 0 ? (
-            <p className={styles.weekEmpty}>
-              Drag recipes here to plan your week
-            </p>
-          ) : (
-            <div className={styles.weekList}>
-              {weeklyRecipes.map(recipe => (
-                <div key={recipe.id} className={styles.weekItem}>
-                  <button
-                    className={styles.weekItemName}
-                    onClick={() => onSelect(recipe.id)}
-                  >
-                    {recipe.title}
-                  </button>
-                  <button
-                    className={styles.weekRemoveBtn}
-                    onClick={() => onRemoveFromWeek(recipe.id)}
-                    title="Remove from this week"
-                  >
-                    &times;
-                  </button>
-                </div>
-              ))}
+
+          {/* Suggested Meals */}
+          {(suggestions.option1.length > 0 || suggestions.option2.length > 0) && (
+            <div className={styles.suggestBox}>
+              <h3 className={styles.suggestHeading}>Suggested Meals</h3>
+              <div className={styles.suggestColumns}>
+                {[
+                  { label: 'Option 1', items: suggestions.option1 },
+                  { label: 'Option 2', items: suggestions.option2 },
+                ].map(col => col.items.length > 0 && (
+                  <div key={col.label} className={styles.suggestColumn}>
+                    <h4 className={styles.suggestOptionTitle}>{col.label}</h4>
+                    <div className={styles.suggestList}>
+                      {col.items.map(({ recipe, reason }) => (
+                        <div key={recipe.id} className={styles.suggestItem}>
+                          <div className={styles.suggestInfo}>
+                            <button
+                              className={styles.suggestName}
+                              onClick={() => onSelect(recipe.id)}
+                            >
+                              {recipe.title}
+                            </button>
+                            <span className={styles.suggestReason}>{reason}</span>
+                          </div>
+                          <button
+                            className={styles.suggestAddBtn}
+                            onClick={() => onAddToWeek(recipe.id)}
+                            title="Add to this week"
+                          >
+                            +
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
         </div>
 
-        {/* Suggested Meals */}
-        {(suggestions.option1.length > 0 || suggestions.option2.length > 0) && (
-          <div className={styles.suggestBox}>
-            <h3 className={styles.suggestHeading}>Suggested Meals</h3>
-            <div className={styles.suggestColumns}>
-              {[
-                { label: 'Option 1', items: suggestions.option1 },
-                { label: 'Option 2', items: suggestions.option2 },
-              ].map(col => col.items.length > 0 && (
-                <div key={col.label} className={styles.suggestColumn}>
-                  <h4 className={styles.suggestOptionTitle}>{col.label}</h4>
-                  <div className={styles.suggestList}>
-                    {col.items.map(({ recipe, reason }) => (
-                      <div key={recipe.id} className={styles.suggestItem}>
-                        <div className={styles.suggestInfo}>
-                          <button
-                            className={styles.suggestName}
-                            onClick={() => onSelect(recipe.id)}
-                          >
-                            {recipe.title}
-                          </button>
-                          <span className={styles.suggestReason}>{reason}</span>
-                        </div>
-                        <button
-                          className={styles.suggestAddBtn}
-                          onClick={() => onAddToWeek(recipe.id)}
-                          title="Add to this week"
-                        >
-                          +
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* Discover Recipes (fixed sidebar) */}
-      <div className={styles.addRecipeBox}>
+        {/* Discover Recipes */}
+        <div className={styles.addRecipeBox}>
         <h3 className={styles.addRecipeHeading}>Discover Recipes</h3>
         <input
           className={styles.addRecipeInput}
@@ -608,6 +609,7 @@ export function RecipeList({
             <p className={styles.importEmpty}>Loading...</p>
           )}
         </div>
+      </div>
       </div>
 
       {/* Shopping List (from + selections) */}
