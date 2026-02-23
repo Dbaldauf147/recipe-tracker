@@ -85,6 +85,7 @@ function AppContent({ user, logOut, isNewUser }) {
     { label: 'History', action: 'history' },
     { label: 'Key Ingredients', action: 'key-ingredients' },
     { label: 'Import Recipe', action: 'import' },
+    { label: 'Nutrition Goals', action: 'nutrition-goals' },
   ];
 
   function handleNavClick(item) {
@@ -96,6 +97,8 @@ function AppContent({ user, logOut, isNewUser }) {
       navigateTo('key-ingredients');
     } else if (item.action === 'import') {
       navigateTo('import');
+    } else if (item.action === 'nutrition-goals') {
+      navigateTo('nutrition-goals');
     } else if (item.id) {
       if (view !== 'list') navigateTo('list');
       setTimeout(() => {
@@ -237,7 +240,29 @@ function AppContent({ user, logOut, isNewUser }) {
       </header>
 
       <main className={styles.main}>
-        {view === 'import' ? (
+        {view === 'nutrition-goals' ? (() => {
+          let savedGoals = {};
+          let savedSelected = null;
+          try {
+            const raw = localStorage.getItem('sunday-nutrition-goals');
+            if (raw) {
+              savedGoals = JSON.parse(raw);
+              savedSelected = Object.keys(savedGoals);
+            }
+          } catch {}
+          return (
+            <NutritionGoalsPage
+              initialSelected={savedSelected}
+              initialTargets={savedSelected ? savedGoals : undefined}
+              onComplete={(goals) => {
+                localStorage.setItem('sunday-nutrition-goals', JSON.stringify(goals));
+                if (user) saveField(user.uid, 'nutritionGoals', goals);
+                goBack();
+              }}
+              onBack={goBack}
+            />
+          );
+        })() : view === 'import' ? (
           <ImportRecipePage
             onSave={handleAdd}
             onCancel={goBack}

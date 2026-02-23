@@ -36,9 +36,14 @@ const DEFAULT_TARGETS = {
 
 const DEFAULT_SELECTED = new Set(['calories', 'protein', 'carbs', 'fat']);
 
-export function NutritionGoalsPage({ onComplete, onBack, onSkip }) {
-  const [selected, setSelected] = useState(() => new Set(DEFAULT_SELECTED));
-  const [targets, setTargets] = useState(() => ({ ...DEFAULT_TARGETS }));
+export function NutritionGoalsPage({ onComplete, onBack, onSkip, initialSelected, initialTargets }) {
+  const isSettings = !!initialTargets;
+  const [selected, setSelected] = useState(() =>
+    initialSelected ? new Set(initialSelected) : new Set(DEFAULT_SELECTED)
+  );
+  const [targets, setTargets] = useState(() =>
+    initialTargets ? { ...DEFAULT_TARGETS, ...initialTargets } : { ...DEFAULT_TARGETS }
+  );
 
   function toggle(key) {
     setSelected(prev => {
@@ -116,7 +121,7 @@ export function NutritionGoalsPage({ onComplete, onBack, onSkip }) {
             onClick={handleContinue}
             disabled={selected.size === 0}
           >
-            Continue
+            {isSettings ? 'Save Changes' : 'Continue'}
           </button>
         </div>
         {onSkip && (

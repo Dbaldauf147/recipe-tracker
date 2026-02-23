@@ -510,6 +510,25 @@
   border-bottom: 1px solid var(--color-border);
 }
 
+.suggestColumns {
+  display: flex;
+  gap: 1.25rem;
+}
+
+.suggestColumn {
+  flex: 1;
+  min-width: 0;
+}
+
+.suggestOptionTitle {
+  margin: 0 0 0.5rem;
+  font-size: 0.82rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--color-accent);
+}
+
 .suggestList {
   display: flex;
   flex-direction: column;

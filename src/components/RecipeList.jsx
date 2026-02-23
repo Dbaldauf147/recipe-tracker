@@ -308,7 +308,7 @@ export function RecipeList({
       filtered = filtered.filter(r => checkedTypes.has(r.mealType || ''));
     }
     const candidates = filtered.filter(r => !weekSet.has(r.id));
-    if (candidates.length === 0) return [];
+    if (candidates.length === 0) return { option1: [], option2: [] };
 
     // Sort history newest-first
     const byRecent = [...history].sort(
@@ -383,10 +383,12 @@ export function RecipeList({
 
     scored.sort((a, b) => b.totalScore - a.totalScore);
 
-    // Pick top 2 breakfast + top 2 lunch-dinner
-    const breakfast = scored.filter(s => s.recipe.category === 'breakfast').slice(0, 2);
-    const lunchDinner = scored.filter(s => s.recipe.category === 'lunch-dinner').slice(0, 2);
-    return [...breakfast, ...lunchDinner];
+    // Pick top 2 breakfast + top 4 lunch-dinner, split into two options
+    const breakfasts = scored.filter(s => s.recipe.category === 'breakfast');
+    const lunches = scored.filter(s => s.recipe.category !== 'breakfast');
+    const option1 = [breakfasts[0], lunches[0], lunches[1]].filter(Boolean);
+    const option2 = [breakfasts[1], lunches[2], lunches[3]].filter(Boolean);
+    return { option1, option2 };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [recipes, weeklyPlan, freqFilter, checkedTypes]);
 
@@ -533,28 +535,38 @@ export function RecipeList({
         </div>
 
         {/* Suggested Meals */}
-        {suggestions.length > 0 && (
+        {(suggestions.option1.length > 0 || suggestions.option2.length > 0) && (
           <div className={styles.suggestBox}>
             <h3 className={styles.suggestHeading}>Suggested Meals</h3>
-            <div className={styles.suggestList}>
-              {suggestions.map(({ recipe, reason }) => (
-                <div key={recipe.id} className={styles.suggestItem}>
-                  <div className={styles.suggestInfo}>
-                    <button
-                      className={styles.suggestName}
-                      onClick={() => onSelect(recipe.id)}
-                    >
-                      {recipe.title}
-                    </button>
-                    <span className={styles.suggestReason}>{reason}</span>
+            <div className={styles.suggestColumns}>
+              {[
+                { label: 'Option 1', items: suggestions.option1 },
+                { label: 'Option 2', items: suggestions.option2 },
+              ].map(col => col.items.length > 0 && (
+                <div key={col.label} className={styles.suggestColumn}>
+                  <h4 className={styles.suggestOptionTitle}>{col.label}</h4>
+                  <div className={styles.suggestList}>
+                    {col.items.map(({ recipe, reason }) => (
+                      <div key={recipe.id} className={styles.suggestItem}>
+                        <div className={styles.suggestInfo}>
+                          <button
+                            className={styles.suggestName}
+                            onClick={() => onSelect(recipe.id)}
+                          >
+                            {recipe.title}
+                          </button>
+                          <span className={styles.suggestReason}>{reason}</span>
+                        </div>
+                        <button
+                          className={styles.suggestAddBtn}
+                          onClick={() => onAddToWeek(recipe.id)}
+                          title="Add to this week"
+                        >
+                          +
+                        </button>
+                      </div>
+                    ))}
                   </div>
-                  <button
-                    className={styles.suggestAddBtn}
-                    onClick={() => onAddToWeek(recipe.id)}
-                    title="Add to this week"
-                  >
-                    +
-                  </button>
                 </div>
               ))}
             </div>
