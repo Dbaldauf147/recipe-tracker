@@ -36,7 +36,7 @@
   color: var(--color-text-muted);
 }
 
-.goalList {
+.optionList {
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
@@ -44,10 +44,10 @@
   text-align: left;
 }
 
-.goalCard {
+.optionCard {
   display: flex;
   align-items: center;
-  gap: 0.75rem;
+  gap: 0.9rem;
   padding: 1rem 1.1rem;
   border-radius: var(--radius-md);
   border: 1px solid var(--color-border);
@@ -55,50 +55,65 @@
   transition: background 0.12s ease, border-color 0.12s ease;
 }
 
-.goalCard:hover {
+.optionCard:hover {
   background: var(--color-surface-alt);
-}
-
-.goalSelected {
-  background: var(--color-accent-light);
   border-color: var(--color-accent);
 }
 
-.goalSelected:hover {
-  background: var(--color-accent-light);
-}
-
-.checkbox {
-  width: 18px;
-  height: 18px;
-  cursor: pointer;
-  accent-color: var(--color-accent);
+.optionIcon {
+  font-size: 1.6rem;
   flex-shrink: 0;
+  width: 2rem;
+  text-align: center;
 }
 
-.goalText {
+.optionText {
   display: flex;
   flex-direction: column;
   gap: 0.15rem;
 }
 
-.goalTitle {
+.optionTitle {
   font-size: 0.95rem;
   font-weight: 600;
   color: var(--color-text);
 }
 
-.goalDesc {
+.optionDesc {
   font-size: 0.82rem;
   color: var(--color-text-muted);
   line-height: 1.35;
 }
 
+.fileInput {
+  display: none;
+}
+
+.status {
+  font-size: 0.85rem;
+  margin-bottom: 1rem;
+  padding: 0.5rem 0.75rem;
+  border-radius: var(--radius-sm, 4px);
+}
+
+.statusLoading {
+  color: var(--color-text-muted);
+  background: var(--color-surface-alt);
+}
+
+.statusSuccess {
+  color: #16a34a;
+  background: #f0fdf4;
+}
+
+.statusError {
+  color: #dc2626;
+  background: #fef2f2;
+}
+
 .bottomActions {
   display: flex;
   justify-content: center;
-  align-items: center;
-  gap: 1rem;
 }
 
 .backBtn {
@@ -116,24 +131,6 @@
 
 .backBtn:hover {
   background: var(--color-surface-alt);
-}
-
-.startBtn {
-  padding: 0.65rem 2rem;
-  font-size: 1rem;
-  font-family: inherit;
-  font-weight: 600;
-  border: none;
-  border-radius: var(--radius-md);
-  background: var(--color-accent);
-  color: #ffffff;
-  cursor: pointer;
-  transition: background 0.15s ease, box-shadow 0.15s ease;
-}
-
-.startBtn:hover {
-  background: var(--color-accent-hover);
-  box-shadow: var(--shadow-md);
 }
 
 .skipBtn {

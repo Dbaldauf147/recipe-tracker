@@ -80,6 +80,11 @@ export async function migrateToFirestore(uid) {
     if (keyIngs) data.keyIngredients = JSON.parse(keyIngs);
   } catch {}
 
+  try {
+    const nutritionGoals = localStorage.getItem('sunday-nutrition-goals');
+    if (nutritionGoals) data.nutritionGoals = JSON.parse(nutritionGoals);
+  } catch {}
+
   if (Object.keys(data).length === 0) return;
 
   try {
@@ -108,5 +113,9 @@ export function hydrateLocalStorage(userData) {
 
   if (userData.keyIngredients) {
     localStorage.setItem('sunday-key-ingredients', JSON.stringify(userData.keyIngredients));
+  }
+
+  if (userData.nutritionGoals) {
+    localStorage.setItem('sunday-nutrition-goals', JSON.stringify(userData.nutritionGoals));
   }
 }

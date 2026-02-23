@@ -13,6 +13,8 @@ import { ImportRecipePage } from './components/ImportRecipePage';
 import { LoginPage } from './components/LoginPage';
 import { OnboardingPage } from './components/OnboardingPage';
 import { GoalsPage } from './components/GoalsPage';
+import { NutritionGoalsPage } from './components/NutritionGoalsPage';
+import { RecipeSetupPage } from './components/RecipeSetupPage';
 import styles from './App.module.css';
 
 const WEEKLY_KEY = 'sunday-weekly-plan';
@@ -308,7 +310,11 @@ function AppContent({ user, logOut, isNewUser }) {
 
 // Views: "list" | "detail" | "add"
 function App() {
-  const { user, loading, dataReady, onboardingStep, justOnboarded, logOut, completeGoals, goBackToGoals, completeOnboarding } = useAuth();
+  const {
+    user, loading, dataReady, currentOnboardingStep, justOnboarded, logOut,
+    completeGoals, skipGoals, goBackOnboarding, advanceOnboarding,
+    completeNutritionGoals, completeKeyIngredients, completeRecipeSetup,
+  } = useAuth();
 
   if (loading || (user && !dataReady)) {
     return (
@@ -322,12 +328,20 @@ function App() {
     return <LoginPage />;
   }
 
-  if (onboardingStep === 'goals') {
-    return <GoalsPage onComplete={completeGoals} />;
+  if (currentOnboardingStep === 'goals') {
+    return <GoalsPage onComplete={completeGoals} onSkip={skipGoals} onBack={logOut} />;
   }
 
-  if (onboardingStep === 'ingredients') {
-    return <OnboardingPage onComplete={completeOnboarding} onCancel={goBackToGoals} />;
+  if (currentOnboardingStep === 'nutrition-goals') {
+    return <NutritionGoalsPage onComplete={completeNutritionGoals} onBack={goBackOnboarding} onSkip={advanceOnboarding} />;
+  }
+
+  if (currentOnboardingStep === 'key-ingredients') {
+    return <OnboardingPage onComplete={completeKeyIngredients} onCancel={goBackOnboarding} onSkip={advanceOnboarding} />;
+  }
+
+  if (currentOnboardingStep === 'recipe-setup') {
+    return <RecipeSetupPage onComplete={completeRecipeSetup} onBack={goBackOnboarding} onSkip={completeRecipeSetup} />;
   }
 
   // key={user.uid} forces full remount when the user changes,

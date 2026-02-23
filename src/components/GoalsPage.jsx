@@ -3,23 +3,23 @@ import styles from './GoalsPage.module.css';
 
 const GOALS = [
   {
-    key: 'track_nutrition',
-    title: 'Track Nutrition',
-    description: 'Track the nutritional content of your meals',
+    key: 'daily_nutrition_goals',
+    title: 'Daily Nutrition Goals',
+    description: 'Get meal recommendations based on daily nutrition goals',
   },
   {
-    key: 'rotate_recipes',
-    title: 'Rotate Recipes',
-    description: 'Have the app rotate your recipes week to week',
+    key: 'whats_in_season',
+    title: "What's In Season",
+    description: "Get recommendations for what's in season",
   },
   {
-    key: 'ingredient_suggestions',
-    title: 'Ingredient-Based Suggestions',
-    description: "Get recipe suggestions based on how long it's been since you've had certain ingredients",
+    key: 'ingredient_variety',
+    title: 'Ingredient Variety',
+    description: 'Cycle healthy ingredients to ensure variety in your diet',
   },
 ];
 
-export function GoalsPage({ onComplete }) {
+export function GoalsPage({ onComplete, onSkip, onBack }) {
   const [selected, setSelected] = useState(() => {
     try {
       const saved = JSON.parse(localStorage.getItem('sunday-user-goals'));
@@ -67,9 +67,21 @@ export function GoalsPage({ onComplete }) {
           ))}
         </div>
 
-        <button className={styles.startBtn} onClick={() => onComplete([...selected])}>
-          Continue
-        </button>
+        <div className={styles.bottomActions}>
+          {onBack && (
+            <button className={styles.backBtn} onClick={onBack}>
+              &larr; Back
+            </button>
+          )}
+          <button className={styles.startBtn} onClick={() => onComplete([...selected])}>
+            Continue
+          </button>
+        </div>
+        {onSkip && (
+          <button className={styles.skipBtn} onClick={onSkip}>
+            Skip for now
+          </button>
+        )}
       </div>
     </div>
   );

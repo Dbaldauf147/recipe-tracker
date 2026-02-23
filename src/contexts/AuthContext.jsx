@@ -21,6 +21,7 @@ const APP_STORAGE_KEYS = [
   'sunday-nutrition-cache',
   'sunday-key-ingredients',
   'sunday-user-goals',
+  'sunday-nutrition-goals',
 ];
 
 function clearAppStorage() {
@@ -29,13 +30,27 @@ function clearAppStorage() {
   }
 }
 
+/**
+ * Build the remaining onboarding steps based on selected goals.
+ * Always ends with 'recipe-setup'.
+ */
+function buildStepsFromGoals(goals) {
+  const steps = [];
+  if (goals.includes('daily_nutrition_goals')) steps.push('nutrition-goals');
+  if (goals.includes('ingredient_variety')) steps.push('key-ingredients');
+  steps.push('recipe-setup');
+  return steps;
+}
+
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [dataReady, setDataReady] = useState(false);
-  // null = done, 'ingredients' = step 1, 'recipes' = step 2
-  const [onboardingStep, setOnboardingStep] = useState(null);
+  const [onboardingSteps, setOnboardingSteps] = useState([]);
+  const [completedSteps, setCompletedSteps] = useState([]);
   const [justOnboarded, setJustOnboarded] = useState(false);
+
+  const currentOnboardingStep = onboardingSteps[0] || null;
 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (firebaseUser) => {
@@ -63,15 +78,30 @@ export function AuthProvider({ children }) {
           }).catch(() => {});
         }
 
-        // Determine onboarding step
+        // Determine onboarding state
+        const hasOnboardingComplete = userData?.onboardingComplete === true;
         const hasKeyIngredients = userData?.keyIngredients?.length > 0;
         const hasGoals = userData?.userGoals != null;
-        if (hasKeyIngredients) {
-          setOnboardingStep(null);
+
+        if (hasOnboardingComplete || hasKeyIngredients) {
+          // Backwards compat: already completed onboarding
+          setOnboardingSteps([]);
+          setCompletedSteps([]);
         } else if (hasGoals) {
-          setOnboardingStep('ingredients');
+          // Has goals but didn't finish — rebuild remaining steps
+          const goals = userData.userGoals;
+          const remaining = buildStepsFromGoals(goals);
+          // Remove steps that are already done
+          const hasNutritionGoals = userData?.nutritionGoals != null;
+          const filtered = remaining.filter(s => {
+            if (s === 'nutrition-goals' && hasNutritionGoals) return false;
+            return true;
+          });
+          setOnboardingSteps(filtered);
+          setCompletedSteps(['goals']);
         } else {
-          setOnboardingStep('goals');
+          setOnboardingSteps(['goals']);
+          setCompletedSteps([]);
         }
 
         setUser(firebaseUser);
@@ -79,7 +109,8 @@ export function AuthProvider({ children }) {
       } else {
         setUser(null);
         setDataReady(false);
-        setOnboardingStep(null);
+        setOnboardingSteps([]);
+        setCompletedSteps([]);
       }
       setLoading(false);
     });
@@ -98,19 +129,55 @@ export function AuthProvider({ children }) {
     }
   }
 
+  function advanceOnboarding() {
+    setOnboardingSteps(prev => {
+      const [current, ...rest] = prev;
+      if (current) {
+        setCompletedSteps(c => [...c, current]);
+      }
+      return rest;
+    });
+  }
+
+  function goBackOnboarding() {
+    setCompletedSteps(prev => {
+      if (prev.length === 0) return prev;
+      const next = [...prev];
+      const last = next.pop();
+      setOnboardingSteps(s => [last, ...s]);
+      return next;
+    });
+  }
+
   async function completeGoals(goals) {
     localStorage.setItem('sunday-user-goals', JSON.stringify(goals));
     if (user) {
       await saveField(user.uid, 'userGoals', goals);
     }
-    setOnboardingStep('ingredients');
+
+    // Build the remaining step queue based on selected goals
+    const remaining = buildStepsFromGoals(goals);
+
+    // Replace the queue: remove 'goals' from front, set remaining
+    setOnboardingSteps(remaining);
+    setCompletedSteps(prev => [...prev, 'goals']);
   }
 
-  function goBackToGoals() {
-    setOnboardingStep('goals');
+  function skipGoals() {
+    // No goals selected — go straight to recipe-setup
+    setOnboardingSteps(['recipe-setup']);
+    setCompletedSteps(prev => [...prev, 'goals']);
   }
 
-  async function completeOnboarding(ingredients) {
+  async function completeNutritionGoals(targets) {
+    localStorage.setItem('sunday-nutrition-goals', JSON.stringify(targets));
+    if (user) {
+      await saveField(user.uid, 'nutritionGoals', targets);
+    }
+    advanceOnboarding();
+  }
+
+  async function completeKeyIngredients(ingredients) {
     localStorage.setItem('sunday-key-ingredients', JSON.stringify(ingredients));
     if (user) {
       const userData = await loadUserData(user.uid);
@@ -119,9 +186,16 @@ export function AuthProvider({ children }) {
       }
       await saveField(user.uid, 'keyIngredients', ingredients);
     }
+    advanceOnboarding();
+  }
 
+  async function completeRecipeSetup() {
+    if (user) {
+      await saveField(user.uid, 'onboardingComplete', true);
+    }
     setJustOnboarded(true);
-    setOnboardingStep(null);
+    setOnboardingSteps([]);
+    setCompletedSteps([]);
   }
 
   async function signUpWithEmail(email, password, name) {
@@ -154,8 +228,10 @@ export function AuthProvider({ children }) {
   }
 
   const value = {
-    user, loading, dataReady, onboardingStep, justOnboarded, authError,
-    signInWithGoogle, signUpWithEmail, signInWithEmail, logOut, completeGoals, goBackToGoals, completeOnboarding,
+    user, loading, dataReady, currentOnboardingStep, justOnboarded, authError,
+    signInWithGoogle, signUpWithEmail, signInWithEmail, logOut,
+    completeGoals, skipGoals, goBackOnboarding, advanceOnboarding,
+    completeNutritionGoals, completeKeyIngredients, completeRecipeSetup,
   };
 
   return (

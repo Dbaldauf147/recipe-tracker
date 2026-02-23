@@ -260,6 +260,24 @@
   cursor: default;
 }
 
+.skipBtn {
+  display: block;
+  margin: 0.75rem auto 0;
+  padding: 0.4rem 1rem;
+  font-size: 0.85rem;
+  font-family: inherit;
+  font-weight: 500;
+  border: none;
+  background: none;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  transition: color 0.15s ease;
+}
+
+.skipBtn:hover {
+  color: var(--color-accent);
+}
+
 @media (max-width: 768px) {
   .grid {
     grid-template-columns: 1fr 1fr;

@@ -62,7 +62,7 @@ function getEmoji(key) {
 
 const CATEGORY_ORDER = ['Protein', 'Carbs', 'Fiber', 'Fats'];
 
-export function OnboardingPage({ onComplete, initialIngredients, onCancel }) {
+export function OnboardingPage({ onComplete, initialIngredients, onCancel, onSkip }) {
   const knownKeys = new Set(Object.values(INGREDIENT_CATEGORIES).flat());
   const [selected, setSelected] = useState(() =>
     initialIngredients ? new Set(initialIngredients) : new Set()
@@ -219,6 +219,11 @@ export function OnboardingPage({ onComplete, initialIngredients, onCancel }) {
             {initialIngredients ? 'Save Changes' : 'Get Started'}
           </button>
         </div>
+        {onSkip && (
+          <button className={styles.skipBtn} onClick={onSkip}>
+            Skip for now
+          </button>
+        )}
       </div>
     </div>
   );
