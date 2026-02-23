@@ -308,7 +308,7 @@ function AppContent({ user, logOut, isNewUser }) {
 
 // Views: "list" | "detail" | "add"
 function App() {
-  const { user, loading, dataReady, onboardingStep, justOnboarded, logOut, completeGoals, completeOnboarding } = useAuth();
+  const { user, loading, dataReady, onboardingStep, justOnboarded, logOut, completeGoals, goBackToGoals, completeOnboarding } = useAuth();
 
   if (loading || (user && !dataReady)) {
     return (
@@ -327,7 +327,7 @@ function App() {
   }
 
   if (onboardingStep === 'ingredients') {
-    return <OnboardingPage onComplete={completeOnboarding} />;
+    return <OnboardingPage onComplete={completeOnboarding} onCancel={goBackToGoals} />;
   }
 
   // key={user.uid} forces full remount when the user changes,

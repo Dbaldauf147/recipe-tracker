@@ -106,6 +106,10 @@ export function AuthProvider({ children }) {
     setOnboardingStep('ingredients');
   }
 
+  function goBackToGoals() {
+    setOnboardingStep('goals');
+  }
+
   async function completeOnboarding(ingredients) {
     localStorage.setItem('sunday-key-ingredients', JSON.stringify(ingredients));
     if (user) {
@@ -151,7 +155,7 @@ export function AuthProvider({ children }) {
 
   const value = {
     user, loading, dataReady, onboardingStep, justOnboarded, authError,
-    signInWithGoogle, signUpWithEmail, signInWithEmail, logOut, completeGoals, completeOnboarding,
+    signInWithGoogle, signUpWithEmail, signInWithEmail, logOut, completeGoals, goBackToGoals, completeOnboarding,
   };
 
   return (

@@ -20,7 +20,14 @@ const GOALS = [
 ];
 
 export function GoalsPage({ onComplete }) {
-  const [selected, setSelected] = useState(new Set());
+  const [selected, setSelected] = useState(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem('sunday-user-goals'));
+      return saved ? new Set(saved) : new Set();
+    } catch {
+      return new Set();
+    }
+  });
 
   function toggle(key) {
     setSelected(prev => {
