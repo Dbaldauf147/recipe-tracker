@@ -152,6 +152,15 @@ export function RecipeSetupPage({ onComplete, onBack, onSkip }) {
             {checkedCount} of {filteredRecipes.length} recipes selected
           </p>
 
+          <div className={styles.globalActions}>
+            <button
+              className={styles.selectAllBtn}
+              onClick={() => toggleGroupAll(filteredRecipes, checkedCount < filteredRecipes.length)}
+            >
+              {checkedCount === filteredRecipes.length ? 'Deselect All' : 'Select All'}
+            </button>
+          </div>
+
           <div className={styles.filterPills}>
             {availableTypes.map(type => {
               const active = selectedTypes.size === 0 || selectedTypes.has(type);
@@ -170,18 +179,9 @@ export function RecipeSetupPage({ onComplete, onBack, onSkip }) {
 
           {groupedRecipes.map(group => {
             const groupChecked = group.recipes.filter(r => checkedRecipes.has(r.title)).length;
-            const allChecked = groupChecked === group.recipes.length;
             return (
               <div key={group.category} className={styles.recipeGroup}>
-                <div className={styles.groupHeader}>
-                  <h3 className={styles.groupTitle}>{group.label} ({groupChecked}/{group.recipes.length})</h3>
-                  <button
-                    className={styles.selectAllBtn}
-                    onClick={() => toggleGroupAll(group.recipes, !allChecked)}
-                  >
-                    {allChecked ? 'Deselect All' : 'Select All'}
-                  </button>
-                </div>
+                <h3 className={styles.groupTitle}>{group.label} ({groupChecked}/{group.recipes.length})</h3>
                 <div className={styles.recipeTable}>
                   {group.recipes.map(r => (
                     <div
