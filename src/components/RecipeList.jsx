@@ -385,7 +385,7 @@ export function RecipeList({
 
     // Pick top 2 breakfast + top 4 lunch-dinner, split into two options
     const breakfasts = scored.filter(s => s.recipe.category === 'breakfast');
-    const lunches = scored.filter(s => s.recipe.category !== 'breakfast');
+    const lunches = scored.filter(s => s.recipe.category === 'lunch-dinner');
     const option1 = [breakfasts[0], lunches[0], lunches[1]].filter(Boolean);
     const option2 = [breakfasts[1], lunches[2], lunches[3]].filter(Boolean);
     return { option1, option2 };
