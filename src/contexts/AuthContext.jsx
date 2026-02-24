@@ -230,11 +230,17 @@ export function AuthProvider({ children }) {
     await signOut(auth);
   }
 
+  function restartOnboarding() {
+    setOnboardingSteps(['goals']);
+    setCompletedSteps([]);
+  }
+
   const value = {
     user, loading, dataReady, currentOnboardingStep, justOnboarded, authError,
     signInWithGoogle, signUpWithEmail, signInWithEmail, logOut,
     completeGoals, skipGoals, goBackOnboarding, advanceOnboarding,
     completeNutritionGoals, completeKeyIngredients, completeRecipeSetup,
+    restartOnboarding,
   };
 
   return (

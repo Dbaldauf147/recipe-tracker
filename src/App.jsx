@@ -33,7 +33,7 @@ function loadWeeklyPlan() {
  * Authenticated app content — rendered with key={user.uid} so it
  * remounts when the user changes, re-initializing all useState from localStorage.
  */
-function AppContent({ user, logOut, isNewUser }) {
+function AppContent({ user, logOut, isNewUser, restartOnboarding }) {
   const { recipes, addRecipe, updateRecipe, deleteRecipe, getRecipe, importRecipes } =
     useRecipes();
 
@@ -237,9 +237,9 @@ function AppContent({ user, logOut, isNewUser }) {
               </button>
               <button
                 className={styles.settingsMenuItem}
-                onClick={() => { navigateTo('recipe-setup'); setSettingsOpen(false); }}
+                onClick={() => { restartOnboarding(); setSettingsOpen(false); }}
               >
-                Import Recipes
+                Setup
               </button>
               <button
                 className={styles.settingsMenuItem}
@@ -323,11 +323,6 @@ function AppContent({ user, logOut, isNewUser }) {
           <IngredientsPage onClose={goBack} />
         ) : view === 'friends' ? (
           <FriendsPage onClose={goBack} />
-        ) : view === 'recipe-setup' ? (
-          <RecipeSetupPage
-            onComplete={goBack}
-            onBack={goBack}
-          />
         ) : view === 'detail' && selectedId ? (
           <RecipeDetail
             recipe={getRecipe(selectedId)}
@@ -370,6 +365,7 @@ function App() {
     user, loading, dataReady, currentOnboardingStep, justOnboarded, logOut,
     completeGoals, skipGoals, goBackOnboarding, advanceOnboarding,
     completeNutritionGoals, completeKeyIngredients, completeRecipeSetup,
+    restartOnboarding,
   } = useAuth();
 
   if (loading || (user && !dataReady)) {
@@ -402,7 +398,7 @@ function App() {
 
   // key={user.uid} forces full remount when the user changes,
   // so all useState initializers re-read from freshly-hydrated localStorage
-  return <AppContent key={user.uid} user={user} logOut={logOut} isNewUser={justOnboarded} />;
+  return <AppContent key={user.uid} user={user} logOut={logOut} isNewUser={justOnboarded} restartOnboarding={restartOnboarding} />;
 }
 
 export default App;
