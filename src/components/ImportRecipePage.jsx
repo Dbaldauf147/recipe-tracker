@@ -2,22 +2,26 @@ import { useState } from 'react';
 import { parseRecipeText } from '../utils/parseRecipeText';
 import { fetchRecipeFromUrl } from '../utils/fetchRecipeFromUrl';
 import { fetchInstagramCaption } from '../utils/fetchInstagramCaption';
+import { fetchTikTokRecipe, fetchTikTokCaption } from '../utils/fetchTikTokRecipe';
 import { RecipeForm } from './RecipeForm';
 import styles from './ImportRecipePage.module.css';
 
 export function ImportRecipePage({ onSave, onCancel }) {
   const [phase, setPhase] = useState('paste'); // 'paste' | 'review'
-  const [importMode, setImportMode] = useState('url'); // 'url' | 'instagram' | 'paste'
+  const [importMode, setImportMode] = useState('url'); // 'url' | 'tiktok' | 'instagram' | 'paste'
   const [rawText, setRawText] = useState('');
   const [sourceUrl, setSourceUrl] = useState('');
   const [instagramUrl, setInstagramUrl] = useState('');
+  const [tiktokUrl, setTiktokUrl] = useState('');
   const [parsedRecipe, setParsedRecipe] = useState(null);
   const [fetching, setFetching] = useState(false);
   const [fetchError, setFetchError] = useState('');
 
   function handleParse() {
     const result = parseRecipeText(rawText);
-    const url = importMode === 'instagram' ? instagramUrl.trim() : sourceUrl.trim();
+    const url = importMode === 'instagram' ? instagramUrl.trim()
+      : importMode === 'tiktok' ? tiktokUrl.trim()
+      : sourceUrl.trim();
     setParsedRecipe({
       title: result.title,
       description: '',
@@ -65,6 +69,37 @@ export function ImportRecipePage({ onSave, onCancel }) {
     }
   }
 
+  async function handleFetchTikTok() {
+    const url = tiktokUrl.trim();
+    if (!url) return;
+    setFetching(true);
+    setFetchError('');
+    try {
+      const recipe = await fetchTikTokRecipe(url);
+      setParsedRecipe(recipe);
+      setPhase('review');
+    } catch (err) {
+      setFetchError(err.message || 'Failed to fetch recipe from TikTok.');
+    } finally {
+      setFetching(false);
+    }
+  }
+
+  async function handleFetchTikTokCaption() {
+    const url = tiktokUrl.trim();
+    if (!url) return;
+    setFetching(true);
+    setFetchError('');
+    try {
+      const caption = await fetchTikTokCaption(url);
+      setRawText(caption);
+    } catch (err) {
+      setFetchError(err.message || 'Failed to fetch TikTok caption.');
+    } finally {
+      setFetching(false);
+    }
+  }
+
   function handleSave(data) {
     onSave(data);
   }
@@ -101,6 +136,7 @@ export function ImportRecipePage({ onSave, onCancel }) {
       <div className={styles.tabs}>
         {[
           ['url', 'URL'],
+          ['tiktok', 'TikTok'],
           ['instagram', 'Instagram'],
           ['paste', 'Paste'],
         ].map(([mode, label]) => (
@@ -142,6 +178,67 @@ export function ImportRecipePage({ onSave, onCancel }) {
             {fetchError && (
               <div className={styles.fetchError}>{fetchError}</div>
             )}
+          </>
+        )}
+
+        {importMode === 'tiktok' && (
+          <>
+            <label className={styles.label}>
+              TikTok Video URL
+              <input
+                className={styles.input}
+                type="url"
+                value={tiktokUrl}
+                onChange={e => setTiktokUrl(e.target.value)}
+                placeholder="https://www.tiktok.com/@user/video/..."
+                disabled={fetching}
+              />
+            </label>
+
+            <div className={styles.urlActions}>
+              <button
+                className={styles.fetchBtn}
+                onClick={handleFetchTikTok}
+                disabled={!tiktokUrl.trim() || fetching}
+              >
+                {fetching ? 'Fetching...' : 'Fetch Recipe'}
+              </button>
+              <button
+                className={styles.fetchBtn}
+                onClick={handleFetchTikTokCaption}
+                disabled={!tiktokUrl.trim() || fetching}
+              >
+                {fetching ? 'Fetching...' : 'Fetch Caption Only'}
+              </button>
+            </div>
+
+            {fetchError && (
+              <div className={styles.fetchError}>{fetchError}</div>
+            )}
+
+            <p className={styles.instagramHelp}>
+              Or copy the description text from TikTok and paste it below.
+            </p>
+
+            <label className={styles.label}>
+              Caption Text
+              <textarea
+                className={styles.textarea}
+                rows={14}
+                value={rawText}
+                onChange={e => setRawText(e.target.value)}
+                placeholder="Paste the TikTok caption here..."
+                disabled={fetching}
+              />
+            </label>
+
+            <button
+              className={styles.parseBtn}
+              onClick={handleParse}
+              disabled={!rawText.trim() || fetching}
+            >
+              Parse Recipe
+            </button>
           </>
         )}
 

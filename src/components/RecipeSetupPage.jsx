@@ -12,6 +12,16 @@ const MEAL_TYPE_LABELS = {
   '': 'Uncategorized',
 };
 
+const CATEGORY_LABELS = {
+  breakfast: 'Breakfast',
+  'lunch-dinner': 'Lunch & Dinner',
+  drinks: 'Drinks',
+  desserts: 'Desserts',
+  snacks: 'Snacks',
+};
+
+const CATEGORY_ORDER = ['breakfast', 'lunch-dinner', 'snacks', 'desserts', 'drinks'];
+
 export function RecipeSetupPage({ onComplete, onBack, onSkip }) {
   const { importRecipes } = useRecipes();
   const [status, setStatus] = useState(null); // { type: 'loading'|'success'|'error', message }
@@ -35,6 +45,19 @@ export function RecipeSetupPage({ onComplete, onBack, onSkip }) {
     if (selectedTypes.size === 0) return fetchedRecipes;
     return fetchedRecipes.filter(r => selectedTypes.has(r.mealType || ''));
   }, [fetchedRecipes, selectedTypes]);
+
+  // Group filtered recipes by category
+  const groupedRecipes = useMemo(() => {
+    const groups = {};
+    for (const r of filteredRecipes) {
+      const cat = r.category || 'lunch-dinner';
+      if (!groups[cat]) groups[cat] = [];
+      groups[cat].push(r);
+    }
+    return CATEGORY_ORDER
+      .filter(cat => groups[cat]?.length > 0)
+      .map(cat => ({ category: cat, label: CATEGORY_LABELS[cat] || cat, recipes: groups[cat] }));
+  }, [filteredRecipes]);
 
   async function handleDocxUpload(e) {
     const file = e.target.files?.[0];
@@ -97,7 +120,7 @@ export function RecipeSetupPage({ onComplete, onBack, onSkip }) {
   if (fetchedRecipes && !status) {
     return (
       <div className={styles.page}>
-        <div className={styles.card}>
+        <div className={styles.reviewCard}>
           <img className={styles.logo} src="/sunday-logo.png" alt="Sunday" />
           <h2 className={styles.title}>Filter by meal type</h2>
           <p className={styles.subtitle}>
@@ -119,6 +142,22 @@ export function RecipeSetupPage({ onComplete, onBack, onSkip }) {
               );
             })}
           </div>
+
+          {groupedRecipes.map(group => (
+            <div key={group.category} className={styles.recipeGroup}>
+              <h3 className={styles.groupTitle}>{group.label} ({group.recipes.length})</h3>
+              <div className={styles.recipeTable}>
+                {group.recipes.map(r => (
+                  <div key={r.title} className={styles.recipeRow}>
+                    <span className={styles.recipeName}>{r.title}</span>
+                    {r.mealType && (
+                      <span className={styles.recipeTag}>{MEAL_TYPE_LABELS[r.mealType] || r.mealType}</span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
 
           <div className={styles.bottomActions}>
             <button className={styles.backBtn} onClick={() => setFetchedRecipes(null)}>
