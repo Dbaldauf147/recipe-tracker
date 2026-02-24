@@ -155,6 +155,19 @@ export async function searchByUsername(username) {
 }
 
 /**
+ * Look up a user by email address. Returns { uid, username, email } or null.
+ */
+export async function searchByEmail(email) {
+  const lower = email.toLowerCase();
+  const q = query(collection(db, 'users'), where('email', '==', lower));
+  const snap = await getDocs(q);
+  if (snap.empty) return null;
+  const d = snap.docs[0];
+  const data = d.data();
+  return { uid: d.id, username: data.username || '', email: lower };
+}
+
+/**
  * Send a friend request from one user to another.
  */
 export async function sendFriendRequest(fromUid, toUid, fromUsername) {

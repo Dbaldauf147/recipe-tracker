@@ -63,6 +63,13 @@ export function AuthProvider({ children }) {
 
         // User signed in — load or migrate data
         const userData = await loadUserData(firebaseUser.uid);
+        // Ensure email + displayName are saved to Firestore for search
+        if (firebaseUser.email) {
+          saveField(firebaseUser.uid, 'email', firebaseUser.email.toLowerCase());
+        }
+        if (firebaseUser.displayName) {
+          saveField(firebaseUser.uid, 'displayName', firebaseUser.displayName);
+        }
         if (userData) {
           // Existing Firestore data → hydrate localStorage
           hydrateLocalStorage(userData);

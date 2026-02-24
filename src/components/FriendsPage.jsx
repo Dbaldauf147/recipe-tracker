@@ -3,6 +3,7 @@ import { useAuth } from '../contexts/AuthContext';
 import {
   setUsername,
   searchByUsername,
+  searchByEmail,
   sendFriendRequest,
   getPendingRequests,
   acceptFriendRequest,
@@ -76,7 +77,11 @@ export function FriendsPage({ onClose }) {
     setSearchStatus(null);
     setSearchResult(null);
     try {
-      const result = await searchByUsername(val);
+      // Try username first, then email
+      let result = await searchByUsername(val);
+      if (!result && val.includes('@')) {
+        result = await searchByEmail(val);
+      }
       if (!result) {
         setSearchResult('none');
       } else if (result.uid === uid) {
@@ -186,7 +191,7 @@ export function FriendsPage({ onClose }) {
             <input
               className={styles.input}
               type="text"
-              placeholder="Search by username"
+              placeholder="Search by username or email"
               value={searchInput}
               onChange={e => setSearchInput(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && handleSearch()}
@@ -200,7 +205,9 @@ export function FriendsPage({ onClose }) {
           )}
           {searchResult && searchResult !== 'none' && (
             <div className={styles.resultCard}>
-              <span className={styles.resultName}>@{searchResult.username}</span>
+              <span className={styles.resultName}>
+                {searchResult.username ? `@${searchResult.username}` : searchResult.email}
+              </span>
               {friends.some(f => f.uid === searchResult.uid) ? (
                 <span className={styles.emptyText}>Already friends</span>
               ) : (
