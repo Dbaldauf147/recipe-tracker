@@ -22,6 +22,7 @@ const APP_STORAGE_KEYS = [
   'sunday-key-ingredients',
   'sunday-user-goals',
   'sunday-nutrition-goals',
+  'sunday-body-stats',
 ];
 
 function clearAppStorage() {
@@ -169,10 +170,12 @@ export function AuthProvider({ children }) {
     setCompletedSteps(prev => [...prev, 'goals']);
   }
 
-  async function completeNutritionGoals(targets) {
+  async function completeNutritionGoals(targets, stats) {
     localStorage.setItem('sunday-nutrition-goals', JSON.stringify(targets));
+    if (stats) localStorage.setItem('sunday-body-stats', JSON.stringify(stats));
     if (user) {
       await saveField(user.uid, 'nutritionGoals', targets);
+      if (stats) await saveField(user.uid, 'bodyStats', stats);
     }
     advanceOnboarding();
   }
