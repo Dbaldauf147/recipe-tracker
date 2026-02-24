@@ -182,9 +182,9 @@ export function NutritionGoalsPage({ onComplete, onBack, onSkip, initialSelected
   const [mealNutrition, setMealNutrition] = useState({});
   const [loadingMeals, setLoadingMeals] = useState(new Set());
 
-  const sortedRecipes = [...recipes].sort((a, b) =>
-    (a.title || '').localeCompare(b.title || '')
-  );
+  const sortedRecipes = [...recipes]
+    .filter(r => (r.frequency || 'common') !== 'retired')
+    .sort((a, b) => (a.title || '').localeCompare(b.title || ''));
 
   const loadNutrition = useCallback(async (recipeId) => {
     const recipe = recipes.find(r => r.id === recipeId);
