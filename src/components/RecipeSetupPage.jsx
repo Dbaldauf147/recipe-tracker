@@ -30,6 +30,7 @@ export function RecipeSetupPage({ onComplete, onBack, onSkip }) {
   // Starter-recipe filter step
   const [fetchedRecipes, setFetchedRecipes] = useState(null); // array when fetched
   const [selectedTypes, setSelectedTypes] = useState(new Set());
+  const [checkedRecipes, setCheckedRecipes] = useState(new Set()); // individual recipe checkboxes
 
   // Derive available meal types from fetched recipes
   const availableTypes = useMemo(() => {
@@ -90,6 +91,7 @@ export function RecipeSetupPage({ onComplete, onBack, onSkip }) {
       const active = recipes.filter(r => (r.frequency || 'common') !== 'retired');
       setFetchedRecipes(active);
       setSelectedTypes(new Set()); // all selected by default (empty = all)
+      setCheckedRecipes(new Set()); // none checked by default
       setStatus(null);
     } catch (err) {
       console.error('Starter recipes error:', err);
@@ -109,8 +111,30 @@ export function RecipeSetupPage({ onComplete, onBack, onSkip }) {
     });
   }
 
+  function toggleRecipe(title) {
+    setCheckedRecipes(prev => {
+      const next = new Set(prev);
+      if (next.has(title)) next.delete(title);
+      else next.add(title);
+      return next;
+    });
+  }
+
+  function toggleGroupAll(recipes, checked) {
+    setCheckedRecipes(prev => {
+      const next = new Set(prev);
+      for (const r of recipes) {
+        if (checked) next.add(r.title);
+        else next.delete(r.title);
+      }
+      return next;
+    });
+  }
+
+  const checkedCount = filteredRecipes.filter(r => checkedRecipes.has(r.title)).length;
+
   function handleImportFiltered() {
-    const toImport = filteredRecipes;
+    const toImport = filteredRecipes.filter(r => checkedRecipes.has(r.title));
     if (toImport.length === 0) return;
     importRecipes(toImport);
     setStatus({ type: 'success', message: `Imported ${toImport.length} recipe${toImport.length === 1 ? '' : 's'}!` });
@@ -125,7 +149,7 @@ export function RecipeSetupPage({ onComplete, onBack, onSkip }) {
           <img className={styles.logo} src="/sunday-logo.png" alt="Sunday" />
           <h2 className={styles.title}>Filter by meal type</h2>
           <p className={styles.subtitle}>
-            {filteredRecipes.length} of {fetchedRecipes.length} recipes selected
+            {checkedCount} of {filteredRecipes.length} recipes selected
           </p>
 
           <div className={styles.filterPills}>
@@ -144,21 +168,44 @@ export function RecipeSetupPage({ onComplete, onBack, onSkip }) {
             })}
           </div>
 
-          {groupedRecipes.map(group => (
-            <div key={group.category} className={styles.recipeGroup}>
-              <h3 className={styles.groupTitle}>{group.label} ({group.recipes.length})</h3>
-              <div className={styles.recipeTable}>
-                {group.recipes.map(r => (
-                  <div key={r.title} className={styles.recipeRow}>
-                    <span className={styles.recipeName}>{r.title}</span>
-                    {r.mealType && (
-                      <span className={styles.recipeTag}>{MEAL_TYPE_LABELS[r.mealType] || r.mealType}</span>
-                    )}
-                  </div>
-                ))}
+          {groupedRecipes.map(group => {
+            const groupChecked = group.recipes.filter(r => checkedRecipes.has(r.title)).length;
+            const allChecked = groupChecked === group.recipes.length;
+            return (
+              <div key={group.category} className={styles.recipeGroup}>
+                <div className={styles.groupHeader}>
+                  <h3 className={styles.groupTitle}>{group.label} ({groupChecked}/{group.recipes.length})</h3>
+                  <button
+                    className={styles.selectAllBtn}
+                    onClick={() => toggleGroupAll(group.recipes, !allChecked)}
+                  >
+                    {allChecked ? 'Deselect All' : 'Select All'}
+                  </button>
+                </div>
+                <div className={styles.recipeTable}>
+                  {group.recipes.map(r => (
+                    <div
+                      key={r.title}
+                      className={`${styles.recipeRow} ${checkedRecipes.has(r.title) ? '' : styles.recipeRowUnchecked}`}
+                      onClick={() => toggleRecipe(r.title)}
+                    >
+                      <input
+                        type="checkbox"
+                        className={styles.recipeCheckbox}
+                        checked={checkedRecipes.has(r.title)}
+                        onChange={() => toggleRecipe(r.title)}
+                        onClick={e => e.stopPropagation()}
+                      />
+                      <span className={styles.recipeName}>{r.title}</span>
+                      {r.mealType && (
+                        <span className={styles.recipeTag}>{MEAL_TYPE_LABELS[r.mealType] || r.mealType}</span>
+                      )}
+                    </div>
+                  ))}
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
 
           <div className={styles.bottomActions}>
             <button className={styles.backBtn} onClick={() => setFetchedRecipes(null)}>
@@ -167,9 +214,9 @@ export function RecipeSetupPage({ onComplete, onBack, onSkip }) {
             <button
               className={styles.importBtn}
               onClick={handleImportFiltered}
-              disabled={filteredRecipes.length === 0}
+              disabled={checkedCount === 0}
             >
-              Import {filteredRecipes.length} recipe{filteredRecipes.length === 1 ? '' : 's'}
+              Import {checkedCount} recipe{checkedCount === 1 ? '' : 's'}
             </button>
           </div>
         </div>
