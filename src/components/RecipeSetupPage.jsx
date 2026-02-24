@@ -1,13 +1,40 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useMemo } from 'react';
 import { useRecipes } from '../hooks/useRecipes';
 import { parseDocxRecipes } from '../utils/parseDocx';
 import { fetchRecipesFromSheet } from '../utils/sheetRecipes';
 import styles from './RecipeSetupPage.module.css';
 
+const MEAL_TYPE_LABELS = {
+  meat: 'Meat',
+  pescatarian: 'Pescatarian',
+  vegan: 'Vegan',
+  vegetarian: 'Vegetarian',
+  '': 'Uncategorized',
+};
+
 export function RecipeSetupPage({ onComplete, onBack, onSkip }) {
   const { importRecipes } = useRecipes();
   const [status, setStatus] = useState(null); // { type: 'loading'|'success'|'error', message }
   const fileRef = useRef(null);
+
+  // Starter-recipe filter step
+  const [fetchedRecipes, setFetchedRecipes] = useState(null); // array when fetched
+  const [selectedTypes, setSelectedTypes] = useState(new Set());
+
+  // Derive available meal types from fetched recipes
+  const availableTypes = useMemo(() => {
+    if (!fetchedRecipes) return [];
+    const types = new Set(fetchedRecipes.map(r => r.mealType || ''));
+    // Fixed order: meat, pescatarian, vegetarian, vegan, then uncategorized last
+    const order = ['meat', 'pescatarian', 'vegetarian', 'vegan', ''];
+    return order.filter(t => types.has(t));
+  }, [fetchedRecipes]);
+
+  const filteredRecipes = useMemo(() => {
+    if (!fetchedRecipes) return [];
+    if (selectedTypes.size === 0) return fetchedRecipes;
+    return fetchedRecipes.filter(r => selectedTypes.has(r.mealType || ''));
+  }, [fetchedRecipes, selectedTypes]);
 
   async function handleDocxUpload(e) {
     const file = e.target.files?.[0];
@@ -29,7 +56,7 @@ export function RecipeSetupPage({ onComplete, onBack, onSkip }) {
     }
   }
 
-  async function handleStarterRecipes() {
+  async function handleFetchStarter() {
     setStatus({ type: 'loading', message: 'Fetching starter recipes...' });
     try {
       const recipes = await fetchRecipesFromSheet();
@@ -37,13 +64,77 @@ export function RecipeSetupPage({ onComplete, onBack, onSkip }) {
         setStatus({ type: 'error', message: 'No recipes found. Please try again later.' });
         return;
       }
-      importRecipes(recipes);
-      setStatus({ type: 'success', message: `Imported ${recipes.length} recipe${recipes.length === 1 ? '' : 's'}!` });
-      setTimeout(() => onComplete(), 1200);
+      setFetchedRecipes(recipes);
+      setSelectedTypes(new Set()); // all selected by default (empty = all)
+      setStatus(null);
     } catch (err) {
       console.error('Starter recipes error:', err);
       setStatus({ type: 'error', message: 'Failed to fetch starter recipes. Please try again later.' });
     }
+  }
+
+  function toggleType(type) {
+    setSelectedTypes(prev => {
+      const next = new Set(prev);
+      if (next.has(type)) {
+        next.delete(type);
+      } else {
+        next.add(type);
+      }
+      return next;
+    });
+  }
+
+  function handleImportFiltered() {
+    const toImport = filteredRecipes;
+    if (toImport.length === 0) return;
+    importRecipes(toImport);
+    setStatus({ type: 'success', message: `Imported ${toImport.length} recipe${toImport.length === 1 ? '' : 's'}!` });
+    setTimeout(() => onComplete(), 1200);
+  }
+
+  // ── Filter step after fetching starter recipes ──
+  if (fetchedRecipes && !status) {
+    return (
+      <div className={styles.page}>
+        <div className={styles.card}>
+          <img className={styles.logo} src="/sunday-logo.png" alt="Sunday" />
+          <h2 className={styles.title}>Filter by meal type</h2>
+          <p className={styles.subtitle}>
+            {filteredRecipes.length} of {fetchedRecipes.length} recipes selected
+          </p>
+
+          <div className={styles.filterPills}>
+            {availableTypes.map(type => {
+              const active = selectedTypes.size === 0 || selectedTypes.has(type);
+              const count = fetchedRecipes.filter(r => (r.mealType || '') === type).length;
+              return (
+                <button
+                  key={type || '_none'}
+                  className={`${styles.filterPill} ${active ? styles.filterPillActive : ''}`}
+                  onClick={() => toggleType(type)}
+                >
+                  {MEAL_TYPE_LABELS[type] || type} ({count})
+                </button>
+              );
+            })}
+          </div>
+
+          <div className={styles.bottomActions}>
+            <button className={styles.backBtn} onClick={() => setFetchedRecipes(null)}>
+              &larr; Back
+            </button>
+            <button
+              className={styles.importBtn}
+              onClick={handleImportFiltered}
+              disabled={filteredRecipes.length === 0}
+            >
+              Import {filteredRecipes.length} recipe{filteredRecipes.length === 1 ? '' : 's'}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -87,7 +178,7 @@ export function RecipeSetupPage({ onComplete, onBack, onSkip }) {
             onChange={handleDocxUpload}
           />
 
-          <div className={styles.optionCard} onClick={handleStarterRecipes}>
+          <div className={styles.optionCard} onClick={handleFetchStarter}>
             <span className={styles.optionIcon}>{'\u2B50'}</span>
             <div className={styles.optionText}>
               <span className={styles.optionTitle}>Dan's Starter Recipes</span>

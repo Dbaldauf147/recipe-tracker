@@ -111,9 +111,69 @@
   background: #fef2f2;
 }
 
+.filterPills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  justify-content: center;
+  margin-bottom: 1.5rem;
+}
+
+.filterPill {
+  padding: 0.4rem 0.9rem;
+  border: 1px solid var(--color-border);
+  border-radius: 50px;
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+  font-size: 0.82rem;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+.filterPill:hover {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+
+.filterPillActive {
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+  color: #fff;
+}
+
+.filterPillActive:hover {
+  background: var(--color-accent-hover);
+  color: #fff;
+}
+
+.importBtn {
+  padding: 0.65rem 1.5rem;
+  font-size: 0.95rem;
+  font-family: inherit;
+  font-weight: 600;
+  border: none;
+  border-radius: var(--radius-md);
+  background: var(--color-accent);
+  color: #fff;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.importBtn:hover {
+  background: var(--color-accent-hover);
+}
+
+.importBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .bottomActions {
   display: flex;
   justify-content: center;
+  gap: 0.75rem;
 }
 
 .backBtn {

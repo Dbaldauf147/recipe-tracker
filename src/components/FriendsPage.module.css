@@ -1,0 +1,205 @@
+.container {
+  max-width: 600px;
+}
+
+.header {
+  display: flex;
+  align-items: baseline;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.backBtn {
+  background: none;
+  border: none;
+  color: var(--color-text-muted);
+  font-size: 0.9rem;
+  font-weight: 500;
+  cursor: pointer;
+  padding: 0;
+  transition: color 0.15s ease;
+}
+
+.backBtn:hover {
+  color: var(--color-accent);
+}
+
+.title {
+  margin: 0;
+  font-size: 1.4rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.section {
+  margin-bottom: 2rem;
+}
+
+.sectionTitle {
+  font-size: 1rem;
+  font-weight: 600;
+  margin: 0 0 0.75rem;
+  color: var(--color-text);
+}
+
+.searchRow {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.input {
+  flex: 1;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--color-border);
+  border-radius: 50px;
+  font-size: 0.85rem;
+  font-family: inherit;
+  color: var(--color-text);
+  background: var(--color-surface);
+  transition: border-color 0.15s ease;
+}
+
+.input:focus {
+  outline: none;
+  border-color: var(--color-accent);
+}
+
+.searchBtn {
+  padding: 0.5rem 1rem;
+  background: var(--color-accent);
+  color: #fff;
+  border: none;
+  border-radius: 50px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: opacity 0.15s ease;
+  white-space: nowrap;
+}
+
+.searchBtn:hover {
+  opacity: 0.85;
+}
+
+.searchBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.actionBtn {
+  padding: 0.35rem 0.75rem;
+  background: var(--color-surface);
+  color: var(--color-accent);
+  border: 1px solid var(--color-border);
+  border-radius: 50px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.actionBtn:hover {
+  border-color: var(--color-accent);
+  background: var(--color-surface-alt);
+}
+
+.dangerBtn {
+  composes: actionBtn;
+  color: var(--color-danger);
+}
+
+.dangerBtn:hover {
+  border-color: var(--color-danger);
+}
+
+.resultCard {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.65rem 0.85rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  margin-top: 0.75rem;
+}
+
+.resultName {
+  font-size: 0.9rem;
+  font-weight: 500;
+}
+
+.friendRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.55rem 0;
+  border-bottom: 1px solid var(--color-border-light);
+}
+
+.friendRow:last-child {
+  border-bottom: none;
+}
+
+.friendInfo {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.friendUsername {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.friendDisplayName {
+  font-size: 0.78rem;
+  color: var(--color-text-muted);
+}
+
+.requestRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.55rem 0;
+  border-bottom: 1px solid var(--color-border-light);
+}
+
+.requestRow:last-child {
+  border-bottom: none;
+}
+
+.requestActions {
+  display: flex;
+  gap: 0.4rem;
+}
+
+.emptyText {
+  font-size: 0.85rem;
+  color: var(--color-text-muted);
+  font-style: italic;
+}
+
+.statusMsg {
+  font-size: 0.82rem;
+  margin-top: 0.5rem;
+}
+
+.statusSuccess {
+  composes: statusMsg;
+  color: var(--color-accent);
+}
+
+.statusError {
+  composes: statusMsg;
+  color: var(--color-danger);
+}
+
+.usernameDisplay {
+  font-size: 0.95rem;
+  font-weight: 500;
+  color: var(--color-text);
+}

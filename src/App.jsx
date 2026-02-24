@@ -6,6 +6,7 @@ import { RecipeList } from './components/RecipeList';
 import { RecipeDetail } from './components/RecipeDetail';
 import { RecipeForm } from './components/RecipeForm';
 import { IngredientsPage } from './components/IngredientsPage';
+import { FriendsPage } from './components/FriendsPage';
 import { ShoppingListPage } from './components/ShoppingListPage';
 import { HistoryPage } from './components/HistoryPage';
 import { KeyIngredientsPage } from './components/KeyIngredientsPage';
@@ -230,6 +231,12 @@ function AppContent({ user, logOut, isNewUser }) {
               </button>
               <button
                 className={styles.settingsMenuItem}
+                onClick={() => { navigateTo('friends'); setSettingsOpen(false); }}
+              >
+                Friends
+              </button>
+              <button
+                className={styles.settingsMenuItem}
                 onClick={() => { logOut(); setSettingsOpen(false); }}
               >
                 Sign Out
@@ -243,6 +250,7 @@ function AppContent({ user, logOut, isNewUser }) {
         {view === 'nutrition-goals' ? (() => {
           let savedGoals = {};
           let savedSelected = null;
+          let savedStats = null;
           try {
             const raw = localStorage.getItem('sunday-nutrition-goals');
             if (raw) {
@@ -250,13 +258,23 @@ function AppContent({ user, logOut, isNewUser }) {
               savedSelected = Object.keys(savedGoals);
             }
           } catch {}
+          try {
+            const rawStats = localStorage.getItem('sunday-body-stats');
+            if (rawStats) savedStats = JSON.parse(rawStats);
+          } catch {}
           return (
             <NutritionGoalsPage
               initialSelected={savedSelected}
               initialTargets={savedSelected ? savedGoals : undefined}
-              onComplete={(goals) => {
+              initialStats={savedStats}
+              recipes={recipes}
+              onComplete={(goals, stats) => {
                 localStorage.setItem('sunday-nutrition-goals', JSON.stringify(goals));
-                if (user) saveField(user.uid, 'nutritionGoals', goals);
+                if (stats) localStorage.setItem('sunday-body-stats', JSON.stringify(stats));
+                if (user) {
+                  saveField(user.uid, 'nutritionGoals', goals);
+                  if (stats) saveField(user.uid, 'bodyStats', stats);
+                }
                 goBack();
               }}
               onBack={goBack}
@@ -297,6 +315,8 @@ function AppContent({ user, logOut, isNewUser }) {
           />
         ) : view === 'ingredients' ? (
           <IngredientsPage onClose={goBack} />
+        ) : view === 'friends' ? (
+          <FriendsPage onClose={goBack} />
         ) : view === 'detail' && selectedId ? (
           <RecipeDetail
             recipe={getRecipe(selectedId)}
@@ -358,7 +378,7 @@ function App() {
   }
 
   if (currentOnboardingStep === 'nutrition-goals') {
-    return <NutritionGoalsPage onComplete={completeNutritionGoals} onBack={goBackOnboarding} onSkip={advanceOnboarding} />;
+    return <NutritionGoalsPage onComplete={completeNutritionGoals} onBack={goBackOnboarding} onSkip={advanceOnboarding} recipes={recipes} />;
   }
 
   if (currentOnboardingStep === 'key-ingredients') {

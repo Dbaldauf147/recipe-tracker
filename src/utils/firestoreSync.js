@@ -1,4 +1,4 @@
-import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { doc, getDoc, setDoc, addDoc, deleteDoc, updateDoc, collection, query, where, getDocs, arrayUnion, arrayRemove } from 'firebase/firestore';
 import { db } from '../firebase';
 
 /**
@@ -85,6 +85,11 @@ export async function migrateToFirestore(uid) {
     if (nutritionGoals) data.nutritionGoals = JSON.parse(nutritionGoals);
   } catch {}
 
+  try {
+    const bodyStats = localStorage.getItem('sunday-body-stats');
+    if (bodyStats) data.bodyStats = JSON.parse(bodyStats);
+  } catch {}
+
   if (Object.keys(data).length === 0) return;
 
   try {
@@ -118,4 +123,109 @@ export function hydrateLocalStorage(userData) {
   if (userData.nutritionGoals) {
     localStorage.setItem('sunday-nutrition-goals', JSON.stringify(userData.nutritionGoals));
   }
+
+  if (userData.bodyStats) {
+    localStorage.setItem('sunday-body-stats', JSON.stringify(userData.bodyStats));
+  }
+}
+
+/* ── Friend-related functions ── */
+
+/**
+ * Claim a unique username. Writes to both users/{uid} and usernames/{username}.
+ * Throws if the username is already taken.
+ */
+export async function setUsername(uid, username) {
+  const lower = username.toLowerCase();
+  const usernameRef = doc(db, 'usernames', lower);
+  const snap = await getDoc(usernameRef);
+  if (snap.exists()) throw new Error('Username already taken');
+  await setDoc(usernameRef, { uid });
+  await setDoc(doc(db, 'users', uid), { username: lower }, { merge: true });
+}
+
+/**
+ * Look up a user by exact username. Returns { uid, username } or null.
+ */
+export async function searchByUsername(username) {
+  const lower = username.toLowerCase();
+  const snap = await getDoc(doc(db, 'usernames', lower));
+  if (!snap.exists()) return null;
+  return { uid: snap.data().uid, username: lower };
+}
+
+/**
+ * Send a friend request from one user to another.
+ */
+export async function sendFriendRequest(fromUid, toUid, fromUsername) {
+  await addDoc(collection(db, 'friendRequests'), {
+    from: fromUid,
+    to: toUid,
+    fromUsername,
+    status: 'pending',
+  });
+}
+
+/**
+ * Get all pending friend requests addressed to a user.
+ */
+export async function getPendingRequests(uid) {
+  const q = query(
+    collection(db, 'friendRequests'),
+    where('to', '==', uid),
+    where('status', '==', 'pending'),
+  );
+  const snap = await getDocs(q);
+  return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+}
+
+/**
+ * Accept a friend request: delete the request doc and add each uid to the other's friends array.
+ */
+export async function acceptFriendRequest(requestId, fromUid, toUid) {
+  await deleteDoc(doc(db, 'friendRequests', requestId));
+  await updateDoc(doc(db, 'users', fromUid), { friends: arrayUnion(toUid) });
+  await updateDoc(doc(db, 'users', toUid), { friends: arrayUnion(fromUid) });
+}
+
+/**
+ * Decline a friend request by deleting it.
+ */
+export async function declineFriendRequest(requestId) {
+  await deleteDoc(doc(db, 'friendRequests', requestId));
+}
+
+/**
+ * Remove a friend from both users' friends arrays.
+ */
+export async function removeFriend(uid, friendUid) {
+  await updateDoc(doc(db, 'users', uid), { friends: arrayRemove(friendUid) });
+  await updateDoc(doc(db, 'users', friendUid), { friends: arrayRemove(uid) });
+}
+
+/**
+ * Load a user's friends list with username + displayName for each.
+ */
+export async function loadFriends(uid) {
+  const userSnap = await getDoc(doc(db, 'users', uid));
+  if (!userSnap.exists()) return [];
+  const friendUids = userSnap.data().friends || [];
+  const friends = [];
+  for (const fid of friendUids) {
+    const fSnap = await getDoc(doc(db, 'users', fid));
+    if (fSnap.exists()) {
+      const data = fSnap.data();
+      friends.push({ uid: fid, username: data.username || '', displayName: data.displayName || '' });
+    }
+  }
+  return friends;
+}
+
+/**
+ * Get the username for a given uid.
+ */
+export async function getUsername(uid) {
+  const snap = await getDoc(doc(db, 'users', uid));
+  if (!snap.exists()) return null;
+  return snap.data().username || null;
 }
