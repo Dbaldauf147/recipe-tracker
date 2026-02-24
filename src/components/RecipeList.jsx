@@ -549,7 +549,6 @@ export function RecipeList({
                   const lunchDinnerItems = col.items.filter(s => s.recipe.category !== 'breakfast');
                   return (
                     <div key={col.label} className={styles.suggestColumn}>
-                      <h4 className={styles.suggestOptionTitle}>{col.label}</h4>
                       {breakfastItems.length > 0 && (
                         <>
                           <span className={styles.suggestCategoryLabel}>Breakfast</span>
