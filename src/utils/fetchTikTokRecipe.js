@@ -4,7 +4,7 @@
  * and the existing recipe text parser.
  */
 
-import { parseRecipeText, normalizeFractions, parseIngredientLine } from './parseRecipeText';
+import { parseRecipeText } from './parseRecipeText';
 
 async function fetchHtml(url) {
   const res = await fetch(`/api/fetch-url?url=${encodeURIComponent(url)}`);
