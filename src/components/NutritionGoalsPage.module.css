@@ -1,10 +1,19 @@
 .page {
   min-height: 100vh;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: center;
   background: var(--color-bg);
   padding: 2rem 1rem;
+}
+
+.twoCol {
+  display: flex;
+  gap: 1.5rem;
+  align-items: flex-start;
+  justify-content: center;
+  width: 100%;
+  max-width: 1100px;
 }
 
 .card {
@@ -15,6 +24,30 @@
   max-width: 600px;
   width: 100%;
   text-align: center;
+}
+
+.mealCard {
+  background: var(--color-surface);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-lg);
+  padding: 2rem 2rem;
+  width: 380px;
+  flex-shrink: 0;
+  text-align: left;
+  position: sticky;
+  top: 2rem;
+}
+
+@media (max-width: 900px) {
+  .twoCol {
+    flex-direction: column;
+    align-items: center;
+  }
+  .mealCard {
+    width: 100%;
+    max-width: 600px;
+    position: static;
+  }
 }
 
 .logo {
@@ -36,6 +69,104 @@
   color: var(--color-text-muted);
 }
 
+/* Body stats section */
+.statsSection {
+  margin-bottom: 1.5rem;
+  padding-bottom: 1.25rem;
+  border-bottom: 1px solid var(--color-border);
+  text-align: left;
+}
+
+.statsGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+}
+
+.statsField {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.statsLabel {
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text-muted);
+}
+
+.statsInput {
+  width: 100%;
+  padding: 0.45rem 0.5rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm, 4px);
+  font-size: 0.9rem;
+  font-family: inherit;
+  background: var(--color-surface);
+  color: var(--color-text);
+  box-sizing: border-box;
+}
+
+.statsInput:focus {
+  outline: none;
+  border-color: var(--color-accent);
+}
+
+.heightInputs {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.heightInputs .statsInput {
+  width: 50%;
+}
+
+.genderBtns {
+  display: flex;
+  gap: 0;
+}
+
+.genderBtn,
+.genderBtnActive {
+  flex: 1;
+  padding: 0.45rem 0.75rem;
+  font-size: 0.85rem;
+  font-family: inherit;
+  font-weight: 500;
+  border: 1px solid var(--color-border);
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+.genderBtn {
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+}
+
+.genderBtn:first-child,
+.genderBtnActive:first-child {
+  border-radius: var(--radius-sm, 4px) 0 0 var(--radius-sm, 4px);
+  border-right: none;
+}
+
+.genderBtn:last-child,
+.genderBtnActive:last-child {
+  border-radius: 0 var(--radius-sm, 4px) var(--radius-sm, 4px) 0;
+}
+
+.genderBtnActive {
+  background: var(--color-accent);
+  color: #ffffff;
+  border-color: var(--color-accent);
+}
+
+.genderBtn:hover {
+  background: var(--color-surface-alt);
+}
+
+/* Nutrient groups */
 .group {
   margin-bottom: 1.25rem;
   text-align: left;
@@ -95,6 +226,172 @@
   font-size: 0.8rem;
   color: var(--color-text-muted);
   width: 28px;
+}
+
+.mealSubtitle {
+  font-size: 0.8rem;
+  color: var(--color-text-muted);
+  margin: 0 0 1rem;
+}
+
+.mealGrid {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.mealField {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.comboWrap {
+  position: relative;
+}
+
+.mealInput {
+  width: 100%;
+  padding: 0.45rem 1.75rem 0.45rem 0.5rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm, 4px);
+  font-size: 0.8rem;
+  font-family: inherit;
+  background: var(--color-surface);
+  color: var(--color-text);
+  box-sizing: border-box;
+  transition: border-color 0.15s ease;
+}
+
+.mealInput:focus {
+  outline: none;
+  border-color: var(--color-accent);
+}
+
+.comboClear {
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: none;
+  border: none;
+  font-size: 1rem;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  padding: 0 4px;
+  line-height: 1;
+}
+
+.comboClear:hover {
+  color: var(--color-danger);
+}
+
+.comboDropdown {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  max-height: 200px;
+  overflow-y: auto;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-top: none;
+  border-radius: 0 0 var(--radius-sm, 4px) var(--radius-sm, 4px);
+  z-index: 10;
+  box-shadow: var(--shadow-sm);
+}
+
+.comboOption {
+  padding: 0.4rem 0.5rem;
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: background 0.1s ease;
+}
+
+.comboOption:hover {
+  background: var(--color-surface-alt);
+}
+
+.comboOptionActive {
+  color: var(--color-accent);
+  font-weight: 600;
+}
+
+.comboEmpty {
+  padding: 0.5rem;
+  font-size: 0.78rem;
+  color: var(--color-text-muted);
+  font-style: italic;
+  text-align: center;
+}
+
+.loadingText {
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+  font-style: italic;
+}
+
+.comparisonTable {
+  margin-top: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.comparisonRow {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.comparisonLabel {
+  font-size: 0.8rem;
+  color: var(--color-text);
+  width: 90px;
+  flex-shrink: 0;
+}
+
+.progressBar {
+  flex: 1;
+  height: 10px;
+  background: var(--color-surface-alt, #f0f0f0);
+  border-radius: 5px;
+  overflow: hidden;
+}
+
+.progressFill {
+  height: 100%;
+  border-radius: 5px;
+  transition: width 0.3s ease;
+}
+
+.progressGreen {
+  background: #22c55e;
+}
+
+.progressYellow {
+  background: #eab308;
+}
+
+.progressRed {
+  background: #ef4444;
+}
+
+.comparisonPct {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--color-text);
+  white-space: nowrap;
+  min-width: 36px;
+  text-align: right;
+}
+
+.comparisonValues {
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+  min-width: 90px;
+  text-align: right;
 }
 
 .bottomActions {
