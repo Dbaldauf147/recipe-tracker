@@ -183,7 +183,6 @@
 
 .recipeRowUnchecked .recipeName {
   color: var(--color-text-muted);
-  text-decoration: line-through;
 }
 
 .recipeCheckbox {
