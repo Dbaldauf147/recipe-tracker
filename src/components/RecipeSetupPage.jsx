@@ -87,7 +87,8 @@ export function RecipeSetupPage({ onComplete, onBack, onSkip }) {
         setStatus({ type: 'error', message: 'No recipes found. Please try again later.' });
         return;
       }
-      setFetchedRecipes(recipes);
+      const active = recipes.filter(r => (r.frequency || 'common') !== 'retired');
+      setFetchedRecipes(active);
       setSelectedTypes(new Set()); // all selected by default (empty = all)
       setStatus(null);
     } catch (err) {

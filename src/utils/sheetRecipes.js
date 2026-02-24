@@ -44,9 +44,10 @@ function parseTags(tags) {
   else if (lower.includes('desert') || lower.includes('dessert')) category = 'desserts';
   else if (lower.includes('snack')) category = 'snacks';
 
-  // Frequency (Regular → common, Special → rare)
+  // Frequency (Regular → common, Special → rare, Retired → retired)
   let frequency = 'common';
-  if (lower.includes('special')) frequency = 'rare';
+  if (lower.includes('retired')) frequency = 'retired';
+  else if (lower.includes('special')) frequency = 'rare';
 
   // Meal type (meat, pescatarian, vegan, vegetarian)
   let mealType = '';
