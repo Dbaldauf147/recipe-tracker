@@ -365,7 +365,7 @@ function App() {
     user, loading, dataReady, currentOnboardingStep, justOnboarded, logOut,
     completeGoals, skipGoals, goBackOnboarding, advanceOnboarding,
     completeNutritionGoals, completeKeyIngredients, completeRecipeSetup,
-    restartOnboarding,
+    restartOnboarding, cancelOnboarding, hasCompletedOnboarding,
   } = useAuth();
 
   if (loading || (user && !dataReady)) {
@@ -380,12 +380,14 @@ function App() {
     return <LoginPage />;
   }
 
+  const onboardingBack = hasCompletedOnboarding ? cancelOnboarding : logOut;
+
   if (currentOnboardingStep === 'goals') {
-    return <GoalsPage onComplete={completeGoals} onSkip={skipGoals} onBack={logOut} />;
+    return <GoalsPage onComplete={completeGoals} onSkip={hasCompletedOnboarding ? cancelOnboarding : skipGoals} onBack={onboardingBack} />;
   }
 
   if (currentOnboardingStep === 'nutrition-goals') {
-    return <NutritionGoalsPage onComplete={completeNutritionGoals} onBack={goBackOnboarding} onSkip={advanceOnboarding} recipes={recipes} />;
+    return <NutritionGoalsPage onComplete={completeNutritionGoals} onBack={goBackOnboarding} onSkip={advanceOnboarding} recipes={[]} />;
   }
 
   if (currentOnboardingStep === 'key-ingredients') {

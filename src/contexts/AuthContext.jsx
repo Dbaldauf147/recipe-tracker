@@ -50,6 +50,7 @@ export function AuthProvider({ children }) {
   const [onboardingSteps, setOnboardingSteps] = useState([]);
   const [completedSteps, setCompletedSteps] = useState([]);
   const [justOnboarded, setJustOnboarded] = useState(false);
+  const [hasCompletedOnboarding, setHasCompletedOnboarding] = useState(false);
 
   const currentOnboardingStep = onboardingSteps[0] || null;
 
@@ -86,6 +87,7 @@ export function AuthProvider({ children }) {
 
         if (hasOnboardingComplete || hasKeyIngredients) {
           // Backwards compat: already completed onboarding
+          setHasCompletedOnboarding(true);
           setOnboardingSteps([]);
           setCompletedSteps([]);
         } else if (hasGoals) {
@@ -196,6 +198,7 @@ export function AuthProvider({ children }) {
     if (user) {
       await saveField(user.uid, 'onboardingComplete', true);
     }
+    setHasCompletedOnboarding(true);
     setJustOnboarded(true);
     setOnboardingSteps([]);
     setCompletedSteps([]);
@@ -233,14 +236,20 @@ export function AuthProvider({ children }) {
   function restartOnboarding() {
     setOnboardingSteps(['goals']);
     setCompletedSteps([]);
+    setJustOnboarded(false);
+  }
+
+  function cancelOnboarding() {
+    setOnboardingSteps([]);
+    setCompletedSteps([]);
   }
 
   const value = {
-    user, loading, dataReady, currentOnboardingStep, justOnboarded, authError,
+    user, loading, dataReady, currentOnboardingStep, justOnboarded, hasCompletedOnboarding, authError,
     signInWithGoogle, signUpWithEmail, signInWithEmail, logOut,
     completeGoals, skipGoals, goBackOnboarding, advanceOnboarding,
     completeNutritionGoals, completeKeyIngredients, completeRecipeSetup,
-    restartOnboarding,
+    restartOnboarding, cancelOnboarding,
   };
 
   return (
