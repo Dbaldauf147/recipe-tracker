@@ -543,33 +543,70 @@ export function RecipeList({
                 {[
                   { label: 'Option 1', items: suggestions.option1 },
                   { label: 'Option 2', items: suggestions.option2 },
-                ].map(col => col.items.length > 0 && (
-                  <div key={col.label} className={styles.suggestColumn}>
-                    <h4 className={styles.suggestOptionTitle}>{col.label}</h4>
-                    <div className={styles.suggestList}>
-                      {col.items.map(({ recipe, reason }) => (
-                        <div key={recipe.id} className={styles.suggestItem}>
-                          <div className={styles.suggestInfo}>
-                            <button
-                              className={styles.suggestName}
-                              onClick={() => onSelect(recipe.id)}
-                            >
-                              {recipe.title}
-                            </button>
-                            <span className={styles.suggestReason}>{reason}</span>
+                ].map(col => {
+                  if (col.items.length === 0) return null;
+                  const breakfastItems = col.items.filter(s => s.recipe.category === 'breakfast');
+                  const lunchDinnerItems = col.items.filter(s => s.recipe.category !== 'breakfast');
+                  return (
+                    <div key={col.label} className={styles.suggestColumn}>
+                      <h4 className={styles.suggestOptionTitle}>{col.label}</h4>
+                      {breakfastItems.length > 0 && (
+                        <>
+                          <span className={styles.suggestCategoryLabel}>Breakfast</span>
+                          <div className={styles.suggestList}>
+                            {breakfastItems.map(({ recipe, reason }) => (
+                              <div key={recipe.id} className={styles.suggestItem}>
+                                <div className={styles.suggestInfo}>
+                                  <button
+                                    className={styles.suggestName}
+                                    onClick={() => onSelect(recipe.id)}
+                                  >
+                                    {recipe.title}
+                                  </button>
+                                  <span className={styles.suggestReason}>{reason}</span>
+                                </div>
+                                <button
+                                  className={styles.suggestAddBtn}
+                                  onClick={() => onAddToWeek(recipe.id)}
+                                  title="Add to this week"
+                                >
+                                  +
+                                </button>
+                              </div>
+                            ))}
                           </div>
-                          <button
-                            className={styles.suggestAddBtn}
-                            onClick={() => onAddToWeek(recipe.id)}
-                            title="Add to this week"
-                          >
-                            +
-                          </button>
-                        </div>
-                      ))}
+                        </>
+                      )}
+                      {lunchDinnerItems.length > 0 && (
+                        <>
+                          <span className={styles.suggestCategoryLabel}>Lunch & Dinner</span>
+                          <div className={styles.suggestList}>
+                            {lunchDinnerItems.map(({ recipe, reason }) => (
+                              <div key={recipe.id} className={styles.suggestItem}>
+                                <div className={styles.suggestInfo}>
+                                  <button
+                                    className={styles.suggestName}
+                                    onClick={() => onSelect(recipe.id)}
+                                  >
+                                    {recipe.title}
+                                  </button>
+                                  <span className={styles.suggestReason}>{reason}</span>
+                                </div>
+                                <button
+                                  className={styles.suggestAddBtn}
+                                  onClick={() => onAddToWeek(recipe.id)}
+                                  title="Add to this week"
+                                >
+                                  +
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        </>
+                      )}
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           )}
