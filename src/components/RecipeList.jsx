@@ -276,13 +276,21 @@ export function RecipeList({
   const importableRecipes = useMemo(() => {
     if (!adminRecipes) return [];
     const existingTitles = new Set(recipes.map(r => r.title.toLowerCase()));
-    const available = adminRecipes
-      .filter(r => !existingTitles.has(r.title.toLowerCase()) && !addedIds.has(r.title.toLowerCase()))
-      .sort((a, b) => a.title.localeCompare(b.title));
+    let available = adminRecipes
+      .filter(r => !existingTitles.has(r.title.toLowerCase()) && !addedIds.has(r.title.toLowerCase()));
+    // Apply frequency filter
+    if (freqFilter !== 'all') {
+      available = available.filter(r => (r.frequency || 'common') === freqFilter);
+    }
+    // Apply meal type filter
+    if (checkedTypes.size > 0) {
+      available = available.filter(r => checkedTypes.has(r.mealType || ''));
+    }
+    available.sort((a, b) => a.title.localeCompare(b.title));
     if (!importSearch.trim()) return available;
     const q = importSearch.trim().toLowerCase();
     return available.filter(r => r.title.toLowerCase().includes(q));
-  }, [adminRecipes, recipes, addedIds, importSearch]);
+  }, [adminRecipes, recipes, addedIds, importSearch, freqFilter, checkedTypes]);
 
   function handleAddDiscover(recipe) {
     const { id, createdAt, ...rest } = recipe;
