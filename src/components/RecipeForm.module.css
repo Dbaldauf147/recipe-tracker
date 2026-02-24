@@ -42,7 +42,7 @@
 .textarea:focus {
   outline: none;
   border-color: var(--color-accent);
-  box-shadow: 0 0 0 3px rgba(201, 100, 66, 0.12);
+  box-shadow: var(--focus-ring);
 }
 
 .textarea {
@@ -64,7 +64,7 @@
 .select:focus {
   outline: none;
   border-color: var(--color-accent);
-  box-shadow: 0 0 0 3px rgba(201, 100, 66, 0.12);
+  box-shadow: var(--focus-ring);
 }
 
 .fieldset {
@@ -117,7 +117,7 @@
 .tableInput:focus {
   outline: none;
   border-color: var(--color-accent);
-  box-shadow: 0 0 0 3px rgba(201, 100, 66, 0.12);
+  box-shadow: var(--focus-ring);
 }
 
 .removeBtn {
@@ -172,7 +172,7 @@
 .saveBtn {
   background: var(--color-accent);
   color: #fff;
-  box-shadow: 0 2px 8px rgba(201, 100, 66, 0.3);
+  box-shadow: 0 2px 8px rgba(201, 100, 66, 0.25);
 }
 
 .saveBtn:hover {

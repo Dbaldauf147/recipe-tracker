@@ -62,6 +62,8 @@ export function RecipeList({
   const [quickCategory, setQuickCategory] = useState('lunch-dinner');
   const [importSearch, setImportSearch] = useState('');
   const [editMode, setEditMode] = useState(false);
+  const [discoverOpen, setDiscoverOpen] = useState(false);
+  const [lastAdded, setLastAdded] = useState(null);
   const [shopSelection, setShopSelection] = useState(() => {
     try {
       const data = localStorage.getItem(SHOP_KEY);
@@ -96,6 +98,12 @@ export function RecipeList({
     onSaveToHistory();
     setShowSaved(true);
     setTimeout(() => setShowSaved(false), 3000);
+  }
+
+  function handleAddToWeekWithPulse(id) {
+    onAddToWeek(id);
+    setLastAdded(id);
+    setTimeout(() => setLastAdded(null), 600);
   }
 
   async function handleImport() {
@@ -222,7 +230,7 @@ export function RecipeList({
     setDragOverTarget(null);
     const recipeId = e.dataTransfer.getData('text/plain');
     if (recipeId) {
-      onAddToWeek(recipeId);
+      handleAddToWeekWithPulse(recipeId);
     }
   }
 
@@ -402,6 +410,7 @@ export function RecipeList({
 
   return (
     <div className={styles.container}>
+      {/* Header */}
       <div className={styles.header}>
         <h2 className={styles.heading}>My Recipes</h2>
         <div className={styles.actions}>
@@ -449,6 +458,190 @@ export function RecipeList({
         <p className={styles.importResult}>{importResult}</p>
       )}
 
+      {/* 1. This Week's Menu — full-width, dominant */}
+      <div
+        id="weekly-menu"
+        className={`${styles.weekBox} ${dragOverTarget === 'weekly' ? styles.weekBoxDragOver : ''}`}
+        onDragOver={handleWeekDragOver}
+        onDrop={handleWeekDrop}
+        onDragEnter={() => handleDragEnter('weekly')}
+        onDragLeave={e => handleDragLeave(e, 'weekly')}
+        role="region"
+        aria-label="This Week's Menu"
+      >
+        <div className={styles.weekHeader}>
+          <h3 className={styles.weekHeading}>This Week's Menu</h3>
+          {weeklyRecipes.length > 0 && (
+            <div className={styles.weekActions}>
+              <button className={styles.saveHistoryBtn} onClick={handleSaveClick}>
+                Save to History
+              </button>
+              {showSaved && (
+                <span className={styles.savedToast}>Saved!</span>
+              )}
+              <button className={styles.clearBtn} onClick={onClearWeek}>
+                Clear all
+              </button>
+            </div>
+          )}
+        </div>
+        {weeklyRecipes.length === 0 ? (
+          <div className={styles.weekEmpty}>
+            <span className={styles.weekEmptyIcon}>🍽</span>
+            <span>Drag recipes here to plan your week</span>
+            <span className={styles.weekEmptyHint}>or click the + button on any recipe below</span>
+          </div>
+        ) : (
+          <div className={styles.weekList}>
+            {weeklyRecipes.map(recipe => (
+              <div
+                key={recipe.id}
+                className={`${styles.weekItem}${lastAdded === recipe.id ? ` ${styles.weekItemNew}` : ''}`}
+              >
+                <button
+                  className={styles.weekItemName}
+                  onClick={() => onSelect(recipe.id)}
+                >
+                  {recipe.title}
+                </button>
+                <button
+                  className={styles.weekRemoveBtn}
+                  onClick={() => onRemoveFromWeek(recipe.id)}
+                  aria-label={`Remove ${recipe.title} from this week`}
+                >
+                  &times;
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* 2. Suggested Meals — horizontal scroll rail */}
+      {(suggestions.option1.length > 0 || suggestions.option2.length > 0) && (
+        <div className={styles.suggestBox} role="region" aria-label="Suggested Meals">
+          <h3 className={styles.suggestHeading}>Suggested Meals</h3>
+          <div className={styles.suggestColumns}>
+            {[
+              { label: 'Option 1', items: suggestions.option1 },
+              { label: 'Option 2', items: suggestions.option2 },
+            ].map(col => {
+              if (col.items.length === 0) return null;
+              const breakfastItems = col.items.filter(s => s.recipe.category === 'breakfast');
+              const lunchDinnerItems = col.items.filter(s => s.recipe.category !== 'breakfast');
+              return (
+                <div key={col.label} className={styles.suggestColumn}>
+                  {breakfastItems.length > 0 && (
+                    <>
+                      <span className={styles.suggestCategoryLabel}>Breakfast</span>
+                      <div className={styles.suggestList}>
+                        {breakfastItems.map(({ recipe, reason }) => (
+                          <div key={recipe.id} className={styles.suggestItem}>
+                            <div className={styles.suggestInfo}>
+                              <button
+                                className={styles.suggestName}
+                                onClick={() => onSelect(recipe.id)}
+                              >
+                                {recipe.title}
+                              </button>
+                              <span className={styles.suggestReason}>{reason}</span>
+                            </div>
+                            <button
+                              className={styles.suggestAddBtn}
+                              onClick={() => handleAddToWeekWithPulse(recipe.id)}
+                              aria-label={`Add ${recipe.title} to this week`}
+                            >
+                              +
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    </>
+                  )}
+                  {lunchDinnerItems.length > 0 && (
+                    <>
+                      <span className={styles.suggestCategoryLabel}>Lunch & Dinner</span>
+                      <div className={styles.suggestList}>
+                        {lunchDinnerItems.map(({ recipe, reason }) => (
+                          <div key={recipe.id} className={styles.suggestItem}>
+                            <div className={styles.suggestInfo}>
+                              <button
+                                className={styles.suggestName}
+                                onClick={() => onSelect(recipe.id)}
+                              >
+                                {recipe.title}
+                              </button>
+                              <span className={styles.suggestReason}>{reason}</span>
+                            </div>
+                            <button
+                              className={styles.suggestAddBtn}
+                              onClick={() => handleAddToWeekWithPulse(recipe.id)}
+                              aria-label={`Add ${recipe.title} to this week`}
+                            >
+                              +
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    </>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* 3. Discover Recipes — collapsible panel */}
+      <div className={styles.discoverPanel}>
+        <button
+          className={styles.discoverToggle}
+          onClick={() => setDiscoverOpen(prev => !prev)}
+          aria-expanded={discoverOpen}
+        >
+          <span className={`${styles.discoverArrow}${discoverOpen ? ` ${styles.discoverArrowOpen}` : ''}`}>▼</span>
+          Discover Recipes
+        </button>
+        {discoverOpen && (
+          <div className={styles.discoverContent}>
+            <div className={styles.addRecipeBox}>
+              <input
+                className={styles.addRecipeInput}
+                type="text"
+                placeholder="Search recipes..."
+                value={importSearch}
+                onChange={e => setImportSearch(e.target.value)}
+              />
+              <div className={styles.importList}>
+                {importableRecipes.slice(0, 5).map(recipe => (
+                  <div key={recipe.id} className={styles.importItem}>
+                    <div className={styles.importInfo}>
+                      <span className={styles.importName}>{recipe.title}</span>
+                    </div>
+                    <button
+                      className={styles.importAddBtn}
+                      onClick={() => handleAddDiscover(recipe)}
+                      aria-label={`Add ${recipe.title} to My Recipes`}
+                    >
+                      +
+                    </button>
+                  </div>
+                ))}
+                {adminRecipes && importableRecipes.length === 0 && (
+                  <p className={styles.importEmpty}>
+                    {importSearch.trim() ? 'No matches' : 'All imported'}
+                  </p>
+                )}
+                {!adminRecipes && (
+                  <p className={styles.importEmpty}>Loading...</p>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* 4. Filter Row */}
       <div className={styles.filterRow}>
         <div className={styles.filterBar}>
           {[
@@ -489,173 +682,6 @@ export function RecipeList({
         )}
       </div>
 
-      <div className={styles.topRow}>
-        <div className={styles.weekRow}>
-          {/* This Week's Menu */}
-          <div
-            id="weekly-menu"
-            className={`${styles.weekBox} ${dragOverTarget === 'weekly' ? styles.weekBoxDragOver : ''}`}
-            onDragOver={handleWeekDragOver}
-            onDrop={handleWeekDrop}
-            onDragEnter={() => handleDragEnter('weekly')}
-            onDragLeave={e => handleDragLeave(e, 'weekly')}
-          >
-            <div className={styles.weekHeader}>
-              <h3 className={styles.weekHeading}>This Week's Menu</h3>
-              {weeklyRecipes.length > 0 && (
-                <div className={styles.weekActions}>
-                  <button className={styles.saveHistoryBtn} onClick={handleSaveClick}>
-                    Save to History
-                  </button>
-                  {showSaved && (
-                    <span className={styles.savedToast}>Saved!</span>
-                  )}
-                  <button className={styles.clearBtn} onClick={onClearWeek}>
-                    Clear all
-                  </button>
-                </div>
-              )}
-            </div>
-            {weeklyRecipes.length === 0 ? (
-              <p className={styles.weekEmpty}>
-                Drag recipes here to plan your week
-              </p>
-            ) : (
-              <div className={styles.weekList}>
-                {weeklyRecipes.map(recipe => (
-                  <div key={recipe.id} className={styles.weekItem}>
-                    <button
-                      className={styles.weekItemName}
-                      onClick={() => onSelect(recipe.id)}
-                    >
-                      {recipe.title}
-                    </button>
-                    <button
-                      className={styles.weekRemoveBtn}
-                      onClick={() => onRemoveFromWeek(recipe.id)}
-                      title="Remove from this week"
-                    >
-                      &times;
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* Suggested Meals */}
-          {(suggestions.option1.length > 0 || suggestions.option2.length > 0) && (
-            <div className={styles.suggestBox}>
-              <h3 className={styles.suggestHeading}>Suggested Meals</h3>
-              <div className={styles.suggestColumns}>
-                {[
-                  { label: 'Option 1', items: suggestions.option1 },
-                  { label: 'Option 2', items: suggestions.option2 },
-                ].map(col => {
-                  if (col.items.length === 0) return null;
-                  const breakfastItems = col.items.filter(s => s.recipe.category === 'breakfast');
-                  const lunchDinnerItems = col.items.filter(s => s.recipe.category !== 'breakfast');
-                  return (
-                    <div key={col.label} className={styles.suggestColumn}>
-                      {breakfastItems.length > 0 && (
-                        <>
-                          <span className={styles.suggestCategoryLabel}>Breakfast</span>
-                          <div className={styles.suggestList}>
-                            {breakfastItems.map(({ recipe, reason }) => (
-                              <div key={recipe.id} className={styles.suggestItem}>
-                                <div className={styles.suggestInfo}>
-                                  <button
-                                    className={styles.suggestName}
-                                    onClick={() => onSelect(recipe.id)}
-                                  >
-                                    {recipe.title}
-                                  </button>
-                                  <span className={styles.suggestReason}>{reason}</span>
-                                </div>
-                                <button
-                                  className={styles.suggestAddBtn}
-                                  onClick={() => onAddToWeek(recipe.id)}
-                                  title="Add to this week"
-                                >
-                                  +
-                                </button>
-                              </div>
-                            ))}
-                          </div>
-                        </>
-                      )}
-                      {lunchDinnerItems.length > 0 && (
-                        <>
-                          <span className={styles.suggestCategoryLabel}>Lunch & Dinner</span>
-                          <div className={styles.suggestList}>
-                            {lunchDinnerItems.map(({ recipe, reason }) => (
-                              <div key={recipe.id} className={styles.suggestItem}>
-                                <div className={styles.suggestInfo}>
-                                  <button
-                                    className={styles.suggestName}
-                                    onClick={() => onSelect(recipe.id)}
-                                  >
-                                    {recipe.title}
-                                  </button>
-                                  <span className={styles.suggestReason}>{reason}</span>
-                                </div>
-                                <button
-                                  className={styles.suggestAddBtn}
-                                  onClick={() => onAddToWeek(recipe.id)}
-                                  title="Add to this week"
-                                >
-                                  +
-                                </button>
-                              </div>
-                            ))}
-                          </div>
-                        </>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Discover Recipes */}
-        <div className={styles.addRecipeBox}>
-        <h3 className={styles.addRecipeHeading}>Discover Recipes</h3>
-        <input
-          className={styles.addRecipeInput}
-          type="text"
-          placeholder="Search recipes..."
-          value={importSearch}
-          onChange={e => setImportSearch(e.target.value)}
-        />
-        <div className={styles.importList}>
-          {importableRecipes.slice(0, 5).map(recipe => (
-            <div key={recipe.id} className={styles.importItem}>
-              <div className={styles.importInfo}>
-                <span className={styles.importName}>{recipe.title}</span>
-              </div>
-              <button
-                className={styles.importAddBtn}
-                onClick={() => handleAddDiscover(recipe)}
-                title="Add to My Recipes"
-              >
-                +
-              </button>
-            </div>
-          ))}
-          {adminRecipes && importableRecipes.length === 0 && (
-            <p className={styles.importEmpty}>
-              {importSearch.trim() ? 'No matches' : 'All imported'}
-            </p>
-          )}
-          {!adminRecipes && (
-            <p className={styles.importEmpty}>Loading...</p>
-          )}
-        </div>
-      </div>
-      </div>
-
       {/* Shopping List (from + selections) */}
       {shopItems.length > 0 && (
         <div className={styles.shopBox}>
@@ -693,6 +719,7 @@ export function RecipeList({
         </div>
       )}
 
+      {/* 5. Recipe Category Columns */}
       <div className={styles.columns}>
         {MAIN_CATS.map(cat => (
           <div
@@ -703,6 +730,8 @@ export function RecipeList({
             onDrop={e => handleColumnDrop(e, cat.key)}
             onDragEnter={() => handleDragEnter(cat.key)}
             onDragLeave={e => handleDragLeave(e, cat.key)}
+            role="region"
+            aria-label={cat.label}
           >
             <h3 className={styles.columnHeading}>{cat.label}</h3>
             {grouped[cat.key].length === 0 ? (
@@ -715,7 +744,7 @@ export function RecipeList({
                     recipe={recipe}
                     onClick={onSelect}
                     draggable={!editMode}
-                    onAdd={editMode ? undefined : onAddToWeek}
+                    onAdd={editMode ? undefined : handleAddToWeekWithPulse}
                     editMode={editMode}
                     onDelete={onDelete}
                   />
@@ -741,6 +770,8 @@ export function RecipeList({
               onDrop={e => handleColumnDrop(e, 'lunch-dinner')}
               onDragEnter={() => handleDragEnter(col.key)}
               onDragLeave={e => handleDragLeave(e, col.key)}
+              role="region"
+              aria-label={col.label}
             >
               <h3 className={styles.columnHeading}>{col.label}</h3>
               {col.items.length === 0 ? (
@@ -753,7 +784,7 @@ export function RecipeList({
                       recipe={recipe}
                       onClick={onSelect}
                       draggable={!editMode}
-                      onAdd={editMode ? undefined : onAddToWeek}
+                      onAdd={editMode ? undefined : handleAddToWeekWithPulse}
                       editMode={editMode}
                       onDelete={onDelete}
                     />
@@ -773,6 +804,8 @@ export function RecipeList({
               onDrop={e => handleColumnDrop(e, cat.key)}
               onDragEnter={() => handleDragEnter(cat.key)}
               onDragLeave={e => handleDragLeave(e, cat.key)}
+              role="region"
+              aria-label={cat.label}
             >
               <h3 className={styles.columnHeading}>{cat.label}</h3>
               {grouped[cat.key].length === 0 ? (
@@ -785,7 +818,7 @@ export function RecipeList({
                       recipe={recipe}
                       onClick={onSelect}
                       draggable={!editMode}
-                      onAdd={editMode ? undefined : onAddToWeek}
+                      onAdd={editMode ? undefined : handleAddToWeekWithPulse}
                       editMode={editMode}
                       onDelete={onDelete}
                     />

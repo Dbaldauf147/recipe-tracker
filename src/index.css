@@ -1,37 +1,64 @@
 :root {
-  /* Colors – black & white scheme */
-  --color-bg: #f5f5f5;
+  /* Colors – warm, health-oriented palette */
+  --color-bg: #FAF8F5;
   --color-surface: #ffffff;
-  --color-surface-alt: #f0f0f0;
-  --color-border: #e0e0e0;
-  --color-border-light: #ebebeb;
-  --color-text: #111111;
-  --color-text-secondary: #555555;
-  --color-text-muted: #999999;
-  --color-accent: #111111;
-  --color-accent-hover: #333333;
-  --color-accent-light: #f0f0f0;
+  --color-surface-alt: #F5F1EC;
+  --color-border: #E8E0D8;
+  --color-border-light: #F0EBE4;
+  --color-text: #1A1A1A;
+  --color-text-secondary: #5C5650;
+  --color-text-muted: #9C9490;
+  --color-accent: #C96442;
+  --color-accent-hover: #B5573A;
+  --color-accent-light: #FDF5F2;
+  --color-accent-subtle: #F0DDD6;
   --color-danger: #dc2626;
   --color-danger-light: #fee2e2;
   --color-success: #16a34a;
+  --color-success-light: #ECFAF0;
+  --color-header-bg: #2C2520;
 
   /* Typography */
   --font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  --font-size-xs: 0.694rem;
+  --font-size-sm: 0.833rem;
+  --font-size-base: 1rem;
+  --font-size-md: 1.1rem;
+  --font-size-lg: 1.25rem;
+  --font-size-xl: 1.5rem;
+  --font-size-2xl: 1.8rem;
+
+  /* Spacing (4px base) */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.25rem;
+  --space-6: 1.5rem;
+  --space-8: 2rem;
+  --space-10: 2.5rem;
+  --space-12: 3rem;
+  --space-16: 4rem;
 
   /* Radii */
   --radius-sm: 6px;
   --radius-md: 10px;
   --radius-lg: 14px;
-
-  /* Radii – extended */
   --radius-xl: 18px;
+  --radius-full: 9999px;
 
-  /* Shadows */
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
-  --shadow-md: 0 2px 8px rgba(0, 0, 0, 0.08);
-  --shadow-lg: 0 4px 16px rgba(0, 0, 0, 0.10);
-  --shadow-lift: 0 6px 20px rgba(0, 0, 0, 0.12);
-  --shadow-header: 0 1px 3px rgba(0, 0, 0, 0.1);
+  /* Shadows – warm tones */
+  --shadow-sm: 0 1px 2px rgba(44, 37, 32, 0.05);
+  --shadow-md: 0 2px 8px rgba(44, 37, 32, 0.07);
+  --shadow-lg: 0 4px 16px rgba(44, 37, 32, 0.09);
+  --shadow-lift: 0 6px 20px rgba(44, 37, 32, 0.11);
+  --shadow-header: 0 1px 3px rgba(44, 37, 32, 0.15);
+
+  /* Focus & Transitions */
+  --focus-ring: 0 0 0 3px rgba(201, 100, 66, 0.18);
+  --transition-fast: 0.1s ease;
+  --transition-normal: 0.15s ease;
+  --transition-slow: 0.25s ease;
 }
 
 *,
@@ -47,4 +74,15 @@ body {
   color: var(--color-text);
   background: var(--color-bg);
   -webkit-font-smoothing: antialiased;
+}
+
+/* Global button active feedback */
+button:active {
+  transform: scale(0.97);
+}
+
+/* WCAG focus-visible outline */
+:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
 }

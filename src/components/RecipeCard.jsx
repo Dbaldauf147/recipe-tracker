@@ -4,24 +4,51 @@ export function RecipeCard({ recipe, onClick, draggable = false, onAdd, editMode
   function handleDragStart(e) {
     e.dataTransfer.setData('text/plain', recipe.id);
     e.dataTransfer.effectAllowed = 'copyMove';
+    e.currentTarget.style.opacity = '0.7';
+    e.currentTarget.style.transform = 'scale(0.98)';
   }
+
+  function handleDragEnd(e) {
+    e.currentTarget.style.opacity = '';
+    e.currentTarget.style.transform = '';
+  }
+
+  const totalTime = (parseInt(recipe.prepTime) || 0) + (parseInt(recipe.cookTime) || 0);
+  const isQuick = totalTime > 0 && totalTime <= 30;
 
   return (
     <div
-      className={styles.link}
+      className={styles.card}
       role="button"
       tabIndex={0}
       onClick={() => onClick(recipe.id)}
       onKeyDown={e => { if (e.key === 'Enter') onClick(recipe.id); }}
       draggable={draggable}
       onDragStart={draggable ? handleDragStart : undefined}
+      onDragEnd={draggable ? handleDragEnd : undefined}
     >
-      <span className={styles.name}>{recipe.title}</span>
+      <div className={styles.cardContent}>
+        <span className={styles.name}>{recipe.title}</span>
+        {(recipe.mealType || isQuick) && (
+          <div className={styles.tags}>
+            {recipe.mealType && (
+              <span className={styles.mealTypeTag}>
+                {recipe.mealType.charAt(0).toUpperCase() + recipe.mealType.slice(1)}
+              </span>
+            )}
+            {isQuick && (
+              <span className={`${styles.signal} ${styles.signalQuick}`}>
+                Quick
+              </span>
+            )}
+          </div>
+        )}
+      </div>
       {editMode && onDelete ? (
         <button
           className={styles.deleteBtn}
           onClick={e => { e.stopPropagation(); if (confirm(`Delete "${recipe.title}"?`)) onDelete(recipe.id); }}
-          title="Delete recipe"
+          aria-label={`Delete ${recipe.title}`}
         >
           &minus;
         </button>
@@ -29,7 +56,7 @@ export function RecipeCard({ recipe, onClick, draggable = false, onAdd, editMode
         <button
           className={styles.addBtn}
           onClick={e => { e.stopPropagation(); onAdd(recipe.id); }}
-          title="Add to this week"
+          aria-label={`Add ${recipe.title} to this week`}
         >
           +
         </button>

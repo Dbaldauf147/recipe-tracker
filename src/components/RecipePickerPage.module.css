@@ -171,6 +171,6 @@
 
 .error {
   font-size: 0.9rem;
-  color: var(--color-danger, #dc3545);
+  color: var(--color-danger);
   margin: 1.5rem 0;
 }

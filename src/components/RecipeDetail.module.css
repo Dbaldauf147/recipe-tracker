@@ -315,7 +315,7 @@
 .removeBtn {
   background: none;
   border: none;
-  color: var(--color-danger, #ef4444);
+  color: var(--color-danger);
   font-size: 1.2rem;
   cursor: pointer;
   padding: 0.1rem 0.4rem;
@@ -325,7 +325,7 @@
 }
 
 .removeBtn:hover {
-  background: var(--color-danger-light, #fee2e2);
+  background: var(--color-danger-light);
 }
 
 .saveBtn {
@@ -338,7 +338,7 @@
   transition: background 0.15s ease;
   background: var(--color-accent);
   color: #fff;
-  box-shadow: 0 2px 8px rgba(201, 100, 66, 0.3);
+  box-shadow: 0 2px 8px rgba(201, 100, 66, 0.25);
 }
 
 .saveBtn:hover {

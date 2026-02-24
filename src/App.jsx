@@ -84,9 +84,6 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding }) {
     { label: 'Shopping List', action: 'shopping' },
     { label: "This Week's Menu", id: 'weekly-menu' },
     { label: 'History', action: 'history' },
-    { label: 'Key Ingredients', action: 'key-ingredients' },
-    { label: 'Import Recipe', action: 'import' },
-    { label: 'Nutrition Goals', action: 'nutrition-goals' },
   ];
 
   function handleNavClick(item) {
@@ -225,6 +222,25 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding }) {
               </div>
               <button
                 className={styles.settingsMenuItem}
+                onClick={() => { navigateTo('key-ingredients'); setSettingsOpen(false); }}
+              >
+                Key Ingredients
+              </button>
+              <button
+                className={styles.settingsMenuItem}
+                onClick={() => { navigateTo('import'); setSettingsOpen(false); }}
+              >
+                Import Recipe
+              </button>
+              <button
+                className={styles.settingsMenuItem}
+                onClick={() => { navigateTo('nutrition-goals'); setSettingsOpen(false); }}
+              >
+                Nutrition Goals
+              </button>
+              <div className={styles.settingsDivider} />
+              <button
+                className={styles.settingsMenuItem}
                 onClick={() => { navigateTo('ingredients'); setSettingsOpen(false); }}
               >
                 Ingredients
@@ -241,6 +257,7 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding }) {
               >
                 Setup
               </button>
+              <div className={styles.settingsDivider} />
               <button
                 className={styles.settingsMenuItem}
                 onClick={() => { logOut(); setSettingsOpen(false); }}

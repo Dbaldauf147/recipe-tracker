@@ -2,6 +2,8 @@ import { useState, useRef, useMemo } from 'react';
 import { useRecipes } from '../hooks/useRecipes';
 import { parseDocxRecipes } from '../utils/parseDocx';
 import { fetchRecipesFromSheet } from '../utils/sheetRecipes';
+import { fetchRecipeFromUrl } from '../utils/fetchRecipeFromUrl';
+import { RecipeForm } from './RecipeForm';
 import styles from './RecipeSetupPage.module.css';
 
 const MEAL_TYPE_LABELS = {
@@ -23,9 +25,16 @@ const CATEGORY_LABELS = {
 const CATEGORY_ORDER = ['breakfast', 'lunch-dinner', 'snacks', 'desserts', 'drinks'];
 
 export function RecipeSetupPage({ onComplete, onBack, onSkip }) {
-  const { importRecipes } = useRecipes();
+  const { importRecipes, addRecipe } = useRecipes();
   const [status, setStatus] = useState(null); // { type: 'loading'|'success'|'error', message }
   const fileRef = useRef(null);
+
+  // URL import step
+  const [urlMode, setUrlMode] = useState(false);
+  const [sourceUrl, setSourceUrl] = useState('');
+  const [fetching, setFetching] = useState(false);
+  const [fetchError, setFetchError] = useState('');
+  const [parsedRecipe, setParsedRecipe] = useState(null);
 
   // Starter-recipe filter step
   const [fetchedRecipes, setFetchedRecipes] = useState(null); // array when fetched
@@ -141,6 +150,92 @@ export function RecipeSetupPage({ onComplete, onBack, onSkip }) {
     setTimeout(() => onComplete(), 1200);
   }
 
+  async function handleFetchFromUrl() {
+    const url = sourceUrl.trim();
+    if (!url) return;
+    setFetching(true);
+    setFetchError('');
+    try {
+      const recipe = await fetchRecipeFromUrl(url);
+      setParsedRecipe(recipe);
+    } catch (err) {
+      setFetchError(err.message || 'Failed to fetch recipe from URL.');
+    } finally {
+      setFetching(false);
+    }
+  }
+
+  function handleUrlRecipeSave(data) {
+    addRecipe(data);
+    setStatus({ type: 'success', message: 'Recipe imported!' });
+    setParsedRecipe(null);
+    setUrlMode(false);
+    setSourceUrl('');
+    setTimeout(() => onComplete(), 1200);
+  }
+
+  // ── Review step for URL-imported recipe ──
+  if (parsedRecipe) {
+    return (
+      <div className={styles.page}>
+        <div className={styles.reviewCard}>
+          <button className={styles.backBtn} onClick={() => setParsedRecipe(null)}>
+            &larr; Back
+          </button>
+          <RecipeForm
+            recipe={parsedRecipe}
+            onSave={handleUrlRecipeSave}
+            onCancel={() => setParsedRecipe(null)}
+          />
+        </div>
+      </div>
+    );
+  }
+
+  // ── URL input step ──
+  if (urlMode) {
+    return (
+      <div className={styles.page}>
+        <div className={styles.card}>
+          <img className={styles.logo} src="/sunday-logo.png" alt="Sunday" />
+          <h2 className={styles.title}>Import from URL</h2>
+          <p className={styles.subtitle}>Paste a link to any recipe page</p>
+
+          <div className={styles.urlInputGroup}>
+            <input
+              className={styles.urlInput}
+              type="url"
+              value={sourceUrl}
+              onChange={e => setSourceUrl(e.target.value)}
+              placeholder="https://www.allrecipes.com/recipe/..."
+              disabled={fetching}
+              onKeyDown={e => { if (e.key === 'Enter' && sourceUrl.trim()) handleFetchFromUrl(); }}
+            />
+            <button
+              className={styles.importBtn}
+              onClick={handleFetchFromUrl}
+              disabled={!sourceUrl.trim() || fetching}
+            >
+              {fetching ? 'Fetching...' : 'Fetch Recipe'}
+            </button>
+          </div>
+
+          {fetchError && (
+            <div className={`${styles.status} ${styles.statusError}`}>
+              {fetchError}
+            </div>
+          )}
+
+          <div className={styles.bottomActions}>
+            <button className={styles.backBtn} onClick={() => { setUrlMode(false); setFetchError(''); setSourceUrl(''); }}>
+              &larr; Back
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   // ── Filter step after fetching starter recipes ──
   if (fetchedRecipes && !status) {
     return (
@@ -247,6 +342,14 @@ export function RecipeSetupPage({ onComplete, onBack, onSkip }) {
             <div className={styles.optionText}>
               <span className={styles.optionTitle}>Add a Recipe</span>
               <span className={styles.optionDesc}>Start fresh and add recipes manually in the app</span>
+            </div>
+          </div>
+
+          <div className={styles.optionCard} onClick={() => setUrlMode(true)}>
+            <span className={styles.optionIcon}>{'\u{1F517}'}</span>
+            <div className={styles.optionText}>
+              <span className={styles.optionTitle}>Import from URL</span>
+              <span className={styles.optionDesc}>Paste a link to any recipe website</span>
             </div>
           </div>
 
