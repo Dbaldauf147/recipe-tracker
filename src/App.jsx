@@ -237,6 +237,12 @@ function AppContent({ user, logOut, isNewUser }) {
               </button>
               <button
                 className={styles.settingsMenuItem}
+                onClick={() => { navigateTo('recipe-setup'); setSettingsOpen(false); }}
+              >
+                Import Recipes
+              </button>
+              <button
+                className={styles.settingsMenuItem}
                 onClick={() => { logOut(); setSettingsOpen(false); }}
               >
                 Sign Out
@@ -317,6 +323,11 @@ function AppContent({ user, logOut, isNewUser }) {
           <IngredientsPage onClose={goBack} />
         ) : view === 'friends' ? (
           <FriendsPage onClose={goBack} />
+        ) : view === 'recipe-setup' ? (
+          <RecipeSetupPage
+            onComplete={goBack}
+            onBack={goBack}
+          />
         ) : view === 'detail' && selectedId ? (
           <RecipeDetail
             recipe={getRecipe(selectedId)}
