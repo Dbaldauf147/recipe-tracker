@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useRecipes } from './hooks/useRecipes';
 import { useAuth } from './contexts/AuthContext';
-import { saveField } from './utils/firestoreSync';
+import { saveField, getPendingRequests } from './utils/firestoreSync';
 import { RecipeList } from './components/RecipeList';
 import { RecipeDetail } from './components/RecipeDetail';
 import { RecipeForm } from './components/RecipeForm';
@@ -42,7 +42,21 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding }) {
   const [viewHistory, setViewHistory] = useState([]);
   const [weeklyPlan, setWeeklyPlan] = useState(loadWeeklyPlan);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [pendingCount, setPendingCount] = useState(0);
   const settingsRef = useRef(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function checkRequests() {
+      try {
+        const reqs = await getPendingRequests(user.uid);
+        if (!cancelled) setPendingCount(reqs.length);
+      } catch {}
+    }
+    checkRequests();
+    const interval = setInterval(checkRequests, 30000);
+    return () => { cancelled = true; clearInterval(interval); };
+  }, [user.uid]);
 
   useEffect(() => {
     if (!settingsOpen) return;
@@ -206,6 +220,9 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding }) {
             aria-label="Settings"
           >
             ⚙
+            {pendingCount > 0 && (
+              <span className={styles.badge}>{pendingCount}</span>
+            )}
           </button>
           {settingsOpen && (
             <div className={styles.settingsDropdown}>
@@ -250,6 +267,9 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding }) {
                 onClick={() => { navigateTo('friends'); setSettingsOpen(false); }}
               >
                 Friends
+                {pendingCount > 0 && (
+                  <span className={styles.menuBadge}>{pendingCount}</span>
+                )}
               </button>
               <button
                 className={styles.settingsMenuItem}
@@ -339,7 +359,10 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding }) {
         ) : view === 'ingredients' ? (
           <IngredientsPage onClose={goBack} />
         ) : view === 'friends' ? (
-          <FriendsPage onClose={goBack} />
+          <FriendsPage onClose={() => {
+            goBack();
+            getPendingRequests(user.uid).then(r => setPendingCount(r.length)).catch(() => {});
+          }} />
         ) : view === 'detail' && selectedId ? (
           <RecipeDetail
             recipe={getRecipe(selectedId)}
