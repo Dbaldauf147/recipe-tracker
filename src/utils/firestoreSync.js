@@ -1,5 +1,6 @@
 import { doc, getDoc, setDoc, addDoc, deleteDoc, updateDoc, collection, query, where, getDocs, arrayUnion, arrayRemove } from 'firebase/firestore';
-import { db } from '../firebase';
+import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
+import { db, storage } from '../firebase';
 
 /**
  * Save a single field to the user's Firestore document.
@@ -279,4 +280,30 @@ export async function acceptSharedRecipe(docId) {
  */
 export async function declineSharedRecipe(docId) {
   await deleteDoc(doc(db, 'sharedRecipes', docId));
+}
+
+/* ── Recipe image upload ── */
+
+/**
+ * Upload a recipe image to Firebase Storage.
+ * Returns the public download URL.
+ */
+export async function uploadRecipeImage(uid, recipeId, file) {
+  const ext = file.name.split('.').pop() || 'jpg';
+  const storageRef = ref(storage, `recipes/${uid}/${recipeId}.${ext}`);
+  await uploadBytes(storageRef, file);
+  return getDownloadURL(storageRef);
+}
+
+/**
+ * Delete a recipe image from Firebase Storage.
+ */
+export async function deleteRecipeImage(uid, recipeId, imageUrl) {
+  try {
+    // Extract the storage path from the URL
+    const storageRef = ref(storage, `recipes/${uid}/${recipeId}`);
+    await deleteObject(storageRef);
+  } catch {
+    // Image may not exist or path may differ — ignore
+  }
 }

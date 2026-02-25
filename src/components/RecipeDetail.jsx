@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { NutritionPanel } from './NutritionPanel';
-import { loadFriends, shareRecipe, getUsername } from '../utils/firestoreSync';
+import { loadFriends, shareRecipe, getUsername, uploadRecipeImage } from '../utils/firestoreSync';
 import styles from './RecipeDetail.module.css';
 
 const STOP_WORDS = new Set([
@@ -49,11 +49,13 @@ function initFields(recipe) {
 
 export function RecipeDetail({ recipe, onSave, onDelete, onBack, user }) {
   const [imgError, setImgError] = useState(false);
+  const [uploading, setUploading] = useState(false);
   const [fields, setFields] = useState(() => recipe ? initFields(recipe) : null);
   const [showShareDropdown, setShowShareDropdown] = useState(false);
   const [friendsList, setFriendsList] = useState(null);
   const [shareMsg, setShareMsg] = useState(null);
   const shareRef = useRef(null);
+  const fileInputRef = useRef(null);
 
   function setField(key, value) {
     setFields(prev => ({ ...prev, [key]: value }));
@@ -205,6 +207,26 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user }) {
     }
   }
 
+  async function handleImageUpload(e) {
+    const file = e.target.files?.[0];
+    if (!file || !user) return;
+    setUploading(true);
+    try {
+      const url = await uploadRecipeImage(user.uid, recipe.id, file);
+      onSave({ imageUrl: url });
+    } catch (err) {
+      console.error('Image upload error:', err);
+      alert('Failed to upload image: ' + err.message);
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  }
+
+  function handleRemoveImage() {
+    onSave({ imageUrl: '' });
+  }
+
   if (!recipe) {
     return (
       <div className={styles.container}>
@@ -222,16 +244,45 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user }) {
         &larr; Back to recipes
       </button>
 
-      {!imgError && (
-        <div className={styles.heroWrap}>
+      <div className={styles.heroWrap}>
+        {recipe.imageUrl ? (
+          <img
+            className={styles.heroImg}
+            src={recipe.imageUrl}
+            alt={recipe.title}
+          />
+        ) : !imgError ? (
           <img
             className={styles.heroImg}
             src={buildImageUrl(recipe)}
             alt={recipe.title}
             onError={() => setImgError(true)}
           />
-        </div>
-      )}
+        ) : null}
+        {user && (
+          <div className={styles.imageOverlay}>
+            <button
+              className={styles.uploadBtn}
+              onClick={() => fileInputRef.current?.click()}
+              disabled={uploading}
+            >
+              {uploading ? 'Uploading...' : recipe.imageUrl ? 'Change Photo' : 'Upload Photo'}
+            </button>
+            {recipe.imageUrl && (
+              <button className={styles.removeImgBtn} onClick={handleRemoveImage}>
+                Remove
+              </button>
+            )}
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              style={{ display: 'none' }}
+              onChange={handleImageUpload}
+            />
+          </div>
+        )}
+      </div>
 
       <input
         className={`${styles.inlineInput} ${styles.titleInput}`}
