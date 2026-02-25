@@ -8,7 +8,7 @@ export default async function handler(req, res) {
   }
 
   // Basic validation: must look like an Instagram URL
-  if (!/instagram\.com\/(p|reel|tv)\//i.test(url)) {
+  if (!/instagram\.com\/(p|reels?|tv)\//i.test(url)) {
     return res.status(400).json({ error: 'Invalid Instagram post URL' });
   }
 

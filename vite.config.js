@@ -50,7 +50,7 @@ function instagramCaptionProxy() {
           res.end(JSON.stringify({ error: 'Missing url parameter' }));
           return;
         }
-        if (!/instagram\.com\/(p|reel|tv)\//i.test(url)) {
+        if (!/instagram\.com\/(p|reels?|tv)\//i.test(url)) {
           res.writeHead(400, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ error: 'Invalid Instagram post URL' }));
           return;
