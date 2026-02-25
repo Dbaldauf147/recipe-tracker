@@ -415,7 +415,7 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding }) {
             <RecipeList
               recipes={recipes}
               onSelect={handleSelect}
-              onAdd={() => navigateTo('add')}
+              onAdd={() => navigateTo('import')}
               onImport={importRecipes}
               weeklyPlan={weeklyPlan}
               onAddToWeek={handleAddToWeek}
