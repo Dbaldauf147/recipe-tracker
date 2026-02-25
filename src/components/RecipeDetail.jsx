@@ -354,7 +354,7 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user }) {
         <div className={styles.shareRow}>
           <div className={styles.shareWrapper} ref={shareRef}>
             <button className={styles.shareBtn} onClick={handleShareClick}>
-              Share
+              Share with Friends
             </button>
             {showShareDropdown && (
               <div className={styles.shareDropdown}>
