@@ -337,8 +337,8 @@
 }
 
 .suggestColumn {
-  flex: 0 0 280px;
-  scroll-snap-align: start;
+  flex: 1 1 0;
+  min-width: 300px;
   background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
@@ -1026,7 +1026,7 @@
   }
 
   .suggestColumn {
-    flex: 0 0 240px;
+    min-width: 0;
   }
 
   .heading {

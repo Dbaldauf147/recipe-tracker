@@ -404,12 +404,9 @@ export function RecipeList({
 
     scored.sort((a, b) => b.totalScore - a.totalScore);
 
-    // Pick top 2 breakfast + top 4 lunch-dinner, split into two options
-    const breakfasts = scored.filter(s => s.recipe.category === 'breakfast');
-    const lunches = scored.filter(s => s.recipe.category === 'lunch-dinner');
-    const option1 = [breakfasts[0], lunches[0], lunches[1]].filter(Boolean);
-    const option2 = [breakfasts[1], lunches[2], lunches[3]].filter(Boolean);
-    return { option1, option2 };
+    const breakfasts = scored.filter(s => s.recipe.category === 'breakfast').slice(0, 4);
+    const lunches = scored.filter(s => s.recipe.category === 'lunch-dinner').slice(0, 6);
+    return { breakfasts, lunches };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [recipes, weeklyPlan, freqFilter, checkedTypes]);
 
@@ -522,77 +519,65 @@ export function RecipeList({
         )}
       </div>
 
-      {/* 2. Suggested Meals — horizontal scroll rail */}
-      {(suggestions.option1.length > 0 || suggestions.option2.length > 0) && (
+      {/* 2. Suggested Meals — Breakfast + Lunch & Dinner boxes */}
+      {(suggestions.breakfasts.length > 0 || suggestions.lunches.length > 0) && (
         <div className={styles.suggestBox} role="region" aria-label="Suggested Meals">
           <h3 className={styles.suggestHeading}>Suggested Meals</h3>
           <div className={styles.suggestColumns}>
-            {[
-              { label: 'Option 1', items: suggestions.option1 },
-              { label: 'Option 2', items: suggestions.option2 },
-            ].map(col => {
-              if (col.items.length === 0) return null;
-              const breakfastItems = col.items.filter(s => s.recipe.category === 'breakfast');
-              const lunchDinnerItems = col.items.filter(s => s.recipe.category !== 'breakfast');
-              return (
-                <div key={col.label} className={styles.suggestColumn}>
-                  {breakfastItems.length > 0 && (
-                    <>
-                      <span className={styles.suggestCategoryLabel}>Breakfast</span>
-                      <div className={styles.suggestList}>
-                        {breakfastItems.map(({ recipe, reason }) => (
-                          <div key={recipe.id} className={styles.suggestItem}>
-                            <div className={styles.suggestInfo}>
-                              <button
-                                className={styles.suggestName}
-                                onClick={() => onSelect(recipe.id)}
-                              >
-                                {recipe.title}
-                              </button>
-                              <span className={styles.suggestReason}>{reason}</span>
-                            </div>
-                            <button
-                              className={styles.suggestAddBtn}
-                              onClick={() => handleAddToWeekWithPulse(recipe.id)}
-                              aria-label={`Add ${recipe.title} to this week`}
-                            >
-                              +
-                            </button>
-                          </div>
-                        ))}
+            {suggestions.breakfasts.length > 0 && (
+              <div className={styles.suggestColumn}>
+                <span className={styles.suggestCategoryLabel}>Breakfast</span>
+                <div className={styles.suggestList}>
+                  {suggestions.breakfasts.map(({ recipe, reason }) => (
+                    <div key={recipe.id} className={styles.suggestItem}>
+                      <div className={styles.suggestInfo}>
+                        <button
+                          className={styles.suggestName}
+                          onClick={() => onSelect(recipe.id)}
+                        >
+                          {recipe.title}
+                        </button>
+                        <span className={styles.suggestReason}>{reason}</span>
                       </div>
-                    </>
-                  )}
-                  {lunchDinnerItems.length > 0 && (
-                    <>
-                      <span className={styles.suggestCategoryLabel}>Lunch & Dinner</span>
-                      <div className={styles.suggestList}>
-                        {lunchDinnerItems.map(({ recipe, reason }) => (
-                          <div key={recipe.id} className={styles.suggestItem}>
-                            <div className={styles.suggestInfo}>
-                              <button
-                                className={styles.suggestName}
-                                onClick={() => onSelect(recipe.id)}
-                              >
-                                {recipe.title}
-                              </button>
-                              <span className={styles.suggestReason}>{reason}</span>
-                            </div>
-                            <button
-                              className={styles.suggestAddBtn}
-                              onClick={() => handleAddToWeekWithPulse(recipe.id)}
-                              aria-label={`Add ${recipe.title} to this week`}
-                            >
-                              +
-                            </button>
-                          </div>
-                        ))}
-                      </div>
-                    </>
-                  )}
+                      <button
+                        className={styles.suggestAddBtn}
+                        onClick={() => handleAddToWeekWithPulse(recipe.id)}
+                        aria-label={`Add ${recipe.title} to this week`}
+                      >
+                        +
+                      </button>
+                    </div>
+                  ))}
                 </div>
-              );
-            })}
+              </div>
+            )}
+            {suggestions.lunches.length > 0 && (
+              <div className={styles.suggestColumn}>
+                <span className={styles.suggestCategoryLabel}>Lunch & Dinner</span>
+                <div className={styles.suggestList}>
+                  {suggestions.lunches.map(({ recipe, reason }) => (
+                    <div key={recipe.id} className={styles.suggestItem}>
+                      <div className={styles.suggestInfo}>
+                        <button
+                          className={styles.suggestName}
+                          onClick={() => onSelect(recipe.id)}
+                        >
+                          {recipe.title}
+                        </button>
+                        <span className={styles.suggestReason}>{reason}</span>
+                      </div>
+                      <button
+                        className={styles.suggestAddBtn}
+                        onClick={() => handleAddToWeekWithPulse(recipe.id)}
+                        aria-label={`Add ${recipe.title} to this week`}
+                      >
+                        +
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}
