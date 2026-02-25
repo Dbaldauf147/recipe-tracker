@@ -173,19 +173,26 @@ export function ShoppingListPage({ weeklyRecipes, onClose }) {
     return names;
   }, [weeklyRecipes, extras]);
 
+  function matchesPantry(name) {
+    for (const pn of pantryNames) {
+      if (name === pn || name.includes(pn) || pn.includes(name)) return true;
+    }
+    return false;
+  }
+
   const pantryMatchedItems = useMemo(() => {
     const matched = new Map();
     for (const recipe of weeklyRecipes) {
       for (const ing of (recipe.ingredients || [])) {
         const name = (ing.ingredient || '').toLowerCase().trim();
-        if (name && pantryNames.has(name) && !matched.has(name)) {
+        if (name && matchesPantry(name) && !matched.has(name)) {
           matched.set(name, ing.ingredient.trim());
         }
       }
     }
     for (const e of extras) {
       const name = (e.ingredient || '').toLowerCase().trim();
-      if (name && pantryNames.has(name) && !matched.has(name)) {
+      if (name && matchesPantry(name) && !matched.has(name)) {
         matched.set(name, e.ingredient.trim());
       }
     }

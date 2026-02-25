@@ -71,8 +71,16 @@ export function ShoppingList({ weeklyRecipes, extraItems = [], onClearExtras, on
   const displayItems = useMemo(() => {
     return items.filter(item => {
       const norm = item.ingredient.toLowerCase().trim();
-      if (pantryNames && pantryNames.has(norm)) return false;
-      if (dismissedNames && dismissedNames.has(norm)) return false;
+      if (pantryNames) {
+        for (const pn of pantryNames) {
+          if (norm === pn || norm.includes(pn) || pn.includes(norm)) return false;
+        }
+      }
+      if (dismissedNames) {
+        for (const dn of dismissedNames) {
+          if (norm === dn || norm.includes(dn) || dn.includes(norm)) return false;
+        }
+      }
       return true;
     });
   }, [items, pantryNames, dismissedNames]);
