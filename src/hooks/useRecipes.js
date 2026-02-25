@@ -172,11 +172,17 @@ export function useRecipes() {
       parsed.get(recipeName).push(instruction);
     }
 
+    // Build case-insensitive lookup
+    const lookup = new Map();
+    for (const [name, steps] of parsed) {
+      lookup.set(name.toLowerCase().trim(), steps);
+    }
+
     // Match and update recipes
     let updated = 0;
     setRecipes(prev => {
       const next = prev.map(r => {
-        const steps = parsed.get(r.title);
+        const steps = lookup.get((r.title || '').toLowerCase().trim());
         if (steps && steps.length > 0) {
           updated++;
           return { ...r, instructions: steps.join('\n') };
