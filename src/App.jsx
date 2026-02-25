@@ -18,6 +18,7 @@ import { NutritionGoalsPage } from './components/NutritionGoalsPage';
 import { RecipeSetupPage } from './components/RecipeSetupPage';
 import styles from './App.module.css';
 
+const ADMIN_UID = import.meta.env.VITE_ADMIN_UID;
 const WEEKLY_KEY = 'sunday-weekly-plan';
 
 function loadWeeklyPlan() {
@@ -34,7 +35,7 @@ function loadWeeklyPlan() {
  * remounts when the user changes, re-initializing all useState from localStorage.
  */
 function AppContent({ user, logOut, isNewUser, restartOnboarding }) {
-  const { recipes, addRecipe, updateRecipe, deleteRecipe, getRecipe, importRecipes } =
+  const { recipes, addRecipe, updateRecipe, deleteRecipe, getRecipe, importRecipes, importInstructions } =
     useRecipes();
 
   const [view, setView] = useState('list');
@@ -258,6 +259,22 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding }) {
               >
                 Nutrition Goals
               </button>
+              {user.uid === ADMIN_UID && (
+                <button
+                  className={styles.settingsMenuItem}
+                  onClick={async () => {
+                    setSettingsOpen(false);
+                    try {
+                      const result = await importInstructions();
+                      alert(`Imported instructions for ${result.updated} recipes (${result.total} found in sheet)`);
+                    } catch (err) {
+                      alert('Failed to import instructions: ' + err.message);
+                    }
+                  }}
+                >
+                  Import Instructions
+                </button>
+              )}
               <div className={styles.settingsDivider} />
               <button
                 className={styles.settingsMenuItem}

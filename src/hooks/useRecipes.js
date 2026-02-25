@@ -139,5 +139,56 @@ export function useRecipes() {
     });
   }
 
-  return { recipes, addRecipe, updateRecipe, deleteRecipe, getRecipe, importRecipes };
+  async function importInstructions() {
+    const INSTRUCTIONS_CSV_URL =
+      'https://docs.google.com/spreadsheets/d/e/2PACX-1vRg2H-pU53B_n0WCG3f_vz3ye-8IicvsqvTM2xohwVaEitNIZr6PbrgRn8-5qlTn-cSwnt2m3FjXIae/pub?gid=1736368634&single=true&output=csv';
+
+    const resp = await fetch(INSTRUCTIONS_CSV_URL);
+    const csv = await resp.text();
+    const lines = csv.split('\n');
+
+    // Parse CSV into recipe name -> instruction steps
+    const parsed = new Map();
+    let currentRecipe = null;
+    let inSteps = false;
+
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (trimmed === ',' || trimmed === '') { currentRecipe = null; inSteps = false; continue; }
+      if (trimmed.startsWith('http')) continue;
+      const idx = trimmed.indexOf(',');
+      if (idx === -1) continue;
+      const name = trimmed.substring(0, idx).trim();
+      let instruction = trimmed.substring(idx + 1).trim();
+      if (instruction.startsWith('"') && instruction.endsWith('"')) {
+        instruction = instruction.slice(1, -1).replace(/""/g, '"');
+      }
+      if (name.startsWith('!') || instruction === 'Instructions' || instruction === 'Steps') { inSteps = true; continue; }
+      if (!inSteps) { if (name && !currentRecipe) currentRecipe = name; continue; }
+      if (!instruction) continue;
+      const recipeName = currentRecipe || name;
+      if (!recipeName) continue;
+      if (!parsed.has(recipeName)) parsed.set(recipeName, []);
+      parsed.get(recipeName).push(instruction);
+    }
+
+    // Match and update recipes
+    let updated = 0;
+    setRecipes(prev => {
+      const next = prev.map(r => {
+        const steps = parsed.get(r.title);
+        if (steps && steps.length > 0) {
+          updated++;
+          return { ...r, instructions: steps.join('\n') };
+        }
+        return r;
+      });
+      save(next);
+      return next;
+    });
+
+    return { total: parsed.size, updated };
+  }
+
+  return { recipes, addRecipe, updateRecipe, deleteRecipe, getRecipe, importRecipes, importInstructions };
 }

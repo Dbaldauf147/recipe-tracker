@@ -519,7 +519,8 @@ export function RecipeList({
         )}
       </div>
 
-      {/* 2. Suggested Meals — Breakfast + Lunch & Dinner boxes */}
+      {/* 2. Suggested Meals + Discover Recipes row */}
+      <div className={styles.suggestDiscoverRow}>
       {(suggestions.breakfasts.length > 0 || suggestions.lunches.length > 0) && (
         <div className={styles.suggestBox} role="region" aria-label="Suggested Meals">
           <h3 className={styles.suggestHeading}>Suggested Meals</h3>
@@ -582,7 +583,7 @@ export function RecipeList({
         </div>
       )}
 
-      {/* 3. Discover Recipes — collapsible panel */}
+      {/* Discover Recipes — collapsible panel */}
       <div className={styles.discoverPanel}>
         <button
           className={styles.discoverToggle}
@@ -629,6 +630,7 @@ export function RecipeList({
             </div>
           </div>
         )}
+      </div>
       </div>
 
       {/* 4. Search + Filter Row */}
