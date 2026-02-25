@@ -10,6 +10,7 @@ const STORAGE_TO_FIELD = {
 
 export function PantryList({ title, subtitle, storageKey, initialItems, onMoveToShop, source, highlightNames }) {
   const [items, setItems] = useState([]);
+  const [editingIndex, setEditingIndex] = useState(null);
 
   useEffect(() => {
     try {
@@ -43,7 +44,11 @@ export function PantryList({ title, subtitle, storageKey, initialItems, onMoveTo
   }
 
   function addItem() {
-    setItems(prev => [...prev, { ingredient: '' }]);
+    setItems(prev => {
+      const next = [...prev, { ingredient: '' }];
+      setEditingIndex(next.length - 1);
+      return next;
+    });
   }
 
   return (
@@ -62,11 +67,19 @@ export function PantryList({ title, subtitle, storageKey, initialItems, onMoveTo
         <tbody>
           {[...items]
             .map((item, i) => ({ ...item, _i: i }))
-            .sort((a, b) => (a.ingredient || '').localeCompare(b.ingredient || ''))
+            .sort((a, b) => {
+              if (a._i === editingIndex) return -1;
+              if (b._i === editingIndex) return 1;
+              return (a.ingredient || '').localeCompare(b.ingredient || '');
+            })
             .map(({ _i: i, ...item }) => {
               const highlighted = highlightNames && highlightNames.has((item.ingredient || '').toLowerCase().trim());
               return (
-            <tr key={i} className={highlighted ? styles.highlightRow : ''}>
+            <tr key={i} className={highlighted ? styles.highlightRow : ''}
+              onBlur={i === editingIndex ? (e) => {
+                if (!e.currentTarget.contains(e.relatedTarget)) setEditingIndex(null);
+              } : undefined}
+            >
               <td>
                 <input
                   className={styles.cellInput}
@@ -74,6 +87,7 @@ export function PantryList({ title, subtitle, storageKey, initialItems, onMoveTo
                   value={item.ingredient}
                   onChange={e => updateItem(i, 'ingredient', e.target.value)}
                   placeholder="item"
+                  autoFocus={i === editingIndex}
                 />
               </td>
               <td>

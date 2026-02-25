@@ -24,6 +24,7 @@ export function GroceryStaples({ onMoveToShop, highlightNames }) {
   const [staples, setStaples] = useState([]);
   const [loading, setLoading] = useState(true);
   const [checked, setChecked] = useState(new Set());
+  const [editingIndex, setEditingIndex] = useState(null);
 
   useEffect(() => {
     const saved = loadStaples();
@@ -50,7 +51,11 @@ export function GroceryStaples({ onMoveToShop, highlightNames }) {
   }
 
   function addItem() {
-    setStaples(prev => [...prev, { quantity: '', measurement: '', ingredient: '' }]);
+    setStaples(prev => {
+      const next = [...prev, { quantity: '', measurement: '', ingredient: '' }];
+      setEditingIndex(next.length - 1);
+      return next;
+    });
   }
 
   return (
@@ -76,7 +81,11 @@ export function GroceryStaples({ onMoveToShop, highlightNames }) {
             <tbody>
               {[...staples]
                 .map((item, i) => ({ ...item, _i: i }))
-                .sort((a, b) => (a.ingredient || '').localeCompare(b.ingredient || ''))
+                .sort((a, b) => {
+                  if (a._i === editingIndex) return -1;
+                  if (b._i === editingIndex) return 1;
+                  return (a.ingredient || '').localeCompare(b.ingredient || '');
+                })
                 .map(({ _i: i, ...item }) => {
                   const highlighted = highlightNames && highlightNames.has((item.ingredient || '').toLowerCase().trim());
                   const key = (item.ingredient || '').toLowerCase().trim();
@@ -92,7 +101,11 @@ export function GroceryStaples({ onMoveToShop, highlightNames }) {
                     if (next.has(key)) next.delete(key); else next.add(key);
                     return next;
                   });
-                }}>
+                }}
+                onBlur={i === editingIndex ? (e) => {
+                  if (!e.currentTarget.contains(e.relatedTarget)) setEditingIndex(null);
+                } : undefined}
+                >
                   <td className={styles.checkCell}>
                     <input
                       type="checkbox"
@@ -133,6 +146,7 @@ export function GroceryStaples({ onMoveToShop, highlightNames }) {
                       value={item.ingredient}
                       onChange={e => updateItem(i, 'ingredient', e.target.value)}
                       placeholder="ingredient"
+                      autoFocus={i === editingIndex}
                     />
                   </td>
                   <td>
