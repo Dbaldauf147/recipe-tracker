@@ -49,6 +49,9 @@ export function PantryList({ title, subtitle, storageKey, initialItems, onMoveTo
   return (
     <div className={styles.panel}>
       <h2 className={styles.heading}>{title} {subtitle && <span className={styles.subtitle}>{subtitle}</span>}</h2>
+      <button className={styles.addBtn} onClick={addItem}>
+        + Add item
+      </button>
       <table className={styles.table}>
         <thead>
           <tr>
@@ -87,9 +90,6 @@ export function PantryList({ title, subtitle, storageKey, initialItems, onMoveTo
             })}
         </tbody>
       </table>
-      <button className={styles.addBtn} onClick={addItem}>
-        + Add item
-      </button>
     </div>
   );
 }

@@ -60,6 +60,9 @@ export function GroceryStaples({ onMoveToShop, highlightNames }) {
         <p className={styles.loading}>Loading...</p>
       ) : (
         <>
+          <button className={styles.addBtn} onClick={addItem}>
+            + Add item
+          </button>
           <table className={styles.table}>
             <thead>
               <tr>
@@ -146,9 +149,6 @@ export function GroceryStaples({ onMoveToShop, highlightNames }) {
                 })}
             </tbody>
           </table>
-          <button className={styles.addBtn} onClick={addItem}>
-            + Add item
-          </button>
         </>
       )}
     </div>
