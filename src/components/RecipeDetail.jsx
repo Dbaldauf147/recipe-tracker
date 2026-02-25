@@ -50,11 +50,13 @@ function initFields(recipe) {
 export function RecipeDetail({ recipe, onSave, onDelete, onBack, user }) {
   const [imgError, setImgError] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [dragging, setDragging] = useState(false);
   const [fields, setFields] = useState(() => recipe ? initFields(recipe) : null);
   const [showShareDropdown, setShowShareDropdown] = useState(false);
   const [friendsList, setFriendsList] = useState(null);
   const [shareMsg, setShareMsg] = useState(null);
   const shareRef = useRef(null);
+  const dragCounter = useRef(0);
   const fileInputRef = useRef(null);
 
   function setField(key, value) {
@@ -207,9 +209,8 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user }) {
     }
   }
 
-  function handleImageUpload(e) {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  function processImageFile(file) {
+    if (!file || !file.type.startsWith('image/')) return;
     setUploading(true);
     const img = new Image();
     img.onload = () => {
@@ -232,8 +233,40 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user }) {
     img.src = URL.createObjectURL(file);
   }
 
+  function handleImageUpload(e) {
+    processImageFile(e.target.files?.[0]);
+  }
+
   function handleRemoveImage() {
     onSave({ imageUrl: '' });
+  }
+
+  function handleDragEnter(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounter.current++;
+    if (e.dataTransfer.types.includes('Files')) setDragging(true);
+  }
+
+  function handleDragLeave(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounter.current--;
+    if (dragCounter.current === 0) setDragging(false);
+  }
+
+  function handleDragOver(e) {
+    e.preventDefault();
+    e.stopPropagation();
+  }
+
+  function handleDrop(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragging(false);
+    dragCounter.current = 0;
+    const file = e.dataTransfer.files?.[0];
+    if (file) processImageFile(file);
   }
 
   if (!recipe) {
@@ -253,7 +286,18 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user }) {
         &larr; Back to recipes
       </button>
 
-      <div className={styles.heroWrap}>
+      <div
+        className={`${styles.heroWrap}${dragging ? ` ${styles.heroDragging}` : ''}`}
+        onDragEnter={handleDragEnter}
+        onDragLeave={handleDragLeave}
+        onDragOver={handleDragOver}
+        onDrop={handleDrop}
+      >
+        {dragging && (
+          <div className={styles.dropOverlay}>
+            Drop image here
+          </div>
+        )}
         {recipe.imageUrl ? (
           <img
             className={styles.heroImg}

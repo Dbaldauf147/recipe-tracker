@@ -30,6 +30,26 @@
   background: var(--color-surface-alt, #f3f4f6);
 }
 
+.heroDragging {
+  outline: 3px dashed var(--color-accent);
+  outline-offset: -3px;
+}
+
+.dropOverlay {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(201, 100, 66, 0.15);
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: var(--color-accent);
+  pointer-events: none;
+  line-height: 1;
+}
+
 .imageOverlay {
   position: absolute;
   bottom: 0;
