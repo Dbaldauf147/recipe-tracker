@@ -158,15 +158,18 @@ export function parseRecipeText(rawText) {
     const ingredientLineIndices = new Set();
     let titleIndex = -1;
 
-    // Find title: first non-blank line that isn't an ingredient, URL, or hashtag
-    // and looks like a short title (not a long description paragraph)
+    // Find title: first non-blank line that looks like a short recipe name,
+    // not a description sentence. Recipe titles are short phrases without
+    // sentence-ending punctuation (e.g. "Pesto Chicken Wraps").
     for (let i = 0; i < lines.length; i++) {
       const trimmed = lines[i].trim();
       if (!trimmed) continue;
       if (URL_LINE.test(trimmed) || HASHTAG_LINE.test(trimmed)) continue;
       if (isIngredientLine(trimmed)) continue;
-      // Skip long lines — they're descriptions, not titles
-      if (trimmed.length > 100) continue;
+      // Skip lines that look like sentences (contain ". " or end with ".")
+      if (/\.\s/.test(trimmed) || /\.\s*$/.test(trimmed)) continue;
+      // Skip lines that are too long to be a recipe title
+      if (trimmed.length > 60) continue;
       title = trimmed;
       titleIndex = i;
       break;
