@@ -62,6 +62,7 @@ export function RecipeList({
   const [quickCategory, setQuickCategory] = useState('lunch-dinner');
   const [importSearch, setImportSearch] = useState('');
   const [editMode, setEditMode] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
   const [discoverOpen, setDiscoverOpen] = useState(false);
   const [lastAdded, setLastAdded] = useState(null);
   const [shopSelection, setShopSelection] = useState(() => {
@@ -145,13 +146,17 @@ export function RecipeList({
     .filter(t => !PRESET_TYPES.includes(t.toLowerCase()));
   const mealTypes = [...new Set([...PRESET_TYPES, ...customTypes])].sort();
 
-  // Filter by frequency and meal type, then group by category
+  // Filter by frequency, meal type, and search query, then group by category
   const weekSet = new Set(weeklyPlan);
   let visible = freqFilter === 'all'
     ? recipes
     : recipes.filter(r => (r.frequency || 'common') === freqFilter);
   if (checkedTypes.size > 0) {
     visible = visible.filter(r => checkedTypes.has(r.mealType || ''));
+  }
+  if (searchQuery.trim()) {
+    const q = searchQuery.trim().toLowerCase();
+    visible = visible.filter(r => r.title.toLowerCase().includes(q));
   }
   visible = visible.filter(r => !weekSet.has(r.id));
 
@@ -641,7 +646,16 @@ export function RecipeList({
         )}
       </div>
 
-      {/* 4. Filter Row */}
+      {/* 4. Search + Filter Row */}
+      <div className={styles.searchRow}>
+        <input
+          className={styles.searchInput}
+          type="text"
+          placeholder="Search recipes..."
+          value={searchQuery}
+          onChange={e => setSearchQuery(e.target.value)}
+        />
+      </div>
       <div className={styles.filterRow}>
         <div className={styles.filterBar}>
           {[
@@ -753,47 +767,35 @@ export function RecipeList({
             )}
           </div>
         ))}
-        {(() => {
-          const ld = grouped['lunch-dinner'];
-          const mid = Math.ceil(ld.length / 2);
-          const ld1 = ld.slice(0, mid);
-          const ld2 = ld.slice(mid);
-          return [
-            { key: 'ld1', label: 'Lunch & Dinner 1', items: ld1 },
-            { key: 'ld2', label: 'Lunch & Dinner 2', items: ld2 },
-          ].map(col => (
-            <div
-              key={col.key}
-              id={`cat-lunch-dinner-${col.key}`}
-              className={`${styles.column} ${dragOverTarget === col.key ? styles.columnDragOver : ''}`}
-              onDragOver={handleColumnDragOver}
-              onDrop={e => handleColumnDrop(e, 'lunch-dinner')}
-              onDragEnter={() => handleDragEnter(col.key)}
-              onDragLeave={e => handleDragLeave(e, col.key)}
-              role="region"
-              aria-label={col.label}
-            >
-              <h3 className={styles.columnHeading}>{col.label}</h3>
-              {col.items.length === 0 ? (
-                <p className={styles.columnEmpty}>Drop recipes here</p>
-              ) : (
-                <div className={styles.list}>
-                  {col.items.map(recipe => (
-                    <RecipeCard
-                      key={recipe.id}
-                      recipe={recipe}
-                      onClick={onSelect}
-                      draggable={!editMode}
-                      onAdd={editMode ? undefined : handleAddToWeekWithPulse}
-                      editMode={editMode}
-                      onDelete={onDelete}
-                    />
-                  ))}
-                </div>
-              )}
+        <div
+          id="cat-lunch-dinner"
+          className={`${styles.column} ${styles.wideColumn} ${dragOverTarget === 'lunch-dinner' ? styles.columnDragOver : ''}`}
+          onDragOver={handleColumnDragOver}
+          onDrop={e => handleColumnDrop(e, 'lunch-dinner')}
+          onDragEnter={() => handleDragEnter('lunch-dinner')}
+          onDragLeave={e => handleDragLeave(e, 'lunch-dinner')}
+          role="region"
+          aria-label="Lunch & Dinner"
+        >
+          <h3 className={styles.columnHeading}>Lunch & Dinner</h3>
+          {grouped['lunch-dinner'].length === 0 ? (
+            <p className={styles.columnEmpty}>Drop recipes here</p>
+          ) : (
+            <div className={styles.list}>
+              {grouped['lunch-dinner'].map(recipe => (
+                <RecipeCard
+                  key={recipe.id}
+                  recipe={recipe}
+                  onClick={onSelect}
+                  draggable={!editMode}
+                  onAdd={editMode ? undefined : handleAddToWeekWithPulse}
+                  editMode={editMode}
+                  onDelete={onDelete}
+                />
+              ))}
             </div>
-          ));
-        })()}
+          )}
+        </div>
         <div className={styles.stackedCol}>
           {SIDE_CATS.map(cat => (
             <div
