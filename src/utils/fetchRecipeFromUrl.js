@@ -4,7 +4,7 @@
  * Falls back to plain-text parsing when no structured data is found.
  */
 
-import { parseRecipeText } from './parseRecipeText';
+import { parseRecipeText, titleCase } from './parseRecipeText';
 import { normalizeFractions, parseIngredientLine } from './parseRecipeText';
 
 // ── Server-side proxy (Vite dev middleware + Netlify function in prod) ──
@@ -118,7 +118,7 @@ export async function fetchRecipeFromUrl(url) {
   const ld = extractJsonLdRecipe(html);
   if (ld) {
     return {
-      title: ld.name || '',
+      title: titleCase(ld.name || ''),
       description: ld.description || '',
       category: 'lunch-dinner',
       frequency: 'common',

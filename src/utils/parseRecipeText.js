@@ -80,6 +80,11 @@ export function parseIngredientLine(line) {
   };
 }
 
+export function titleCase(str) {
+  if (!str || str !== str.toUpperCase()) return str;
+  return str.toLowerCase().replace(/\b\w/g, c => c.toUpperCase());
+}
+
 export function parseRecipeText(rawText) {
   if (!rawText || !rawText.trim()) {
     return { title: '', ingredients: [], instructions: '' };
@@ -198,7 +203,7 @@ export function parseRecipeText(rawText) {
     instructions = instrLines.join('\n').trim();
   }
 
-  return { title, ingredients, instructions };
+  return { title: titleCase(title), ingredients, instructions };
 }
 
 function findNextHeading(lines, startAfter) {
