@@ -159,11 +159,14 @@ export function parseRecipeText(rawText) {
     let titleIndex = -1;
 
     // Find title: first non-blank line that isn't an ingredient, URL, or hashtag
+    // and looks like a short title (not a long description paragraph)
     for (let i = 0; i < lines.length; i++) {
       const trimmed = lines[i].trim();
       if (!trimmed) continue;
       if (URL_LINE.test(trimmed) || HASHTAG_LINE.test(trimmed)) continue;
       if (isIngredientLine(trimmed)) continue;
+      // Skip long lines — they're descriptions, not titles
+      if (trimmed.length > 100) continue;
       title = trimmed;
       titleIndex = i;
       break;
