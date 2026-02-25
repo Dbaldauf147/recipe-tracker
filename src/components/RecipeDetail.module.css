@@ -115,16 +115,17 @@
 
 .heroImgUser {
   width: 100%;
-  height: 280px;
-  object-fit: cover;
-  object-position: center;
+  max-height: 400px;
+  object-fit: contain;
   display: block;
 }
 
 @media (max-width: 600px) {
-  .heroImg,
-  .heroImgUser {
+  .heroImg {
     height: 180px;
+  }
+  .heroImgUser {
+    max-height: 250px;
   }
 }
 
