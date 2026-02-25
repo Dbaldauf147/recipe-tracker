@@ -69,16 +69,26 @@ export function ShoppingList({ weeklyRecipes, extraItems = [], onClearExtras, on
   }, [weeklyRecipes, extraItems]);
 
   const displayItems = useMemo(() => {
+    function wordMatch(a, b) {
+      if (a === b) return true;
+      // Strip parenthetical suffixes like "(dried)" for matching
+      const cleanA = a.replace(/\s*\(.*?\)\s*/g, '').trim();
+      const cleanB = b.replace(/\s*\(.*?\)\s*/g, '').trim();
+      if (cleanA === cleanB) return true;
+      // Check if one is a whole-word substring of the other
+      const re = (s) => new RegExp('\\b' + s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b');
+      return re(cleanA).test(cleanB) || re(cleanB).test(cleanA);
+    }
     return items.filter(item => {
       const norm = item.ingredient.toLowerCase().trim();
       if (pantryNames) {
         for (const pn of pantryNames) {
-          if (norm === pn || norm.includes(pn) || pn.includes(norm)) return false;
+          if (wordMatch(norm, pn)) return false;
         }
       }
       if (dismissedNames) {
         for (const dn of dismissedNames) {
-          if (norm === dn || norm.includes(dn) || dn.includes(norm)) return false;
+          if (wordMatch(norm, dn)) return false;
         }
       }
       return true;

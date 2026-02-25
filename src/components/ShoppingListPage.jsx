@@ -173,9 +173,18 @@ export function ShoppingListPage({ weeklyRecipes, onClose }) {
     return names;
   }, [weeklyRecipes, extras]);
 
+  function wordMatch(a, b) {
+    if (a === b) return true;
+    const cleanA = a.replace(/\s*\(.*?\)\s*/g, '').trim();
+    const cleanB = b.replace(/\s*\(.*?\)\s*/g, '').trim();
+    if (cleanA === cleanB) return true;
+    const re = (s) => new RegExp('\\b' + s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b');
+    return re(cleanA).test(cleanB) || re(cleanB).test(cleanA);
+  }
+
   function matchesPantry(name) {
     for (const pn of pantryNames) {
-      if (name === pn || name.includes(pn) || pn.includes(name)) return true;
+      if (wordMatch(name, pn)) return true;
     }
     return false;
   }
