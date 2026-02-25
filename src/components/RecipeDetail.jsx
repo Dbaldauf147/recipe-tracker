@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { NutritionPanel } from './NutritionPanel';
+import { loadFriends, shareRecipe, getUsername } from '../utils/firestoreSync';
 import styles from './RecipeDetail.module.css';
 
 const STOP_WORDS = new Set([
@@ -46,9 +47,13 @@ function initFields(recipe) {
   };
 }
 
-export function RecipeDetail({ recipe, onSave, onDelete, onBack }) {
+export function RecipeDetail({ recipe, onSave, onDelete, onBack, user }) {
   const [imgError, setImgError] = useState(false);
   const [fields, setFields] = useState(() => recipe ? initFields(recipe) : null);
+  const [showShareDropdown, setShowShareDropdown] = useState(false);
+  const [friendsList, setFriendsList] = useState(null);
+  const [shareMsg, setShareMsg] = useState(null);
+  const shareRef = useRef(null);
 
   function setField(key, value) {
     setFields(prev => ({ ...prev, [key]: value }));
@@ -157,6 +162,46 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack }) {
     return () => clearTimeout(timer);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fields]);
+
+  // Close share dropdown on outside click
+  useEffect(() => {
+    if (!showShareDropdown) return;
+    function handleClickOutside(e) {
+      if (shareRef.current && !shareRef.current.contains(e.target)) {
+        setShowShareDropdown(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [showShareDropdown]);
+
+  async function handleShareClick() {
+    if (showShareDropdown) {
+      setShowShareDropdown(false);
+      return;
+    }
+    if (!user) return;
+    if (!friendsList) {
+      const frs = await loadFriends(user.uid);
+      setFriendsList(frs);
+    }
+    setShareMsg(null);
+    setShowShareDropdown(true);
+  }
+
+  async function handleShareWith(friend) {
+    try {
+      const myUsername = await getUsername(user.uid);
+      await shareRecipe(user.uid, friend.uid, myUsername || user.displayName, recipe);
+      setShowShareDropdown(false);
+      setShareMsg(`Shared with @${friend.username}!`);
+      setTimeout(() => setShareMsg(null), 3000);
+    } catch (err) {
+      console.error('Share error:', err);
+      setShareMsg('Failed to share.');
+      setTimeout(() => setShareMsg(null), 3000);
+    }
+  }
 
   if (!recipe) {
     return (
@@ -391,6 +436,30 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack }) {
       </div>
 
       <div className={styles.actions}>
+        {user && (
+          <div className={styles.shareWrapper} ref={shareRef}>
+            <button className={styles.shareBtn} onClick={handleShareClick}>
+              Share
+            </button>
+            {showShareDropdown && (
+              <div className={styles.shareDropdown}>
+                {friendsList && friendsList.length === 0 && (
+                  <span className={styles.noFriends}>No friends yet</span>
+                )}
+                {friendsList && friendsList.map(f => (
+                  <button
+                    key={f.uid}
+                    className={styles.friendOption}
+                    onClick={() => handleShareWith(f)}
+                  >
+                    @{f.username}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+        {shareMsg && <span className={styles.shareMsg}>{shareMsg}</span>}
         <button
           className={styles.deleteBtn}
           onClick={() => {

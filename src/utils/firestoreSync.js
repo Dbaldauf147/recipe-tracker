@@ -242,3 +242,41 @@ export async function getUsername(uid) {
   if (!snap.exists()) return null;
   return snap.data().username || null;
 }
+
+/* ── Recipe sharing functions ── */
+
+/**
+ * Share a recipe with a friend. Creates a doc in sharedRecipes collection.
+ */
+export async function shareRecipe(fromUid, toUid, fromUsername, recipe) {
+  await addDoc(collection(db, 'sharedRecipes'), {
+    from: fromUid,
+    to: toUid,
+    fromUsername,
+    recipe,
+    sharedAt: new Date().toISOString(),
+  });
+}
+
+/**
+ * Get all pending shared recipes addressed to a user.
+ */
+export async function getPendingSharedRecipes(uid) {
+  const q = query(collection(db, 'sharedRecipes'), where('to', '==', uid));
+  const snap = await getDocs(q);
+  return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+}
+
+/**
+ * Accept a shared recipe by deleting the share doc.
+ */
+export async function acceptSharedRecipe(docId) {
+  await deleteDoc(doc(db, 'sharedRecipes', docId));
+}
+
+/**
+ * Decline a shared recipe by deleting the share doc.
+ */
+export async function declineSharedRecipe(docId) {
+  await deleteDoc(doc(db, 'sharedRecipes', docId));
+}

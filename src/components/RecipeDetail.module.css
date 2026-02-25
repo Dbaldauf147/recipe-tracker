@@ -360,3 +360,71 @@
 .cancelBtn:hover {
   background: var(--color-border);
 }
+
+/* --- Share button + dropdown --- */
+
+.shareWrapper {
+  position: relative;
+}
+
+.shareBtn {
+  padding: 0.55rem 1.25rem;
+  border: none;
+  border-radius: 50px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease;
+  background: var(--color-accent);
+  color: #fff;
+  box-shadow: 0 2px 8px rgba(201, 100, 66, 0.25);
+}
+
+.shareBtn:hover {
+  background: var(--color-accent-hover);
+}
+
+.shareDropdown {
+  position: absolute;
+  bottom: calc(100% + 0.5rem);
+  left: 0;
+  min-width: 200px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
+  z-index: 10;
+  padding: 0.4rem 0;
+}
+
+.friendOption {
+  display: block;
+  width: 100%;
+  padding: 0.5rem 0.85rem;
+  background: none;
+  border: none;
+  text-align: left;
+  font-size: 0.85rem;
+  font-weight: 500;
+  font-family: inherit;
+  color: var(--color-text);
+  cursor: pointer;
+  transition: background 0.12s ease;
+}
+
+.friendOption:hover {
+  background: var(--color-surface-alt, #f3f4f6);
+}
+
+.shareMsg {
+  font-size: 0.82rem;
+  font-weight: 500;
+  color: var(--color-accent);
+}
+
+.noFriends {
+  padding: 0.5rem 0.85rem;
+  font-size: 0.82rem;
+  color: var(--color-text-muted);
+  font-style: italic;
+}

@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useRecipes } from './hooks/useRecipes';
 import { useAuth } from './contexts/AuthContext';
-import { saveField, getPendingRequests } from './utils/firestoreSync';
+import { saveField, getPendingRequests, getPendingSharedRecipes } from './utils/firestoreSync';
 import { RecipeList } from './components/RecipeList';
 import { RecipeDetail } from './components/RecipeDetail';
 import { RecipeForm } from './components/RecipeForm';
@@ -49,8 +49,11 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding }) {
     let cancelled = false;
     async function checkRequests() {
       try {
-        const reqs = await getPendingRequests(user.uid);
-        if (!cancelled) setPendingCount(reqs.length);
+        const [reqs, shared] = await Promise.all([
+          getPendingRequests(user.uid),
+          getPendingSharedRecipes(user.uid),
+        ]);
+        if (!cancelled) setPendingCount(reqs.length + shared.length);
       } catch {}
     }
     checkRequests();
@@ -359,16 +362,23 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding }) {
         ) : view === 'ingredients' ? (
           <IngredientsPage onClose={goBack} />
         ) : view === 'friends' ? (
-          <FriendsPage onClose={() => {
-            goBack();
-            getPendingRequests(user.uid).then(r => setPendingCount(r.length)).catch(() => {});
-          }} />
+          <FriendsPage
+            onClose={() => {
+              goBack();
+              Promise.all([
+                getPendingRequests(user.uid),
+                getPendingSharedRecipes(user.uid),
+              ]).then(([r, s]) => setPendingCount(r.length + s.length)).catch(() => {});
+            }}
+            addRecipe={addRecipe}
+          />
         ) : view === 'detail' && selectedId ? (
           <RecipeDetail
             recipe={getRecipe(selectedId)}
             onSave={handleUpdate}
             onDelete={handleDelete}
             onBack={goBack}
+            user={user}
           />
         ) : view === 'add' ? (
           <RecipeForm onSave={handleAdd} onCancel={goBack} />

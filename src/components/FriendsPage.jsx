@@ -11,12 +11,15 @@ import {
   removeFriend,
   loadFriends,
   getUsername,
+  getPendingSharedRecipes,
+  acceptSharedRecipe,
+  declineSharedRecipe,
 } from '../utils/firestoreSync';
 import styles from './FriendsPage.module.css';
 
 const USERNAME_RE = /^[a-zA-Z0-9_]{3,20}$/;
 
-export function FriendsPage({ onClose }) {
+export function FriendsPage({ onClose, addRecipe }) {
   const { user } = useAuth();
   const uid = user?.uid;
 
@@ -31,20 +34,23 @@ export function FriendsPage({ onClose }) {
 
   const [requests, setRequests] = useState([]);
   const [friends, setFriends] = useState([]);
+  const [sharedRecipes, setSharedRecipes] = useState([]);
   const [loading, setLoading] = useState(true);
 
   /* ── Load initial data ── */
   const refresh = useCallback(async () => {
     if (!uid) return;
     try {
-      const [name, reqs, frs] = await Promise.all([
+      const [name, reqs, frs, shared] = await Promise.all([
         getUsername(uid),
         getPendingRequests(uid),
         loadFriends(uid),
+        getPendingSharedRecipes(uid),
       ]);
       setMyUsername(name);
       setRequests(reqs);
       setFriends(frs);
+      setSharedRecipes(shared);
     } catch (err) {
       console.error('FriendsPage load error:', err);
     } finally {
@@ -132,6 +138,29 @@ export function FriendsPage({ onClose }) {
       setFriends(prev => prev.filter(f => f.uid !== friendUid));
     } catch (err) {
       console.error('Remove error:', err);
+    }
+  }
+
+  /* ── Accept / Decline shared recipe ── */
+  async function handleAcceptRecipe(share) {
+    try {
+      await acceptSharedRecipe(share.id);
+      if (addRecipe && share.recipe) {
+        const { id, ...recipeData } = share.recipe;
+        addRecipe(recipeData);
+      }
+      setSharedRecipes(prev => prev.filter(s => s.id !== share.id));
+    } catch (err) {
+      console.error('Accept shared recipe error:', err);
+    }
+  }
+
+  async function handleDeclineRecipe(share) {
+    try {
+      await declineSharedRecipe(share.id);
+      setSharedRecipes(prev => prev.filter(s => s.id !== share.id));
+    } catch (err) {
+      console.error('Decline shared recipe error:', err);
     }
   }
 
@@ -237,6 +266,35 @@ export function FriendsPage({ onClose }) {
               <div className={styles.requestActions}>
                 <button className={styles.actionBtn} onClick={() => handleAccept(req)}>Accept</button>
                 <button className={styles.dangerBtn} onClick={() => handleDecline(req)}>Decline</button>
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+
+      {/* ── Shared Recipes ── */}
+      <div className={styles.section}>
+        <h3 className={styles.sectionTitle}>Shared Recipes</h3>
+        {sharedRecipes.length === 0 ? (
+          <p className={styles.emptyText}>No shared recipes.</p>
+        ) : (
+          sharedRecipes.map(share => (
+            <div key={share.id} className={styles.requestRow}>
+              <div className={styles.friendInfo}>
+                <span className={styles.friendUsername}>
+                  {share.recipe?.title || 'Untitled'}
+                </span>
+                <span className={styles.friendDisplayName}>
+                  from @{share.fromUsername}
+                </span>
+              </div>
+              <div className={styles.requestActions}>
+                <button className={styles.actionBtn} onClick={() => handleAcceptRecipe(share)}>
+                  Accept
+                </button>
+                <button className={styles.dangerBtn} onClick={() => handleDeclineRecipe(share)}>
+                  Decline
+                </button>
               </div>
             </div>
           ))
