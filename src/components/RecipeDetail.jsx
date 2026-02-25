@@ -348,6 +348,33 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user }) {
         </label>
       </div>
 
+      {user && (
+        <div className={styles.shareRow}>
+          <div className={styles.shareWrapper} ref={shareRef}>
+            <button className={styles.shareBtn} onClick={handleShareClick}>
+              Share
+            </button>
+            {showShareDropdown && (
+              <div className={styles.shareDropdown}>
+                {friendsList && friendsList.length === 0 && (
+                  <span className={styles.noFriends}>No friends yet</span>
+                )}
+                {friendsList && friendsList.map(f => (
+                  <button
+                    key={f.uid}
+                    className={styles.friendOption}
+                    onClick={() => handleShareWith(f)}
+                  >
+                    @{f.username}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+          {shareMsg && <span className={styles.shareMsg}>{shareMsg}</span>}
+        </div>
+      )}
+
       <div className={styles.columns}>
         <div className={styles.ingredientsCol}>
           <h3>Ingredients</h3>
@@ -436,30 +463,6 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user }) {
       </div>
 
       <div className={styles.actions}>
-        {user && (
-          <div className={styles.shareWrapper} ref={shareRef}>
-            <button className={styles.shareBtn} onClick={handleShareClick}>
-              Share
-            </button>
-            {showShareDropdown && (
-              <div className={styles.shareDropdown}>
-                {friendsList && friendsList.length === 0 && (
-                  <span className={styles.noFriends}>No friends yet</span>
-                )}
-                {friendsList && friendsList.map(f => (
-                  <button
-                    key={f.uid}
-                    className={styles.friendOption}
-                    onClick={() => handleShareWith(f)}
-                  >
-                    @{f.username}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-        {shareMsg && <span className={styles.shareMsg}>{shareMsg}</span>}
         <button
           className={styles.deleteBtn}
           onClick={() => {

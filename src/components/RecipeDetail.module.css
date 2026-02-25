@@ -363,6 +363,13 @@
 
 /* --- Share button + dropdown --- */
 
+.shareRow {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 1.25rem;
+}
+
 .shareWrapper {
   position: relative;
 }
@@ -386,7 +393,7 @@
 
 .shareDropdown {
   position: absolute;
-  bottom: calc(100% + 0.5rem);
+  top: calc(100% + 0.5rem);
   left: 0;
   min-width: 200px;
   background: var(--color-surface);
