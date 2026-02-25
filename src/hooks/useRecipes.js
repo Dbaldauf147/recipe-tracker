@@ -178,13 +178,16 @@ export function useRecipes() {
       lookup.set(name.toLowerCase().trim(), steps);
     }
 
-    // Match and update recipes
-    let updated = 0;
+    // Count matches against current recipes
+    const updated = recipes.filter(r =>
+      lookup.has((r.title || '').toLowerCase().trim())
+    ).length;
+
+    // Apply updates
     setRecipes(prev => {
       const next = prev.map(r => {
         const steps = lookup.get((r.title || '').toLowerCase().trim());
         if (steps && steps.length > 0) {
-          updated++;
           return { ...r, instructions: steps.join('\n') };
         }
         return r;
