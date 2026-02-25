@@ -931,8 +931,13 @@
   margin-top: var(--space-6);
 }
 
-.wideColumn {
-  /* Lunch & Dinner takes the wider middle column */
+.wideColumn .list {
+  columns: 2;
+  column-gap: var(--space-4);
+}
+
+.wideColumn .list > * {
+  break-inside: avoid;
 }
 
 .stackedCol {
