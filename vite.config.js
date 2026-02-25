@@ -1,4 +1,4 @@
-import { defineConfig, loadEnv } from 'vite'
+import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
 // Dev-only middleware: proxies /api/fetch-url?url=... requests server-side
@@ -38,7 +38,7 @@ function fetchUrlProxy() {
   };
 }
 
-// Dev-only middleware: proxies /api/instagram-caption?url=... to Apify
+// Dev-only middleware: fetches Instagram captions via the embed endpoint
 function instagramCaptionProxy() {
   return {
     name: 'instagram-caption-proxy',
@@ -50,56 +50,43 @@ function instagramCaptionProxy() {
           res.end(JSON.stringify({ error: 'Missing url parameter' }));
           return;
         }
-        if (!/instagram\.com\/(p|reels?|tv)\//i.test(url)) {
+        const match = url.match(/instagram\.com\/(?:p|reels?|tv)\/([A-Za-z0-9_-]+)/i);
+        if (!match) {
           res.writeHead(400, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ error: 'Invalid Instagram post URL' }));
           return;
         }
-        const apiKey = process.env.APIFY_API_KEY;
-        if (!apiKey) {
-          res.writeHead(500, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ error: 'Apify API key is not configured' }));
-          return;
-        }
+        const shortcode = match[1];
+        const embedUrl = `https://www.instagram.com/reel/${shortcode}/embed/captioned/`;
         try {
-          const runRes = await fetch(
-            `https://api.apify.com/v2/acts/apify~instagram-post-scraper/runs?token=${apiKey}&waitForFinish=60`,
-            {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ directUrls: [url], resultsLimit: 1 }),
-            }
-          );
-          if (!runRes.ok) {
-            const errBody = await runRes.text();
-            console.error('Apify error:', runRes.status, errBody);
+          const response = await fetch(embedUrl, {
+            headers: {
+              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+              'Accept': 'text/html',
+            },
+          });
+          if (!response.ok) {
             res.writeHead(502, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ error: `Apify error (${runRes.status}): ${errBody}` }));
+            res.end(JSON.stringify({ error: `Instagram returned ${response.status}` }));
             return;
           }
-          const run = await runRes.json();
-          const datasetId = run.data?.defaultDatasetId;
-          if (!datasetId) {
-            res.writeHead(502, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ error: 'Apify run did not return a dataset' }));
-            return;
-          }
-          const datasetRes = await fetch(
-            `https://api.apify.com/v2/datasets/${datasetId}/items?token=${apiKey}&format=json`
-          );
-          if (!datasetRes.ok) {
-            res.writeHead(502, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ error: 'Failed to fetch Apify dataset results' }));
-            return;
-          }
-          const items = await datasetRes.json();
-          if (!items.length || !items[0].caption) {
+          const html = await response.text();
+          const captionMatch = html.match(/class="Caption"[^>]*>(.*?)<\/div>/s);
+          if (!captionMatch) {
             res.writeHead(404, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ error: 'No caption found for this Instagram post' }));
             return;
           }
+          let caption = captionMatch[1];
+          caption = caption.replace(/<br\s*\/?>/gi, '\n');
+          caption = caption.replace(/<[^>]+>/g, '');
+          caption = caption.replace(/&amp;/g, '&').replace(/&lt;/g, '<')
+            .replace(/&gt;/g, '>').replace(/&quot;/g, '"')
+            .replace(/&#39;/g, "'").replace(/&nbsp;/g, ' ');
+          caption = caption.replace(/^[\w.]+/, '').trim();
+          caption = caption.replace(/View all \d+ comments\s*$/, '').trim();
           res.writeHead(200, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ caption: items[0].caption }));
+          res.end(JSON.stringify({ caption }));
         } catch (err) {
           res.writeHead(502, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ error: err.message }));
@@ -110,12 +97,6 @@ function instagramCaptionProxy() {
 }
 
 // https://vite.dev/config/
-export default defineConfig(({ mode }) => {
-  // Load all env vars (including non-VITE_ prefixed) for server middleware
-  const env = loadEnv(mode, process.cwd(), '');
-  Object.assign(process.env, env);
-
-  return {
-    plugins: [react(), fetchUrlProxy(), instagramCaptionProxy()],
-  };
+export default defineConfig({
+  plugins: [react(), fetchUrlProxy(), instagramCaptionProxy()],
 })
