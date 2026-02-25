@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { NutritionPanel } from './NutritionPanel';
-import { loadFriends, shareRecipe, getUsername, uploadRecipeImage } from '../utils/firestoreSync';
+import { loadFriends, shareRecipe, getUsername } from '../utils/firestoreSync';
 import styles from './RecipeDetail.module.css';
 
 const STOP_WORDS = new Set([
@@ -207,20 +207,29 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user }) {
     }
   }
 
-  async function handleImageUpload(e) {
+  function handleImageUpload(e) {
     const file = e.target.files?.[0];
-    if (!file || !user) return;
+    if (!file) return;
     setUploading(true);
-    try {
-      const url = await uploadRecipeImage(user.uid, recipe.id, file);
-      onSave({ imageUrl: url });
-    } catch (err) {
-      console.error('Image upload error:', err);
-      alert('Failed to upload image: ' + err.message);
-    } finally {
+    const img = new Image();
+    img.onload = () => {
+      const MAX_W = 800;
+      const scale = img.width > MAX_W ? MAX_W / img.width : 1;
+      const canvas = document.createElement('canvas');
+      canvas.width = img.width * scale;
+      canvas.height = img.height * scale;
+      canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.7);
+      onSave({ imageUrl: dataUrl });
       setUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
-    }
+    };
+    img.onerror = () => {
+      alert('Failed to read image');
+      setUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    };
+    img.src = URL.createObjectURL(file);
   }
 
   function handleRemoveImage() {
