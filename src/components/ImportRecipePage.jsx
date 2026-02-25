@@ -305,7 +305,7 @@ export function ImportRecipePage({ onSave, onCancel }) {
                 rows={14}
                 value={rawText}
                 onChange={e => setRawText(e.target.value)}
-                placeholder="Paste recipe text from a website, TikTok description, or any other source..."
+                placeholder={"Paste recipe text in any format. For best results:\n\nRecipe Title\n\nIngredients:\n2 cups flour\n1 tsp salt\nOlive oil\n\nInstructions:\nMix ingredients together.\nBake at 350°F for 30 min."}
                 disabled={fetching}
               />
             </label>
