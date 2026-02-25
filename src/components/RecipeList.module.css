@@ -932,12 +932,9 @@
 }
 
 .wideColumn .list {
-  columns: 2;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
   column-gap: var(--space-4);
-}
-
-.wideColumn .list > * {
-  break-inside: avoid;
 }
 
 .stackedCol {
