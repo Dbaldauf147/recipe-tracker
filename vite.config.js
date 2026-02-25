@@ -71,8 +71,10 @@ function instagramCaptionProxy() {
             }
           );
           if (!runRes.ok) {
+            const errBody = await runRes.text();
+            console.error('Apify error:', runRes.status, errBody);
             res.writeHead(502, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ error: 'Failed to start Apify scraper' }));
+            res.end(JSON.stringify({ error: `Apify error (${runRes.status}): ${errBody}` }));
             return;
           }
           const run = await runRes.json();

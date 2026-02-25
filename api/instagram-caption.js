@@ -34,7 +34,7 @@ export default async function handler(req, res) {
     if (!runRes.ok) {
       const body = await runRes.text();
       console.error('Apify run request failed:', runRes.status, body);
-      return res.status(502).json({ error: 'Failed to start Apify scraper' });
+      return res.status(502).json({ error: `Apify error (${runRes.status}): ${body}` });
     }
 
     const run = await runRes.json();
