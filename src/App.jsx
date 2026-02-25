@@ -13,6 +13,7 @@ import { KeyIngredientsPage } from './components/KeyIngredientsPage';
 import { ImportRecipePage } from './components/ImportRecipePage';
 import { LoginPage } from './components/LoginPage';
 import { OnboardingPage } from './components/OnboardingPage';
+import { AdminDashboard } from './components/AdminDashboard';
 import { GoalsPage } from './components/GoalsPage';
 import { NutritionGoalsPage } from './components/NutritionGoalsPage';
 import { RecipeSetupPage } from './components/RecipeSetupPage';
@@ -260,20 +261,28 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding }) {
                 Nutrition Goals
               </button>
               {user.uid === ADMIN_UID && (
-                <button
-                  className={styles.settingsMenuItem}
-                  onClick={async () => {
-                    setSettingsOpen(false);
-                    try {
-                      const result = await importInstructions();
-                      alert(`Imported instructions for ${result.updated} recipes (${result.total} found in sheet)`);
-                    } catch (err) {
-                      alert('Failed to import instructions: ' + err.message);
-                    }
-                  }}
-                >
-                  Import Instructions
-                </button>
+                <>
+                  <button
+                    className={styles.settingsMenuItem}
+                    onClick={async () => {
+                      setSettingsOpen(false);
+                      try {
+                        const result = await importInstructions();
+                        alert(`Imported instructions for ${result.updated} recipes (${result.total} found in sheet)`);
+                      } catch (err) {
+                        alert('Failed to import instructions: ' + err.message);
+                      }
+                    }}
+                  >
+                    Import Instructions
+                  </button>
+                  <button
+                    className={styles.settingsMenuItem}
+                    onClick={() => { navigateTo('admin'); setSettingsOpen(false); }}
+                  >
+                    Admin Dashboard
+                  </button>
+                </>
               )}
               <div className={styles.settingsDivider} />
               <button
@@ -343,7 +352,9 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding }) {
               onBack={goBack}
             />
           );
-        })() : view === 'import' ? (
+        })() : view === 'admin' ? (
+          <AdminDashboard onClose={goBack} />
+        ) : view === 'import' ? (
           <ImportRecipePage
             onSave={handleAdd}
             onCancel={goBack}

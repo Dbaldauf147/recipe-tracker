@@ -1,4 +1,4 @@
-import { doc, getDoc, setDoc, addDoc, deleteDoc, updateDoc, collection, query, where, getDocs, arrayUnion, arrayRemove } from 'firebase/firestore';
+import { doc, getDoc, setDoc, addDoc, deleteDoc, updateDoc, collection, query, where, getDocs, arrayUnion, arrayRemove, increment } from 'firebase/firestore';
 import { db } from '../firebase';
 
 /**
@@ -281,4 +281,29 @@ export async function declineSharedRecipe(docId) {
   await deleteDoc(doc(db, 'sharedRecipes', docId));
 }
 
+/* ── Login tracking ── */
 
+/**
+ * Record a login event: increment loginCount, set lastLogin timestamp.
+ */
+export async function recordLogin(uid) {
+  try {
+    const ref = doc(db, 'users', uid);
+    await setDoc(ref, {
+      loginCount: increment(1),
+      lastLogin: new Date().toISOString(),
+    }, { merge: true });
+  } catch (err) {
+    console.error('recordLogin:', err);
+  }
+}
+
+/* ── Admin: load all users ── */
+
+/**
+ * Load all user documents from Firestore (admin only).
+ */
+export async function loadAllUsers() {
+  const snap = await getDocs(collection(db, 'users'));
+  return snap.docs.map(d => ({ uid: d.id, ...d.data() }));
+}

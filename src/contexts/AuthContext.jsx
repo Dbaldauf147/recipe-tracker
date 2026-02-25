@@ -1,7 +1,7 @@
 import { createContext, useContext, useState, useEffect } from 'react';
 import { onAuthStateChanged, signInWithPopup, signOut, createUserWithEmailAndPassword, signInWithEmailAndPassword, updateProfile } from 'firebase/auth';
 import { auth, googleProvider } from '../firebase';
-import { loadUserData, migrateToFirestore, hydrateLocalStorage, saveField } from '../utils/firestoreSync';
+import { loadUserData, migrateToFirestore, hydrateLocalStorage, saveField, recordLogin } from '../utils/firestoreSync';
 
 const AuthContext = createContext(null);
 
@@ -70,6 +70,7 @@ export function AuthProvider({ children }) {
         if (firebaseUser.displayName) {
           saveField(firebaseUser.uid, 'displayName', firebaseUser.displayName);
         }
+        recordLogin(firebaseUser.uid);
         if (userData) {
           // Existing Firestore data → hydrate localStorage
           hydrateLocalStorage(userData);
