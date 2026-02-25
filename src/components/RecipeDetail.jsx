@@ -300,7 +300,7 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user }) {
         )}
         {recipe.imageUrl ? (
           <img
-            className={styles.heroImg}
+            className={styles.heroImgUser}
             src={recipe.imageUrl}
             alt={recipe.title}
           />

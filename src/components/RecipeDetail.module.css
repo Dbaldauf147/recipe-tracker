@@ -108,12 +108,22 @@
   width: 100%;
   height: 280px;
   object-fit: cover;
+  object-position: center;
   display: block;
   filter: saturate(1.8) contrast(1.15) brightness(1.05);
 }
 
+.heroImgUser {
+  width: 100%;
+  height: 280px;
+  object-fit: cover;
+  object-position: center;
+  display: block;
+}
+
 @media (max-width: 600px) {
-  .heroImg {
+  .heroImg,
+  .heroImgUser {
     height: 180px;
   }
 }
