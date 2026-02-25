@@ -192,7 +192,9 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user }) {
   async function handleShareWith(friend) {
     try {
       const myUsername = await getUsername(user.uid);
-      await shareRecipe(user.uid, friend.uid, myUsername || user.displayName, recipe);
+      // Strip undefined values — Firestore rejects them
+      const cleanRecipe = JSON.parse(JSON.stringify(recipe));
+      await shareRecipe(user.uid, friend.uid, myUsername || user.displayName, cleanRecipe);
       setShowShareDropdown(false);
       setShareMsg(`Shared with @${friend.username}!`);
       setTimeout(() => setShareMsg(null), 3000);
