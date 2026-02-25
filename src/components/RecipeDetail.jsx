@@ -200,8 +200,8 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user }) {
       setTimeout(() => setShareMsg(null), 3000);
     } catch (err) {
       console.error('Share error:', err);
-      setShareMsg(`Failed: ${err.message || err}`);
-      setTimeout(() => setShareMsg(null), 5000);
+      setShareMsg('Failed to share.');
+      setTimeout(() => setShareMsg(null), 3000);
     }
   }
 
