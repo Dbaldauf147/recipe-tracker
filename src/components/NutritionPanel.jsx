@@ -50,6 +50,16 @@ function NutrientGroup({ title, keys, totals, perServing, showPerServing }) {
 }
 
 const NUTRITION_CACHE_KEY = 'sunday-nutrition-cache';
+const CACHE_VERSION_KEY = 'sunday-nutrition-cache-version';
+const CACHE_VERSION = 2; // bump to invalidate all cached nutrition
+
+// One-time cache bust when version changes
+try {
+  if (Number(localStorage.getItem(CACHE_VERSION_KEY)) !== CACHE_VERSION) {
+    localStorage.removeItem(NUTRITION_CACHE_KEY);
+    localStorage.setItem(CACHE_VERSION_KEY, String(CACHE_VERSION));
+  }
+} catch { /* ignore */ }
 
 function loadCachedNutrition(recipeId) {
   try {
