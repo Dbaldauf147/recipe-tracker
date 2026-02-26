@@ -284,24 +284,24 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user }) {
 
   useEffect(() => {
     if (!panning) return;
+    let lastPos = imgPos;
     function handlePanMove(e) {
-      if (!panStart.current || !heroImgRef.current) return;
+      if (!panStart.current) return;
+      e.preventDefault();
       const clientX = e.touches ? e.touches[0].clientX : e.clientX;
       const clientY = e.touches ? e.touches[0].clientY : e.clientY;
-      const rect = heroImgRef.current.getBoundingClientRect();
-      const dx = ((clientX - panStart.current.x) / rect.width) * 100;
-      const dy = ((clientY - panStart.current.y) / rect.height) * 100;
-      const newX = Math.max(0, Math.min(100, panStart.current.posX - dx));
-      const newY = Math.max(0, Math.min(100, panStart.current.posY - dy));
-      setImgPos({ x: newX, y: newY });
+      // Move ~2% per pixel dragged for responsive feel
+      const dx = (panStart.current.x - clientX) * 0.5;
+      const dy = (panStart.current.y - clientY) * 0.5;
+      const newX = Math.max(0, Math.min(100, panStart.current.posX + dx));
+      const newY = Math.max(0, Math.min(100, panStart.current.posY + dy));
+      lastPos = { x: Math.round(newX), y: Math.round(newY) };
+      setImgPos(lastPos);
     }
     function handlePanEnd() {
       setPanning(false);
       panStart.current = null;
-      setImgPos(pos => {
-        onSave({ imagePosition: pos });
-        return pos;
-      });
+      onSave({ imagePosition: lastPos });
     }
     window.addEventListener('mousemove', handlePanMove);
     window.addEventListener('mouseup', handlePanEnd);
