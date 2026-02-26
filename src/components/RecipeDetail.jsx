@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { NutritionPanel } from './NutritionPanel';
 import { loadFriends, shareRecipe, getUsername } from '../utils/firestoreSync';
 import { loadIngredients } from '../utils/ingredientsStore';
@@ -20,6 +20,31 @@ function buildImageUrl(recipe) {
 
 const emptyRow = { quantity: '', measurement: '', ingredient: '', notes: '' };
 const ingredientFields = ['quantity', 'measurement', 'ingredient', 'notes'];
+
+const MEASUREMENT_CATEGORIES = {
+  // Weight
+  g: 'Weight', gram: 'Weight', grams: 'Weight', kg: 'Weight',
+  oz: 'Weight', ounce: 'Weight', ounces: 'Weight',
+  lb: 'Weight', lbs: 'Weight', pound: 'Weight', pounds: 'Weight',
+  // Volume
+  cup: 'Volume', cups: 'Volume', tbsp: 'Volume', tablespoon: 'Volume', tablespoons: 'Volume',
+  tsp: 'Volume', teaspoon: 'Volume', teaspoons: 'Volume',
+  ml: 'Volume', liter: 'Volume', liters: 'Volume', l: 'Volume',
+  'fl oz': 'Volume', quart: 'Volume', quarts: 'Volume', pint: 'Volume', pints: 'Volume',
+  // Size
+  large: 'Size', medium: 'Size', small: 'Size', whole: 'Size', each: 'Size',
+  // Count
+  slice: 'Count', slices: 'Count', piece: 'Count', pieces: 'Count',
+  clove: 'Count', cloves: 'Count', stick: 'Count', sticks: 'Count',
+  can: 'Count', cans: 'Count', bunch: 'Count', head: 'Count', stalk: 'Count', stalks: 'Count',
+  // Pinch
+  pinch: 'Pinch', dash: 'Pinch', 'to taste': 'Pinch',
+};
+
+function getMeasurementCategory(measurement) {
+  if (!measurement) return '';
+  return MEASUREMENT_CATEGORIES[measurement.trim().toLowerCase()] || '';
+}
 
 function initFields(recipe) {
   const type = recipe.mealType || '';
@@ -573,6 +598,7 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user }) {
             <tr>
               <th>Quantity</th>
               <th>Measurement</th>
+              <th>Type</th>
               <th>Ingredient</th>
               <th>Notes</th>
               <th></th>
@@ -584,25 +610,30 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user }) {
               return (
               <tr key={i}>
                 {ingredientFields.map((field, colIdx) => (
-                  <td key={field}>
-                    {field === 'notes' && dbNotes && !row.notes ? (
-                      <span className={styles.dbNotes}>{dbNotes}</span>
-                    ) : (
-                      <input
-                        className={styles.cellInput}
-                        type="text"
-                        value={row[field] || ''}
-                        onChange={e => updateIngredient(i, field, e.target.value)}
-                        onPaste={e => handlePaste(e, i, colIdx)}
-                        placeholder={
-                          field === 'quantity' ? '1' :
-                          field === 'measurement' ? 'cup' :
-                          field === 'ingredient' ? 'flour' :
-                          field === 'notes' && dbNotes ? dbNotes : ''
-                        }
-                      />
+                  <React.Fragment key={field}>
+                    <td>
+                      {field === 'notes' && dbNotes && !row.notes ? (
+                        <span className={styles.dbNotes}>{dbNotes}</span>
+                      ) : (
+                        <input
+                          className={styles.cellInput}
+                          type="text"
+                          value={row[field] || ''}
+                          onChange={e => updateIngredient(i, field, e.target.value)}
+                          onPaste={e => handlePaste(e, i, colIdx)}
+                          placeholder={
+                            field === 'quantity' ? '1' :
+                            field === 'measurement' ? 'cup' :
+                            field === 'ingredient' ? 'flour' :
+                            field === 'notes' && dbNotes ? dbNotes : ''
+                          }
+                        />
+                      )}
+                    </td>
+                    {field === 'measurement' && (
+                      <td><span className={styles.measureCategory}>{getMeasurementCategory(row.measurement)}</span></td>
                     )}
-                  </td>
+                  </React.Fragment>
                 ))}
                 <td>
                   {fields.ingredients.length > 1 && (
