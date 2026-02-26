@@ -119,6 +119,12 @@
   object-fit: cover;
   object-position: center;
   display: block;
+  cursor: grab;
+  user-select: none;
+}
+
+.heroImgPanning {
+  cursor: grabbing;
 }
 
 

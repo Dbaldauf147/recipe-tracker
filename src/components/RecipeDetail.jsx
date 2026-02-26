@@ -51,12 +51,16 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user }) {
   const [imgError, setImgError] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [dragging, setDragging] = useState(false);
+  const [panning, setPanning] = useState(false);
+  const [imgPos, setImgPos] = useState(() => recipe?.imagePosition || { x: 50, y: 50 });
   const [fields, setFields] = useState(() => recipe ? initFields(recipe) : null);
   const [showShareDropdown, setShowShareDropdown] = useState(false);
   const [friendsList, setFriendsList] = useState(null);
   const [shareMsg, setShareMsg] = useState(null);
   const shareRef = useRef(null);
   const dragCounter = useRef(0);
+  const panStart = useRef(null);
+  const heroImgRef = useRef(null);
   const fileInputRef = useRef(null);
 
   function setField(key, value) {
@@ -269,6 +273,49 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user }) {
     if (file) processImageFile(file);
   }
 
+  function handlePanStart(e) {
+    if (!recipe.imageUrl) return;
+    e.preventDefault();
+    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+    panStart.current = { x: clientX, y: clientY, posX: imgPos.x, posY: imgPos.y };
+    setPanning(true);
+  }
+
+  useEffect(() => {
+    if (!panning) return;
+    function handlePanMove(e) {
+      if (!panStart.current || !heroImgRef.current) return;
+      const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+      const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+      const rect = heroImgRef.current.getBoundingClientRect();
+      const dx = ((clientX - panStart.current.x) / rect.width) * 100;
+      const dy = ((clientY - panStart.current.y) / rect.height) * 100;
+      const newX = Math.max(0, Math.min(100, panStart.current.posX - dx));
+      const newY = Math.max(0, Math.min(100, panStart.current.posY - dy));
+      setImgPos({ x: newX, y: newY });
+    }
+    function handlePanEnd() {
+      setPanning(false);
+      panStart.current = null;
+      setImgPos(pos => {
+        onSave({ imagePosition: pos });
+        return pos;
+      });
+    }
+    window.addEventListener('mousemove', handlePanMove);
+    window.addEventListener('mouseup', handlePanEnd);
+    window.addEventListener('touchmove', handlePanMove, { passive: false });
+    window.addEventListener('touchend', handlePanEnd);
+    return () => {
+      window.removeEventListener('mousemove', handlePanMove);
+      window.removeEventListener('mouseup', handlePanEnd);
+      window.removeEventListener('touchmove', handlePanMove);
+      window.removeEventListener('touchend', handlePanEnd);
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [panning]);
+
   if (!recipe) {
     return (
       <div className={styles.container}>
@@ -300,9 +347,14 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user }) {
         )}
         {recipe.imageUrl ? (
           <img
-            className={styles.heroImgUser}
+            ref={heroImgRef}
+            className={`${styles.heroImgUser}${panning ? ` ${styles.heroImgPanning}` : ''}`}
             src={recipe.imageUrl}
             alt={recipe.title}
+            style={{ objectPosition: `${imgPos.x}% ${imgPos.y}%` }}
+            onMouseDown={handlePanStart}
+            onTouchStart={handlePanStart}
+            draggable={false}
           />
         ) : !imgError ? (
           <img
