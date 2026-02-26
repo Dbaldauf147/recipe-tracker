@@ -1,5 +1,22 @@
 import { loadIngredients } from './ingredientsStore.js';
 
+// Gram equivalents for common measurements (used to convert between units)
+const UNIT_TO_GRAMS = {
+  g: 1, gram: 1,
+  kg: 1000,
+  oz: 28.35, ounce: 28.35,
+  lb: 453.6, pound: 453.6,
+  cup: 140,
+  tbsp: 15, tablespoon: 15,
+  tsp: 5, teaspoon: 5,
+  ml: 1, liter: 1000,
+  pinch: 0.5, dash: 0.5,
+  clove: 3,
+  slice: 30,
+  piece: 50,
+  can: 400, stick: 113,
+};
+
 const SHEET_CSV_URL =
   'https://docs.google.com/spreadsheets/d/e/2PACX-1vRg2H-pU53B_n0WCG3f_vz3ye-8IicvsqvTM2xohwVaEitNIZr6PbrgRn8-5qlTn-cSwnt2m3FjXIae/pub?gid=960892864&single=true&output=csv';
 
@@ -216,13 +233,25 @@ export async function lookupFromSheet(ingredient) {
   const qty = isNaN(rawQty) ? 1 : rawQty;
 
   // Determine multiplier.
-  // If the recipe uses grams and the sheet has a grams-per-serving value,
-  // convert: e.g. recipe says "200 g" and sheet serving is 100g → multiplier = 2.
-  const recipeMeasLower = (measurement || '').trim().toLowerCase();
-  const isGrams = ['g', 'gram', 'grams'].includes(recipeMeasLower);
+  // Sheet nutrition values are per 1 serving of the sheet's measurement.
+  // If recipe uses a different measurement, convert via gram equivalents.
+  const recipeMeasNorm = normalizeMeasurement(measurement || '');
+  const sheetMeasNorm = normalizeMeasurement(match.measurement || '');
+
   let multiplier = qty;
+
+  const isGrams = ['g', 'gram'].includes(recipeMeasNorm);
   if (isGrams && match.grams > 0) {
+    // Recipe in grams, sheet has grams-per-serving: e.g. 200g / 100g = 2x
     multiplier = qty / match.grams;
+  } else if (recipeMeasNorm && sheetMeasNorm && recipeMeasNorm !== sheetMeasNorm) {
+    // Different volume/weight units: convert via gram equivalents
+    // e.g. recipe=tsp(5g), sheet=tbsp(15g) → ratio = 5/15 = 0.333
+    const recipeGrams = UNIT_TO_GRAMS[recipeMeasNorm];
+    const sheetGrams = UNIT_TO_GRAMS[sheetMeasNorm];
+    if (recipeGrams && sheetGrams) {
+      multiplier = qty * (recipeGrams / sheetGrams);
+    }
   }
 
   // Scale nutrition by multiplier. Sheet values are per 1 serving of the sheet's measurement.
