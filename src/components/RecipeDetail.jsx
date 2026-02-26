@@ -88,6 +88,7 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user }) {
   const panStart = useRef(null);
   const heroImgRef = useRef(null);
   const fileInputRef = useRef(null);
+  const [adjustedServings, setAdjustedServings] = useState(null);
 
   // Build a lookup map from ingredient database: name → notes
   const dbNotesMap = useMemo(() => {
@@ -113,6 +114,18 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user }) {
       if (name.startsWith(search) || search.startsWith(name)) return notes;
     }
     return null;
+  }
+
+  const baseServings = parseInt(fields?.servings) || 1;
+  const currentServings = adjustedServings ?? baseServings;
+  const scaleFactor = baseServings > 0 ? currentServings / baseServings : 1;
+
+  function scaleQuantity(qty) {
+    const num = parseFloat(qty);
+    if (isNaN(num)) return qty;
+    const scaled = num * scaleFactor;
+    // Show clean numbers: round to 2 decimals, strip trailing zeros
+    return parseFloat(scaled.toFixed(2)).toString();
   }
 
   function setField(key, value) {
@@ -592,7 +605,37 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user }) {
       <NutritionPanel recipeId={recipe.id} ingredients={recipe.ingredients} servings={parseInt(recipe.servings) || 1} />
 
       <div className={styles.ingredientsCol}>
-        <h3>Ingredients</h3>
+        <div className={styles.ingredientsHeader}>
+          <h3>Ingredients</h3>
+          <div className={styles.servingAdjuster}>
+            <button
+              className={styles.servingBtn}
+              type="button"
+              onClick={() => setAdjustedServings(Math.max(1, currentServings - 1))}
+            >
+              &minus;
+            </button>
+            <span className={styles.servingDisplay}>
+              {currentServings} {currentServings === 1 ? 'serving' : 'servings'}
+            </span>
+            <button
+              className={styles.servingBtn}
+              type="button"
+              onClick={() => setAdjustedServings(currentServings + 1)}
+            >
+              +
+            </button>
+            {adjustedServings !== null && adjustedServings !== baseServings && (
+              <button
+                className={styles.servingReset}
+                type="button"
+                onClick={() => setAdjustedServings(null)}
+              >
+                Reset
+              </button>
+            )}
+          </div>
+        </div>
         <table className={styles.ingredientTable}>
           <thead>
             <tr>
@@ -614,6 +657,8 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user }) {
                     <td>
                       {field === 'notes' && dbNotes && !row.notes ? (
                         <span className={styles.dbNotes}>{dbNotes}</span>
+                      ) : field === 'quantity' && scaleFactor !== 1 ? (
+                        <span className={styles.scaledQty}>{scaleQuantity(row.quantity)}</span>
                       ) : (
                         <input
                           className={styles.cellInput}
