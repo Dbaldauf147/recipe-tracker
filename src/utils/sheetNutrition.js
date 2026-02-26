@@ -214,10 +214,20 @@ export async function lookupFromSheet(ingredient) {
 
   const qty = parseFloat(quantity) || 1;
 
-  // Scale nutrition by quantity. Sheet values are per 1 serving of the sheet's measurement.
+  // Determine multiplier.
+  // If the recipe uses grams and the sheet has a grams-per-serving value,
+  // convert: e.g. recipe says "200 g" and sheet serving is 100g → multiplier = 2.
+  const recipeMeasLower = (measurement || '').trim().toLowerCase();
+  const isGrams = ['g', 'gram', 'grams'].includes(recipeMeasLower);
+  let multiplier = qty;
+  if (isGrams && match.grams > 0) {
+    multiplier = qty / match.grams;
+  }
+
+  // Scale nutrition by multiplier. Sheet values are per 1 serving of the sheet's measurement.
   const nutrients = {};
   for (const [key, val] of Object.entries(match.nutrients)) {
-    nutrients[key] = val * qty;
+    nutrients[key] = val * multiplier;
   }
 
   // Round values
@@ -232,7 +242,7 @@ export async function lookupFromSheet(ingredient) {
   return {
     name: match.name + ' (from your sheet)',
     matchedTo: name,
-    grams: match.grams ? Math.round(match.grams * qty) : null,
+    grams: match.grams ? Math.round(match.grams * multiplier) : null,
     nutrients,
     source: 'sheet',
   };

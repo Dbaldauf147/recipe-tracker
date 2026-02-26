@@ -19,14 +19,32 @@
   color: var(--color-accent);
 }
 
+.topRow {
+  display: flex;
+  gap: 1.5rem;
+  align-items: flex-start;
+  margin-bottom: 1.25rem;
+}
+
+.topLeft {
+  flex: 1;
+  min-width: 0;
+}
+
+@media (max-width: 768px) {
+  .topRow {
+    flex-direction: column-reverse;
+  }
+}
+
 .heroWrap {
   position: relative;
   border-radius: var(--radius-md);
   overflow: hidden;
-  margin-bottom: 1.25rem;
   box-shadow: var(--shadow-md);
   line-height: 0;
-  max-width: 360px;
+  width: 280px;
+  min-width: 280px;
   background: var(--color-surface-alt, #f3f4f6);
 }
 
@@ -130,16 +148,8 @@
 }
 
 
-.columns {
-  display: flex;
-  gap: 1.5rem;
-  align-items: flex-start;
-  margin-bottom: 1.5rem;
-}
-
 .ingredientsCol {
-  flex: 2;
-  min-width: 0;
+  margin-bottom: 1.5rem;
   background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
@@ -152,17 +162,6 @@
   font-size: 1rem;
   font-weight: 600;
   letter-spacing: -0.01em;
-}
-
-.nutritionCol {
-  flex: 1;
-  min-width: 0;
-}
-
-@media (max-width: 768px) {
-  .columns {
-    flex-direction: column;
-  }
 }
 
 .section {

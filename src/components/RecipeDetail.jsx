@@ -333,177 +333,181 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user }) {
         &larr; Back to recipes
       </button>
 
-      <div
-        className={`${styles.heroWrap}${dragging ? ` ${styles.heroDragging}` : ''}`}
-        onDragEnter={handleDragEnter}
-        onDragLeave={handleDragLeave}
-        onDragOver={handleDragOver}
-        onDrop={handleDrop}
-      >
-        {dragging && (
-          <div className={styles.dropOverlay}>
-            Drop image here
+      <div className={styles.topRow}>
+        <div className={styles.topLeft}>
+          <input
+            className={`${styles.inlineInput} ${styles.titleInput}`}
+            type="text"
+            value={fields.title}
+            onChange={e => setField('title', e.target.value)}
+          />
+
+          <textarea
+            className={styles.inlineTextarea}
+            value={fields.description}
+            onChange={e => setField('description', e.target.value)}
+            placeholder="Short description"
+            rows={2}
+          />
+
+          <div className={styles.metaRow}>
+            <label className={styles.metaLabel}>
+              Serves
+              <input
+                className={`${styles.inlineInput} ${styles.metaInput}`}
+                type="number"
+                min="1"
+                value={fields.servings}
+                onChange={e => setField('servings', e.target.value)}
+              />
+            </label>
+            <label className={styles.metaLabel}>
+              Prep
+              <input
+                className={`${styles.inlineInput} ${styles.metaInput}`}
+                type="text"
+                value={fields.prepTime}
+                onChange={e => setField('prepTime', e.target.value)}
+                placeholder="15 min"
+              />
+            </label>
+            <label className={styles.metaLabel}>
+              Cook
+              <input
+                className={`${styles.inlineInput} ${styles.metaInput}`}
+                type="text"
+                value={fields.cookTime}
+                onChange={e => setField('cookTime', e.target.value)}
+                placeholder="30 min"
+              />
+            </label>
           </div>
-        )}
-        {recipe.imageUrl ? (
-          <img
-            ref={heroImgRef}
-            className={`${styles.heroImgUser}${panning ? ` ${styles.heroImgPanning}` : ''}`}
-            src={recipe.imageUrl}
-            alt={recipe.title}
-            style={{ objectPosition: `${imgPos.x}% ${imgPos.y}%` }}
-            onMouseDown={handlePanStart}
-            onTouchStart={handlePanStart}
-            draggable={false}
-          />
-        ) : !imgError ? (
-          <img
-            className={styles.heroImg}
-            src={buildImageUrl(recipe)}
-            alt={recipe.title}
-            onError={() => setImgError(true)}
-          />
-        ) : null}
-        {user && (
-          <div className={styles.imageOverlay}>
-            <button
-              className={styles.uploadBtn}
-              onClick={() => fileInputRef.current?.click()}
-              disabled={uploading}
-            >
-              {uploading ? 'Uploading...' : recipe.imageUrl ? 'Change Photo' : 'Upload Photo'}
-            </button>
-            {recipe.imageUrl && (
-              <button className={styles.removeImgBtn} onClick={handleRemoveImage}>
-                Remove
-              </button>
+
+          <div className={styles.metaRow}>
+            <label className={styles.metaLabel}>
+              Category
+              <select
+                className={styles.inlineSelect}
+                value={fields.category}
+                onChange={e => setField('category', e.target.value)}
+              >
+                <option value="breakfast">Breakfast</option>
+                <option value="lunch-dinner">Lunch & Dinner</option>
+                <option value="snacks">Snacks</option>
+                <option value="desserts">Desserts</option>
+                <option value="drinks">Drinks</option>
+              </select>
+            </label>
+            <label className={styles.metaLabel}>
+              Frequency
+              <select
+                className={styles.inlineSelect}
+                value={fields.frequency}
+                onChange={e => setField('frequency', e.target.value)}
+              >
+                <option value="common">Common</option>
+                <option value="rare">Rare</option>
+                <option value="retired">Retired</option>
+              </select>
+            </label>
+            <label className={styles.metaLabel}>
+              Meal Type
+              <select
+                className={styles.inlineSelect}
+                value={fields.mealType}
+                onChange={e => {
+                  setField('mealType', e.target.value);
+                  if (e.target.value !== 'custom') setField('customMealType', '');
+                }}
+              >
+                <option value="">— None —</option>
+                <option value="meat">Meat</option>
+                <option value="pescatarian">Pescatarian</option>
+                <option value="vegan">Vegan</option>
+                <option value="vegetarian">Vegetarian</option>
+                <option value="custom">Custom...</option>
+              </select>
+            </label>
+            {fields.mealType === 'custom' && (
+              <input
+                className={`${styles.inlineInput} ${styles.metaInput}`}
+                type="text"
+                value={fields.customMealType}
+                onChange={e => setField('customMealType', e.target.value)}
+                placeholder="e.g. Keto, Paleo"
+              />
             )}
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/*"
-              style={{ display: 'none' }}
-              onChange={handleImageUpload}
-            />
           </div>
-        )}
-      </div>
 
-      <input
-        className={`${styles.inlineInput} ${styles.titleInput}`}
-        type="text"
-        value={fields.title}
-        onChange={e => setField('title', e.target.value)}
-      />
+          <div className={styles.metaRow}>
+            <label className={styles.metaLabel} style={{ flex: 1 }}>
+              Source URL
+              <input
+                className={styles.inlineInput}
+                type="text"
+                value={fields.sourceUrl}
+                onChange={e => setField('sourceUrl', e.target.value)}
+                placeholder="Recipe link"
+              />
+            </label>
+          </div>
+        </div>
 
-      <textarea
-        className={styles.inlineTextarea}
-        value={fields.description}
-        onChange={e => setField('description', e.target.value)}
-        placeholder="Short description"
-        rows={2}
-      />
-
-      <div className={styles.metaRow}>
-        <label className={styles.metaLabel}>
-          Serves
-          <input
-            className={`${styles.inlineInput} ${styles.metaInput}`}
-            type="number"
-            min="1"
-            value={fields.servings}
-            onChange={e => setField('servings', e.target.value)}
-          />
-        </label>
-        <label className={styles.metaLabel}>
-          Prep
-          <input
-            className={`${styles.inlineInput} ${styles.metaInput}`}
-            type="text"
-            value={fields.prepTime}
-            onChange={e => setField('prepTime', e.target.value)}
-            placeholder="15 min"
-          />
-        </label>
-        <label className={styles.metaLabel}>
-          Cook
-          <input
-            className={`${styles.inlineInput} ${styles.metaInput}`}
-            type="text"
-            value={fields.cookTime}
-            onChange={e => setField('cookTime', e.target.value)}
-            placeholder="30 min"
-          />
-        </label>
-      </div>
-
-      <div className={styles.metaRow}>
-        <label className={styles.metaLabel}>
-          Category
-          <select
-            className={styles.inlineSelect}
-            value={fields.category}
-            onChange={e => setField('category', e.target.value)}
-          >
-            <option value="breakfast">Breakfast</option>
-            <option value="lunch-dinner">Lunch & Dinner</option>
-            <option value="snacks">Snacks</option>
-            <option value="desserts">Desserts</option>
-            <option value="drinks">Drinks</option>
-          </select>
-        </label>
-        <label className={styles.metaLabel}>
-          Frequency
-          <select
-            className={styles.inlineSelect}
-            value={fields.frequency}
-            onChange={e => setField('frequency', e.target.value)}
-          >
-            <option value="common">Common</option>
-            <option value="rare">Rare</option>
-            <option value="retired">Retired</option>
-          </select>
-        </label>
-        <label className={styles.metaLabel}>
-          Meal Type
-          <select
-            className={styles.inlineSelect}
-            value={fields.mealType}
-            onChange={e => {
-              setField('mealType', e.target.value);
-              if (e.target.value !== 'custom') setField('customMealType', '');
-            }}
-          >
-            <option value="">— None —</option>
-            <option value="meat">Meat</option>
-            <option value="pescatarian">Pescatarian</option>
-            <option value="vegan">Vegan</option>
-            <option value="vegetarian">Vegetarian</option>
-            <option value="custom">Custom...</option>
-          </select>
-        </label>
-        {fields.mealType === 'custom' && (
-          <input
-            className={`${styles.inlineInput} ${styles.metaInput}`}
-            type="text"
-            value={fields.customMealType}
-            onChange={e => setField('customMealType', e.target.value)}
-            placeholder="e.g. Keto, Paleo"
-          />
-        )}
-      </div>
-
-      <div className={styles.metaRow}>
-        <label className={styles.metaLabel} style={{ flex: 1 }}>
-          Source URL
-          <input
-            className={styles.inlineInput}
-            type="text"
-            value={fields.sourceUrl}
-            onChange={e => setField('sourceUrl', e.target.value)}
-            placeholder="Recipe link"
-          />
-        </label>
+        <div
+          className={`${styles.heroWrap}${dragging ? ` ${styles.heroDragging}` : ''}`}
+          onDragEnter={handleDragEnter}
+          onDragLeave={handleDragLeave}
+          onDragOver={handleDragOver}
+          onDrop={handleDrop}
+        >
+          {dragging && (
+            <div className={styles.dropOverlay}>
+              Drop image here
+            </div>
+          )}
+          {recipe.imageUrl ? (
+            <img
+              ref={heroImgRef}
+              className={`${styles.heroImgUser}${panning ? ` ${styles.heroImgPanning}` : ''}`}
+              src={recipe.imageUrl}
+              alt={recipe.title}
+              style={{ objectPosition: `${imgPos.x}% ${imgPos.y}%` }}
+              onMouseDown={handlePanStart}
+              onTouchStart={handlePanStart}
+              draggable={false}
+            />
+          ) : !imgError ? (
+            <img
+              className={styles.heroImg}
+              src={buildImageUrl(recipe)}
+              alt={recipe.title}
+              onError={() => setImgError(true)}
+            />
+          ) : null}
+          {user && (
+            <div className={styles.imageOverlay}>
+              <button
+                className={styles.uploadBtn}
+                onClick={() => fileInputRef.current?.click()}
+                disabled={uploading}
+              >
+                {uploading ? 'Uploading...' : recipe.imageUrl ? 'Change Photo' : 'Upload Photo'}
+              </button>
+              {recipe.imageUrl && (
+                <button className={styles.removeImgBtn} onClick={handleRemoveImage}>
+                  Remove
+                </button>
+              )}
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                style={{ display: 'none' }}
+                onChange={handleImageUpload}
+              />
+            </div>
+          )}
+        </div>
       </div>
 
       {user && (
@@ -533,59 +537,55 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user }) {
         </div>
       )}
 
-      <div className={styles.columns}>
-        <div className={styles.ingredientsCol}>
-          <h3>Ingredients</h3>
-          <table className={styles.ingredientTable}>
-            <thead>
-              <tr>
-                <th>Quantity</th>
-                <th>Measurement</th>
-                <th>Ingredient</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              {fields.ingredients.map((row, i) => (
-                <tr key={i}>
-                  {ingredientFields.map((field, colIdx) => (
-                    <td key={field}>
-                      <input
-                        className={styles.cellInput}
-                        type="text"
-                        value={row[field]}
-                        onChange={e => updateIngredient(i, field, e.target.value)}
-                        onPaste={e => handlePaste(e, i, colIdx)}
-                        placeholder={
-                          field === 'quantity' ? '1' :
-                          field === 'measurement' ? 'cup' : 'flour'
-                        }
-                      />
-                    </td>
-                  ))}
-                  <td>
-                    {fields.ingredients.length > 1 && (
-                      <button
-                        className={styles.removeBtn}
-                        type="button"
-                        onClick={() => removeRow(i)}
-                      >
-                        &times;
-                      </button>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          <button className={styles.addRowBtn} type="button" onClick={addRow}>
-            + Add ingredient
-          </button>
-        </div>
+      <NutritionPanel recipeId={recipe.id} ingredients={recipe.ingredients} servings={parseInt(recipe.servings) || 1} />
 
-        <div className={styles.nutritionCol}>
-          <NutritionPanel recipeId={recipe.id} ingredients={recipe.ingredients} servings={parseInt(recipe.servings) || 1} />
-        </div>
+      <div className={styles.ingredientsCol}>
+        <h3>Ingredients</h3>
+        <table className={styles.ingredientTable}>
+          <thead>
+            <tr>
+              <th>Quantity</th>
+              <th>Measurement</th>
+              <th>Ingredient</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {fields.ingredients.map((row, i) => (
+              <tr key={i}>
+                {ingredientFields.map((field, colIdx) => (
+                  <td key={field}>
+                    <input
+                      className={styles.cellInput}
+                      type="text"
+                      value={row[field]}
+                      onChange={e => updateIngredient(i, field, e.target.value)}
+                      onPaste={e => handlePaste(e, i, colIdx)}
+                      placeholder={
+                        field === 'quantity' ? '1' :
+                        field === 'measurement' ? 'cup' : 'flour'
+                      }
+                    />
+                  </td>
+                ))}
+                <td>
+                  {fields.ingredients.length > 1 && (
+                    <button
+                      className={styles.removeBtn}
+                      type="button"
+                      onClick={() => removeRow(i)}
+                    >
+                      &times;
+                    </button>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        <button className={styles.addRowBtn} type="button" onClick={addRow}>
+          + Add ingredient
+        </button>
       </div>
 
       <div className={styles.section}>
