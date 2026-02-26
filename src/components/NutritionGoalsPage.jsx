@@ -71,7 +71,12 @@ function MealCombobox({ index, value, recipes, onSelect, loading }) {
 const MACROS = ['calories', 'protein', 'carbs', 'fat', 'saturatedFat'];
 const SUGARS_FIBER = ['sugar', 'addedSugar', 'fiber'];
 const MINERALS = ['sodium', 'potassium', 'calcium', 'iron', 'magnesium', 'zinc'];
-const VITAMINS_AMINOS = ['vitaminB12', 'vitaminC', 'leucine'];
+const VITAMINS_AMINOS = ['vitaminB12', 'vitaminC', 'leucine', 'omega3'];
+
+// Custom goals not in the USDA NUTRIENTS list
+const CUSTOM_GOALS = [
+  { key: 'fermentedFoods', label: 'Fermented Foods', unit: 'servings', decimals: 0 },
+];
 
 const GROUPS = [
   { title: 'Macros', keys: MACROS },
@@ -98,6 +103,8 @@ const DEFAULT_TARGETS = {
   vitaminB12: 2.4,
   vitaminC: 90,
   leucine: 2.5,
+  omega3: 1.6,
+  fermentedFoods: 2,
 };
 
 const DEFAULT_SELECTED = new Set(['calories', 'protein', 'carbs', 'fat']);
@@ -134,6 +141,8 @@ function computeTargets(gender, heightFt, heightIn, weight, age) {
     vitaminB12: 2.4,
     vitaminC: 90,
     leucine: 2.5,
+    omega3: gender === 'male' ? 1.6 : 1.1,
+    fermentedFoods: 2,
   };
 }
 
@@ -387,6 +396,39 @@ export function NutritionGoalsPage({ onComplete, onBack, onSkip, initialSelected
               })}
             </div>
           ))}
+
+          <div className={styles.group}>
+            <h4 className={styles.groupTitle}>Other Goals</h4>
+            {CUSTOM_GOALS.map(g => {
+              const checked = selected.has(g.key);
+              return (
+                <div key={g.key} className={styles.nutrientRow}>
+                  <input
+                    type="checkbox"
+                    className={styles.nutrientCheck}
+                    checked={checked}
+                    onChange={() => toggle(g.key)}
+                  />
+                  <label className={styles.nutrientLabel} onClick={() => toggle(g.key)}>
+                    {g.label}
+                  </label>
+                  {checked && (
+                    <>
+                      <input
+                        type="number"
+                        className={styles.nutrientInput}
+                        value={targets[g.key]}
+                        onChange={e => setTarget(g.key, parseFloat(e.target.value) || 0)}
+                        min={0}
+                        step={g.decimals > 0 ? Math.pow(10, -g.decimals) : 1}
+                      />
+                      <span className={styles.nutrientUnit}>{g.unit}</span>
+                    </>
+                  )}
+                </div>
+              );
+            })}
+          </div>
 
           <div className={styles.bottomActions}>
             {onBack && (

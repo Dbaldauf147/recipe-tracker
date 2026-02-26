@@ -22,6 +22,7 @@ export const NUTRIENTS = [
   { key: 'vitaminB12',    label: 'B12',             id: 1178, unit: 'µg',  decimals: 2 },
   { key: 'vitaminC',      label: 'Vitamin C',       id: 1162, unit: 'mg',  decimals: 1 },
   { key: 'leucine',       label: 'Leucine',         id: 1213, unit: 'g',   decimals: 2 },
+  { key: 'omega3',        label: 'Omega-3',         id: 1404, unit: 'g',   decimals: 2 },
 ];
 
 // Map common ingredient names to better USDA search terms.

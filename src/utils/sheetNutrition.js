@@ -47,6 +47,7 @@ const COL = {
   addedSugar: 24,
   saturatedFat: 25,
   leucine: 26,
+  omega3: 35,
 };
 
 let cachedRows = null;
@@ -107,6 +108,7 @@ async function fetchSheetData() {
         addedSugar: parseFloat(item.addedSugar) || 0,
         saturatedFat: parseFloat(item.saturatedFat) || 0,
         leucine: parseFloat(item.leucine) || 0,
+        omega3: parseFloat(item.omega3) || 0,
       },
     })).filter(r => r.name);
   }
@@ -151,6 +153,7 @@ async function fetchSheetData() {
         addedSugar: parseFloat(cols[COL.addedSugar]) || 0,
         saturatedFat: parseFloat(cols[COL.saturatedFat]) || 0,
         leucine: parseFloat(cols[COL.leucine]) || 0,
+        omega3: parseFloat(cols[COL.omega3]) || 0,
       },
     });
   }
