@@ -17,8 +17,8 @@ function buildImageUrl(recipe) {
   return `https://loremflickr.com/800/400/food,${keywords}?lock=${Math.abs(hash)}`;
 }
 
-const emptyRow = { quantity: '', measurement: '', ingredient: '' };
-const ingredientFields = ['quantity', 'measurement', 'ingredient'];
+const emptyRow = { quantity: '', measurement: '', ingredient: '', notes: '' };
+const ingredientFields = ['quantity', 'measurement', 'ingredient', 'notes'];
 
 function initFields(recipe) {
   const type = recipe.mealType || '';
@@ -547,6 +547,7 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user }) {
               <th>Quantity</th>
               <th>Measurement</th>
               <th>Ingredient</th>
+              <th>Notes</th>
               <th></th>
             </tr>
           </thead>
@@ -563,7 +564,8 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user }) {
                       onPaste={e => handlePaste(e, i, colIdx)}
                       placeholder={
                         field === 'quantity' ? '1' :
-                        field === 'measurement' ? 'cup' : 'flour'
+                        field === 'measurement' ? 'cup' :
+                        field === 'ingredient' ? 'flour' : ''
                       }
                     />
                   </td>
