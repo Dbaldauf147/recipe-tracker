@@ -242,6 +242,17 @@ export function NutritionGoalsPage({ onComplete, onBack, onSkip, initialSelected
     }
   }
 
+  // --- Single meal comparison state ---
+  const [singleMeal, setSingleMeal] = useState(null);
+
+  function handleSingleMealSelect(_slotIndex, recipeId) {
+    const id = recipeId || null;
+    setSingleMeal(id);
+    if (id && !mealNutrition[id]) {
+      loadNutrition(id);
+    }
+  }
+
   // Compute combined nutrition from selected meals
   const combinedNutrition = {};
   const hasAnyMeal = selectedMeals.some(Boolean);
@@ -259,6 +270,7 @@ export function NutritionGoalsPage({ onComplete, onBack, onSkip, initialSelected
   }
 
   const anyLoading = selectedMeals.some(id => id && loadingMeals.has(id));
+  const singleMealLoading = singleMeal && loadingMeals.has(singleMeal);
 
   function handleContinue() {
     const result = {};
@@ -447,6 +459,53 @@ export function NutritionGoalsPage({ onComplete, onBack, onSkip, initialSelected
                       <span className={styles.comparisonPct}>{Math.round(pct)}%</span>
                       <span className={styles.comparisonValues}>
                         {Math.round(actual)}{n.unit} / {targets[n.key]}{n.unit}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+
+        {recipes.length > 0 && (
+          <div className={styles.mealCard}>
+            <h4 className={styles.groupTitle}>Single Meal Check</h4>
+            <p className={styles.mealSubtitle}>Pick a recipe to see how it compares to 1/3 of your daily targets.</p>
+            <div className={styles.mealGrid}>
+              <div className={styles.mealField}>
+                <span className={styles.statsLabel}>Meal</span>
+                <MealCombobox
+                  index={0}
+                  value={singleMeal}
+                  recipes={sortedRecipes}
+                  onSelect={handleSingleMealSelect}
+                  loading={singleMealLoading}
+                />
+              </div>
+            </div>
+
+            {singleMeal && mealNutrition[singleMeal] && !singleMealLoading && (
+              <div className={styles.comparisonTable}>
+                {NUTRIENTS.filter(n => selected.has(n.key)).map(n => {
+                  const actual = mealNutrition[singleMeal][n.key] || 0;
+                  const perMealTarget = (targets[n.key] || 0) / 3;
+                  const pct = perMealTarget > 0 ? (actual / perMealTarget) * 100 : 0;
+                  let colorClass = styles.progressYellow;
+                  if (pct >= 90 && pct <= 120) colorClass = styles.progressGreen;
+                  else if (pct < 50 || pct > 120) colorClass = styles.progressRed;
+                  return (
+                    <div key={n.key} className={styles.comparisonRow}>
+                      <span className={styles.comparisonLabel}>{n.label}</span>
+                      <div className={styles.progressBar}>
+                        <div
+                          className={`${styles.progressFill} ${colorClass}`}
+                          style={{ width: `${Math.min(pct, 100)}%` }}
+                        />
+                      </div>
+                      <span className={styles.comparisonPct}>{Math.round(pct)}%</span>
+                      <span className={styles.comparisonValues}>
+                        {Math.round(actual)}{n.unit} / {Math.round(perMealTarget)}{n.unit}
                       </span>
                     </div>
                   );
