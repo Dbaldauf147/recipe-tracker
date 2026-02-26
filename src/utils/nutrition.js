@@ -166,7 +166,8 @@ const MEASUREMENT_TO_GRAMS = {
 };
 
 function estimateGrams(quantity, measurement) {
-  const qty = parseFloat(quantity) || 1;
+  const rawQty = parseFloat(quantity);
+  const qty = isNaN(rawQty) ? 1 : rawQty;
   const unit = (measurement || '').trim().toLowerCase();
   if (!unit || unit === 'whole' || unit === 'each' || unit === 'large' || unit === 'medium' || unit === 'small') {
     return qty * 100;

@@ -212,7 +212,8 @@ export async function lookupFromSheet(ingredient) {
   const match = findMatch(rows, name);
   if (!match) return null;
 
-  const qty = parseFloat(quantity) || 1;
+  const rawQty = parseFloat(quantity);
+  const qty = isNaN(rawQty) ? 1 : rawQty;
 
   // Determine multiplier.
   // If the recipe uses grams and the sheet has a grams-per-serving value,
