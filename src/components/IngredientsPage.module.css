@@ -78,6 +78,7 @@
   border-collapse: collapse;
   font-size: 0.68rem;
   white-space: nowrap;
+  table-layout: fixed;
 }
 
 .table th {
@@ -97,8 +98,28 @@
   transition: color 0.12s ease;
 }
 
+.table th {
+  position: relative;
+}
+
 .table th:hover {
   color: var(--color-accent);
+}
+
+.resizeHandle {
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: 5px;
+  cursor: col-resize;
+  background: transparent;
+  transition: background 0.15s ease;
+}
+
+.resizeHandle:hover,
+.resizeHandle:active {
+  background: var(--color-accent);
 }
 
 .sortedTh {

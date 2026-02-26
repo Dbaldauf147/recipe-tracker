@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   INGREDIENT_FIELDS,
   loadIngredients,
@@ -18,6 +18,16 @@ const DISPLAY_KEYS = [
 
 const FIELD_MAP = Object.fromEntries(INGREDIENT_FIELDS.map(f => [f.key, f]));
 
+const COL_WIDTHS_KEY = 'sunday-ingredients-col-widths';
+const DEFAULT_WIDTHS = { ingredient: 140, measurement: 70, notes: 100, link: 80, storage: 70 };
+
+function loadColWidths() {
+  try {
+    const saved = localStorage.getItem(COL_WIDTHS_KEY);
+    return saved ? JSON.parse(saved) : {};
+  } catch { return {}; }
+}
+
 export function IngredientsPage({ onClose }) {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -25,6 +35,8 @@ export function IngredientsPage({ onClose }) {
   const [search, setSearch] = useState('');
   const [sortKey, setSortKey] = useState(null);
   const [sortAsc, setSortAsc] = useState(true);
+  const [colWidths, setColWidths] = useState(loadColWidths);
+  const resizing = useRef(null);
 
   useEffect(() => {
     const data = loadIngredients();
@@ -74,6 +86,36 @@ export function IngredientsPage({ onClose }) {
       setSortKey(key);
       setSortAsc(true);
     }
+  }
+
+  function getColWidth(key) {
+    return colWidths[key] || DEFAULT_WIDTHS[key] || 60;
+  }
+
+  function handleResizeStart(e, key) {
+    e.preventDefault();
+    e.stopPropagation();
+    const startX = e.clientX;
+    const startW = getColWidth(key);
+    resizing.current = { key, startX, startW };
+
+    function onMove(ev) {
+      if (!resizing.current) return;
+      const diff = ev.clientX - resizing.current.startX;
+      const newW = Math.max(40, resizing.current.startW + diff);
+      setColWidths(prev => ({ ...prev, [resizing.current.key]: newW }));
+    }
+    function onUp() {
+      resizing.current = null;
+      setColWidths(prev => {
+        localStorage.setItem(COL_WIDTHS_KEY, JSON.stringify(prev));
+        return prev;
+      });
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    }
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
   }
 
   // Index rows first so we can track original position through filter/sort
@@ -133,6 +175,7 @@ export function IngredientsPage({ onClose }) {
                       key={key}
                       onClick={() => handleSort(key)}
                       className={sortKey === key ? styles.sortedTh : ''}
+                      style={{ width: getColWidth(key), minWidth: getColWidth(key) }}
                     >
                       {field.label}
                       {sortKey === key && (
@@ -140,6 +183,10 @@ export function IngredientsPage({ onClose }) {
                           {sortAsc ? ' \u25B2' : ' \u25BC'}
                         </span>
                       )}
+                      <span
+                        className={styles.resizeHandle}
+                        onMouseDown={e => handleResizeStart(e, key)}
+                      />
                     </th>
                   );
                 })}
@@ -150,9 +197,10 @@ export function IngredientsPage({ onClose }) {
               {sorted.map(({ row, origIdx }) => (
                 <tr key={origIdx}>
                   {DISPLAY_KEYS.map(key => (
-                    <td key={key}>
+                    <td key={key} style={{ width: getColWidth(key), minWidth: getColWidth(key) }}>
                       <input
                         className={styles.cellInput}
+                        style={{ maxWidth: 'none' }}
                         value={row[key] || ''}
                         onChange={e => updateField(origIdx, key, e.target.value)}
                       />
