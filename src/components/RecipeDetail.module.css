@@ -383,6 +383,14 @@
   border-color: var(--color-accent);
 }
 
+.dbNotes {
+  display: block;
+  padding: 0.3rem 0.4rem;
+  font-size: 0.85rem;
+  color: var(--color-text-muted);
+  font-style: italic;
+}
+
 .addRowBtn {
   margin-top: 0.5rem;
   background: none;

@@ -1,6 +1,7 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { NutritionPanel } from './NutritionPanel';
 import { loadFriends, shareRecipe, getUsername } from '../utils/firestoreSync';
+import { loadIngredients } from '../utils/ingredientsStore';
 import styles from './RecipeDetail.module.css';
 
 const STOP_WORDS = new Set([
@@ -62,6 +63,32 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user }) {
   const panStart = useRef(null);
   const heroImgRef = useRef(null);
   const fileInputRef = useRef(null);
+
+  // Build a lookup map from ingredient database: name → notes
+  const dbNotesMap = useMemo(() => {
+    const map = new Map();
+    const data = loadIngredients();
+    if (data) {
+      for (const item of data) {
+        if (item.ingredient && item.notes) {
+          map.set(item.ingredient.trim().toLowerCase(), item.notes);
+        }
+      }
+    }
+    return map;
+  }, []);
+
+  function getDbNotes(ingredientName) {
+    if (!ingredientName) return null;
+    const search = ingredientName.trim().toLowerCase();
+    // Exact match
+    if (dbNotesMap.has(search)) return dbNotesMap.get(search);
+    // Partial match
+    for (const [name, notes] of dbNotesMap) {
+      if (name.startsWith(search) || search.startsWith(name)) return notes;
+    }
+    return null;
+  }
 
   function setField(key, value) {
     setFields(prev => ({ ...prev, [key]: value }));
@@ -552,22 +579,29 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user }) {
             </tr>
           </thead>
           <tbody>
-            {fields.ingredients.map((row, i) => (
+            {fields.ingredients.map((row, i) => {
+              const dbNotes = getDbNotes(row.ingredient);
+              return (
               <tr key={i}>
                 {ingredientFields.map((field, colIdx) => (
                   <td key={field}>
-                    <input
-                      className={styles.cellInput}
-                      type="text"
-                      value={row[field]}
-                      onChange={e => updateIngredient(i, field, e.target.value)}
-                      onPaste={e => handlePaste(e, i, colIdx)}
-                      placeholder={
-                        field === 'quantity' ? '1' :
-                        field === 'measurement' ? 'cup' :
-                        field === 'ingredient' ? 'flour' : ''
-                      }
-                    />
+                    {field === 'notes' && dbNotes && !row.notes ? (
+                      <span className={styles.dbNotes}>{dbNotes}</span>
+                    ) : (
+                      <input
+                        className={styles.cellInput}
+                        type="text"
+                        value={row[field] || ''}
+                        onChange={e => updateIngredient(i, field, e.target.value)}
+                        onPaste={e => handlePaste(e, i, colIdx)}
+                        placeholder={
+                          field === 'quantity' ? '1' :
+                          field === 'measurement' ? 'cup' :
+                          field === 'ingredient' ? 'flour' :
+                          field === 'notes' && dbNotes ? dbNotes : ''
+                        }
+                      />
+                    )}
                   </td>
                 ))}
                 <td>
@@ -582,7 +616,8 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user }) {
                   )}
                 </td>
               </tr>
-            ))}
+              );
+            })}
           </tbody>
         </table>
         <button className={styles.addRowBtn} type="button" onClick={addRow}>
