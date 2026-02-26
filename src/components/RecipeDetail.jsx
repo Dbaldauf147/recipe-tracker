@@ -21,29 +21,65 @@ function buildImageUrl(recipe) {
 const emptyRow = { quantity: '', measurement: '', ingredient: '', notes: '' };
 const ingredientFields = ['quantity', 'measurement', 'ingredient', 'notes'];
 
-const MEASUREMENT_CATEGORIES = {
-  // Weight
-  g: 'Weight', gram: 'Weight', grams: 'Weight', kg: 'Weight',
-  oz: 'Weight', ounce: 'Weight', ounces: 'Weight',
-  lb: 'Weight', lbs: 'Weight', pound: 'Weight', pounds: 'Weight',
-  // Volume
-  cup: 'Volume', cups: 'Volume', tbsp: 'Volume', tablespoon: 'Volume', tablespoons: 'Volume',
-  tsp: 'Volume', teaspoon: 'Volume', teaspoons: 'Volume',
-  ml: 'Volume', liter: 'Volume', liters: 'Volume', l: 'Volume',
-  'fl oz': 'Volume', quart: 'Volume', quarts: 'Volume', pint: 'Volume', pints: 'Volume',
-  // Size
-  large: 'Size', medium: 'Size', small: 'Size', whole: 'Size', each: 'Size',
-  // Count
-  slice: 'Count', slices: 'Count', piece: 'Count', pieces: 'Count',
-  clove: 'Count', cloves: 'Count', stick: 'Count', sticks: 'Count',
-  can: 'Count', cans: 'Count', bunch: 'Count', head: 'Count', stalk: 'Count', stalks: 'Count',
-  // Pinch
-  pinch: 'Pinch', dash: 'Pinch', 'to taste': 'Pinch',
+// All measurements in ml (volume) or grams (weight) for conversion
+const VOLUME_TO_ML = {
+  tsp: 4.929, teaspoon: 4.929, teaspoons: 4.929,
+  tbsp: 14.787, tablespoon: 14.787, tablespoons: 14.787,
+  'fl oz': 29.574,
+  cup: 236.588, cups: 236.588,
+  pint: 473.176, pints: 473.176,
+  quart: 946.353, quarts: 946.353,
+  liter: 1000, liters: 1000, l: 1000,
+  ml: 1,
 };
 
-function getMeasurementCategory(measurement) {
-  if (!measurement) return '';
-  return MEASUREMENT_CATEGORIES[measurement.trim().toLowerCase()] || '';
+const WEIGHT_TO_G = {
+  g: 1, gram: 1, grams: 1,
+  kg: 1000,
+  oz: 28.3495, ounce: 28.3495, ounces: 28.3495,
+  lb: 453.592, lbs: 453.592, pound: 453.592, pounds: 453.592,
+};
+
+const VOLUME_UNITS = ['tsp', 'tbsp', 'cup', 'ml', 'fl oz', 'pint', 'quart', 'liter'];
+const WEIGHT_UNITS = ['g', 'oz', 'lb', 'kg'];
+
+function getConversions(qty, measurement, dbGrams) {
+  if (!measurement || !qty) return [];
+  const num = parseFloat(qty);
+  if (isNaN(num) || num === 0) return [];
+  const unit = measurement.trim().toLowerCase();
+  const results = [];
+
+  if (VOLUME_TO_ML[unit]) {
+    const ml = num * VOLUME_TO_ML[unit];
+    for (const target of VOLUME_UNITS) {
+      if (target === unit) continue;
+      const converted = ml / VOLUME_TO_ML[target];
+      if (converted >= 0.01 && converted <= 10000) {
+        results.push({ qty: parseFloat(converted.toFixed(2)), unit: target });
+      }
+    }
+    // Volume to weight using dbGrams (grams per serving)
+    if (dbGrams > 0) {
+      const grams = num * dbGrams;
+      for (const target of WEIGHT_UNITS) {
+        const converted = grams / WEIGHT_TO_G[target];
+        if (converted >= 0.01 && converted <= 10000) {
+          results.push({ qty: parseFloat(converted.toFixed(2)), unit: target });
+        }
+      }
+    }
+  } else if (WEIGHT_TO_G[unit]) {
+    const g = num * WEIGHT_TO_G[unit];
+    for (const target of WEIGHT_UNITS) {
+      if (target === unit) continue;
+      const converted = g / WEIGHT_TO_G[target];
+      if (converted >= 0.01 && converted <= 10000) {
+        results.push({ qty: parseFloat(converted.toFixed(2)), unit: target });
+      }
+    }
+  }
+  return results;
 }
 
 function initFields(recipe) {
@@ -89,31 +125,42 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user }) {
   const heroImgRef = useRef(null);
   const fileInputRef = useRef(null);
   const [adjustedServings, setAdjustedServings] = useState(null);
+  const [editingIngredients, setEditingIngredients] = useState(false);
 
-  // Build a lookup map from ingredient database: name → notes
-  const dbNotesMap = useMemo(() => {
-    const map = new Map();
+  // Build lookup maps from ingredient database
+  const { dbNotesMap, dbGramsMap } = useMemo(() => {
+    const notes = new Map();
+    const grams = new Map();
     const data = loadIngredients();
     if (data) {
       for (const item of data) {
-        if (item.ingredient && item.notes) {
-          map.set(item.ingredient.trim().toLowerCase(), item.notes);
-        }
+        const key = (item.ingredient || '').trim().toLowerCase();
+        if (!key) continue;
+        if (item.notes) notes.set(key, item.notes);
+        if (item.grams) grams.set(key, parseFloat(item.grams) || 0);
       }
     }
-    return map;
+    return { dbNotesMap: notes, dbGramsMap: grams };
   }, []);
 
   function getDbNotes(ingredientName) {
     if (!ingredientName) return null;
     const search = ingredientName.trim().toLowerCase();
-    // Exact match
     if (dbNotesMap.has(search)) return dbNotesMap.get(search);
-    // Partial match
     for (const [name, notes] of dbNotesMap) {
       if (name.startsWith(search) || search.startsWith(name)) return notes;
     }
     return null;
+  }
+
+  function getDbGrams(ingredientName) {
+    if (!ingredientName) return 0;
+    const search = ingredientName.trim().toLowerCase();
+    if (dbGramsMap.has(search)) return dbGramsMap.get(search);
+    for (const [name, grams] of dbGramsMap) {
+      if (name.startsWith(search) || search.startsWith(name)) return grams;
+    }
+    return 0;
   }
 
   const baseServings = parseInt(fields?.servings) || 1;
@@ -607,59 +654,62 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user }) {
       <div className={styles.ingredientsCol}>
         <div className={styles.ingredientsHeader}>
           <h3>Ingredients</h3>
-          <div className={styles.servingAdjuster}>
-            <button
-              className={styles.servingBtn}
-              type="button"
-              onClick={() => setAdjustedServings(Math.max(1, currentServings - 1))}
-            >
-              &minus;
-            </button>
-            <span className={styles.servingDisplay}>
-              {currentServings} {currentServings === 1 ? 'serving' : 'servings'}
-            </span>
-            <button
-              className={styles.servingBtn}
-              type="button"
-              onClick={() => setAdjustedServings(currentServings + 1)}
-            >
-              +
-            </button>
-            {adjustedServings !== null && adjustedServings !== baseServings && (
+          <div className={styles.ingredientsActions}>
+            <div className={styles.servingAdjuster}>
               <button
-                className={styles.servingReset}
+                className={styles.servingBtn}
                 type="button"
-                onClick={() => setAdjustedServings(null)}
+                onClick={() => setAdjustedServings(Math.max(1, currentServings - 1))}
               >
-                Reset
+                &minus;
               </button>
-            )}
+              <span className={styles.servingDisplay}>
+                {currentServings} {currentServings === 1 ? 'serving' : 'servings'}
+              </span>
+              <button
+                className={styles.servingBtn}
+                type="button"
+                onClick={() => setAdjustedServings(currentServings + 1)}
+              >
+                +
+              </button>
+              {adjustedServings !== null && adjustedServings !== baseServings && (
+                <button
+                  className={styles.servingReset}
+                  type="button"
+                  onClick={() => setAdjustedServings(null)}
+                >
+                  Reset
+                </button>
+              )}
+            </div>
+            <button
+              className={styles.editToggleBtn}
+              type="button"
+              onClick={() => setEditingIngredients(prev => !prev)}
+            >
+              {editingIngredients ? 'Done' : 'Edit'}
+            </button>
           </div>
         </div>
-        <table className={styles.ingredientTable}>
-          <thead>
-            <tr>
-              <th>Quantity</th>
-              <th>Measurement</th>
-              <th>Type</th>
-              <th>Ingredient</th>
-              <th>Notes</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>
-            {fields.ingredients.map((row, i) => {
-              const dbNotes = getDbNotes(row.ingredient);
-              return (
-              <tr key={i}>
-                {ingredientFields.map((field, colIdx) => (
-                  <React.Fragment key={field}>
-                    <td>
-                      {field === 'notes' && dbNotes && !row.notes ? (
-                        <span className={styles.dbNotes}>{dbNotes}</span>
-                      ) : field === 'quantity' && scaleFactor !== 1 ? (
-                        <span className={styles.scaledQty}>{scaleQuantity(row.quantity)}</span>
-                      ) : (
+
+        {editingIngredients ? (
+          <>
+            <table className={styles.ingredientTable}>
+              <thead>
+                <tr>
+                  <th>Quantity</th>
+                  <th>Measurement</th>
+                  <th>Ingredient</th>
+                  <th>Notes</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {fields.ingredients.map((row, i) => (
+                  <tr key={i}>
+                    {ingredientFields.map((field, colIdx) => (
+                      <td key={field}>
                         <input
                           className={styles.cellInput}
                           type="text"
@@ -669,36 +719,93 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user }) {
                           placeholder={
                             field === 'quantity' ? '1' :
                             field === 'measurement' ? 'cup' :
-                            field === 'ingredient' ? 'flour' :
-                            field === 'notes' && dbNotes ? dbNotes : ''
+                            field === 'ingredient' ? 'flour' : ''
                           }
                         />
+                      </td>
+                    ))}
+                    <td>
+                      {fields.ingredients.length > 1 && (
+                        <button
+                          className={styles.removeBtn}
+                          type="button"
+                          onClick={() => removeRow(i)}
+                        >
+                          &times;
+                        </button>
                       )}
                     </td>
-                    {field === 'measurement' && (
-                      <td><span className={styles.measureCategory}>{getMeasurementCategory(row.measurement)}</span></td>
-                    )}
-                  </React.Fragment>
+                  </tr>
                 ))}
-                <td>
-                  {fields.ingredients.length > 1 && (
-                    <button
-                      className={styles.removeBtn}
-                      type="button"
-                      onClick={() => removeRow(i)}
-                    >
-                      &times;
-                    </button>
-                  )}
-                </td>
+              </tbody>
+            </table>
+            <button className={styles.addRowBtn} type="button" onClick={addRow}>
+              + Add ingredient
+            </button>
+          </>
+        ) : (
+          <table className={styles.viewTable}>
+            <thead>
+              <tr>
+                <th>Quantity</th>
+                <th>Measurement</th>
+                <th>Ingredient</th>
+                <th>Convert</th>
+                <th>Notes</th>
               </tr>
-              );
-            })}
-          </tbody>
-        </table>
-        <button className={styles.addRowBtn} type="button" onClick={addRow}>
-          + Add ingredient
-        </button>
+            </thead>
+            <tbody>
+              {fields.ingredients.filter(row => row.ingredient.trim()).map((row, i) => {
+                const dbNotes = getDbNotes(row.ingredient);
+                const displayQty = scaleFactor !== 1 ? scaleQuantity(row.quantity) : (row.quantity || '');
+                const dbGrams = getDbGrams(row.ingredient);
+                const conversions = getConversions(displayQty, row.measurement, dbGrams);
+                return (
+                  <tr key={i}>
+                    <td className={scaleFactor !== 1 ? styles.scaledQty : ''}>
+                      {displayQty}
+                    </td>
+                    <td>{row.measurement}</td>
+                    <td>{row.ingredient}</td>
+                    <td>
+                      {conversions.length > 0 && (
+                        <select
+                          className={styles.convertSelect}
+                          defaultValue=""
+                          onChange={e => {
+                            if (!e.target.value) return;
+                            const [q, u] = e.target.value.split('|');
+                            updateIngredient(
+                              fields.ingredients.indexOf(row),
+                              'quantity',
+                              q
+                            );
+                            updateIngredient(
+                              fields.ingredients.indexOf(row),
+                              'measurement',
+                              u
+                            );
+                            e.target.value = '';
+                          }}
+                        >
+                          <option value="">{row.measurement ? 'Convert...' : ''}</option>
+                          {conversions.map(c => (
+                            <option key={c.unit} value={`${c.qty}|${c.unit}`}>
+                              {c.qty} {c.unit}
+                            </option>
+                          ))}
+                        </select>
+                      )}
+                    </td>
+                    <td className={styles.notesCell}>
+                      {row.notes || dbNotes || ''}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        )}
       </div>
 
       <div className={styles.section}>
