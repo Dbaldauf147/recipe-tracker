@@ -9,7 +9,7 @@ import styles from './IngredientsPage.module.css';
 
 // Display order of columns (by field key)
 const DISPLAY_KEYS = [
-  'ingredient', 'measurement', 'calories', 'protein', 'carbs', 'fat',
+  'ingredient', 'grams', 'measurement', 'calories', 'protein', 'carbs', 'fat',
   'fiber', 'sugar', 'saturatedFat', 'addedSugar', 'sodium', 'potassium',
   'vitaminB12', 'vitaminC', 'magnesium', 'zinc', 'iron', 'calcium',
   'leucine', 'omega3', 'proteinPerCal', 'fiberPerCal', 'notes',
