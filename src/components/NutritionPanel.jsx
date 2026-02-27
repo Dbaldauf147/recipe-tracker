@@ -160,49 +160,75 @@ export function NutritionPanel({ recipeId, ingredients, servings = 1 }) {
         <NutrientGroup title="Vitamins & Aminos" keys={VITAMINS_AMINOS} totals={totals} perServing={perServing} showPerServing={showPerServing && servings > 1} />
       </div>
 
-      {goals && (
-        <details className={styles.details}>
-          <summary>Meal %</summary>
-          <div className={styles.goalTable}>
-            {NUTRIENTS.filter(n => goals[n.key] > 0).map(n => {
-              const mealGoal = goals[n.key] / 3;
-              const usePerServing = showPerServing && servings > 1;
-              const actual = usePerServing ? perServing[n.key] : totals[n.key];
-              const pct = Math.round((actual / mealGoal) * 100);
-              const barColor = pct <= 100 ? styles.progressGreen : pct <= 130 ? styles.progressYellow : styles.progressRed;
-              const SHOW_CONTRIBUTORS = ['calories', 'carbs', 'fat', 'sugar', 'addedSugar', 'saturatedFat', 'sodium'];
-              const showContrib = pct > 100 && SHOW_CONTRIBUTORS.includes(n.key);
-              let topContrib = '';
-              if (showContrib && items.length > 0) {
-                const sorted = [...items]
-                  .map(it => ({ name: it.matchedTo, val: usePerServing ? (it.nutrients[n.key] || 0) / servings : (it.nutrients[n.key] || 0) }))
-                  .filter(x => x.val > 0)
-                  .sort((a, b) => b.val - a.val)
-                  .slice(0, 2);
-                topContrib = sorted.map(x => x.name).join(', ');
-              }
-              return (
-                <div key={n.key} className={styles.goalRow}>
-                  <span className={styles.goalLabel}>{n.label}</span>
-                  <div className={styles.goalBar}>
-                    <div
-                      className={`${styles.goalFill} ${barColor}`}
-                      style={{ width: `${Math.min(pct, 100)}%` }}
-                    />
-                  </div>
-                  <span className={styles.goalPct}>{pct}%</span>
-                  <span className={styles.goalValues}>
-                    {actual}{n.unit} / {Math.round(mealGoal * 10) / 10}{n.unit}
-                  </span>
-                  {topContrib && (
-                    <span className={styles.goalContrib}>{topContrib}</span>
-                  )}
+      {goals && (() => {
+        const SHOW_CONTRIBUTORS = ['calories', 'carbs', 'fat', 'sugar', 'addedSugar', 'saturatedFat', 'sodium'];
+        const usePerServing = showPerServing && servings > 1;
+        const overItems = [];
+        const goalRows = NUTRIENTS.filter(n => goals[n.key] > 0).map(n => {
+          const mealGoal = goals[n.key] / 3;
+          const actual = usePerServing ? perServing[n.key] : totals[n.key];
+          const pct = Math.round((actual / mealGoal) * 100);
+          if (pct > 100 && SHOW_CONTRIBUTORS.includes(n.key) && items.length > 0) {
+            const sorted = [...items]
+              .map(it => ({ name: it.matchedTo, val: usePerServing ? (it.nutrients[n.key] || 0) / servings : (it.nutrients[n.key] || 0) }))
+              .filter(x => x.val > 0)
+              .sort((a, b) => b.val - a.val)
+              .slice(0, 2);
+            overItems.push({ label: n.label, pct, contributors: sorted });
+          }
+          return { ...n, mealGoal, actual, pct };
+        });
+        return (
+          <details className={styles.details}>
+            <summary>Meal %</summary>
+            <div className={styles.goalLayout}>
+              <div className={styles.goalTable}>
+                {goalRows.map(n => {
+                  const barColor = n.pct <= 100 ? styles.progressGreen : n.pct <= 130 ? styles.progressYellow : styles.progressRed;
+                  return (
+                    <div key={n.key} className={styles.goalRow}>
+                      <span className={styles.goalLabel}>{n.label}</span>
+                      <div className={styles.goalBar}>
+                        <div
+                          className={`${styles.goalFill} ${barColor}`}
+                          style={{ width: `${Math.min(n.pct, 100)}%` }}
+                        />
+                      </div>
+                      <span className={styles.goalPct}>{n.pct}%</span>
+                      <span className={styles.goalValues}>
+                        {n.actual}{n.unit} / {Math.round(n.mealGoal * 10) / 10}{n.unit}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+              {overItems.length > 0 && (
+                <div className={styles.contribPanel}>
+                  <h4 className={styles.contribTitle}>Over 100%</h4>
+                  <table className={styles.contribTable}>
+                    <thead>
+                      <tr>
+                        <th>Nutrient</th>
+                        <th>%</th>
+                        <th>Top Ingredients</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {overItems.map(item => (
+                        <tr key={item.label}>
+                          <td>{item.label}</td>
+                          <td className={styles.contribPct}>{item.pct}%</td>
+                          <td>{item.contributors.map(c => c.name).join(', ')}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
-              );
-            })}
-          </div>
-        </details>
-      )}
+              )}
+            </div>
+          </details>
+        );
+      })()}
 
       <details className={styles.details}>
         <summary>Per-ingredient breakdown</summary>

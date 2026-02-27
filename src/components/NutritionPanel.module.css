@@ -128,11 +128,17 @@
 }
 
 /* % of Meal Goal */
+.goalLayout {
+  display: flex;
+  gap: 1.5rem;
+  align-items: flex-start;
+}
+
 .goalTable {
+  flex: 1;
   display: flex;
   flex-direction: column;
   gap: 0.4rem;
-  margin-bottom: 0.5rem;
 }
 
 .goalRow {
@@ -149,8 +155,7 @@
 }
 
 .goalBar {
-  width: 80px;
-  flex-shrink: 0;
+  flex: 1;
   height: 6px;
   background: var(--color-surface-alt, #f0f0f0);
   border-radius: 3px;
@@ -183,14 +188,46 @@
   text-align: right;
 }
 
-.goalContrib {
-  font-size: 0.68rem;
+.contribPanel {
+  flex: 1;
+  max-width: 50%;
+}
+
+.contribTitle {
+  margin: 0 0 0.4rem;
+  font-size: 0.8rem;
+  font-weight: 700;
   color: var(--color-danger, #ef4444);
-  font-style: italic;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 120px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.contribTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.75rem;
+}
+
+.contribTable th {
+  text-align: left;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  padding: 0.2rem 0.4rem;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.contribTable td {
+  padding: 0.25rem 0.4rem;
+  color: var(--color-text);
+}
+
+.contribTable tbody tr:nth-child(even) {
+  background: var(--color-surface-alt, #f9f9f9);
+}
+
+.contribPct {
+  font-weight: 600;
+  color: var(--color-danger, #ef4444);
 }
 
 .tableWrap {
