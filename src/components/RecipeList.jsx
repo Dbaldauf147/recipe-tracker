@@ -64,6 +64,8 @@ export function RecipeList({
   const [editMode, setEditMode] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [discoverOpen, setDiscoverOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const settingsRef = useRef(null);
   const [lastAdded, setLastAdded] = useState(null);
   const [shopSelection, setShopSelection] = useState(() => {
     try {
@@ -83,6 +85,17 @@ export function RecipeList({
       }, 100);
     }
   }, [isNewUser]);
+
+  useEffect(() => {
+    if (!settingsOpen) return;
+    function handleClick(e) {
+      if (settingsRef.current && !settingsRef.current.contains(e.target)) {
+        setSettingsOpen(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, [settingsOpen]);
 
   function toggleShopRecipe(id) {
     setShopSelection(prev => {
@@ -405,7 +418,7 @@ export function RecipeList({
     scored.sort((a, b) => b.totalScore - a.totalScore);
 
     const breakfasts = scored.filter(s => s.recipe.category === 'breakfast').slice(0, 4);
-    const lunches = scored.filter(s => s.recipe.category === 'lunch-dinner').slice(0, 6);
+    const lunches = scored.filter(s => s.recipe.category === 'lunch-dinner').slice(0, 4);
     return { breakfasts, lunches };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [recipes, weeklyPlan, freqFilter, checkedTypes]);
@@ -423,30 +436,43 @@ export function RecipeList({
             style={{ display: 'none' }}
             onChange={handleImportCSV}
           />
-          <button
-            className={styles.importBtn}
-            onClick={() => importFileRef.current?.click()}
-          >
-            Import Recipe Data
-          </button>
-          <button
-            className={styles.importBtn}
-            onClick={exportToCSV}
-          >
-            Export Recipe Data
-          </button>
-          {user?.email === 'baldaufdan@gmail.com' && (
-            <button
-              className={styles.importBtn}
-              onClick={handleImport}
-              disabled={importing}
-            >
-              {importing ? 'Importing...' : 'Import from Sheet'}
-            </button>
-          )}
           <button className={styles.addBtn} onClick={onAdd}>
             + Add Recipe
           </button>
+          <div className={styles.settingsWrap} ref={settingsRef}>
+            <button
+              className={styles.gearBtn}
+              onClick={() => setSettingsOpen(prev => !prev)}
+              aria-label="Settings"
+            >
+              &#9881;
+            </button>
+            {settingsOpen && (
+              <div className={styles.settingsDropdown}>
+                <button
+                  className={styles.settingsItem}
+                  onClick={() => { importFileRef.current?.click(); setSettingsOpen(false); }}
+                >
+                  Import Recipe Data
+                </button>
+                <button
+                  className={styles.settingsItem}
+                  onClick={() => { exportToCSV(); setSettingsOpen(false); }}
+                >
+                  Export Recipe Data
+                </button>
+                {user?.email === 'baldaufdan@gmail.com' && (
+                  <button
+                    className={styles.settingsItem}
+                    onClick={() => { handleImport(); setSettingsOpen(false); }}
+                    disabled={importing}
+                  >
+                    {importing ? 'Importing...' : 'Import from Sheet'}
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
