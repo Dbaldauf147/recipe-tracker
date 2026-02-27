@@ -166,9 +166,21 @@ export function NutritionPanel({ recipeId, ingredients, servings = 1 }) {
           <div className={styles.goalTable}>
             {NUTRIENTS.filter(n => goals[n.key] > 0).map(n => {
               const mealGoal = goals[n.key] / 3;
-              const actual = showPerServing && servings > 1 ? perServing[n.key] : totals[n.key];
+              const usePerServing = showPerServing && servings > 1;
+              const actual = usePerServing ? perServing[n.key] : totals[n.key];
               const pct = Math.round((actual / mealGoal) * 100);
               const barColor = pct <= 100 ? styles.progressGreen : pct <= 130 ? styles.progressYellow : styles.progressRed;
+              const SHOW_CONTRIBUTORS = ['calories', 'carbs', 'fat', 'sugar', 'addedSugar', 'saturatedFat', 'sodium'];
+              const showContrib = pct > 100 && SHOW_CONTRIBUTORS.includes(n.key);
+              let topContrib = '';
+              if (showContrib && items.length > 0) {
+                const sorted = [...items]
+                  .map(it => ({ name: it.matchedTo, val: usePerServing ? (it.nutrients[n.key] || 0) / servings : (it.nutrients[n.key] || 0) }))
+                  .filter(x => x.val > 0)
+                  .sort((a, b) => b.val - a.val)
+                  .slice(0, 2);
+                topContrib = sorted.map(x => x.name).join(', ');
+              }
               return (
                 <div key={n.key} className={styles.goalRow}>
                   <span className={styles.goalLabel}>{n.label}</span>
@@ -182,6 +194,9 @@ export function NutritionPanel({ recipeId, ingredients, servings = 1 }) {
                   <span className={styles.goalValues}>
                     {actual}{n.unit} / {Math.round(mealGoal * 10) / 10}{n.unit}
                   </span>
+                  {topContrib && (
+                    <span className={styles.goalContrib}>{topContrib}</span>
+                  )}
                 </div>
               );
             })}
