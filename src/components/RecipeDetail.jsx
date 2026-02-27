@@ -31,6 +31,8 @@ const VOLUME_TO_ML = {
   quart: 946.353, quarts: 946.353,
   liter: 1000, liters: 1000, l: 1000,
   ml: 1,
+  pinch: 0.31, dash: 0.62, smidgen: 0.16,
+  can: 400, cans: 400,
 };
 
 const WEIGHT_TO_G = {
@@ -38,10 +40,12 @@ const WEIGHT_TO_G = {
   kg: 1000,
   oz: 28.3495, ounce: 28.3495, ounces: 28.3495,
   lb: 453.592, lbs: 453.592, pound: 453.592, pounds: 453.592,
+  clove: 5, cloves: 5,
+  slice: 30, slices: 30,
 };
 
-const VOLUME_UNITS = ['tsp', 'tbsp', 'cup', 'ml', 'fl oz', 'pint', 'quart', 'liter'];
-const WEIGHT_UNITS = ['g', 'oz', 'lb', 'kg'];
+const VOLUME_UNITS = ['tsp', 'tbsp', 'cup', 'ml', 'fl oz', 'pint', 'quart', 'liter', 'pinch', 'dash', 'can'];
+const WEIGHT_UNITS = ['g', 'oz', 'lb', 'kg', 'clove', 'slice'];
 
 function getConversions(qty, measurement, dbGrams) {
   if (!measurement || !qty) return [];
@@ -96,7 +100,7 @@ function initFields(recipe) {
     prepTime: recipe.prepTime || '',
     cookTime: recipe.cookTime || '',
     sourceUrl: recipe.sourceUrl || '',
-    ingredients: recipe.ingredients.length > 0
+    ingredients: (recipe.ingredients && recipe.ingredients.length > 0)
       ? recipe.ingredients.map(r => ({ ...r }))
       : [{ ...emptyRow }],
     steps: (() => {
@@ -783,7 +787,7 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user }) {
               </tr>
             </thead>
             <tbody>
-              {fields.ingredients.filter(row => row.ingredient.trim()).map((row, i) => {
+              {fields.ingredients.filter(row => (row.ingredient || '').trim()).map((row, i) => {
                 const dbNotes = getDbNotes(row.ingredient);
                 const displayQty = scaleFactor !== 1 ? scaleQuantity(row.quantity) : (row.quantity || '');
                 return (
