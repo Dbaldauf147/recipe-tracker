@@ -444,12 +444,6 @@ export function RecipeList({
               {importing ? 'Importing...' : 'Import from Sheet'}
             </button>
           )}
-          <button
-            className={`${styles.importBtn}${editMode ? ` ${styles.editBtnActive}` : ''}`}
-            onClick={() => setEditMode(prev => !prev)}
-          >
-            {editMode ? 'Done Editing' : 'Edit Recipes'}
-          </button>
           <button className={styles.addBtn} onClick={onAdd}>
             + Add Recipe
           </button>
@@ -784,6 +778,13 @@ export function RecipeList({
           )}
         </div>
         <div className={styles.stackedCol}>
+          <button
+            className={`${styles.importBtn}${editMode ? ` ${styles.editBtnActive}` : ''}`}
+            onClick={() => setEditMode(prev => !prev)}
+            style={{ marginBottom: '0.75rem', width: '100%' }}
+          >
+            {editMode ? 'Done Editing' : 'Edit Recipes'}
+          </button>
           {SIDE_CATS.map(cat => (
             <div
               key={cat.key}
