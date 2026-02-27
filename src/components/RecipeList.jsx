@@ -11,6 +11,7 @@ const ADMIN_UID = import.meta.env.VITE_ADMIN_UID;
 
 const HISTORY_KEY = 'sunday-plan-history';
 const SHOP_KEY = 'sunday-shopping-selection';
+const WEEKLY_GOALS_KEY = 'sunday-weekly-goals';
 
 function formatQty(n) {
   if (!n) return '';
@@ -67,6 +68,13 @@ export function RecipeList({
   const [settingsOpen, setSettingsOpen] = useState(false);
   const settingsRef = useRef(null);
   const [lastAdded, setLastAdded] = useState(null);
+  const [weeklyGoals, setWeeklyGoals] = useState(() => {
+    try {
+      const data = localStorage.getItem(WEEKLY_GOALS_KEY);
+      return data ? JSON.parse(data) : { breakfast: 7, lunchDinner: 7 };
+    } catch { return { breakfast: 7, lunchDinner: 7 }; }
+  });
+  const [editingGoals, setEditingGoals] = useState(false);
   const [shopSelection, setShopSelection] = useState(() => {
     try {
       const data = localStorage.getItem(SHOP_KEY);
@@ -96,6 +104,15 @@ export function RecipeList({
     document.addEventListener('mousedown', handleClick);
     return () => document.removeEventListener('mousedown', handleClick);
   }, [settingsOpen]);
+
+  function updateWeeklyGoal(key, value) {
+    const num = parseInt(value) || 0;
+    setWeeklyGoals(prev => {
+      const next = { ...prev, [key]: num };
+      localStorage.setItem(WEEKLY_GOALS_KEY, JSON.stringify(next));
+      return next;
+    });
+  }
 
   function toggleShopRecipe(id) {
     setShopSelection(prev => {
@@ -504,36 +521,88 @@ export function RecipeList({
             </div>
           )}
         </div>
-        {weeklyRecipes.length === 0 ? (
-          <div className={styles.weekEmpty}>
-            <span className={styles.weekEmptyIcon}>🍽</span>
-            <span>Drag recipes here to plan your week</span>
-            <span className={styles.weekEmptyHint}>or click the + button on any recipe below</span>
-          </div>
-        ) : (
-          <div className={styles.weekList}>
-            {weeklyRecipes.map(recipe => (
-              <div
-                key={recipe.id}
-                className={`${styles.weekItem}${lastAdded === recipe.id ? ` ${styles.weekItemNew}` : ''}`}
-              >
-                <button
-                  className={styles.weekItemName}
-                  onClick={() => onSelect(recipe.id)}
-                >
-                  {recipe.title}
-                </button>
-                <button
-                  className={styles.weekRemoveBtn}
-                  onClick={() => onRemoveFromWeek(recipe.id)}
-                  aria-label={`Remove ${recipe.title} from this week`}
-                >
-                  &times;
-                </button>
+        <div className={styles.weekContent}>
+          <div className={styles.weekMain}>
+            {weeklyRecipes.length === 0 ? (
+              <div className={styles.weekEmpty}>
+                <span className={styles.weekEmptyIcon}>🍽</span>
+                <span>Drag recipes here to plan your week</span>
+                <span className={styles.weekEmptyHint}>or click the + button on any recipe below</span>
               </div>
-            ))}
+            ) : (
+              <div className={styles.weekList}>
+                {weeklyRecipes.map(recipe => (
+                  <div
+                    key={recipe.id}
+                    className={`${styles.weekItem}${lastAdded === recipe.id ? ` ${styles.weekItemNew}` : ''}`}
+                  >
+                    <button
+                      className={styles.weekItemName}
+                      onClick={() => onSelect(recipe.id)}
+                    >
+                      {recipe.title}
+                    </button>
+                    <button
+                      className={styles.weekRemoveBtn}
+                      onClick={() => onRemoveFromWeek(recipe.id)}
+                      aria-label={`Remove ${recipe.title} from this week`}
+                    >
+                      &times;
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
-        )}
+          <div className={styles.weekServings}>
+            <h4 className={styles.weekServingsTitle}>
+              Weekly Servings
+              <button className={styles.goalEditBtn} onClick={() => setEditingGoals(prev => !prev)}>
+                {editingGoals ? 'Done' : 'Set Goals'}
+              </button>
+            </h4>
+            {(() => {
+              const bCount = weeklyRecipes.filter(r => r.category === 'breakfast').reduce((sum, r) => sum + (parseInt(r.servings) || 1), 0);
+              const ldCount = weeklyRecipes.filter(r => r.category === 'lunch-dinner').reduce((sum, r) => sum + (parseInt(r.servings) || 1), 0);
+              return (
+                <>
+                  <div className={styles.servingRow}>
+                    <span className={styles.servingLabel}>Breakfast</span>
+                    <span className={`${styles.servingCount} ${bCount >= weeklyGoals.breakfast ? styles.servingMet : ''}`}>
+                      {bCount}
+                    </span>
+                    <span className={styles.servingGoal}>/ {weeklyGoals.breakfast}</span>
+                    {editingGoals && (
+                      <input
+                        className={styles.goalInput}
+                        type="number"
+                        min="0"
+                        value={weeklyGoals.breakfast}
+                        onChange={e => updateWeeklyGoal('breakfast', e.target.value)}
+                      />
+                    )}
+                  </div>
+                  <div className={styles.servingRow}>
+                    <span className={styles.servingLabel}>Lunch & Dinner</span>
+                    <span className={`${styles.servingCount} ${ldCount >= weeklyGoals.lunchDinner ? styles.servingMet : ''}`}>
+                      {ldCount}
+                    </span>
+                    <span className={styles.servingGoal}>/ {weeklyGoals.lunchDinner}</span>
+                    {editingGoals && (
+                      <input
+                        className={styles.goalInput}
+                        type="number"
+                        min="0"
+                        value={weeklyGoals.lunchDinner}
+                        onChange={e => updateWeeklyGoal('lunchDinner', e.target.value)}
+                      />
+                    )}
+                  </div>
+                </>
+              );
+            })()}
+          </div>
+        </div>
       </div>
 
       {/* 2. Suggested Meals + Discover Recipes row */}

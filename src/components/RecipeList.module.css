@@ -258,6 +258,100 @@
   opacity: 0.7;
 }
 
+.weekContent {
+  display: flex;
+  gap: var(--space-4);
+  align-items: flex-start;
+}
+
+.weekMain {
+  flex: 1;
+  min-width: 0;
+}
+
+.weekServings {
+  width: 180px;
+  flex-shrink: 0;
+  background: var(--color-surface-alt, #f9f9f9);
+  border-radius: var(--radius-md);
+  padding: 0.75rem;
+  border: 1px solid var(--color-border);
+}
+
+.weekServingsTitle {
+  margin: 0 0 0.5rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--color-text);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.goalEditBtn {
+  font-size: 0.7rem;
+  font-family: inherit;
+  font-weight: 500;
+  padding: 0.15rem 0.5rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm, 4px);
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.goalEditBtn:hover {
+  background: var(--color-accent-light);
+  color: var(--color-accent);
+}
+
+.servingRow {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.3rem 0;
+}
+
+.servingLabel {
+  font-size: 0.78rem;
+  color: var(--color-text);
+  flex: 1;
+}
+
+.servingCount {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--color-text);
+}
+
+.servingMet {
+  color: #22c55e;
+}
+
+.servingGoal {
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+}
+
+.goalInput {
+  width: 40px;
+  padding: 0.15rem 0.25rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm, 4px);
+  font-size: 0.75rem;
+  font-family: inherit;
+  text-align: center;
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+
+.goalInput:focus {
+  outline: none;
+  border-color: var(--color-accent);
+}
+
 .weekList {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
@@ -1101,6 +1195,14 @@
 
   .rightCol {
     margin-top: 0;
+  }
+
+  .weekContent {
+    flex-direction: column;
+  }
+
+  .weekServings {
+    width: 100%;
   }
 
   .weekList {
