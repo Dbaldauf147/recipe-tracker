@@ -352,6 +352,24 @@
   border-color: var(--color-accent);
 }
 
+.weekCategories {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.weekCatGroup {
+}
+
+.weekCatLabel {
+  margin: 0 0 var(--space-2);
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
 .weekList {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));

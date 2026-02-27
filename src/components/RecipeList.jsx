@@ -530,27 +530,72 @@ export function RecipeList({
                 <span className={styles.weekEmptyHint}>or click the + button on any recipe below</span>
               </div>
             ) : (
-              <div className={styles.weekList}>
-                {weeklyRecipes.map(recipe => (
-                  <div
-                    key={recipe.id}
-                    className={`${styles.weekItem}${lastAdded === recipe.id ? ` ${styles.weekItemNew}` : ''}`}
-                  >
-                    <button
-                      className={styles.weekItemName}
-                      onClick={() => onSelect(recipe.id)}
-                    >
-                      {recipe.title}
-                    </button>
-                    <button
-                      className={styles.weekRemoveBtn}
-                      onClick={() => onRemoveFromWeek(recipe.id)}
-                      aria-label={`Remove ${recipe.title} from this week`}
-                    >
-                      &times;
-                    </button>
-                  </div>
-                ))}
+              <div className={styles.weekCategories}>
+                {[
+                  { key: 'breakfast', label: 'Breakfast' },
+                  { key: 'lunch-dinner', label: 'Lunch & Dinner' },
+                ].map(cat => {
+                  const catRecipes = weeklyRecipes.filter(r => r.category === cat.key);
+                  if (catRecipes.length === 0) return null;
+                  return (
+                    <div key={cat.key} className={styles.weekCatGroup}>
+                      <h4 className={styles.weekCatLabel}>{cat.label}</h4>
+                      <div className={styles.weekList}>
+                        {catRecipes.map(recipe => (
+                          <div
+                            key={recipe.id}
+                            className={`${styles.weekItem}${lastAdded === recipe.id ? ` ${styles.weekItemNew}` : ''}`}
+                          >
+                            <button
+                              className={styles.weekItemName}
+                              onClick={() => onSelect(recipe.id)}
+                            >
+                              {recipe.title}
+                            </button>
+                            <button
+                              className={styles.weekRemoveBtn}
+                              onClick={() => onRemoveFromWeek(recipe.id)}
+                              aria-label={`Remove ${recipe.title} from this week`}
+                            >
+                              &times;
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })}
+                {(() => {
+                  const otherRecipes = weeklyRecipes.filter(r => r.category !== 'breakfast' && r.category !== 'lunch-dinner');
+                  if (otherRecipes.length === 0) return null;
+                  return (
+                    <div className={styles.weekCatGroup}>
+                      <h4 className={styles.weekCatLabel}>Other</h4>
+                      <div className={styles.weekList}>
+                        {otherRecipes.map(recipe => (
+                          <div
+                            key={recipe.id}
+                            className={`${styles.weekItem}${lastAdded === recipe.id ? ` ${styles.weekItemNew}` : ''}`}
+                          >
+                            <button
+                              className={styles.weekItemName}
+                              onClick={() => onSelect(recipe.id)}
+                            >
+                              {recipe.title}
+                            </button>
+                            <button
+                              className={styles.weekRemoveBtn}
+                              onClick={() => onRemoveFromWeek(recipe.id)}
+                              aria-label={`Remove ${recipe.title} from this week`}
+                            >
+                              &times;
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })()}
               </div>
             )}
           </div>
