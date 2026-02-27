@@ -1,6 +1,8 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { fetchNutritionForRecipe, NUTRIENTS } from '../utils/nutrition';
 import styles from './NutritionPanel.module.css';
+
+const GOALS_KEY = 'sunday-nutrition-goals';
 
 const MACROS = ['calories', 'protein', 'carbs', 'fat', 'saturatedFat'];
 const SUGARS_FIBER = ['sugar', 'addedSugar', 'fiber'];
@@ -123,6 +125,13 @@ export function NutritionPanel({ recipeId, ingredients, servings = 1 }) {
   const { items, totals } = data;
   const perServing = divideNutrients(totals, servings);
 
+  const goals = useMemo(() => {
+    try {
+      const raw = localStorage.getItem(GOALS_KEY);
+      return raw ? JSON.parse(raw) : null;
+    } catch { return null; }
+  }, []);
+
   return (
     <div className={styles.container}>
       <h3>Nutrition <span className={styles.estimate}>(estimate)</span></h3>
@@ -150,6 +159,35 @@ export function NutritionPanel({ recipeId, ingredients, servings = 1 }) {
         <NutrientGroup title="Minerals" keys={MINERALS} totals={totals} perServing={perServing} showPerServing={showPerServing && servings > 1} />
         <NutrientGroup title="Vitamins & Aminos" keys={VITAMINS_AMINOS} totals={totals} perServing={perServing} showPerServing={showPerServing && servings > 1} />
       </div>
+
+      {goals && (
+        <details className={styles.details}>
+          <summary>% of Meal Goal (1/3 daily)</summary>
+          <div className={styles.goalTable}>
+            {NUTRIENTS.filter(n => goals[n.key] > 0).map(n => {
+              const mealGoal = goals[n.key] / 3;
+              const actual = showPerServing && servings > 1 ? perServing[n.key] : totals[n.key];
+              const pct = Math.round((actual / mealGoal) * 100);
+              const barColor = pct <= 100 ? styles.progressGreen : pct <= 130 ? styles.progressYellow : styles.progressRed;
+              return (
+                <div key={n.key} className={styles.goalRow}>
+                  <span className={styles.goalLabel}>{n.label}</span>
+                  <div className={styles.goalBar}>
+                    <div
+                      className={`${styles.goalFill} ${barColor}`}
+                      style={{ width: `${Math.min(pct, 100)}%` }}
+                    />
+                  </div>
+                  <span className={styles.goalPct}>{pct}%</span>
+                  <span className={styles.goalValues}>
+                    {actual}{n.unit} / {Math.round(mealGoal * 10) / 10}{n.unit}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        </details>
+      )}
 
       <details className={styles.details}>
         <summary>Per-ingredient breakdown</summary>
