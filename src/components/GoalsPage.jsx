@@ -28,6 +28,10 @@ export function GoalsPage({ onComplete, onSkip, onBack }) {
       return new Set();
     }
   });
+  const [location, setLocation] = useState(() => {
+    try { return localStorage.getItem('sunday-user-location') || ''; }
+    catch { return ''; }
+  });
 
   function toggle(key) {
     setSelected(prev => {
@@ -47,22 +51,36 @@ export function GoalsPage({ onComplete, onSkip, onBack }) {
 
         <div className={styles.goalList}>
           {GOALS.map(goal => (
-            <div
-              key={goal.key}
-              className={`${styles.goalCard} ${selected.has(goal.key) ? styles.goalSelected : ''}`}
-              onClick={() => toggle(goal.key)}
-            >
-              <input
-                type="checkbox"
-                className={styles.checkbox}
-                checked={selected.has(goal.key)}
-                onChange={() => toggle(goal.key)}
-                onClick={e => e.stopPropagation()}
-              />
-              <div className={styles.goalText}>
-                <span className={styles.goalTitle}>{goal.title}</span>
-                <span className={styles.goalDesc}>{goal.description}</span>
+            <div key={goal.key}>
+              <div
+                className={`${styles.goalCard} ${selected.has(goal.key) ? styles.goalSelected : ''}`}
+                onClick={() => toggle(goal.key)}
+              >
+                <input
+                  type="checkbox"
+                  className={styles.checkbox}
+                  checked={selected.has(goal.key)}
+                  onChange={() => toggle(goal.key)}
+                  onClick={e => e.stopPropagation()}
+                />
+                <div className={styles.goalText}>
+                  <span className={styles.goalTitle}>{goal.title}</span>
+                  <span className={styles.goalDesc}>{goal.description}</span>
+                </div>
               </div>
+              {goal.key === 'whats_in_season' && selected.has('whats_in_season') && (
+                <div className={styles.locationPrompt}>
+                  <label className={styles.locationLabel}>What's your location?</label>
+                  <input
+                    type="text"
+                    className={styles.locationInput}
+                    placeholder="e.g. California, New York, Texas"
+                    value={location}
+                    onChange={e => setLocation(e.target.value)}
+                    onClick={e => e.stopPropagation()}
+                  />
+                </div>
+              )}
             </div>
           ))}
         </div>
@@ -73,7 +91,10 @@ export function GoalsPage({ onComplete, onSkip, onBack }) {
               &larr; Back
             </button>
           )}
-          <button className={styles.startBtn} onClick={() => onComplete([...selected])}>
+          <button className={styles.startBtn} onClick={() => {
+            if (location.trim()) localStorage.setItem('sunday-user-location', location.trim());
+            onComplete([...selected]);
+          }}>
             Continue
           </button>
         </div>
