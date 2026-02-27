@@ -3,6 +3,8 @@ import { useRecipes } from '../hooks/useRecipes';
 import { parseDocxRecipes } from '../utils/parseDocx';
 import { fetchRecipesFromSheet } from '../utils/sheetRecipes';
 import { fetchRecipeFromUrl } from '../utils/fetchRecipeFromUrl';
+import { fetchInstagramCaption } from '../utils/fetchInstagramCaption';
+import { parseRecipeText } from '../utils/parseRecipeText';
 import { RecipeForm } from './RecipeForm';
 import styles from './RecipeSetupPage.module.css';
 
@@ -35,6 +37,14 @@ export function RecipeSetupPage({ onComplete, onBack, onSkip }) {
   const [fetching, setFetching] = useState(false);
   const [fetchError, setFetchError] = useState('');
   const [parsedRecipe, setParsedRecipe] = useState(null);
+
+  // Manual add mode
+  const [manualMode, setManualMode] = useState(false);
+
+  // Instagram import mode
+  const [instagramMode, setInstagramMode] = useState(false);
+  const [instagramUrl, setInstagramUrl] = useState('');
+  const [instagramCaption, setInstagramCaption] = useState('');
 
   // Starter-recipe filter step
   const [fetchedRecipes, setFetchedRecipes] = useState(null); // array when fetched
@@ -172,6 +182,117 @@ export function RecipeSetupPage({ onComplete, onBack, onSkip }) {
     setUrlMode(false);
     setSourceUrl('');
     setTimeout(() => onComplete(), 1200);
+  }
+
+  async function handleFetchInstagramCaption() {
+    const url = instagramUrl.trim();
+    if (!url) return;
+    setFetching(true);
+    setFetchError('');
+    try {
+      const caption = await fetchInstagramCaption(url);
+      setInstagramCaption(caption);
+    } catch (err) {
+      setFetchError(err.message || 'Failed to fetch Instagram caption.');
+    } finally {
+      setFetching(false);
+    }
+  }
+
+  function handleParseInstagram() {
+    const text = instagramCaption.trim();
+    if (!text) return;
+    const recipe = parseRecipeText(text);
+    recipe.sourceUrl = instagramUrl.trim();
+    setParsedRecipe(recipe);
+    setInstagramMode(false);
+  }
+
+  function handleManualSave(data) {
+    addRecipe(data);
+    setStatus({ type: 'success', message: 'Recipe added!' });
+    setManualMode(false);
+    setTimeout(() => onComplete(), 1200);
+  }
+
+  // ── Manual recipe entry ──
+  if (manualMode) {
+    return (
+      <div className={styles.page}>
+        <div className={styles.reviewCard}>
+          <button className={styles.backBtn} onClick={() => setManualMode(false)}>
+            &larr; Back
+          </button>
+          <RecipeForm
+            onSave={handleManualSave}
+            onCancel={() => setManualMode(false)}
+          />
+        </div>
+      </div>
+    );
+  }
+
+  // ── Instagram import step ──
+  if (instagramMode) {
+    return (
+      <div className={styles.page}>
+        <div className={styles.card}>
+          <img className={styles.logo} src="/sunday-logo.png" alt="Sunday" />
+          <h2 className={styles.title}>Import from Instagram</h2>
+          <p className={styles.subtitle}>Paste an Instagram post link or the caption text</p>
+
+          <div className={styles.urlInputGroup}>
+            <input
+              className={styles.urlInput}
+              type="url"
+              value={instagramUrl}
+              onChange={e => setInstagramUrl(e.target.value)}
+              placeholder="https://www.instagram.com/p/..."
+              disabled={fetching}
+              onKeyDown={e => { if (e.key === 'Enter' && instagramUrl.trim()) handleFetchInstagramCaption(); }}
+            />
+            <button
+              className={styles.importBtn}
+              onClick={handleFetchInstagramCaption}
+              disabled={!instagramUrl.trim() || fetching}
+            >
+              {fetching ? 'Fetching...' : 'Fetch Caption'}
+            </button>
+          </div>
+
+          {fetchError && (
+            <div className={`${styles.status} ${styles.statusError}`}>
+              {fetchError}
+            </div>
+          )}
+
+          <p className={styles.subtitle} style={{ marginTop: '1rem' }}>
+            Or paste the caption text directly:
+          </p>
+          <textarea
+            className={styles.urlInput}
+            rows={6}
+            value={instagramCaption}
+            onChange={e => setInstagramCaption(e.target.value)}
+            placeholder="Paste recipe caption here..."
+            style={{ resize: 'vertical', fontFamily: 'inherit' }}
+          />
+
+          <div className={styles.bottomActions}>
+            <button className={styles.backBtn} onClick={() => { setInstagramMode(false); setFetchError(''); setInstagramUrl(''); setInstagramCaption(''); }}>
+              &larr; Back
+            </button>
+            <button
+              className={styles.importBtn}
+              onClick={handleParseInstagram}
+              disabled={!instagramCaption.trim()}
+            >
+              Parse Recipe
+            </button>
+          </div>
+        </div>
+      </div>
+    );
   }
 
   // ── Review step for URL-imported recipe ──
@@ -337,11 +458,11 @@ export function RecipeSetupPage({ onComplete, onBack, onSkip }) {
         )}
 
         <div className={styles.optionList}>
-          <div className={styles.optionCard} onClick={() => onComplete()}>
+          <div className={styles.optionCard} onClick={() => setManualMode(true)}>
             <span className={styles.optionIcon}>+</span>
             <div className={styles.optionText}>
-              <span className={styles.optionTitle}>Add a Recipe</span>
-              <span className={styles.optionDesc}>Start fresh and add recipes manually in the app</span>
+              <span className={styles.optionTitle}>Add a Recipe Manually</span>
+              <span className={styles.optionDesc}>Enter your recipe details by hand</span>
             </div>
           </div>
 
@@ -350,6 +471,14 @@ export function RecipeSetupPage({ onComplete, onBack, onSkip }) {
             <div className={styles.optionText}>
               <span className={styles.optionTitle}>Import from URL</span>
               <span className={styles.optionDesc}>Paste a link to any recipe website</span>
+            </div>
+          </div>
+
+          <div className={styles.optionCard} onClick={() => setInstagramMode(true)}>
+            <span className={styles.optionIcon}>{'\u{1F4F7}'}</span>
+            <div className={styles.optionText}>
+              <span className={styles.optionTitle}>Import from Instagram</span>
+              <span className={styles.optionDesc}>Fetch a recipe from an Instagram post</span>
             </div>
           </div>
 
