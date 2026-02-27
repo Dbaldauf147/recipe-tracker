@@ -702,11 +702,15 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user }) {
                   <th>Measurement</th>
                   <th>Ingredient</th>
                   <th>Notes</th>
+                  <th>Convert</th>
                   <th></th>
                 </tr>
               </thead>
               <tbody>
-                {fields.ingredients.map((row, i) => (
+                {fields.ingredients.map((row, i) => {
+                  const dbGrams = getDbGrams(row.ingredient);
+                  const conversions = getConversions(row.quantity, row.measurement, dbGrams);
+                  return (
                   <tr key={i}>
                     {ingredientFields.map((field, colIdx) => (
                       <td key={field}>
@@ -725,6 +729,28 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user }) {
                       </td>
                     ))}
                     <td>
+                      {conversions.length > 0 && (
+                        <select
+                          className={styles.convertSelect}
+                          defaultValue=""
+                          onChange={e => {
+                            if (!e.target.value) return;
+                            const [q, u] = e.target.value.split('|');
+                            updateIngredient(i, 'quantity', q);
+                            updateIngredient(i, 'measurement', u);
+                            e.target.value = '';
+                          }}
+                        >
+                          <option value="">{row.measurement ? 'Convert...' : ''}</option>
+                          {conversions.map(c => (
+                            <option key={c.unit} value={`${c.qty}|${c.unit}`}>
+                              {c.qty} {c.unit}
+                            </option>
+                          ))}
+                        </select>
+                      )}
+                    </td>
+                    <td>
                       {fields.ingredients.length > 1 && (
                         <button
                           className={styles.removeBtn}
@@ -736,7 +762,8 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user }) {
                       )}
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
             <button className={styles.addRowBtn} type="button" onClick={addRow}>
@@ -750,7 +777,6 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user }) {
                 <th>Quantity</th>
                 <th>Measurement</th>
                 <th>Ingredient</th>
-                <th>Convert</th>
                 <th>Notes</th>
               </tr>
             </thead>
@@ -758,8 +784,6 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user }) {
               {fields.ingredients.filter(row => row.ingredient.trim()).map((row, i) => {
                 const dbNotes = getDbNotes(row.ingredient);
                 const displayQty = scaleFactor !== 1 ? scaleQuantity(row.quantity) : (row.quantity || '');
-                const dbGrams = getDbGrams(row.ingredient);
-                const conversions = getConversions(displayQty, row.measurement, dbGrams);
                 return (
                   <tr key={i}>
                     <td className={scaleFactor !== 1 ? styles.scaledQty : ''}>
@@ -767,36 +791,6 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user }) {
                     </td>
                     <td>{row.measurement}</td>
                     <td>{row.ingredient}</td>
-                    <td>
-                      {conversions.length > 0 && (
-                        <select
-                          className={styles.convertSelect}
-                          defaultValue=""
-                          onChange={e => {
-                            if (!e.target.value) return;
-                            const [q, u] = e.target.value.split('|');
-                            updateIngredient(
-                              fields.ingredients.indexOf(row),
-                              'quantity',
-                              q
-                            );
-                            updateIngredient(
-                              fields.ingredients.indexOf(row),
-                              'measurement',
-                              u
-                            );
-                            e.target.value = '';
-                          }}
-                        >
-                          <option value="">{row.measurement ? 'Convert...' : ''}</option>
-                          {conversions.map(c => (
-                            <option key={c.unit} value={`${c.qty}|${c.unit}`}>
-                              {c.qty} {c.unit}
-                            </option>
-                          ))}
-                        </select>
-                      )}
-                    </td>
                     <td className={styles.notesCell}>
                       {row.notes || dbNotes || ''}
                     </td>
