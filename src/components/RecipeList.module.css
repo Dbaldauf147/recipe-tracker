@@ -330,6 +330,10 @@
   color: #22c55e;
 }
 
+.servingUnder {
+  color: #ef4444;
+}
+
 .servingGoal {
   font-size: 0.75rem;
   color: var(--color-text-muted);

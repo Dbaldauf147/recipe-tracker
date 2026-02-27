@@ -613,7 +613,7 @@ export function RecipeList({
                 <>
                   <div className={styles.servingRow}>
                     <span className={styles.servingLabel}>Breakfast</span>
-                    <span className={`${styles.servingCount} ${bCount >= weeklyGoals.breakfast ? styles.servingMet : ''}`}>
+                    <span className={`${styles.servingCount} ${bCount >= weeklyGoals.breakfast ? styles.servingMet : styles.servingUnder}`}>
                       {bCount}
                     </span>
                     <span className={styles.servingGoal}>/ {weeklyGoals.breakfast}</span>
@@ -629,7 +629,7 @@ export function RecipeList({
                   </div>
                   <div className={styles.servingRow}>
                     <span className={styles.servingLabel}>Lunch & Dinner</span>
-                    <span className={`${styles.servingCount} ${ldCount >= weeklyGoals.lunchDinner ? styles.servingMet : ''}`}>
+                    <span className={`${styles.servingCount} ${ldCount >= weeklyGoals.lunchDinner ? styles.servingMet : styles.servingUnder}`}>
                       {ldCount}
                     </span>
                     <span className={styles.servingGoal}>/ {weeklyGoals.lunchDinner}</span>
