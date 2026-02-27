@@ -17,7 +17,25 @@ import { AdminDashboard } from './components/AdminDashboard';
 import { GoalsPage } from './components/GoalsPage';
 import { NutritionGoalsPage } from './components/NutritionGoalsPage';
 import { RecipeSetupPage } from './components/RecipeSetupPage';
+import React from 'react';
 import styles from './App.module.css';
+
+class ErrorBoundary extends React.Component {
+  constructor(props) { super(props); this.state = { error: null }; }
+  static getDerivedStateFromError(error) { return { error }; }
+  render() {
+    if (this.state.error) {
+      return (
+        <div style={{ padding: '2rem', color: 'red' }}>
+          <h2>Something went wrong</h2>
+          <pre style={{ whiteSpace: 'pre-wrap' }}>{this.state.error.message}{'\n'}{this.state.error.stack}</pre>
+          <button onClick={() => this.setState({ error: null })}>Try again</button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 const ADMIN_UID = import.meta.env.VITE_ADMIN_UID;
 const WEEKLY_KEY = 'sunday-weekly-plan';
@@ -401,13 +419,15 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding }) {
             addRecipe={addRecipe}
           />
         ) : view === 'detail' && selectedId ? (
-          <RecipeDetail
-            recipe={getRecipe(selectedId)}
-            onSave={handleUpdate}
-            onDelete={handleDelete}
-            onBack={goBack}
-            user={user}
-          />
+          <ErrorBoundary>
+            <RecipeDetail
+              recipe={getRecipe(selectedId)}
+              onSave={handleUpdate}
+              onDelete={handleDelete}
+              onBack={goBack}
+              user={user}
+            />
+          </ErrorBoundary>
         ) : view === 'add' ? (
           <RecipeForm onSave={handleAdd} onCancel={goBack} />
         ) : (
