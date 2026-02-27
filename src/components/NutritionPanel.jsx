@@ -162,7 +162,7 @@ export function NutritionPanel({ recipeId, ingredients, servings = 1 }) {
 
       {goals && (
         <details className={styles.details}>
-          <summary>% of Meal Goal (1/3 daily)</summary>
+          <summary>Meal %</summary>
           <div className={styles.goalTable}>
             {NUTRIENTS.filter(n => goals[n.key] > 0).map(n => {
               const mealGoal = goals[n.key] / 3;
