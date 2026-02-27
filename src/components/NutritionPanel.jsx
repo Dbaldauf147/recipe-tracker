@@ -163,6 +163,14 @@ export function NutritionPanel({ recipeId, ingredients, servings = 1 }) {
       {goals && (() => {
         const SHOW_CONTRIBUTORS = ['calories', 'carbs', 'fat', 'sugar', 'addedSugar', 'saturatedFat', 'sodium'];
         const usePerServing = showPerServing && servings > 1;
+        // Build lookup: ingredient name → quantity + measurement
+        const ingLookup = {};
+        if (ingredients) {
+          for (const ing of ingredients) {
+            const key = (ing.ingredient || '').trim().toLowerCase();
+            if (key) ingLookup[key] = { qty: ing.quantity || '', meas: ing.measurement || '' };
+          }
+        }
         const overItems = [];
         const goalRows = NUTRIENTS.filter(n => goals[n.key] > 0).map(n => {
           const mealGoal = goals[n.key] / 3;
@@ -170,10 +178,14 @@ export function NutritionPanel({ recipeId, ingredients, servings = 1 }) {
           const pct = Math.round((actual / mealGoal) * 100);
           if (pct > 100 && SHOW_CONTRIBUTORS.includes(n.key) && items.length > 0) {
             const sorted = [...items]
-              .map(it => ({ name: it.matchedTo, val: usePerServing ? (it.nutrients[n.key] || 0) / servings : (it.nutrients[n.key] || 0) }))
+              .map(it => {
+                const val = usePerServing ? (it.nutrients[n.key] || 0) / servings : (it.nutrients[n.key] || 0);
+                const look = ingLookup[(it.matchedTo || '').trim().toLowerCase()] || {};
+                return { name: it.matchedTo, val, qty: look.qty, meas: look.meas, unit: n.unit };
+              })
               .filter(x => x.val > 0)
               .sort((a, b) => b.val - a.val)
-              .slice(0, 2);
+              .slice(0, 3);
             overItems.push({ label: n.label, pct, contributors: sorted });
           }
           return { ...n, mealGoal, actual, pct };
@@ -205,24 +217,29 @@ export function NutritionPanel({ recipeId, ingredients, servings = 1 }) {
               {overItems.length > 0 && (
                 <div className={styles.contribPanel}>
                   <h4 className={styles.contribTitle}>Over 100%</h4>
-                  <table className={styles.contribTable}>
-                    <thead>
-                      <tr>
-                        <th>Nutrient</th>
-                        <th>%</th>
-                        <th>Top Ingredients</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {overItems.map(item => (
-                        <tr key={item.label}>
-                          <td>{item.label}</td>
-                          <td className={styles.contribPct}>{item.pct}%</td>
-                          <td>{item.contributors.map(c => c.name).join(', ')}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                  {overItems.map(item => (
+                    <div key={item.label} className={styles.contribSection}>
+                      <span className={styles.contribNutrient}>{item.label} ({item.pct}%)</span>
+                      <table className={styles.contribTable}>
+                        <thead>
+                          <tr>
+                            <th>Ingredient</th>
+                            <th>Amount</th>
+                            <th>{item.contributors[0]?.unit || ''}</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {item.contributors.map(c => (
+                            <tr key={c.name}>
+                              <td>{c.name}</td>
+                              <td>{c.qty}{c.meas ? ` ${c.meas}` : ''}</td>
+                              <td>{c.val}{c.unit}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  ))}
                 </div>
               )}
             </div>

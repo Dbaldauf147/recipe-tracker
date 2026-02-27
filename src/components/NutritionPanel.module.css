@@ -225,6 +225,18 @@
   background: var(--color-surface-alt, #f9f9f9);
 }
 
+.contribSection {
+  margin-bottom: 0.6rem;
+}
+
+.contribNutrient {
+  display: block;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--color-danger, #ef4444);
+  margin-bottom: 0.2rem;
+}
+
 .contribPct {
   font-weight: 600;
   color: var(--color-danger, #ef4444);
