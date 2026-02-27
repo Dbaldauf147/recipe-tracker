@@ -709,6 +709,7 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user }) {
               <tbody>
                 {fields.ingredients.map((row, i) => {
                   const dbGrams = getDbGrams(row.ingredient);
+                  const dbNotes = getDbNotes(row.ingredient);
                   const conversions = getConversions(row.quantity, row.measurement, dbGrams);
                   return (
                   <tr key={i}>
@@ -723,7 +724,8 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user }) {
                           placeholder={
                             field === 'quantity' ? '1' :
                             field === 'measurement' ? 'cup' :
-                            field === 'ingredient' ? 'flour' : ''
+                            field === 'ingredient' ? 'flour' :
+                            field === 'notes' ? (dbNotes || '') : ''
                           }
                         />
                       </td>
