@@ -23,6 +23,17 @@ function saveHistory(entries) {
   if (user) saveField(user.uid, 'planHistory', entries);
 }
 
+function formatDate(dateStr) {
+  const [year, month, day] = dateStr.split('-').map(Number);
+  const date = new Date(year, month - 1, day);
+  const monthName = date.toLocaleString('en-US', { month: 'long' });
+  const d = date.getDate();
+  const suffix = d === 1 || d === 21 || d === 31 ? 'st'
+    : d === 2 || d === 22 ? 'nd'
+    : d === 3 || d === 23 ? 'rd' : 'th';
+  return `${monthName} ${d}${suffix}, ${year}`;
+}
+
 export function HistoryPage({ getRecipe, recipes, onClose }) {
   const [entries, setEntries] = useState(loadHistory);
   const [editingDate, setEditingDate] = useState(null);
@@ -148,7 +159,7 @@ export function HistoryPage({ getRecipe, recipes, onClose }) {
                           onClick={() => setEditingDate(entry.timestamp)}
                           title="Click to edit date"
                         >
-                          {entry.date}
+                          {formatDate(entry.date)}
                         </button>
                       )}
                     </td>
