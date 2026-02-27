@@ -162,6 +162,9 @@ export function NutritionPanel({ recipeId, ingredients, servings = 1 }) {
 
       {goals && (() => {
         const SHOW_CONTRIBUTORS = ['calories', 'carbs', 'fat', 'sugar', 'addedSugar', 'saturatedFat', 'sodium'];
+        // Nutrients where UNDER goal is good (green), OVER is bad (red)
+        const UNDER_IS_GOOD = new Set(['calories', 'fat', 'saturatedFat', 'sugar', 'addedSugar', 'fiber', 'sodium', 'potassium']);
+        // Everything else: OVER goal is good (green), UNDER is bad (red)
         const usePerServing = showPerServing && servings > 1;
         // Build lookup: ingredient name → quantity + measurement
         const ingLookup = {};
@@ -196,7 +199,14 @@ export function NutritionPanel({ recipeId, ingredients, servings = 1 }) {
             <div className={styles.goalLayout}>
               <div className={styles.goalTable}>
                 {goalRows.map(n => {
-                  const barColor = n.pct <= 100 ? styles.progressGreen : n.pct <= 130 ? styles.progressYellow : styles.progressRed;
+                  let barColor;
+                  if (UNDER_IS_GOOD.has(n.key)) {
+                    // Under = green, over = red
+                    barColor = n.pct <= 100 ? styles.progressGreen : n.pct <= 130 ? styles.progressYellow : styles.progressRed;
+                  } else {
+                    // Over = green, under = red
+                    barColor = n.pct >= 100 ? styles.progressGreen : n.pct >= 70 ? styles.progressYellow : styles.progressRed;
+                  }
                   return (
                     <div key={n.key} className={styles.goalRow}>
                       <span className={styles.goalLabel}>{n.label}</span>
