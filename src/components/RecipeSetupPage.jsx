@@ -500,7 +500,7 @@ export function RecipeSetupPage({ onComplete, onBack, onSkip }) {
           <div className={styles.optionCard} onClick={handleFetchStarter}>
             <span className={styles.optionIcon}>{'\u2B50'}</span>
             <div className={styles.optionText}>
-              <span className={styles.optionTitle}>Dan's Starter Recipes</span>
+              <span className={styles.optionTitle}>Import Starter Recipes</span>
               <span className={styles.optionDesc}>Import a curated set of recipes to get started</span>
             </div>
           </div>
