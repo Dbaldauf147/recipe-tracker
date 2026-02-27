@@ -109,7 +109,15 @@ const DEFAULT_TARGETS = {
 
 const DEFAULT_SELECTED = new Set(['calories', 'protein', 'carbs', 'fat']);
 
-function computeTargets(gender, heightFt, heightIn, weight, age) {
+const ACTIVITY_LEVELS = [
+  { key: 'sedentary',  label: 'Sedentary',       desc: 'Little or no exercise',          multiplier: 1.2,  proteinPerLb: 0.6 },
+  { key: 'light',      label: 'Lightly Active',  desc: 'Exercise 1-2 days/week',         multiplier: 1.375, proteinPerLb: 0.7 },
+  { key: 'moderate',   label: 'Moderately Active', desc: 'Exercise 3-5 days/week',       multiplier: 1.55, proteinPerLb: 0.8 },
+  { key: 'active',     label: 'Very Active',     desc: 'Hard exercise 6-7 days/week',    multiplier: 1.725, proteinPerLb: 0.9 },
+  { key: 'extra',      label: 'Extra Active',    desc: 'Very hard exercise or physical job', multiplier: 1.9, proteinPerLb: 1.0 },
+];
+
+function computeTargets(gender, heightFt, heightIn, weight, age, activityLevel) {
   const kg = weight / 2.205;
   const cm = (heightFt * 12 + heightIn) * 2.54;
 
@@ -121,11 +129,12 @@ function computeTargets(gender, heightFt, heightIn, weight, age) {
     bmr = (10 * kg) + (6.25 * cm) - (5 * age) - 161;
   }
 
-  const tdee = bmr * 1.55;
+  const activity = ACTIVITY_LEVELS.find(a => a.key === activityLevel) || ACTIVITY_LEVELS[2];
+  const tdee = bmr * activity.multiplier;
 
   return {
     calories: Math.round(tdee),
-    protein: Math.round(weight * 0.8),
+    protein: Math.round(weight * activity.proteinPerLb),
     carbs: Math.round((tdee * 0.50) / 4),
     fat: Math.round((tdee * 0.30) / 9),
     saturatedFat: Math.round((tdee * 0.10) / 9),
@@ -160,6 +169,7 @@ export function NutritionGoalsPage({ onComplete, onBack, onSkip, initialSelected
   const [heightIn, setHeightIn] = useState(() => initialStats?.heightIn ?? '');
   const [weight, setWeight] = useState(() => initialStats?.weight ?? '');
   const [age, setAge] = useState(() => initialStats?.age ?? '');
+  const [activityLevel, setActivityLevel] = useState(() => initialStats?.activityLevel || '');
 
   // Recalculate targets when all stats are filled
   useEffect(() => {
@@ -168,10 +178,10 @@ export function NutritionGoalsPage({ onComplete, onBack, onSkip, initialSelected
     const w = Number(weight);
     const a = Number(age);
     if (gender && ft > 0 && inch >= 0 && w > 0 && a > 0) {
-      const computed = computeTargets(gender, ft, inch, w, a);
+      const computed = computeTargets(gender, ft, inch, w, a, activityLevel);
       setTargets(prev => ({ ...prev, ...computed }));
     }
-  }, [gender, heightFt, heightIn, weight, age]);
+  }, [gender, heightFt, heightIn, weight, age, activityLevel]);
 
   function toggle(key) {
     setSelected(prev => {
@@ -282,6 +292,7 @@ export function NutritionGoalsPage({ onComplete, onBack, onSkip, initialSelected
     if (heightIn !== '') stats.heightIn = Number(heightIn);
     if (weight !== '') stats.weight = Number(weight);
     if (age !== '') stats.age = Number(age);
+    if (activityLevel) stats.activityLevel = activityLevel;
     onComplete(result, Object.keys(stats).length > 0 ? stats : null);
   }
 
@@ -356,6 +367,23 @@ export function NutritionGoalsPage({ onComplete, onBack, onSkip, initialSelected
                   placeholder="lbs"
                   min={1}
                 />
+              </div>
+            </div>
+
+            <div className={styles.activitySection}>
+              <span className={styles.statsLabel}>Activity Level</span>
+              <div className={styles.activityGrid}>
+                {ACTIVITY_LEVELS.map(a => (
+                  <button
+                    key={a.key}
+                    type="button"
+                    className={activityLevel === a.key ? styles.activityBtnActive : styles.activityBtn}
+                    onClick={() => setActivityLevel(a.key)}
+                  >
+                    <span className={styles.activityBtnLabel}>{a.label}</span>
+                    <span className={styles.activityBtnDesc}>{a.desc}</span>
+                  </button>
+                ))}
               </div>
             </div>
           </div>

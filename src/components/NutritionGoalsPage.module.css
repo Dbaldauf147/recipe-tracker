@@ -77,6 +77,59 @@
   text-align: left;
 }
 
+.activitySection {
+  margin-top: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.activityGrid {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.activityBtn,
+.activityBtnActive {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm, 4px);
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+  text-align: left;
+}
+
+.activityBtn {
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+
+.activityBtn:hover {
+  background: var(--color-surface-alt);
+  border-color: var(--color-accent);
+}
+
+.activityBtnActive {
+  background: var(--color-accent);
+  color: #ffffff;
+  border-color: var(--color-accent);
+}
+
+.activityBtnLabel {
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.activityBtnDesc {
+  font-size: 0.73rem;
+  opacity: 0.8;
+}
+
 .statsGrid {
   display: grid;
   grid-template-columns: 1fr 1fr;
