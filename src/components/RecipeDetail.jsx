@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { NutritionPanel } from './NutritionPanel';
+import { BarcodeScanner } from './BarcodeScanner';
 import { loadFriends, shareRecipe, getUsername } from '../utils/firestoreSync';
 import { loadIngredients } from '../utils/ingredientsStore';
 import styles from './RecipeDetail.module.css';
@@ -130,6 +131,7 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user }) {
   const fileInputRef = useRef(null);
   const [adjustedServings, setAdjustedServings] = useState(null);
   const [editingIngredients, setEditingIngredients] = useState(false);
+  const [showScanner, setShowScanner] = useState(false);
 
   // Build lookup maps from ingredient database
   const { dbNotesMap, dbGramsMap } = useMemo(() => {
@@ -196,6 +198,14 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user }) {
     setFields(prev => ({
       ...prev,
       ingredients: [...prev.ingredients, { ...emptyRow }],
+    }));
+  }
+
+  function handleBarcodeScan(ingredient) {
+    setShowScanner(false);
+    setFields(prev => ({
+      ...prev,
+      ingredients: [...prev.ingredients, { ...emptyRow, ...ingredient }],
     }));
   }
 
@@ -772,9 +782,14 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user }) {
                 })}
               </tbody>
             </table>
-            <button className={styles.addRowBtn} type="button" onClick={addRow}>
-              + Add ingredient
-            </button>
+            <div className={styles.ingredientBtns}>
+              <button className={styles.addRowBtn} type="button" onClick={addRow}>
+                + Add ingredient
+              </button>
+              <button className={styles.scanBtn} type="button" onClick={() => setShowScanner(true)}>
+                Scan barcode
+              </button>
+            </div>
           </>
         ) : (
           <table className={styles.viewTable}>
@@ -850,6 +865,13 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user }) {
           Delete
         </button>
       </div>
+
+      {showScanner && (
+        <BarcodeScanner
+          onResult={handleBarcodeScan}
+          onClose={() => setShowScanner(false)}
+        />
+      )}
     </div>
   );
 }

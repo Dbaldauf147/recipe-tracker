@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { BarcodeScanner } from './BarcodeScanner';
 import styles from './RecipeForm.module.css';
 
 const emptyRow = { quantity: '', measurement: '', ingredient: '' };
@@ -17,6 +18,7 @@ export function RecipeForm({ recipe, onSave, onCancel }) {
   const [sourceUrl, setSourceUrl] = useState('');
   const [ingredients, setIngredients] = useState([{ ...emptyRow }]);
   const [instructions, setInstructions] = useState('');
+  const [showScanner, setShowScanner] = useState(false);
 
   useEffect(() => {
     if (recipe) {
@@ -58,6 +60,15 @@ export function RecipeForm({ recipe, onSave, onCancel }) {
 
   function removeRow(index) {
     setIngredients(prev => prev.filter((_, i) => i !== index));
+  }
+
+  function handleBarcodeScan(result) {
+    setShowScanner(false);
+    setIngredients(prev => [...prev, {
+      quantity: result.quantity,
+      measurement: result.measurement,
+      ingredient: result.ingredient,
+    }]);
   }
 
   function handlePaste(e, rowIndex, colIndex) {
@@ -288,9 +299,14 @@ export function RecipeForm({ recipe, onSave, onCancel }) {
             ))}
           </tbody>
         </table>
-        <button className={styles.addRowBtn} type="button" onClick={addRow}>
-          + Add ingredient
-        </button>
+        <div className={styles.ingredientBtns}>
+          <button className={styles.addRowBtn} type="button" onClick={addRow}>
+            + Add ingredient
+          </button>
+          <button className={styles.scanBtn} type="button" onClick={() => setShowScanner(true)}>
+            Scan barcode
+          </button>
+        </div>
       </fieldset>
 
       <label className={styles.label}>
@@ -313,6 +329,13 @@ export function RecipeForm({ recipe, onSave, onCancel }) {
           Cancel
         </button>
       </div>
+
+      {showScanner && (
+        <BarcodeScanner
+          onResult={handleBarcodeScan}
+          onClose={() => setShowScanner(false)}
+        />
+      )}
     </form>
   );
 }

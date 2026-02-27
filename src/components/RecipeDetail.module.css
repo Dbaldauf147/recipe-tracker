@@ -553,6 +553,35 @@
   opacity: 0.75;
 }
 
+.ingredientBtns {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-top: 0.5rem;
+}
+
+.ingredientBtns .addRowBtn {
+  margin-top: 0;
+}
+
+.scanBtn {
+  padding: 0.3rem 0.75rem;
+  font-size: 0.85rem;
+  font-family: inherit;
+  font-weight: 600;
+  border: 1px solid var(--color-accent);
+  border-radius: var(--radius-sm, 4px);
+  background: var(--color-surface);
+  color: var(--color-accent);
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.scanBtn:hover {
+  background: var(--color-accent);
+  color: #fff;
+}
+
 .removeBtn {
   background: none;
   border: none;
