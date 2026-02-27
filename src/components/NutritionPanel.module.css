@@ -149,17 +149,17 @@
 }
 
 .goalBar {
-  width: 50px;
+  width: 80px;
   flex-shrink: 0;
-  height: 4px;
+  height: 6px;
   background: var(--color-surface-alt, #f0f0f0);
-  border-radius: 2px;
+  border-radius: 3px;
   overflow: hidden;
 }
 
 .goalFill {
   height: 100%;
-  border-radius: 2px;
+  border-radius: 3px;
   transition: width 0.3s ease;
 }
 
