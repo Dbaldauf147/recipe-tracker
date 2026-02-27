@@ -163,7 +163,7 @@ export function NutritionPanel({ recipeId, ingredients, servings = 1 }) {
       {goals && (() => {
         const SHOW_CONTRIBUTORS = ['calories', 'carbs', 'fat', 'sugar', 'addedSugar', 'saturatedFat', 'sodium'];
         // Nutrients where UNDER goal is good (green), OVER is bad (red)
-        const UNDER_IS_GOOD = new Set(['calories', 'fat', 'saturatedFat', 'sugar', 'addedSugar', 'fiber', 'sodium', 'potassium']);
+        const UNDER_IS_GOOD = new Set(['calories', 'carbs', 'fat', 'saturatedFat', 'sugar', 'addedSugar', 'fiber', 'sodium', 'potassium']);
         // Everything else: OVER goal is good (green), UNDER is bad (red)
         const usePerServing = showPerServing && servings > 1;
         // Build lookup: ingredient name → quantity + measurement
