@@ -1012,6 +1012,7 @@
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
+  margin-top: -5.5rem;
 }
 
 .stackedCol {
@@ -1096,6 +1097,10 @@
 
   .columns {
     grid-template-columns: 1fr;
+  }
+
+  .rightCol {
+    margin-top: 0;
   }
 
   .weekList {

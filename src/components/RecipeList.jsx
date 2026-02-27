@@ -436,9 +436,6 @@ export function RecipeList({
             style={{ display: 'none' }}
             onChange={handleImportCSV}
           />
-          <button className={styles.addBtn} onClick={onAdd}>
-            + Add Recipe
-          </button>
           <div className={styles.settingsWrap} ref={settingsRef}>
             <button
               className={styles.gearBtn}
@@ -804,12 +801,15 @@ export function RecipeList({
           )}
         </div>
         <div className={styles.rightCol}>
+          <button className={styles.addBtn} onClick={onAdd} style={{ width: '100%' }}>
+            + Add Recipe
+          </button>
           <button
             className={`${styles.importBtn}${editMode ? ` ${styles.editBtnActive}` : ''}`}
             onClick={() => setEditMode(prev => !prev)}
             style={{ width: '100%' }}
           >
-            {editMode ? 'Done Editing' : 'Edit Recipes'}
+            {editMode ? 'Done' : 'Remove Recipes'}
           </button>
           <div className={styles.stackedCol}>
           {SIDE_CATS.map(cat => (
