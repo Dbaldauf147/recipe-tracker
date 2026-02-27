@@ -31,7 +31,11 @@ function formatDate(dateStr) {
   const suffix = d === 1 || d === 21 || d === 31 ? 'st'
     : d === 2 || d === 22 ? 'nd'
     : d === 3 || d === 23 ? 'rd' : 'th';
-  return `${monthName} ${d}${suffix}, ${year}`;
+  return `${monthName} ${d}${suffix}`;
+}
+
+function getYear(dateStr) {
+  return dateStr.split('-')[0];
 }
 
 export function HistoryPage({ getRecipe, recipes, onClose }) {
@@ -133,13 +137,22 @@ export function HistoryPage({ getRecipe, recipes, onClose }) {
               </tr>
             </thead>
             <tbody>
-              {sorted.map(entry => {
+              {sorted.map((entry, idx) => {
+                const year = getYear(entry.date);
+                const prevYear = idx > 0 ? getYear(sorted[idx - 1].date) : null;
+                const showYear = year !== prevYear;
                 const isAddingNew = editingCell &&
                   editingCell.timestamp === entry.timestamp &&
                   editingCell.index === 'new';
 
                 return (
-                  <tr key={entry.timestamp}>
+                  <React.Fragment key={entry.timestamp}>
+                  {showYear && (
+                    <tr className={styles.yearRow}>
+                      <td colSpan={3} className={styles.yearCell}>{year}</td>
+                    </tr>
+                  )}
+                  <tr>
                     <td className={styles.dateCell}>
                       {editingDate === entry.timestamp ? (
                         <input
@@ -252,6 +265,7 @@ export function HistoryPage({ getRecipe, recipes, onClose }) {
                       </button>
                     </td>
                   </tr>
+                  </React.Fragment>
                 );
               })}
             </tbody>
