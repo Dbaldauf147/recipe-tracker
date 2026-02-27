@@ -945,6 +945,12 @@
   column-gap: var(--space-4);
 }
 
+.rightCol {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
 .stackedCol {
   display: flex;
   flex-direction: column;

@@ -777,14 +777,15 @@ export function RecipeList({
             </div>
           )}
         </div>
-        <div className={styles.stackedCol}>
+        <div className={styles.rightCol}>
           <button
             className={`${styles.importBtn}${editMode ? ` ${styles.editBtnActive}` : ''}`}
             onClick={() => setEditMode(prev => !prev)}
-            style={{ marginBottom: '0.75rem', width: '100%' }}
+            style={{ width: '100%' }}
           >
             {editMode ? 'Done Editing' : 'Edit Recipes'}
           </button>
+          <div className={styles.stackedCol}>
           {SIDE_CATS.map(cat => (
             <div
               key={cat.key}
@@ -817,6 +818,7 @@ export function RecipeList({
               )}
             </div>
           ))}
+          </div>
         </div>
       </div>
     </div>
