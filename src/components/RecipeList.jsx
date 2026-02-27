@@ -603,7 +603,7 @@ export function RecipeList({
             <h4 className={styles.weekServingsTitle}>
               Weekly Servings
               <button className={styles.goalEditBtn} onClick={() => setEditingGoals(prev => !prev)}>
-                {editingGoals ? 'Done' : 'Set Goals'}
+                {editingGoals ? 'Done' : 'Set Targets'}
               </button>
             </h4>
             {(() => {
