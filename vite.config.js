@@ -1,5 +1,6 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
+import { VitePWA } from 'vite-plugin-pwa'
 
 // Dev-only middleware: proxies /api/fetch-url?url=... requests server-side
 // so the browser never hits CORS issues.
@@ -98,5 +99,41 @@ function instagramCaptionProxy() {
 
 // https://vite.dev/config/
 export default defineConfig({
-  plugins: [react(), fetchUrlProxy(), instagramCaptionProxy()],
+  plugins: [
+    react(),
+    fetchUrlProxy(),
+    instagramCaptionProxy(),
+    VitePWA({
+      registerType: 'autoUpdate',
+      manifest: {
+        name: 'Sunday',
+        short_name: 'Sunday',
+        description: 'Meal planning and recipe tracker',
+        theme_color: '#2C2520',
+        background_color: '#FAF8F5',
+        display: 'standalone',
+        icons: [
+          {
+            src: 'pwa-192x192.png',
+            sizes: '192x192',
+            type: 'image/png',
+          },
+          {
+            src: 'pwa-512x512.png',
+            sizes: '512x512',
+            type: 'image/png',
+          },
+          {
+            src: 'pwa-maskable-512x512.png',
+            sizes: '512x512',
+            type: 'image/png',
+            purpose: 'maskable',
+          },
+        ],
+      },
+      workbox: {
+        globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
+      },
+    }),
+  ],
 })
