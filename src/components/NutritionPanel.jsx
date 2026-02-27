@@ -102,6 +102,13 @@ export function NutritionPanel({ recipeId, ingredients, servings = 1 }) {
     }
   }
 
+  const goals = useMemo(() => {
+    try {
+      const raw = localStorage.getItem(GOALS_KEY);
+      return raw ? JSON.parse(raw) : null;
+    } catch { return null; }
+  }, []);
+
   useEffect(() => {
     if (!ingredients || ingredients.length === 0) return;
     const cached = recipeId ? loadCachedNutrition(recipeId) : null;
@@ -124,13 +131,6 @@ export function NutritionPanel({ recipeId, ingredients, servings = 1 }) {
 
   const { items, totals } = data;
   const perServing = divideNutrients(totals, servings);
-
-  const goals = useMemo(() => {
-    try {
-      const raw = localStorage.getItem(GOALS_KEY);
-      return raw ? JSON.parse(raw) : null;
-    } catch { return null; }
-  }, []);
 
   return (
     <div className={styles.container}>
