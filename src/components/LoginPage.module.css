@@ -77,6 +77,31 @@
   flex-shrink: 0;
 }
 
+.guestBtn {
+  margin-top: 1rem;
+  padding: 0.5rem 1rem;
+  font-size: 0.85rem;
+  font-family: inherit;
+  font-weight: 500;
+  border: none;
+  border-radius: var(--radius-md);
+  background: none;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  text-decoration: underline;
+  transition: color 0.15s ease;
+}
+
+.guestBtn:hover {
+  color: var(--color-text);
+}
+
+.guestWarning {
+  margin: 0.5rem 0 0;
+  font-size: 0.75rem;
+  color: var(--color-danger);
+}
+
 .error {
   margin: 0 0 1rem;
   padding: 0.6rem 0.8rem;

@@ -3,7 +3,7 @@ import { useAuth } from '../contexts/AuthContext';
 import styles from './LoginPage.module.css';
 
 export function LoginPage() {
-  const { signInWithGoogle, signInWithFacebook, signUpWithEmail, signInWithEmail, authError } = useAuth();
+  const { signInWithGoogle, signInWithFacebook, signUpWithEmail, signInWithEmail, continueAsGuest, authError } = useAuth();
   const [isSignUp, setIsSignUp] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -77,6 +77,10 @@ export function LoginPage() {
           </svg>
           Sign in with Facebook
         </button>
+        <button className={styles.guestBtn} onClick={continueAsGuest}>
+          Continue without signing in
+        </button>
+        <p className={styles.guestWarning}>Your recipes and data will not be saved if you don't sign in.</p>
       </div>
     </div>
   );

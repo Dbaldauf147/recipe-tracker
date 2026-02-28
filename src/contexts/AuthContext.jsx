@@ -47,6 +47,7 @@ export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [dataReady, setDataReady] = useState(false);
+  const [isGuest, setIsGuest] = useState(false);
   const [onboardingSteps, setOnboardingSteps] = useState([]);
   const [completedSteps, setCompletedSteps] = useState([]);
   const [justOnboarded, setJustOnboarded] = useState(false);
@@ -119,6 +120,7 @@ export function AuthProvider({ children }) {
         setDataReady(true);
       } else {
         setUser(null);
+        setIsGuest(false);
         setDataReady(false);
         setOnboardingSteps([]);
         setCompletedSteps([]);
@@ -246,8 +248,18 @@ export function AuthProvider({ children }) {
     }
   }
 
+  function continueAsGuest() {
+    setIsGuest(true);
+    setDataReady(true);
+    setLoading(false);
+    setHasCompletedOnboarding(true);
+    setOnboardingSteps([]);
+    setCompletedSteps([]);
+  }
+
   async function logOut() {
     clearAppStorage();
+    setIsGuest(false);
     await signOut(auth);
   }
 
@@ -263,8 +275,8 @@ export function AuthProvider({ children }) {
   }
 
   const value = {
-    user, loading, dataReady, currentOnboardingStep, justOnboarded, hasCompletedOnboarding, authError,
-    signInWithGoogle, signInWithFacebook, signUpWithEmail, signInWithEmail, logOut,
+    user, loading, dataReady, isGuest, currentOnboardingStep, justOnboarded, hasCompletedOnboarding, authError,
+    signInWithGoogle, signInWithFacebook, signUpWithEmail, signInWithEmail, continueAsGuest, logOut,
     completeGoals, skipGoals, goBackOnboarding, advanceOnboarding,
     completeNutritionGoals, completeKeyIngredients, completeRecipeSetup,
     restartOnboarding, cancelOnboarding,

@@ -460,7 +460,7 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding }) {
 // Views: "list" | "detail" | "add"
 function App() {
   const {
-    user, loading, dataReady, currentOnboardingStep, justOnboarded, logOut,
+    user, loading, dataReady, isGuest, currentOnboardingStep, justOnboarded, logOut,
     completeGoals, skipGoals, goBackOnboarding, advanceOnboarding,
     completeNutritionGoals, completeKeyIngredients, completeRecipeSetup,
     restartOnboarding, cancelOnboarding, hasCompletedOnboarding,
@@ -474,7 +474,7 @@ function App() {
     );
   }
 
-  if (!user) {
+  if (!user && !isGuest) {
     return <LoginPage />;
   }
 
@@ -498,7 +498,7 @@ function App() {
 
   // key={user.uid} forces full remount when the user changes,
   // so all useState initializers re-read from freshly-hydrated localStorage
-  return <AppContent key={user.uid} user={user} logOut={logOut} isNewUser={justOnboarded} restartOnboarding={restartOnboarding} />;
+  return <AppContent key={user?.uid || 'guest'} user={user} logOut={logOut} isNewUser={justOnboarded} restartOnboarding={restartOnboarding} />;
 }
 
 export default App;
