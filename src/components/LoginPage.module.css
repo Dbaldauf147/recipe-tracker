@@ -52,6 +52,31 @@
   flex-shrink: 0;
 }
 
+.facebookBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.65rem 1.5rem;
+  font-size: 0.95rem;
+  font-family: inherit;
+  font-weight: 500;
+  border: none;
+  border-radius: var(--radius-md);
+  background: #1877F2;
+  color: #fff;
+  cursor: pointer;
+  transition: opacity 0.15s ease;
+  margin-top: 0.5rem;
+}
+
+.facebookBtn:hover {
+  opacity: 0.9;
+}
+
+.facebookIcon {
+  flex-shrink: 0;
+}
+
 .error {
   margin: 0 0 1rem;
   padding: 0.6rem 0.8rem;
