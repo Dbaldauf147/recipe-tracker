@@ -66,6 +66,7 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding }) {
   const settingsRef = useRef(null);
 
   useEffect(() => {
+    if (!user) return;
     let cancelled = false;
     async function checkRequests() {
       try {
@@ -79,7 +80,7 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding }) {
     checkRequests();
     const interval = setInterval(checkRequests, 30000);
     return () => { cancelled = true; clearInterval(interval); };
-  }, [user.uid]);
+  }, [user?.uid]);
 
   useEffect(() => {
     if (!settingsOpen) return;
@@ -236,7 +237,7 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding }) {
           })}
         </nav>
         <div className={styles.settingsWrapper} ref={settingsRef}>
-          <span className={styles.userName}>{user.displayName}</span>
+          <span className={styles.userName}>{user?.displayName || 'Guest'}</span>
           <button
             className={styles.settingsBtn}
             onClick={() => setSettingsOpen(prev => !prev)}
@@ -250,7 +251,7 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding }) {
           {settingsOpen && (
             <div className={styles.settingsDropdown}>
               <div className={styles.settingsUserRow}>
-                {user.photoURL && (
+                {user?.photoURL && (
                   <img
                     className={styles.avatar}
                     src={user.photoURL}
@@ -258,7 +259,7 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding }) {
                     referrerPolicy="no-referrer"
                   />
                 )}
-                <span>{user.displayName}</span>
+                <span>{user?.displayName || 'Guest'}</span>
               </div>
               <button
                 className={styles.settingsMenuItem}
@@ -278,7 +279,7 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding }) {
               >
                 Nutrition Goals
               </button>
-              {user.uid === ADMIN_UID && (
+              {user?.uid === ADMIN_UID && (
                 <>
                   <button
                     className={styles.settingsMenuItem}
@@ -411,10 +412,12 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding }) {
           <FriendsPage
             onClose={() => {
               goBack();
-              Promise.all([
-                getPendingRequests(user.uid),
-                getPendingSharedRecipes(user.uid),
-              ]).then(([r, s]) => setPendingCount(r.length + s.length)).catch(() => {});
+              if (user) {
+                Promise.all([
+                  getPendingRequests(user.uid),
+                  getPendingSharedRecipes(user.uid),
+                ]).then(([r, s]) => setPendingCount(r.length + s.length)).catch(() => {});
+              }
             }}
             addRecipe={addRecipe}
           />
