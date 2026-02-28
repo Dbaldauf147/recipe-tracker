@@ -499,9 +499,13 @@ function App() {
     return <RecipeSetupPage onComplete={completeRecipeSetup} onBack={goBackOnboarding} onSkip={completeRecipeSetup} />;
   }
 
-  // key={user.uid} forces full remount when the user changes,
+  // key={user?.uid} forces full remount when the user changes,
   // so all useState initializers re-read from freshly-hydrated localStorage
-  return <AppContent key={user?.uid || 'guest'} user={user} logOut={logOut} isNewUser={justOnboarded} restartOnboarding={restartOnboarding} />;
+  return (
+    <ErrorBoundary>
+      <AppContent key={user?.uid || 'guest'} user={user} logOut={logOut} isNewUser={justOnboarded} restartOnboarding={restartOnboarding} />
+    </ErrorBoundary>
+  );
 }
 
 export default App;
