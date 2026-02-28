@@ -120,10 +120,14 @@ export function AuthProvider({ children }) {
         setDataReady(true);
       } else {
         setUser(null);
-        setIsGuest(false);
-        setDataReady(false);
-        setOnboardingSteps([]);
-        setCompletedSteps([]);
+        setIsGuest(prev => {
+          if (!prev) {
+            setDataReady(false);
+            setOnboardingSteps([]);
+            setCompletedSteps([]);
+          }
+          return prev;
+        });
       }
       setLoading(false);
     });
