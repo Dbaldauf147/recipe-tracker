@@ -359,7 +359,7 @@ export function RecipeList({
       filtered = filtered.filter(r => checkedTypes.has(r.mealType || ''));
     }
     const candidates = filtered.filter(r => !weekSet.has(r.id));
-    if (candidates.length === 0) return { option1: [], option2: [] };
+    if (candidates.length === 0) return { breakfasts: [], lunches: [] };
 
     // Sort history newest-first
     const byRecent = [...history].sort(
