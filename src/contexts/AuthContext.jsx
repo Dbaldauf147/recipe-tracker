@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect } from 'react';
+import { createContext, useContext, useState, useEffect, useRef } from 'react';
 import { onAuthStateChanged, signInWithPopup, signOut, createUserWithEmailAndPassword, signInWithEmailAndPassword, updateProfile } from 'firebase/auth';
 import { auth, googleProvider, facebookProvider, appleProvider } from '../firebase';
 import { loadUserData, migrateToFirestore, hydrateLocalStorage, saveField, recordLogin } from '../utils/firestoreSync';
@@ -48,6 +48,7 @@ export function AuthProvider({ children }) {
   const [loading, setLoading] = useState(true);
   const [dataReady, setDataReady] = useState(false);
   const [isGuest, setIsGuest] = useState(false);
+  const isGuestRef = useRef(false);
   const [onboardingSteps, setOnboardingSteps] = useState([]);
   const [completedSteps, setCompletedSteps] = useState([]);
   const [justOnboarded, setJustOnboarded] = useState(false);
@@ -118,16 +119,11 @@ export function AuthProvider({ children }) {
 
         setUser(firebaseUser);
         setDataReady(true);
-      } else {
+      } else if (!isGuestRef.current) {
         setUser(null);
-        setIsGuest(prev => {
-          if (!prev) {
-            setDataReady(false);
-            setOnboardingSteps([]);
-            setCompletedSteps([]);
-          }
-          return prev;
-        });
+        setDataReady(false);
+        setOnboardingSteps([]);
+        setCompletedSteps([]);
       }
       setLoading(false);
     });
@@ -263,6 +259,7 @@ export function AuthProvider({ children }) {
   }
 
   function continueAsGuest() {
+    isGuestRef.current = true;
     setIsGuest(true);
     setDataReady(true);
     setLoading(false);
@@ -273,8 +270,17 @@ export function AuthProvider({ children }) {
 
   async function logOut() {
     clearAppStorage();
-    setIsGuest(false);
-    await signOut(auth);
+    if (isGuestRef.current) {
+      isGuestRef.current = false;
+      setIsGuest(false);
+      setUser(null);
+      setDataReady(false);
+      setHasCompletedOnboarding(false);
+      setOnboardingSteps([]);
+      setCompletedSteps([]);
+    } else {
+      await signOut(auth);
+    }
   }
 
   function restartOnboarding() {
