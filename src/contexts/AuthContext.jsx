@@ -1,6 +1,6 @@
 import { createContext, useContext, useState, useEffect } from 'react';
 import { onAuthStateChanged, signInWithPopup, signOut, createUserWithEmailAndPassword, signInWithEmailAndPassword, updateProfile } from 'firebase/auth';
-import { auth, googleProvider, facebookProvider } from '../firebase';
+import { auth, googleProvider, facebookProvider, appleProvider } from '../firebase';
 import { loadUserData, migrateToFirestore, hydrateLocalStorage, saveField, recordLogin } from '../utils/firestoreSync';
 
 const AuthContext = createContext(null);
@@ -152,6 +152,16 @@ export function AuthProvider({ children }) {
     }
   }
 
+  async function signInWithApple() {
+    try {
+      setAuthError(null);
+      await signInWithPopup(auth, appleProvider);
+    } catch (err) {
+      console.error('Sign-in error:', err);
+      setAuthError(err.message || 'Sign-in failed');
+    }
+  }
+
   function advanceOnboarding() {
     setOnboardingSteps(prev => {
       const [current, ...rest] = prev;
@@ -276,7 +286,7 @@ export function AuthProvider({ children }) {
 
   const value = {
     user, loading, dataReady, isGuest, currentOnboardingStep, justOnboarded, hasCompletedOnboarding, authError,
-    signInWithGoogle, signInWithFacebook, signUpWithEmail, signInWithEmail, continueAsGuest, logOut,
+    signInWithGoogle, signInWithFacebook, signInWithApple, signUpWithEmail, signInWithEmail, continueAsGuest, logOut,
     completeGoals, skipGoals, goBackOnboarding, advanceOnboarding,
     completeNutritionGoals, completeKeyIngredients, completeRecipeSetup,
     restartOnboarding, cancelOnboarding,

@@ -77,6 +77,31 @@
   flex-shrink: 0;
 }
 
+.appleBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.65rem 1.5rem;
+  font-size: 0.95rem;
+  font-family: inherit;
+  font-weight: 500;
+  border: none;
+  border-radius: var(--radius-md);
+  background: #000;
+  color: #fff;
+  cursor: pointer;
+  transition: opacity 0.15s ease;
+  margin-top: 0.5rem;
+}
+
+.appleBtn:hover {
+  opacity: 0.85;
+}
+
+.appleIcon {
+  flex-shrink: 0;
+}
+
 .guestBtn {
   margin-top: 1rem;
   padding: 0.5rem 1rem;
@@ -96,10 +121,71 @@
   color: var(--color-text);
 }
 
-.guestWarning {
-  margin: 0.5rem 0 0;
-  font-size: 0.75rem;
-  color: var(--color-danger);
+.overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.modal {
+  background: var(--color-surface);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-lg);
+  padding: 2rem;
+  max-width: 320px;
+  width: 90%;
+  text-align: center;
+}
+
+.modalWarning {
+  margin: 0 0 1.5rem;
+  font-size: 0.95rem;
+  color: var(--color-text);
+  line-height: 1.5;
+}
+
+.modalActions {
+  display: flex;
+  gap: 0.75rem;
+  justify-content: center;
+}
+
+.modalCancel {
+  padding: 0.55rem 1.25rem;
+  font-size: 0.9rem;
+  font-family: inherit;
+  font-weight: 500;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-text);
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.modalCancel:hover {
+  background: var(--color-surface-alt);
+}
+
+.modalConfirm {
+  padding: 0.55rem 1.25rem;
+  font-size: 0.9rem;
+  font-family: inherit;
+  font-weight: 500;
+  border: none;
+  border-radius: var(--radius-md);
+  background: var(--color-danger);
+  color: #fff;
+  cursor: pointer;
+  transition: opacity 0.15s ease;
+}
+
+.modalConfirm:hover {
+  opacity: 0.9;
 }
 
 .error {
