@@ -263,8 +263,8 @@ export function AuthProvider({ children }) {
     setIsGuest(true);
     setDataReady(true);
     setLoading(false);
-    setHasCompletedOnboarding(true);
-    setOnboardingSteps([]);
+    setHasCompletedOnboarding(false);
+    setOnboardingSteps(['recipe-setup']);
     setCompletedSteps([]);
   }
 
