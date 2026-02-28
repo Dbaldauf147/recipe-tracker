@@ -1,6 +1,5 @@
-import { useState, useRef, useMemo } from 'react';
+import { useState, useMemo } from 'react';
 import { useRecipes } from '../hooks/useRecipes';
-import { parseDocxRecipes } from '../utils/parseDocx';
 import { fetchRecipesFromSheet } from '../utils/sheetRecipes';
 import { fetchRecipeFromUrl } from '../utils/fetchRecipeFromUrl';
 import { fetchInstagramCaption } from '../utils/fetchInstagramCaption';
@@ -29,7 +28,10 @@ const CATEGORY_ORDER = ['breakfast', 'lunch-dinner', 'snacks', 'desserts', 'drin
 export function RecipeSetupPage({ onComplete, onBack, onSkip }) {
   const { importRecipes, addRecipe } = useRecipes();
   const [status, setStatus] = useState(null); // { type: 'loading'|'success'|'error', message }
-  const fileRef = useRef(null);
+
+  // Paste text mode
+  const [pasteMode, setPasteMode] = useState(false);
+  const [pasteText, setPasteText] = useState('');
 
   // URL import step
   const [urlMode, setUrlMode] = useState(false);
@@ -78,26 +80,6 @@ export function RecipeSetupPage({ onComplete, onBack, onSkip }) {
       .filter(cat => groups[cat]?.length > 0)
       .map(cat => ({ category: cat, label: CATEGORY_LABELS[cat] || cat, recipes: groups[cat] }));
   }, [filteredRecipes]);
-
-  async function handleDocxUpload(e) {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    setStatus({ type: 'loading', message: 'Parsing document...' });
-    try {
-      const recipes = await parseDocxRecipes(file);
-      if (recipes.length === 0) {
-        setStatus({ type: 'error', message: 'No recipes found in the document. Make sure recipe names are headings and ingredients are in lists.' });
-        return;
-      }
-      importRecipes(recipes);
-      setStatus({ type: 'success', message: `Imported ${recipes.length} recipe${recipes.length === 1 ? '' : 's'}!` });
-      setTimeout(() => onComplete(), 1200);
-    } catch (err) {
-      console.error('Docx parse error:', err);
-      setStatus({ type: 'error', message: 'Failed to parse the document. Please try a different .docx file.' });
-    }
-  }
 
   async function handleFetchStarter() {
     setStatus({ type: 'loading', message: 'Fetching starter recipes...' });
@@ -227,6 +209,45 @@ export function RecipeSetupPage({ onComplete, onBack, onSkip }) {
             onSave={handleManualSave}
             onCancel={() => setManualMode(false)}
           />
+        </div>
+      </div>
+    );
+  }
+
+  // ── Paste text step ──
+  if (pasteMode) {
+    return (
+      <div className={styles.page}>
+        <div className={styles.card}>
+          <img className={styles.logo} src="/sunday-logo.png" alt="Sunday" />
+          <h2 className={styles.title}>Paste Recipe Text</h2>
+          <p className={styles.subtitle}>Paste your recipe below and we'll parse it automatically</p>
+
+          <textarea
+            className={styles.urlInput}
+            rows={10}
+            value={pasteText}
+            onChange={e => setPasteText(e.target.value)}
+            placeholder={"Chicken Parmesan\n\nIngredients:\n2 chicken breasts\n1 cup breadcrumbs\n...\n\nInstructions:\n1. Preheat oven to 400°F\n..."}
+            style={{ resize: 'vertical', fontFamily: 'inherit' }}
+          />
+
+          <div className={styles.bottomActions}>
+            <button className={styles.backBtn} onClick={() => { setPasteMode(false); setPasteText(''); }}>
+              &larr; Back
+            </button>
+            <button
+              className={styles.importBtn}
+              onClick={() => {
+                const recipe = parseRecipeText(pasteText.trim());
+                setParsedRecipe(recipe);
+                setPasteMode(false);
+              }}
+              disabled={!pasteText.trim()}
+            >
+              Parse Recipe
+            </button>
+          </div>
         </div>
       </div>
     );
@@ -482,20 +503,13 @@ export function RecipeSetupPage({ onComplete, onBack, onSkip }) {
             </div>
           </div>
 
-          <div className={styles.optionCard} onClick={() => fileRef.current?.click()}>
-            <span className={styles.optionIcon}>{'\u{1F4C4}'}</span>
+          <div className={styles.optionCard} onClick={() => setPasteMode(true)}>
+            <span className={styles.optionIcon}>{'\u{1F4CB}'}</span>
             <div className={styles.optionText}>
-              <span className={styles.optionTitle}>Import from Word Document</span>
-              <span className={styles.optionDesc}>Upload a .docx file with your recipes</span>
+              <span className={styles.optionTitle}>Paste Recipe Text</span>
+              <span className={styles.optionDesc}>Paste a recipe and we'll parse it for you</span>
             </div>
           </div>
-          <input
-            ref={fileRef}
-            type="file"
-            accept=".docx"
-            className={styles.fileInput}
-            onChange={handleDocxUpload}
-          />
 
           <div className={styles.optionCard} onClick={handleFetchStarter}>
             <span className={styles.optionIcon}>{'\u2B50'}</span>
