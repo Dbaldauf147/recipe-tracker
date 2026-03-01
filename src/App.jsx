@@ -504,17 +504,17 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding }) {
 
 // Views: "list" | "detail" | "add"
 function App() {
-  const shareToken = new URLSearchParams(window.location.search).get('share');
-  if (shareToken) {
-    return <SharedRecipePage token={shareToken} />;
-  }
-
   const {
     user, loading, dataReady, isGuest, currentOnboardingStep, justOnboarded, logOut,
     completeGoals, skipGoals, goBackOnboarding, advanceOnboarding,
     completeNutritionGoals, completeKeyIngredients, completeRecipeSetup,
     restartOnboarding, cancelOnboarding, hasCompletedOnboarding,
   } = useAuth();
+
+  const shareToken = new URLSearchParams(window.location.search).get('share');
+  if (shareToken) {
+    return <SharedRecipePage token={shareToken} user={user} />;
+  }
 
   if (loading || (user && !dataReady)) {
     return (

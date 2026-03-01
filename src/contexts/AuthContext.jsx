@@ -74,6 +74,17 @@ export function AuthProvider({ children }) {
           saveField(firebaseUser.uid, 'displayName', firebaseUser.displayName);
         }
         recordLogin(firebaseUser.uid);
+        // Import any pending shared recipe before hydrating
+        const PENDING_SHARE_KEY = 'sunday-pending-shared-recipe';
+        let pendingRecipe = null;
+        try {
+          const raw = localStorage.getItem(PENDING_SHARE_KEY);
+          if (raw) {
+            pendingRecipe = JSON.parse(raw);
+            localStorage.removeItem(PENDING_SHARE_KEY);
+          }
+        } catch {}
+
         if (userData) {
           // Existing Firestore data → hydrate localStorage
           hydrateLocalStorage(userData);
@@ -89,6 +100,21 @@ export function AuthProvider({ children }) {
               name: firebaseUser.displayName,
             }),
           }).catch(() => {});
+        }
+
+        // Add pending shared recipe to user's recipes after hydration
+        if (pendingRecipe) {
+          try {
+            const newRecipe = {
+              ...pendingRecipe,
+              id: crypto.randomUUID(),
+              createdAt: new Date().toISOString(),
+            };
+            const existing = JSON.parse(localStorage.getItem('recipe-tracker-recipes') || '[]');
+            const next = [newRecipe, ...existing];
+            localStorage.setItem('recipe-tracker-recipes', JSON.stringify(next));
+            saveField(firebaseUser.uid, 'recipes', next);
+          } catch {}
         }
 
         // Determine onboarding state

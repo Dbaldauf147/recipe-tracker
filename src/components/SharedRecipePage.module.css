@@ -141,6 +141,33 @@
   padding-top: 0.15rem;
 }
 
+.saveRow {
+  margin-bottom: 1.5rem;
+}
+
+.saveBtn {
+  padding: 0.6rem 1.5rem;
+  border: none;
+  border-radius: 50px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  background: var(--color-accent);
+  color: #fff;
+  transition: background 0.15s ease;
+  box-shadow: 0 2px 8px rgba(201, 100, 66, 0.25);
+}
+
+.saveBtn:hover {
+  background: var(--color-accent-hover);
+}
+
+.savedMsg {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--color-accent);
+}
+
 .cta {
   text-align: center;
   margin-top: 2.5rem;

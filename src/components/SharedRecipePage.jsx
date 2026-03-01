@@ -1,11 +1,35 @@
 import React, { useState, useEffect } from 'react';
-import { loadSharedRecipe } from '../utils/firestoreSync';
+import { loadSharedRecipe, saveField } from '../utils/firestoreSync';
+import { auth } from '../firebase';
 import styles from './SharedRecipePage.module.css';
 
-export function SharedRecipePage({ token }) {
+const STORAGE_KEY = 'recipe-tracker-recipes';
+const PENDING_SHARE_KEY = 'sunday-pending-shared-recipe';
+
+function saveRecipeToProfile(recipe) {
+  const newRecipe = {
+    ...recipe,
+    id: crypto.randomUUID(),
+    createdAt: new Date().toISOString(),
+  };
+  // Remove the original id so it doesn't clash
+  delete newRecipe.originalId;
+
+  try {
+    const existing = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
+    const next = [newRecipe, ...existing];
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+    const user = auth.currentUser;
+    if (user) saveField(user.uid, 'recipes', next);
+  } catch {}
+  return newRecipe;
+}
+
+export function SharedRecipePage({ token, user }) {
   const [recipe, setRecipe] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
+  const [saved, setSaved] = useState(false);
 
   useEffect(() => {
     loadSharedRecipe(token)
@@ -16,6 +40,22 @@ export function SharedRecipePage({ token }) {
       .catch(() => setError(true))
       .finally(() => setLoading(false));
   }, [token]);
+
+  function handleSave() {
+    if (!recipe) return;
+    saveRecipeToProfile(recipe);
+    setSaved(true);
+  }
+
+  function handleSaveAndSignUp() {
+    if (!recipe) return;
+    // Stash recipe so it can be imported after sign-up/login
+    try {
+      localStorage.setItem(PENDING_SHARE_KEY, JSON.stringify(recipe));
+    } catch {}
+    // Navigate to home (login page)
+    window.location.href = window.location.origin;
+  }
 
   if (loading) return <div className={styles.loading}>Loading recipe...</div>;
   if (error || !recipe) return <div className={styles.error}>Recipe not found or link expired.</div>;
@@ -48,6 +88,24 @@ export function SharedRecipePage({ token }) {
           )}
         </div>
       </div>
+
+      {user ? (
+        <div className={styles.saveRow}>
+          {saved ? (
+            <span className={styles.savedMsg}>Recipe saved to your profile!</span>
+          ) : (
+            <button className={styles.saveBtn} onClick={handleSave}>
+              Save to My Recipes
+            </button>
+          )}
+        </div>
+      ) : (
+        <div className={styles.saveRow}>
+          <button className={styles.saveBtn} onClick={handleSaveAndSignUp}>
+            Sign up to save this recipe
+          </button>
+        </div>
+      )}
 
       {ingredients.length > 0 && (
         <div className={styles.section}>
