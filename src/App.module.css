@@ -18,8 +18,12 @@
 }
 
 .logo {
-  height: 64px;
   cursor: pointer;
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: #fff;
+  letter-spacing: -0.01em;
+  user-select: none;
 }
 
 .nav {
@@ -219,7 +223,7 @@
   }
 
   .logo {
-    height: 48px;
+    font-size: 1.2rem;
   }
 
   .userName {

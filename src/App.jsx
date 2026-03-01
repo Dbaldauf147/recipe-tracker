@@ -252,12 +252,12 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding }) {
   return (
     <div className={styles.app}>
       <header className={styles.header}>
-        <img
+        <span
           className={styles.logo}
-          src="/sunday-logo.png"
-          alt="Sunday"
           onClick={() => { setView('list'); setSelectedId(null); setViewHistory([]); }}
-        />
+        >
+          Prep Day
+        </span>
         <nav className={styles.nav}>
           {NAV_ITEMS.map(item => {
             const isActive = item.action
