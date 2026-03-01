@@ -298,12 +298,17 @@ export function NutritionGoalsPage({ onComplete, onBack, onSkip, initialSelected
 
   return (
     <div className={styles.page}>
+      <div className={styles.topBar}>
+        {onBack && (
+          <button className={styles.backBtn} onClick={onBack}>
+            &larr; Back
+          </button>
+        )}
+        <h2 className={styles.title}>Set your daily nutrition targets</h2>
+        <p className={styles.subtitle}>Enter your info to get personalized targets, or set them manually.</p>
+      </div>
       <div className={styles.twoCol}>
         <div className={styles.card}>
-          <img className={styles.logo} src="/sunday-logo.png" alt="Sunday" />
-          <h2 className={styles.title}>Set your daily nutrition targets</h2>
-          <p className={styles.subtitle}>Enter your info to get personalized targets, or set them manually below.</p>
-
           <div className={styles.statsSection}>
             <h4 className={styles.groupTitle}>Your Info</h4>
             <div className={styles.statsGrid}>
@@ -387,7 +392,9 @@ export function NutritionGoalsPage({ onComplete, onBack, onSkip, initialSelected
               </div>
             </div>
           </div>
+        </div>
 
+        <div className={styles.card}>
           {GROUPS.map(group => (
             <div key={group.title} className={styles.group}>
               <h4 className={styles.groupTitle}>{group.title}</h4>
@@ -459,11 +466,6 @@ export function NutritionGoalsPage({ onComplete, onBack, onSkip, initialSelected
           </div>
 
           <div className={styles.bottomActions}>
-            {onBack && (
-              <button className={styles.backBtn} onClick={onBack}>
-                &larr; Back
-              </button>
-            )}
             <button
               className={styles.continueBtn}
               onClick={handleContinue}
