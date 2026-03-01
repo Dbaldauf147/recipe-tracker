@@ -309,8 +309,8 @@ export function NutritionGoalsPage({ onComplete, onBack, onSkip, initialSelected
       <div className={styles.twoCol}>
         <div className={styles.card}>
           <div className={styles.statsSection}>
-            <h4 className={styles.groupTitle}>Your Info</h4>
             <p className={styles.subtitle}>Enter your info to get personalized targets, or set them manually.</p>
+            <h4 className={styles.groupTitle}>Your Info</h4>
             <div className={styles.statsGrid}>
               <div className={styles.statsField}>
                 <span className={styles.statsLabel}>Gender</span>
