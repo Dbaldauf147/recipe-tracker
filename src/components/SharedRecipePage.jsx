@@ -1,35 +1,15 @@
 import React, { useState, useEffect } from 'react';
-import { loadSharedRecipe, saveField } from '../utils/firestoreSync';
-import { auth } from '../firebase';
+import { loadSharedRecipe, loadUserData, saveField } from '../utils/firestoreSync';
 import styles from './SharedRecipePage.module.css';
 
-const STORAGE_KEY = 'recipe-tracker-recipes';
 const PENDING_SHARE_KEY = 'sunday-pending-shared-recipe';
-
-function saveRecipeToProfile(recipe) {
-  const newRecipe = {
-    ...recipe,
-    id: crypto.randomUUID(),
-    createdAt: new Date().toISOString(),
-  };
-  // Remove the original id so it doesn't clash
-  delete newRecipe.originalId;
-
-  try {
-    const existing = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
-    const next = [newRecipe, ...existing];
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
-    const user = auth.currentUser;
-    if (user) saveField(user.uid, 'recipes', next);
-  } catch {}
-  return newRecipe;
-}
 
 export function SharedRecipePage({ token, user }) {
   const [recipe, setRecipe] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     loadSharedRecipe(token)
@@ -41,10 +21,27 @@ export function SharedRecipePage({ token, user }) {
       .finally(() => setLoading(false));
   }, [token]);
 
-  function handleSave() {
-    if (!recipe) return;
-    saveRecipeToProfile(recipe);
-    setSaved(true);
+  async function handleSave() {
+    if (!recipe || !user || saving) return;
+    setSaving(true);
+    try {
+      const newRecipe = {
+        ...recipe,
+        id: crypto.randomUUID(),
+        createdAt: new Date().toISOString(),
+      };
+      // Read current recipes from Firestore to avoid stale localStorage
+      const userData = await loadUserData(user.uid);
+      const existing = userData?.recipes || [];
+      const next = [newRecipe, ...existing];
+      // Await the Firestore write so it completes before user navigates away
+      await saveField(user.uid, 'recipes', next);
+      setSaved(true);
+    } catch (err) {
+      console.error('Save shared recipe error:', err);
+    } finally {
+      setSaving(false);
+    }
   }
 
   function handleSaveAndSignUp() {
@@ -94,8 +91,8 @@ export function SharedRecipePage({ token, user }) {
           {saved ? (
             <span className={styles.savedMsg}>Recipe saved to your profile!</span>
           ) : (
-            <button className={styles.saveBtn} onClick={handleSave}>
-              Save to My Recipes
+            <button className={styles.saveBtn} onClick={handleSave} disabled={saving}>
+              {saving ? 'Saving...' : 'Save to My Recipes'}
             </button>
           )}
         </div>
