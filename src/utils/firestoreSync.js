@@ -287,6 +287,34 @@ export async function declineSharedRecipe(docId) {
   await deleteDoc(doc(db, 'sharedRecipes', docId));
 }
 
+/* ── Share-via-link functions ── */
+
+/**
+ * Create a shareable link for a recipe. Writes to sharedLinks/{token}.
+ * Returns the random 10-char token.
+ */
+export async function createShareLink(uid, recipe) {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+  let token = '';
+  for (let i = 0; i < 10; i++) token += chars[Math.floor(Math.random() * chars.length)];
+  const cleanRecipe = JSON.parse(JSON.stringify(recipe));
+  await setDoc(doc(db, 'sharedLinks', token), {
+    recipe: cleanRecipe,
+    createdBy: uid,
+    createdAt: new Date().toISOString(),
+  });
+  return token;
+}
+
+/**
+ * Load a shared recipe by token. Returns the recipe object or null.
+ */
+export async function loadSharedRecipe(token) {
+  const snap = await getDoc(doc(db, 'sharedLinks', token));
+  if (!snap.exists()) return null;
+  return snap.data().recipe;
+}
+
 /* ── Login tracking ── */
 
 /**

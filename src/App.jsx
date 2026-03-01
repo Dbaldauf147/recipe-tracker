@@ -14,6 +14,7 @@ import { ImportRecipePage } from './components/ImportRecipePage';
 import { LoginPage } from './components/LoginPage';
 import { OnboardingPage } from './components/OnboardingPage';
 import { AdminDashboard } from './components/AdminDashboard';
+import { SharedRecipePage } from './components/SharedRecipePage';
 import { GoalsPage } from './components/GoalsPage';
 import { NutritionGoalsPage } from './components/NutritionGoalsPage';
 import { RecipeSetupPage } from './components/RecipeSetupPage';
@@ -503,6 +504,11 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding }) {
 
 // Views: "list" | "detail" | "add"
 function App() {
+  const shareToken = new URLSearchParams(window.location.search).get('share');
+  if (shareToken) {
+    return <SharedRecipePage token={shareToken} />;
+  }
+
   const {
     user, loading, dataReady, isGuest, currentOnboardingStep, justOnboarded, logOut,
     completeGoals, skipGoals, goBackOnboarding, advanceOnboarding,

@@ -693,6 +693,31 @@
   background: var(--color-surface-alt, #f3f4f6);
 }
 
+.shareDivider {
+  height: 1px;
+  background: var(--color-border);
+  margin: 0.3rem 0;
+}
+
+.shareLinkBtn {
+  display: block;
+  width: 100%;
+  padding: 0.5rem 0.85rem;
+  background: none;
+  border: none;
+  text-align: left;
+  font-size: 0.85rem;
+  font-weight: 600;
+  font-family: inherit;
+  color: var(--color-accent);
+  cursor: pointer;
+  transition: background 0.12s ease;
+}
+
+.shareLinkBtn:hover {
+  background: var(--color-surface-alt, #f3f4f6);
+}
+
 .shareMsg {
   font-size: 0.82rem;
   font-weight: 500;

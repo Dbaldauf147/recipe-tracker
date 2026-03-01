@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { NutritionPanel } from './NutritionPanel';
 import { BarcodeScanner } from './BarcodeScanner';
-import { loadFriends, shareRecipe, getUsername } from '../utils/firestoreSync';
+import { loadFriends, shareRecipe, getUsername, createShareLink } from '../utils/firestoreSync';
 import { loadIngredients } from '../utils/ingredientsStore';
 import styles from './RecipeDetail.module.css';
 
@@ -640,7 +640,7 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user }) {
         <div className={styles.shareRow}>
           <div className={styles.shareWrapper} ref={shareRef}>
             <button className={styles.shareBtn} onClick={handleShareClick}>
-              Share with Friends
+              Share
             </button>
             {showShareDropdown && (
               <div className={styles.shareDropdown}>
@@ -656,6 +656,27 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user }) {
                     @{f.username}
                   </button>
                 ))}
+                <div className={styles.shareDivider} />
+                <button
+                  className={styles.shareLinkBtn}
+                  onClick={async () => {
+                    try {
+                      const cleanRecipe = JSON.parse(JSON.stringify(recipe));
+                      const token = await createShareLink(user.uid, cleanRecipe);
+                      const url = window.location.origin + '?share=' + token;
+                      await navigator.clipboard.writeText(url);
+                      setShowShareDropdown(false);
+                      setShareMsg('Link copied!');
+                      setTimeout(() => setShareMsg(null), 3000);
+                    } catch (err) {
+                      console.error('Create link error:', err);
+                      setShareMsg('Failed to create link.');
+                      setTimeout(() => setShareMsg(null), 3000);
+                    }
+                  }}
+                >
+                  Create Link
+                </button>
               </div>
             )}
           </div>
