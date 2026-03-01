@@ -413,12 +413,44 @@
   color: var(--color-accent);
 }
 
-.weekItemServings {
+.weekItemServingsControl {
+  display: flex;
+  align-items: center;
+  gap: 0.15rem;
+  margin-left: 0.4rem;
+  flex-shrink: 0;
+}
+
+.weekServingBtn {
+  background: none;
+  border: 1px solid var(--color-border);
+  color: var(--color-text-muted);
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  font-size: 0.75rem;
+  font-weight: 700;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  line-height: 1;
+  transition: background var(--transition-normal), color var(--transition-normal), border-color var(--transition-normal);
+}
+
+.weekServingBtn:hover {
+  background: var(--color-accent-light);
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+
+.weekServingCount {
   font-size: 0.75rem;
   font-weight: 600;
   color: var(--color-text-muted);
-  margin-left: 0.4rem;
-  flex-shrink: 0;
+  min-width: 1.4rem;
+  text-align: center;
 }
 
 .weekRemoveBtn {

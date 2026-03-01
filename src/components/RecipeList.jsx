@@ -42,9 +42,11 @@ export function RecipeList({
   onAdd,
   onImport,
   weeklyPlan,
+  weeklyServings = {},
   onAddToWeek,
   onRemoveFromWeek,
   onClearWeek,
+  onUpdateWeeklyServings,
   onCategoryChange,
   getRecipe,
   onSaveToHistory,
@@ -81,6 +83,10 @@ export function RecipeList({
       return data ? new Set(JSON.parse(data)) : new Set();
     } catch { return new Set(); }
   });
+
+  function getPlannedServings(recipe) {
+    return weeklyServings[recipe.id] ?? (parseInt(recipe.servings) || 1);
+  }
 
   const importFileRef = useRef(null);
   const scrolledRef = useRef(false);
@@ -219,12 +225,15 @@ export function RecipeList({
     if (selected.length === 0) return [];
     const map = new Map();
     for (const recipe of selected) {
+      const baseServings = parseInt(recipe.servings) || 1;
+      const plannedServings = getPlannedServings(recipe);
+      const scale = plannedServings / baseServings;
       for (const ing of (recipe.ingredients || [])) {
         const name = (ing.ingredient || '').toLowerCase().trim();
         if (!name) continue;
         const meas = (ing.measurement || '').toLowerCase().trim();
         const key = `${name}|||${meas}`;
-        const qty = parseFloat(ing.quantity) || 0;
+        const qty = (parseFloat(ing.quantity) || 0) * scale;
         if (map.has(key)) {
           map.get(key).quantity += qty;
         } else {
@@ -237,7 +246,7 @@ export function RecipeList({
       }
     }
     return Array.from(map.values()).sort((a, b) => a.ingredient.localeCompare(b.ingredient));
-  }, [weeklyRecipes, shopSelection]);
+  }, [weeklyRecipes, shopSelection, weeklyServings]);
 
   // Drag handlers for category columns
   function handleColumnDragOver(e) {
@@ -541,31 +550,46 @@ export function RecipeList({
                     <div key={cat.key} className={styles.weekCatGroup}>
                       <h4 className={styles.weekCatLabel}>{cat.label}</h4>
                       <div className={styles.weekList}>
-                        {catRecipes.map(recipe => (
-                          <div
-                            key={recipe.id}
-                            className={`${styles.weekItem}${lastAdded === recipe.id ? ` ${styles.weekItemNew}` : ''}`}
-                          >
-                            <button
-                              className={styles.weekItemName}
-                              onClick={() => onSelect(recipe.id)}
+                        {catRecipes.map(recipe => {
+                          const planned = getPlannedServings(recipe);
+                          return (
+                            <div
+                              key={recipe.id}
+                              className={`${styles.weekItem}${lastAdded === recipe.id ? ` ${styles.weekItemNew}` : ''}`}
                             >
-                              {recipe.title}
-                              {(parseInt(recipe.servings) || 1) > 1 && (
-                                <span className={styles.weekItemServings}>
-                                  {recipe.servings}s
-                                </span>
-                              )}
-                            </button>
-                            <button
-                              className={styles.weekRemoveBtn}
-                              onClick={() => onRemoveFromWeek(recipe.id)}
-                              aria-label={`Remove ${recipe.title} from this week`}
-                            >
-                              &times;
-                            </button>
-                          </div>
-                        ))}
+                              <button
+                                className={styles.weekItemName}
+                                onClick={() => onSelect(recipe.id)}
+                              >
+                                {recipe.title}
+                              </button>
+                              <span className={styles.weekItemServingsControl}>
+                                <button
+                                  className={styles.weekServingBtn}
+                                  onClick={() => onUpdateWeeklyServings(recipe.id, Math.max(1, planned - 1))}
+                                  aria-label="Decrease servings"
+                                >
+                                  &minus;
+                                </button>
+                                <span className={styles.weekServingCount}>{planned}s</span>
+                                <button
+                                  className={styles.weekServingBtn}
+                                  onClick={() => onUpdateWeeklyServings(recipe.id, planned + 1)}
+                                  aria-label="Increase servings"
+                                >
+                                  +
+                                </button>
+                              </span>
+                              <button
+                                className={styles.weekRemoveBtn}
+                                onClick={() => onRemoveFromWeek(recipe.id)}
+                                aria-label={`Remove ${recipe.title} from this week`}
+                              >
+                                &times;
+                              </button>
+                            </div>
+                          );
+                        })}
                       </div>
                     </div>
                   );
@@ -577,31 +601,46 @@ export function RecipeList({
                     <div className={styles.weekCatGroup}>
                       <h4 className={styles.weekCatLabel}>Other</h4>
                       <div className={styles.weekList}>
-                        {otherRecipes.map(recipe => (
-                          <div
-                            key={recipe.id}
-                            className={`${styles.weekItem}${lastAdded === recipe.id ? ` ${styles.weekItemNew}` : ''}`}
-                          >
-                            <button
-                              className={styles.weekItemName}
-                              onClick={() => onSelect(recipe.id)}
+                        {otherRecipes.map(recipe => {
+                          const planned = getPlannedServings(recipe);
+                          return (
+                            <div
+                              key={recipe.id}
+                              className={`${styles.weekItem}${lastAdded === recipe.id ? ` ${styles.weekItemNew}` : ''}`}
                             >
-                              {recipe.title}
-                              {(parseInt(recipe.servings) || 1) > 1 && (
-                                <span className={styles.weekItemServings}>
-                                  {recipe.servings}s
-                                </span>
-                              )}
-                            </button>
-                            <button
-                              className={styles.weekRemoveBtn}
-                              onClick={() => onRemoveFromWeek(recipe.id)}
-                              aria-label={`Remove ${recipe.title} from this week`}
-                            >
-                              &times;
-                            </button>
-                          </div>
-                        ))}
+                              <button
+                                className={styles.weekItemName}
+                                onClick={() => onSelect(recipe.id)}
+                              >
+                                {recipe.title}
+                              </button>
+                              <span className={styles.weekItemServingsControl}>
+                                <button
+                                  className={styles.weekServingBtn}
+                                  onClick={() => onUpdateWeeklyServings(recipe.id, Math.max(1, planned - 1))}
+                                  aria-label="Decrease servings"
+                                >
+                                  &minus;
+                                </button>
+                                <span className={styles.weekServingCount}>{planned}s</span>
+                                <button
+                                  className={styles.weekServingBtn}
+                                  onClick={() => onUpdateWeeklyServings(recipe.id, planned + 1)}
+                                  aria-label="Increase servings"
+                                >
+                                  +
+                                </button>
+                              </span>
+                              <button
+                                className={styles.weekRemoveBtn}
+                                onClick={() => onRemoveFromWeek(recipe.id)}
+                                aria-label={`Remove ${recipe.title} from this week`}
+                              >
+                                &times;
+                              </button>
+                            </div>
+                          );
+                        })}
                       </div>
                     </div>
                   );
@@ -617,8 +656,8 @@ export function RecipeList({
               </button>
             </h4>
             {(() => {
-              const bCount = weeklyRecipes.filter(r => r.category === 'breakfast').reduce((sum, r) => sum + (parseInt(r.servings) || 1), 0);
-              const ldCount = weeklyRecipes.filter(r => r.category === 'lunch-dinner').reduce((sum, r) => sum + (parseInt(r.servings) || 1), 0);
+              const bCount = weeklyRecipes.filter(r => r.category === 'breakfast').reduce((sum, r) => sum + getPlannedServings(r), 0);
+              const ldCount = weeklyRecipes.filter(r => r.category === 'lunch-dinner').reduce((sum, r) => sum + getPlannedServings(r), 0);
               return (
                 <>
                   <div className={styles.servingRow}>

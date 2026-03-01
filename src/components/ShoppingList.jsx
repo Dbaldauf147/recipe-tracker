@@ -47,26 +47,46 @@ function mergeIntoMap(map, ingredient, measurement, quantity) {
   }
 }
 
-function buildShoppingList(recipes) {
+function buildShoppingList(recipes, weeklyServings = {}) {
   const map = new Map();
   for (const recipe of recipes) {
+    const baseServings = parseInt(recipe.servings) || 1;
+    const plannedServings = weeklyServings[recipe.id] ?? baseServings;
+    const scale = plannedServings / baseServings;
     for (const ing of recipe.ingredients) {
-      mergeIntoMap(map, ing.ingredient, ing.measurement, ing.quantity);
+      const qty = parseFraction(ing.quantity);
+      const scaledQty = qty * scale;
+      const name = (ing.ingredient || '').toLowerCase().trim();
+      if (!name) continue;
+      const meas = (ing.measurement || '').toLowerCase().trim();
+      if (map.has(name)) {
+        const entry = map.get(name);
+        entry.quantity += scaledQty;
+        if (!entry.measurement && ing.measurement) {
+          entry.measurement = ing.measurement;
+        }
+      } else {
+        map.set(name, {
+          ingredient: ing.ingredient.trim(),
+          measurement: ing.measurement || '',
+          quantity: scaledQty,
+        });
+      }
     }
   }
   return map;
 }
 
-export function ShoppingList({ weeklyRecipes, extraItems = [], onClearExtras, onAddCustomItem, pantryNames, dismissedNames, onDismissItem }) {
+export function ShoppingList({ weeklyRecipes, weeklyServings = {}, extraItems = [], onClearExtras, onAddCustomItem, pantryNames, dismissedNames, onDismissItem }) {
   const items = useMemo(() => {
-    const map = buildShoppingList(weeklyRecipes);
+    const map = buildShoppingList(weeklyRecipes, weeklyServings);
     for (const e of extraItems) {
       mergeIntoMap(map, e.ingredient || '', e.measurement || '', e.quantity);
     }
     return Array.from(map.values()).sort((a, b) =>
       a.ingredient.localeCompare(b.ingredient)
     );
-  }, [weeklyRecipes, extraItems]);
+  }, [weeklyRecipes, weeklyServings, extraItems]);
 
   const displayItems = useMemo(() => {
     function wordMatch(a, b) {

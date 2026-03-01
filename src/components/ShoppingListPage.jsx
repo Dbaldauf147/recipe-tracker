@@ -73,7 +73,7 @@ const SOURCE_KEYS = {
   sauces: 'sunday-pantry-sauces',
 };
 
-export function ShoppingListPage({ weeklyRecipes, onClose }) {
+export function ShoppingListPage({ weeklyRecipes, weeklyServings = {}, onClose }) {
   const { user } = useAuth();
   const [extras, setExtras] = useState(loadExtras);
   const [dismissed, setDismissed] = useState(loadDismissed);
@@ -234,6 +234,7 @@ export function ShoppingListPage({ weeklyRecipes, onClose }) {
         <div className={styles.cell}>
           <ShoppingList
             weeklyRecipes={weeklyRecipes}
+            weeklyServings={weeklyServings}
             extraItems={extras}
             onClearExtras={handleClearExtras}
             onAddCustomItem={handleAddCustomItem}

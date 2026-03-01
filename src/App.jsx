@@ -39,6 +39,7 @@ class ErrorBoundary extends React.Component {
 
 const ADMIN_UID = import.meta.env.VITE_ADMIN_UID;
 const WEEKLY_KEY = 'sunday-weekly-plan';
+const WEEKLY_SERVINGS_KEY = 'sunday-weekly-servings';
 
 function loadWeeklyPlan() {
   try {
@@ -46,6 +47,15 @@ function loadWeeklyPlan() {
     return data ? JSON.parse(data) : [];
   } catch {
     return [];
+  }
+}
+
+function loadWeeklyServings() {
+  try {
+    const data = localStorage.getItem(WEEKLY_SERVINGS_KEY);
+    return data ? JSON.parse(data) : {};
+  } catch {
+    return {};
   }
 }
 
@@ -61,6 +71,7 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding }) {
   const [selectedId, setSelectedId] = useState(null);
   const [viewHistory, setViewHistory] = useState([]);
   const [weeklyPlan, setWeeklyPlan] = useState(loadWeeklyPlan);
+  const [weeklyServings, setWeeklyServings] = useState(loadWeeklyServings);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [pendingCount, setPendingCount] = useState(0);
   const settingsRef = useRef(null);
@@ -118,6 +129,19 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding }) {
     if (user) saveField(user.uid, 'weeklyPlan', plan);
   }
 
+  function saveWeeklyServings(servings) {
+    try { localStorage.setItem(WEEKLY_SERVINGS_KEY, JSON.stringify(servings)); } catch {}
+    if (user) saveField(user.uid, 'weeklyServings', servings);
+  }
+
+  function handleUpdateWeeklyServings(recipeId, newServings) {
+    setWeeklyServings(prev => {
+      const next = { ...prev, [recipeId]: newServings };
+      saveWeeklyServings(next);
+      return next;
+    });
+  }
+
   const NAV_ITEMS = [
     { label: 'Shopping List', action: 'shopping' },
     { label: "This Week's Menu", id: 'weekly-menu' },
@@ -167,6 +191,12 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding }) {
       saveWeek(next);
       return next;
     });
+    setWeeklyServings(prev => {
+      const next = { ...prev };
+      delete next[id];
+      saveWeeklyServings(next);
+      return next;
+    });
     setView('list');
     setViewHistory([]);
   }
@@ -185,11 +215,19 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding }) {
       saveWeek(next);
       return next;
     });
+    setWeeklyServings(prev => {
+      const next = { ...prev };
+      delete next[id];
+      saveWeeklyServings(next);
+      return next;
+    });
   }
 
   function handleClearWeek() {
     saveWeek([]);
     setWeeklyPlan([]);
+    saveWeeklyServings({});
+    setWeeklyServings({});
   }
 
   function handleCategoryChange(id, newCategory) {
@@ -381,6 +419,7 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding }) {
         ) : view === 'shopping' ? (
           <ShoppingListPage
             weeklyRecipes={weeklyPlan.map(id => getRecipe(id)).filter(Boolean)}
+            weeklyServings={weeklyServings}
             onClose={goBack}
           />
         ) : view === 'setup' ? (
@@ -441,9 +480,11 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding }) {
               onAdd={() => navigateTo('import')}
               onImport={importRecipes}
               weeklyPlan={weeklyPlan}
+              weeklyServings={weeklyServings}
               onAddToWeek={handleAddToWeek}
               onRemoveFromWeek={handleRemoveFromWeek}
               onClearWeek={handleClearWeek}
+              onUpdateWeeklyServings={handleUpdateWeeklyServings}
               onCategoryChange={handleCategoryChange}
               getRecipe={getRecipe}
               onSaveToHistory={handleSaveToHistory}

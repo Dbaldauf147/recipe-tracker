@@ -23,6 +23,7 @@ const APP_STORAGE_KEYS = [
   'sunday-user-goals',
   'sunday-nutrition-goals',
   'sunday-body-stats',
+  'sunday-weekly-servings',
 ];
 
 function clearAppStorage() {
