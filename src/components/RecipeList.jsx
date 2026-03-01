@@ -650,9 +650,9 @@ export function RecipeList({
           </div>
           <div className={styles.weekServings}>
             <h4 className={styles.weekServingsTitle}>
-              Weekly Servings
+              Amount of Meals
               <button className={styles.goalEditBtn} onClick={() => setEditingGoals(prev => !prev)}>
-                {editingGoals ? 'Done' : 'Set Targets'}
+                {editingGoals ? 'Done' : 'Set Meal Number'}
               </button>
             </h4>
             {(() => {
