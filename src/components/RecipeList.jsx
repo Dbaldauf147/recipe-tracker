@@ -451,57 +451,14 @@ export function RecipeList({
 
   return (
     <div className={styles.container}>
-      {/* Header */}
-      <div className={styles.header}>
-        <h2 className={styles.heading}>My Recipes</h2>
-        <div className={styles.actions}>
-          <input
-            ref={importFileRef}
-            type="file"
-            accept=".csv"
-            style={{ display: 'none' }}
-            onChange={handleImportCSV}
-          />
-          <div className={styles.settingsWrap} ref={settingsRef}>
-            <button
-              className={styles.gearBtn}
-              onClick={() => setSettingsOpen(prev => !prev)}
-              aria-label="Settings"
-            >
-              &#9881;
-            </button>
-            {settingsOpen && (
-              <div className={styles.settingsDropdown}>
-                <button
-                  className={styles.settingsItem}
-                  onClick={() => { importFileRef.current?.click(); setSettingsOpen(false); }}
-                >
-                  Import Recipe Data
-                </button>
-                <button
-                  className={styles.settingsItem}
-                  onClick={() => { exportToCSV(); setSettingsOpen(false); }}
-                >
-                  Export Recipe Data
-                </button>
-                {user?.email === 'baldaufdan@gmail.com' && (
-                  <button
-                    className={styles.settingsItem}
-                    onClick={() => { handleImport(); setSettingsOpen(false); }}
-                    disabled={importing}
-                  >
-                    {importing ? 'Importing...' : 'Import from Sheet'}
-                  </button>
-                )}
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
-
-      {importResult && (
-        <p className={styles.importResult}>{importResult}</p>
-      )}
+      {/* Hidden file input for CSV import */}
+      <input
+        ref={importFileRef}
+        type="file"
+        accept=".csv"
+        style={{ display: 'none' }}
+        onChange={handleImportCSV}
+      />
 
       {/* 1. This Week's Menu — full-width, dominant */}
       <div
@@ -808,7 +765,47 @@ export function RecipeList({
       </div>
       </div>
 
-      {/* 4. Search + Filter Row */}
+      {/* 4. My Recipes heading + Search + Filter Row */}
+      <div className={styles.sectionHeader}>
+        <h3 className={styles.sectionHeading}>My Recipes</h3>
+        <div className={styles.settingsWrap} ref={settingsRef}>
+          <button
+            className={styles.gearBtn}
+            onClick={() => setSettingsOpen(prev => !prev)}
+            aria-label="Settings"
+          >
+            &#9881;
+          </button>
+          {settingsOpen && (
+            <div className={styles.settingsDropdown}>
+              <button
+                className={styles.settingsItem}
+                onClick={() => { importFileRef.current?.click(); setSettingsOpen(false); }}
+              >
+                Import Recipe Data
+              </button>
+              <button
+                className={styles.settingsItem}
+                onClick={() => { exportToCSV(); setSettingsOpen(false); }}
+              >
+                Export Recipe Data
+              </button>
+              {user?.email === 'baldaufdan@gmail.com' && (
+                <button
+                  className={styles.settingsItem}
+                  onClick={() => { handleImport(); setSettingsOpen(false); }}
+                  disabled={importing}
+                >
+                  {importing ? 'Importing...' : 'Import from Sheet'}
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+      {importResult && (
+        <p className={styles.importResult}>{importResult}</p>
+      )}
       <div className={styles.searchRow}>
         <input
           className={styles.searchInput}
