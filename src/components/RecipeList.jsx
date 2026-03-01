@@ -653,12 +653,7 @@ export function RecipeList({
             )}
           </div>
           <div className={styles.weekServings}>
-            <h4 className={styles.weekServingsTitle}>
-              Amount of Meals
-              <button className={styles.goalEditBtn} onClick={() => setEditingGoals(prev => !prev)}>
-                {editingGoals ? 'Done' : 'Set Meal Number'}
-              </button>
-            </h4>
+            <h4 className={styles.weekServingsTitle}>Amount of Meals</h4>
             {(() => {
               const bCount = weeklyRecipes.filter(r => r.category === 'breakfast').reduce((sum, r) => sum + getPlannedServings(r), 0);
               const ldCount = weeklyRecipes.filter(r => r.category === 'lunch-dinner').reduce((sum, r) => sum + getPlannedServings(r), 0);
@@ -669,32 +664,28 @@ export function RecipeList({
                     <span className={`${styles.servingCount} ${bCount >= weeklyGoals.breakfast ? styles.servingMet : styles.servingUnder}`}>
                       {bCount}
                     </span>
-                    <span className={styles.servingGoal}>/ {weeklyGoals.breakfast}</span>
-                    {editingGoals && (
-                      <input
-                        className={styles.goalInput}
-                        type="number"
-                        min="0"
-                        value={weeklyGoals.breakfast}
-                        onChange={e => updateWeeklyGoal('breakfast', e.target.value)}
-                      />
-                    )}
+                    <span className={styles.servingGoal}>/</span>
+                    <input
+                      className={styles.goalInput}
+                      type="number"
+                      min="0"
+                      value={weeklyGoals.breakfast}
+                      onChange={e => updateWeeklyGoal('breakfast', e.target.value)}
+                    />
                   </div>
                   <div className={styles.servingRow}>
                     <span className={styles.servingLabel}>Lunch & Dinner</span>
                     <span className={`${styles.servingCount} ${ldCount >= weeklyGoals.lunchDinner ? styles.servingMet : styles.servingUnder}`}>
                       {ldCount}
                     </span>
-                    <span className={styles.servingGoal}>/ {weeklyGoals.lunchDinner}</span>
-                    {editingGoals && (
-                      <input
-                        className={styles.goalInput}
-                        type="number"
-                        min="0"
-                        value={weeklyGoals.lunchDinner}
-                        onChange={e => updateWeeklyGoal('lunchDinner', e.target.value)}
-                      />
-                    )}
+                    <span className={styles.servingGoal}>/</span>
+                    <input
+                      className={styles.goalInput}
+                      type="number"
+                      min="0"
+                      value={weeklyGoals.lunchDinner}
+                      onChange={e => updateWeeklyGoal('lunchDinner', e.target.value)}
+                    />
                   </div>
                 </>
               );
