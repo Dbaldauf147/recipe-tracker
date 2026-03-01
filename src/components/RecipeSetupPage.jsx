@@ -135,7 +135,9 @@ export function RecipeSetupPage({ onComplete, onBack, onSkip }) {
   const checkedCount = filteredRecipes.filter(r => checkedRecipes.has(r.title)).length;
 
   function handleImportFiltered() {
-    const toImport = filteredRecipes.filter(r => checkedRecipes.has(r.title));
+    const toImport = filteredRecipes
+      .filter(r => checkedRecipes.has(r.title))
+      .map(r => ({ ...r, source: 'starter' }));
     if (toImport.length === 0) return;
     importRecipes(toImport);
     setStatus({ type: 'success', message: `Imported ${toImport.length} recipe${toImport.length === 1 ? '' : 's'}!` });
@@ -158,7 +160,7 @@ export function RecipeSetupPage({ onComplete, onBack, onSkip }) {
   }
 
   function handleUrlRecipeSave(data) {
-    addRecipe(data);
+    addRecipe({ ...data, source: data.source || 'url' });
     setStatus({ type: 'success', message: 'Recipe imported!' });
     setParsedRecipe(null);
     setUrlMode(false);
@@ -186,12 +188,13 @@ export function RecipeSetupPage({ onComplete, onBack, onSkip }) {
     if (!text) return;
     const recipe = parseRecipeText(text);
     recipe.sourceUrl = instagramUrl.trim();
+    recipe.source = 'instagram';
     setParsedRecipe(recipe);
     setInstagramMode(false);
   }
 
   function handleManualSave(data) {
-    addRecipe(data);
+    addRecipe({ ...data, source: 'manual' });
     setStatus({ type: 'success', message: 'Recipe added!' });
     setManualMode(false);
     setTimeout(() => onComplete(), 1200);
@@ -240,6 +243,7 @@ export function RecipeSetupPage({ onComplete, onBack, onSkip }) {
               className={styles.importBtn}
               onClick={() => {
                 const recipe = parseRecipeText(pasteText.trim());
+                recipe.source = 'paste';
                 setParsedRecipe(recipe);
                 setPasteMode(false);
               }}

@@ -147,7 +147,7 @@ export function FriendsPage({ onClose, addRecipe }) {
       await acceptSharedRecipe(share.id);
       if (addRecipe && share.recipe) {
         const { id, ...recipeData } = share.recipe;
-        addRecipe(recipeData);
+        addRecipe({ ...recipeData, source: 'shared' });
       }
       setSharedRecipes(prev => prev.filter(s => s.id !== share.id));
     } catch (err) {

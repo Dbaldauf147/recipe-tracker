@@ -112,6 +112,67 @@
   background: var(--color-surface-alt, #f9fafb);
 }
 
+.sourceSection {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 1.25rem;
+  margin-bottom: 1.5rem;
+  box-shadow: var(--shadow-sm);
+}
+
+.sourceHeading {
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text-muted);
+  margin: 0 0 1rem;
+}
+
+.sourceGrid {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.sourceRow {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.sourceLabel {
+  font-size: 0.85rem;
+  font-weight: 500;
+  min-width: 110px;
+  flex-shrink: 0;
+}
+
+.sourceBarWrap {
+  flex: 1;
+  height: 8px;
+  background: var(--color-border-light, #e5e7eb);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.sourceBar {
+  height: 100%;
+  background: var(--color-accent);
+  border-radius: 4px;
+  min-width: 2px;
+  transition: width 0.3s ease;
+}
+
+.sourceCount {
+  font-size: 0.8rem;
+  color: var(--color-text-muted);
+  min-width: 70px;
+  text-align: right;
+  flex-shrink: 0;
+}
+
 @media (max-width: 600px) {
   .statsRow {
     flex-direction: column;

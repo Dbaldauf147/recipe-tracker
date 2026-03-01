@@ -122,6 +122,7 @@ export function RecipeForm({ recipe, onSave, onCancel }) {
       sourceUrl: sourceUrl.trim(),
       ingredients: ingredients.filter(row => row.ingredient.trim() !== ''),
       instructions: instructions.trim(),
+      ...(recipe?.source ? { source: recipe.source } : {}),
     });
   }
 

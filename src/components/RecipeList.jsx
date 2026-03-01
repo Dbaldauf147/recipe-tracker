@@ -337,7 +337,7 @@ export function RecipeList({
 
   function handleAddDiscover(recipe) {
     const { id, createdAt, ...rest } = recipe;
-    onAddRecipe(rest);
+    onAddRecipe({ ...rest, source: 'discover' });
     setAddedIds(prev => new Set(prev).add(recipe.title.toLowerCase()));
   }
 

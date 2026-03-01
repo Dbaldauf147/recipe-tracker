@@ -66,6 +66,29 @@ export function AdminDashboard({ onClose }) {
     return `${Math.floor(days / 30)}mo ago`;
   }
 
+  const sourceCounts = users.reduce((acc, u) => {
+    for (const r of (u.recipes || [])) {
+      const src = r.source || 'unknown';
+      acc[src] = (acc[src] || 0) + 1;
+    }
+    return acc;
+  }, {});
+
+  const sourceLabels = {
+    url: 'URL',
+    tiktok: 'TikTok',
+    instagram: 'Instagram',
+    paste: 'Paste Text',
+    manual: 'Manual',
+    starter: 'Starter Recipes',
+    discover: 'Discover',
+    shared: 'Shared',
+    unknown: 'Unknown',
+  };
+
+  const sourceOrder = ['url', 'tiktok', 'instagram', 'paste', 'manual', 'starter', 'discover', 'shared', 'unknown'];
+  const totalRecipesWithSource = Object.values(sourceCounts).reduce((a, b) => a + b, 0);
+
   const arrow = (field) => sortField === field ? (sortDir === 'asc' ? ' ↑' : ' ↓') : '';
 
   return (
@@ -96,6 +119,29 @@ export function AdminDashboard({ onClose }) {
           <div className={styles.statLabel}>Active (7d)</div>
         </div>
       </div>
+
+      {!loading && totalRecipesWithSource > 0 && (
+        <div className={styles.sourceSection}>
+          <h3 className={styles.sourceHeading}>Recipe Import Methods</h3>
+          <div className={styles.sourceGrid}>
+            {sourceOrder
+              .filter(src => sourceCounts[src] > 0)
+              .map(src => {
+                const count = sourceCounts[src];
+                const pct = Math.round((count / totalRecipesWithSource) * 100);
+                return (
+                  <div key={src} className={styles.sourceRow}>
+                    <span className={styles.sourceLabel}>{sourceLabels[src] || src}</span>
+                    <div className={styles.sourceBarWrap}>
+                      <div className={styles.sourceBar} style={{ width: `${pct}%` }} />
+                    </div>
+                    <span className={styles.sourceCount}>{count} ({pct}%)</span>
+                  </div>
+                );
+              })}
+          </div>
+        </div>
+      )}
 
       {loading ? (
         <p className={styles.loading}>Loading users...</p>

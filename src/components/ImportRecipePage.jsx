@@ -101,7 +101,7 @@ export function ImportRecipePage({ onSave, onCancel }) {
   }
 
   function handleSave(data) {
-    onSave(data);
+    onSave({ ...data, source: importMode });
   }
 
   function handleBackToPaste() {
