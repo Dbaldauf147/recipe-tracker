@@ -571,7 +571,7 @@ export function RecipeList({
                                 >
                                   &minus;
                                 </button>
-                                <span className={styles.weekServingCount}>{planned}s</span>
+                                <span className={styles.weekServingCount}>{planned} {planned === 1 ? 'serving' : 'servings'}</span>
                                 <button
                                   className={styles.weekServingBtn}
                                   onClick={() => onUpdateWeeklyServings(recipe.id, planned + 1)}
@@ -622,7 +622,7 @@ export function RecipeList({
                                 >
                                   &minus;
                                 </button>
-                                <span className={styles.weekServingCount}>{planned}s</span>
+                                <span className={styles.weekServingCount}>{planned} {planned === 1 ? 'serving' : 'servings'}</span>
                                 <button
                                   className={styles.weekServingBtn}
                                   onClick={() => onUpdateWeeklyServings(recipe.id, planned + 1)}
