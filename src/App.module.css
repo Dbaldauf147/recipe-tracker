@@ -18,7 +18,7 @@
 }
 
 .logo {
-  height: 32px;
+  height: 64px;
   cursor: pointer;
 }
 
@@ -219,7 +219,7 @@
   }
 
   .logo {
-    height: 26px;
+    height: 48px;
   }
 
   .userName {
