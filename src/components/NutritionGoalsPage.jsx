@@ -305,12 +305,12 @@ export function NutritionGoalsPage({ onComplete, onBack, onSkip, initialSelected
           </button>
         )}
         <h2 className={styles.title}>Set your daily nutrition targets</h2>
-        <p className={styles.subtitle}>Enter your info to get personalized targets, or set them manually.</p>
       </div>
       <div className={styles.twoCol}>
         <div className={styles.card}>
           <div className={styles.statsSection}>
             <h4 className={styles.groupTitle}>Your Info</h4>
+            <p className={styles.subtitle}>Enter your info to get personalized targets, or set them manually.</p>
             <div className={styles.statsGrid}>
               <div className={styles.statsField}>
                 <span className={styles.statsLabel}>Gender</span>
@@ -395,6 +395,7 @@ export function NutritionGoalsPage({ onComplete, onBack, onSkip, initialSelected
         </div>
 
         <div className={styles.card}>
+          <p className={styles.subtitle}>Select the type of nutrition data you would like to set goals around.</p>
           {GROUPS.map(group => (
             <div key={group.title} className={styles.group}>
               <h4 className={styles.groupTitle}>{group.title}</h4>

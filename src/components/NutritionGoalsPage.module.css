@@ -70,9 +70,10 @@
 }
 
 .subtitle {
-  margin: 0;
+  margin: 0 0 1rem;
   font-size: 0.85rem;
   color: var(--color-text-muted);
+  text-align: left;
 }
 
 /* Body stats section */
