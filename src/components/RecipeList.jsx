@@ -551,6 +551,11 @@ export function RecipeList({
                               onClick={() => onSelect(recipe.id)}
                             >
                               {recipe.title}
+                              {(parseInt(recipe.servings) || 1) > 1 && (
+                                <span className={styles.weekItemServings}>
+                                  {recipe.servings}s
+                                </span>
+                              )}
                             </button>
                             <button
                               className={styles.weekRemoveBtn}
@@ -582,6 +587,11 @@ export function RecipeList({
                               onClick={() => onSelect(recipe.id)}
                             >
                               {recipe.title}
+                              {(parseInt(recipe.servings) || 1) > 1 && (
+                                <span className={styles.weekItemServings}>
+                                  {recipe.servings}s
+                                </span>
+                              )}
                             </button>
                             <button
                               className={styles.weekRemoveBtn}

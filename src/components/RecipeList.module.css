@@ -413,6 +413,14 @@
   color: var(--color-accent);
 }
 
+.weekItemServings {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  margin-left: 0.4rem;
+  flex-shrink: 0;
+}
+
 .weekRemoveBtn {
   background: none;
   border: none;
