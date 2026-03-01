@@ -305,6 +305,20 @@ export function NutritionGoalsPage({ onComplete, onBack, onSkip, initialSelected
           </button>
         )}
         <h2 className={styles.title}>Set your daily nutrition targets</h2>
+        <div className={styles.topActions}>
+          <button
+            className={styles.continueBtn}
+            onClick={handleContinue}
+            disabled={selected.size === 0}
+          >
+            {isSettings ? 'Save Changes' : 'Continue'}
+          </button>
+          {onSkip && (
+            <button className={styles.skipBtn} onClick={onSkip}>
+              Skip for now
+            </button>
+          )}
+        </div>
       </div>
       <div className={styles.twoCol}>
         <div className={styles.card}>
