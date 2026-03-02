@@ -58,6 +58,33 @@ const WEIGHT_TO_G = {
 const VOLUME_UNITS = ['tsp', 'tbsp', 'cup', 'ml', 'fl oz', 'pint', 'quart', 'liter', 'gallon', 'pinch', 'dash', 'can', 'handful', 'bunch'];
 const WEIGHT_UNITS = ['g', 'oz', 'lb', 'kg', 'clove', 'slice', 'stick', 'piece', 'head', 'stalk', 'sprig', 'whole', 'each', 'large', 'medium', 'small'];
 
+const LIQUIDS = new Set([
+  'water', 'milk', 'cream', 'half and half', 'half-and-half', 'buttermilk',
+  'broth', 'stock', 'chicken broth', 'beef broth', 'vegetable broth',
+  'chicken stock', 'beef stock', 'vegetable stock', 'bone broth',
+  'juice', 'orange juice', 'lemon juice', 'lime juice', 'apple juice',
+  'oil', 'olive oil', 'vegetable oil', 'canola oil', 'coconut oil', 'sesame oil', 'avocado oil',
+  'vinegar', 'apple cider vinegar', 'balsamic vinegar', 'red wine vinegar', 'white vinegar', 'rice vinegar',
+  'wine', 'red wine', 'white wine', 'cooking wine', 'beer',
+  'soy sauce', 'fish sauce', 'hot sauce', 'worcestershire sauce', 'teriyaki sauce',
+  'maple syrup', 'honey', 'agave', 'corn syrup', 'molasses',
+  'vanilla extract', 'extract', 'almond extract',
+  'coffee', 'espresso', 'tea',
+  'coconut milk', 'almond milk', 'oat milk', 'soy milk',
+  'heavy cream', 'whipping cream', 'sour cream',
+]);
+
+function isLiquid(ingredientName) {
+  if (!ingredientName) return false;
+  const name = ingredientName.trim().toLowerCase();
+  if (LIQUIDS.has(name)) return true;
+  // Partial match: check if any liquid keyword is in the name
+  for (const liquid of LIQUIDS) {
+    if (name.includes(liquid) || liquid.includes(name)) return true;
+  }
+  return false;
+}
+
 function normalizeUnit(unit) {
   return unit.trim().toLowerCase().replace(/\(s\)$/i, '');
 }
@@ -297,6 +324,42 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user }) {
       ...prev,
       ingredients: prev.ingredients.filter((_, i) => i !== index),
     }));
+  }
+
+  const [dragIdx, setDragIdx] = useState(null);
+  const [dragOverIdx, setDragOverIdx] = useState(null);
+
+  function handleIngredientDragStart(e, index) {
+    setDragIdx(index);
+    e.dataTransfer.effectAllowed = 'move';
+  }
+
+  function handleIngredientDragOver(e, index) {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    setDragOverIdx(index);
+  }
+
+  function handleIngredientDrop(e, index) {
+    e.preventDefault();
+    if (dragIdx === null || dragIdx === index) {
+      setDragIdx(null);
+      setDragOverIdx(null);
+      return;
+    }
+    setFields(prev => {
+      const items = [...prev.ingredients];
+      const [moved] = items.splice(dragIdx, 1);
+      items.splice(index, 0, moved);
+      return { ...prev, ingredients: items };
+    });
+    setDragIdx(null);
+    setDragOverIdx(null);
+  }
+
+  function handleIngredientDragEnd() {
+    setDragIdx(null);
+    setDragOverIdx(null);
   }
 
   function handlePaste(e, rowIndex, colIndex) {
@@ -817,6 +880,7 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user }) {
             <table className={styles.ingredientTable}>
               <thead>
                 <tr>
+                  <th></th>
                   <th>Quantity</th>
                   <th>Measurement</th>
                   <th>Type</th>
@@ -832,15 +896,18 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user }) {
                   const dbMeasurement = getDbMeasurement(row.ingredient);
                   const dbNotes = getDbNotes(row.ingredient);
                   const unitType = classifyUnit(row.measurement);
-                  // Compute the conversion to the opposite type
-                  const crossConv = getCrossConversion(row.quantity, row.measurement, dbGrams, dbMeasurement);
+                  const liquid = isLiquid(row.ingredient);
+                  // Compute the conversion to the opposite type (skip weight for liquids)
+                  const crossConv = liquid ? { weight: '', volume: '' } : getCrossConversion(row.quantity, row.measurement, dbGrams, dbMeasurement);
                   let convertedText = '';
-                  if (unitType === 'weight' && crossConv.volume) convertedText = crossConv.volume;
-                  else if (unitType === 'volume' && crossConv.weight) convertedText = crossConv.weight;
+                  if (!liquid) {
+                    if (unitType === 'weight' && crossConv.volume) convertedText = crossConv.volume;
+                    else if (unitType === 'volume' && crossConv.weight) convertedText = crossConv.weight;
+                  }
                   // Also compute same-type conversions for toggling
                   const conversions = getConversions(row.quantity, row.measurement, dbGrams);
-                  // Find best opposite-type conversion from the full list
-                  if (!convertedText && conversions.length > 0) {
+                  // Find best opposite-type conversion from the full list (skip for liquids)
+                  if (!liquid && !convertedText && conversions.length > 0) {
                     if (unitType === 'weight') {
                       const vol = conversions.find(c => VOLUME_TO_ML[c.unit]);
                       if (vol) convertedText = `${vol.qty} ${vol.unit}`;
@@ -850,7 +917,16 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user }) {
                     }
                   }
                   return (
-                  <tr key={i}>
+                  <tr
+                    key={i}
+                    draggable
+                    onDragStart={e => handleIngredientDragStart(e, i)}
+                    onDragOver={e => handleIngredientDragOver(e, i)}
+                    onDrop={e => handleIngredientDrop(e, i)}
+                    onDragEnd={handleIngredientDragEnd}
+                    className={`${dragIdx === i ? styles.draggingRow : ''} ${dragOverIdx === i && dragIdx !== i ? styles.dragOverRow : ''}`}
+                  >
+                    <td className={styles.dragHandle}>&#x2630;</td>
                     {ingredientFields.map((field, colIdx) => (
                       <React.Fragment key={field}>
                         <td>
@@ -872,11 +948,16 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user }) {
                           <>
                             <td>
                               {unitType ? (
+                                liquid && unitType === 'volume' ? (
+                                  <span className={styles.typeLabelLiquid}>Volume</span>
+                                ) : (
                                 <button
                                   className={styles.typeBtn}
                                   type="button"
-                                  title={unitType === 'weight' ? 'Convert to volume' : 'Convert to weight'}
+                                  title={liquid ? 'Liquid — volume only' : unitType === 'weight' ? 'Convert to volume' : 'Convert to weight'}
+                                  disabled={liquid}
                                   onClick={() => {
+                                    if (liquid) return;
                                     // Find the best conversion to the opposite type and apply it
                                     if (unitType === 'weight') {
                                       // Try cross-conversion first
@@ -912,6 +993,7 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user }) {
                                 >
                                   {unitType === 'weight' ? 'Weight' : 'Volume'}
                                 </button>
+                                )
                               ) : (
                                 <span className={styles.typeLabel}>
                                   {(row.measurement || '').trim() ? 'Other' : ''}

@@ -36,8 +36,15 @@
   color: var(--color-text-muted);
 }
 
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
 .search {
-  width: 100%;
+  flex: 1;
   max-width: 320px;
   padding: 0.5rem 0.75rem;
   border: 1px solid var(--color-border);
@@ -46,7 +53,6 @@
   font-family: inherit;
   color: var(--color-text);
   background: var(--color-surface);
-  margin-bottom: 1rem;
   transition: border-color 0.15s ease;
 }
 
@@ -223,21 +229,22 @@
 
 /* Add ingredient button */
 .addBtn {
-  display: block;
-  margin-top: 0.5rem;
+  white-space: nowrap;
   background: none;
-  border: none;
+  border: 1px solid var(--color-accent);
+  border-radius: 50px;
   color: var(--color-accent);
   font-size: 0.82rem;
   font-weight: 600;
   font-family: inherit;
   cursor: pointer;
-  padding: 0.25rem 0;
-  transition: opacity 0.15s ease;
+  padding: 0.4rem 1rem;
+  transition: background 0.15s ease, color 0.15s ease;
 }
 
 .addBtn:hover {
-  opacity: 0.8;
+  background: var(--color-accent);
+  color: #fff;
 }
 
 /* Narrow action column for delete button */

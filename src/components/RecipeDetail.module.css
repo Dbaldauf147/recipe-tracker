@@ -557,9 +557,43 @@
   transition: background 0.15s ease, color 0.15s ease;
 }
 
-.typeBtn:hover {
+.typeBtn:hover:not(:disabled) {
   background: var(--color-accent);
   color: #fff;
+}
+
+.typeBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.typeLabelLiquid {
+  font-size: 0.78rem;
+  color: var(--color-text-muted);
+  font-style: italic;
+}
+
+.dragHandle {
+  cursor: grab;
+  color: var(--color-text-muted);
+  font-size: 0.9rem;
+  text-align: center;
+  width: 24px;
+  user-select: none;
+  opacity: 0.4;
+  transition: opacity 0.15s ease;
+}
+
+.ingredientTable tbody tr:hover .dragHandle {
+  opacity: 1;
+}
+
+.draggingRow {
+  opacity: 0.4;
+}
+
+.dragOverRow {
+  box-shadow: inset 0 -2px 0 0 var(--color-accent);
 }
 
 .typeLabel {

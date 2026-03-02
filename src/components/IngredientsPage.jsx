@@ -152,13 +152,20 @@ export function IngredientsPage({ onClose }) {
         <span className={styles.count}>{sorted.length} ingredients</span>
       </div>
 
-      <input
-        className={styles.search}
-        type="text"
-        placeholder="Search ingredients..."
-        value={search}
-        onChange={e => setSearch(e.target.value)}
-      />
+      <div className={styles.toolbar}>
+        <input
+          className={styles.search}
+          type="text"
+          placeholder="Search ingredients..."
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+        />
+        {!loading && !error && (
+          <button className={styles.addBtn} onClick={addRow}>
+            + Add ingredient
+          </button>
+        )}
+      </div>
 
       {loading && <p className={styles.loading}>Loading ingredients...</p>}
       {error && <p className={styles.error}>{error}</p>}
@@ -222,11 +229,6 @@ export function IngredientsPage({ onClose }) {
         </div>
       )}
 
-      {!loading && !error && (
-        <button className={styles.addBtn} onClick={addRow}>
-          + Add ingredient
-        </button>
-      )}
     </div>
   );
 }
