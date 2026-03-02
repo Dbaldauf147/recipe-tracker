@@ -113,6 +113,8 @@ export function SharedRecipePage({ token, user }) {
                 <th>Quantity</th>
                 <th>Measurement</th>
                 <th>Ingredient</th>
+                <th>Weight</th>
+                <th>Volume</th>
                 <th>Notes</th>
               </tr>
             </thead>
@@ -122,6 +124,8 @@ export function SharedRecipePage({ token, user }) {
                   <td>{row.quantity || ''}</td>
                   <td>{row.measurement || ''}</td>
                   <td>{row.ingredient}</td>
+                  <td>{row.weight || ''}</td>
+                  <td>{row.volume || ''}</td>
                   <td>{row.notes || ''}</td>
                 </tr>
               ))}

@@ -19,8 +19,8 @@ function buildImageUrl(recipe) {
   return `https://loremflickr.com/800/400/food,${keywords}?lock=${Math.abs(hash)}`;
 }
 
-const emptyRow = { quantity: '', measurement: '', ingredient: '', notes: '' };
-const ingredientFields = ['quantity', 'measurement', 'ingredient', 'notes'];
+const emptyRow = { quantity: '', measurement: '', ingredient: '', weight: '', volume: '', notes: '' };
+const ingredientFields = ['quantity', 'measurement', 'ingredient', 'weight', 'volume', 'notes'];
 
 // All measurements in ml (volume) or grams (weight) for conversion
 const VOLUME_TO_ML = {
@@ -737,6 +737,8 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user }) {
                   <th>Quantity</th>
                   <th>Measurement</th>
                   <th>Ingredient</th>
+                  <th>Weight</th>
+                  <th>Volume</th>
                   <th>Notes</th>
                   <th>Convert</th>
                   <th></th>
@@ -761,6 +763,8 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user }) {
                             field === 'quantity' ? '1' :
                             field === 'measurement' ? 'cup' :
                             field === 'ingredient' ? 'flour' :
+                            field === 'weight' ? '120g' :
+                            field === 'volume' ? '1 cup' :
                             field === 'notes' ? (dbNotes || '') : ''
                           }
                         />
@@ -820,6 +824,8 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user }) {
                 <th>Quantity</th>
                 <th>Measurement</th>
                 <th>Ingredient</th>
+                <th>Weight</th>
+                <th>Volume</th>
                 <th>Notes</th>
               </tr>
             </thead>
@@ -834,6 +840,8 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user }) {
                     </td>
                     <td>{row.measurement}</td>
                     <td>{row.ingredient}</td>
+                    <td>{row.weight || ''}</td>
+                    <td>{row.volume || ''}</td>
                     <td className={styles.notesCell}>
                       {row.notes || dbNotes || ''}
                     </td>
