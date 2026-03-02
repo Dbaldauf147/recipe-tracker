@@ -819,18 +819,35 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user }) {
                   <th>Quantity</th>
                   <th>Measurement</th>
                   <th>Type</th>
+                  <th>Converted</th>
                   <th>Ingredient</th>
                   <th>Notes</th>
-                  <th>Convert</th>
                   <th></th>
                 </tr>
               </thead>
               <tbody>
                 {fields.ingredients.map((row, i) => {
                   const dbGrams = getDbGrams(row.ingredient);
+                  const dbMeasurement = getDbMeasurement(row.ingredient);
                   const dbNotes = getDbNotes(row.ingredient);
-                  const conversions = getConversions(row.quantity, row.measurement, dbGrams);
                   const unitType = classifyUnit(row.measurement);
+                  // Compute the conversion to the opposite type
+                  const crossConv = getCrossConversion(row.quantity, row.measurement, dbGrams, dbMeasurement);
+                  let convertedText = '';
+                  if (unitType === 'weight' && crossConv.volume) convertedText = crossConv.volume;
+                  else if (unitType === 'volume' && crossConv.weight) convertedText = crossConv.weight;
+                  // Also compute same-type conversions for toggling
+                  const conversions = getConversions(row.quantity, row.measurement, dbGrams);
+                  // Find best opposite-type conversion from the full list
+                  if (!convertedText && conversions.length > 0) {
+                    if (unitType === 'weight') {
+                      const vol = conversions.find(c => VOLUME_TO_ML[c.unit]);
+                      if (vol) convertedText = `${vol.qty} ${vol.unit}`;
+                    } else if (unitType === 'volume') {
+                      const wt = conversions.find(c => WEIGHT_TO_G[c.unit]);
+                      if (wt) convertedText = `${wt.qty} ${wt.unit}`;
+                    }
+                  }
                   return (
                   <tr key={i}>
                     {ingredientFields.map((field, colIdx) => (
@@ -851,36 +868,62 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user }) {
                           />
                         </td>
                         {field === 'measurement' && (
-                          <td className={styles.typeCell}>
-                            {unitType === 'weight' ? 'Weight' :
-                             unitType === 'volume' ? 'Volume' :
-                             (row.measurement || '').trim() ? 'Other' : ''}
-                          </td>
+                          <>
+                            <td>
+                              {unitType ? (
+                                <button
+                                  className={styles.typeBtn}
+                                  type="button"
+                                  title={unitType === 'weight' ? 'Convert to volume' : 'Convert to weight'}
+                                  onClick={() => {
+                                    // Find the best conversion to the opposite type and apply it
+                                    if (unitType === 'weight') {
+                                      // Try cross-conversion first
+                                      if (crossConv.volume) {
+                                        const parts = crossConv.volume.match(/^([\d.]+)\s+(.+)$/);
+                                        if (parts) {
+                                          updateIngredient(i, 'quantity', parts[1]);
+                                          updateIngredient(i, 'measurement', parts[2]);
+                                          return;
+                                        }
+                                      }
+                                      const vol = conversions.find(c => VOLUME_TO_ML[c.unit]);
+                                      if (vol) {
+                                        updateIngredient(i, 'quantity', String(vol.qty));
+                                        updateIngredient(i, 'measurement', vol.unit);
+                                      }
+                                    } else {
+                                      if (crossConv.weight) {
+                                        const parts = crossConv.weight.match(/^([\d.]+)\s*(.+)$/);
+                                        if (parts) {
+                                          updateIngredient(i, 'quantity', parts[1]);
+                                          updateIngredient(i, 'measurement', parts[2]);
+                                          return;
+                                        }
+                                      }
+                                      const wt = conversions.find(c => WEIGHT_TO_G[c.unit]);
+                                      if (wt) {
+                                        updateIngredient(i, 'quantity', String(wt.qty));
+                                        updateIngredient(i, 'measurement', wt.unit);
+                                      }
+                                    }
+                                  }}
+                                >
+                                  {unitType === 'weight' ? 'Weight' : 'Volume'}
+                                </button>
+                              ) : (
+                                <span className={styles.typeLabel}>
+                                  {(row.measurement || '').trim() ? 'Other' : ''}
+                                </span>
+                              )}
+                            </td>
+                            <td className={styles.convertedCell}>
+                              {convertedText}
+                            </td>
+                          </>
                         )}
                       </React.Fragment>
                     ))}
-                    <td>
-                      {conversions.length > 0 && (
-                        <select
-                          className={styles.convertSelect}
-                          defaultValue=""
-                          onChange={e => {
-                            if (!e.target.value) return;
-                            const [q, u] = e.target.value.split('|');
-                            updateIngredient(i, 'quantity', q);
-                            updateIngredient(i, 'measurement', u);
-                            e.target.value = '';
-                          }}
-                        >
-                          <option value="">{row.measurement ? 'Convert...' : ''}</option>
-                          {conversions.map(c => (
-                            <option key={c.unit} value={`${c.qty}|${c.unit}`}>
-                              {c.qty} {c.unit}
-                            </option>
-                          ))}
-                        </select>
-                      )}
-                    </td>
                     <td>
                       {fields.ingredients.length > 1 && (
                         <button
