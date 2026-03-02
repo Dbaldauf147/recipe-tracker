@@ -537,11 +537,11 @@
   font-style: italic;
 }
 
-.conversionReason {
-  font-size: 0.75rem;
+.typeCell {
+  font-size: 0.8rem;
   color: var(--color-text-muted);
   font-style: italic;
-  opacity: 0.6;
+  text-transform: capitalize;
 }
 
 .addRowBtn {

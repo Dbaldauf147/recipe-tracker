@@ -105,6 +105,12 @@
   border-bottom: none;
 }
 
+.typeCell {
+  font-size: 0.8rem;
+  color: var(--color-text-muted);
+  font-style: italic;
+}
+
 .stepsList {
   margin: 0;
   padding: 0;

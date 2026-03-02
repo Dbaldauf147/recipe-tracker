@@ -19,8 +19,8 @@ function buildImageUrl(recipe) {
   return `https://loremflickr.com/800/400/food,${keywords}?lock=${Math.abs(hash)}`;
 }
 
-const emptyRow = { quantity: '', measurement: '', ingredient: '', weight: '', volume: '', notes: '' };
-const ingredientFields = ['quantity', 'measurement', 'ingredient', 'weight', 'volume', 'notes'];
+const emptyRow = { quantity: '', measurement: '', ingredient: '', notes: '' };
+const ingredientFields = ['quantity', 'measurement', 'ingredient', 'notes'];
 
 // All measurements in ml (volume) or grams (weight) for conversion
 const VOLUME_TO_ML = {
@@ -818,9 +818,8 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user }) {
                 <tr>
                   <th>Quantity</th>
                   <th>Measurement</th>
+                  <th>Type</th>
                   <th>Ingredient</th>
-                  <th>Weight</th>
-                  <th>Volume</th>
                   <th>Notes</th>
                   <th>Convert</th>
                   <th></th>
@@ -834,23 +833,30 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user }) {
                   return (
                   <tr key={i}>
                     {ingredientFields.map((field, colIdx) => (
-                      <td key={field}>
-                        <input
-                          className={styles.cellInput}
-                          type="text"
-                          value={row[field] || ''}
-                          onChange={e => updateIngredient(i, field, e.target.value)}
-                          onPaste={e => handlePaste(e, i, colIdx)}
-                          placeholder={
-                            field === 'quantity' ? '1' :
-                            field === 'measurement' ? 'cup' :
-                            field === 'ingredient' ? 'flour' :
-                            field === 'weight' ? '120g' :
-                            field === 'volume' ? '1 cup' :
-                            field === 'notes' ? (dbNotes || '') : ''
-                          }
-                        />
-                      </td>
+                      <React.Fragment key={field}>
+                        <td>
+                          <input
+                            className={styles.cellInput}
+                            type="text"
+                            value={row[field] || ''}
+                            onChange={e => updateIngredient(i, field, e.target.value)}
+                            onPaste={e => handlePaste(e, i, colIdx)}
+                            placeholder={
+                              field === 'quantity' ? '1' :
+                              field === 'measurement' ? 'cup' :
+                              field === 'ingredient' ? 'flour' :
+                              field === 'notes' ? (dbNotes || '') : ''
+                            }
+                          />
+                        </td>
+                        {field === 'measurement' && (
+                          <td className={styles.typeCell}>
+                            {classifyUnit(row.measurement) === 'weight' ? 'Weight' :
+                             classifyUnit(row.measurement) === 'volume' ? 'Volume' :
+                             row.measurement?.trim() ? 'Other' : ''}
+                          </td>
+                        )}
+                      </React.Fragment>
                     ))}
                     <td>
                       {conversions.length > 0 && (
@@ -905,9 +911,8 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user }) {
               <tr>
                 <th>Quantity</th>
                 <th>Measurement</th>
+                <th>Type</th>
                 <th>Ingredient</th>
-                <th>Weight</th>
-                <th>Volume</th>
                 <th>Notes</th>
               </tr>
             </thead>
@@ -915,42 +920,19 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user }) {
               {fields.ingredients.filter(row => (row.ingredient || '').trim()).map((row, i) => {
                 const dbNotes = getDbNotes(row.ingredient);
                 const displayQty = scaleFactor !== 1 ? scaleQuantity(row.quantity) : (row.quantity || '');
-                const unit = (row.measurement || '').trim();
-                const unitType = classifyUnit(unit);
-                const autoWeight = unitType === 'weight' ? `${displayQty} ${unit}` : '';
-                const autoVolume = unitType === 'volume' ? `${displayQty} ${unit}` : '';
-                const dbGrams = getDbGrams(row.ingredient);
-                const dbMeas = getDbMeasurement(row.ingredient);
-                const cross = getCrossConversion(displayQty, unit, dbGrams, dbMeas);
-
-                // Determine what to show or why it's missing
-                const weightValue = row.weight || autoWeight || cross.weight;
-                const volumeValue = row.volume || autoVolume || cross.volume;
-
-                let weightReason = '';
-                let volumeReason = '';
-                if (!weightValue) {
-                  if (!unit) weightReason = 'No unit';
-                  else if (!unitType) weightReason = `Unknown unit: ${unit}`;
-                  else if (unitType === 'volume' && !dbGrams) weightReason = 'Not in ingredient DB';
-                  else if (unitType === 'volume' && dbGrams && !cross.weight) weightReason = 'No DB measurement';
-                }
-                if (!volumeValue) {
-                  if (!unit) volumeReason = 'No unit';
-                  else if (!unitType) volumeReason = `Unknown unit: ${unit}`;
-                  else if (unitType === 'weight' && !dbGrams) volumeReason = 'Not in ingredient DB';
-                  else if (unitType === 'weight' && dbGrams && !cross.volume) volumeReason = 'No DB measurement';
-                }
-
+                const unitType = classifyUnit(row.measurement);
                 return (
                   <tr key={i}>
                     <td className={scaleFactor !== 1 ? styles.scaledQty : ''}>
                       {displayQty}
                     </td>
                     <td>{row.measurement}</td>
+                    <td className={styles.typeCell}>
+                      {unitType === 'weight' ? 'Weight' :
+                       unitType === 'volume' ? 'Volume' :
+                       (row.measurement || '').trim() ? 'Other' : ''}
+                    </td>
                     <td>{row.ingredient}</td>
-                    <td>{weightValue || <span className={styles.conversionReason}>{weightReason}</span>}</td>
-                    <td>{volumeValue || <span className={styles.conversionReason}>{volumeReason}</span>}</td>
                     <td className={styles.notesCell}>
                       {row.notes || dbNotes || ''}
                     </td>
