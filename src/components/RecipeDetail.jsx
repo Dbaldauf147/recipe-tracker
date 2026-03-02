@@ -242,21 +242,23 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user }) {
   const [showScanner, setShowScanner] = useState(false);
 
   // Build lookup maps from ingredient database
-  const { dbNotesMap, dbGramsMap, dbMeasurementMap } = useMemo(() => {
+  const { dbNotesMap, dbGramsMap, dbMeasurementMap, dbNamesSet } = useMemo(() => {
     const notes = new Map();
     const grams = new Map();
     const measurements = new Map();
+    const names = new Set();
     const data = loadIngredients();
     if (data) {
       for (const item of data) {
         const key = (item.ingredient || '').trim().toLowerCase();
         if (!key) continue;
+        names.add(key);
         if (item.notes) notes.set(key, item.notes);
         if (item.grams) grams.set(key, parseFloat(item.grams) || 0);
         if (item.measurement) measurements.set(key, item.measurement.trim());
       }
     }
-    return { dbNotesMap: notes, dbGramsMap: grams, dbMeasurementMap: measurements };
+    return { dbNotesMap: notes, dbGramsMap: grams, dbMeasurementMap: measurements, dbNamesSet: names };
   }, []);
 
   function getDbNotes(ingredientName) {
@@ -297,6 +299,20 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user }) {
       if (name.includes(search) || search.includes(name)) return m;
     }
     return '';
+  }
+
+  function isInDb(ingredientName) {
+    if (!ingredientName) return true; // don't warn on empty rows
+    const search = ingredientName.trim().toLowerCase();
+    if (!search) return true;
+    if (dbNamesSet.has(search)) return true;
+    for (const name of dbNamesSet) {
+      if (name.startsWith(search) || search.startsWith(name)) return true;
+    }
+    for (const name of dbNamesSet) {
+      if (name.includes(search) || search.includes(name)) return true;
+    }
+    return false;
   }
 
   const baseServings = parseInt(fields?.servings) || 1;
@@ -950,19 +966,24 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user }) {
                     {ingredientFields.map((field, colIdx) => (
                       <React.Fragment key={field}>
                         <td>
-                          <input
-                            className={styles.cellInput}
-                            type="text"
-                            value={row[field] || ''}
-                            onChange={e => updateIngredient(i, field, e.target.value)}
-                            onPaste={e => handlePaste(e, i, colIdx)}
-                            placeholder={
-                              field === 'quantity' ? '1' :
-                              field === 'measurement' ? 'cup' :
-                              field === 'ingredient' ? 'flour' :
-                              field === 'notes' ? (dbNotes || '') : ''
-                            }
-                          />
+                          <div className={field === 'ingredient' ? styles.ingredientInputWrap : undefined}>
+                            <input
+                              className={styles.cellInput}
+                              type="text"
+                              value={row[field] || ''}
+                              onChange={e => updateIngredient(i, field, e.target.value)}
+                              onPaste={e => handlePaste(e, i, colIdx)}
+                              placeholder={
+                                field === 'quantity' ? '1' :
+                                field === 'measurement' ? 'cup' :
+                                field === 'ingredient' ? 'flour' :
+                                field === 'notes' ? (dbNotes || '') : ''
+                              }
+                            />
+                            {field === 'ingredient' && (row.ingredient || '').trim() && !isInDb(row.ingredient) && (
+                              <span className={styles.dbWarning} title="Not found in ingredient database">⚠</span>
+                            )}
+                          </div>
                         </td>
                         {field === 'measurement' && (
                           <>
@@ -1071,7 +1092,12 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user }) {
                     <td className={scaleFactor !== 1 ? styles.scaledQty : ''}>
                       {amount}
                     </td>
-                    <td>{row.ingredient}</td>
+                    <td>
+                      {row.ingredient}
+                      {!isInDb(row.ingredient) && (
+                        <span className={styles.dbWarning} title="Not found in ingredient database"> ⚠</span>
+                      )}
+                    </td>
                     <td className={styles.notesCell}>
                       {row.notes || dbNotes || ''}
                     </td>

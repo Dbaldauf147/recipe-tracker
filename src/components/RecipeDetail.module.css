@@ -567,6 +567,22 @@
   cursor: not-allowed;
 }
 
+.dbWarning {
+  color: #d97706;
+  font-size: 0.8rem;
+  cursor: help;
+}
+
+.ingredientInputWrap {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.ingredientInputWrap .cellInput {
+  flex: 1;
+}
+
 .typeLabelLiquid {
   font-size: 0.78rem;
   color: var(--color-text-muted);
