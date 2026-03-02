@@ -20,7 +20,8 @@ const WEIGHT_UNITS = new Set([
 
 function classifyUnit(measurement) {
   if (!measurement) return null;
-  const unit = measurement.trim().toLowerCase();
+  const unit = measurement.trim().toLowerCase().replace(/\(s\)$/i, '');
+  if (!unit) return null;
   if (VOLUME_UNITS.has(unit)) return 'volume';
   if (WEIGHT_UNITS.has(unit)) return 'weight';
   return null;

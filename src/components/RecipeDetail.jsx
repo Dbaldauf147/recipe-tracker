@@ -58,9 +58,13 @@ const WEIGHT_TO_G = {
 const VOLUME_UNITS = ['tsp', 'tbsp', 'cup', 'ml', 'fl oz', 'pint', 'quart', 'liter', 'gallon', 'pinch', 'dash', 'can', 'handful', 'bunch'];
 const WEIGHT_UNITS = ['g', 'oz', 'lb', 'kg', 'clove', 'slice', 'stick', 'piece', 'head', 'stalk', 'sprig', 'whole', 'each', 'large', 'medium', 'small'];
 
+function normalizeUnit(unit) {
+  return unit.trim().toLowerCase().replace(/\(s\)$/i, '');
+}
+
 function classifyUnit(measurement) {
   if (!measurement) return null;
-  const unit = measurement.trim().toLowerCase();
+  const unit = normalizeUnit(measurement);
   if (!unit) return null;
   if (VOLUME_TO_ML[unit]) return 'volume';
   if (WEIGHT_TO_G[unit]) return 'weight';
@@ -71,7 +75,7 @@ function getConversions(qty, measurement, dbGrams) {
   if (!measurement || !qty) return [];
   const num = parseFloat(qty);
   if (isNaN(num) || num === 0) return [];
-  const unit = measurement.trim().toLowerCase();
+  const unit = normalizeUnit(measurement);
   const results = [];
 
   if (VOLUME_TO_ML[unit]) {
@@ -115,8 +119,8 @@ function getCrossConversion(qty, measurement, dbGrams, dbMeasurement) {
   if (!measurement || !qty) return { weight: '', volume: '' };
   const num = parseFloat(qty);
   if (isNaN(num) || num === 0) return { weight: '', volume: '' };
-  const unit = measurement.trim().toLowerCase();
-  const dbUnit = (dbMeasurement || '').trim().toLowerCase();
+  const unit = normalizeUnit(measurement);
+  const dbUnit = normalizeUnit(dbMeasurement || '');
 
   if (!dbGrams || dbGrams <= 0 || !dbUnit) return { weight: '', volume: '' };
 
