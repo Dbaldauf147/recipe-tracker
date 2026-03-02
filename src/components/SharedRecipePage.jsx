@@ -57,7 +57,7 @@ function displayMeasurement(measurement, ingredientName, qty) {
     if (liquid && OZ_PATTERN.test(trimmed)) return 'fl oz';
   }
   const num = parseFloat(qty);
-  const key = trimmed.toLowerCase();
+  const key = trimmed.toLowerCase().replace(/\(s\)$/i, '');
   if (key in PLURAL_UNITS) {
     if (!isNaN(num) && num > 1) return PLURAL_UNITS[key];
     return PLURAL_UNITS[key].replace(/s$/, '');
