@@ -911,12 +911,33 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user }) {
               {fields.ingredients.filter(row => (row.ingredient || '').trim()).map((row, i) => {
                 const dbNotes = getDbNotes(row.ingredient);
                 const displayQty = scaleFactor !== 1 ? scaleQuantity(row.quantity) : (row.quantity || '');
-                const unitType = classifyUnit(row.measurement);
-                const autoWeight = unitType === 'weight' ? `${displayQty} ${row.measurement}` : '';
-                const autoVolume = unitType === 'volume' ? `${displayQty} ${row.measurement}` : '';
+                const unit = (row.measurement || '').trim();
+                const unitType = classifyUnit(unit);
+                const autoWeight = unitType === 'weight' ? `${displayQty} ${unit}` : '';
+                const autoVolume = unitType === 'volume' ? `${displayQty} ${unit}` : '';
                 const dbGrams = getDbGrams(row.ingredient);
                 const dbMeas = getDbMeasurement(row.ingredient);
-                const cross = getCrossConversion(displayQty, row.measurement, dbGrams, dbMeas);
+                const cross = getCrossConversion(displayQty, unit, dbGrams, dbMeas);
+
+                // Determine what to show or why it's missing
+                const weightValue = row.weight || autoWeight || cross.weight;
+                const volumeValue = row.volume || autoVolume || cross.volume;
+
+                let weightReason = '';
+                let volumeReason = '';
+                if (!weightValue) {
+                  if (!unit) weightReason = 'No unit';
+                  else if (!unitType) weightReason = `Unknown unit: ${unit}`;
+                  else if (unitType === 'volume' && !dbGrams) weightReason = 'Not in ingredient DB';
+                  else if (unitType === 'volume' && dbGrams && !cross.weight) weightReason = 'No DB measurement';
+                }
+                if (!volumeValue) {
+                  if (!unit) volumeReason = 'No unit';
+                  else if (!unitType) volumeReason = `Unknown unit: ${unit}`;
+                  else if (unitType === 'weight' && !dbGrams) volumeReason = 'Not in ingredient DB';
+                  else if (unitType === 'weight' && dbGrams && !cross.volume) volumeReason = 'No DB measurement';
+                }
+
                 return (
                   <tr key={i}>
                     <td className={scaleFactor !== 1 ? styles.scaledQty : ''}>
@@ -924,8 +945,8 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user }) {
                     </td>
                     <td>{row.measurement}</td>
                     <td>{row.ingredient}</td>
-                    <td>{row.weight || autoWeight || cross.weight}</td>
-                    <td>{row.volume || autoVolume || cross.volume}</td>
+                    <td>{weightValue || <span className={styles.conversionReason}>{weightReason}</span>}</td>
+                    <td>{volumeValue || <span className={styles.conversionReason}>{volumeReason}</span>}</td>
                     <td className={styles.notesCell}>
                       {row.notes || dbNotes || ''}
                     </td>

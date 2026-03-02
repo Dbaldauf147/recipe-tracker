@@ -537,6 +537,13 @@
   font-style: italic;
 }
 
+.conversionReason {
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+  font-style: italic;
+  opacity: 0.6;
+}
+
 .addRowBtn {
   margin-top: 0.5rem;
   background: none;
