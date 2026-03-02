@@ -663,7 +663,8 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user }) {
                     try {
                       const cleanRecipe = JSON.parse(JSON.stringify(recipe));
                       const token = await createShareLink(user.uid, cleanRecipe);
-                      const url = window.location.origin + '?share=' + token;
+                      const slug = recipe.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+                      const url = window.location.origin + '?share=' + token + '&recipe=' + slug;
                       await navigator.clipboard.writeText(url);
                       setShowShareDropdown(false);
                       setShareMsg('Link copied!');
