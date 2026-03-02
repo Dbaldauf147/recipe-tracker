@@ -818,6 +818,7 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user }) {
                 <tr>
                   <th>Quantity</th>
                   <th>Measurement</th>
+                  <th>Type</th>
                   <th>Ingredient</th>
                   <th>Notes</th>
                   <th>Convert</th>
@@ -829,24 +830,34 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user }) {
                   const dbGrams = getDbGrams(row.ingredient);
                   const dbNotes = getDbNotes(row.ingredient);
                   const conversions = getConversions(row.quantity, row.measurement, dbGrams);
+                  const unitType = classifyUnit(row.measurement);
                   return (
                   <tr key={i}>
                     {ingredientFields.map((field, colIdx) => (
-                      <td key={field}>
-                        <input
-                          className={styles.cellInput}
-                          type="text"
-                          value={row[field] || ''}
-                          onChange={e => updateIngredient(i, field, e.target.value)}
-                          onPaste={e => handlePaste(e, i, colIdx)}
-                          placeholder={
-                            field === 'quantity' ? '1' :
-                            field === 'measurement' ? 'cup' :
-                            field === 'ingredient' ? 'flour' :
-                            field === 'notes' ? (dbNotes || '') : ''
-                          }
-                        />
-                      </td>
+                      <React.Fragment key={field}>
+                        <td>
+                          <input
+                            className={styles.cellInput}
+                            type="text"
+                            value={row[field] || ''}
+                            onChange={e => updateIngredient(i, field, e.target.value)}
+                            onPaste={e => handlePaste(e, i, colIdx)}
+                            placeholder={
+                              field === 'quantity' ? '1' :
+                              field === 'measurement' ? 'cup' :
+                              field === 'ingredient' ? 'flour' :
+                              field === 'notes' ? (dbNotes || '') : ''
+                            }
+                          />
+                        </td>
+                        {field === 'measurement' && (
+                          <td className={styles.typeCell}>
+                            {unitType === 'weight' ? 'Weight' :
+                             unitType === 'volume' ? 'Volume' :
+                             (row.measurement || '').trim() ? 'Other' : ''}
+                          </td>
+                        )}
+                      </React.Fragment>
                     ))}
                     <td>
                       {conversions.length > 0 && (
@@ -909,19 +920,12 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user }) {
               {fields.ingredients.filter(row => (row.ingredient || '').trim()).map((row, i) => {
                 const dbNotes = getDbNotes(row.ingredient);
                 const displayQty = scaleFactor !== 1 ? scaleQuantity(row.quantity) : (row.quantity || '');
-                const unitType = classifyUnit(row.measurement);
-                const typeLabel = unitType === 'weight' ? 'Weight' :
-                                  unitType === 'volume' ? 'Volume' :
-                                  (row.measurement || '').trim() ? 'Other' : '';
                 return (
                   <tr key={i}>
                     <td className={scaleFactor !== 1 ? styles.scaledQty : ''}>
                       {displayQty}
                     </td>
-                    <td>
-                      {row.measurement}
-                      {typeLabel && <span className={styles.measureType}> ({typeLabel})</span>}
-                    </td>
+                    <td>{row.measurement}</td>
                     <td>{row.ingredient}</td>
                     <td className={styles.notesCell}>
                       {row.notes || dbNotes || ''}
