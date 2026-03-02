@@ -4,6 +4,24 @@ import styles from './SharedRecipePage.module.css';
 
 const PENDING_SHARE_KEY = 'sunday-pending-shared-recipe';
 
+const VOLUME_UNITS = new Set([
+  'tsp', 'teaspoon', 'teaspoons', 'tbsp', 'tablespoon', 'tablespoons',
+  'fl oz', 'cup', 'cups', 'pint', 'pints', 'quart', 'quarts',
+  'liter', 'liters', 'l', 'ml', 'pinch', 'dash', 'smidgen', 'can', 'cans',
+]);
+const WEIGHT_UNITS = new Set([
+  'g', 'gram', 'grams', 'kg', 'oz', 'ounce', 'ounces',
+  'lb', 'lbs', 'pound', 'pounds', 'clove', 'cloves', 'slice', 'slices',
+]);
+
+function classifyUnit(measurement) {
+  if (!measurement) return null;
+  const unit = measurement.trim().toLowerCase();
+  if (VOLUME_UNITS.has(unit)) return 'volume';
+  if (WEIGHT_UNITS.has(unit)) return 'weight';
+  return null;
+}
+
 export function SharedRecipePage({ token, user }) {
   const [recipe, setRecipe] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -119,16 +137,21 @@ export function SharedRecipePage({ token, user }) {
               </tr>
             </thead>
             <tbody>
-              {ingredients.map((row, i) => (
+              {ingredients.map((row, i) => {
+                const unitType = classifyUnit(row.measurement);
+                const autoWeight = unitType === 'weight' ? `${row.quantity || ''} ${row.measurement}` : '';
+                const autoVolume = unitType === 'volume' ? `${row.quantity || ''} ${row.measurement}` : '';
+                return (
                 <tr key={i}>
                   <td>{row.quantity || ''}</td>
                   <td>{row.measurement || ''}</td>
                   <td>{row.ingredient}</td>
-                  <td>{row.weight || ''}</td>
-                  <td>{row.volume || ''}</td>
+                  <td>{row.weight || autoWeight}</td>
+                  <td>{row.volume || autoVolume}</td>
                   <td>{row.notes || ''}</td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
         </div>

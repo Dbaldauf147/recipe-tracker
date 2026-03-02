@@ -48,6 +48,14 @@ const WEIGHT_TO_G = {
 const VOLUME_UNITS = ['tsp', 'tbsp', 'cup', 'ml', 'fl oz', 'pint', 'quart', 'liter', 'pinch', 'dash', 'can'];
 const WEIGHT_UNITS = ['g', 'oz', 'lb', 'kg', 'clove', 'slice'];
 
+function classifyUnit(measurement) {
+  if (!measurement) return null;
+  const unit = measurement.trim().toLowerCase();
+  if (VOLUME_TO_ML[unit]) return 'volume';
+  if (WEIGHT_TO_G[unit]) return 'weight';
+  return null;
+}
+
 function getConversions(qty, measurement, dbGrams) {
   if (!measurement || !qty) return [];
   const num = parseFloat(qty);
@@ -833,6 +841,9 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user }) {
               {fields.ingredients.filter(row => (row.ingredient || '').trim()).map((row, i) => {
                 const dbNotes = getDbNotes(row.ingredient);
                 const displayQty = scaleFactor !== 1 ? scaleQuantity(row.quantity) : (row.quantity || '');
+                const unitType = classifyUnit(row.measurement);
+                const autoWeight = unitType === 'weight' ? `${displayQty} ${row.measurement}` : '';
+                const autoVolume = unitType === 'volume' ? `${displayQty} ${row.measurement}` : '';
                 return (
                   <tr key={i}>
                     <td className={scaleFactor !== 1 ? styles.scaledQty : ''}>
@@ -840,8 +851,8 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user }) {
                     </td>
                     <td>{row.measurement}</td>
                     <td>{row.ingredient}</td>
-                    <td>{row.weight || ''}</td>
-                    <td>{row.volume || ''}</td>
+                    <td>{row.weight || autoWeight}</td>
+                    <td>{row.volume || autoVolume}</td>
                     <td className={styles.notesCell}>
                       {row.notes || dbNotes || ''}
                     </td>
