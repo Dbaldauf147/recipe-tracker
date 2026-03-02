@@ -95,6 +95,53 @@ function getConversions(qty, measurement, dbGrams) {
   return results;
 }
 
+/**
+ * Get the best cross-conversion for display in weight/volume columns.
+ * dbGrams = grams per 1 unit of dbMeasurement (from ingredient database).
+ * Returns { weight, volume } strings or empty strings.
+ */
+function getCrossConversion(qty, measurement, dbGrams, dbMeasurement) {
+  if (!measurement || !qty) return { weight: '', volume: '' };
+  const num = parseFloat(qty);
+  if (isNaN(num) || num === 0) return { weight: '', volume: '' };
+  const unit = measurement.trim().toLowerCase();
+  const dbUnit = (dbMeasurement || '').trim().toLowerCase();
+
+  if (!dbGrams || dbGrams <= 0 || !dbUnit) return { weight: '', volume: '' };
+
+  // Need to know the ml-per-dbUnit or g-per-dbUnit to convert
+  const dbIsVolume = !!VOLUME_TO_ML[dbUnit];
+  const dbIsWeight = !!WEIGHT_TO_G[dbUnit];
+  if (!dbIsVolume && !dbIsWeight) return { weight: '', volume: '' };
+
+  // gramsPerMl: how many grams per 1 ml of this ingredient
+  // We know: 1 dbUnit = dbGrams grams
+  // If dbUnit is volume: gramsPerMl = dbGrams / VOLUME_TO_ML[dbUnit]
+  if (dbIsVolume) {
+    const gramsPerMl = dbGrams / VOLUME_TO_ML[dbUnit];
+
+    if (VOLUME_TO_ML[unit]) {
+      // Input is volume → compute weight
+      const ml = num * VOLUME_TO_ML[unit];
+      const grams = ml * gramsPerMl;
+      return { weight: `${parseFloat(grams.toFixed(1))}g`, volume: '' };
+    } else if (WEIGHT_TO_G[unit]) {
+      // Input is weight → compute volume
+      const g = num * WEIGHT_TO_G[unit];
+      const ml = g / gramsPerMl;
+      // Pick a friendly volume unit
+      const cups = ml / VOLUME_TO_ML['cup'];
+      if (cups >= 0.25) {
+        return { weight: '', volume: `${parseFloat(cups.toFixed(2))} cup` };
+      }
+      const tbsp = ml / VOLUME_TO_ML['tbsp'];
+      return { weight: '', volume: `${parseFloat(tbsp.toFixed(1))} tbsp` };
+    }
+  }
+
+  return { weight: '', volume: '' };
+}
+
 function initFields(recipe) {
   const type = recipe.mealType || '';
   const presets = ['meat', 'pescatarian', 'vegan', 'vegetarian', ''];
@@ -142,9 +189,10 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user }) {
   const [showScanner, setShowScanner] = useState(false);
 
   // Build lookup maps from ingredient database
-  const { dbNotesMap, dbGramsMap } = useMemo(() => {
+  const { dbNotesMap, dbGramsMap, dbMeasurementMap } = useMemo(() => {
     const notes = new Map();
     const grams = new Map();
+    const measurements = new Map();
     const data = loadIngredients();
     if (data) {
       for (const item of data) {
@@ -152,9 +200,10 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user }) {
         if (!key) continue;
         if (item.notes) notes.set(key, item.notes);
         if (item.grams) grams.set(key, parseFloat(item.grams) || 0);
+        if (item.measurement) measurements.set(key, item.measurement.trim());
       }
     }
-    return { dbNotesMap: notes, dbGramsMap: grams };
+    return { dbNotesMap: notes, dbGramsMap: grams, dbMeasurementMap: measurements };
   }, []);
 
   function getDbNotes(ingredientName) {
@@ -175,6 +224,16 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user }) {
       if (name.startsWith(search) || search.startsWith(name)) return grams;
     }
     return 0;
+  }
+
+  function getDbMeasurement(ingredientName) {
+    if (!ingredientName) return '';
+    const search = ingredientName.trim().toLowerCase();
+    if (dbMeasurementMap.has(search)) return dbMeasurementMap.get(search);
+    for (const [name, m] of dbMeasurementMap) {
+      if (name.startsWith(search) || search.startsWith(name)) return m;
+    }
+    return '';
   }
 
   const baseServings = parseInt(fields?.servings) || 1;
@@ -844,6 +903,9 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user }) {
                 const unitType = classifyUnit(row.measurement);
                 const autoWeight = unitType === 'weight' ? `${displayQty} ${row.measurement}` : '';
                 const autoVolume = unitType === 'volume' ? `${displayQty} ${row.measurement}` : '';
+                const dbGrams = getDbGrams(row.ingredient);
+                const dbMeas = getDbMeasurement(row.ingredient);
+                const cross = getCrossConversion(displayQty, row.measurement, dbGrams, dbMeas);
                 return (
                   <tr key={i}>
                     <td className={scaleFactor !== 1 ? styles.scaledQty : ''}>
@@ -851,8 +913,8 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user }) {
                     </td>
                     <td>{row.measurement}</td>
                     <td>{row.ingredient}</td>
-                    <td>{row.weight || autoWeight}</td>
-                    <td>{row.volume || autoVolume}</td>
+                    <td>{row.weight || autoWeight || cross.weight}</td>
+                    <td>{row.volume || autoVolume || cross.volume}</td>
                     <td className={styles.notesCell}>
                       {row.notes || dbNotes || ''}
                     </td>
