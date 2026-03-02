@@ -1036,8 +1036,7 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user }) {
           <table className={styles.viewTable}>
             <thead>
               <tr>
-                <th>Quantity</th>
-                <th>Measurement</th>
+                <th>Amount</th>
                 <th>Ingredient</th>
                 <th>Notes</th>
               </tr>
@@ -1046,12 +1045,12 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user }) {
               {fields.ingredients.filter(row => (row.ingredient || '').trim()).map((row, i) => {
                 const dbNotes = getDbNotes(row.ingredient);
                 const displayQty = scaleFactor !== 1 ? scaleQuantity(row.quantity) : (row.quantity || '');
+                const amount = [displayQty, row.measurement].filter(Boolean).join(' ');
                 return (
                   <tr key={i}>
                     <td className={scaleFactor !== 1 ? styles.scaledQty : ''}>
-                      {displayQty}
+                      {amount}
                     </td>
-                    <td>{row.measurement}</td>
                     <td>{row.ingredient}</td>
                     <td className={styles.notesCell}>
                       {row.notes || dbNotes || ''}

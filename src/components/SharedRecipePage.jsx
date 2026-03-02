@@ -133,25 +133,17 @@ export function SharedRecipePage({ token, user }) {
           <table className={styles.ingredientTable}>
             <thead>
               <tr>
-                <th>Quantity</th>
-                <th>Measurement</th>
+                <th>Amount</th>
                 <th>Ingredient</th>
                 <th>Notes</th>
               </tr>
             </thead>
             <tbody>
               {ingredients.map((row, i) => {
-                const unitType = classifyUnit(row.measurement);
-                const typeLabel = unitType === 'weight' ? 'Weight' :
-                                  unitType === 'volume' ? 'Volume' :
-                                  (row.measurement || '').trim() ? 'Other' : '';
+                const amount = [row.quantity || '', row.measurement || ''].filter(Boolean).join(' ');
                 return (
                 <tr key={i}>
-                  <td>{row.quantity || ''}</td>
-                  <td>
-                    {row.measurement || ''}
-                    {typeLabel && <span className={styles.measureType}> ({typeLabel})</span>}
-                  </td>
+                  <td>{amount}</td>
                   <td>{row.ingredient}</td>
                   <td>{row.notes || ''}</td>
                 </tr>
