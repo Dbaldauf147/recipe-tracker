@@ -30,10 +30,13 @@ const VOLUME_TO_ML = {
   cup: 236.588, cups: 236.588,
   pint: 473.176, pints: 473.176,
   quart: 946.353, quarts: 946.353,
+  gallon: 3785.41, gallons: 3785.41,
   liter: 1000, liters: 1000, l: 1000,
   ml: 1,
   pinch: 0.31, dash: 0.62, smidgen: 0.16,
   can: 400, cans: 400,
+  handful: 50, handfuls: 50,
+  bunch: 200, bunches: 200,
 };
 
 const WEIGHT_TO_G = {
@@ -43,14 +46,22 @@ const WEIGHT_TO_G = {
   lb: 453.592, lbs: 453.592, pound: 453.592, pounds: 453.592,
   clove: 5, cloves: 5,
   slice: 30, slices: 30,
+  stick: 113.4, sticks: 113.4,
+  piece: 50, pieces: 50,
+  head: 500, heads: 500,
+  stalk: 50, stalks: 50,
+  sprig: 2, sprigs: 2,
+  whole: 100, each: 100,
+  large: 150, medium: 100, small: 75,
 };
 
-const VOLUME_UNITS = ['tsp', 'tbsp', 'cup', 'ml', 'fl oz', 'pint', 'quart', 'liter', 'pinch', 'dash', 'can'];
-const WEIGHT_UNITS = ['g', 'oz', 'lb', 'kg', 'clove', 'slice'];
+const VOLUME_UNITS = ['tsp', 'tbsp', 'cup', 'ml', 'fl oz', 'pint', 'quart', 'liter', 'gallon', 'pinch', 'dash', 'can', 'handful', 'bunch'];
+const WEIGHT_UNITS = ['g', 'oz', 'lb', 'kg', 'clove', 'slice', 'stick', 'piece', 'head', 'stalk', 'sprig', 'whole', 'each', 'large', 'medium', 'small'];
 
 function classifyUnit(measurement) {
   if (!measurement) return null;
   const unit = measurement.trim().toLowerCase();
+  if (!unit) return null;
   if (VOLUME_TO_ML[unit]) return 'volume';
   if (WEIGHT_TO_G[unit]) return 'weight';
   return null;

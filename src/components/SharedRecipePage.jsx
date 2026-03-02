@@ -7,11 +7,15 @@ const PENDING_SHARE_KEY = 'sunday-pending-shared-recipe';
 const VOLUME_UNITS = new Set([
   'tsp', 'teaspoon', 'teaspoons', 'tbsp', 'tablespoon', 'tablespoons',
   'fl oz', 'cup', 'cups', 'pint', 'pints', 'quart', 'quarts',
-  'liter', 'liters', 'l', 'ml', 'pinch', 'dash', 'smidgen', 'can', 'cans',
+  'gallon', 'gallons', 'liter', 'liters', 'l', 'ml',
+  'pinch', 'dash', 'smidgen', 'can', 'cans', 'handful', 'handfuls', 'bunch', 'bunches',
 ]);
 const WEIGHT_UNITS = new Set([
   'g', 'gram', 'grams', 'kg', 'oz', 'ounce', 'ounces',
   'lb', 'lbs', 'pound', 'pounds', 'clove', 'cloves', 'slice', 'slices',
+  'stick', 'sticks', 'piece', 'pieces', 'head', 'heads',
+  'stalk', 'stalks', 'sprig', 'sprigs',
+  'whole', 'each', 'large', 'medium', 'small',
 ]);
 
 function classifyUnit(measurement) {
