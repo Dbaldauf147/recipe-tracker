@@ -266,6 +266,9 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user }) {
     for (const [name, notes] of dbNotesMap) {
       if (name.startsWith(search) || search.startsWith(name)) return notes;
     }
+    for (const [name, notes] of dbNotesMap) {
+      if (name.includes(search) || search.includes(name)) return notes;
+    }
     return null;
   }
 
@@ -276,6 +279,10 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user }) {
     for (const [name, grams] of dbGramsMap) {
       if (name.startsWith(search) || search.startsWith(name)) return grams;
     }
+    // Fallback: check if any word in the search appears in a DB name or vice versa
+    for (const [name, grams] of dbGramsMap) {
+      if (name.includes(search) || search.includes(name)) return grams;
+    }
     return 0;
   }
 
@@ -285,6 +292,9 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user }) {
     if (dbMeasurementMap.has(search)) return dbMeasurementMap.get(search);
     for (const [name, m] of dbMeasurementMap) {
       if (name.startsWith(search) || search.startsWith(name)) return m;
+    }
+    for (const [name, m] of dbMeasurementMap) {
+      if (name.includes(search) || search.includes(name)) return m;
     }
     return '';
   }
