@@ -18,6 +18,38 @@ const WEIGHT_UNITS = new Set([
   'whole', 'each', 'large', 'medium', 'small',
 ]);
 
+const LIQUIDS = new Set([
+  'water', 'milk', 'cream', 'half and half', 'half-and-half', 'buttermilk',
+  'broth', 'stock', 'chicken broth', 'beef broth', 'vegetable broth',
+  'chicken stock', 'beef stock', 'vegetable stock', 'bone broth',
+  'juice', 'orange juice', 'lemon juice', 'lime juice', 'apple juice',
+  'oil', 'olive oil', 'vegetable oil', 'canola oil', 'coconut oil', 'sesame oil', 'avocado oil',
+  'vinegar', 'apple cider vinegar', 'balsamic vinegar', 'red wine vinegar', 'white vinegar', 'rice vinegar',
+  'wine', 'red wine', 'white wine', 'cooking wine', 'beer',
+  'soy sauce', 'fish sauce', 'hot sauce', 'worcestershire sauce', 'teriyaki sauce',
+  'maple syrup', 'honey', 'agave', 'corn syrup', 'molasses',
+  'vanilla extract', 'extract', 'almond extract',
+  'coffee', 'espresso', 'tea',
+  'coconut milk', 'almond milk', 'oat milk', 'soy milk',
+  'heavy cream', 'whipping cream', 'sour cream',
+]);
+
+const OZ_PATTERN = /^(oz|ounce|ounces)$/i;
+
+function displayMeasurement(measurement, ingredientName) {
+  if (!measurement) return '';
+  if (!ingredientName) return measurement;
+  const name = ingredientName.trim().toLowerCase();
+  let liquid = LIQUIDS.has(name);
+  if (!liquid) {
+    for (const l of LIQUIDS) {
+      if (name.includes(l) || l.includes(name)) { liquid = true; break; }
+    }
+  }
+  if (liquid && OZ_PATTERN.test(measurement.trim())) return 'fl oz';
+  return measurement;
+}
+
 function classifyUnit(measurement) {
   if (!measurement) return null;
   const unit = measurement.trim().toLowerCase().replace(/\(s\)$/i, '');
@@ -140,7 +172,7 @@ export function SharedRecipePage({ token, user }) {
             </thead>
             <tbody>
               {ingredients.map((row, i) => {
-                const amount = [row.quantity || '', row.measurement || ''].filter(Boolean).join(' ');
+                const amount = [row.quantity || '', displayMeasurement(row.measurement, row.ingredient)].filter(Boolean).join(' ');
                 return (
                 <tr key={i}>
                   <td>{amount}</td>

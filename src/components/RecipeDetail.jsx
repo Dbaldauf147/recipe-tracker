@@ -85,6 +85,16 @@ function isLiquid(ingredientName) {
   return false;
 }
 
+const OZ_PATTERN = /^(oz|ounce|ounces)$/i;
+
+function displayMeasurement(measurement, ingredientName) {
+  if (!measurement) return '';
+  if (isLiquid(ingredientName) && OZ_PATTERN.test(measurement.trim())) {
+    return 'fl oz';
+  }
+  return measurement;
+}
+
 function normalizeUnit(unit) {
   return unit.trim().toLowerCase().replace(/\(s\)$/i, '');
 }
@@ -1045,7 +1055,7 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user }) {
               {fields.ingredients.filter(row => (row.ingredient || '').trim()).map((row, i) => {
                 const dbNotes = getDbNotes(row.ingredient);
                 const displayQty = scaleFactor !== 1 ? scaleQuantity(row.quantity) : (row.quantity || '');
-                const amount = [displayQty, row.measurement].filter(Boolean).join(' ');
+                const amount = [displayQty, displayMeasurement(row.measurement, row.ingredient)].filter(Boolean).join(' ');
                 return (
                   <tr key={i}>
                     <td className={scaleFactor !== 1 ? styles.scaledQty : ''}>
