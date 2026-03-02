@@ -90,6 +90,8 @@ const OZ_PATTERN = /^(oz|ounce|ounces)$/i;
 const PLURAL_UNITS = {
   cup: 'cups', cups: 'cups',
   scoop: 'scoops', scoops: 'scoops',
+  tablespoon: 'tablespoons', tablespoons: 'tablespoons',
+  teaspoon: 'teaspoons', teaspoons: 'teaspoons',
 };
 
 function displayMeasurement(measurement, ingredientName, qty) {
