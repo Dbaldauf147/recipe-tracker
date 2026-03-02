@@ -135,7 +135,6 @@ export function SharedRecipePage({ token, user }) {
               <tr>
                 <th>Quantity</th>
                 <th>Measurement</th>
-                <th>Type</th>
                 <th>Ingredient</th>
                 <th>Notes</th>
               </tr>
@@ -143,14 +142,15 @@ export function SharedRecipePage({ token, user }) {
             <tbody>
               {ingredients.map((row, i) => {
                 const unitType = classifyUnit(row.measurement);
+                const typeLabel = unitType === 'weight' ? 'Weight' :
+                                  unitType === 'volume' ? 'Volume' :
+                                  (row.measurement || '').trim() ? 'Other' : '';
                 return (
                 <tr key={i}>
                   <td>{row.quantity || ''}</td>
-                  <td>{row.measurement || ''}</td>
-                  <td className={styles.typeCell}>
-                    {unitType === 'weight' ? 'Weight' :
-                     unitType === 'volume' ? 'Volume' :
-                     (row.measurement || '').trim() ? 'Other' : ''}
+                  <td>
+                    {row.measurement || ''}
+                    {typeLabel && <span className={styles.measureType}> ({typeLabel})</span>}
                   </td>
                   <td>{row.ingredient}</td>
                   <td>{row.notes || ''}</td>
