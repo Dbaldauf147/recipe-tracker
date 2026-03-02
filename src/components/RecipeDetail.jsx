@@ -139,7 +139,8 @@ function getCrossConversion(qty, measurement, dbGrams, dbMeasurement) {
       // Input is volume → compute weight
       const ml = num * VOLUME_TO_ML[unit];
       const grams = ml * gramsPerMl;
-      return { weight: `${parseFloat(grams.toFixed(1))} gram`, volume: '' };
+      const rounded = parseFloat(grams.toFixed(1));
+      return { weight: `${rounded} ${rounded === 1 ? 'gram' : 'grams'}`, volume: '' };
     } else if (WEIGHT_TO_G[unit]) {
       // Input is weight → compute volume
       const g = num * WEIGHT_TO_G[unit];
