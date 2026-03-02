@@ -87,10 +87,26 @@ function isLiquid(ingredientName) {
 
 const OZ_PATTERN = /^(oz|ounce|ounces)$/i;
 
-function displayMeasurement(measurement, ingredientName) {
+const PLURAL_UNITS = {
+  cup: 'cups', cups: 'cups',
+  scoop: 'scoops', scoops: 'scoops',
+};
+
+function displayMeasurement(measurement, ingredientName, qty) {
   if (!measurement) return '';
-  if (isLiquid(ingredientName) && OZ_PATTERN.test(measurement.trim())) {
+  const trimmed = measurement.trim();
+  if (isLiquid(ingredientName) && OZ_PATTERN.test(trimmed)) {
     return 'fl oz';
+  }
+  const num = parseFloat(qty);
+  const key = trimmed.toLowerCase();
+  if (key in PLURAL_UNITS) {
+    if (!isNaN(num) && num > 1) {
+      return PLURAL_UNITS[key];
+    }
+    // singular form: strip trailing 's' if present
+    const singular = PLURAL_UNITS[key].replace(/s$/, '');
+    return singular;
   }
   return measurement;
 }
@@ -1086,7 +1102,7 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user }) {
               {fields.ingredients.filter(row => (row.ingredient || '').trim()).map((row, i) => {
                 const dbNotes = getDbNotes(row.ingredient);
                 const displayQty = scaleFactor !== 1 ? scaleQuantity(row.quantity) : (row.quantity || '');
-                const amount = [displayQty, displayMeasurement(row.measurement, row.ingredient)].filter(Boolean).join(' ');
+                const amount = [displayQty, displayMeasurement(row.measurement, row.ingredient, displayQty)].filter(Boolean).join(' ');
                 return (
                   <tr key={i}>
                     <td className={scaleFactor !== 1 ? styles.scaledQty : ''}>

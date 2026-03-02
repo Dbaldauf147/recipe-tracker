@@ -36,17 +36,30 @@ const LIQUIDS = new Set([
 
 const OZ_PATTERN = /^(oz|ounce|ounces)$/i;
 
-function displayMeasurement(measurement, ingredientName) {
+const PLURAL_UNITS = {
+  cup: 'cups', cups: 'cups',
+  scoop: 'scoops', scoops: 'scoops',
+};
+
+function displayMeasurement(measurement, ingredientName, qty) {
   if (!measurement) return '';
-  if (!ingredientName) return measurement;
-  const name = ingredientName.trim().toLowerCase();
-  let liquid = LIQUIDS.has(name);
-  if (!liquid) {
-    for (const l of LIQUIDS) {
-      if (name.includes(l) || l.includes(name)) { liquid = true; break; }
+  const trimmed = measurement.trim();
+  if (ingredientName) {
+    const name = ingredientName.trim().toLowerCase();
+    let liquid = LIQUIDS.has(name);
+    if (!liquid) {
+      for (const l of LIQUIDS) {
+        if (name.includes(l) || l.includes(name)) { liquid = true; break; }
+      }
     }
+    if (liquid && OZ_PATTERN.test(trimmed)) return 'fl oz';
   }
-  if (liquid && OZ_PATTERN.test(measurement.trim())) return 'fl oz';
+  const num = parseFloat(qty);
+  const key = trimmed.toLowerCase();
+  if (key in PLURAL_UNITS) {
+    if (!isNaN(num) && num > 1) return PLURAL_UNITS[key];
+    return PLURAL_UNITS[key].replace(/s$/, '');
+  }
   return measurement;
 }
 
@@ -172,7 +185,7 @@ export function SharedRecipePage({ token, user }) {
             </thead>
             <tbody>
               {ingredients.map((row, i) => {
-                const amount = [row.quantity || '', displayMeasurement(row.measurement, row.ingredient)].filter(Boolean).join(' ');
+                const amount = [row.quantity || '', displayMeasurement(row.measurement, row.ingredient, row.quantity)].filter(Boolean).join(' ');
                 return (
                 <tr key={i}>
                   <td>{amount}</td>
