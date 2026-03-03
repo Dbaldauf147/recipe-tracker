@@ -1134,6 +1134,9 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user, ingredien
                             {field === 'ingredient' && (row.ingredient || '').trim() && !isInDb(row.ingredient) && (
                               <span className={styles.dbWarning} title="Not found in ingredient database">⚠</span>
                             )}
+                            {field === 'ingredient' && (row.ingredient || '').trim() && isInDb(row.ingredient) && unitType === 'volume' && !dbGrams && (
+                              <span className={styles.noWeightWarning} title="No weight conversion available — add grams to ingredient database">⚖</span>
+                            )}
                           </div>
                         </td>
                         {field === 'measurement' && (
@@ -1144,7 +1147,8 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user, ingredien
                                 <button
                                   className={styles.typeBtn}
                                   type="button"
-                                  title="Convert unit"
+                                  disabled={unitType === 'volume' && !dbGrams}
+                                  title={unitType === 'volume' && !dbGrams ? 'No weight conversion — add grams to ingredient database' : 'Convert unit'}
                                   onClick={() => {
                                     // Build volume options
                                     const volumeOptions = [];
