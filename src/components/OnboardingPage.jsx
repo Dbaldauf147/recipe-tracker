@@ -149,7 +149,7 @@ export function OnboardingPage({ onComplete, initialIngredients, onCancel, onSki
   return (
     <div className={styles.page}>
       <div className={styles.card}>
-        <img className={styles.logo} src="/sunday-logo.png" alt="Sunday" />
+        <img className={styles.logo} src="/sunday-logo.png" alt="Prep Day" />
         <h2 className={styles.title}>What kinds of food would you like to eat on a regular basis?</h2>
         <p className={styles.subtitle}>(Don't worry, you can update this later)</p>
 

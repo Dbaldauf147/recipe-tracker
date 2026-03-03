@@ -18,7 +18,7 @@ function fetchUrlProxy() {
         try {
           const response = await fetch(url, {
             headers: {
-              'User-Agent': 'Mozilla/5.0 (compatible; SundayMealPlanner/1.0)',
+              'User-Agent': 'Mozilla/5.0 (compatible; PrepDayMealPlanner/1.0)',
               'Accept': 'text/html,application/xhtml+xml',
             },
           });
@@ -106,8 +106,8 @@ export default defineConfig({
     VitePWA({
       registerType: 'autoUpdate',
       manifest: {
-        name: 'Sunday',
-        short_name: 'Sunday',
+        name: 'Prep Day',
+        short_name: 'Prep Day',
         description: 'Meal planning and recipe tracker',
         theme_color: '#2C2520',
         background_color: '#FAF8F5',

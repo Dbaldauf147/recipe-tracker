@@ -239,6 +239,8 @@ function initFields(recipe) {
     prepTime: recipe.prepTime || '',
     cookTime: recipe.cookTime || '',
     sourceUrl: recipe.sourceUrl || '',
+    totalWeight: recipe.totalWeight || '',
+    containerWeight: recipe.containerWeight || '',
     starterRecipe: recipe.starterRecipe || false,
     ingredients: (recipe.ingredients && recipe.ingredients.length > 0)
       ? recipe.ingredients.map(r => ({ ...r }))
@@ -269,6 +271,7 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user, ingredien
   const heroImgRef = useRef(null);
   const fileInputRef = useRef(null);
   const [adjustedServings, setAdjustedServings] = useState(null);
+  const [servingWeight, setServingWeight] = useState('');
   const [editingIngredients, setEditingIngredients] = useState(false);
   const [showScanner, setShowScanner] = useState(false);
   const [convertPopup, setConvertPopup] = useState(null); // { rowIdx, options: [{ qty, unit, label }] }
@@ -364,7 +367,14 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user, ingredien
   }
 
   const baseServings = parseInt(fields?.servings) || 1;
-  const currentServings = adjustedServings ?? baseServings;
+  const totalWeightNum = parseFloat(fields?.totalWeight) || 0;
+  const containerWeightNum = parseFloat(fields?.containerWeight) || 0;
+  const foodWeight = Math.max(0, totalWeightNum - containerWeightNum);
+  const servingWeightNum = parseFloat(servingWeight) || 0;
+  const weightBasedServings = (foodWeight > 0 && servingWeightNum > 0)
+    ? (servingWeightNum / foodWeight) * baseServings
+    : null;
+  const currentServings = weightBasedServings ?? adjustedServings ?? baseServings;
   const scaleFactor = baseServings > 0 ? currentServings / baseServings : 1;
 
   function scaleQuantity(qty) {
@@ -505,6 +515,8 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user, ingredien
       prepTime: fields.prepTime.trim(),
       cookTime: fields.cookTime.trim(),
       sourceUrl: fields.sourceUrl.trim(),
+      totalWeight: fields.totalWeight.trim(),
+      containerWeight: fields.containerWeight.trim(),
       starterRecipe: fields.starterRecipe,
       ingredients: fields.ingredients.filter(row => row.ingredient.trim() !== ''),
       instructions: fields.steps.filter(s => s.trim()).join('\n'),
@@ -1008,6 +1020,56 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user, ingredien
               </button>
             )}
           </div>
+        </div>
+
+        <div className={styles.weightAdjuster}>
+          <label className={styles.weightLabel}>
+            Scale weight
+            <input
+              className={styles.weightInput}
+              type="number"
+              min="0"
+              placeholder="g"
+              value={fields.totalWeight}
+              onChange={e => setField('totalWeight', e.target.value)}
+            />
+          </label>
+          <label className={styles.weightLabel}>
+            Container
+            <input
+              className={styles.weightInput}
+              type="number"
+              min="0"
+              placeholder="g"
+              value={fields.containerWeight}
+              onChange={e => setField('containerWeight', e.target.value)}
+            />
+          </label>
+          {totalWeightNum > 0 && (
+            <span className={styles.weightCalc}>
+              Food: {foodWeight}g
+            </span>
+          )}
+          {foodWeight > 0 && (
+            <>
+              <label className={styles.weightLabel}>
+                My serving
+                <input
+                  className={styles.weightInput}
+                  type="number"
+                  min="0"
+                  placeholder="g"
+                  value={servingWeight}
+                  onChange={e => setServingWeight(e.target.value)}
+                />
+              </label>
+              {weightBasedServings !== null && (
+                <span className={styles.weightResult}>
+                  = {parseFloat(weightBasedServings.toFixed(2))} {weightBasedServings === 1 ? 'serving' : 'servings'}
+                </span>
+              )}
+            </>
+          )}
         </div>
 
         {editingIngredients ? (

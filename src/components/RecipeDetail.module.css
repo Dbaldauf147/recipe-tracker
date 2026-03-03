@@ -249,6 +249,54 @@
   background: var(--color-surface-alt);
 }
 
+.weightAdjuster {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+.weightLabel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--color-text-muted);
+}
+
+.weightInput {
+  width: 80px;
+  padding: 0.3rem 0.4rem;
+  font-size: 0.85rem;
+  font-family: inherit;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm, 4px);
+  background: var(--color-surface);
+  color: var(--color-text);
+  outline: none;
+  transition: border-color 0.15s ease;
+}
+
+.weightInput:focus {
+  border-color: var(--color-accent);
+}
+
+.weightCalc {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--color-text);
+  padding-bottom: 0.3rem;
+  white-space: nowrap;
+}
+
+.weightResult {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--color-accent);
+  padding-bottom: 0.3rem;
+}
+
 .scaledQty {
   display: block;
   padding: 0.3rem 0.4rem;

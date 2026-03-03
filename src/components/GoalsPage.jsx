@@ -45,7 +45,7 @@ export function GoalsPage({ onComplete, onSkip, onBack }) {
   return (
     <div className={styles.page}>
       <div className={styles.card}>
-        <img className={styles.logo} src="/sunday-logo.png" alt="Sunday" />
+        <img className={styles.logo} src="/sunday-logo.png" alt="Prep Day" />
         <h2 className={styles.title}>What are your goals?</h2>
         <p className={styles.subtitle}>Select any that apply — you can always change these later</p>
 

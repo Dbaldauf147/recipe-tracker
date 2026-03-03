@@ -17,10 +17,10 @@ export default async function handler(req, res) {
       Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
     },
     body: JSON.stringify({
-      from: 'Sunday <onboarding@resend.dev>',
+      from: 'Prep Day <onboarding@resend.dev>',
       to: 'baldaufdan@gmail.com',
-      subject: `New Sunday Signup: ${name || 'Unknown'}`,
-      text: `New user signed up for Sunday!\n\nName: ${name || 'N/A'}\nEmail: ${email}`,
+      subject: `New Prep Day Signup: ${name || 'Unknown'}`,
+      text: `New user signed up for Prep Day!\n\nName: ${name || 'N/A'}\nEmail: ${email}`,
     }),
   });
 

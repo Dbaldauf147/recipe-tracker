@@ -10,7 +10,7 @@ export default async function handler(req, res) {
   try {
     const response = await fetch(url, {
       headers: {
-        'User-Agent': 'Mozilla/5.0 (compatible; SundayMealPlanner/1.0)',
+        'User-Agent': 'Mozilla/5.0 (compatible; PrepDayMealPlanner/1.0)',
         'Accept': 'text/html,application/xhtml+xml',
       },
     });
