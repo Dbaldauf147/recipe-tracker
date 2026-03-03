@@ -5,6 +5,7 @@ import {
   fetchAndSeedIngredients,
   loadIngredientsFromFirestore,
   saveIngredientsToFirestore,
+  applyGramsData,
 } from '../utils/ingredientsStore.js';
 import styles from './IngredientsPage.module.css';
 
@@ -56,26 +57,30 @@ export function IngredientsPage({ onClose, user }) {
       const firestoreData = await loadIngredientsFromFirestore();
       if (cancelled) return;
 
+      let data = null;
       if (firestoreData && firestoreData.length > 0) {
-        setRows(firestoreData);
-        setLoading(false);
-        return;
-      }
-
-      // 3. If Firestore had nothing and no cache, seed from CSV
-      if (!cached || cached.length === 0) {
+        data = firestoreData;
+      } else if (!cached || cached.length === 0) {
+        // 3. If Firestore had nothing and no cache, seed from CSV
         try {
-          const csvData = await fetchAndSeedIngredients();
+          data = await fetchAndSeedIngredients();
           if (cancelled) return;
-          setRows(csvData);
-          // If admin, push CSV seed to Firestore
-          if (isAdmin) saveIngredientsToFirestore(csvData);
         } catch {
           if (!cancelled) setError('Failed to load ingredients data.');
         }
-      } else if (isAdmin) {
-        // Cache exists but Firestore is empty — push to Firestore
-        saveIngredientsToFirestore(cached);
+      } else {
+        data = cached;
+      }
+
+      if (data) {
+        // Apply researched grams data for any empty grams fields
+        const withGrams = applyGramsData(data);
+        setRows(withGrams);
+        if (isAdmin && withGrams !== data) {
+          saveIngredientsToFirestore(withGrams);
+        } else if (isAdmin && !firestoreData) {
+          saveIngredientsToFirestore(data);
+        }
       }
 
       if (!cancelled) setLoading(false);
