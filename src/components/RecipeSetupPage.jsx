@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
 import { useRecipes } from '../hooks/useRecipes';
-import { fetchRecipesFromSheet } from '../utils/sheetRecipes';
+import { loadStarterRecipes } from '../utils/starterRecipes';
 import { fetchRecipeFromUrl } from '../utils/fetchRecipeFromUrl';
 import { fetchInstagramCaption } from '../utils/fetchInstagramCaption';
 import { parseRecipeText } from '../utils/parseRecipeText';
@@ -84,13 +84,12 @@ export function RecipeSetupPage({ onComplete, onBack, onSkip }) {
   async function handleFetchStarter() {
     setStatus({ type: 'loading', message: 'Fetching starter recipes...' });
     try {
-      const recipes = await fetchRecipesFromSheet();
+      const recipes = await loadStarterRecipes();
       if (recipes.length === 0) {
         setStatus({ type: 'error', message: 'No recipes found. Please try again later.' });
         return;
       }
-      const active = recipes.filter(r => (r.frequency || 'common') !== 'retired');
-      setFetchedRecipes(active);
+      setFetchedRecipes(recipes);
       setSelectedTypes(new Set()); // all selected by default (empty = all)
       setCheckedRecipes(new Set()); // none checked by default
       setStatus(null);

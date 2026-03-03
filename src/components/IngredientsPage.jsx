@@ -249,9 +249,15 @@ export function IngredientsPage({ onClose, user }) {
                           style={{ maxWidth: 'none' }}
                           value={row[key] || ''}
                           onChange={e => updateField(origIdx, key, e.target.value)}
+                          onBlur={key === 'grams' ? e => {
+                            const num = parseFloat(e.target.value);
+                            if (!isNaN(num)) updateField(origIdx, key, String(Math.round(num)));
+                          } : undefined}
                         />
                       ) : (
-                        <span className={styles.cellText}>{row[key] || ''}</span>
+                        <span className={styles.cellText}>
+                          {key === 'grams' && row[key] ? String(Math.round(parseFloat(row[key])) || row[key]) : (row[key] || '')}
+                        </span>
                       )}
                     </td>
                   ))}

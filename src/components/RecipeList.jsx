@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect, useRef } from 'react';
 import { RecipeCard } from './RecipeCard';
-import { fetchRecipesFromSheet } from '../utils/sheetRecipes';
+import { loadStarterRecipes } from '../utils/starterRecipes';
 import { getUserKeyIngredients, normalize, recipeHasIngredient } from '../utils/keyIngredients';
 import { exportToCSV, importFromCSV } from '../utils/exportData';
 import { useAuth } from '../contexts/AuthContext';
@@ -147,11 +147,11 @@ export function RecipeList({
     setImporting(true);
     setImportResult(null);
     try {
-      const sheetRecipes = await fetchRecipesFromSheet();
+      const starterRecipes = await loadStarterRecipes();
       const existingTitles = new Set(recipes.map(r => r.title.toLowerCase()));
-      const newCount = sheetRecipes.filter(r => !existingTitles.has(r.title.toLowerCase())).length;
-      onImport(sheetRecipes);
-      setImportResult(`Imported ${newCount} new recipe${newCount !== 1 ? 's' : ''} (${sheetRecipes.length - newCount} already existed)`);
+      const newCount = starterRecipes.filter(r => !existingTitles.has(r.title.toLowerCase())).length;
+      onImport(starterRecipes);
+      setImportResult(`Imported ${newCount} new recipe${newCount !== 1 ? 's' : ''} (${starterRecipes.length - newCount} already existed)`);
     } catch (err) {
       setImportResult('Import failed: ' + err.message);
     } finally {
