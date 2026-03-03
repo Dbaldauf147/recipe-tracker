@@ -291,7 +291,7 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user, ingredien
         if (!key) continue;
         names.add(key);
         if (item.notes) notes.set(key, item.notes);
-        if (item.grams) grams.set(key, parseFloat(item.grams) || 0);
+        grams.set(key, parseFloat(item.grams) || 0);
         if (item.measurement) measurements.set(key, item.measurement.trim());
         if (item.link) links.set(key, item.link.trim());
       }
