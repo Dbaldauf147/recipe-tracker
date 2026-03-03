@@ -469,7 +469,7 @@ export function RecipeSetupPage({ onComplete, onBack, onSkip }) {
     <div className={styles.page}>
       <div className={styles.card}>
         <img className={styles.logo} src="/sunday-logo.png" alt="Sunday" />
-        <h2 className={styles.title}>How would you like to set up your recipes?</h2>
+        <h2 className={styles.title}>Where are your recipes today?</h2>
         <p className={styles.subtitle}>You can always add more recipes later</p>
 
         {status && (

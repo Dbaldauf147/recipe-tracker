@@ -5,6 +5,8 @@ import { loadFriends, shareRecipe, getUsername, createShareLink } from '../utils
 import { loadIngredients } from '../utils/ingredientsStore';
 import styles from './RecipeDetail.module.css';
 
+const ADMIN_UID = import.meta.env.VITE_ADMIN_UID;
+
 const STOP_WORDS = new Set([
   'the','a','an','and','or','with','in','on','of','for','my','our','easy',
   'best','quick','simple','classic','homemade','style','recipe',
@@ -227,6 +229,7 @@ function initFields(recipe) {
     prepTime: recipe.prepTime || '',
     cookTime: recipe.cookTime || '',
     sourceUrl: recipe.sourceUrl || '',
+    starterRecipe: recipe.starterRecipe || false,
     ingredients: (recipe.ingredients && recipe.ingredients.length > 0)
       ? recipe.ingredients.map(r => ({ ...r }))
       : [{ ...emptyRow }],
@@ -475,6 +478,7 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user }) {
       prepTime: fields.prepTime.trim(),
       cookTime: fields.cookTime.trim(),
       sourceUrl: fields.sourceUrl.trim(),
+      starterRecipe: fields.starterRecipe,
       ingredients: fields.ingredients.filter(row => row.ingredient.trim() !== ''),
       instructions: fields.steps.filter(s => s.trim()).join('\n'),
     });
@@ -777,6 +781,19 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user }) {
               />
             </label>
           </div>
+
+          {user?.uid === ADMIN_UID && (
+            <div className={styles.metaRow}>
+              <label className={styles.metaLabel} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
+                <input
+                  type="checkbox"
+                  checked={fields.starterRecipe}
+                  onChange={e => setField('starterRecipe', e.target.checked)}
+                />
+                Include in starter recipes
+              </label>
+            </div>
+          )}
         </div>
 
         <div

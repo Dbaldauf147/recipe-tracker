@@ -38,7 +38,7 @@ export function RecipePickerPage({ onComplete }) {
       try {
         const data = await loadUserData(ADMIN_UID);
         if (cancelled) return;
-        const recipes = data?.recipes || [];
+        const recipes = (data?.recipes || []).filter(r => r.starterRecipe === true);
         setAdminRecipes(recipes);
         // Pre-select only recipes that match at least one key ingredient
         const matching = recipes.filter(r => countMatchingIngredients(r, normKeys) > 0);
