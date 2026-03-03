@@ -1027,55 +1027,58 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user, ingredien
           </div>
         </div>
 
-        <div className={styles.weightAdjuster}>
-          <label className={styles.weightLabel}>
-            Scale weight
-            <input
-              className={styles.weightInput}
-              type="number"
-              min="0"
-              placeholder="g"
-              value={fields.totalWeight}
-              onChange={e => setField('totalWeight', e.target.value)}
-            />
-          </label>
-          <label className={styles.weightLabel}>
-            Container
-            <input
-              className={styles.weightInput}
-              type="number"
-              min="0"
-              placeholder="g"
-              value={fields.containerWeight}
-              onChange={e => setField('containerWeight', e.target.value)}
-            />
-          </label>
-          {totalWeightNum > 0 && (
-            <span className={styles.weightCalc}>
-              Food: {foodWeight}g
-            </span>
-          )}
-          {foodWeight > 0 && (
-            <>
-              <label className={styles.weightLabel}>
-                My serving
-                <input
-                  className={styles.weightInput}
-                  type="number"
-                  min="0"
-                  placeholder="g"
-                  value={servingWeight}
-                  onChange={e => setServingWeight(e.target.value)}
-                />
-              </label>
-              {weightBasedServings !== null && (
-                <span className={styles.weightResult}>
-                  = {parseFloat(weightBasedServings.toFixed(2))} {weightBasedServings === 1 ? 'serving' : 'servings'}
-                </span>
-              )}
-            </>
-          )}
-        </div>
+        <details className={styles.weightDetails}>
+          <summary>Scale weight</summary>
+          <div className={styles.weightAdjuster}>
+            <label className={styles.weightLabel}>
+              Total weight
+              <input
+                className={styles.weightInput}
+                type="number"
+                min="0"
+                placeholder="g"
+                value={fields.totalWeight}
+                onChange={e => setField('totalWeight', e.target.value)}
+              />
+            </label>
+            <label className={styles.weightLabel}>
+              Container
+              <input
+                className={styles.weightInput}
+                type="number"
+                min="0"
+                placeholder="g"
+                value={fields.containerWeight}
+                onChange={e => setField('containerWeight', e.target.value)}
+              />
+            </label>
+            {totalWeightNum > 0 && (
+              <span className={styles.weightCalc}>
+                Food: {foodWeight}g
+              </span>
+            )}
+            {foodWeight > 0 && (
+              <>
+                <label className={styles.weightLabel}>
+                  My serving
+                  <input
+                    className={styles.weightInput}
+                    type="number"
+                    min="0"
+                    placeholder="g"
+                    value={servingWeight}
+                    onChange={e => setServingWeight(e.target.value)}
+                  />
+                </label>
+                {weightBasedServings !== null && (
+                  <span className={styles.weightResult}>
+                    = {parseFloat(weightBasedServings.toFixed(2))} {weightBasedServings === 1 ? 'serving' : 'servings'}
+                  </span>
+                )}
+              </>
+            )}
+          </div>
+        </details>
 
         {editingIngredients ? (
           <>
