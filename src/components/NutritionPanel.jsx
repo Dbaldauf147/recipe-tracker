@@ -82,7 +82,7 @@ function saveCachedNutrition(recipeId, data) {
   }
 }
 
-export function NutritionPanel({ recipeId, ingredients, servings = 1 }) {
+export function NutritionPanel({ recipeId, ingredients, servings = 1, portionLabel }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -136,13 +136,13 @@ export function NutritionPanel({ recipeId, ingredients, servings = 1 }) {
     <div className={styles.container}>
       <h3>Nutrition <span className={styles.estimate}>(estimate)</span></h3>
 
-      {servings > 1 && (
+      {(servings > 1 || portionLabel) && (
         <div className={styles.servingsToggle}>
           <button
             className={`${styles.toggleBtn} ${showPerServing ? styles.toggleActive : ''}`}
             onClick={() => setShowPerServing(true)}
           >
-            Per serving ({servings} servings)
+            {portionLabel || `Per serving (${servings} servings)`}
           </button>
           <button
             className={`${styles.toggleBtn} ${!showPerServing ? styles.toggleActive : ''}`}
@@ -154,10 +154,10 @@ export function NutritionPanel({ recipeId, ingredients, servings = 1 }) {
       )}
 
       <div className={styles.groups}>
-        <NutrientGroup title="Macros" keys={MACROS} totals={totals} perServing={perServing} showPerServing={showPerServing && servings > 1} />
-        <NutrientGroup title="Sugars & Fiber" keys={SUGARS_FIBER} totals={totals} perServing={perServing} showPerServing={showPerServing && servings > 1} />
-        <NutrientGroup title="Minerals" keys={MINERALS} totals={totals} perServing={perServing} showPerServing={showPerServing && servings > 1} />
-        <NutrientGroup title="Vitamins & Aminos" keys={VITAMINS_AMINOS} totals={totals} perServing={perServing} showPerServing={showPerServing && servings > 1} />
+        <NutrientGroup title="Macros" keys={MACROS} totals={totals} perServing={perServing} showPerServing={showPerServing && (servings > 1 || !!portionLabel)} />
+        <NutrientGroup title="Sugars & Fiber" keys={SUGARS_FIBER} totals={totals} perServing={perServing} showPerServing={showPerServing && (servings > 1 || !!portionLabel)} />
+        <NutrientGroup title="Minerals" keys={MINERALS} totals={totals} perServing={perServing} showPerServing={showPerServing && (servings > 1 || !!portionLabel)} />
+        <NutrientGroup title="Vitamins & Aminos" keys={VITAMINS_AMINOS} totals={totals} perServing={perServing} showPerServing={showPerServing && (servings > 1 || !!portionLabel)} />
       </div>
 
       {goals && (() => {
@@ -165,7 +165,7 @@ export function NutritionPanel({ recipeId, ingredients, servings = 1 }) {
         // Nutrients where UNDER goal is good (green), OVER is bad (red)
         const UNDER_IS_GOOD = new Set(['calories', 'carbs', 'fat', 'saturatedFat', 'sugar', 'addedSugar', 'fiber', 'sodium', 'potassium']);
         // Everything else: OVER goal is good (green), UNDER is bad (red)
-        const usePerServing = showPerServing && servings > 1;
+        const usePerServing = showPerServing && (servings > 1 || !!portionLabel);
         // Build lookup: ingredient name → quantity + measurement
         const ingLookup = {};
         if (ingredients) {

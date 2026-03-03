@@ -953,7 +953,12 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user, ingredien
         </div>
       )}
 
-      <NutritionPanel recipeId={recipe.id} ingredients={recipe.ingredients} servings={currentServings} />
+      <NutritionPanel
+        recipeId={recipe.id}
+        ingredients={recipe.ingredients}
+        servings={(foodWeight > 0 && servingWeightNum > 0) ? foodWeight / servingWeightNum : (adjustedServings ?? baseServings)}
+        portionLabel={servingWeightNum > 0 && foodWeight > 0 ? `My portion (${servingWeight}g)` : null}
+      />
 
       <div className={styles.ingredientsCol}>
         <div className={styles.ingredientsHeader}>
