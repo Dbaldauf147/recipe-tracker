@@ -763,6 +763,21 @@
   min-width: 100px;
 }
 
+.colGrams {
+  width: 60px;
+  min-width: 60px;
+}
+
+.gramsCell {
+  font-size: 0.82rem;
+  text-align: center;
+  color: var(--color-text);
+}
+
+.gramsEmpty {
+  color: var(--color-text-muted);
+}
+
 .convertedCell {
   font-size: 0.82rem;
   color: var(--color-text-muted);

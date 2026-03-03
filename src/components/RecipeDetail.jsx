@@ -1091,6 +1091,8 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user, ingredien
                   <th>Type</th>
                   <th>Ingredient</th>
                   <th>Notes</th>
+                  <th className={styles.colGrams}>Grams</th>
+                  <th></th>
                   <th></th>
                 </tr>
               </thead>
@@ -1233,6 +1235,14 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user, ingredien
                         )}
                       </React.Fragment>
                     ))}
+                    <td className={styles.gramsCell}>
+                      {dbGrams > 0 ? dbGrams : <span className={styles.gramsEmpty}>—</span>}
+                    </td>
+                    <td className={styles.linkCell}>
+                      {(() => { const link = getDbLink(row.ingredient); return link ? (
+                        <a href={link} target="_blank" rel="noopener noreferrer" className={styles.ingredientLink} title={link}>Link</a>
+                      ) : null; })()}
+                    </td>
                     <td>
                       {fields.ingredients.length > 1 && (
                         <button
