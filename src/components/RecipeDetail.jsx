@@ -606,7 +606,7 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user, ingredien
       canvas.height = img.height * scale;
       canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
       const dataUrl = canvas.toDataURL('image/jpeg', 0.7);
-      onSave({ imageUrl: dataUrl });
+      onSave({ imageUrl: dataUrl, imageHidden: false });
       setUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
     };
@@ -623,7 +623,8 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user, ingredien
   }
 
   function handleRemoveImage() {
-    onSave({ imageUrl: '' });
+    onSave({ imageUrl: '', imageHidden: true });
+    setImgError(true);
   }
 
   function handleDragEnter(e) {
@@ -870,7 +871,7 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user, ingredien
               onTouchStart={handlePanStart}
               draggable={false}
             />
-          ) : !imgError ? (
+          ) : !imgError && !recipe.imageHidden ? (
             <img
               className={styles.heroImg}
               src={buildImageUrl(recipe)}
@@ -887,7 +888,7 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user, ingredien
               >
                 {uploading ? 'Uploading...' : recipe.imageUrl ? 'Change Photo' : 'Upload Photo'}
               </button>
-              {recipe.imageUrl && (
+              {(recipe.imageUrl || (!imgError && !recipe.imageHidden)) && (
                 <button className={styles.removeImgBtn} onClick={handleRemoveImage}>
                   Remove
                 </button>
