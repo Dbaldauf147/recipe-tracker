@@ -618,10 +618,37 @@
   font-style: italic;
 }
 
+.colQty {
+  width: 80px;
+  min-width: 80px;
+}
+
+.colMeasure {
+  width: 100px;
+  min-width: 100px;
+}
+
 .convertedCell {
   font-size: 0.82rem;
   color: var(--color-text-muted);
   white-space: nowrap;
+}
+
+.convertSelect {
+  padding: 0.2rem 0.3rem;
+  font-size: 0.82rem;
+  font-family: inherit;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm, 6px);
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+  cursor: pointer;
+  max-width: 120px;
+}
+
+.convertSelect:focus {
+  outline: none;
+  border-color: var(--color-accent);
 }
 
 .addRowBtn {
