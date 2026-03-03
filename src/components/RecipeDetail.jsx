@@ -1268,6 +1268,7 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user, ingredien
               {fields.ingredients.filter(row => (row.ingredient || '').trim()).map((row, i) => {
                 const dbNotes = getDbNotes(row.ingredient);
                 const dbLink = getDbLink(row.ingredient);
+                const noWeight = isInDb(row.ingredient) && classifyUnit(row.measurement) === 'volume' && !getDbGrams(row.ingredient);
                 const rawQty = row.quantity || '';
                 const displayQty = rawQty ? scaleQuantity(rawQty) : '';
                 const amount = [displayQty, displayMeasurement(row.measurement, row.ingredient, displayQty)].filter(Boolean).join(' ');
@@ -1280,6 +1281,9 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user, ingredien
                       {row.ingredient}
                       {!isInDb(row.ingredient) && (
                         <span className={styles.dbWarning} title="Not found in ingredient database"> ⚠</span>
+                      )}
+                      {noWeight && (
+                        <span className={styles.noWeightWarning} title="No weight conversion available — add grams to ingredient database"> ⚖</span>
                       )}
                     </td>
                     <td className={styles.notesCell}>

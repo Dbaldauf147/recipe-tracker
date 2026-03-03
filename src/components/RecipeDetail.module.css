@@ -702,6 +702,12 @@
   cursor: help;
 }
 
+.noWeightWarning {
+  color: #6366f1;
+  font-size: 0.8rem;
+  cursor: help;
+}
+
 .ingredientInputWrap {
   display: flex;
   align-items: center;
