@@ -567,6 +567,48 @@
   cursor: not-allowed;
 }
 
+.convertPopup {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  z-index: 100;
+  min-width: 150px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md, 8px);
+  box-shadow: var(--shadow-lg, 0 4px 12px rgba(0,0,0,0.15));
+  padding: 0.35rem 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.convertPopupTitle {
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text-muted);
+  padding: 0.3rem 0.75rem 0.25rem;
+}
+
+.convertPopupOption {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 0.4rem 0.75rem;
+  font-size: 0.85rem;
+  font-family: inherit;
+  background: none;
+  border: none;
+  color: var(--color-text);
+  cursor: pointer;
+  transition: background 0.1s ease;
+}
+
+.convertPopupOption:hover {
+  background: var(--color-surface-alt);
+}
+
 .dbWarning {
   color: #d97706;
   font-size: 0.8rem;

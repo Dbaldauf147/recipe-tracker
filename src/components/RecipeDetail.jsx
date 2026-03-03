@@ -42,6 +42,7 @@ const VOLUME_TO_ML = {
 };
 
 const WEIGHT_TO_G = {
+  mg: 0.001, milligram: 0.001, milligrams: 0.001,
   g: 1, gram: 1, grams: 1,
   kg: 1000,
   oz: 28.3495, ounce: 28.3495, ounces: 28.3495,
@@ -58,7 +59,7 @@ const WEIGHT_TO_G = {
 };
 
 const VOLUME_UNITS = ['tsp', 'tbsp', 'cup', 'ml', 'fl oz', 'pint', 'quart', 'liter', 'gallon', 'pinch', 'dash', 'can', 'handful', 'bunch'];
-const WEIGHT_UNITS = ['g', 'oz', 'lb', 'kg', 'clove', 'slice', 'stick', 'piece', 'head', 'stalk', 'sprig', 'whole', 'each', 'large', 'medium', 'small'];
+const WEIGHT_UNITS = ['g', 'oz', 'lb', 'kg', 'mg'];
 
 const LIQUIDS = new Set([
   'water', 'milk', 'cream', 'half and half', 'half-and-half', 'buttermilk',
@@ -262,6 +263,8 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user }) {
   const [adjustedServings, setAdjustedServings] = useState(null);
   const [editingIngredients, setEditingIngredients] = useState(false);
   const [showScanner, setShowScanner] = useState(false);
+  const [convertPopup, setConvertPopup] = useState(null); // { rowIdx, options: [{ qty, unit, label }] }
+  const convertPopupRef = useRef(null);
 
   // Build lookup maps from ingredient database
   const { dbNotesMap, dbGramsMap, dbMeasurementMap, dbNamesSet } = useMemo(() => {
@@ -501,6 +504,18 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user }) {
     return () => clearTimeout(timer);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fields]);
+
+  // Close convert popup on outside click
+  useEffect(() => {
+    if (!convertPopup) return;
+    function handleClickOutside(e) {
+      if (convertPopupRef.current && !convertPopupRef.current.contains(e.target)) {
+        setConvertPopup(null);
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [convertPopup]);
 
   // Close share dropdown on outside click
   useEffect(() => {
@@ -980,7 +995,9 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user }) {
                   <th></th>
                   <th className={styles.colQty}>Qty</th>
                   <th className={styles.colMeasure}>Unit</th>
-                  <th>Converted</th>
+                  <th>Type</th>
+                  <th className={styles.colQty}>Conv. Qty</th>
+                  <th className={styles.colMeasure}>Conv. Unit</th>
                   <th>Ingredient</th>
                   <th>Notes</th>
                   <th></th>
@@ -1061,38 +1078,116 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user }) {
                           </div>
                         </td>
                         {field === 'measurement' && (
-                          <td className={styles.convertedCell}>
-                            {dropdownOptions.length > 0 ? (
-                              <select
-                                className={styles.convertSelect}
-                                value={defaultUnit}
-                                onChange={e => {
-                                  const selectedLabel = e.target.value;
-                                  // Map display labels back to raw unit keys
-                                  const rawUnit = (selectedLabel === 'gram' || selectedLabel === 'grams') ? 'g' : selectedLabel;
-                                  const conv = conversions.find(c => c.unit === rawUnit);
-                                  if (conv) {
-                                    updateIngredient(i, 'quantity', String(conv.qty));
-                                    const displayUnit = conv.unit === 'g' ? (conv.qty === 1 ? 'gram' : 'grams') : conv.unit;
-                                    updateIngredient(i, 'measurement', displayUnit);
-                                  }
-                                }}
-                              >
-                                {dropdownOptions.map(c => {
-                                  const label = c.unit === 'g' ? (c.qty === 1 ? 'gram' : 'grams') : c.unit;
-                                  return (
-                                    <option key={c.unit} value={label}>
-                                      {c.qty} {label}
-                                    </option>
-                                  );
-                                })}
-                              </select>
-                            ) : (
-                              <span className={styles.typeLabel}>
-                                {(row.measurement || '').trim() && unitType ? (unitType === 'weight' ? 'Weight' : 'Volume') : ''}
-                              </span>
-                            )}
-                          </td>
+                          <>
+                            <td style={{ position: 'relative' }}>
+                              {unitType ? (
+                                liquid && unitType === 'volume' ? (
+                                  <span className={styles.typeLabelLiquid}>Volume</span>
+                                ) : (
+                                <>
+                                <button
+                                  className={styles.typeBtn}
+                                  type="button"
+                                  title={unitType === 'weight' ? 'Convert to volume' : 'Convert to weight'}
+                                  onClick={() => {
+                                    // Build list of opposite-type conversions
+                                    const targetType = unitType === 'volume' ? 'weight' : 'volume';
+                                    let options = [];
+                                    if (targetType === 'weight') {
+                                      // Add cross-conversion (density-based) first if available
+                                      if (crossConv.weight) {
+                                        const parts = crossConv.weight.match(/^([\d.]+)\s*(.+)$/);
+                                        if (parts) options.push({ qty: parts[1], unit: parts[2], label: `${parts[1]} ${parts[2]}` });
+                                      }
+                                      // Add all weight conversions from getConversions
+                                      for (const c of conversions) {
+                                        if (!WEIGHT_TO_G[c.unit]) continue;
+                                        const displayUnit = c.unit === 'g' ? (c.qty === 1 ? 'gram' : 'grams') : c.unit;
+                                        // Skip if already added via cross-conversion
+                                        if (options.some(o => o.unit === displayUnit)) continue;
+                                        options.push({ qty: String(c.qty), unit: displayUnit, label: `${c.qty} ${displayUnit}` });
+                                      }
+                                    } else {
+                                      if (crossConv.volume) {
+                                        const parts = crossConv.volume.match(/^([\d.]+)\s+(.+)$/);
+                                        if (parts) options.push({ qty: parts[1], unit: parts[2], label: `${parts[1]} ${parts[2]}` });
+                                      }
+                                      for (const c of conversions) {
+                                        if (!VOLUME_TO_ML[c.unit]) continue;
+                                        if (options.some(o => o.unit === c.unit)) continue;
+                                        options.push({ qty: String(c.qty), unit: c.unit, label: `${c.qty} ${c.unit}` });
+                                      }
+                                    }
+                                    if (options.length > 0) {
+                                      setConvertPopup({ rowIdx: i, options });
+                                    }
+                                  }}
+                                >
+                                  {unitType === 'weight' ? 'Weight' : 'Volume'}
+                                </button>
+                                {convertPopup && convertPopup.rowIdx === i && (
+                                  <div className={styles.convertPopup} ref={convertPopupRef}>
+                                    <div className={styles.convertPopupTitle}>
+                                      Convert to {unitType === 'volume' ? 'weight' : 'volume'}
+                                    </div>
+                                    {convertPopup.options.map((opt, oi) => (
+                                      <button
+                                        key={oi}
+                                        className={styles.convertPopupOption}
+                                        onClick={() => {
+                                          updateIngredient(i, 'quantity', opt.qty);
+                                          updateIngredient(i, 'measurement', opt.unit);
+                                          setConvertPopup(null);
+                                        }}
+                                      >
+                                        {opt.label}
+                                      </button>
+                                    ))}
+                                  </div>
+                                )}
+                                </>
+                                )
+                              ) : (
+                                <span className={styles.typeLabel}>
+                                  {(row.measurement || '').trim() ? 'Other' : ''}
+                                </span>
+                              )}
+                            </td>
+                            <td className={`${styles.convertedCell} ${styles.colQty}`}>
+                              {dropdownOptions.length > 0 ? (() => {
+                                const rawDefault = (defaultUnit === 'gram' || defaultUnit === 'grams') ? 'g' : defaultUnit;
+                                const match = conversions.find(c => c.unit === rawDefault);
+                                return match ? match.qty : '';
+                              })() : ''}
+                            </td>
+                            <td className={`${styles.convertedCell} ${styles.colMeasure}`}>
+                              {dropdownOptions.length > 0 ? (
+                                <select
+                                  className={styles.convertSelect}
+                                  value={defaultUnit}
+                                  onChange={e => {
+                                    const selectedLabel = e.target.value;
+                                    const rawUnit = (selectedLabel === 'gram' || selectedLabel === 'grams') ? 'g' : selectedLabel;
+                                    const conv = conversions.find(c => c.unit === rawUnit);
+                                    if (conv) {
+                                      updateIngredient(i, 'quantity', String(conv.qty));
+                                      const displayUnit = conv.unit === 'g' ? (conv.qty === 1 ? 'gram' : 'grams') : conv.unit;
+                                      updateIngredient(i, 'measurement', displayUnit);
+                                    }
+                                  }}
+                                >
+                                  {dropdownOptions.map(c => {
+                                    const label = c.unit === 'g' ? (c.qty === 1 ? 'gram' : 'grams') : c.unit;
+                                    return (
+                                      <option key={c.unit} value={label}>
+                                        {label}
+                                      </option>
+                                    );
+                                  })}
+                                </select>
+                              ) : ''}
+                            </td>
+                          </>
                         )}
                       </React.Fragment>
                     ))}
