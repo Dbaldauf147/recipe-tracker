@@ -124,6 +124,20 @@
   background: rgba(220, 38, 38, 1);
 }
 
+.heroPlaceholder {
+  width: 100%;
+  aspect-ratio: 3 / 4;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--color-surface-alt, #f3f4f6);
+  color: var(--color-text-muted, #999);
+  font-size: 0.95rem;
+  font-weight: 500;
+  cursor: pointer;
+  line-height: 1;
+}
+
 .heroImg {
   width: 100%;
   aspect-ratio: 3 / 4;

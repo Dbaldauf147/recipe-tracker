@@ -878,7 +878,11 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user, ingredien
               alt={recipe.title}
               onError={() => setImgError(true)}
             />
-          ) : null}
+          ) : (
+            <div className={styles.heroPlaceholder} onClick={() => user && fileInputRef.current?.click()}>
+              {uploading ? 'Uploading...' : 'Upload photo here'}
+            </div>
+          )}
           {user && (
             <div className={styles.imageOverlay}>
               <button
