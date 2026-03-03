@@ -1147,8 +1147,8 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user, ingredien
                                 <button
                                   className={styles.typeBtn}
                                   type="button"
-                                  disabled={unitType === 'volume' && !dbGrams}
-                                  title={unitType === 'volume' && !dbGrams ? 'No weight conversion — add grams to ingredient database' : 'Convert unit'}
+                                  disabled={!parseFloat(row.quantity) || (unitType === 'volume' && !dbGrams)}
+                                  title={!parseFloat(row.quantity) ? 'Quantity is 0' : unitType === 'volume' && !dbGrams ? 'No weight conversion — add grams to ingredient database' : 'Convert unit'}
                                   onClick={() => {
                                     // Build volume options
                                     const volumeOptions = [];
