@@ -953,7 +953,7 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user, ingredien
         </div>
       )}
 
-      <NutritionPanel recipeId={recipe.id} ingredients={recipe.ingredients} servings={parseInt(recipe.servings) || 1} />
+      <NutritionPanel recipeId={recipe.id} ingredients={recipe.ingredients} servings={currentServings} />
 
       <div className={styles.ingredientsCol}>
         <div className={styles.ingredientsHeader}>
