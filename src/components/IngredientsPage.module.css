@@ -256,3 +256,18 @@
 .actionTh:hover {
   color: var(--color-text-muted) !important;
 }
+
+/* Read-only cell text (non-admin) */
+.cellText {
+  display: block;
+  padding: 0.1rem 0.15rem;
+  font-size: 0.65rem;
+  color: var(--color-text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.table td:first-child .cellText {
+  font-weight: 600;
+  color: var(--color-text);
+}

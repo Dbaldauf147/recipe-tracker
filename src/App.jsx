@@ -6,6 +6,7 @@ import { RecipeList } from './components/RecipeList';
 import { RecipeDetail } from './components/RecipeDetail';
 import { RecipeForm } from './components/RecipeForm';
 import { IngredientsPage } from './components/IngredientsPage';
+import { loadIngredientsFromFirestore } from './utils/ingredientsStore';
 import { FriendsPage } from './components/FriendsPage';
 import { ShoppingListPage } from './components/ShoppingListPage';
 import { HistoryPage } from './components/HistoryPage';
@@ -93,6 +94,11 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding }) {
     const interval = setInterval(checkRequests, 30000);
     return () => { cancelled = true; clearInterval(interval); };
   }, [user?.uid]);
+
+  // Pre-load ingredient database from Firestore so localStorage cache is fresh
+  useEffect(() => {
+    loadIngredientsFromFirestore();
+  }, []);
 
   useEffect(() => {
     if (!settingsOpen) return;
@@ -447,7 +453,7 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding }) {
             onClose={goBack}
           />
         ) : view === 'ingredients' ? (
-          <IngredientsPage onClose={goBack} />
+          <IngredientsPage onClose={goBack} user={user} />
         ) : view === 'friends' ? (
           <FriendsPage
             onClose={() => {

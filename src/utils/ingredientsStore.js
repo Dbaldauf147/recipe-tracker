@@ -1,4 +1,7 @@
+import { saveField, loadUserData } from './firestoreSync';
+
 const STORAGE_KEY = 'sunday-ingredients-db';
+const ADMIN_UID = import.meta.env.VITE_ADMIN_UID;
 
 const CSV_URL =
   'https://docs.google.com/spreadsheets/d/e/2PACX-1vRg2H-pU53B_n0WCG3f_vz3ye-8IicvsqvTM2xohwVaEitNIZr6PbrgRn8-5qlTn-cSwnt2m3FjXIae/pub?gid=960892864&single=true&output=csv';
@@ -98,4 +101,37 @@ export async function fetchAndSeedIngredients() {
 
   saveIngredients(data);
   return data;
+}
+
+/**
+ * Load the ingredients database from the admin's Firestore user doc.
+ * Caches to localStorage so other pages (RecipeDetail, ShoppingList) can read it.
+ * Returns the data array, or null if Firestore has no ingredientsDb yet.
+ */
+export async function loadIngredientsFromFirestore() {
+  if (!ADMIN_UID) return null;
+  try {
+    const userData = await loadUserData(ADMIN_UID);
+    if (userData?.ingredientsDb) {
+      saveIngredients(userData.ingredientsDb);
+      return userData.ingredientsDb;
+    }
+  } catch (err) {
+    console.error('loadIngredientsFromFirestore:', err);
+  }
+  return null;
+}
+
+/**
+ * Save the ingredients database to localStorage immediately,
+ * then persist to the admin's Firestore user doc.
+ */
+export async function saveIngredientsToFirestore(data) {
+  saveIngredients(data);
+  if (!ADMIN_UID) return;
+  try {
+    await saveField(ADMIN_UID, 'ingredientsDb', data);
+  } catch (err) {
+    console.error('saveIngredientsToFirestore:', err);
+  }
 }

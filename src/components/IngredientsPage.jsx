@@ -2,10 +2,13 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   INGREDIENT_FIELDS,
   loadIngredients,
-  saveIngredients,
   fetchAndSeedIngredients,
+  loadIngredientsFromFirestore,
+  saveIngredientsToFirestore,
 } from '../utils/ingredientsStore.js';
 import styles from './IngredientsPage.module.css';
+
+const ADMIN_UID = import.meta.env.VITE_ADMIN_UID;
 
 // Display order of columns (by field key)
 const DISPLAY_KEYS = [
@@ -28,7 +31,8 @@ function loadColWidths() {
   } catch { return {}; }
 }
 
-export function IngredientsPage({ onClose }) {
+export function IngredientsPage({ onClose, user }) {
+  const isAdmin = user?.uid === ADMIN_UID;
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -39,16 +43,45 @@ export function IngredientsPage({ onClose }) {
   const resizing = useRef(null);
 
   useEffect(() => {
-    const data = loadIngredients();
-    if (data && data.length > 0) {
-      setRows(data);
-      setLoading(false);
-    } else {
-      fetchAndSeedIngredients()
-        .then(setRows)
-        .catch(() => setError('Failed to load ingredients data.'))
-        .finally(() => setLoading(false));
+    let cancelled = false;
+    async function init() {
+      // 1. Show localStorage cache immediately
+      const cached = loadIngredients();
+      if (cached && cached.length > 0) {
+        setRows(cached);
+        setLoading(false);
+      }
+
+      // 2. Fetch latest from Firestore
+      const firestoreData = await loadIngredientsFromFirestore();
+      if (cancelled) return;
+
+      if (firestoreData && firestoreData.length > 0) {
+        setRows(firestoreData);
+        setLoading(false);
+        return;
+      }
+
+      // 3. If Firestore had nothing and no cache, seed from CSV
+      if (!cached || cached.length === 0) {
+        try {
+          const csvData = await fetchAndSeedIngredients();
+          if (cancelled) return;
+          setRows(csvData);
+          // If admin, push CSV seed to Firestore
+          if (isAdmin) saveIngredientsToFirestore(csvData);
+        } catch {
+          if (!cancelled) setError('Failed to load ingredients data.');
+        }
+      } else if (isAdmin) {
+        // Cache exists but Firestore is empty — push to Firestore
+        saveIngredientsToFirestore(cached);
+      }
+
+      if (!cancelled) setLoading(false);
     }
+    init();
+    return () => { cancelled = true; };
   }, []);
 
   const updateField = useCallback((origIdx, key, value) => {
@@ -56,7 +89,7 @@ export function IngredientsPage({ onClose }) {
       const updated = prev.map((row, i) =>
         i === origIdx ? { ...row, [key]: value } : row
       );
-      saveIngredients(updated);
+      saveIngredientsToFirestore(updated);
       return updated;
     });
   }, []);
@@ -66,7 +99,7 @@ export function IngredientsPage({ onClose }) {
       const empty = {};
       for (const f of INGREDIENT_FIELDS) empty[f.key] = '';
       const updated = [...prev, empty];
-      saveIngredients(updated);
+      saveIngredientsToFirestore(updated);
       return updated;
     });
   }, []);
@@ -74,7 +107,7 @@ export function IngredientsPage({ onClose }) {
   const removeRow = useCallback((origIdx) => {
     setRows(prev => {
       const updated = prev.filter((_, i) => i !== origIdx);
-      saveIngredients(updated);
+      saveIngredientsToFirestore(updated);
       return updated;
     });
   }, []);
@@ -160,7 +193,7 @@ export function IngredientsPage({ onClose }) {
           value={search}
           onChange={e => setSearch(e.target.value)}
         />
-        {!loading && !error && (
+        {!loading && !error && isAdmin && (
           <button className={styles.addBtn} onClick={addRow}>
             + Add ingredient
           </button>
@@ -197,7 +230,7 @@ export function IngredientsPage({ onClose }) {
                     </th>
                   );
                 })}
-                <th className={styles.actionTh} />
+                {isAdmin && <th className={styles.actionTh} />}
               </tr>
             </thead>
             <tbody>
@@ -205,23 +238,29 @@ export function IngredientsPage({ onClose }) {
                 <tr key={origIdx}>
                   {DISPLAY_KEYS.map(key => (
                     <td key={key} style={{ width: getColWidth(key), minWidth: getColWidth(key) }}>
-                      <input
-                        className={styles.cellInput}
-                        style={{ maxWidth: 'none' }}
-                        value={row[key] || ''}
-                        onChange={e => updateField(origIdx, key, e.target.value)}
-                      />
+                      {isAdmin ? (
+                        <input
+                          className={styles.cellInput}
+                          style={{ maxWidth: 'none' }}
+                          value={row[key] || ''}
+                          onChange={e => updateField(origIdx, key, e.target.value)}
+                        />
+                      ) : (
+                        <span className={styles.cellText}>{row[key] || ''}</span>
+                      )}
                     </td>
                   ))}
-                  <td>
-                    <button
-                      className={styles.removeBtn}
-                      onClick={() => removeRow(origIdx)}
-                      title="Remove ingredient"
-                    >
-                      ×
-                    </button>
-                  </td>
+                  {isAdmin && (
+                    <td>
+                      <button
+                        className={styles.removeBtn}
+                        onClick={() => removeRow(origIdx)}
+                        title="Remove ingredient"
+                      >
+                        ×
+                      </button>
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>
