@@ -22,7 +22,7 @@ export function LoginPage() {
   return (
     <div className={styles.page}>
       <div className={styles.card}>
-        <img className={styles.logoImg} src="/sunday-logo.png" alt="Prep Day" />
+        <img className={styles.logoImg} src="/prep-day-logo.png" alt="Prep Day" />
         <p className={styles.tagline}>meal planning, simplified</p>
         {authError && <p className={styles.error}>{authError}</p>}
         <form className={styles.form} onSubmit={handleSubmit}>

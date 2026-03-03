@@ -221,7 +221,7 @@ export function RecipeSetupPage({ onComplete, onBack, onSkip }) {
     return (
       <div className={styles.page}>
         <div className={styles.card}>
-          <img className={styles.logo} src="/sunday-logo.png" alt="Prep Day" />
+          <img className={styles.logo} src="/prep-day-logo.png" alt="Prep Day" />
           <h2 className={styles.title}>Paste Recipe Text</h2>
           <p className={styles.subtitle}>Paste your recipe below and we'll parse it automatically</p>
 
@@ -261,7 +261,7 @@ export function RecipeSetupPage({ onComplete, onBack, onSkip }) {
     return (
       <div className={styles.page}>
         <div className={styles.card}>
-          <img className={styles.logo} src="/sunday-logo.png" alt="Prep Day" />
+          <img className={styles.logo} src="/prep-day-logo.png" alt="Prep Day" />
           <h2 className={styles.title}>Import from Instagram</h2>
           <p className={styles.subtitle}>Paste an Instagram post link or the caption text</p>
 
@@ -342,7 +342,7 @@ export function RecipeSetupPage({ onComplete, onBack, onSkip }) {
     return (
       <div className={styles.page}>
         <div className={styles.card}>
-          <img className={styles.logo} src="/sunday-logo.png" alt="Prep Day" />
+          <img className={styles.logo} src="/prep-day-logo.png" alt="Prep Day" />
           <h2 className={styles.title}>Import from URL</h2>
           <p className={styles.subtitle}>Paste a link to any recipe page</p>
 
@@ -386,7 +386,7 @@ export function RecipeSetupPage({ onComplete, onBack, onSkip }) {
     return (
       <div className={styles.page}>
         <div className={styles.reviewCard}>
-          <img className={styles.logo} src="/sunday-logo.png" alt="Prep Day" />
+          <img className={styles.logo} src="/prep-day-logo.png" alt="Prep Day" />
           <h2 className={styles.title}>Filter by meal type</h2>
           <p className={styles.subtitle}>
             {checkedCount} of {filteredRecipes.length} recipes selected
@@ -467,7 +467,7 @@ export function RecipeSetupPage({ onComplete, onBack, onSkip }) {
   return (
     <div className={styles.page}>
       <div className={styles.card}>
-        <img className={styles.logo} src="/sunday-logo.png" alt="Prep Day" />
+        <img className={styles.logo} src="/prep-day-logo.png" alt="Prep Day" />
         <h2 className={styles.title}>Where are your recipes today?</h2>
         <p className={styles.subtitle}>You can always add more recipes later</p>
 

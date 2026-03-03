@@ -109,7 +109,7 @@ export function RecipePickerPage({ onComplete }) {
     return (
       <div className={styles.page}>
         <div className={styles.card}>
-          <img className={styles.logo} src="/sunday-logo.png" alt="Prep Day" />
+          <img className={styles.logo} src="/prep-day-logo.png" alt="Prep Day" />
           <p className={styles.error}>{error}</p>
           <button className={styles.startBtn} onClick={() => onComplete([])}>
             Skip &amp; Get Started
@@ -123,7 +123,7 @@ export function RecipePickerPage({ onComplete }) {
     return (
       <div className={styles.page}>
         <div className={styles.card}>
-          <img className={styles.logo} src="/sunday-logo.png" alt="Prep Day" />
+          <img className={styles.logo} src="/prep-day-logo.png" alt="Prep Day" />
           <div className={styles.spinner} />
           <p className={styles.loadingText}>Loading starter recipes...</p>
         </div>
@@ -134,7 +134,7 @@ export function RecipePickerPage({ onComplete }) {
   return (
     <div className={styles.page}>
       <div className={styles.card}>
-        <img className={styles.logo} src="/sunday-logo.png" alt="Prep Day" />
+        <img className={styles.logo} src="/prep-day-logo.png" alt="Prep Day" />
         <h2 className={styles.title}>Recipes matching your ingredients</h2>
         <p className={styles.subtitle}>(You can always add or remove recipes later)</p>
 
