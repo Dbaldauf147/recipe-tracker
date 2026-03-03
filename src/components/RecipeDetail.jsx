@@ -35,6 +35,12 @@ const VOLUME_TO_ML = {
   gallon: 3785.41, gallons: 3785.41,
   liter: 1000, liters: 1000, l: 1000,
   ml: 1,
+  cl: 10, centiliter: 10, centiliters: 10,
+  dl: 100, deciliter: 100, deciliters: 100,
+  c: 236.588,
+  pt: 473.176,
+  qt: 946.353,
+  gal: 3785.41,
   pinch: 0.31, dash: 0.62, smidgen: 0.16,
   can: 400, cans: 400,
   handful: 50, handfuls: 50,
@@ -58,7 +64,7 @@ const WEIGHT_TO_G = {
   large: 150, medium: 100, small: 75,
 };
 
-const VOLUME_UNITS = ['tsp', 'tbsp', 'cup', 'ml', 'fl oz', 'pint', 'quart', 'liter', 'gallon', 'pinch', 'dash', 'can', 'handful', 'bunch'];
+const VOLUME_UNITS = ['tsp', 'tbsp', 'fl oz', 'cup', 'pt', 'qt', 'gal', 'ml', 'cl', 'dl', 'l'];
 const WEIGHT_UNITS = ['g', 'oz', 'lb', 'kg', 'mg'];
 
 const LIQUIDS = new Set([
@@ -152,7 +158,8 @@ function getConversions(qty, measurement, dbGrams) {
       for (const target of WEIGHT_UNITS) {
         const converted = grams / WEIGHT_TO_G[target];
         if (converted >= 0.01 && converted <= 10000) {
-          results.push({ qty: parseFloat(converted.toFixed(2)), unit: target });
+          const roundWhole = target === 'g' || target === 'oz' || target === 'mg';
+          results.push({ qty: roundWhole ? Math.round(converted) : parseFloat(converted.toFixed(2)), unit: target });
         }
       }
     }
@@ -162,7 +169,8 @@ function getConversions(qty, measurement, dbGrams) {
       if (target === unit) continue;
       const converted = g / WEIGHT_TO_G[target];
       if (converted >= 0.01 && converted <= 10000) {
-        results.push({ qty: parseFloat(converted.toFixed(2)), unit: target });
+        const roundWhole = target === 'g' || target === 'oz' || target === 'mg';
+        results.push({ qty: roundWhole ? Math.round(converted) : parseFloat(converted.toFixed(2)), unit: target });
       }
     }
   }
@@ -198,7 +206,7 @@ function getCrossConversion(qty, measurement, dbGrams, dbMeasurement) {
       // Input is volume → compute weight
       const ml = num * VOLUME_TO_ML[unit];
       const grams = ml * gramsPerMl;
-      const rounded = parseFloat(grams.toFixed(1));
+      const rounded = Math.round(grams);
       return { weight: `${rounded} ${rounded === 1 ? 'gram' : 'grams'}`, volume: '' };
     } else if (WEIGHT_TO_G[unit]) {
       // Input is weight → compute volume
@@ -245,7 +253,7 @@ function initFields(recipe) {
   };
 }
 
-export function RecipeDetail({ recipe, onSave, onDelete, onBack, user }) {
+export function RecipeDetail({ recipe, onSave, onDelete, onBack, user, ingredientsVersion }) {
   const [imgError, setImgError] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [dragging, setDragging] = useState(false);
@@ -267,10 +275,11 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user }) {
   const convertPopupRef = useRef(null);
 
   // Build lookup maps from ingredient database
-  const { dbNotesMap, dbGramsMap, dbMeasurementMap, dbNamesSet } = useMemo(() => {
+  const { dbNotesMap, dbGramsMap, dbMeasurementMap, dbLinksMap, dbNamesSet } = useMemo(() => {
     const notes = new Map();
     const grams = new Map();
     const measurements = new Map();
+    const links = new Map();
     const names = new Set();
     const data = loadIngredients();
     if (data) {
@@ -281,10 +290,11 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user }) {
         if (item.notes) notes.set(key, item.notes);
         if (item.grams) grams.set(key, parseFloat(item.grams) || 0);
         if (item.measurement) measurements.set(key, item.measurement.trim());
+        if (item.link) links.set(key, item.link.trim());
       }
     }
-    return { dbNotesMap: notes, dbGramsMap: grams, dbMeasurementMap: measurements, dbNamesSet: names };
-  }, []);
+    return { dbNotesMap: notes, dbGramsMap: grams, dbMeasurementMap: measurements, dbLinksMap: links, dbNamesSet: names };
+  }, [ingredientsVersion]);
 
   function getDbNotes(ingredientName) {
     if (!ingredientName) return null;
@@ -322,6 +332,19 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user }) {
     }
     for (const [name, m] of dbMeasurementMap) {
       if (name.includes(search) || search.includes(name)) return m;
+    }
+    return '';
+  }
+
+  function getDbLink(ingredientName) {
+    if (!ingredientName) return '';
+    const search = ingredientName.trim().toLowerCase();
+    if (dbLinksMap.has(search)) return dbLinksMap.get(search);
+    for (const [name, link] of dbLinksMap) {
+      if (name.startsWith(search) || search.startsWith(name)) return link;
+    }
+    for (const [name, link] of dbLinksMap) {
+      if (name.includes(search) || search.includes(name)) return link;
     }
     return '';
   }
@@ -996,8 +1019,6 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user }) {
                   <th className={styles.colQty}>Qty</th>
                   <th className={styles.colMeasure}>Unit</th>
                   <th>Type</th>
-                  <th className={styles.colQty}>Conv. Qty</th>
-                  <th className={styles.colMeasure}>Conv. Unit</th>
                   <th>Ingredient</th>
                   <th>Notes</th>
                   <th></th>
@@ -1010,40 +1031,8 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user }) {
                   const dbNotes = getDbNotes(row.ingredient);
                   const unitType = classifyUnit(row.measurement);
                   const liquid = isLiquid(row.ingredient);
-                  // Compute all conversions for the dropdown
                   const conversions = getConversions(row.quantity, row.measurement, dbGrams);
-                  // Build dropdown options: opposite-type conversions first, then same-type
-                  const oppositeConversions = conversions.filter(c =>
-                    unitType === 'volume' ? WEIGHT_TO_G[c.unit] : VOLUME_TO_ML[c.unit]
-                  );
-                  const sameConversions = conversions.filter(c =>
-                    unitType === 'volume' ? VOLUME_TO_ML[c.unit] : WEIGHT_TO_G[c.unit]
-                  );
-                  // For liquids, skip weight conversions
-                  const dropdownOptions = liquid
-                    ? sameConversions
-                    : [...oppositeConversions, ...sameConversions];
-                  // Also try cross-conversion for a better default
                   const crossConv = liquid ? { weight: '', volume: '' } : getCrossConversion(row.quantity, row.measurement, dbGrams, dbMeasurement);
-                  // Pick default: best cross-conversion, else first opposite conversion
-                  let defaultUnit = '';
-                  if (!liquid) {
-                    if (unitType === 'volume' && crossConv.weight) {
-                      const parts = crossConv.weight.match(/^([\d.]+)\s*(.+)$/);
-                      if (parts) defaultUnit = parts[2];
-                    } else if (unitType === 'weight' && crossConv.volume) {
-                      const parts = crossConv.volume.match(/^([\d.]+)\s+(.+)$/);
-                      if (parts) defaultUnit = parts[2];
-                    }
-                  }
-                  if (!defaultUnit && oppositeConversions.length > 0 && !liquid) {
-                    defaultUnit = oppositeConversions[0].unit === 'g'
-                      ? (oppositeConversions[0].qty === 1 ? 'gram' : 'grams')
-                      : oppositeConversions[0].unit;
-                  }
-                  if (!defaultUnit && sameConversions.length > 0) {
-                    defaultUnit = sameConversions[0].unit;
-                  }
                   return (
                   <tr
                     key={i}
@@ -1088,38 +1077,33 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user }) {
                                 <button
                                   className={styles.typeBtn}
                                   type="button"
-                                  title={unitType === 'weight' ? 'Convert to volume' : 'Convert to weight'}
+                                  title="Convert unit"
                                   onClick={() => {
-                                    // Build list of opposite-type conversions
-                                    const targetType = unitType === 'volume' ? 'weight' : 'volume';
-                                    let options = [];
-                                    if (targetType === 'weight') {
-                                      // Add cross-conversion (density-based) first if available
-                                      if (crossConv.weight) {
-                                        const parts = crossConv.weight.match(/^([\d.]+)\s*(.+)$/);
-                                        if (parts) options.push({ qty: parts[1], unit: parts[2], label: `${parts[1]} ${parts[2]}` });
-                                      }
-                                      // Add all weight conversions from getConversions
-                                      for (const c of conversions) {
-                                        if (!WEIGHT_TO_G[c.unit]) continue;
-                                        const displayUnit = c.unit === 'g' ? (c.qty === 1 ? 'gram' : 'grams') : c.unit;
-                                        // Skip if already added via cross-conversion
-                                        if (options.some(o => o.unit === displayUnit)) continue;
-                                        options.push({ qty: String(c.qty), unit: displayUnit, label: `${c.qty} ${displayUnit}` });
-                                      }
-                                    } else {
-                                      if (crossConv.volume) {
-                                        const parts = crossConv.volume.match(/^([\d.]+)\s+(.+)$/);
-                                        if (parts) options.push({ qty: parts[1], unit: parts[2], label: `${parts[1]} ${parts[2]}` });
-                                      }
-                                      for (const c of conversions) {
-                                        if (!VOLUME_TO_ML[c.unit]) continue;
-                                        if (options.some(o => o.unit === c.unit)) continue;
-                                        options.push({ qty: String(c.qty), unit: c.unit, label: `${c.qty} ${c.unit}` });
-                                      }
+                                    // Build volume options
+                                    const volumeOptions = [];
+                                    if (crossConv.volume) {
+                                      const parts = crossConv.volume.match(/^([\d.]+)\s+(.+)$/);
+                                      if (parts) volumeOptions.push({ qty: parts[1], unit: parts[2], label: `${parts[1]} ${parts[2]}` });
                                     }
-                                    if (options.length > 0) {
-                                      setConvertPopup({ rowIdx: i, options });
+                                    for (const c of conversions) {
+                                      if (!VOLUME_TO_ML[c.unit]) continue;
+                                      if (volumeOptions.some(o => o.unit === c.unit)) continue;
+                                      volumeOptions.push({ qty: String(c.qty), unit: c.unit, label: `${c.qty} ${c.unit}` });
+                                    }
+                                    // Build weight options
+                                    const weightOptions = [];
+                                    if (crossConv.weight) {
+                                      const parts = crossConv.weight.match(/^([\d.]+)\s*(.+)$/);
+                                      if (parts) weightOptions.push({ qty: parts[1], unit: parts[2], label: `${parts[1]} ${parts[2]}` });
+                                    }
+                                    for (const c of conversions) {
+                                      if (!WEIGHT_TO_G[c.unit]) continue;
+                                      const displayUnit = c.unit === 'g' ? (c.qty === 1 ? 'gram' : 'grams') : c.unit;
+                                      if (weightOptions.some(o => o.unit === displayUnit)) continue;
+                                      weightOptions.push({ qty: String(c.qty), unit: displayUnit, label: `${c.qty} ${displayUnit}` });
+                                    }
+                                    if (volumeOptions.length > 0 || weightOptions.length > 0) {
+                                      setConvertPopup({ rowIdx: i, volumeOptions, weightOptions });
                                     }
                                   }}
                                 >
@@ -1127,22 +1111,44 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user }) {
                                 </button>
                                 {convertPopup && convertPopup.rowIdx === i && (
                                   <div className={styles.convertPopup} ref={convertPopupRef}>
-                                    <div className={styles.convertPopupTitle}>
-                                      Convert to {unitType === 'volume' ? 'weight' : 'volume'}
+                                    <div className={styles.convertPopupColumns}>
+                                      {convertPopup.volumeOptions.length > 0 && (
+                                        <div className={styles.convertPopupCol}>
+                                          <div className={styles.convertPopupTitle}>Volume</div>
+                                          {convertPopup.volumeOptions.map((opt, oi) => (
+                                            <button
+                                              key={`v${oi}`}
+                                              className={styles.convertPopupOption}
+                                              onClick={() => {
+                                                updateIngredient(i, 'quantity', opt.qty);
+                                                updateIngredient(i, 'measurement', opt.unit);
+                                                setConvertPopup(null);
+                                              }}
+                                            >
+                                              {opt.label}
+                                            </button>
+                                          ))}
+                                        </div>
+                                      )}
+                                      {convertPopup.weightOptions.length > 0 && (
+                                        <div className={styles.convertPopupCol}>
+                                          <div className={styles.convertPopupTitle}>Weight</div>
+                                          {convertPopup.weightOptions.map((opt, oi) => (
+                                            <button
+                                              key={`w${oi}`}
+                                              className={styles.convertPopupOption}
+                                              onClick={() => {
+                                                updateIngredient(i, 'quantity', opt.qty);
+                                                updateIngredient(i, 'measurement', opt.unit);
+                                                setConvertPopup(null);
+                                              }}
+                                            >
+                                              {opt.label}
+                                            </button>
+                                          ))}
+                                        </div>
+                                      )}
                                     </div>
-                                    {convertPopup.options.map((opt, oi) => (
-                                      <button
-                                        key={oi}
-                                        className={styles.convertPopupOption}
-                                        onClick={() => {
-                                          updateIngredient(i, 'quantity', opt.qty);
-                                          updateIngredient(i, 'measurement', opt.unit);
-                                          setConvertPopup(null);
-                                        }}
-                                      >
-                                        {opt.label}
-                                      </button>
-                                    ))}
                                   </div>
                                 )}
                                 </>
@@ -1152,40 +1158,6 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user }) {
                                   {(row.measurement || '').trim() ? 'Other' : ''}
                                 </span>
                               )}
-                            </td>
-                            <td className={`${styles.convertedCell} ${styles.colQty}`}>
-                              {dropdownOptions.length > 0 ? (() => {
-                                const rawDefault = (defaultUnit === 'gram' || defaultUnit === 'grams') ? 'g' : defaultUnit;
-                                const match = conversions.find(c => c.unit === rawDefault);
-                                return match ? match.qty : '';
-                              })() : ''}
-                            </td>
-                            <td className={`${styles.convertedCell} ${styles.colMeasure}`}>
-                              {dropdownOptions.length > 0 ? (
-                                <select
-                                  className={styles.convertSelect}
-                                  value={defaultUnit}
-                                  onChange={e => {
-                                    const selectedLabel = e.target.value;
-                                    const rawUnit = (selectedLabel === 'gram' || selectedLabel === 'grams') ? 'g' : selectedLabel;
-                                    const conv = conversions.find(c => c.unit === rawUnit);
-                                    if (conv) {
-                                      updateIngredient(i, 'quantity', String(conv.qty));
-                                      const displayUnit = conv.unit === 'g' ? (conv.qty === 1 ? 'gram' : 'grams') : conv.unit;
-                                      updateIngredient(i, 'measurement', displayUnit);
-                                    }
-                                  }}
-                                >
-                                  {dropdownOptions.map(c => {
-                                    const label = c.unit === 'g' ? (c.qty === 1 ? 'gram' : 'grams') : c.unit;
-                                    return (
-                                      <option key={c.unit} value={label}>
-                                        {label}
-                                      </option>
-                                    );
-                                  })}
-                                </select>
-                              ) : ''}
                             </td>
                           </>
                         )}
@@ -1223,12 +1195,15 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user }) {
                 <th>Amount</th>
                 <th>Ingredient</th>
                 <th>Notes</th>
+                <th></th>
               </tr>
             </thead>
             <tbody>
               {fields.ingredients.filter(row => (row.ingredient || '').trim()).map((row, i) => {
                 const dbNotes = getDbNotes(row.ingredient);
-                const displayQty = scaleFactor !== 1 ? scaleQuantity(row.quantity) : (row.quantity || '');
+                const dbLink = getDbLink(row.ingredient);
+                const rawQty = row.quantity || '';
+                const displayQty = rawQty ? scaleQuantity(rawQty) : '';
                 const amount = [displayQty, displayMeasurement(row.measurement, row.ingredient, displayQty)].filter(Boolean).join(' ');
                 return (
                   <tr key={i}>
@@ -1243,6 +1218,13 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user }) {
                     </td>
                     <td className={styles.notesCell}>
                       {row.notes || dbNotes || ''}
+                    </td>
+                    <td className={styles.linkCell}>
+                      {dbLink && (
+                        <a href={dbLink} target="_blank" rel="noopener noreferrer" className={styles.ingredientLink} title={dbLink}>
+                          Link
+                        </a>
+                      )}
                     </td>
                   </tr>
                 );

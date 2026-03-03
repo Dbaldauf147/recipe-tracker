@@ -76,6 +76,7 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding }) {
   const [weeklyServings, setWeeklyServings] = useState(loadWeeklyServings);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [pendingCount, setPendingCount] = useState(0);
+  const [ingredientsVersion, setIngredientsVersion] = useState(0);
   const settingsRef = useRef(null);
 
   useEffect(() => {
@@ -97,7 +98,7 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding }) {
 
   // Pre-load ingredient database from Firestore so localStorage cache is fresh
   useEffect(() => {
-    loadIngredientsFromFirestore();
+    loadIngredientsFromFirestore().then(() => setIngredientsVersion(v => v + 1));
   }, []);
 
   useEffect(() => {
@@ -475,6 +476,7 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding }) {
               onDelete={handleDelete}
               onBack={goBack}
               user={user}
+              ingredientsVersion={ingredientsVersion}
             />
           </ErrorBoundary>
         ) : view === 'add' ? (
