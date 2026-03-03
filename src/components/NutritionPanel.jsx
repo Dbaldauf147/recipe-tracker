@@ -243,7 +243,7 @@ export function NutritionPanel({ recipeId, ingredients, servings = 1, portionLab
                             <tr key={c.name}>
                               <td>{c.name}</td>
                               <td>{c.qty}{c.meas ? ` ${c.meas}` : ''}</td>
-                              <td>{c.val}{c.unit}</td>
+                              <td>{Math.round(c.val)}{c.unit}</td>
                             </tr>
                           ))}
                         </tbody>
