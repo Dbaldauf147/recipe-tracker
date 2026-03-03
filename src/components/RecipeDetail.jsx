@@ -1104,7 +1104,7 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user, ingredien
                   const unitType = classifyUnit(row.measurement);
                   const liquid = isLiquid(row.ingredient);
                   const conversions = getConversions(row.quantity, row.measurement, dbGrams);
-                  const crossConv = liquid ? { weight: '', volume: '' } : getCrossConversion(row.quantity, row.measurement, dbGrams, dbMeasurement);
+                  const crossConv = getCrossConversion(row.quantity, row.measurement, dbGrams, dbMeasurement);
                   return (
                   <tr
                     key={i}
