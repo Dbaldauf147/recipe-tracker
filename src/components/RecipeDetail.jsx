@@ -1140,9 +1140,6 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user, ingredien
                           <>
                             <td style={{ position: 'relative' }}>
                               {unitType ? (
-                                liquid && unitType === 'volume' ? (
-                                  <span className={styles.typeLabelLiquid}>Volume</span>
-                                ) : (
                                 <>
                                 <button
                                   className={styles.typeBtn}
@@ -1222,7 +1219,6 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user, ingredien
                                   </div>
                                 )}
                                 </>
-                                )
                               ) : (
                                 <span className={styles.typeLabel}>
                                   {(row.measurement || '').trim() ? 'Other' : ''}
