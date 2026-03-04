@@ -18,6 +18,7 @@ import { AdminDashboard } from './components/AdminDashboard';
 import { SharedRecipePage } from './components/SharedRecipePage';
 import { GoalsPage } from './components/GoalsPage';
 import { NutritionGoalsPage } from './components/NutritionGoalsPage';
+import { DailyTrackerPage } from './components/DailyTrackerPage';
 import { RecipeSetupPage } from './components/RecipeSetupPage';
 import React from 'react';
 import styles from './App.module.css';
@@ -153,6 +154,7 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding }) {
   const NAV_ITEMS = [
     { label: 'Shopping List', action: 'shopping' },
     { label: "This Week's Menu", id: 'weekly-menu' },
+    { label: 'Daily Tracker', action: 'daily-tracker' },
     { label: 'History', action: 'history' },
   ];
 
@@ -167,6 +169,8 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding }) {
       navigateTo('import');
     } else if (item.action === 'nutrition-goals') {
       navigateTo('nutrition-goals');
+    } else if (item.action === 'daily-tracker') {
+      navigateTo('daily-tracker');
     } else if (item.id) {
       if (view !== 'list') navigateTo('list');
       setTimeout(() => {
@@ -384,7 +388,9 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding }) {
       </header>
 
       <main className={styles.main}>
-        {view === 'nutrition-goals' ? (() => {
+        {view === 'daily-tracker' ? (
+          <DailyTrackerPage recipes={recipes} getRecipe={getRecipe} onClose={goBack} user={user} />
+        ) : view === 'nutrition-goals' ? (() => {
           let savedGoals = {};
           let savedSelected = null;
           let savedStats = null;

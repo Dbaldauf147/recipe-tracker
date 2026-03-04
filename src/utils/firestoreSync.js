@@ -95,6 +95,11 @@ export async function migrateToFirestore(uid) {
     if (bodyStats) data.bodyStats = JSON.parse(bodyStats);
   } catch {}
 
+  try {
+    const dailyLog = localStorage.getItem('sunday-daily-log');
+    if (dailyLog) data.dailyLog = JSON.parse(dailyLog);
+  } catch {}
+
   if (Object.keys(data).length === 0) return;
 
   try {
@@ -132,6 +137,10 @@ export function hydrateLocalStorage(userData) {
 
   if (userData.bodyStats) {
     localStorage.setItem('sunday-body-stats', JSON.stringify(userData.bodyStats));
+  }
+
+  if (userData.dailyLog) {
+    localStorage.setItem('sunday-daily-log', JSON.stringify(userData.dailyLog));
   }
 }
 
