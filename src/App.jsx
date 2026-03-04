@@ -67,7 +67,7 @@ function loadWeeklyServings() {
  * remounts when the user changes, re-initializing all useState from localStorage.
  */
 function AppContent({ user, logOut, isNewUser, restartOnboarding }) {
-  const { recipes, addRecipe, updateRecipe, deleteRecipe, getRecipe, importRecipes, importInstructions } =
+  const { recipes, addRecipe, updateRecipe, deleteRecipe, getRecipe, importRecipes } =
     useRecipes();
 
   const [view, setView] = useState('list');
@@ -331,20 +331,6 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding }) {
               </button>
               {user?.uid === ADMIN_UID && (
                 <>
-                  <button
-                    className={styles.settingsMenuItem}
-                    onClick={async () => {
-                      setSettingsOpen(false);
-                      try {
-                        const result = await importInstructions();
-                        alert(`Imported instructions for ${result.updated} recipes (${result.total} found in sheet)`);
-                      } catch (err) {
-                        alert('Failed to import instructions: ' + err.message);
-                      }
-                    }}
-                  >
-                    Import Instructions
-                  </button>
                   <button
                     className={styles.settingsMenuItem}
                     onClick={() => { navigateTo('admin'); setSettingsOpen(false); }}
