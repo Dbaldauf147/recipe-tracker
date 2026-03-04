@@ -137,6 +137,17 @@
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-accent) 20%, transparent);
 }
 
+.fieldInputEmpty {
+  composes: fieldInput;
+  background: color-mix(in srgb, #f59e0b 8%, var(--color-surface));
+  border-color: color-mix(in srgb, #f59e0b 40%, var(--color-border));
+}
+
+.fieldInputEmpty::placeholder {
+  color: #b45309;
+  opacity: 0.6;
+}
+
 /* Autocomplete */
 .autocompleteWrap {
   flex: 1;

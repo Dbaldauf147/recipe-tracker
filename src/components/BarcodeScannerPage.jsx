@@ -260,12 +260,14 @@ export function BarcodeScannerPage({ onClose, user }) {
                   );
                 }
 
+                const isEmpty = !(ingredient[key] || '').trim();
                 return (
                   <div key={key} className={styles.fieldRow}>
                     <label className={styles.fieldLabel}>{field.label}</label>
                     <input
-                      className={styles.fieldInput}
+                      className={isEmpty ? styles.fieldInputEmpty : styles.fieldInput}
                       value={ingredient[key] || ''}
+                      placeholder={isEmpty ? 'Missing' : ''}
                       onChange={e => updateField(key, e.target.value)}
                       inputMode={
                         ['grams','protein','carbs','fat','sugar','sodium','potassium',
