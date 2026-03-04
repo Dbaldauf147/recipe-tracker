@@ -55,12 +55,13 @@ export async function lookupBarcodeFullNutrition(barcode) {
   const n = p.nutriments || {};
 
   // Prefer per-serving values; fall back to per-100g
-  const serving = parseServingSize(p.serving_size);
-  const hasServing = !!(serving.quantity && n['energy-kcal_serving'] != null);
+  // Use serving_quantity (grams, always reliable) instead of parsing serving_size text
+  const servingGrams = p.serving_quantity;
+  const hasServing = !!(servingGrams && servingGrams > 0 && n['energy-kcal_serving'] != null);
   const suffix = hasServing ? '_serving' : '_100g';
 
-  const grams = hasServing ? serving.quantity : '100';
-  const measurement = hasServing ? serving.measurement : 'g';
+  const grams = hasServing ? String(Math.round(servingGrams)) : '100';
+  const measurement = 'g';
 
   const calories = n['energy-kcal' + suffix] || 0;
   const protein = n['proteins' + suffix] || 0;
