@@ -1,0 +1,37 @@
+name: PrepDayScanner
+options:
+  bundleIdPrefix: com.sundayroutine
+  deploymentTarget:
+    iOS: "16.0"
+  xcodeVersion: "15.0"
+
+packages:
+  FirebaseSDK:
+    url: https://github.com/firebase/firebase-ios-sdk
+    majorVersion: 11.0.0
+  GoogleSignIn:
+    url: https://github.com/google/GoogleSignIn-iOS
+    majorVersion: 8.0.0
+
+targets:
+  PrepDayScanner:
+    type: application
+    platform: iOS
+    sources:
+      - PrepDayScanner
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.sundayroutine.prepdayscanner
+        INFOPLIST_FILE: PrepDayScanner/Info.plist
+        DEVELOPMENT_TEAM: ""
+        SWIFT_VERSION: "5.9"
+        TARGETED_DEVICE_FAMILY: "1"
+    dependencies:
+      - package: FirebaseSDK
+        product: FirebaseAuth
+      - package: FirebaseSDK
+        product: FirebaseFirestore
+      - package: GoogleSignIn
+        product: GoogleSignIn
+      - package: GoogleSignIn
+        product: GoogleSignInSwift
