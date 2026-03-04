@@ -9,7 +9,9 @@ function parseServingSize(servingSize) {
 
 function fmt(val) {
   if (val == null || val === 0) return '';
-  return String(Math.round(val * 100) / 100).replace(/\.?0+$/, '');
+  const s = String(Math.round(val * 100) / 100);
+  if (!s.includes('.')) return s;
+  return s.replace(/0+$/, '').replace(/\.$/, '');
 }
 
 export async function lookupBarcode(barcode) {
