@@ -19,6 +19,7 @@ import { SharedRecipePage } from './components/SharedRecipePage';
 import { GoalsPage } from './components/GoalsPage';
 import { NutritionGoalsPage } from './components/NutritionGoalsPage';
 import { DailyTrackerPage } from './components/DailyTrackerPage';
+import { BarcodeScannerPage } from './components/BarcodeScannerPage';
 import { RecipeSetupPage } from './components/RecipeSetupPage';
 import React from 'react';
 import styles from './App.module.css';
@@ -155,6 +156,7 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding }) {
     { label: 'Shopping List', action: 'shopping' },
     { label: "This Week's Menu", id: 'weekly-menu' },
     { label: 'Daily Tracker', action: 'daily-tracker' },
+    { label: 'Scan Ingredient', action: 'barcode-scanner' },
     { label: 'History', action: 'history' },
   ];
 
@@ -171,6 +173,8 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding }) {
       navigateTo('nutrition-goals');
     } else if (item.action === 'daily-tracker') {
       navigateTo('daily-tracker');
+    } else if (item.action === 'barcode-scanner') {
+      navigateTo('barcode-scanner');
     } else if (item.id) {
       if (view !== 'list') navigateTo('list');
       setTimeout(() => {
@@ -374,7 +378,9 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding }) {
       </header>
 
       <main className={styles.main}>
-        {view === 'daily-tracker' ? (
+        {view === 'barcode-scanner' ? (
+          <BarcodeScannerPage onClose={goBack} user={user} />
+        ) : view === 'daily-tracker' ? (
           <DailyTrackerPage recipes={recipes} getRecipe={getRecipe} onClose={goBack} user={user} />
         ) : view === 'nutrition-goals' ? (() => {
           let savedGoals = {};
