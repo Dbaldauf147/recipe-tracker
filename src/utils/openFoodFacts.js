@@ -37,7 +37,7 @@ export async function lookupBarcode(barcode) {
 
 /**
  * Full nutrition lookup — returns all 30 ingredient fields pre-filled.
- * Nutrition values are per 100g from OpenFoodFacts.
+ * Uses per-serving values when available, falls back to per-100g.
  */
 export async function lookupBarcodeFullNutrition(barcode) {
   const res = await fetch(`${API_BASE}/${barcode}.json`);
@@ -54,35 +54,43 @@ export async function lookupBarcodeFullNutrition(barcode) {
   const ingredient = brand ? `${brand} ${name}` : name;
   const n = p.nutriments || {};
 
-  const calories = n['energy-kcal_100g'] || 0;
-  const protein = n['proteins_100g'] || 0;
-  const fiber = n['fiber_100g'] || 0;
+  // Prefer per-serving values; fall back to per-100g
+  const serving = parseServingSize(p.serving_size);
+  const hasServing = !!(serving.quantity && n['energy-kcal_serving'] != null);
+  const suffix = hasServing ? '_serving' : '_100g';
+
+  const grams = hasServing ? serving.quantity : '100';
+  const measurement = hasServing ? serving.measurement : 'g';
+
+  const calories = n['energy-kcal' + suffix] || 0;
+  const protein = n['proteins' + suffix] || 0;
+  const fiber = n['fiber' + suffix] || 0;
   // OFF stores sodium in grams — website expects mg
-  const sodiumMg = (n['sodium_100g'] || 0) * 1000;
+  const sodiumMg = (n['sodium' + suffix] || 0) * 1000;
 
   const proteinPerCal = calories > 0 ? Math.round((protein / calories) * 10000) / 100 : 0;
   const fiberPerCal = calories > 0 ? Math.round((fiber / calories) * 10000) / 100 : 0;
 
   return {
     ingredient,
-    grams: '100',
-    measurement: 'g',
+    grams,
+    measurement,
     protein: fmt(protein),
-    carbs: fmt(n['carbohydrates_100g']),
-    fat: fmt(n['fat_100g']),
-    sugar: fmt(n['sugars_100g']),
+    carbs: fmt(n['carbohydrates' + suffix]),
+    fat: fmt(n['fat' + suffix]),
+    sugar: fmt(n['sugars' + suffix]),
     sodium: fmt(sodiumMg),
-    potassium: fmt(n['potassium_100g']),
-    vitaminB12: fmt(n['vitamin-b12_100g']),
-    vitaminC: fmt(n['vitamin-c_100g']),
-    magnesium: fmt(n['magnesium_100g']),
+    potassium: fmt(n['potassium' + suffix]),
+    vitaminB12: fmt(n['vitamin-b12' + suffix]),
+    vitaminC: fmt(n['vitamin-c' + suffix]),
+    magnesium: fmt(n['magnesium' + suffix]),
     fiber: fmt(fiber),
-    zinc: fmt(n['zinc_100g']),
-    iron: fmt(n['iron_100g']),
-    calcium: fmt(n['calcium_100g']),
+    zinc: fmt(n['zinc' + suffix]),
+    iron: fmt(n['iron' + suffix]),
+    calcium: fmt(n['calcium' + suffix]),
     calories: fmt(calories),
-    addedSugar: fmt(n['added-sugars_100g']),
-    saturatedFat: fmt(n['saturated-fat_100g']),
+    addedSugar: fmt(n['added-sugars' + suffix]),
+    saturatedFat: fmt(n['saturated-fat' + suffix]),
     leucine: '',
     notes: `Scanned: ${barcode}`,
     link: `https://world.openfoodfacts.org/product/${barcode}`,
