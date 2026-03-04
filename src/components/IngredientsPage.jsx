@@ -252,11 +252,14 @@ export function IngredientsPage({ onClose, user }) {
                           onBlur={key === 'grams' ? e => {
                             const num = parseFloat(e.target.value);
                             if (!isNaN(num)) updateField(origIdx, key, String(Math.round(num)));
+                          } : (key === 'proteinPerCal' || key === 'fiberPerCal') ? e => {
+                            const num = parseFloat(e.target.value);
+                            if (!isNaN(num)) updateField(origIdx, key, String(parseFloat(num.toFixed(3))));
                           } : undefined}
                         />
                       ) : (
                         <span className={styles.cellText}>
-                          {key === 'grams' && row[key] ? String(Math.round(parseFloat(row[key])) || row[key]) : (row[key] || '')}
+                          {key === 'grams' && row[key] ? String(Math.round(parseFloat(row[key])) || row[key]) : (key === 'proteinPerCal' || key === 'fiberPerCal') && row[key] ? String(parseFloat(parseFloat(row[key]).toFixed(3)) || row[key]) : (row[key] || '')}
                         </span>
                       )}
                     </td>

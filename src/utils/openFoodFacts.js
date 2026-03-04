@@ -68,11 +68,28 @@ export async function lookupBarcodeFullNutrition(barcode) {
   const calories = n['energy-kcal' + suffix] || 0;
   const protein = n['proteins' + suffix] || 0;
   const fiber = n['fiber' + suffix] || 0;
-  // OFF stores sodium in grams — website expects mg
-  const sodiumMg = (n['sodium' + suffix] || 0) * 1000;
 
-  const proteinPerCal = calories > 0 ? Math.round((protein / calories) * 10000) / 100 : 0;
-  const fiberPerCal = calories > 0 ? Math.round((fiber / calories) * 10000) / 100 : 0;
+  // OFF stores minerals in grams — convert to mg (× 1000)
+  // Helper: convert grams to mg, checking the unit field to avoid double-converting
+  const toMg = (key) => {
+    const val = n[key + suffix] || 0;
+    const unit = n[key + '_unit'] || 'g';
+    if (unit === 'mg') return val;
+    if (unit === 'µg' || unit === 'mcg') return val / 1000;
+    return val * 1000; // grams → mg
+  };
+
+  // OFF stores B12 in grams — convert to µg (× 1000000)
+  const toMcg = (key) => {
+    const val = n[key + suffix] || 0;
+    const unit = n[key + '_unit'] || 'g';
+    if (unit === 'µg' || unit === 'mcg') return val;
+    if (unit === 'mg') return val * 1000;
+    return val * 1000000; // grams → µg
+  };
+
+  const proteinPerCal = calories > 0 ? Math.round((protein / calories) * 1000000) / 1000 : 0;
+  const fiberPerCal = calories > 0 ? Math.round((fiber / calories) * 1000000) / 1000 : 0;
 
   return {
     ingredient,
@@ -82,15 +99,15 @@ export async function lookupBarcodeFullNutrition(barcode) {
     carbs: fmt(n['carbohydrates' + suffix]),
     fat: fmt(n['fat' + suffix]),
     sugar: fmt(n['sugars' + suffix]),
-    sodium: fmt(sodiumMg),
-    potassium: fmt(n['potassium' + suffix]),
-    vitaminB12: fmt(n['vitamin-b12' + suffix]),
-    vitaminC: fmt(n['vitamin-c' + suffix]),
-    magnesium: fmt(n['magnesium' + suffix]),
+    sodium: fmt(toMg('sodium')),
+    potassium: fmt(toMg('potassium')),
+    vitaminB12: fmt(toMcg('vitamin-b12')),
+    vitaminC: fmt(toMg('vitamin-c')),
+    magnesium: fmt(toMg('magnesium')),
     fiber: fmt(fiber),
-    zinc: fmt(n['zinc' + suffix]),
-    iron: fmt(n['iron' + suffix]),
-    calcium: fmt(n['calcium' + suffix]),
+    zinc: fmt(toMg('zinc')),
+    iron: fmt(toMg('iron')),
+    calcium: fmt(toMg('calcium')),
     calories: fmt(calories),
     addedSugar: fmt(n['added-sugars' + suffix]),
     saturatedFat: fmt(n['saturated-fat' + suffix]),

@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { BarcodeScanner } from './BarcodeScanner';
+import { loadIngredients, loadIngredientsFromFirestore } from '../utils/ingredientsStore';
 import styles from './RecipeForm.module.css';
 
 const emptyRow = { quantity: '', measurement: '', ingredient: '' };
@@ -19,6 +20,16 @@ export function RecipeForm({ recipe, onSave, onCancel }) {
   const [ingredients, setIngredients] = useState([{ ...emptyRow }]);
   const [instructions, setInstructions] = useState('');
   const [showScanner, setShowScanner] = useState(false);
+  const [ingredientNames, setIngredientNames] = useState([]);
+  const [activeAutoIdx, setActiveAutoIdx] = useState(-1);
+
+  useEffect(() => {
+    async function loadNames() {
+      const data = await loadIngredientsFromFirestore() || loadIngredients() || [];
+      setIngredientNames(data.map(r => r.ingredient || '').filter(Boolean));
+    }
+    loadNames();
+  }, []);
 
   useEffect(() => {
     if (recipe) {
@@ -268,21 +279,56 @@ export function RecipeForm({ recipe, onSave, onCancel }) {
             </tr>
           </thead>
           <tbody>
-            {ingredients.map((row, i) => (
+            {ingredients.map((row, i) => {
+              const suggestions = activeAutoIdx === i
+                ? ingredientNames.filter(n => n.toLowerCase().includes(row.ingredient.trim().toLowerCase())).slice(0, 8)
+                : [];
+              return (
               <tr key={i}>
                 {fields.map((field, colIdx) => (
                   <td key={field}>
-                    <input
-                      className={styles.tableInput}
-                      type="text"
-                      value={row[field]}
-                      onChange={e => updateIngredient(i, field, e.target.value)}
-                      onPaste={e => handlePaste(e, i, colIdx)}
-                      placeholder={
-                        field === 'quantity' ? '1' :
-                        field === 'measurement' ? 'cup' : 'flour'
-                      }
-                    />
+                    {field === 'ingredient' ? (
+                      <div className={styles.autocompleteWrap}>
+                        <input
+                          className={styles.tableInput}
+                          type="text"
+                          value={row[field]}
+                          onChange={e => {
+                            updateIngredient(i, field, e.target.value);
+                            setActiveAutoIdx(i);
+                          }}
+                          onFocus={() => setActiveAutoIdx(i)}
+                          onBlur={() => setTimeout(() => setActiveAutoIdx(-1), 150)}
+                          onPaste={e => handlePaste(e, i, colIdx)}
+                          placeholder="flour"
+                        />
+                        {suggestions.length > 0 && row.ingredient.trim() && (
+                          <ul className={styles.suggestions}>
+                            {suggestions.map(name => (
+                              <li
+                                key={name}
+                                className={styles.suggestionItem}
+                                onMouseDown={() => {
+                                  updateIngredient(i, 'ingredient', name);
+                                  setActiveAutoIdx(-1);
+                                }}
+                              >
+                                {name}
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </div>
+                    ) : (
+                      <input
+                        className={styles.tableInput}
+                        type="text"
+                        value={row[field]}
+                        onChange={e => updateIngredient(i, field, e.target.value)}
+                        onPaste={e => handlePaste(e, i, colIdx)}
+                        placeholder={field === 'quantity' ? '1' : 'cup'}
+                      />
+                    )}
                   </td>
                 ))}
                 <td>
@@ -297,7 +343,8 @@ export function RecipeForm({ recipe, onSave, onCancel }) {
                   )}
                 </td>
               </tr>
-            ))}
+              );
+            })}
           </tbody>
         </table>
         <div className={styles.ingredientBtns}>

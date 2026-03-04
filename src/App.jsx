@@ -71,8 +71,18 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding }) {
   const { recipes, addRecipe, updateRecipe, deleteRecipe, getRecipe, importRecipes } =
     useRecipes();
 
-  const [view, setView] = useState('list');
-  const [selectedId, setSelectedId] = useState(null);
+  const [view, setView] = useState(() => {
+    const hash = window.location.hash.replace('#', '');
+    if (!hash) return 'list';
+    const [v] = hash.split('/');
+    return v || 'list';
+  });
+  const [selectedId, setSelectedId] = useState(() => {
+    const hash = window.location.hash.replace('#', '');
+    if (!hash) return null;
+    const parts = hash.split('/');
+    return parts[1] || null;
+  });
   const [viewHistory, setViewHistory] = useState([]);
   const [weeklyPlan, setWeeklyPlan] = useState(loadWeeklyPlan);
   const [weeklyServings, setWeeklyServings] = useState(loadWeeklyServings);
@@ -118,6 +128,8 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding }) {
     setViewHistory(prev => [...prev.slice(-19), { view, selectedId }]);
     if (nextSelectedId !== undefined) setSelectedId(nextSelectedId);
     setView(nextView);
+    const hash = nextSelectedId !== undefined ? `${nextView}/${nextSelectedId}` : nextView;
+    window.history.replaceState(null, '', `#${hash}`);
   }
 
   function goBack() {
@@ -125,12 +137,15 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding }) {
       if (prev.length === 0) {
         setView('list');
         setSelectedId(null);
+        window.history.replaceState(null, '', '#list');
         return prev;
       }
       const next = [...prev];
       const last = next.pop();
       setView(last.view);
       setSelectedId(last.selectedId);
+      const hash = last.selectedId ? `${last.view}/${last.selectedId}` : last.view;
+      window.history.replaceState(null, '', `#${hash}`);
       return next;
     });
   }

@@ -45,7 +45,8 @@ const SECTIONS = [
 const FIELD_MAP = Object.fromEntries(INGREDIENT_FIELDS.map(f => [f.key, f]));
 
 export function BarcodeScannerPage({ onClose, user }) {
-  const [phase, setPhase] = useState('scanning'); // scanning | loading | editor | success
+  const [mode, setMode] = useState('barcode'); // barcode | photo
+  const [phase, setPhase] = useState('scanning'); // scanning | loading | photo | editor | success
   const [status, setStatus] = useState('Point camera at a barcode');
   const [error, setError] = useState(null);
   const [ingredient, setIngredient] = useState(null);
@@ -53,9 +54,12 @@ export function BarcodeScannerPage({ onClose, user }) {
   const [saving, setSaving] = useState(false);
   const [existingNames, setExistingNames] = useState([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
+  const [photoPreview, setPhotoPreview] = useState(null);
+  const [photoBase64, setPhotoBase64] = useState(null);
   const scannerRef = useRef(null);
   const processingRef = useRef(false);
   const nameInputRef = useRef(null);
+  const fileInputRef = useRef(null);
 
   // Load existing ingredient names for autocomplete
   useEffect(() => {
@@ -123,7 +127,7 @@ export function BarcodeScannerPage({ onClose, user }) {
   }
 
   useEffect(() => {
-    if (phase === 'scanning') {
+    if (phase === 'scanning' && mode === 'barcode') {
       startScanner();
     }
     return () => {
@@ -131,7 +135,7 @@ export function BarcodeScannerPage({ onClose, user }) {
         scannerRef.current.stop().catch(() => {});
       }
     };
-  }, [phase, startScanner]);
+  }, [phase, mode, startScanner]);
 
   function updateField(key, value) {
     setIngredient(prev => ({ ...prev, [key]: value }));
@@ -176,7 +180,82 @@ export function BarcodeScannerPage({ onClose, user }) {
     setIngredient(null);
     setSaveError(null);
     setError(null);
-    setPhase('scanning');
+    setPhotoPreview(null);
+    setPhotoBase64(null);
+    if (mode === 'barcode') {
+      setPhase('scanning');
+    } else {
+      setPhase('photo');
+    }
+  }
+
+  function switchMode(newMode) {
+    // Stop barcode scanner if switching away
+    if (scannerRef.current?.isScanning) {
+      scannerRef.current.stop().catch(() => {});
+    }
+    setMode(newMode);
+    setError(null);
+    setIngredient(null);
+    setSaveError(null);
+    setPhotoPreview(null);
+    setPhotoBase64(null);
+    setPhase(newMode === 'barcode' ? 'scanning' : 'photo');
+  }
+
+  function handlePhotoSelect(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setError(null);
+
+    // Resize image to stay under Vercel's 4.5 MB body limit
+    const img = new Image();
+    const objectUrl = URL.createObjectURL(file);
+    img.onload = () => {
+      const MAX_DIM = 1200;
+      let { width, height } = img;
+      if (width > MAX_DIM || height > MAX_DIM) {
+        const scale = MAX_DIM / Math.max(width, height);
+        width = Math.round(width * scale);
+        height = Math.round(height * scale);
+      }
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      canvas.getContext('2d').drawImage(img, 0, 0, width, height);
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
+      setPhotoPreview(dataUrl);
+      setPhotoBase64(dataUrl);
+      URL.revokeObjectURL(objectUrl);
+    };
+    img.src = objectUrl;
+  }
+
+  async function handleExtractNutrition() {
+    if (!photoBase64) return;
+    setPhase('loading');
+    setStatus('Reading nutrition label...');
+    setError(null);
+
+    try {
+      const res = await fetch('/api/parse-nutrition-label', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ image: photoBase64 }),
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || `Server error: ${res.status}`);
+      }
+
+      const data = await res.json();
+      setIngredient(data);
+      setPhase('editor');
+    } catch (err) {
+      setError(err.message || 'Failed to read nutrition label');
+      setPhase('photo');
+    }
   }
 
   // Autocomplete filtering
@@ -192,8 +271,65 @@ export function BarcodeScannerPage({ onClose, user }) {
         <h2 className={styles.title}>Scan Ingredient</h2>
       </div>
 
-      {/* SCANNING PHASE */}
-      {(phase === 'scanning' || phase === 'loading') && (
+      {/* MODE TOGGLE */}
+      {(phase === 'scanning' || phase === 'photo' || phase === 'loading') && (
+        <div className={styles.tabToggle}>
+          <button
+            className={`${styles.tabBtn} ${mode === 'barcode' ? styles.tabBtnActive : ''}`}
+            onClick={() => switchMode('barcode')}
+          >
+            Scan Barcode
+          </button>
+          <button
+            className={`${styles.tabBtn} ${mode === 'photo' ? styles.tabBtnActive : ''}`}
+            onClick={() => switchMode('photo')}
+          >
+            Upload Photo
+          </button>
+        </div>
+      )}
+
+      {/* PHOTO UPLOAD PHASE */}
+      {phase === 'photo' && (
+        <div className={styles.photoSection}>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            capture="environment"
+            className={styles.fileInput}
+            onChange={handlePhotoSelect}
+          />
+          <button
+            className={styles.photoSelectBtn}
+            onClick={() => fileInputRef.current?.click()}
+          >
+            {photoPreview ? 'Change Photo' : 'Take Photo / Choose File'}
+          </button>
+
+          {photoPreview && (
+            <img src={photoPreview} alt="Nutrition label preview" className={styles.photoPreview} />
+          )}
+
+          {error && <span className={styles.error}>{error}</span>}
+
+          {photoPreview && (
+            <button className={styles.extractBtn} onClick={handleExtractNutrition}>
+              Extract Nutrition
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* LOADING (photo mode) */}
+      {phase === 'loading' && mode === 'photo' && (
+        <div className={styles.photoSection}>
+          <span className={styles.status}>Reading nutrition label...</span>
+        </div>
+      )}
+
+      {/* SCANNING PHASE (barcode mode) */}
+      {(phase === 'scanning' || (phase === 'loading' && mode === 'barcode')) && (
         <div className={styles.scannerSection}>
           <div id={READER_ID} className={styles.reader} />
           <div className={styles.scannerFooter}>

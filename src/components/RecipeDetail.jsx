@@ -276,27 +276,31 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user, ingredien
   const [showScanner, setShowScanner] = useState(false);
   const [convertPopup, setConvertPopup] = useState(null); // { rowIdx, options: [{ qty, unit, label }] }
   const convertPopupRef = useRef(null);
+  const [activeAutoIdx, setActiveAutoIdx] = useState(-1);
 
   // Build lookup maps from ingredient database
-  const { dbNotesMap, dbGramsMap, dbMeasurementMap, dbLinksMap, dbNamesSet } = useMemo(() => {
+  const { dbNotesMap, dbGramsMap, dbMeasurementMap, dbLinksMap, dbNamesSet, dbNamesList } = useMemo(() => {
     const notes = new Map();
     const grams = new Map();
     const measurements = new Map();
     const links = new Map();
     const names = new Set();
+    const namesList = [];
     const data = loadIngredients();
     if (data) {
       for (const item of data) {
         const key = (item.ingredient || '').trim().toLowerCase();
         if (!key) continue;
         names.add(key);
+        namesList.push((item.ingredient || '').trim());
         if (item.notes) notes.set(key, item.notes);
         grams.set(key, parseFloat(item.grams) || 0);
         if (item.measurement) measurements.set(key, item.measurement.trim());
         if (item.link) links.set(key, item.link.trim());
       }
     }
-    return { dbNotesMap: notes, dbGramsMap: grams, dbMeasurementMap: measurements, dbLinksMap: links, dbNamesSet: names };
+    namesList.sort((a, b) => a.localeCompare(b));
+    return { dbNotesMap: notes, dbGramsMap: grams, dbMeasurementMap: measurements, dbLinksMap: links, dbNamesSet: names, dbNamesList: namesList };
   }, [ingredientsVersion]);
 
   function getDbNotes(ingredientName) {
@@ -1125,19 +1129,56 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user, ingredien
                       <React.Fragment key={field}>
                         <td className={field === 'quantity' ? styles.colQty : field === 'measurement' ? styles.colMeasure : undefined}>
                           <div className={field === 'ingredient' ? styles.ingredientInputWrap : undefined}>
-                            <input
-                              className={styles.cellInput}
-                              type="text"
-                              value={row[field] || ''}
-                              onChange={e => updateIngredient(i, field, e.target.value)}
-                              onPaste={e => handlePaste(e, i, colIdx)}
-                              placeholder={
-                                field === 'quantity' ? '1' :
-                                field === 'measurement' ? 'cup' :
-                                field === 'ingredient' ? 'flour' :
-                                field === 'notes' ? (dbNotes || '') : ''
-                              }
-                            />
+                            {field === 'ingredient' ? (
+                              <div className={styles.autoWrap}>
+                                <input
+                                  className={styles.cellInput}
+                                  type="text"
+                                  value={row[field] || ''}
+                                  onChange={e => {
+                                    updateIngredient(i, field, e.target.value);
+                                    setActiveAutoIdx(i);
+                                  }}
+                                  onFocus={() => setActiveAutoIdx(i)}
+                                  onBlur={() => setTimeout(() => setActiveAutoIdx(-1), 150)}
+                                  onPaste={e => handlePaste(e, i, colIdx)}
+                                  placeholder="flour"
+                                />
+                                {activeAutoIdx === i && (row.ingredient || '').trim() && (() => {
+                                  const q = (row.ingredient || '').trim().toLowerCase();
+                                  const matches = dbNamesList.filter(n => n.toLowerCase().includes(q)).slice(0, 8);
+                                  return matches.length > 0 ? (
+                                    <ul className={styles.suggestions}>
+                                      {matches.map(name => (
+                                        <li
+                                          key={name}
+                                          className={styles.suggestionItem}
+                                          onMouseDown={() => {
+                                            updateIngredient(i, 'ingredient', name);
+                                            setActiveAutoIdx(-1);
+                                          }}
+                                        >
+                                          {name}
+                                        </li>
+                                      ))}
+                                    </ul>
+                                  ) : null;
+                                })()}
+                              </div>
+                            ) : (
+                              <input
+                                className={styles.cellInput}
+                                type="text"
+                                value={row[field] || ''}
+                                onChange={e => updateIngredient(i, field, e.target.value)}
+                                onPaste={e => handlePaste(e, i, colIdx)}
+                                placeholder={
+                                  field === 'quantity' ? '1' :
+                                  field === 'measurement' ? 'cup' :
+                                  field === 'notes' ? (dbNotes || '') : ''
+                                }
+                              />
+                            )}
                             {field === 'ingredient' && (row.ingredient || '').trim() && !isInDb(row.ingredient) && (
                               <span className={styles.dbWarning} title="Not found in ingredient database">⚠</span>
                             )}
