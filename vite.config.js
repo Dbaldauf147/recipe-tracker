@@ -99,6 +99,15 @@ function instagramCaptionProxy() {
 
 // https://vite.dev/config/
 export default defineConfig({
+  server: {
+    proxy: {
+      '/api/nutrition-lookup': { target: 'https://prep-day.com', changeOrigin: true, secure: true },
+      '/api/parse-nutrition-label': { target: 'https://prep-day.com', changeOrigin: true, secure: true },
+      '/api/parse-nutrition-text': { target: 'https://prep-day.com', changeOrigin: true, secure: true },
+      '/api/extract-recipe': { target: 'https://prep-day.com', changeOrigin: true, secure: true },
+      '/api/notify-signup': { target: 'https://prep-day.com', changeOrigin: true, secure: true },
+    },
+  },
   plugins: [
     react(),
     fetchUrlProxy(),

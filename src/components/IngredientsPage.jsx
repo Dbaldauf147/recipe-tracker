@@ -166,6 +166,7 @@ export function IngredientsPage({ onClose, user }) {
   const [usdaResults, setUsdaResults] = useState([]);
   const resizing = useRef(null);
   const addMenuRef = useRef(null);
+  const tableWrapRef = useRef(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -262,6 +263,12 @@ export function IngredientsPage({ onClose, user }) {
       saveIngredientsToFirestore(updated);
       return updated;
     });
+    // Scroll to the new row after render
+    setTimeout(() => {
+      if (tableWrapRef.current) {
+        tableWrapRef.current.scrollTop = tableWrapRef.current.scrollHeight;
+      }
+    }, 100);
   }, []);
 
   // --- Barcode flow ---
@@ -485,8 +492,10 @@ export function IngredientsPage({ onClose, user }) {
         throw new Error(errData.error || `Server error: ${res.status}`);
       }
       const data = await res.json();
+      console.log('[nutrition-lookup] response:', data);
       if (data.error) throw new Error(data.error);
       const items = Array.isArray(data) ? data : [data];
+      if (items.length === 0) throw new Error('No nutrition data found');
       for (const item of items) {
         addFilledRow(item);
       }
@@ -617,7 +626,7 @@ export function IngredientsPage({ onClose, user }) {
       {error && <p className={styles.error}>{error}</p>}
 
       {!loading && !error && (
-        <div className={styles.tableWrap}>
+        <div className={styles.tableWrap} ref={tableWrapRef}>
           <table className={styles.table}>
             <thead>
               <tr>
@@ -689,7 +698,7 @@ export function IngredientsPage({ onClose, user }) {
       )}
 
       {/* Loading overlay for barcode lookup */}
-      {modalLoading && !showPhotoUpload && !showUSDASearch && (
+      {modalLoading && !showPhotoUpload && !showUSDASearch && !showTextPaste && !showScreenshotDrop && (
         <div className={styles.modalOverlay}>
           <div className={styles.addModal}>
             <div className={styles.modalBody}>
@@ -700,7 +709,7 @@ export function IngredientsPage({ onClose, user }) {
       )}
 
       {/* Inline error toast for barcode failures */}
-      {modalError && !showPhotoUpload && !showUSDASearch && !showBarcodeScanner && (
+      {modalError && !showPhotoUpload && !showUSDASearch && !showBarcodeScanner && !showTextPaste && !showScreenshotDrop && (
         <div className={styles.modalOverlay} onClick={() => setModalError(null)}>
           <div className={styles.addModal} onClick={e => e.stopPropagation()}>
             <div className={styles.modalHeader}>
