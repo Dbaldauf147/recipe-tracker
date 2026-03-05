@@ -1,72 +1,6 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
-import { NUTRIENTS, fetchNutritionForRecipe } from '../utils/nutrition';
+import { useState, useEffect } from 'react';
+import { NUTRIENTS } from '../utils/nutrition';
 import styles from './NutritionGoalsPage.module.css';
-
-function MealCombobox({ index, value, recipes, onSelect, loading }) {
-  const [query, setQuery] = useState('');
-  const [open, setOpen] = useState(false);
-  const wrapRef = useRef(null);
-
-  const selectedRecipe = value ? recipes.find(r => r.id === value) : null;
-
-  const filtered = query
-    ? recipes.filter(r => r.title.toLowerCase().includes(query.toLowerCase()))
-    : recipes;
-
-  useEffect(() => {
-    function handleClick(e) {
-      if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false);
-    }
-    document.addEventListener('mousedown', handleClick);
-    return () => document.removeEventListener('mousedown', handleClick);
-  }, []);
-
-  function handlePick(id) {
-    onSelect(index, id);
-    setQuery('');
-    setOpen(false);
-  }
-
-  function handleClear() {
-    onSelect(index, '');
-    setQuery('');
-    setOpen(false);
-  }
-
-  return (
-    <div className={styles.comboWrap} ref={wrapRef}>
-      <input
-        className={styles.mealInput}
-        type="text"
-        placeholder="Type to search..."
-        value={open ? query : (selectedRecipe?.title || '')}
-        onChange={e => { setQuery(e.target.value); setOpen(true); }}
-        onFocus={() => setOpen(true)}
-      />
-      {selectedRecipe && !open && (
-        <button className={styles.comboClear} onClick={handleClear} aria-label="Clear">&times;</button>
-      )}
-      {open && (
-        <div className={styles.comboDropdown}>
-          {filtered.length === 0 ? (
-            <div className={styles.comboEmpty}>No matches</div>
-          ) : (
-            filtered.map(r => (
-              <div
-                key={r.id}
-                className={`${styles.comboOption} ${r.id === value ? styles.comboOptionActive : ''}`}
-                onMouseDown={() => handlePick(r.id)}
-              >
-                {r.title}
-              </div>
-            ))
-          )}
-        </div>
-      )}
-      {loading && <span className={styles.loadingText}>Loading…</span>}
-    </div>
-  );
-}
 
 const MACROS = ['calories', 'protein', 'carbs', 'fat', 'saturatedFat'];
 const SUGARS_FIBER = ['sugar', 'addedSugar', 'fiber'];
@@ -155,7 +89,7 @@ function computeTargets(gender, heightFt, heightIn, weight, age, activityLevel) 
   };
 }
 
-export function NutritionGoalsPage({ onComplete, onBack, onSkip, initialSelected, initialTargets, initialStats, recipes = [] }) {
+export function NutritionGoalsPage({ onComplete, onBack, onSkip, initialSelected, initialTargets, initialStats }) {
   const isSettings = !!initialTargets;
   const [selected, setSelected] = useState(() =>
     initialSelected ? new Set(initialSelected) : new Set(DEFAULT_SELECTED)
@@ -195,91 +129,6 @@ export function NutritionGoalsPage({ onComplete, onBack, onSkip, initialSelected
   function setTarget(key, value) {
     setTargets(prev => ({ ...prev, [key]: value }));
   }
-
-  // --- Meal comparison state ---
-  const [selectedMeals, setSelectedMeals] = useState([null, null, null]);
-  const [mealNutrition, setMealNutrition] = useState({});
-  const [loadingMeals, setLoadingMeals] = useState(new Set());
-
-  const sortedRecipes = [...recipes]
-    .filter(r => (r.frequency || 'common') !== 'retired')
-    .sort((a, b) => (a.title || '').localeCompare(b.title || ''));
-
-  const loadNutrition = useCallback(async (recipeId) => {
-    const recipe = recipes.find(r => r.id === recipeId);
-    if (!recipe) return;
-
-    // Check cache first
-    try {
-      const cache = JSON.parse(localStorage.getItem('sunday-nutrition-cache') || '{}');
-      if (cache[recipeId]) {
-        const servings = recipe.servings || 1;
-        const perServing = {};
-        for (const n of NUTRIENTS) {
-          perServing[n.key] = (cache[recipeId].totals[n.key] || 0) / servings;
-        }
-        setMealNutrition(prev => ({ ...prev, [recipeId]: perServing }));
-        return;
-      }
-    } catch {}
-
-    // Fetch and cache
-    setLoadingMeals(prev => new Set([...prev, recipeId]));
-    try {
-      const result = await fetchNutritionForRecipe(recipe.ingredients || []);
-      // Cache the result
-      try {
-        const cache = JSON.parse(localStorage.getItem('sunday-nutrition-cache') || '{}');
-        cache[recipeId] = result;
-        localStorage.setItem('sunday-nutrition-cache', JSON.stringify(cache));
-      } catch {}
-
-      const servings = recipe.servings || 1;
-      const perServing = {};
-      for (const n of NUTRIENTS) {
-        perServing[n.key] = (result.totals[n.key] || 0) / servings;
-      }
-      setMealNutrition(prev => ({ ...prev, [recipeId]: perServing }));
-    } catch {} finally {
-      setLoadingMeals(prev => {
-        const next = new Set(prev);
-        next.delete(recipeId);
-        return next;
-      });
-    }
-  }, [recipes]);
-
-  function handleMealSelect(slotIndex, recipeId) {
-    const id = recipeId || null;
-    setSelectedMeals(prev => {
-      const next = [...prev];
-      next[slotIndex] = id;
-      return next;
-    });
-    if (id && !mealNutrition[id]) {
-      loadNutrition(id);
-    }
-  }
-
-  const [compareMode, setCompareMode] = useState('daily'); // 'daily' or 'perMeal'
-
-  // Compute combined nutrition from selected meals
-  const combinedNutrition = {};
-  const hasAnyMeal = selectedMeals.some(Boolean);
-  if (hasAnyMeal) {
-    for (const n of NUTRIENTS) {
-      combinedNutrition[n.key] = 0;
-    }
-    for (const id of selectedMeals) {
-      if (id && mealNutrition[id]) {
-        for (const n of NUTRIENTS) {
-          combinedNutrition[n.key] += mealNutrition[id][n.key] || 0;
-        }
-      }
-    }
-  }
-
-  const anyLoading = selectedMeals.some(id => id && loadingMeals.has(id));
 
   function handleContinue() {
     const result = {};
@@ -505,71 +354,6 @@ export function NutritionGoalsPage({ onComplete, onBack, onSkip, initialSelected
             </button>
           )}
         </div>
-
-        {recipes.length > 0 && (
-          <div className={styles.mealCard}>
-            <h4 className={styles.groupTitle}>Test Your Meals</h4>
-            <p className={styles.mealSubtitle}>Pick up to 3 recipes to see how they compare to your targets.</p>
-            <div className={styles.mealGrid}>
-              {[0, 1, 2].map(i => (
-                <div key={i} className={styles.mealField}>
-                  <span className={styles.statsLabel}>Meal {i + 1}</span>
-                  <MealCombobox
-                    index={i}
-                    value={selectedMeals[i]}
-                    recipes={sortedRecipes}
-                    onSelect={handleMealSelect}
-                    loading={selectedMeals[i] && loadingMeals.has(selectedMeals[i])}
-                  />
-                </div>
-              ))}
-            </div>
-
-            {hasAnyMeal && !anyLoading && (
-              <>
-                <div className={styles.compareToggle}>
-                  <button
-                    type="button"
-                    className={compareMode === 'daily' ? styles.compareToggleActive : styles.compareToggleBtn}
-                    onClick={() => setCompareMode('daily')}
-                  >Daily Target</button>
-                  <button
-                    type="button"
-                    className={compareMode === 'perMeal' ? styles.compareToggleActive : styles.compareToggleBtn}
-                    onClick={() => setCompareMode('perMeal')}
-                  >Per Meal (1/3)</button>
-                </div>
-                <div className={styles.comparisonTable}>
-                  {NUTRIENTS.filter(n => selected.has(n.key)).map(n => {
-                    const actual = combinedNutrition[n.key] || 0;
-                    const target = compareMode === 'perMeal'
-                      ? (targets[n.key] || 0) / 3
-                      : (targets[n.key] || 0);
-                    const pct = target > 0 ? (actual / target) * 100 : 0;
-                    let colorClass = styles.progressYellow;
-                    if (pct >= 90 && pct <= 120) colorClass = styles.progressGreen;
-                    else if (pct < 50 || pct > 120) colorClass = styles.progressRed;
-                    return (
-                      <div key={n.key} className={styles.comparisonRow}>
-                        <span className={styles.comparisonLabel}>{n.label}</span>
-                        <div className={styles.progressBar}>
-                          <div
-                            className={`${styles.progressFill} ${colorClass}`}
-                            style={{ width: `${Math.min(pct, 100)}%` }}
-                          />
-                        </div>
-                        <span className={styles.comparisonPct}>{Math.round(pct)}%</span>
-                        <span className={styles.comparisonValues}>
-                          {Math.round(actual)}{n.unit} / {Math.round(target)}{n.unit}
-                        </span>
-                      </div>
-                    );
-                  })}
-                </div>
-              </>
-            )}
-          </div>
-        )}
       </div>
     </div>
   );
