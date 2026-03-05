@@ -21,6 +21,7 @@ const APP_STORAGE_KEYS = [
   'sunday-nutrition-cache',
   'sunday-key-ingredients',
   'sunday-user-goals',
+  'sunday-user-diet',
   'sunday-nutrition-goals',
   'sunday-body-stats',
   'sunday-weekly-servings',
@@ -214,6 +215,14 @@ export function AuthProvider({ children }) {
     localStorage.setItem('sunday-user-goals', JSON.stringify(goals));
     if (user) {
       await saveField(user.uid, 'userGoals', goals);
+      // Save diet preference if set
+      try {
+        const diet = JSON.parse(localStorage.getItem('sunday-user-diet'));
+        if (diet?.length) await saveField(user.uid, 'userDiet', diet);
+      } catch {}
+      // Save location if set
+      const loc = localStorage.getItem('sunday-user-location');
+      if (loc) await saveField(user.uid, 'userLocation', loc);
     }
 
     // Build the remaining step queue based on selected goals

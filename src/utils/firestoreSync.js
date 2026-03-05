@@ -142,6 +142,18 @@ export function hydrateLocalStorage(userData) {
   if (userData.dailyLog) {
     localStorage.setItem('sunday-daily-log', JSON.stringify(userData.dailyLog));
   }
+
+  if (userData.userGoals) {
+    localStorage.setItem('sunday-user-goals', JSON.stringify(userData.userGoals));
+  }
+
+  if (userData.userDiet) {
+    localStorage.setItem('sunday-user-diet', JSON.stringify(userData.userDiet));
+  }
+
+  if (userData.userLocation) {
+    localStorage.setItem('sunday-user-location', userData.userLocation);
+  }
 }
 
 /* ── Friend-related functions ── */

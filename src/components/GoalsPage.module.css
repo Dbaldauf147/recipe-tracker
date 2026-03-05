@@ -187,3 +187,37 @@
 .locationInput:focus {
   border-color: var(--color-accent);
 }
+
+.dietGrid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.dietChip {
+  padding: 0.4rem 0.85rem;
+  font-size: 0.82rem;
+  font-family: inherit;
+  font-weight: 500;
+  border: 1px solid var(--color-border);
+  border-radius: 20px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  cursor: pointer;
+  transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
+}
+
+.dietChip:hover {
+  background: var(--color-surface-alt);
+}
+
+.dietChipSelected {
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+  color: #fff;
+}
+
+.dietChipSelected:hover {
+  background: var(--color-accent-hover);
+  border-color: var(--color-accent-hover);
+}
