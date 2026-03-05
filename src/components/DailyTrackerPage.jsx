@@ -467,15 +467,6 @@ function AddEntrySection({ recipes, getRecipe, onAdd, weeklyPlan }) {
               {r.title}
             </button>
           ))}
-          {selectedWeekly.size > 0 && (
-            <button
-              className={styles.addSelectedBtn}
-              onClick={handleAddWeeklySelected}
-              disabled={loading}
-            >
-              {loading ? 'Adding...' : `Add ${selectedWeekly.size} meal${selectedWeekly.size > 1 ? 's' : ''}`}
-            </button>
-          )}
         </div>
       )}
 
@@ -530,8 +521,12 @@ function AddEntrySection({ recipes, getRecipe, onAdd, weeklyPlan }) {
       <div className={styles.formRow}>
         <button
           className={styles.addBtn}
-          onClick={tab === 'recipe' ? handleAddRecipe : handleAddCustom}
-          disabled={loading || (tab === 'recipe' ? !recipeId : !ingredientName.trim())}
+          onClick={async () => {
+            if (selectedWeekly.size > 0) await handleAddWeeklySelected();
+            if (tab === 'recipe' && recipeId) await handleAddRecipe();
+            else if (tab === 'custom' && ingredientName.trim()) await handleAddCustom();
+          }}
+          disabled={loading || (selectedWeekly.size === 0 && (tab === 'recipe' ? !recipeId : !ingredientName.trim()))}
         >
           {loading ? 'Adding...' : 'Add'}
         </button>
