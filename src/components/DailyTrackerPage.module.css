@@ -462,27 +462,25 @@
 
 .entryRow {
   display: flex;
-  align-items: center;
-  gap: 0.5rem;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.5rem;
   padding: 0.5rem 0;
   border-bottom: 1px solid var(--color-border-light, #f0f0f0);
   font-size: 0.85rem;
 }
 
 .entryName {
-  flex: 1;
   font-weight: 500;
   color: var(--color-text);
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .entryPortion {
   font-size: 0.75rem;
   color: var(--color-text-muted);
   white-space: nowrap;
+  margin-right: auto;
 }
 
 .entryMacros {
