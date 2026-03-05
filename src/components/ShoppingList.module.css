@@ -42,21 +42,47 @@
   background: var(--color-border-light, #e0e0e0);
 }
 
+/* Grocery store sections — single table */
 .table {
   width: 100%;
+  table-layout: fixed;
   border-collapse: collapse;
   font-size: 0.85rem;
 }
 
-.table th {
-  text-align: left;
-  font-size: 0.72rem;
-  font-weight: 600;
+/* Fixed column widths via <colgroup> */
+.colCheck  { width: 2rem; }
+.colQty    { width: 3rem; }
+.colMeas   { width: 4.5rem; }
+.colLink   { width: 2rem; }
+.colSection { width: 5.5rem; }
+.colDismiss { width: 1.5rem; }
+
+.sectionHeaderRow {
+  cursor: default;
+}
+
+.sectionHeaderRow:hover {
+  background: none !important;
+}
+
+.table .sectionHeading {
+  margin: 0;
+  padding: 0.6rem 0.15rem 0.25rem;
+  font-size: 0.78rem;
+  font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.04em;
+  color: var(--color-accent);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.emptySection {
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
   color: var(--color-text-muted);
-  padding: 0.3rem 0.5rem;
-  border-bottom: 2px solid var(--color-border);
+  font-size: 0.72rem;
 }
 
 .table td {
@@ -74,13 +100,14 @@
   background: var(--color-surface-alt);
 }
 
-.table tbody tr:last-child td {
-  border-bottom: none;
-}
-
 .qtyCell {
   white-space: nowrap;
-  min-width: 2.5rem;
+}
+
+.measCell {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .checkCell {
@@ -154,9 +181,13 @@
   background: var(--color-danger-light);
 }
 
+.headingActions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
 .addToggle {
-  display: block;
-  margin-bottom: 0.5rem;
   background: none;
   border: none;
   color: var(--color-accent);
@@ -165,6 +196,7 @@
   font-family: inherit;
   cursor: pointer;
   padding: 0.25rem 0;
+  white-space: nowrap;
   transition: opacity 0.15s ease;
 }
 
@@ -208,4 +240,26 @@
 
 .addBtn:hover {
   background: var(--color-border-light, #e0e0e0);
+}
+
+.sectionSelectCell {
+  width: 1.5rem;
+  text-align: center;
+  padding-left: 0;
+}
+
+.sectionSelect {
+  background: none;
+  border: none;
+  color: var(--color-text-muted);
+  font-size: 0.72rem;
+  cursor: pointer;
+  padding: 0.1rem;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+  max-width: 5.5rem;
+}
+
+.table tbody tr:hover .sectionSelect {
+  opacity: 1;
 }

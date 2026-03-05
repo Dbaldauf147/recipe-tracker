@@ -3,12 +3,13 @@ import { parseRecipeText } from '../utils/parseRecipeText';
 import { fetchRecipeFromUrl } from '../utils/fetchRecipeFromUrl';
 import { fetchInstagramCaption } from '../utils/fetchInstagramCaption';
 import { fetchTikTokRecipe, fetchTikTokCaption } from '../utils/fetchTikTokRecipe';
+import { classifyMealType } from '../utils/classifyMealType';
 import { RecipeForm } from './RecipeForm';
 import styles from './ImportRecipePage.module.css';
 
 export function ImportRecipePage({ onSave, onCancel }) {
   const [phase, setPhase] = useState('paste'); // 'paste' | 'review'
-  const [importMode, setImportMode] = useState('url'); // 'url' | 'tiktok' | 'instagram' | 'paste'
+  const [importMode, setImportMode] = useState('url'); // 'url' | 'tiktok' | 'instagram' | 'paste' | 'manual'
   const [rawText, setRawText] = useState('');
   const [sourceUrl, setSourceUrl] = useState('');
   const [instagramUrl, setInstagramUrl] = useState('');
@@ -22,17 +23,18 @@ export function ImportRecipePage({ onSave, onCancel }) {
     const url = importMode === 'instagram' ? instagramUrl.trim()
       : importMode === 'tiktok' ? tiktokUrl.trim()
       : sourceUrl.trim();
+    const ingredients = result.ingredients.length > 0 ? result.ingredients : [];
     setParsedRecipe({
       title: result.title,
       description: '',
       category: 'lunch-dinner',
       frequency: 'common',
-      mealType: '',
+      mealType: classifyMealType(ingredients),
       servings: '1',
       prepTime: '',
       cookTime: '',
       sourceUrl: url,
-      ingredients: result.ingredients.length > 0 ? result.ingredients : [],
+      ingredients,
       instructions: result.instructions,
     });
     setPhase('review');
@@ -45,7 +47,7 @@ export function ImportRecipePage({ onSave, onCancel }) {
     setFetchError('');
     try {
       const recipe = await fetchRecipeFromUrl(url);
-      setParsedRecipe(recipe);
+      setParsedRecipe({ ...recipe, mealType: recipe.mealType || classifyMealType(recipe.ingredients || []) });
       setPhase('review');
     } catch (err) {
       setFetchError(err.message || 'Failed to fetch recipe from URL.');
@@ -76,7 +78,7 @@ export function ImportRecipePage({ onSave, onCancel }) {
     setFetchError('');
     try {
       const recipe = await fetchTikTokRecipe(url);
-      setParsedRecipe(recipe);
+      setParsedRecipe({ ...recipe, mealType: recipe.mealType || classifyMealType(recipe.ingredients || []) });
       setPhase('review');
     } catch (err) {
       setFetchError(err.message || 'Failed to fetch recipe from TikTok.');
@@ -100,6 +102,24 @@ export function ImportRecipePage({ onSave, onCancel }) {
     }
   }
 
+  function handleStartManual() {
+    setParsedRecipe({
+      title: '',
+      description: '',
+      category: 'lunch-dinner',
+      frequency: 'common',
+      mealType: '',
+      servings: '1',
+      prepTime: '',
+      cookTime: '',
+      sourceUrl: '',
+      ingredients: [],
+      instructions: '',
+    });
+    setImportMode('manual');
+    setPhase('review');
+  }
+
   function handleSave(data) {
     onSave({ ...data, source: importMode });
   }
@@ -112,9 +132,16 @@ export function ImportRecipePage({ onSave, onCancel }) {
   if (phase === 'review' && parsedRecipe) {
     return (
       <div className={styles.container}>
-        <button className={styles.backToPaste} onClick={handleBackToPaste}>
-          &larr; Back to paste
-        </button>
+        {importMode !== 'manual' && (
+          <button className={styles.backToPaste} onClick={handleBackToPaste}>
+            &larr; Back to import
+          </button>
+        )}
+        {importMode === 'manual' && (
+          <button className={styles.backToPaste} onClick={onCancel}>
+            &larr; Back
+          </button>
+        )}
         <RecipeForm
           recipe={parsedRecipe}
           onSave={handleSave}
@@ -135,6 +162,7 @@ export function ImportRecipePage({ onSave, onCancel }) {
 
       <div className={styles.tabs}>
         {[
+          ['manual', 'Manual'],
           ['url', 'URL'],
           ['tiktok', 'TikTok'],
           ['instagram', 'Instagram'],
@@ -143,7 +171,7 @@ export function ImportRecipePage({ onSave, onCancel }) {
           <button
             key={mode}
             className={`${styles.tab} ${importMode === mode ? styles.tabActive : ''}`}
-            onClick={() => setImportMode(mode)}
+            onClick={() => mode === 'manual' ? handleStartManual() : setImportMode(mode)}
           >
             {label}
           </button>

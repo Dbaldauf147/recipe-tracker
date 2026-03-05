@@ -259,15 +259,16 @@
   text-align: center;
 }
 
-/* Meal slot pills */
-.mealSlotRow {
+/* Weekly menu quick-add chips */
+.weeklyChips {
   display: flex;
-  gap: 0.5rem;
-  align-items: center;
   flex-wrap: wrap;
+  gap: 0.4rem;
+  align-items: center;
+  margin-bottom: 1rem;
 }
 
-.mealSlotLabel {
+.weeklyLabel {
   font-size: 0.72rem;
   font-weight: 600;
   text-transform: uppercase;
@@ -276,26 +277,27 @@
   margin-right: 0.25rem;
 }
 
-.mealSlotBtn {
-  padding: 0.3rem 0.7rem;
+.weeklyChip {
+  padding: 0.25rem 0.6rem;
   border: 1px solid var(--color-border);
   border-radius: 50px;
   background: var(--color-surface);
-  color: var(--color-text-muted);
+  color: var(--color-text);
   font-size: 0.78rem;
   font-family: inherit;
   font-weight: 500;
   cursor: pointer;
-  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+  white-space: nowrap;
 }
 
-.mealSlotBtn:hover {
+.weeklyChip:hover {
   background: var(--color-surface-alt);
   border-color: var(--color-accent);
 }
 
-.mealSlotBtnActive {
-  padding: 0.3rem 0.7rem;
+.weeklyChipActive {
+  padding: 0.25rem 0.6rem;
   border: 1px solid var(--color-accent);
   border-radius: 50px;
   background: var(--color-accent);
@@ -304,6 +306,29 @@
   font-family: inherit;
   font-weight: 500;
   cursor: pointer;
+}
+
+.addSelectedBtn {
+  padding: 0.25rem 0.75rem;
+  border: none;
+  border-radius: 50px;
+  background: var(--color-accent);
+  color: #fff;
+  font-size: 0.78rem;
+  font-family: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease;
+  white-space: nowrap;
+}
+
+.addSelectedBtn:hover {
+  background: var(--color-accent-hover);
+}
+
+.addSelectedBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .addBtn {
@@ -340,6 +365,83 @@
   font-size: 0.8rem;
   font-style: italic;
   margin-top: 0.25rem;
+}
+
+/* ── Queue ── */
+.queue {
+  margin-top: 0.75rem;
+  border-top: 1px solid var(--color-border);
+  padding-top: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.queueItem {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.35rem 0.5rem;
+  background: var(--color-surface-alt, #f3f4f6);
+  border-radius: var(--radius-sm, 6px);
+  font-size: 0.82rem;
+}
+
+.queueName {
+  flex: 1;
+  font-weight: 500;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.queueDetail {
+  color: var(--color-text-muted);
+  font-size: 0.75rem;
+  white-space: nowrap;
+}
+
+.queueSlot {
+  color: var(--color-accent);
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+}
+
+.queueRemove {
+  background: none;
+  border: none;
+  color: var(--color-text-muted);
+  font-size: 1.1rem;
+  cursor: pointer;
+  padding: 0 0.25rem;
+  line-height: 1;
+}
+
+.queueRemove:hover {
+  color: var(--color-danger, #dc2626);
+}
+
+.saveAllBtn {
+  margin-top: 0.5rem;
+  padding: 0.45rem 1.25rem;
+  background: var(--color-accent);
+  color: #fff;
+  border: none;
+  border-radius: 50px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.15s ease;
+  align-self: flex-end;
+}
+
+.saveAllBtn:hover {
+  background: var(--color-accent-hover);
 }
 
 /* ── Meal Log ── */
@@ -385,17 +487,17 @@
 
 .entryMacros {
   display: flex;
-  gap: 0.5rem;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.5rem;
   font-size: 0.75rem;
   color: var(--color-text-secondary);
-  white-space: nowrap;
 }
 
 .entryMacro {
   display: flex;
   flex-direction: column;
   align-items: center;
-  min-width: 38px;
+  min-width: 32px;
 }
 
 .macroValue {
@@ -425,21 +527,6 @@
   color: var(--color-danger);
 }
 
-.subtotalRow {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.35rem 0;
-  font-size: 0.78rem;
-  color: var(--color-text-muted);
-  font-weight: 600;
-}
-
-.subtotalLabel {
-  flex: 1;
-  text-align: right;
-  padding-right: 0.5rem;
-}
 
 .emptyLog {
   text-align: center;
@@ -589,7 +676,7 @@
 
 .chartWrap {
   width: 100%;
-  height: 280px;
+  height: 320px;
 }
 
 .noChartData {

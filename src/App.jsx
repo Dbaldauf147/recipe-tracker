@@ -396,7 +396,7 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding }) {
         {view === 'barcode-scanner' ? (
           <BarcodeScannerPage onClose={goBack} user={user} />
         ) : view === 'daily-tracker' ? (
-          <DailyTrackerPage recipes={recipes} getRecipe={getRecipe} onClose={goBack} user={user} />
+          <DailyTrackerPage recipes={recipes} getRecipe={getRecipe} onClose={goBack} user={user} weeklyPlan={weeklyPlan} />
         ) : view === 'nutrition-goals' ? (() => {
           let savedGoals = {};
           let savedSelected = null;

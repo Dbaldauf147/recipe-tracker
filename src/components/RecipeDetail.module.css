@@ -20,147 +20,8 @@
 }
 
 .topRow {
-  display: flex;
-  gap: 1.5rem;
-  align-items: flex-start;
   margin-bottom: 1.25rem;
 }
-
-.topLeft {
-  flex: 1;
-  min-width: 0;
-}
-
-@media (max-width: 768px) {
-  .topRow {
-    flex-direction: column-reverse;
-  }
-}
-
-.heroWrap {
-  position: relative;
-  border-radius: var(--radius-md);
-  overflow: hidden;
-  box-shadow: var(--shadow-md);
-  line-height: 0;
-  width: 280px;
-  min-width: 280px;
-  background: var(--color-surface-alt, #f3f4f6);
-}
-
-.heroDragging {
-  outline: 3px dashed var(--color-accent);
-  outline-offset: -3px;
-}
-
-.dropOverlay {
-  position: absolute;
-  inset: 0;
-  z-index: 5;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(201, 100, 66, 0.15);
-  font-size: 1.1rem;
-  font-weight: 600;
-  color: var(--color-accent);
-  pointer-events: none;
-  line-height: 1;
-}
-
-.imageOverlay {
-  position: absolute;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  display: flex;
-  gap: 0.5rem;
-  padding: 0.75rem;
-  background: linear-gradient(transparent, rgba(0, 0, 0, 0.5));
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 0.2s ease;
-}
-
-.heroWrap:hover .imageOverlay {
-  opacity: 1;
-  pointer-events: auto;
-}
-
-.uploadBtn {
-  padding: 0.4rem 1rem;
-  border: none;
-  border-radius: 50px;
-  font-size: 0.8rem;
-  font-weight: 600;
-  cursor: pointer;
-  background: rgba(255, 255, 255, 0.9);
-  color: #333;
-  transition: background 0.15s ease;
-}
-
-.uploadBtn:hover {
-  background: #fff;
-}
-
-.uploadBtn:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-
-.removeImgBtn {
-  padding: 0.4rem 1rem;
-  border: none;
-  border-radius: 50px;
-  font-size: 0.8rem;
-  font-weight: 600;
-  cursor: pointer;
-  background: rgba(220, 38, 38, 0.85);
-  color: #fff;
-  transition: background 0.15s ease;
-}
-
-.removeImgBtn:hover {
-  background: rgba(220, 38, 38, 1);
-}
-
-.heroPlaceholder {
-  width: 100%;
-  aspect-ratio: 3 / 4;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--color-surface-alt, #f3f4f6);
-  color: var(--color-text-muted, #999);
-  font-size: 0.95rem;
-  font-weight: 500;
-  cursor: pointer;
-  line-height: 1;
-}
-
-.heroImg {
-  width: 100%;
-  aspect-ratio: 3 / 4;
-  object-fit: cover;
-  object-position: center;
-  display: block;
-  filter: saturate(1.8) contrast(1.15) brightness(1.05);
-}
-
-.heroImgUser {
-  width: 100%;
-  aspect-ratio: 4 / 5;
-  object-fit: cover;
-  object-position: center;
-  display: block;
-  cursor: grab;
-  user-select: none;
-}
-
-.heroImgPanning {
-  cursor: grabbing;
-}
-
 
 .ingredientsCol {
   margin-bottom: 1.5rem;
@@ -183,6 +44,7 @@
   font-size: 1rem;
   font-weight: 600;
   letter-spacing: -0.01em;
+  color: var(--color-accent);
 }
 
 .ingredientsActions {
@@ -261,6 +123,40 @@
 
 .servingReset:hover {
   background: var(--color-surface-alt);
+}
+
+.sourceLink {
+  padding: 0.3rem 0.75rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--color-accent);
+  text-decoration: none;
+  border: 1px solid var(--color-accent);
+  border-radius: var(--radius-sm, 4px);
+  white-space: nowrap;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.sourceLink:hover {
+  background: var(--color-accent);
+  color: #fff;
+}
+
+.servingSave {
+  padding: 0.2rem 0.5rem;
+  font-size: 0.75rem;
+  font-family: inherit;
+  font-weight: 600;
+  border: 1px solid var(--color-accent);
+  border-radius: var(--radius-sm, 4px);
+  background: var(--color-accent);
+  color: #fff;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.servingSave:hover {
+  background: var(--color-accent-hover);
 }
 
 .weightDetails {
@@ -344,6 +240,7 @@
   font-size: 1rem;
   font-weight: 600;
   letter-spacing: -0.01em;
+  color: var(--color-accent);
 }
 
 .stepsList {
@@ -406,7 +303,7 @@
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  color: var(--color-text-muted);
+  color: var(--color-accent);
   padding: 0.4rem 0.75rem;
   border-bottom: 1px solid var(--color-border);
 }
@@ -569,7 +466,7 @@
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  color: var(--color-text-muted);
+  color: var(--color-accent);
   padding: 0.5rem 0.6rem;
   border-bottom: 2px solid var(--color-border);
 }
@@ -840,6 +737,35 @@
 
 .ingredientBtns .addRowBtn {
   margin-top: 0;
+}
+
+.sectionDivider td {
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--color-accent);
+  padding: 0.75rem 0.75rem 0.4rem;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.toggleSectionBtn {
+  background: none;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  color: var(--color-text-muted);
+  font-size: 0.85rem;
+  cursor: pointer;
+  padding: 0.1rem 0.35rem;
+  line-height: 1;
+  margin-right: 0.25rem;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+.toggleSectionBtn:hover {
+  background: var(--color-surface-alt);
+  color: var(--color-accent);
+  border-color: var(--color-accent);
 }
 
 .scanBtn {

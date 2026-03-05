@@ -241,6 +241,7 @@ export function ShoppingListPage({ weeklyRecipes, weeklyServings = {}, onClose }
             pantryNames={pantryNames}
             dismissedNames={dismissedNames}
             onDismissItem={handleDismissItem}
+            user={user}
           />
         </div>
         <div className={styles.cell}>

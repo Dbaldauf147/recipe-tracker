@@ -7,6 +7,8 @@ import {
   saveIngredientsToFirestore,
   applyGramsData,
 } from '../utils/ingredientsStore.js';
+import { lookupBarcodeFullNutrition } from '../utils/openFoodFacts.js';
+import { BarcodeScanner } from './BarcodeScanner.jsx';
 import styles from './IngredientsPage.module.css';
 
 const ADMIN_UID = import.meta.env.VITE_ADMIN_UID;
@@ -21,6 +23,25 @@ const DISPLAY_KEYS = [
 ];
 
 const FIELD_MAP = Object.fromEntries(INGREDIENT_FIELDS.map(f => [f.key, f]));
+
+const USDA_API_KEY = import.meta.env.VITE_USDA_API_KEY || 'DEMO_KEY';
+const USDA_SEARCH_URL = 'https://api.nal.usda.gov/fdc/v1/foods/search';
+
+// Nutrient IDs for extracting per-100g values from USDA results
+const USDA_NUTRIENT_IDS = {
+  calories: 1008, protein: 1003, carbs: 1005, fat: 1004,
+  saturatedFat: 1258, sugar: 2000, addedSugar: 1235, fiber: 1079,
+  sodium: 1093, potassium: 1092, calcium: 1087, iron: 1089,
+  magnesium: 1090, zinc: 1095, vitaminB12: 1178, vitaminC: 1162,
+  leucine: 1213, omega3: 1404,
+};
+
+function fmtVal(val) {
+  if (val == null || val === 0) return '';
+  const s = String(Math.round(val * 100) / 100);
+  if (!s.includes('.')) return s;
+  return s.replace(/0+$/, '').replace(/\.$/, '');
+}
 
 const COL_WIDTHS_KEY = 'sunday-ingredients-col-widths';
 const DEFAULT_WIDTHS = { ingredient: 140, measurement: 70, notes: 100, link: 80, storage: 70 };
@@ -41,7 +62,21 @@ export function IngredientsPage({ onClose, user }) {
   const [sortKey, setSortKey] = useState(null);
   const [sortAsc, setSortAsc] = useState(true);
   const [colWidths, setColWidths] = useState(loadColWidths);
+  const [showAddMenu, setShowAddMenu] = useState(false);
+  const [showBarcodeScanner, setShowBarcodeScanner] = useState(false);
+  const [showPhotoUpload, setShowPhotoUpload] = useState(false);
+  const [showUSDASearch, setShowUSDASearch] = useState(false);
+  const [modalLoading, setModalLoading] = useState(false);
+  const [modalError, setModalError] = useState(null);
+  // Photo flow
+  const [photoPreviewUrl, setPhotoPreviewUrl] = useState(null);
+  const [photoBase64, setPhotoBase64] = useState(null);
+  const photoInputRef = useRef(null);
+  // USDA flow
+  const [usdaQuery, setUsdaQuery] = useState('');
+  const [usdaResults, setUsdaResults] = useState([]);
   const resizing = useRef(null);
+  const addMenuRef = useRef(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -116,6 +151,159 @@ export function IngredientsPage({ onClose, user }) {
       return updated;
     });
   }, []);
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    if (!showAddMenu) return;
+    function handleClickOutside(e) {
+      if (addMenuRef.current && !addMenuRef.current.contains(e.target)) {
+        setShowAddMenu(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [showAddMenu]);
+
+  // Helper: append a pre-filled row
+  const addFilledRow = useCallback((data) => {
+    setRows(prev => {
+      const row = {};
+      for (const f of INGREDIENT_FIELDS) row[f.key] = data[f.key] || '';
+      const updated = [...prev, row];
+      saveIngredientsToFirestore(updated);
+      return updated;
+    });
+  }, []);
+
+  // --- Barcode flow ---
+  const handleBarcodeScan = useCallback(async (barcode) => {
+    setShowBarcodeScanner(false);
+    setModalLoading(true);
+    setModalError(null);
+    try {
+      const result = await lookupBarcodeFullNutrition(barcode);
+      if (result) {
+        addFilledRow(result);
+      } else {
+        setModalError(`Product not found for barcode: ${barcode}`);
+      }
+    } catch {
+      setModalError('Failed to look up barcode. Check your connection.');
+    }
+    setModalLoading(false);
+  }, [addFilledRow]);
+
+  // --- Photo flow ---
+  function handlePhotoSelect(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const img = new Image();
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      img.onload = () => {
+        // Resize to max 1200px, JPEG 80%
+        const maxDim = 1200;
+        let { width, height } = img;
+        if (width > maxDim || height > maxDim) {
+          const scale = maxDim / Math.max(width, height);
+          width = Math.round(width * scale);
+          height = Math.round(height * scale);
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, width, height);
+        const base64 = canvas.toDataURL('image/jpeg', 0.8);
+        setPhotoPreviewUrl(base64);
+        setPhotoBase64(base64);
+      };
+      img.src = ev.target.result;
+    };
+    reader.readAsDataURL(file);
+  }
+
+  async function handlePhotoSubmit() {
+    if (!photoBase64) return;
+    setModalLoading(true);
+    setModalError(null);
+    try {
+      const res = await fetch('/api/parse-nutrition-label', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ image: photoBase64 }),
+      });
+      if (!res.ok) throw new Error(`Server error: ${res.status}`);
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      // Compute proteinPerCal / fiberPerCal if not provided
+      const cal = parseFloat(data.calories) || 0;
+      const prot = parseFloat(data.protein) || 0;
+      const fib = parseFloat(data.fiber) || 0;
+      if (!data.proteinPerCal && cal > 0) data.proteinPerCal = fmtVal(prot / cal);
+      if (!data.fiberPerCal && cal > 0) data.fiberPerCal = fmtVal(fib / cal);
+      addFilledRow(data);
+      setShowPhotoUpload(false);
+      setPhotoPreviewUrl(null);
+      setPhotoBase64(null);
+    } catch (err) {
+      setModalError(err.message || 'Failed to parse nutrition label.');
+    }
+    setModalLoading(false);
+  }
+
+  // --- USDA flow ---
+  async function handleUSDASearch(e) {
+    e?.preventDefault();
+    if (!usdaQuery.trim()) return;
+    setModalLoading(true);
+    setModalError(null);
+    setUsdaResults([]);
+    try {
+      const url = `${USDA_SEARCH_URL}?api_key=${USDA_API_KEY}&query=${encodeURIComponent(usdaQuery)}&pageSize=5&dataType=Foundation,SR%20Legacy`;
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`USDA API error: ${res.status}`);
+      const data = await res.json();
+      if (!data.foods || data.foods.length === 0) {
+        setModalError('No results found. Try a different search term.');
+      } else {
+        setUsdaResults(data.foods);
+      }
+    } catch (err) {
+      setModalError(err.message || 'USDA search failed.');
+    }
+    setModalLoading(false);
+  }
+
+  function handleUSDAPick(food) {
+    // Extract per-100g nutrients
+    const row = {};
+    for (const f of INGREDIENT_FIELDS) row[f.key] = '';
+    row.ingredient = food.description;
+    row.grams = '100';
+    row.measurement = 'g';
+
+    const nutrients = food.foodNutrients || [];
+    for (const [key, nid] of Object.entries(USDA_NUTRIENT_IDS)) {
+      const match = nutrients.find(fn => fn.nutrientId === nid);
+      if (match) row[key] = fmtVal(match.value);
+    }
+
+    // Compute derived fields
+    const cal = parseFloat(row.calories) || 0;
+    const prot = parseFloat(row.protein) || 0;
+    const fib = parseFloat(row.fiber) || 0;
+    if (cal > 0) {
+      row.proteinPerCal = fmtVal(prot / cal);
+      row.fiberPerCal = fmtVal(fib / cal);
+    }
+
+    addFilledRow(row);
+    setShowUSDASearch(false);
+    setUsdaQuery('');
+    setUsdaResults([]);
+  }
 
   function handleSort(key) {
     if (sortKey === key) {
@@ -199,9 +387,27 @@ export function IngredientsPage({ onClose, user }) {
           onChange={e => setSearch(e.target.value)}
         />
         {!loading && !error && isAdmin && (
-          <button className={styles.addBtn} onClick={addRow}>
-            + Add ingredient
-          </button>
+          <div className={styles.addMenuWrap} ref={addMenuRef}>
+            <button className={styles.addBtn} onClick={() => setShowAddMenu(v => !v)}>
+              + Add ingredient &#9662;
+            </button>
+            {showAddMenu && (
+              <div className={styles.addMenu}>
+                <button className={styles.addMenuItem} onClick={() => { setShowAddMenu(false); setShowBarcodeScanner(true); }}>
+                  <span className={styles.addMenuIcon}>&#128247;</span> Scan barcode
+                </button>
+                <button className={styles.addMenuItem} onClick={() => { setShowAddMenu(false); setShowPhotoUpload(true); setModalError(null); }}>
+                  <span className={styles.addMenuIcon}>&#128248;</span> Photo nutrition label
+                </button>
+                <button className={styles.addMenuItem} onClick={() => { setShowAddMenu(false); setShowUSDASearch(true); setModalError(null); setUsdaResults([]); setUsdaQuery(''); }}>
+                  <span className={styles.addMenuIcon}>&#128269;</span> Search USDA
+                </button>
+                <button className={styles.addMenuItem} onClick={() => { setShowAddMenu(false); addRow(); }}>
+                  <span className={styles.addMenuIcon}>&#43;</span> Blank row
+                </button>
+              </div>
+            )}
+          </div>
         )}
       </div>
 
@@ -235,7 +441,7 @@ export function IngredientsPage({ onClose, user }) {
                     </th>
                   );
                 })}
-                {isAdmin && <th className={styles.actionTh} />}
+                <th className={styles.actionTh} />
               </tr>
             </thead>
             <tbody>
@@ -264,17 +470,15 @@ export function IngredientsPage({ onClose, user }) {
                       )}
                     </td>
                   ))}
-                  {isAdmin && (
-                    <td>
-                      <button
-                        className={styles.removeBtn}
-                        onClick={() => removeRow(origIdx)}
-                        title="Remove ingredient"
-                      >
-                        ×
-                      </button>
-                    </td>
-                  )}
+                  <td>
+                    <button
+                      className={styles.removeBtn}
+                      onClick={() => removeRow(origIdx)}
+                      title="Remove ingredient"
+                    >
+                      ×
+                    </button>
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -282,6 +486,123 @@ export function IngredientsPage({ onClose, user }) {
         </div>
       )}
 
+      {/* Loading overlay for barcode lookup */}
+      {modalLoading && !showPhotoUpload && !showUSDASearch && (
+        <div className={styles.modalOverlay}>
+          <div className={styles.addModal}>
+            <div className={styles.modalBody}>
+              <p className={styles.modalStatus}>Looking up nutrition data...</p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Inline error toast for barcode failures */}
+      {modalError && !showPhotoUpload && !showUSDASearch && !showBarcodeScanner && (
+        <div className={styles.modalOverlay} onClick={() => setModalError(null)}>
+          <div className={styles.addModal} onClick={e => e.stopPropagation()}>
+            <div className={styles.modalHeader}>
+              <h3>Error</h3>
+              <button className={styles.modalCloseBtn} onClick={() => setModalError(null)}>&times;</button>
+            </div>
+            <div className={styles.modalBody}>
+              <p className={styles.modalError}>{modalError}</p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Barcode scanner modal */}
+      {showBarcodeScanner && (
+        <BarcodeScanner
+          onScan={handleBarcodeScan}
+          onResult={() => {}}
+          onClose={() => setShowBarcodeScanner(false)}
+        />
+      )}
+
+      {/* Photo upload modal */}
+      {showPhotoUpload && (
+        <div className={styles.modalOverlay} onClick={() => { setShowPhotoUpload(false); setPhotoPreviewUrl(null); setPhotoBase64(null); setModalError(null); }}>
+          <div className={styles.addModal} onClick={e => e.stopPropagation()}>
+            <div className={styles.modalHeader}>
+              <h3>Photo Nutrition Label</h3>
+              <button className={styles.modalCloseBtn} onClick={() => { setShowPhotoUpload(false); setPhotoPreviewUrl(null); setPhotoBase64(null); setModalError(null); }}>&times;</button>
+            </div>
+            <div className={styles.modalBody}>
+              {!photoPreviewUrl ? (
+                <div className={styles.photoDropzone} onClick={() => photoInputRef.current?.click()}>
+                  <p>Tap to take a photo or choose an image</p>
+                  <input
+                    ref={photoInputRef}
+                    type="file"
+                    accept="image/*"
+                    capture="environment"
+                    style={{ display: 'none' }}
+                    onChange={handlePhotoSelect}
+                  />
+                </div>
+              ) : (
+                <>
+                  <img src={photoPreviewUrl} alt="Label preview" className={styles.photoPreview} />
+                  <button
+                    className={styles.photoSubmitBtn}
+                    onClick={handlePhotoSubmit}
+                    disabled={modalLoading}
+                  >
+                    {modalLoading ? 'Analyzing...' : 'Parse Nutrition Label'}
+                  </button>
+                </>
+              )}
+              {modalError && <p className={styles.modalError}>{modalError}</p>}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* USDA search modal */}
+      {showUSDASearch && (
+        <div className={styles.modalOverlay} onClick={() => { setShowUSDASearch(false); setUsdaQuery(''); setUsdaResults([]); setModalError(null); }}>
+          <div className={styles.addModal} onClick={e => e.stopPropagation()}>
+            <div className={styles.modalHeader}>
+              <h3>Search USDA Database</h3>
+              <button className={styles.modalCloseBtn} onClick={() => { setShowUSDASearch(false); setUsdaQuery(''); setUsdaResults([]); setModalError(null); }}>&times;</button>
+            </div>
+            <div className={styles.modalBody}>
+              <form className={styles.usdaSearchRow} onSubmit={handleUSDASearch}>
+                <input
+                  className={styles.usdaSearchInput}
+                  type="text"
+                  placeholder="e.g. chicken breast, oats..."
+                  value={usdaQuery}
+                  onChange={e => setUsdaQuery(e.target.value)}
+                  autoFocus
+                />
+                <button className={styles.usdaSearchBtn} type="submit" disabled={modalLoading || !usdaQuery.trim()}>
+                  {modalLoading ? 'Searching...' : 'Search'}
+                </button>
+              </form>
+              {modalError && <p className={styles.modalError}>{modalError}</p>}
+              {usdaResults.length > 0 && (
+                <ul className={styles.usdaResults}>
+                  {usdaResults.map(food => {
+                    const cal = food.foodNutrients?.find(n => n.nutrientId === 1008)?.value || 0;
+                    const prot = food.foodNutrients?.find(n => n.nutrientId === 1003)?.value || 0;
+                    return (
+                      <li key={food.fdcId} className={styles.usdaResultItem} onClick={() => handleUSDAPick(food)}>
+                        <span className={styles.usdaResultName}>{food.description}</span>
+                        <span className={styles.usdaResultMeta}>
+                          {food.dataType} &middot; {Math.round(cal)} cal &middot; {fmtVal(prot)}g protein (per 100g)
+                        </span>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -136,13 +136,8 @@ export function SharedRecipePage({ token, user }) {
 
   return (
     <div className={styles.container}>
-      {recipe.imageUrl && (
-        <img className={styles.heroImg} src={recipe.imageUrl} alt={recipe.title} />
-      )}
-
       <div className={styles.header}>
         <h1 className={styles.title}>{recipe.title}</h1>
-        {recipe.description && <p className={styles.description}>{recipe.description}</p>}
         <div className={styles.meta}>
           {recipe.servings && (
             <span className={styles.metaItem}><strong>{recipe.servings}</strong> servings</span>

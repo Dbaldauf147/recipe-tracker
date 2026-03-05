@@ -296,21 +296,6 @@
   font-weight: 600;
 }
 
-.recalcBtn {
-  background: none;
-  border: none;
-  color: var(--color-accent);
-  font-size: 0.85rem;
-  font-weight: 600;
-  cursor: pointer;
-  padding: 0;
-  transition: opacity 0.15s ease;
-}
-
-.recalcBtn:hover {
-  opacity: 0.8;
-}
-
 .disclaimer {
   margin: 0.75rem 0 0;
   font-size: 0.75rem;

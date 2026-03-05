@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { fetchNutritionForRecipe, NUTRIENTS } from '../utils/nutrition';
 import styles from './NutritionPanel.module.css';
 
@@ -8,6 +8,7 @@ const MACROS = ['calories', 'protein', 'carbs', 'fat', 'saturatedFat'];
 const SUGARS_FIBER = ['sugar', 'addedSugar', 'fiber'];
 const MINERALS = ['sodium', 'potassium', 'calcium', 'iron', 'magnesium', 'zinc'];
 const VITAMINS_AMINOS = ['vitaminB12', 'vitaminC', 'leucine'];
+const OTHER = ['vegServings'];
 
 function NutrientRow({ nutrient, total, perServing, showPerServing }) {
   return (
@@ -53,7 +54,7 @@ function NutrientGroup({ title, keys, totals, perServing, showPerServing }) {
 
 const NUTRITION_CACHE_KEY = 'sunday-nutrition-cache';
 const CACHE_VERSION_KEY = 'sunday-nutrition-cache-version';
-const CACHE_VERSION = 4; // bump to invalidate all cached nutrition
+const CACHE_VERSION = 5; // bump to invalidate all cached nutrition
 
 // One-time cache bust when version changes
 try {
@@ -72,10 +73,10 @@ function loadCachedNutrition(recipeId) {
   }
 }
 
-function saveCachedNutrition(recipeId, data) {
+function saveCachedNutrition(recipeId, data, fingerprint) {
   try {
     const cache = JSON.parse(localStorage.getItem(NUTRITION_CACHE_KEY) || '{}');
-    cache[recipeId] = data;
+    cache[recipeId] = { data, fingerprint };
     localStorage.setItem(NUTRITION_CACHE_KEY, JSON.stringify(cache));
   } catch {
     // storage full
@@ -87,6 +88,16 @@ export function NutritionPanel({ recipeId, ingredients, servings = 1, portionLab
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [showPerServing, setShowPerServing] = useState(true);
+  const debounceRef = useRef(null);
+  const mountedRef = useRef(false);
+
+  const ingredientFingerprint = useMemo(() => {
+    if (!ingredients || ingredients.length === 0) return '';
+    return ingredients
+      .filter(row => (row.ingredient || '').trim())
+      .map(row => `${row.quantity}|${row.measurement}|${row.ingredient}`)
+      .join(';;');
+  }, [ingredients]);
 
   async function calculate() {
     setLoading(true);
@@ -94,7 +105,7 @@ export function NutritionPanel({ recipeId, ingredients, servings = 1, portionLab
     try {
       const result = await fetchNutritionForRecipe(ingredients);
       setData(result);
-      if (recipeId) saveCachedNutrition(recipeId, result);
+      if (recipeId) saveCachedNutrition(recipeId, result, ingredientFingerprint);
     } catch (err) {
       setError('Failed to fetch nutrition data. Try again later.');
     } finally {
@@ -110,14 +121,28 @@ export function NutritionPanel({ recipeId, ingredients, servings = 1, portionLab
   }, []);
 
   useEffect(() => {
-    if (!ingredients || ingredients.length === 0) return;
-    const cached = recipeId ? loadCachedNutrition(recipeId) : null;
-    if (cached) {
-      setData(cached);
-    } else {
+    if (!ingredientFingerprint) return;
+
+    // On first mount, try cache
+    if (!mountedRef.current) {
+      mountedRef.current = true;
+      const cached = recipeId ? loadCachedNutrition(recipeId) : null;
+      if (cached && cached.fingerprint === ingredientFingerprint) {
+        setData(cached.data);
+        return;
+      }
       calculate();
+      return;
     }
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+    // On subsequent changes, debounce recalculation
+    clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
+      calculate();
+    }, 800);
+
+    return () => clearTimeout(debounceRef.current);
+  }, [ingredientFingerprint]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!data || loading) {
     return (
@@ -142,7 +167,7 @@ export function NutritionPanel({ recipeId, ingredients, servings = 1, portionLab
             className={`${styles.toggleBtn} ${showPerServing ? styles.toggleActive : ''}`}
             onClick={() => setShowPerServing(true)}
           >
-            {portionLabel || `Per serving (${servings} servings)`}
+            {portionLabel || 'Per serving'}
           </button>
           <button
             className={`${styles.toggleBtn} ${!showPerServing ? styles.toggleActive : ''}`}
@@ -158,6 +183,7 @@ export function NutritionPanel({ recipeId, ingredients, servings = 1, portionLab
         <NutrientGroup title="Sugars & Fiber" keys={SUGARS_FIBER} totals={totals} perServing={perServing} showPerServing={showPerServing && (servings > 1 || !!portionLabel)} />
         <NutrientGroup title="Minerals" keys={MINERALS} totals={totals} perServing={perServing} showPerServing={showPerServing && (servings > 1 || !!portionLabel)} />
         <NutrientGroup title="Vitamins & Aminos" keys={VITAMINS_AMINOS} totals={totals} perServing={perServing} showPerServing={showPerServing && (servings > 1 || !!portionLabel)} />
+        <NutrientGroup title="Other" keys={OTHER} totals={totals} perServing={perServing} showPerServing={showPerServing && (servings > 1 || !!portionLabel)} />
       </div>
 
       {goals && (() => {
@@ -297,10 +323,6 @@ export function NutritionPanel({ recipeId, ingredients, servings = 1, portionLab
           </table>
         </div>
       </details>
-
-      <button className={styles.recalcBtn} onClick={calculate}>
-        Recalculate
-      </button>
 
       <p className={styles.disclaimer}>
         Nutrition data from USDA FoodData Central. Values are estimates based on approximate unit conversions.

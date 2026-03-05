@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useEffect, useRef } from 'react';
-import { onAuthStateChanged, signInWithPopup, signOut, createUserWithEmailAndPassword, signInWithEmailAndPassword, updateProfile } from 'firebase/auth';
+import { onAuthStateChanged, signInWithPopup, signOut, createUserWithEmailAndPassword, signInWithEmailAndPassword, updateProfile, sendPasswordResetEmail } from 'firebase/auth';
 import { auth, googleProvider, facebookProvider, appleProvider } from '../firebase';
 import { loadUserData, migrateToFirestore, hydrateLocalStorage, saveField, recordLogin } from '../utils/firestoreSync';
 
@@ -286,6 +286,18 @@ export function AuthProvider({ children }) {
     }
   }
 
+  async function resetPassword(email) {
+    try {
+      setAuthError(null);
+      await sendPasswordResetEmail(auth, email);
+      return true;
+    } catch (err) {
+      console.error('Password reset error:', err);
+      setAuthError(err.message || 'Failed to send reset email');
+      return false;
+    }
+  }
+
   function continueAsGuest() {
     isGuestRef.current = true;
     setIsGuest(true);
@@ -324,7 +336,7 @@ export function AuthProvider({ children }) {
 
   const value = {
     user, loading, dataReady, isGuest, currentOnboardingStep, justOnboarded, hasCompletedOnboarding, authError,
-    signInWithGoogle, signInWithFacebook, signInWithApple, signUpWithEmail, signInWithEmail, continueAsGuest, logOut,
+    signInWithGoogle, signInWithFacebook, signInWithApple, signUpWithEmail, signInWithEmail, resetPassword, continueAsGuest, logOut,
     completeGoals, skipGoals, goBackOnboarding, advanceOnboarding,
     completeNutritionGoals, completeKeyIngredients, completeRecipeSetup,
     restartOnboarding, cancelOnboarding,

@@ -7,6 +7,7 @@ import {
   loadIngredientsFromFirestore,
   saveIngredientsToFirestore,
 } from '../utils/ingredientsStore';
+import { VOLUME_TO_ML, WEIGHT_TO_G, MEASUREMENT_OPTIONS } from '../utils/units';
 import styles from './BarcodeScannerPage.module.css';
 
 const READER_ID = 'ingredient-barcode-reader';
@@ -139,6 +140,45 @@ export function BarcodeScannerPage({ onClose, user }) {
 
   function updateField(key, value) {
     setIngredient(prev => ({ ...prev, [key]: value }));
+  }
+
+  // Nutrition fields that should scale when measurement changes
+  const SCALABLE_FIELDS = [
+    'grams', 'calories', 'protein', 'carbs', 'fat', 'saturatedFat', 'fiber',
+    'sugar', 'addedSugar', 'sodium', 'potassium', 'calcium', 'magnesium',
+    'iron', 'zinc', 'vitaminB12', 'vitaminC', 'leucine', 'omega3',
+  ];
+
+  function handleMeasurementChange(newUnit) {
+    const oldUnit = (ingredient.measurement || 'g').toLowerCase();
+    const newLower = newUnit.toLowerCase();
+
+    // Determine unit systems
+    const oldVolume = VOLUME_TO_ML[oldUnit];
+    const oldWeight = WEIGHT_TO_G[oldUnit];
+    const newVolume = VOLUME_TO_ML[newLower];
+    const newWeight = WEIGHT_TO_G[newLower];
+
+    // Same system? Compute scale factor
+    let scale = null;
+    if (oldVolume && newVolume) {
+      scale = newVolume / oldVolume;
+    } else if (oldWeight && newWeight) {
+      scale = newWeight / oldWeight;
+    }
+
+    setIngredient(prev => {
+      const updated = { ...prev, measurement: newUnit };
+      if (scale !== null) {
+        for (const key of SCALABLE_FIELDS) {
+          const val = parseFloat(prev[key]);
+          if (!isNaN(val)) {
+            updated[key] = String(Math.round(val * scale * 1000) / 1000);
+          }
+        }
+      }
+      return updated;
+    });
   }
 
   async function handleSave() {
@@ -358,6 +398,28 @@ export function BarcodeScannerPage({ onClose, user }) {
               {section.fields.map(key => {
                 const field = FIELD_MAP[key];
                 if (!field) return null;
+
+                if (key === 'measurement') {
+                  return (
+                    <div key={key} className={styles.fieldRow}>
+                      <label className={styles.fieldLabel}>{field.label}</label>
+                      <select
+                        className={styles.fieldSelect}
+                        value={ingredient[key] || 'g'}
+                        onChange={e => handleMeasurementChange(e.target.value)}
+                      >
+                        <option value="g">g (per gram)</option>
+                        {MEASUREMENT_OPTIONS.map(group => (
+                          <optgroup key={group.label} label={group.label}>
+                            {group.options.map(unit => (
+                              <option key={unit} value={unit}>{unit}</option>
+                            ))}
+                          </optgroup>
+                        ))}
+                      </select>
+                    </div>
+                  );
+                }
 
                 if (key === 'ingredient') {
                   return (

@@ -3,15 +3,23 @@ import { useAuth } from '../contexts/AuthContext';
 import styles from './LoginPage.module.css';
 
 export function LoginPage() {
-  const { signInWithGoogle, signInWithFacebook, signInWithApple, signUpWithEmail, signInWithEmail, continueAsGuest, authError } = useAuth();
+  const { signInWithGoogle, signInWithFacebook, signInWithApple, signUpWithEmail, signInWithEmail, resetPassword, continueAsGuest, authError } = useAuth();
   const [isSignUp, setIsSignUp] = useState(false);
+  const [showForgot, setShowForgot] = useState(false);
+  const [resetSent, setResetSent] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [showGuestWarning, setShowGuestWarning] = useState(false);
 
   async function handleSubmit(e) {
     e.preventDefault();
+    if (showForgot) {
+      const ok = await resetPassword(email);
+      if (ok) setResetSent(true);
+      return;
+    }
     if (isSignUp) {
       await signUpWithEmail(email, password, name);
     } else {
@@ -25,8 +33,9 @@ export function LoginPage() {
         <img className={styles.logoImg} src="/prep-day-logo.png" alt="Prep Day" />
         <p className={styles.tagline}>meal planning, simplified</p>
         {authError && <p className={styles.error}>{authError}</p>}
+        {resetSent && <p className={styles.success}>Password reset email sent! Check your inbox.</p>}
         <form className={styles.form} onSubmit={handleSubmit}>
-          {isSignUp && (
+          {isSignUp && !showForgot && (
             <input
               className={styles.input}
               type="text"
@@ -43,24 +52,53 @@ export function LoginPage() {
             onChange={(e) => setEmail(e.target.value)}
             required
           />
-          <input
-            className={styles.input}
-            type="password"
-            placeholder="Password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            required
-            minLength={6}
-          />
+          {!showForgot && (
+            <div className={styles.passwordWrap}>
+              <input
+                className={styles.input}
+                type={showPassword ? 'text' : 'password'}
+                placeholder="Password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+                minLength={6}
+              />
+              <button
+                type="button"
+                className={styles.showPasswordBtn}
+                onClick={() => setShowPassword(!showPassword)}
+                aria-label={showPassword ? 'Hide password' : 'Show password'}
+              >
+                {showPassword ? 'Hide' : 'Show'}
+              </button>
+            </div>
+          )}
           <button className={styles.submitBtn} type="submit">
-            {isSignUp ? 'Sign up' : 'Sign in'}
+            {showForgot ? 'Send Reset Email' : isSignUp ? 'Sign up' : 'Sign in'}
           </button>
         </form>
+        {!showForgot && !isSignUp && (
+          <p className={styles.forgotLink}>
+            <a href="#" onClick={(e) => { e.preventDefault(); setShowForgot(true); setResetSent(false); }}>
+              Forgot password?
+            </a>
+          </p>
+        )}
         <p className={styles.toggleLink}>
-          {isSignUp ? 'Already have an account?' : "Don't have an account?"}{' '}
-          <a href="#" onClick={(e) => { e.preventDefault(); setIsSignUp(!isSignUp); }}>
-            {isSignUp ? 'Sign in' : 'Sign up'}
-          </a>
+          {showForgot ? (
+            <>
+              <a href="#" onClick={(e) => { e.preventDefault(); setShowForgot(false); setResetSent(false); }}>
+                Back to sign in
+              </a>
+            </>
+          ) : (
+            <>
+              {isSignUp ? 'Already have an account?' : "Don't have an account?"}{' '}
+              <a href="#" onClick={(e) => { e.preventDefault(); setIsSignUp(!isSignUp); }}>
+                {isSignUp ? 'Sign in' : 'Sign up'}
+              </a>
+            </>
+          )}
         </p>
         <div className={styles.divider}><span>or</span></div>
         <button className={styles.googleBtn} onClick={signInWithGoogle}>

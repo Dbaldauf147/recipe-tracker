@@ -3,66 +3,15 @@ import { NutritionPanel } from './NutritionPanel';
 import { BarcodeScanner } from './BarcodeScanner';
 import { loadFriends, shareRecipe, getUsername, createShareLink } from '../utils/firestoreSync';
 import { loadIngredients } from '../utils/ingredientsStore';
+import { VOLUME_TO_ML, WEIGHT_TO_G } from '../utils/units';
+import { classifyMealType } from '../utils/classifyMealType';
 import styles from './RecipeDetail.module.css';
 
 const ADMIN_UID = import.meta.env.VITE_ADMIN_UID;
 
-const STOP_WORDS = new Set([
-  'the','a','an','and','or','with','in','on','of','for','my','our','easy',
-  'best','quick','simple','classic','homemade','style','recipe',
-]);
+const emptyRow = { quantity: '', measurement: '', ingredient: '', notes: '', topping: false };
+const ingredientFields = ['quantity', 'measurement', 'ingredient'];
 
-function buildImageUrl(recipe) {
-  const words = recipe.title.toLowerCase().replace(/[^a-z\s]/g, '').split(/\s+/)
-    .filter(w => w.length > 2 && !STOP_WORDS.has(w));
-  const keywords = words.slice(0, 2).join(',');
-  let hash = 0;
-  for (const ch of recipe.id) hash = ((hash << 5) - hash + ch.charCodeAt(0)) | 0;
-  return `https://loremflickr.com/800/400/food,${keywords}?lock=${Math.abs(hash)}`;
-}
-
-const emptyRow = { quantity: '', measurement: '', ingredient: '', notes: '' };
-const ingredientFields = ['quantity', 'measurement', 'ingredient', 'notes'];
-
-// All measurements in ml (volume) or grams (weight) for conversion
-const VOLUME_TO_ML = {
-  tsp: 4.929, teaspoon: 4.929, teaspoons: 4.929,
-  tbsp: 14.787, tablespoon: 14.787, tablespoons: 14.787,
-  'fl oz': 29.574,
-  cup: 236.588, cups: 236.588,
-  pint: 473.176, pints: 473.176,
-  quart: 946.353, quarts: 946.353,
-  gallon: 3785.41, gallons: 3785.41,
-  liter: 1000, liters: 1000, l: 1000,
-  ml: 1,
-  cl: 10, centiliter: 10, centiliters: 10,
-  dl: 100, deciliter: 100, deciliters: 100,
-  c: 236.588,
-  pt: 473.176,
-  qt: 946.353,
-  gal: 3785.41,
-  pinch: 0.31, dash: 0.62, smidgen: 0.16,
-  can: 400, cans: 400,
-  handful: 50, handfuls: 50,
-  bunch: 200, bunches: 200,
-};
-
-const WEIGHT_TO_G = {
-  mg: 0.001, milligram: 0.001, milligrams: 0.001,
-  g: 1, gram: 1, grams: 1,
-  kg: 1000,
-  oz: 28.3495, ounce: 28.3495, ounces: 28.3495,
-  lb: 453.592, lbs: 453.592, pound: 453.592, pounds: 453.592,
-  clove: 5, cloves: 5,
-  slice: 30, slices: 30,
-  stick: 113.4, sticks: 113.4,
-  piece: 50, pieces: 50,
-  head: 500, heads: 500,
-  stalk: 50, stalks: 50,
-  sprig: 2, sprigs: 2,
-  whole: 100, each: 100,
-  large: 150, medium: 100, small: 75,
-};
 
 const VOLUME_UNITS = ['tsp', 'tbsp', 'fl oz', 'cup', 'pt', 'qt', 'gal', 'ml', 'cl', 'dl', 'l'];
 const WEIGHT_UNITS = ['g', 'oz', 'lb', 'kg', 'mg'];
@@ -227,10 +176,9 @@ function getCrossConversion(qty, measurement, dbGrams, dbMeasurement) {
 
 function initFields(recipe) {
   const type = recipe.mealType || '';
-  const presets = ['meat', 'pescatarian', 'vegan', 'vegetarian', ''];
+  const presets = ['meat', 'pescatarian', 'vegan', 'vegetarian', 'keto', ''];
   return {
     title: recipe.title || '',
-    description: recipe.description || '',
     category: recipe.category || 'lunch-dinner',
     frequency: recipe.frequency || 'common',
     mealType: presets.includes(type) ? type : 'custom',
@@ -256,20 +204,11 @@ function initFields(recipe) {
 }
 
 export function RecipeDetail({ recipe, onSave, onDelete, onBack, user, ingredientsVersion }) {
-  const [imgError, setImgError] = useState(false);
-  const [uploading, setUploading] = useState(false);
-  const [dragging, setDragging] = useState(false);
-  const [panning, setPanning] = useState(false);
-  const [imgPos, setImgPos] = useState(() => recipe?.imagePosition || { x: 50, y: 50 });
   const [fields, setFields] = useState(() => recipe ? initFields(recipe) : null);
   const [showShareDropdown, setShowShareDropdown] = useState(false);
   const [friendsList, setFriendsList] = useState(null);
   const [shareMsg, setShareMsg] = useState(null);
   const shareRef = useRef(null);
-  const dragCounter = useRef(0);
-  const panStart = useRef(null);
-  const heroImgRef = useRef(null);
-  const fileInputRef = useRef(null);
   const [adjustedServings, setAdjustedServings] = useState(null);
   const [servingWeight, setServingWeight] = useState('');
   const [editingIngredients, setEditingIngredients] = useState(false);
@@ -374,7 +313,10 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user, ingredien
   const totalWeightNum = parseFloat(fields?.totalWeight) || 0;
   const containerWeightNum = parseFloat(fields?.containerWeight) || 0;
   const foodWeight = Math.max(0, totalWeightNum - containerWeightNum);
-  const servingWeightNum = parseFloat(servingWeight) || 0;
+  const defaultServingWeight = (foodWeight > 0 && baseServings > 0)
+    ? String(Math.round(foodWeight / baseServings))
+    : '';
+  const servingWeightNum = parseFloat(servingWeight || defaultServingWeight) || 0;
   const weightBasedServings = (foodWeight > 0 && servingWeightNum > 0)
     ? (servingWeightNum / foodWeight) * baseServings
     : null;
@@ -406,6 +348,13 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user, ingredien
     setFields(prev => ({
       ...prev,
       ingredients: [...prev.ingredients, { ...emptyRow }],
+    }));
+  }
+
+  function addToppingRow() {
+    setFields(prev => ({
+      ...prev,
+      ingredients: [...prev.ingredients, { ...emptyRow, topping: true }],
     }));
   }
 
@@ -511,10 +460,14 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user, ingredien
   function handleSave() {
     onSave({
       title: fields.title.trim(),
-      description: fields.description.trim(),
       category: fields.category,
       frequency: fields.frequency,
-      mealType: fields.mealType === 'custom' ? fields.customMealType.trim() : fields.mealType,
+      mealType: (() => {
+        const manual = fields.mealType === 'custom' ? fields.customMealType.trim() : fields.mealType;
+        if (manual) return manual;
+        const ings = fields.ingredients.filter(row => row.ingredient.trim() !== '');
+        return classifyMealType(ings);
+      })(),
       servings: fields.servings.trim() || '1',
       prepTime: fields.prepTime.trim(),
       cookTime: fields.cookTime.trim(),
@@ -598,110 +551,6 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user, ingredien
     }
   }
 
-  function processImageFile(file) {
-    if (!file || !file.type.startsWith('image/')) return;
-    setUploading(true);
-    const img = new Image();
-    img.onload = () => {
-      const MAX_W = 800;
-      const scale = img.width > MAX_W ? MAX_W / img.width : 1;
-      const canvas = document.createElement('canvas');
-      canvas.width = img.width * scale;
-      canvas.height = img.height * scale;
-      canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
-      const dataUrl = canvas.toDataURL('image/jpeg', 0.7);
-      onSave({ imageUrl: dataUrl, imageHidden: false });
-      setUploading(false);
-      if (fileInputRef.current) fileInputRef.current.value = '';
-    };
-    img.onerror = () => {
-      alert('Failed to read image');
-      setUploading(false);
-      if (fileInputRef.current) fileInputRef.current.value = '';
-    };
-    img.src = URL.createObjectURL(file);
-  }
-
-  function handleImageUpload(e) {
-    processImageFile(e.target.files?.[0]);
-  }
-
-  function handleRemoveImage() {
-    onSave({ imageUrl: '', imageHidden: true });
-    setImgError(true);
-  }
-
-  function handleDragEnter(e) {
-    e.preventDefault();
-    e.stopPropagation();
-    dragCounter.current++;
-    if (e.dataTransfer.types.includes('Files')) setDragging(true);
-  }
-
-  function handleDragLeave(e) {
-    e.preventDefault();
-    e.stopPropagation();
-    dragCounter.current--;
-    if (dragCounter.current === 0) setDragging(false);
-  }
-
-  function handleDragOver(e) {
-    e.preventDefault();
-    e.stopPropagation();
-  }
-
-  function handleDrop(e) {
-    e.preventDefault();
-    e.stopPropagation();
-    setDragging(false);
-    dragCounter.current = 0;
-    const file = e.dataTransfer.files?.[0];
-    if (file) processImageFile(file);
-  }
-
-  function handlePanStart(e) {
-    if (!recipe.imageUrl) return;
-    e.preventDefault();
-    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
-    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
-    panStart.current = { x: clientX, y: clientY, posX: imgPos.x, posY: imgPos.y };
-    setPanning(true);
-  }
-
-  useEffect(() => {
-    if (!panning) return;
-    let lastPos = imgPos;
-    function handlePanMove(e) {
-      if (!panStart.current) return;
-      e.preventDefault();
-      const clientX = e.touches ? e.touches[0].clientX : e.clientX;
-      const clientY = e.touches ? e.touches[0].clientY : e.clientY;
-      // Move ~2% per pixel dragged for responsive feel
-      const dx = (panStart.current.x - clientX) * 0.5;
-      const dy = (panStart.current.y - clientY) * 0.5;
-      const newX = Math.max(0, Math.min(100, panStart.current.posX + dx));
-      const newY = Math.max(0, Math.min(100, panStart.current.posY + dy));
-      lastPos = { x: Math.round(newX), y: Math.round(newY) };
-      setImgPos(lastPos);
-    }
-    function handlePanEnd() {
-      setPanning(false);
-      panStart.current = null;
-      onSave({ imagePosition: lastPos });
-    }
-    window.addEventListener('mousemove', handlePanMove);
-    window.addEventListener('mouseup', handlePanEnd);
-    window.addEventListener('touchmove', handlePanMove, { passive: false });
-    window.addEventListener('touchend', handlePanEnd);
-    return () => {
-      window.removeEventListener('mousemove', handlePanMove);
-      window.removeEventListener('mouseup', handlePanEnd);
-      window.removeEventListener('touchmove', handlePanMove);
-      window.removeEventListener('touchend', handlePanEnd);
-    };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [panning]);
-
   if (!recipe) {
     return (
       <div className={styles.container}>
@@ -720,20 +569,11 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user, ingredien
       </button>
 
       <div className={styles.topRow}>
-        <div className={styles.topLeft}>
           <input
             className={`${styles.inlineInput} ${styles.titleInput}`}
             type="text"
             value={fields.title}
             onChange={e => setField('title', e.target.value)}
-          />
-
-          <textarea
-            className={styles.inlineTextarea}
-            value={fields.description}
-            onChange={e => setField('description', e.target.value)}
-            placeholder="Short description"
-            rows={2}
           />
 
           <div className={styles.metaRow}>
@@ -811,6 +651,7 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user, ingredien
                 <option value="pescatarian">Pescatarian</option>
                 <option value="vegan">Vegan</option>
                 <option value="vegetarian">Vegetarian</option>
+                <option value="keto">Keto</option>
                 <option value="custom">Custom...</option>
               </select>
             </label>
@@ -828,13 +669,26 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user, ingredien
           <div className={styles.metaRow}>
             <label className={styles.metaLabel} style={{ flex: 1 }}>
               Source URL
-              <input
-                className={styles.inlineInput}
-                type="text"
-                value={fields.sourceUrl}
-                onChange={e => setField('sourceUrl', e.target.value)}
-                placeholder="Recipe link"
-              />
+              <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                <input
+                  className={styles.inlineInput}
+                  type="text"
+                  value={fields.sourceUrl}
+                  onChange={e => setField('sourceUrl', e.target.value)}
+                  placeholder="Recipe link"
+                  style={{ flex: 1 }}
+                />
+                {fields.sourceUrl.trim() && (
+                  <a
+                    href={fields.sourceUrl.trim().startsWith('http') ? fields.sourceUrl.trim() : `https://${fields.sourceUrl.trim()}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className={styles.sourceLink}
+                  >
+                    Open
+                  </a>
+                )}
+              </div>
             </label>
           </div>
 
@@ -850,74 +704,13 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user, ingredien
               </label>
             </div>
           )}
-        </div>
-
-        <div
-          className={`${styles.heroWrap}${dragging ? ` ${styles.heroDragging}` : ''}`}
-          onDragEnter={handleDragEnter}
-          onDragLeave={handleDragLeave}
-          onDragOver={handleDragOver}
-          onDrop={handleDrop}
-        >
-          {dragging && (
-            <div className={styles.dropOverlay}>
-              Drop image here
-            </div>
-          )}
-          {recipe.imageUrl ? (
-            <img
-              ref={heroImgRef}
-              className={`${styles.heroImgUser}${panning ? ` ${styles.heroImgPanning}` : ''}`}
-              src={recipe.imageUrl}
-              alt={recipe.title}
-              style={{ objectPosition: `${imgPos.x}% ${imgPos.y}%` }}
-              onMouseDown={handlePanStart}
-              onTouchStart={handlePanStart}
-              draggable={false}
-            />
-          ) : !imgError && !recipe.imageHidden ? (
-            <img
-              className={styles.heroImg}
-              src={buildImageUrl(recipe)}
-              alt={recipe.title}
-              onError={() => setImgError(true)}
-            />
-          ) : (
-            <div className={styles.heroPlaceholder} onClick={() => user && fileInputRef.current?.click()}>
-              {uploading ? 'Uploading...' : 'Upload photo here'}
-            </div>
-          )}
-          {user && (
-            <div className={styles.imageOverlay}>
-              <button
-                className={styles.uploadBtn}
-                onClick={() => fileInputRef.current?.click()}
-                disabled={uploading}
-              >
-                {uploading ? 'Uploading...' : recipe.imageUrl ? 'Change Photo' : 'Upload Photo'}
-              </button>
-              {(recipe.imageUrl || (!imgError && !recipe.imageHidden)) && (
-                <button className={styles.removeImgBtn} onClick={handleRemoveImage}>
-                  Remove
-                </button>
-              )}
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="image/*"
-                style={{ display: 'none' }}
-                onChange={handleImageUpload}
-              />
-            </div>
-          )}
-        </div>
       </div>
 
       {user && (
         <div className={styles.shareRow}>
           <div className={styles.shareWrapper} ref={shareRef}>
             <button className={styles.shareBtn} onClick={handleShareClick}>
-              Share
+              Share This Recipe
             </button>
             {showShareDropdown && (
               <div className={styles.shareDropdown}>
@@ -964,7 +757,7 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user, ingredien
 
       <NutritionPanel
         recipeId={recipe.id}
-        ingredients={recipe.ingredients}
+        ingredients={fields.ingredients}
         servings={(foodWeight > 0 && servingWeightNum > 0) ? foodWeight / servingWeightNum : (adjustedServings ?? baseServings)}
         portionLabel={servingWeightNum > 0 && foodWeight > 0 ? `My portion (${servingWeight}g)` : null}
       />
@@ -992,13 +785,34 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user, ingredien
                 +
               </button>
               {adjustedServings !== null && adjustedServings !== baseServings && (
-                <button
-                  className={styles.servingReset}
-                  type="button"
-                  onClick={() => setAdjustedServings(null)}
-                >
-                  Reset
-                </button>
+                <>
+                  <button
+                    className={styles.servingReset}
+                    type="button"
+                    onClick={() => setAdjustedServings(null)}
+                  >
+                    Reset
+                  </button>
+                  <button
+                    className={styles.servingSave}
+                    type="button"
+                    onClick={() => {
+                      const factor = baseServings > 0 ? adjustedServings / baseServings : 1;
+                      setFields(prev => ({
+                        ...prev,
+                        servings: String(adjustedServings),
+                        ingredients: prev.ingredients.map(row => {
+                          const num = parseFloat(row.quantity);
+                          if (isNaN(num)) return row;
+                          return { ...row, quantity: String(parseFloat((num * factor).toFixed(2))) };
+                        }),
+                      }));
+                      setAdjustedServings(null);
+                    }}
+                  >
+                    Save
+                  </button>
+                </>
               )}
             </div>
             {editingIngredients ? (
@@ -1075,7 +889,7 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user, ingredien
                     type="number"
                     min="0"
                     placeholder="g"
-                    value={servingWeight}
+                    value={servingWeight || defaultServingWeight}
                     onChange={e => setServingWeight(e.target.value)}
                   />
                 </label>
@@ -1099,14 +913,16 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user, ingredien
                   <th className={styles.colMeasure}>Unit</th>
                   <th>Type</th>
                   <th>Ingredient</th>
-                  <th>Notes</th>
                   <th className={styles.colGrams}>Grams</th>
                   <th></th>
                   <th></th>
                 </tr>
               </thead>
               <tbody>
-                {fields.ingredients.map((row, i) => {
+                {(() => {
+                  const mainIdxRows = fields.ingredients.map((row, i) => ({ row, idx: i })).filter(({ row }) => !row.topping);
+                  const toppingIdxRows = fields.ingredients.map((row, i) => ({ row, idx: i })).filter(({ row }) => row.topping);
+                  const renderRow = ({ row, idx: i }) => {
                   const dbGrams = getDbGrams(row.ingredient);
                   const dbMeasurement = getDbMeasurement(row.ingredient);
                   const dbNotes = getDbNotes(row.ingredient);
@@ -1174,8 +990,7 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user, ingredien
                                 onPaste={e => handlePaste(e, i, colIdx)}
                                 placeholder={
                                   field === 'quantity' ? '1' :
-                                  field === 'measurement' ? 'cup' :
-                                  field === 'notes' ? (dbNotes || '') : ''
+                                  field === 'measurement' ? 'cup' : ''
                                 }
                               />
                             )}
@@ -1290,6 +1105,14 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user, ingredien
                       ) : null; })()}
                     </td>
                     <td>
+                      <button
+                        className={styles.toggleSectionBtn}
+                        type="button"
+                        onClick={() => updateIngredient(i, 'topping', !row.topping)}
+                        title={row.topping ? 'Move to main ingredients' : 'Move to per meal'}
+                      >
+                        {row.topping ? '\u2191' : '\u2193'}
+                      </button>
                       {fields.ingredients.length > 1 && (
                         <button
                           className={styles.removeBtn}
@@ -1302,12 +1125,23 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user, ingredien
                     </td>
                   </tr>
                   );
-                })}
+                  };
+                  return (
+                    <>
+                      {mainIdxRows.map(renderRow)}
+                      <tr className={styles.sectionDivider}><td colSpan={8}>Per Meal</td></tr>
+                      {toppingIdxRows.map(renderRow)}
+                    </>
+                  );
+                })()}
               </tbody>
             </table>
             <div className={styles.ingredientBtns}>
               <button className={styles.addRowBtn} type="button" onClick={addRow}>
                 + Add ingredient
+              </button>
+              <button className={styles.addRowBtn} type="button" onClick={addToppingRow}>
+                + Add per meal
               </button>
               <button className={styles.scanBtn} type="button" onClick={() => setShowScanner(true)}>
                 Scan barcode
@@ -1320,45 +1154,59 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user, ingredien
               <tr>
                 <th>Amount</th>
                 <th>Ingredient</th>
-                <th>Notes</th>
                 <th></th>
               </tr>
             </thead>
             <tbody>
-              {fields.ingredients.filter(row => (row.ingredient || '').trim()).map((row, i) => {
-                const dbNotes = getDbNotes(row.ingredient);
-                const dbLink = getDbLink(row.ingredient);
-                const noWeight = isInDb(row.ingredient) && classifyUnit(row.measurement) === 'volume' && !getDbGrams(row.ingredient);
-                const rawQty = row.quantity || '';
-                const displayQty = rawQty ? scaleQuantity(rawQty) : '';
-                const amount = [displayQty, displayMeasurement(row.measurement, row.ingredient, displayQty)].filter(Boolean).join(' ');
+              {(() => {
+                const visibleRows = fields.ingredients
+                  .map((row, i) => ({ row, origIdx: i }))
+                  .filter(({ row }) => (row.ingredient || '').trim());
+                const mainRows = visibleRows.filter(({ row }) => !row.topping);
+                const toppingRows = visibleRows.filter(({ row }) => row.topping);
+                const renderViewRow = ({ row, origIdx }) => {
+                  const dbNotes = getDbNotes(row.ingredient);
+                  const dbLink = getDbLink(row.ingredient);
+                  const noWeight = isInDb(row.ingredient) && classifyUnit(row.measurement) === 'volume' && !getDbGrams(row.ingredient);
+                  const rawQty = row.quantity || '';
+                  const displayQty = rawQty ? scaleQuantity(rawQty) : '';
+                  const amount = [displayQty, displayMeasurement(row.measurement, row.ingredient, displayQty)].filter(Boolean).join(' ');
+                  return (
+                    <tr key={origIdx}>
+                      <td className={scaleFactor !== 1 ? styles.scaledQty : ''}>
+                        {amount}
+                      </td>
+                      <td>
+                        {row.ingredient}
+                        {!isInDb(row.ingredient) && (
+                          <span className={styles.dbWarning} title="Not found in ingredient database"> ⚠</span>
+                        )}
+                        {noWeight && (
+                          <span className={styles.noWeightWarning} title="No weight conversion available — add grams to ingredient database"> ⚖</span>
+                        )}
+                      </td>
+                      <td className={styles.linkCell}>
+                        {dbLink && (
+                          <a href={dbLink} target="_blank" rel="noopener noreferrer" className={styles.ingredientLink} title={dbLink}>
+                            Link
+                          </a>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                };
                 return (
-                  <tr key={i}>
-                    <td className={scaleFactor !== 1 ? styles.scaledQty : ''}>
-                      {amount}
-                    </td>
-                    <td>
-                      {row.ingredient}
-                      {!isInDb(row.ingredient) && (
-                        <span className={styles.dbWarning} title="Not found in ingredient database"> ⚠</span>
-                      )}
-                      {noWeight && (
-                        <span className={styles.noWeightWarning} title="No weight conversion available — add grams to ingredient database"> ⚖</span>
-                      )}
-                    </td>
-                    <td className={styles.notesCell}>
-                      {row.notes || dbNotes || ''}
-                    </td>
-                    <td className={styles.linkCell}>
-                      {dbLink && (
-                        <a href={dbLink} target="_blank" rel="noopener noreferrer" className={styles.ingredientLink} title={dbLink}>
-                          Link
-                        </a>
-                      )}
-                    </td>
-                  </tr>
+                  <>
+                    {mainRows.map(renderViewRow)}
+                    {toppingRows.length > 0 && (
+                      <>
+                        <tr className={styles.sectionDivider}><td colSpan={3}>Per Meal</td></tr>
+                        {toppingRows.map(renderViewRow)}
+                      </>
+                    )}
+                  </>
                 );
-              })}
+              })()}
             </tbody>
           </table>
         )}

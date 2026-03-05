@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { BarcodeScanner } from './BarcodeScanner';
 import { loadIngredients, loadIngredientsFromFirestore } from '../utils/ingredientsStore';
+import { classifyMealType } from '../utils/classifyMealType';
 import styles from './RecipeForm.module.css';
 
 const emptyRow = { quantity: '', measurement: '', ingredient: '' };
@@ -8,7 +9,6 @@ const fields = ['quantity', 'measurement', 'ingredient'];
 
 export function RecipeForm({ recipe, onSave, onCancel }) {
   const [title, setTitle] = useState('');
-  const [description, setDescription] = useState('');
   const [category, setCategory] = useState('lunch-dinner');
   const [frequency, setFrequency] = useState('common');
   const [mealType, setMealType] = useState('');
@@ -34,11 +34,10 @@ export function RecipeForm({ recipe, onSave, onCancel }) {
   useEffect(() => {
     if (recipe) {
       setTitle(recipe.title);
-      setDescription(recipe.description);
       setCategory(recipe.category || 'lunch-dinner');
       setFrequency(recipe.frequency || 'common');
       const type = recipe.mealType || '';
-      const presets = ['meat', 'pescatarian', 'vegan', 'vegetarian', ''];
+      const presets = ['meat', 'pescatarian', 'vegan', 'vegetarian', 'keto', ''];
       if (presets.includes(type)) {
         setMealType(type);
         setCustomMealType('');
@@ -123,10 +122,14 @@ export function RecipeForm({ recipe, onSave, onCancel }) {
     e.preventDefault();
     onSave({
       title: title.trim(),
-      description: description.trim(),
       category,
       frequency,
-      mealType: mealType === 'custom' ? customMealType.trim() : mealType,
+      mealType: (() => {
+        const manual = mealType === 'custom' ? customMealType.trim() : mealType;
+        if (manual) return manual;
+        const ings = ingredients.filter(row => row.ingredient.trim() !== '');
+        return classifyMealType(ings);
+      })(),
       servings: servings.trim() || '1',
       prepTime: prepTime.trim(),
       cookTime: cookTime.trim(),
@@ -151,17 +154,6 @@ export function RecipeForm({ recipe, onSave, onCancel }) {
           value={title}
           onChange={e => setTitle(e.target.value)}
           required
-        />
-      </label>
-
-      <label className={styles.label}>
-        Description
-        <input
-          className={styles.input}
-          type="text"
-          value={description}
-          onChange={e => setDescription(e.target.value)}
-          placeholder="Short description"
         />
       </label>
 
@@ -205,6 +197,7 @@ export function RecipeForm({ recipe, onSave, onCancel }) {
           <option value="pescatarian">Pescatarian</option>
           <option value="vegan">Vegan</option>
           <option value="vegetarian">Vegetarian</option>
+          <option value="keto">Keto</option>
           <option value="custom">Custom...</option>
         </select>
       </label>

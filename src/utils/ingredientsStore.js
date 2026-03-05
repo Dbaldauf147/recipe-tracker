@@ -38,6 +38,7 @@ export const INGREDIENT_FIELDS = [
   { key: 'storage',       csvIdx: 40, label: 'Storage' },
   { key: 'minShelf',      csvIdx: 41, label: 'Min Shelf (days)' },
   { key: 'maxShelf',      csvIdx: 42, label: 'Max Shelf (days)' },
+  { key: 'grocerySection', csvIdx: 43, label: 'Grocery Section' },
 ];
 
 function parseCSVLine(line) {

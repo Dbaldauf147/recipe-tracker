@@ -23,7 +23,41 @@ export const NUTRIENTS = [
   { key: 'vitaminC',      label: 'Vitamin C',       id: 1162, unit: 'mg',  decimals: 1 },
   { key: 'leucine',       label: 'Leucine',         id: 1213, unit: 'g',   decimals: 2 },
   { key: 'omega3',        label: 'Omega-3',         id: 1404, unit: 'g',   decimals: 2 },
+  { key: 'vegServings',   label: 'Veg Servings',    id: null, unit: '',    decimals: 1 },
 ];
+
+// 1 serving of vegetables ≈ 80g (WHO standard)
+const VEG_SERVING_GRAMS = 80;
+
+const VEGETABLE_KEYWORDS = [
+  'spinach', 'kale', 'broccoli', 'cauliflower', 'carrot', 'celery',
+  'bell pepper', 'pepper', 'zucchini', 'cucumber', 'asparagus',
+  'green bean', 'string bean', 'pea', 'corn', 'eggplant',
+  'cabbage', 'brussels sprout', 'brussel sprout', 'lettuce', 'arugula',
+  'collard green', 'sweet potato', 'potato', 'beet', 'radish',
+  'mushroom', 'shiitake', 'tomato', 'onion', 'shallot', 'leek',
+  'artichoke', 'squash', 'pumpkin', 'turnip', 'parsnip', 'okra',
+  'bok choy', 'chard', 'watercress', 'endive', 'fennel',
+  'spring mix', 'coleslaw', 'edamame', 'green pea',
+  'cauliflower rice', 'spaghetti squash',
+];
+
+// Ingredient forms that are NOT real vegetable servings
+const VEG_EXCLUDE = [
+  'powder', 'stock', 'broth', 'oil', 'extract', 'seasoning',
+  'sauce', 'vinegar', 'dried', 'flakes', 'paste',
+];
+
+export function isVegetable(ingredientName) {
+  const lower = (ingredientName || '').toLowerCase();
+  if (VEG_EXCLUDE.some(ex => lower.includes(ex))) return false;
+  return VEGETABLE_KEYWORDS.some(v => lower.includes(v));
+}
+
+export function computeVegServings(ingredientName, grams) {
+  if (!isVegetable(ingredientName)) return 0;
+  return Math.round((grams / VEG_SERVING_GRAMS) * 10) / 10;
+}
 
 // Map common ingredient names to better USDA search terms.
 const ALIASES = {
@@ -181,6 +215,7 @@ function estimateGrams(quantity, measurement) {
 function extractNutrients(foodNutrients) {
   const result = {};
   for (const n of NUTRIENTS) {
+    if (n.id === null) { result[n.key] = 0; continue; }
     const match = foodNutrients.find(fn => fn.nutrientId === n.id);
     result[n.key] = match ? match.value : 0;
   }
@@ -218,6 +253,7 @@ async function fetchFromUSDA(ingredient) {
   for (const n of NUTRIENTS) {
     nutrients[n.key] = roundNutrient(per100g[n.key] * scale, n.decimals);
   }
+  nutrients.vegServings = computeVegServings(name, grams);
 
   return {
     name: food.description,

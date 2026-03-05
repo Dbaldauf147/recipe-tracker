@@ -30,12 +30,6 @@
   color: var(--color-text);
 }
 
-.description {
-  font-size: 0.95rem;
-  color: var(--color-text-muted);
-  margin: 0 0 1rem;
-  line-height: 1.5;
-}
 
 .meta {
   display: flex;
@@ -53,14 +47,7 @@
   color: var(--color-text);
 }
 
-.heroImg {
-  width: 100%;
-  max-height: 350px;
-  object-fit: cover;
-  border-radius: var(--radius-md);
-  margin-bottom: 1.5rem;
-  box-shadow: var(--shadow-md);
-}
+
 
 .section {
   margin-bottom: 1.5rem;

@@ -17,8 +17,8 @@
 }
 
 .logoImg {
-  height: 48px;
-  margin-bottom: 0.25rem;
+  height: 160px;
+  margin-bottom: 0.75rem;
 }
 
 .tagline {
@@ -217,7 +217,36 @@
 }
 
 .input:focus {
-  border-color: var(--color-primary);
+  border-color: var(--color-accent);
+}
+
+.passwordWrap {
+  position: relative;
+}
+
+.passwordWrap .input {
+  width: 100%;
+  padding-right: 3.5rem;
+  box-sizing: border-box;
+}
+
+.showPasswordBtn {
+  position: absolute;
+  right: 0.5rem;
+  top: 50%;
+  transform: translateY(-50%);
+  background: none;
+  border: none;
+  color: var(--color-text-muted);
+  font-size: 0.8rem;
+  font-family: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0.25rem 0.4rem;
+}
+
+.showPasswordBtn:hover {
+  color: var(--color-accent);
 }
 
 .submitBtn {
@@ -227,7 +256,7 @@
   font-weight: 500;
   border: none;
   border-radius: var(--radius-md);
-  background: var(--color-primary);
+  background: var(--color-accent);
   color: #fff;
   cursor: pointer;
   transition: opacity 0.15s ease;
@@ -237,6 +266,31 @@
   opacity: 0.9;
 }
 
+.success {
+  margin: 0 0 1rem;
+  padding: 0.6rem 0.8rem;
+  font-size: 0.85rem;
+  color: var(--color-success, #27ae60);
+  background: rgba(39, 174, 96, 0.08);
+  border-radius: var(--radius-sm);
+}
+
+.forgotLink {
+  margin: 0.5rem 0 0;
+  font-size: 0.82rem;
+}
+
+.forgotLink a {
+  color: var(--color-text-muted);
+  text-decoration: none;
+  font-weight: 500;
+}
+
+.forgotLink a:hover {
+  color: var(--color-accent);
+  text-decoration: underline;
+}
+
 .toggleLink {
   margin: 1rem 0 0;
   font-size: 0.85rem;
@@ -244,7 +298,7 @@
 }
 
 .toggleLink a {
-  color: var(--color-primary);
+  color: var(--color-accent);
   text-decoration: none;
   font-weight: 500;
 }

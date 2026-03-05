@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useMemo } from 'react';
 import { NUTRIENTS, fetchNutritionForIngredient, fetchNutritionForRecipe } from '../utils/nutrition';
 import { loadIngredients } from '../utils/ingredientsStore';
 import { saveField } from '../utils/firestoreSync';
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, ReferenceLine, Legend } from 'recharts';
+import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, ReferenceLine, Legend, CartesianGrid, Area, ComposedChart } from 'recharts';
 import styles from './DailyTrackerPage.module.css';
 
 const DAILY_LOG_KEY = 'sunday-daily-log';
@@ -16,10 +16,54 @@ const UNDER_IS_GOOD = new Set(['calories', 'carbs', 'fat', 'saturatedFat', 'suga
 
 const MEASUREMENT_OPTIONS = ['g', 'oz', 'cup', 'tbsp', 'tsp', 'ml', 'piece', 'slice', 'can'];
 
-const CHART_COLORS = ['#6366f1', '#22c55e', '#f59e0b', '#ef4444', '#8b5cf6', '#06b6d4'];
+const CHART_COLORS = ['#c96442', '#6366f1', '#22c55e', '#f59e0b', '#ec4899', '#06b6d4'];
+
+// Short labels for inline nutrient chips on entry rows
+const SHORT_LABELS = {
+  calories: 'cal', protein: 'pro', carbs: 'carb', fat: 'fat',
+  saturatedFat: 'sat', sugar: 'sugar', addedSugar: 'added', fiber: 'fiber',
+  sodium: 'salt', potassium: 'K', calcium: 'Ca', iron: 'Fe',
+  magnesium: 'Mg', zinc: 'Zn', vitaminB12: 'B12', vitaminC: 'vit C',
+  leucine: 'leu', omega3: 'ω3', vegServings: 'veg',
+};
+
+const DEFAULT_ENTRY_KEYS = ['calories', 'protein', 'carbs', 'fat'];
+
+function fmtNutrient(value, nutrientKey) {
+  const v = value || 0;
+  const n = NUTRIENTS.find(x => x.key === nutrientKey);
+  if (!n) return String(Math.round(v));
+  const rounded = Math.round(v * Math.pow(10, n.decimals)) / Math.pow(10, n.decimals);
+  const suffix = n.unit ? n.unit : '';
+  return `${rounded}${suffix}`;
+}
+
+function ChartTooltip({ active, payload, label }) {
+  if (!active || !payload?.length) return null;
+  return (
+    <div style={{
+      background: 'rgba(255,255,255,0.95)',
+      border: '1px solid #e5e7eb',
+      borderRadius: '8px',
+      padding: '0.5rem 0.75rem',
+      boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
+      fontSize: '0.8rem',
+    }}>
+      <div style={{ fontWeight: 600, marginBottom: '0.25rem', color: '#374151' }}>{label}</div>
+      {payload.map(p => (
+        <div key={p.dataKey} style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', padding: '1px 0' }}>
+          <span style={{ width: 8, height: 8, borderRadius: '50%', background: p.color, display: 'inline-block' }} />
+          <span style={{ color: '#6b7280' }}>{p.name}:</span>
+          <span style={{ fontWeight: 600, color: '#111827' }}>{p.value}%</span>
+        </div>
+      ))}
+    </div>
+  );
+}
 
 function todayStr() {
-  return new Date().toISOString().slice(0, 10);
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
 function formatDate(dateStr) {
@@ -31,7 +75,7 @@ function formatDate(dateStr) {
 function shiftDate(dateStr, days) {
   const [y, m, d] = dateStr.split('-').map(Number);
   const date = new Date(y, m - 1, d + days);
-  return date.toISOString().slice(0, 10);
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 }
 
 function uuid() {
@@ -204,15 +248,29 @@ function DateNavigator({ date, setDate }) {
   );
 }
 
+function categoryToSlot(category) {
+  if (category === 'breakfast') return 'breakfast';
+  if (category === 'lunch-dinner') {
+    return new Date().getHours() < 15 ? 'lunch' : 'dinner';
+  }
+  if (category === 'snacks' || category === 'desserts' || category === 'drinks') return 'snack';
+  const hour = new Date().getHours();
+  if (hour < 11) return 'breakfast';
+  if (hour < 15) return 'lunch';
+  if (hour < 21) return 'dinner';
+  return 'snack';
+}
+
 /* ── Add Entry Section ── */
-function AddEntrySection({ recipes, getRecipe, onAdd }) {
+function AddEntrySection({ recipes, getRecipe, onAdd, weeklyPlan }) {
   const [tab, setTab] = useState('recipe');
   const [recipeId, setRecipeId] = useState('');
   const [servings, setServings] = useState('1');
   const [customWeight, setCustomWeight] = useState('');
-  const [mealSlot, setMealSlot] = useState('lunch');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [queue, setQueue] = useState([]);
+  const [selectedWeekly, setSelectedWeekly] = useState(new Set());
 
   // Custom tab state
   const [ingredientName, setIngredientName] = useState('');
@@ -225,6 +283,13 @@ function AddEntrySection({ recipes, getRecipe, onAdd }) {
       .sort((a, b) => (a.title || '').localeCompare(b.title || '')),
     [recipes]
   );
+
+  const weeklyRecipes = useMemo(() => {
+    if (!weeklyPlan || weeklyPlan.length === 0) return [];
+    return weeklyPlan
+      .map(id => recipes.find(r => r.id === id))
+      .filter(Boolean);
+  }, [weeklyPlan, recipes]);
 
   async function handleAddRecipe() {
     if (!recipeId) return;
@@ -240,7 +305,6 @@ function AddEntrySection({ recipes, getRecipe, onAdd }) {
       } else {
         const result = await fetchNutritionForRecipe(recipe.ingredients || []);
         totalNutrition = result.totals;
-        // Cache for future use
         try {
           cache[recipeId] = result;
           localStorage.setItem(NUTRITION_CACHE_KEY, JSON.stringify(cache));
@@ -256,7 +320,6 @@ function AddEntrySection({ recipes, getRecipe, onAdd }) {
       let factor;
       const cw = parseFloat(customWeight);
       if (cw > 0) {
-        // Weight-based: compute total recipe weight, then scale
         const totalGrams = (recipe.ingredients || []).reduce((sum, ing) => {
           const qty = parseFloat(ing.quantity) || 1;
           const unit = (ing.measurement || '').trim().toLowerCase();
@@ -270,8 +333,9 @@ function AddEntrySection({ recipes, getRecipe, onAdd }) {
       }
 
       const nutrition = scaleNutrition(perServing, factor);
+      const mealSlot = categoryToSlot(recipe.category);
 
-      onAdd({
+      setQueue(prev => [...prev, {
         id: uuid(),
         type: 'recipe',
         recipeId,
@@ -281,9 +345,8 @@ function AddEntrySection({ recipes, getRecipe, onAdd }) {
         mealSlot,
         timestamp: new Date().toISOString(),
         nutrition,
-      });
+      }]);
 
-      // Reset
       setRecipeId('');
       setServings('1');
       setCustomWeight('');
@@ -308,7 +371,8 @@ function AddEntrySection({ recipes, getRecipe, onAdd }) {
         setError('No nutrition data found for that ingredient.');
         return;
       }
-      onAdd({
+      const mealSlot = 'snack';
+      setQueue(prev => [...prev, {
         id: uuid(),
         type: 'custom',
         ingredientName: ingredientName.trim(),
@@ -317,7 +381,7 @@ function AddEntrySection({ recipes, getRecipe, onAdd }) {
         mealSlot,
         timestamp: new Date().toISOString(),
         nutrition: result.nutrients,
-      });
+      }]);
       setIngredientName('');
       setQuantity('');
       setMeasurement('g');
@@ -328,13 +392,104 @@ function AddEntrySection({ recipes, getRecipe, onAdd }) {
     }
   }
 
+  function toggleWeekly(id) {
+    setSelectedWeekly(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  async function handleAddWeeklySelected() {
+    if (selectedWeekly.size === 0) return;
+    setLoading(true);
+    setError('');
+    try {
+      const cache = loadNutritionCache();
+      const newEntries = [];
+      for (const rid of selectedWeekly) {
+        const recipe = getRecipe(rid);
+        if (!recipe) continue;
+        let totalNutrition;
+        if (cache[rid]) {
+          totalNutrition = cache[rid].totals;
+        } else {
+          const result = await fetchNutritionForRecipe(recipe.ingredients || []);
+          totalNutrition = result.totals;
+          try {
+            cache[rid] = result;
+            localStorage.setItem(NUTRITION_CACHE_KEY, JSON.stringify(cache));
+          } catch {}
+        }
+        const recipeServings = recipe.servings || 1;
+        const perServing = {};
+        for (const n of NUTRIENTS) {
+          perServing[n.key] = (totalNutrition[n.key] || 0) / recipeServings;
+        }
+        const nutrition = scaleNutrition(perServing, 1);
+        const mealSlot = categoryToSlot(recipe.category);
+        newEntries.push({
+          id: uuid(),
+          type: 'recipe',
+          recipeId: rid,
+          recipeName: recipe.title,
+          servings: 1,
+          customWeight: null,
+          mealSlot,
+          timestamp: new Date().toISOString(),
+          nutrition,
+        });
+      }
+      setQueue(prev => [...prev, ...newEntries]);
+      setSelectedWeekly(new Set());
+    } catch (err) {
+      setError('Failed to look up nutrition. Try again.');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function handleSaveAll() {
+    for (const entry of queue) onAdd(entry);
+    setQueue([]);
+  }
+
+  function removeFromQueue(id) {
+    setQueue(prev => prev.filter(e => e.id !== id));
+  }
+
   return (
     <div className={styles.addCard}>
       <h3>Add Entry</h3>
       <div className={styles.tabToggle}>
-        <button className={tab === 'recipe' ? styles.tabBtnActive : styles.tabBtn} onClick={() => setTab('recipe')}>Recipe</button>
-        <button className={tab === 'custom' ? styles.tabBtnActive : styles.tabBtn} onClick={() => setTab('custom')}>Custom Food</button>
+        <button className={tab === 'recipe' ? styles.tabBtnActive : styles.tabBtn} onClick={() => setTab('recipe')}>Recipes</button>
+        <button className={tab === 'custom' ? styles.tabBtnActive : styles.tabBtn} onClick={() => setTab('custom')}>Single Items</button>
       </div>
+
+      {weeklyRecipes.length > 0 && (
+        <div className={styles.weeklyChips}>
+          <span className={styles.weeklyLabel}>This week</span>
+          {weeklyRecipes.map(r => (
+            <button
+              key={r.id}
+              className={selectedWeekly.has(r.id) ? styles.weeklyChipActive : styles.weeklyChip}
+              onClick={() => toggleWeekly(r.id)}
+            >
+              {r.title}
+            </button>
+          ))}
+          {selectedWeekly.size > 0 && (
+            <button
+              className={styles.addSelectedBtn}
+              onClick={handleAddWeeklySelected}
+              disabled={loading}
+            >
+              {loading ? 'Adding...' : `Add ${selectedWeekly.size} meal${selectedWeekly.size > 1 ? 's' : ''}`}
+            </button>
+          )}
+        </div>
+      )}
 
       {tab === 'recipe' ? (
         <>
@@ -365,7 +520,7 @@ function AddEntrySection({ recipes, getRecipe, onAdd }) {
                   setIngredientName(item.ingredient);
                   if (item.measurement) {
                     const m = item.measurement.toLowerCase().replace(/\(s\)/g, '').replace(/_.*$/, '').trim();
-                    if (MEASUREMENT_OPTIONS.includes(m)) setMeasurement(m);
+                    setMeasurement(m || 'g');
                   }
                 }}
               />
@@ -377,7 +532,7 @@ function AddEntrySection({ recipes, getRecipe, onAdd }) {
             <div className={styles.formFieldSmall}>
               <span className={styles.formLabel}>Unit</span>
               <select className={styles.formSelect} value={measurement} onChange={e => setMeasurement(e.target.value)}>
-                {MEASUREMENT_OPTIONS.map(m => <option key={m} value={m}>{m}</option>)}
+                {(MEASUREMENT_OPTIONS.includes(measurement) ? MEASUREMENT_OPTIONS : [measurement, ...MEASUREMENT_OPTIONS]).map(m => <option key={m} value={m}>{m}</option>)}
               </select>
             </div>
           </div>
@@ -385,18 +540,6 @@ function AddEntrySection({ recipes, getRecipe, onAdd }) {
       )}
 
       <div className={styles.formRow}>
-        <div className={styles.mealSlotRow}>
-          <span className={styles.mealSlotLabel}>Meal:</span>
-          {MEAL_SLOTS.map(s => (
-            <button
-              key={s}
-              className={mealSlot === s ? styles.mealSlotBtnActive : styles.mealSlotBtn}
-              onClick={() => setMealSlot(s)}
-            >
-              {MEAL_LABELS[s]}
-            </button>
-          ))}
-        </div>
         <button
           className={styles.addBtn}
           onClick={tab === 'recipe' ? handleAddRecipe : handleAddCustom}
@@ -407,27 +550,52 @@ function AddEntrySection({ recipes, getRecipe, onAdd }) {
       </div>
       {error && <p className={styles.addError}>{error}</p>}
       {loading && <p className={styles.addLoading}>Looking up nutrition...</p>}
+
+      {queue.length > 0 && (
+        <div className={styles.queue}>
+          {queue.map(entry => (
+            <div key={entry.id} className={styles.queueItem}>
+              <span className={styles.queueName}>
+                {entry.type === 'recipe' ? entry.recipeName : entry.ingredientName}
+              </span>
+              <span className={styles.queueDetail}>
+                {entry.type === 'recipe'
+                  ? (entry.customWeight ? `${entry.customWeight}g` : `${entry.servings} srv`)
+                  : `${entry.quantity} ${entry.measurement}`}
+              </span>
+              <span className={styles.queueSlot}>{MEAL_LABELS[entry.mealSlot]}</span>
+              <button className={styles.queueRemove} onClick={() => removeFromQueue(entry.id)}>&times;</button>
+            </div>
+          ))}
+          <button className={styles.saveAllBtn} onClick={handleSaveAll}>
+            Save All ({queue.length})
+          </button>
+        </div>
+      )}
     </div>
   );
 }
 
 /* ── Entry Row ── */
-function EntryRow({ entry, onDelete }) {
+function EntryRow({ entry, onDelete, goalKeys }) {
   const name = entry.type === 'recipe' ? entry.recipeName : entry.ingredientName;
   const portion = entry.type === 'recipe'
     ? (entry.customWeight ? `${entry.customWeight}g` : `${entry.servings} serving${entry.servings !== 1 ? 's' : ''}`)
     : `${entry.quantity} ${entry.measurement}`;
   const n = entry.nutrition || {};
+  const keys = goalKeys && goalKeys.length > 0 ? goalKeys : DEFAULT_ENTRY_KEYS;
 
   return (
     <div className={styles.entryRow}>
       <span className={styles.entryName}>{name}</span>
       <span className={styles.entryPortion}>{portion}</span>
       <div className={styles.entryMacros}>
-        <span className={styles.entryMacro}><span className={styles.macroValue}>{Math.round(n.calories || 0)}</span><span className={styles.macroLabel}>cal</span></span>
-        <span className={styles.entryMacro}><span className={styles.macroValue}>{Math.round((n.protein || 0) * 10) / 10}g</span><span className={styles.macroLabel}>pro</span></span>
-        <span className={styles.entryMacro}><span className={styles.macroValue}>{Math.round((n.carbs || 0) * 10) / 10}g</span><span className={styles.macroLabel}>carb</span></span>
-        <span className={styles.entryMacro}><span className={styles.macroValue}>{Math.round((n.fat || 0) * 10) / 10}g</span><span className={styles.macroLabel}>fat</span></span>
+        {keys.map(key => (
+          <span key={key} className={styles.entryMacro}>
+            <span className={styles.macroValue}>{fmtNutrient(n[key], key)}</span>
+            <span className={styles.macroLabel}>{SHORT_LABELS[key] || key}</span>
+          </span>
+        ))}
       </div>
       <button className={styles.deleteBtn} onClick={() => onDelete(entry.id)} aria-label="Delete">&times;</button>
     </div>
@@ -435,15 +603,17 @@ function EntryRow({ entry, onDelete }) {
 }
 
 /* ── Meal Log ── */
-function MealLog({ entries, onDelete }) {
+function MealLog({ entries, onDelete, goalKeys }) {
   if (entries.length === 0) {
-    return <div className={styles.emptyLog}>No entries yet. Add a recipe or custom food above.</div>;
+    return <div className={styles.emptyLog}>No entries yet. Add a recipe or single item above.</div>;
   }
 
   const grouped = {};
   for (const slot of MEAL_SLOTS) grouped[slot] = [];
   for (const entry of entries) {
-    const slot = MEAL_SLOTS.includes(entry.mealSlot) ? entry.mealSlot : 'snack';
+    const slot = entry.type === 'custom'
+      ? 'snack'
+      : (MEAL_SLOTS.includes(entry.mealSlot) ? entry.mealSlot : 'snack');
     grouped[slot].push(entry);
   }
 
@@ -452,29 +622,12 @@ function MealLog({ entries, onDelete }) {
       {MEAL_SLOTS.map(slot => {
         const items = grouped[slot];
         if (items.length === 0) return null;
-        const subtotals = { calories: 0, protein: 0, carbs: 0, fat: 0 };
-        for (const e of items) {
-          subtotals.calories += e.nutrition?.calories || 0;
-          subtotals.protein += e.nutrition?.protein || 0;
-          subtotals.carbs += e.nutrition?.carbs || 0;
-          subtotals.fat += e.nutrition?.fat || 0;
-        }
         return (
           <div key={slot} className={styles.mealSection}>
             <h4 className={styles.mealHeader}>{MEAL_LABELS[slot]}</h4>
             {items.map(entry => (
-              <EntryRow key={entry.id} entry={entry} onDelete={onDelete} />
+              <EntryRow key={entry.id} entry={entry} onDelete={onDelete} goalKeys={goalKeys} />
             ))}
-            <div className={styles.subtotalRow}>
-              <span className={styles.subtotalLabel}>Subtotal</span>
-              <div className={styles.entryMacros}>
-                <span className={styles.entryMacro}><span className={styles.macroValue}>{Math.round(subtotals.calories)}</span><span className={styles.macroLabel}>cal</span></span>
-                <span className={styles.entryMacro}><span className={styles.macroValue}>{Math.round(subtotals.protein * 10) / 10}g</span><span className={styles.macroLabel}>pro</span></span>
-                <span className={styles.entryMacro}><span className={styles.macroValue}>{Math.round(subtotals.carbs * 10) / 10}g</span><span className={styles.macroLabel}>carb</span></span>
-                <span className={styles.entryMacro}><span className={styles.macroValue}>{Math.round(subtotals.fat * 10) / 10}g</span><span className={styles.macroLabel}>fat</span></span>
-              </div>
-              <div style={{ width: 24 }} />
-            </div>
           </div>
         );
       })}
@@ -611,16 +764,28 @@ function HistoryChart({ dailyLog }) {
       ) : (
         <div className={styles.chartWrap}>
           <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={chartData} margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>
-              <XAxis dataKey="date" tick={{ fontSize: 11 }} />
-              <YAxis tick={{ fontSize: 11 }} unit="%" />
-              <Tooltip formatter={(value) => `${value}%`} />
-              <Legend />
+            <ComposedChart data={chartData} margin={{ top: 10, right: 15, left: 20, bottom: 5 }}>
+              <defs>
+                {selectedNutrients.filter(k => goals[k] > 0).map((key, i) => (
+                  <linearGradient key={key} id={`grad-${key}`} x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor={CHART_COLORS[i % CHART_COLORS.length]} stopOpacity={0.2} />
+                    <stop offset="100%" stopColor={CHART_COLORS[i % CHART_COLORS.length]} stopOpacity={0} />
+                  </linearGradient>
+                ))}
+              </defs>
+              <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" vertical={false} />
+              <XAxis dataKey="date" tick={{ fontSize: 11, fill: '#9ca3af' }} axisLine={{ stroke: '#e5e7eb' }} tickLine={false} />
+              <YAxis tick={{ fontSize: 11, fill: '#9ca3af' }} unit="%" axisLine={false} tickLine={false} label={{ value: '% of Daily Target', angle: -90, position: 'insideLeft', style: { fontSize: 11, fill: '#9ca3af', textAnchor: 'middle' } }} />
+              <Tooltip content={<ChartTooltip />} />
+              <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: '0.78rem', paddingTop: '0.5rem' }} />
+              <ReferenceLine y={100} stroke="#d1d5db" strokeDasharray="6 3" strokeWidth={1.5} label={{ value: '100%', position: 'right', fontSize: 10, fill: '#9ca3af' }} />
               {selectedNutrients.filter(k => goals[k] > 0).map((key, i) => (
-                <Bar key={key} dataKey={key} fill={CHART_COLORS[i % CHART_COLORS.length]} name={NUTRIENTS.find(n => n.key === key)?.label || key} />
+                <Area key={`area-${key}`} type="monotone" dataKey={key} fill={`url(#grad-${key})`} stroke="none" name={NUTRIENTS.find(n => n.key === key)?.label || key} legendType="none" />
               ))}
-              <ReferenceLine y={100} stroke="#888" strokeDasharray="4 4" strokeWidth={1.5} label={{ value: '100%', position: 'right', fontSize: 10, fill: '#888' }} />
-            </BarChart>
+              {selectedNutrients.filter(k => goals[k] > 0).map((key, i) => (
+                <Line key={key} type="monotone" dataKey={key} stroke={CHART_COLORS[i % CHART_COLORS.length]} strokeWidth={2.5} dot={{ r: 3, fill: '#fff', stroke: CHART_COLORS[i % CHART_COLORS.length], strokeWidth: 2 }} activeDot={{ r: 5, fill: CHART_COLORS[i % CHART_COLORS.length], stroke: '#fff', strokeWidth: 2 }} name={NUTRIENTS.find(n => n.key === key)?.label || key} />
+              ))}
+            </ComposedChart>
           </ResponsiveContainer>
         </div>
       )}
@@ -629,9 +794,17 @@ function HistoryChart({ dailyLog }) {
 }
 
 /* ── Main Page ── */
-export function DailyTrackerPage({ recipes, getRecipe, onClose, user }) {
+export function DailyTrackerPage({ recipes, getRecipe, onClose, user, weeklyPlan }) {
   const [date, setDate] = useState(todayStr);
   const [dailyLog, setDailyLog] = useState(loadDailyLog);
+
+  // Derive ordered nutrient keys from user's goals (preserves NUTRIENTS ordering)
+  const goalKeys = useMemo(() => {
+    const goals = loadGoals();
+    if (!goals) return DEFAULT_ENTRY_KEYS;
+    const keys = NUTRIENTS.filter(n => goals[n.key] > 0).map(n => n.key);
+    return keys.length > 0 ? keys : DEFAULT_ENTRY_KEYS;
+  }, []);
 
   const entries = dailyLog[date]?.entries || [];
 
@@ -660,8 +833,8 @@ export function DailyTrackerPage({ recipes, getRecipe, onClose, user }) {
     <div className={styles.container}>
       <button className={styles.backBtn} onClick={onClose}>&larr; Back</button>
       <DateNavigator date={date} setDate={setDate} />
-      <AddEntrySection recipes={recipes} getRecipe={getRecipe} onAdd={addEntry} />
-      <MealLog entries={entries} onDelete={deleteEntry} />
+      <AddEntrySection recipes={recipes} getRecipe={getRecipe} onAdd={addEntry} weeklyPlan={weeklyPlan} />
+      <MealLog entries={entries} onDelete={deleteEntry} goalKeys={goalKeys} />
       <DailyTotalsBar entries={entries} />
       <HistoryChart dailyLog={dailyLog} />
     </div>

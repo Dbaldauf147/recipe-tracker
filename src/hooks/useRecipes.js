@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { auth } from '../firebase';
 import { saveField } from '../utils/firestoreSync';
+import { classifyMealType } from '../utils/classifyMealType';
 
 const STORAGE_KEY = 'recipe-tracker-recipes';
 
@@ -69,6 +70,24 @@ function loadRecipes() {
         localStorage.setItem(STORAGE_KEY, JSON.stringify(recipes));
       }
       localStorage.setItem(MIGRATION_KEY_3, '1');
+    }
+
+    // One-time migration: auto-classify mealType for all recipes without one
+    const MIGRATION_KEY_4 = 'recipe-tracker-migrated-auto-classify-mealtype';
+    if (recipes.length > 0 && !localStorage.getItem(MIGRATION_KEY_4)) {
+      let changed = false;
+      for (const r of recipes) {
+        if (r.mealType) continue;
+        const classified = classifyMealType(r.ingredients || []);
+        if (classified) {
+          r.mealType = classified;
+          changed = true;
+        }
+      }
+      if (changed) {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(recipes));
+      }
+      localStorage.setItem(MIGRATION_KEY_4, '1');
     }
 
     return recipes;

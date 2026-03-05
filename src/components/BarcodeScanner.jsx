@@ -5,7 +5,7 @@ import styles from './BarcodeScanner.module.css';
 
 const READER_ID = 'barcode-reader';
 
-export function BarcodeScanner({ onResult, onClose }) {
+export function BarcodeScanner({ onResult, onClose, onScan }) {
   const [status, setStatus] = useState('Point camera at a barcode');
   const [error, setError] = useState(null);
   const scannerRef = useRef(null);
@@ -46,6 +46,12 @@ export function BarcodeScanner({ onResult, onClose }) {
         await scannerRef.current.stop();
       }
     } catch { /* already stopped */ }
+
+    // If parent wants the raw barcode string, pass it up directly
+    if (onScan) {
+      onScan(decodedText);
+      return;
+    }
 
     try {
       const result = await lookupBarcode(decodedText);

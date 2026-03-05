@@ -247,6 +247,257 @@
   color: #fff;
 }
 
+/* Add ingredient dropdown menu */
+.addMenuWrap {
+  position: relative;
+}
+
+.addMenu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 20;
+  min-width: 200px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md, 8px);
+  box-shadow: var(--shadow-md, 0 4px 12px rgba(0,0,0,0.15));
+  padding: 0.35rem 0;
+  overflow: hidden;
+}
+
+.addMenuItem {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  width: 100%;
+  padding: 0.55rem 1rem;
+  background: none;
+  border: none;
+  font-size: 0.85rem;
+  font-family: inherit;
+  color: var(--color-text);
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.12s ease;
+}
+
+.addMenuItem:hover {
+  background: var(--color-surface-alt, #f3f4f6);
+}
+
+.addMenuIcon {
+  font-size: 1rem;
+  width: 1.4rem;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+/* Modal overlay + panel (shared by Photo & USDA) */
+.modalOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+}
+
+.addModal {
+  background: var(--color-surface);
+  border-radius: var(--radius-lg, 12px);
+  box-shadow: var(--shadow-md);
+  width: 100%;
+  max-width: 480px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  max-height: 85vh;
+}
+
+.modalHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1rem 1.25rem;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.modalHeader h3 {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.modalCloseBtn {
+  background: none;
+  border: none;
+  font-size: 1.4rem;
+  cursor: pointer;
+  color: var(--color-text-muted);
+  padding: 0.1rem 0.3rem;
+  line-height: 1;
+  border-radius: 4px;
+  transition: background 0.15s ease;
+}
+
+.modalCloseBtn:hover {
+  background: var(--color-surface-alt, #f3f4f6);
+}
+
+.modalBody {
+  padding: 1.25rem;
+  overflow-y: auto;
+}
+
+.modalStatus {
+  text-align: center;
+  font-size: 0.88rem;
+  color: var(--color-text-muted);
+  padding: 1rem 0;
+}
+
+.modalError {
+  text-align: center;
+  font-size: 0.88rem;
+  color: var(--color-danger);
+  font-weight: 500;
+  padding: 0.5rem 0;
+}
+
+/* Photo upload */
+.photoDropzone {
+  border: 2px dashed var(--color-border);
+  border-radius: var(--radius-md, 8px);
+  padding: 2rem 1rem;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+  color: var(--color-text-muted);
+  font-size: 0.88rem;
+}
+
+.photoDropzone:hover {
+  border-color: var(--color-accent);
+  background: var(--color-surface-alt, #f3f4f6);
+}
+
+.photoPreview {
+  width: 100%;
+  max-height: 240px;
+  object-fit: contain;
+  border-radius: var(--radius-md, 8px);
+  margin-bottom: 1rem;
+}
+
+.photoSubmitBtn {
+  display: block;
+  width: 100%;
+  padding: 0.6rem;
+  border: none;
+  border-radius: var(--radius-md, 8px);
+  background: var(--color-accent);
+  color: #fff;
+  font-size: 0.9rem;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: opacity 0.15s ease;
+}
+
+.photoSubmitBtn:hover {
+  opacity: 0.9;
+}
+
+.photoSubmitBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* USDA search */
+.usdaSearchRow {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.usdaSearchInput {
+  flex: 1;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md, 8px);
+  font-size: 0.88rem;
+  font-family: inherit;
+  color: var(--color-text);
+  background: var(--color-surface);
+}
+
+.usdaSearchInput:focus {
+  outline: none;
+  border-color: var(--color-accent);
+}
+
+.usdaSearchBtn {
+  padding: 0.5rem 1rem;
+  border: 1px solid var(--color-accent);
+  border-radius: var(--radius-md, 8px);
+  background: var(--color-accent);
+  color: #fff;
+  font-size: 0.85rem;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: opacity 0.15s ease;
+}
+
+.usdaSearchBtn:hover {
+  opacity: 0.9;
+}
+
+.usdaSearchBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.usdaResults {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.usdaResultItem {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  padding: 0.65rem 0.75rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md, 8px);
+  cursor: pointer;
+  transition: border-color 0.12s ease, background 0.12s ease;
+}
+
+.usdaResultItem:hover {
+  border-color: var(--color-accent);
+  background: var(--color-surface-alt, #f3f4f6);
+}
+
+.usdaResultName {
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.usdaResultMeta {
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+}
+
 /* Narrow action column for delete button */
 .actionTh {
   width: 2rem;

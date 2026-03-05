@@ -78,10 +78,44 @@
 }
 
 .subtitle {
-  margin: 0 0 1rem;
+  margin: 0;
   font-size: 0.85rem;
   color: var(--color-text-muted);
   text-align: left;
+}
+
+.subtitleRow {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.deselectBtn {
+  white-space: nowrap;
+  padding: 0.3rem 0.75rem;
+  font-size: 0.78rem;
+  font-family: inherit;
+  font-weight: 500;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm, 4px);
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+  flex-shrink: 0;
+}
+
+.deselectBtn:hover {
+  background: var(--color-surface-alt);
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+
+.deselectBtn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
 }
 
 /* Body stats section */

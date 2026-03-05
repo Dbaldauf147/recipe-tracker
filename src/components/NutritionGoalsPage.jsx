@@ -409,7 +409,17 @@ export function NutritionGoalsPage({ onComplete, onBack, onSkip, initialSelected
         </div>
 
         <div className={styles.card}>
-          <p className={styles.subtitle}>Select the type of nutrition data you would like to set goals around.</p>
+          <div className={styles.subtitleRow}>
+            <p className={styles.subtitle}>Select the type of nutrition data you would like to set goals around.</p>
+            <button
+              type="button"
+              className={styles.deselectBtn}
+              onClick={() => setSelected(new Set())}
+              disabled={selected.size === 0}
+            >
+              Deselect All
+            </button>
+          </div>
           {GROUPS.map(group => (
             <div key={group.title} className={styles.group}>
               <h4 className={styles.groupTitle}>{group.title}</h4>
