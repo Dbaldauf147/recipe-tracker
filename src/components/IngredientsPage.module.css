@@ -553,6 +553,52 @@
   border-color: var(--color-accent);
 }
 
+/* Drop zone */
+.dropZone {
+  border: 2px dashed var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 3rem 2rem;
+  text-align: center;
+  cursor: default;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.dropZoneActive {
+  border-color: var(--color-accent);
+  background: var(--color-accent-light, rgba(201, 100, 66, 0.06));
+}
+
+.dropZoneText {
+  margin: 0 0 0.35rem;
+  font-size: 0.95rem;
+  font-weight: 500;
+  color: var(--color-text);
+}
+
+.dropZoneHint {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--color-text-muted);
+}
+
+.screenshotClearBtn {
+  display: block;
+  margin: 0.5rem auto 0;
+  padding: 0.35rem 1rem;
+  font-size: 0.82rem;
+  font-family: inherit;
+  font-weight: 500;
+  border: none;
+  background: none;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.screenshotClearBtn:hover {
+  color: var(--color-accent);
+}
+
 /* Read-only cell text (non-admin) */
 .cellText {
   display: block;

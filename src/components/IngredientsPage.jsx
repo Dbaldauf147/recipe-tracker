@@ -149,6 +149,10 @@ export function IngredientsPage({ onClose, user }) {
   const [showPhotoUpload, setShowPhotoUpload] = useState(false);
   const [showUSDASearch, setShowUSDASearch] = useState(false);
   const [showManualAdd, setShowManualAdd] = useState(false);
+  const [showScreenshotDrop, setShowScreenshotDrop] = useState(false);
+  const [screenshotPreview, setScreenshotPreview] = useState(null);
+  const [screenshotBase64, setScreenshotBase64] = useState(null);
+  const [dragOver, setDragOver] = useState(false);
   const [modalLoading, setModalLoading] = useState(false);
   const [modalError, setModalError] = useState(null);
   // Photo flow
@@ -388,6 +392,81 @@ export function IngredientsPage({ onClose, user }) {
     setUsdaResults([]);
   }
 
+  // --- Screenshot drop/paste flow ---
+  function processScreenshotFile(file) {
+    if (!file || !file.type.startsWith('image/')) return;
+    const img = new Image();
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      img.onload = () => {
+        const maxDim = 1200;
+        let { width, height } = img;
+        if (width > maxDim || height > maxDim) {
+          const scale = maxDim / Math.max(width, height);
+          width = Math.round(width * scale);
+          height = Math.round(height * scale);
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, width, height);
+        const base64 = canvas.toDataURL('image/jpeg', 0.8);
+        setScreenshotPreview(base64);
+        setScreenshotBase64(base64);
+      };
+      img.src = ev.target.result;
+    };
+    reader.readAsDataURL(file);
+  }
+
+  function handleScreenshotDrop(e) {
+    e.preventDefault();
+    setDragOver(false);
+    const file = e.dataTransfer.files?.[0];
+    if (file) processScreenshotFile(file);
+  }
+
+  function handleScreenshotPaste(e) {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+    for (const item of items) {
+      if (item.type.startsWith('image/')) {
+        e.preventDefault();
+        processScreenshotFile(item.getAsFile());
+        return;
+      }
+    }
+  }
+
+  async function handleScreenshotSubmit() {
+    if (!screenshotBase64) return;
+    setModalLoading(true);
+    setModalError(null);
+    try {
+      const res = await fetch('/api/parse-nutrition-label', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ image: screenshotBase64 }),
+      });
+      if (!res.ok) throw new Error(`Server error: ${res.status}`);
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      const cal = parseFloat(data.calories) || 0;
+      const prot = parseFloat(data.protein) || 0;
+      const fib = parseFloat(data.fiber) || 0;
+      if (!data.proteinPerCal && cal > 0) data.proteinPerCal = fmtVal(prot / cal);
+      if (!data.fiberPerCal && cal > 0) data.fiberPerCal = fmtVal(fib / cal);
+      addFilledRow(data);
+      setShowScreenshotDrop(false);
+      setScreenshotPreview(null);
+      setScreenshotBase64(null);
+    } catch (err) {
+      setModalError(err.message || 'Failed to parse screenshot.');
+    }
+    setModalLoading(false);
+  }
+
   function handleSort(key) {
     if (sortKey === key) {
       setSortAsc(prev => !prev);
@@ -481,6 +560,9 @@ export function IngredientsPage({ onClose, user }) {
                 </button>
                 <button className={styles.addMenuItem} onClick={() => { setShowAddMenu(false); setShowPhotoUpload(true); setModalError(null); }}>
                   <span className={styles.addMenuIcon}>&#128248;</span> Photo nutrition label
+                </button>
+                <button className={styles.addMenuItem} onClick={() => { setShowAddMenu(false); setShowScreenshotDrop(true); setModalError(null); setScreenshotPreview(null); setScreenshotBase64(null); }}>
+                  <span className={styles.addMenuIcon}>&#128203;</span> Drop/paste screenshot
                 </button>
                 <button className={styles.addMenuItem} onClick={() => { setShowAddMenu(false); setShowUSDASearch(true); setModalError(null); setUsdaResults([]); setUsdaQuery(''); }}>
                   <span className={styles.addMenuIcon}>&#128269;</span> Search USDA
@@ -652,6 +734,50 @@ export function IngredientsPage({ onClose, user }) {
           onAdd={(data) => { addFilledRow(data); setShowManualAdd(false); }}
           onClose={() => setShowManualAdd(false)}
         />
+      )}
+
+      {/* Screenshot drop/paste modal */}
+      {showScreenshotDrop && (
+        <div className={styles.modalOverlay} onClick={() => { setShowScreenshotDrop(false); setScreenshotPreview(null); setScreenshotBase64(null); setModalError(null); }}>
+          <div className={styles.addModal} onClick={e => e.stopPropagation()} onPaste={handleScreenshotPaste}>
+            <div className={styles.modalHeader}>
+              <h3>Drop or Paste Screenshot</h3>
+              <button className={styles.modalCloseBtn} onClick={() => { setShowScreenshotDrop(false); setScreenshotPreview(null); setScreenshotBase64(null); setModalError(null); }}>&times;</button>
+            </div>
+            <div className={styles.modalBody}>
+              {!screenshotPreview ? (
+                <div
+                  className={`${styles.dropZone} ${dragOver ? styles.dropZoneActive : ''}`}
+                  onDragOver={e => { e.preventDefault(); setDragOver(true); }}
+                  onDragLeave={() => setDragOver(false)}
+                  onDrop={handleScreenshotDrop}
+                  tabIndex={0}
+                >
+                  <p className={styles.dropZoneText}>Drop an image here</p>
+                  <p className={styles.dropZoneHint}>or press Ctrl+V to paste from clipboard</p>
+                </div>
+              ) : (
+                <>
+                  <img src={screenshotPreview} alt="Screenshot preview" className={styles.photoPreview} />
+                  <button
+                    className={styles.photoSubmitBtn}
+                    onClick={handleScreenshotSubmit}
+                    disabled={modalLoading}
+                  >
+                    {modalLoading ? 'Analyzing...' : 'Extract Nutrition Data'}
+                  </button>
+                  <button
+                    className={styles.screenshotClearBtn}
+                    onClick={() => { setScreenshotPreview(null); setScreenshotBase64(null); setModalError(null); }}
+                  >
+                    Clear &amp; try another
+                  </button>
+                </>
+              )}
+              {modalError && <p className={styles.modalError}>{modalError}</p>}
+            </div>
+          </div>
+        </div>
       )}
 
       {/* USDA search modal */}
