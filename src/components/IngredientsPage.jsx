@@ -150,6 +150,8 @@ export function IngredientsPage({ onClose, user }) {
   const [showUSDASearch, setShowUSDASearch] = useState(false);
   const [showManualAdd, setShowManualAdd] = useState(false);
   const [showScreenshotDrop, setShowScreenshotDrop] = useState(false);
+  const [showTextPaste, setShowTextPaste] = useState(false);
+  const [pastedText, setPastedText] = useState('');
   const [screenshotPreview, setScreenshotPreview] = useState(null);
   const [screenshotBase64, setScreenshotBase64] = useState(null);
   const [dragOver, setDragOver] = useState(false);
@@ -467,6 +469,39 @@ export function IngredientsPage({ onClose, user }) {
     setModalLoading(false);
   }
 
+  // --- Text paste flow ---
+  async function handleTextSubmit() {
+    if (!pastedText.trim()) return;
+    setModalLoading(true);
+    setModalError(null);
+    try {
+      const apiKey = undefined; // API key is server-side only
+      const res = await fetch('/api/parse-nutrition-text', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: pastedText.trim() }),
+      });
+      if (!res.ok) throw new Error(`Server error: ${res.status}`);
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      // Could be a single object or an array of ingredients
+      const items = Array.isArray(data) ? data : [data];
+      for (const item of items) {
+        const cal = parseFloat(item.calories) || 0;
+        const prot = parseFloat(item.protein) || 0;
+        const fib = parseFloat(item.fiber) || 0;
+        if (!item.proteinPerCal && cal > 0) item.proteinPerCal = fmtVal(prot / cal);
+        if (!item.fiberPerCal && cal > 0) item.fiberPerCal = fmtVal(fib / cal);
+        addFilledRow(item);
+      }
+      setShowTextPaste(false);
+      setPastedText('');
+    } catch (err) {
+      setModalError(err.message || 'Failed to parse text.');
+    }
+    setModalLoading(false);
+  }
+
   function handleSort(key) {
     if (sortKey === key) {
       setSortAsc(prev => !prev);
@@ -563,6 +598,9 @@ export function IngredientsPage({ onClose, user }) {
                 </button>
                 <button className={styles.addMenuItem} onClick={() => { setShowAddMenu(false); setShowScreenshotDrop(true); setModalError(null); setScreenshotPreview(null); setScreenshotBase64(null); }}>
                   <span className={styles.addMenuIcon}>&#128203;</span> Drop/paste screenshot
+                </button>
+                <button className={styles.addMenuItem} onClick={() => { setShowAddMenu(false); setShowTextPaste(true); setPastedText(''); setModalError(null); }}>
+                  <span className={styles.addMenuIcon}>&#128221;</span> Paste text
                 </button>
                 <button className={styles.addMenuItem} onClick={() => { setShowAddMenu(false); setShowUSDASearch(true); setModalError(null); setUsdaResults([]); setUsdaQuery(''); }}>
                   <span className={styles.addMenuIcon}>&#128269;</span> Search USDA
@@ -722,6 +760,37 @@ export function IngredientsPage({ onClose, user }) {
                   </button>
                 </>
               )}
+              {modalError && <p className={styles.modalError}>{modalError}</p>}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Text paste modal */}
+      {showTextPaste && (
+        <div className={styles.modalOverlay} onClick={() => { setShowTextPaste(false); setPastedText(''); setModalError(null); }}>
+          <div className={styles.addModal} onClick={e => e.stopPropagation()} style={{ maxWidth: 520 }}>
+            <div className={styles.modalHeader}>
+              <h3>Paste Nutrition Text</h3>
+              <button className={styles.modalCloseBtn} onClick={() => { setShowTextPaste(false); setPastedText(''); setModalError(null); }}>&times;</button>
+            </div>
+            <div className={styles.modalBody}>
+              <p className={styles.textPasteHint}>Paste nutrition facts, ingredient lists, or any text containing nutrition data. Multiple ingredients are supported.</p>
+              <textarea
+                className={styles.textPasteArea}
+                value={pastedText}
+                onChange={e => setPastedText(e.target.value)}
+                placeholder={"e.g.\nChicken breast, 100g\nCalories: 165\nProtein: 31g\nFat: 3.6g\nCarbs: 0g"}
+                rows={8}
+                autoFocus
+              />
+              <button
+                className={styles.photoSubmitBtn}
+                onClick={handleTextSubmit}
+                disabled={modalLoading || !pastedText.trim()}
+              >
+                {modalLoading ? 'Analyzing...' : 'Extract Nutrition Data'}
+              </button>
               {modalError && <p className={styles.modalError}>{modalError}</p>}
             </div>
           </div>
