@@ -469,35 +469,31 @@ export function IngredientsPage({ onClose, user }) {
     setModalLoading(false);
   }
 
-  // --- Text paste flow ---
+  // --- Text paste flow (uses USDA FoodData Central) ---
   async function handleTextSubmit() {
     if (!pastedText.trim()) return;
     setModalLoading(true);
     setModalError(null);
     try {
-      const apiKey = undefined; // API key is server-side only
-      const res = await fetch('/api/parse-nutrition-text', {
+      const res = await fetch('/api/nutrition-lookup', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text: pastedText.trim() }),
       });
-      if (!res.ok) throw new Error(`Server error: ${res.status}`);
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || `Server error: ${res.status}`);
+      }
       const data = await res.json();
       if (data.error) throw new Error(data.error);
-      // Could be a single object or an array of ingredients
       const items = Array.isArray(data) ? data : [data];
       for (const item of items) {
-        const cal = parseFloat(item.calories) || 0;
-        const prot = parseFloat(item.protein) || 0;
-        const fib = parseFloat(item.fiber) || 0;
-        if (!item.proteinPerCal && cal > 0) item.proteinPerCal = fmtVal(prot / cal);
-        if (!item.fiberPerCal && cal > 0) item.fiberPerCal = fmtVal(fib / cal);
         addFilledRow(item);
       }
       setShowTextPaste(false);
       setPastedText('');
     } catch (err) {
-      setModalError(err.message || 'Failed to parse text.');
+      setModalError(err.message || 'Failed to look up nutrition data.');
     }
     setModalLoading(false);
   }
@@ -775,12 +771,12 @@ export function IngredientsPage({ onClose, user }) {
               <button className={styles.modalCloseBtn} onClick={() => { setShowTextPaste(false); setPastedText(''); setModalError(null); }}>&times;</button>
             </div>
             <div className={styles.modalBody}>
-              <p className={styles.textPasteHint}>Paste nutrition facts, ingredient lists, or any text containing nutrition data. Multiple ingredients are supported.</p>
+              <p className={styles.textPasteHint}>Type ingredient names (one per line) with optional portions. Data is sourced from USDA FoodData Central with estimated amino acids.</p>
               <textarea
                 className={styles.textPasteArea}
                 value={pastedText}
                 onChange={e => setPastedText(e.target.value)}
-                placeholder={"e.g.\nChicken breast, 100g\nCalories: 165\nProtein: 31g\nFat: 3.6g\nCarbs: 0g"}
+                placeholder={"e.g.\nchicken breast, 100g\n2 cups rice\n1 medium banana\nsourdough bread, 50g\nsalmon fillet"}
                 rows={8}
                 autoFocus
               />
