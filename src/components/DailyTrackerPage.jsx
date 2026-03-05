@@ -269,7 +269,6 @@ function AddEntrySection({ recipes, getRecipe, onAdd, weeklyPlan }) {
   const [customWeight, setCustomWeight] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [queue, setQueue] = useState([]);
   const [selectedWeekly, setSelectedWeekly] = useState(new Set());
 
   // Custom tab state
@@ -335,7 +334,7 @@ function AddEntrySection({ recipes, getRecipe, onAdd, weeklyPlan }) {
       const nutrition = scaleNutrition(perServing, factor);
       const mealSlot = categoryToSlot(recipe.category);
 
-      setQueue(prev => [...prev, {
+      onAdd({
         id: uuid(),
         type: 'recipe',
         recipeId,
@@ -345,7 +344,7 @@ function AddEntrySection({ recipes, getRecipe, onAdd, weeklyPlan }) {
         mealSlot,
         timestamp: new Date().toISOString(),
         nutrition,
-      }]);
+      });
 
       setRecipeId('');
       setServings('1');
@@ -372,7 +371,7 @@ function AddEntrySection({ recipes, getRecipe, onAdd, weeklyPlan }) {
         return;
       }
       const mealSlot = 'snack';
-      setQueue(prev => [...prev, {
+      onAdd({
         id: uuid(),
         type: 'custom',
         ingredientName: ingredientName.trim(),
@@ -381,7 +380,7 @@ function AddEntrySection({ recipes, getRecipe, onAdd, weeklyPlan }) {
         mealSlot,
         timestamp: new Date().toISOString(),
         nutrition: result.nutrients,
-      }]);
+      });
       setIngredientName('');
       setQuantity('');
       setMeasurement('g');
@@ -407,7 +406,6 @@ function AddEntrySection({ recipes, getRecipe, onAdd, weeklyPlan }) {
     setError('');
     try {
       const cache = loadNutritionCache();
-      const newEntries = [];
       for (const rid of selectedWeekly) {
         const recipe = getRecipe(rid);
         if (!recipe) continue;
@@ -429,7 +427,7 @@ function AddEntrySection({ recipes, getRecipe, onAdd, weeklyPlan }) {
         }
         const nutrition = scaleNutrition(perServing, 1);
         const mealSlot = categoryToSlot(recipe.category);
-        newEntries.push({
+        onAdd({
           id: uuid(),
           type: 'recipe',
           recipeId: rid,
@@ -441,22 +439,12 @@ function AddEntrySection({ recipes, getRecipe, onAdd, weeklyPlan }) {
           nutrition,
         });
       }
-      setQueue(prev => [...prev, ...newEntries]);
       setSelectedWeekly(new Set());
     } catch (err) {
       setError('Failed to look up nutrition. Try again.');
     } finally {
       setLoading(false);
     }
-  }
-
-  function handleSaveAll() {
-    for (const entry of queue) onAdd(entry);
-    setQueue([]);
-  }
-
-  function removeFromQueue(id) {
-    setQueue(prev => prev.filter(e => e.id !== id));
   }
 
   return (
@@ -550,28 +538,6 @@ function AddEntrySection({ recipes, getRecipe, onAdd, weeklyPlan }) {
       </div>
       {error && <p className={styles.addError}>{error}</p>}
       {loading && <p className={styles.addLoading}>Looking up nutrition...</p>}
-
-      {queue.length > 0 && (
-        <div className={styles.queue}>
-          {queue.map(entry => (
-            <div key={entry.id} className={styles.queueItem}>
-              <span className={styles.queueName}>
-                {entry.type === 'recipe' ? entry.recipeName : entry.ingredientName}
-              </span>
-              <span className={styles.queueDetail}>
-                {entry.type === 'recipe'
-                  ? (entry.customWeight ? `${entry.customWeight}g` : `${entry.servings} srv`)
-                  : `${entry.quantity} ${entry.measurement}`}
-              </span>
-              <span className={styles.queueSlot}>{MEAL_LABELS[entry.mealSlot]}</span>
-              <button className={styles.queueRemove} onClick={() => removeFromQueue(entry.id)}>&times;</button>
-            </div>
-          ))}
-          <button className={styles.saveAllBtn} onClick={handleSaveAll}>
-            Save All ({queue.length})
-          </button>
-        </div>
-      )}
     </div>
   );
 }
