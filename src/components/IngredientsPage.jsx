@@ -53,6 +53,88 @@ function loadColWidths() {
   } catch { return {}; }
 }
 
+const MANUAL_FIELDS = [
+  { key: 'ingredient', label: 'Ingredient Name', type: 'text', required: true },
+  { key: 'grams', label: 'Serving Size (g)', type: 'number' },
+  { key: 'measurement', label: 'Measurement', type: 'text', placeholder: 'e.g. cup, oz, piece' },
+  { key: 'calories', label: 'Calories', type: 'number' },
+  { key: 'protein', label: 'Protein (g)', type: 'number' },
+  { key: 'carbs', label: 'Carbs (g)', type: 'number' },
+  { key: 'fat', label: 'Fat (g)', type: 'number' },
+  { key: 'fiber', label: 'Fiber (g)', type: 'number' },
+  { key: 'sugar', label: 'Sugar (g)', type: 'number' },
+  { key: 'saturatedFat', label: 'Saturated Fat (g)', type: 'number' },
+  { key: 'sodium', label: 'Sodium (mg)', type: 'number' },
+  { key: 'potassium', label: 'Potassium (mg)', type: 'number' },
+  { key: 'calcium', label: 'Calcium (mg)', type: 'number' },
+  { key: 'iron', label: 'Iron (mg)', type: 'number' },
+  { key: 'magnesium', label: 'Magnesium (mg)', type: 'number' },
+  { key: 'zinc', label: 'Zinc (mg)', type: 'number' },
+  { key: 'vitaminB12', label: 'Vitamin B12 (mcg)', type: 'number' },
+  { key: 'vitaminC', label: 'Vitamin C (mg)', type: 'number' },
+  { key: 'leucine', label: 'Leucine (g)', type: 'number' },
+  { key: 'omega3', label: 'Omega-3 (g)', type: 'number' },
+  { key: 'notes', label: 'Notes', type: 'text' },
+];
+
+function ManualAddModal({ onAdd, onClose }) {
+  const [values, setValues] = useState({});
+
+  function handleChange(key, val) {
+    setValues(prev => ({ ...prev, [key]: val }));
+  }
+
+  function handleSubmit(e) {
+    e.preventDefault();
+    if (!values.ingredient?.trim()) return;
+    const row = {};
+    for (const f of INGREDIENT_FIELDS) row[f.key] = values[f.key] || '';
+    // Compute derived fields
+    const cal = parseFloat(row.calories) || 0;
+    const prot = parseFloat(row.protein) || 0;
+    const fib = parseFloat(row.fiber) || 0;
+    if (cal > 0) {
+      row.proteinPerCal = fmtVal(prot / cal);
+      row.fiberPerCal = fmtVal(fib / cal);
+    }
+    onAdd(row);
+  }
+
+  return (
+    <div className={styles.modalOverlay} onClick={onClose}>
+      <div className={styles.addModal} onClick={e => e.stopPropagation()} style={{ maxWidth: 480 }}>
+        <div className={styles.modalHeader}>
+          <h3>Manual Entry</h3>
+          <button className={styles.modalCloseBtn} onClick={onClose}>&times;</button>
+        </div>
+        <form className={styles.modalBody} onSubmit={handleSubmit}>
+          <div className={styles.manualGrid}>
+            {MANUAL_FIELDS.map(f => (
+              <div key={f.key} className={f.key === 'ingredient' || f.key === 'notes' ? styles.manualFieldFull : styles.manualField}>
+                <label className={styles.manualLabel}>{f.label}</label>
+                <input
+                  className={styles.manualInput}
+                  type={f.type}
+                  value={values[f.key] || ''}
+                  onChange={e => handleChange(f.key, e.target.value)}
+                  placeholder={f.placeholder || ''}
+                  required={f.required}
+                  step={f.type === 'number' ? 'any' : undefined}
+                  min={f.type === 'number' ? '0' : undefined}
+                  autoFocus={f.key === 'ingredient'}
+                />
+              </div>
+            ))}
+          </div>
+          <button className={styles.photoSubmitBtn} type="submit" disabled={!values.ingredient?.trim()}>
+            Add Ingredient
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 export function IngredientsPage({ onClose, user }) {
   const isAdmin = user?.uid === ADMIN_UID;
   const [rows, setRows] = useState([]);
@@ -66,6 +148,7 @@ export function IngredientsPage({ onClose, user }) {
   const [showBarcodeScanner, setShowBarcodeScanner] = useState(false);
   const [showPhotoUpload, setShowPhotoUpload] = useState(false);
   const [showUSDASearch, setShowUSDASearch] = useState(false);
+  const [showManualAdd, setShowManualAdd] = useState(false);
   const [modalLoading, setModalLoading] = useState(false);
   const [modalError, setModalError] = useState(null);
   // Photo flow
@@ -402,6 +485,9 @@ export function IngredientsPage({ onClose, user }) {
                 <button className={styles.addMenuItem} onClick={() => { setShowAddMenu(false); setShowUSDASearch(true); setModalError(null); setUsdaResults([]); setUsdaQuery(''); }}>
                   <span className={styles.addMenuIcon}>&#128269;</span> Search USDA
                 </button>
+                <button className={styles.addMenuItem} onClick={() => { setShowAddMenu(false); setShowManualAdd(true); setModalError(null); }}>
+                  <span className={styles.addMenuIcon}>&#9998;</span> Manual entry
+                </button>
                 <button className={styles.addMenuItem} onClick={() => { setShowAddMenu(false); addRow(); }}>
                   <span className={styles.addMenuIcon}>&#43;</span> Blank row
                 </button>
@@ -558,6 +644,14 @@ export function IngredientsPage({ onClose, user }) {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Manual entry modal */}
+      {showManualAdd && (
+        <ManualAddModal
+          onAdd={(data) => { addFilledRow(data); setShowManualAdd(false); }}
+          onClose={() => setShowManualAdd(false)}
+        />
       )}
 
       {/* USDA search modal */}
