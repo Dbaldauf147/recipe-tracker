@@ -602,3 +602,14 @@
 .skipBtn:hover {
   color: var(--color-accent);
 }
+
+.disclaimer {
+  margin: 1.5rem 0 0;
+  padding: 0.75rem 1rem;
+  font-size: 0.75rem;
+  line-height: 1.5;
+  color: var(--color-text-muted);
+  background: var(--color-surface-alt);
+  border-radius: var(--radius-sm);
+  text-align: center;
+}

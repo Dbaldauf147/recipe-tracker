@@ -353,6 +353,12 @@ export function NutritionGoalsPage({ onComplete, onBack, onSkip, initialSelected
               Skip for now
             </button>
           )}
+          <p className={styles.disclaimer}>
+            Recommended values are based on guidelines from the USDA Dietary Guidelines for Americans (2020–2025),
+            the National Institutes of Health (NIH) Dietary Reference Intakes, the Institute of Medicine (IOM),
+            and the American College of Sports Medicine (ACSM). Calorie estimates use the Mifflin-St Jeor equation.
+            These are general recommendations and not medical advice — consult a healthcare professional for personalized guidance.
+          </p>
         </div>
       </div>
     </div>
