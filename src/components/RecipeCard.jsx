@@ -29,18 +29,11 @@ export function RecipeCard({ recipe, onClick, draggable = false, onAdd, editMode
     >
       <div className={styles.cardContent}>
         <span className={styles.name}>{recipe.title}</span>
-        {(recipe.mealType || isQuick) && (
+        {isQuick && (
           <div className={styles.tags}>
-            {recipe.mealType && (
-              <span className={styles.mealTypeTag}>
-                {recipe.mealType.charAt(0).toUpperCase() + recipe.mealType.slice(1)}
-              </span>
-            )}
-            {isQuick && (
-              <span className={`${styles.signal} ${styles.signalQuick}`}>
-                Quick
-              </span>
-            )}
+            <span className={`${styles.signal} ${styles.signalQuick}`}>
+              Quick
+            </span>
           </div>
         )}
       </div>
