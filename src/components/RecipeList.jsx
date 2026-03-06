@@ -438,7 +438,7 @@ export function RecipeList({
       }
       const reason = parts.join(' · ') || 'good variety pick';
 
-      return { recipe, totalScore, reason };
+      return { recipe, totalScore, reason, recipeDays, neglectedIngredients };
     });
 
     scored.sort((a, b) => b.totalScore - a.totalScore);
@@ -593,55 +593,93 @@ export function RecipeList({
             {suggestions.breakfasts.length > 0 && (
               <div className={styles.suggestColumn}>
                 <span className={styles.suggestCategoryLabel}>Breakfast</span>
-                <div className={styles.suggestList}>
-                  {suggestions.breakfasts.map(({ recipe, reason }) => (
-                    <div key={recipe.id} className={styles.suggestItem}>
-                      <div className={styles.suggestInfo}>
-                        <button
-                          className={styles.suggestName}
-                          onClick={() => onSelect(recipe.id)}
-                        >
-                          {recipe.title}
-                        </button>
-                        <span className={styles.suggestReason}>{reason}</span>
-                      </div>
-                      <button
-                        className={styles.suggestAddBtn}
-                        onClick={() => handleAddToWeekWithPulse(recipe.id)}
-                        aria-label={`Add ${recipe.title} to this week`}
-                      >
-                        +
-                      </button>
-                    </div>
-                  ))}
-                </div>
+                <table className={styles.suggestTable}>
+                  <thead>
+                    <tr>
+                      <th>Meal</th>
+                      <th>Days Since</th>
+                      <th>Overdue Ingredients</th>
+                      <th></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {suggestions.breakfasts.map(({ recipe, recipeDays, neglectedIngredients }) => (
+                      <tr key={recipe.id}>
+                        <td>
+                          <button
+                            className={styles.suggestName}
+                            onClick={() => onSelect(recipe.id)}
+                          >
+                            {recipe.title}
+                          </button>
+                        </td>
+                        <td className={styles.suggestDays}>
+                          {recipeDays === 9999 ? 'Never' : recipeDays}
+                        </td>
+                        <td className={styles.suggestOverdue}>
+                          {neglectedIngredients.length > 0
+                            ? neglectedIngredients.slice(0, 3).join(', ')
+                            : '—'}
+                        </td>
+                        <td>
+                          <button
+                            className={styles.suggestAddBtn}
+                            onClick={() => handleAddToWeekWithPulse(recipe.id)}
+                            aria-label={`Add ${recipe.title} to this week`}
+                          >
+                            +
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             )}
             {suggestions.lunches.length > 0 && (
               <div className={styles.suggestColumn}>
                 <span className={styles.suggestCategoryLabel}>Lunch & Dinner</span>
-                <div className={styles.suggestList}>
-                  {suggestions.lunches.map(({ recipe, reason }) => (
-                    <div key={recipe.id} className={styles.suggestItem}>
-                      <div className={styles.suggestInfo}>
-                        <button
-                          className={styles.suggestName}
-                          onClick={() => onSelect(recipe.id)}
-                        >
-                          {recipe.title}
-                        </button>
-                        <span className={styles.suggestReason}>{reason}</span>
-                      </div>
-                      <button
-                        className={styles.suggestAddBtn}
-                        onClick={() => handleAddToWeekWithPulse(recipe.id)}
-                        aria-label={`Add ${recipe.title} to this week`}
-                      >
-                        +
-                      </button>
-                    </div>
-                  ))}
-                </div>
+                <table className={styles.suggestTable}>
+                  <thead>
+                    <tr>
+                      <th>Meal</th>
+                      <th>Days Since</th>
+                      <th>Overdue Ingredients</th>
+                      <th></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {suggestions.lunches.map(({ recipe, recipeDays, neglectedIngredients }) => (
+                      <tr key={recipe.id}>
+                        <td>
+                          <button
+                            className={styles.suggestName}
+                            onClick={() => onSelect(recipe.id)}
+                          >
+                            {recipe.title}
+                          </button>
+                        </td>
+                        <td className={styles.suggestDays}>
+                          {recipeDays === 9999 ? 'Never' : recipeDays}
+                        </td>
+                        <td className={styles.suggestOverdue}>
+                          {neglectedIngredients.length > 0
+                            ? neglectedIngredients.slice(0, 3).join(', ')
+                            : '—'}
+                        </td>
+                        <td>
+                          <button
+                            className={styles.suggestAddBtn}
+                            onClick={() => handleAddToWeekWithPulse(recipe.id)}
+                            aria-label={`Add ${recipe.title} to this week`}
+                          >
+                            +
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             )}
           </div>
