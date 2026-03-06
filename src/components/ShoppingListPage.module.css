@@ -99,3 +99,42 @@
 .pantryMatchItem:last-child {
   border-bottom: none;
 }
+
+.completedRow {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-top: 2rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--color-border);
+}
+
+.completedBtn {
+  padding: 0.65rem 1.5rem;
+  background: var(--color-accent);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius-full, 999px);
+  font-size: 0.95rem;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.15s ease;
+  box-shadow: 0 2px 8px rgba(201, 100, 66, 0.25);
+}
+
+.completedBtn:hover {
+  background: var(--color-accent-hover);
+}
+
+.savedToast {
+  font-size: 0.85rem;
+  color: var(--color-accent);
+  font-weight: 500;
+  animation: fadeIn 0.3s ease;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateX(-5px); }
+  to { opacity: 1; transform: translateX(0); }
+}

@@ -203,3 +203,13 @@
   font-weight: 500;
   color: var(--color-text);
 }
+
+.sentLabel {
+  font-size: 0.72rem;
+  color: var(--color-text-muted);
+  background: var(--color-surface-alt);
+  padding: 0.1rem 0.45rem;
+  border-radius: var(--radius-sm, 4px);
+  font-weight: 500;
+  font-style: italic;
+}

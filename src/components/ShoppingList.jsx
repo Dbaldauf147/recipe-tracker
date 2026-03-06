@@ -247,6 +247,7 @@ function mergeIntoMap(map, ingredient, measurement, quantity) {
       ingredient: ingredient.trim(),
       measurement: measurement || '',
       quantity: qty,
+      recipes: [],
     });
   }
 }
@@ -269,11 +270,15 @@ function buildShoppingList(recipes, weeklyServings = {}) {
         if (!entry.measurement && ing.measurement) {
           entry.measurement = ing.measurement;
         }
+        if (!entry.recipes.includes(recipe.title)) {
+          entry.recipes.push(recipe.title);
+        }
       } else {
         map.set(name, {
           ingredient: ing.ingredient.trim(),
           measurement: ing.measurement || '',
           quantity: scaledQty,
+          recipes: [recipe.title],
         });
       }
     }
@@ -365,6 +370,7 @@ export function ShoppingList({ weeklyRecipes, weeklyServings = {}, extraItems = 
   const [checked, setChecked] = useState(new Set());
   const [adding, setAdding] = useState(false);
   const [newItem, setNewItem] = useState('');
+  const [showMeals, setShowMeals] = useState(false);
 
   function toggleItem(key) {
     setChecked(prev => {
@@ -399,6 +405,12 @@ export function ShoppingList({ weeklyRecipes, weeklyServings = {}, extraItems = 
       <div className={styles.headingRow}>
         <h2 className={styles.heading}>Shopping List</h2>
         <div className={styles.headingActions}>
+          <button
+            className={`${styles.mealsToggle}${showMeals ? ` ${styles.mealsToggleActive}` : ''}`}
+            onClick={() => setShowMeals(v => !v)}
+          >
+            {showMeals ? 'Hide Meals' : 'Show Meals'}
+          </button>
           {onAddCustomItem && !adding && (
             <button className={styles.addToggle} onClick={() => setAdding(true)}>+ Add item</button>
           )}
@@ -425,7 +437,7 @@ export function ShoppingList({ weeklyRecipes, weeklyServings = {}, extraItems = 
         </div>
       )}
       {(() => {
-        const colCount = 5 + (isAdmin ? 1 : 0) + (onDismissItem ? 1 : 0);
+        const colCount = 5 + (showMeals ? 1 : 0) + (isAdmin ? 1 : 0) + (onDismissItem ? 1 : 0);
         const grouped = groupBySection(displayItems, ingredientSections);
         return (
           <table className={styles.table}>
@@ -435,6 +447,7 @@ export function ShoppingList({ weeklyRecipes, weeklyServings = {}, extraItems = 
               <col className={styles.colMeas} />
               <col />
               <col className={styles.colLink} />
+              {showMeals && <col className={styles.colMeals} />}
               {isAdmin && <col className={styles.colSection} />}
               {onDismissItem && <col className={styles.colDismiss} />}
             </colgroup>
@@ -485,6 +498,11 @@ export function ShoppingList({ weeklyRecipes, weeklyServings = {}, extraItems = 
                             </a>
                           )}
                         </td>
+                        {showMeals && (
+                          <td className={styles.mealsCell}>
+                            {(item.recipes || []).join(', ')}
+                          </td>
+                        )}
                         {isAdmin && (
                           <td className={styles.sectionSelectCell}>
                             <select

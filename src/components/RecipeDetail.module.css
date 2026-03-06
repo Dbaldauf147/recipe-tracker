@@ -23,6 +23,28 @@
   margin-bottom: 1.25rem;
 }
 
+.titleRow {
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.titleRow .titleInput {
+  flex: 1;
+  min-width: 0;
+}
+
+.lastPrepBadge {
+  font-size: 0.78rem;
+  color: var(--color-text-muted);
+  background: var(--color-surface-alt);
+  padding: 0.2rem 0.6rem;
+  border-radius: var(--radius-full, 999px);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
 .ingredientsCol {
   margin-bottom: 1.5rem;
   background: var(--color-surface);

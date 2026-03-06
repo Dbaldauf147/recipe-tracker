@@ -73,11 +73,12 @@ const SOURCE_KEYS = {
   sauces: 'sunday-pantry-sauces',
 };
 
-export function ShoppingListPage({ weeklyRecipes, weeklyServings = {}, onClose }) {
+export function ShoppingListPage({ weeklyRecipes, weeklyServings = {}, onClose, onSaveToHistory }) {
   const { user } = useAuth();
   const [extras, setExtras] = useState(loadExtras);
   const [dismissed, setDismissed] = useState(loadDismissed);
   const [resetKey, setResetKey] = useState(0);
+  const [saved, setSaved] = useState(false);
 
   function saveExtras(list) {
     saveExtrasToStorage(list);
@@ -285,6 +286,22 @@ export function ShoppingListPage({ weeklyRecipes, weeklyServings = {}, onClose }
           />
         </div>
       </div>
+
+      {weeklyRecipes.length > 0 && onSaveToHistory && (
+        <div className={styles.completedRow}>
+          <button
+            className={styles.completedBtn}
+            onClick={() => {
+              onSaveToHistory();
+              setSaved(true);
+              setTimeout(() => setSaved(false), 3000);
+            }}
+          >
+            Completed Shopping
+          </button>
+          {saved && <span className={styles.savedToast}>Saved to history!</span>}
+        </div>
+      )}
     </div>
   );
 }

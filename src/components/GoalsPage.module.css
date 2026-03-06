@@ -7,6 +7,24 @@
   padding: 2rem 1rem;
 }
 
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(4px);
+  padding: 2rem 1rem;
+  animation: overlayFadeIn 0.25s ease;
+}
+
+@keyframes overlayFadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
 .card {
   background: var(--color-surface);
   border-radius: var(--radius-xl);
@@ -15,6 +33,17 @@
   max-width: 520px;
   width: 100%;
   text-align: center;
+}
+
+.overlay .card {
+  animation: cardSlideIn 0.25s ease;
+  max-height: 90vh;
+  overflow-y: auto;
+}
+
+@keyframes cardSlideIn {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
 .logo {

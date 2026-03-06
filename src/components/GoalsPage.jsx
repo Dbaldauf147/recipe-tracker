@@ -39,7 +39,7 @@ const DIET_TYPES = [
   'High-Protein',
 ];
 
-export function GoalsPage({ onComplete, onSkip, onBack }) {
+export function GoalsPage({ onComplete, onSkip, onBack, asModal }) {
   const [selected, setSelected] = useState(() => {
     try {
       const saved = JSON.parse(localStorage.getItem('sunday-user-goals'));
@@ -80,7 +80,7 @@ export function GoalsPage({ onComplete, onSkip, onBack }) {
   }
 
   return (
-    <div className={styles.page}>
+    <div className={asModal ? styles.overlay : styles.page} onClick={asModal && onSkip ? (e) => { if (e.target === e.currentTarget) onSkip(); } : undefined}>
       <div className={styles.card}>
         <img className={styles.logo} src="/prep-day-logo.png" alt="Prep Day" />
         <h2 className={styles.title}>What are your goals?</h2>

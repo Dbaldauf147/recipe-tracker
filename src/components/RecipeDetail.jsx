@@ -242,6 +242,39 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user, ingredien
   const convertPopupRef = useRef(null);
   const [activeAutoIdx, setActiveAutoIdx] = useState(-1);
 
+  // Compute days since this recipe was last prepared
+  const daysSinceLastPrepped = useMemo(() => {
+    if (!recipe) return null;
+    let lastDate = null;
+    // Check plan history
+    try {
+      const data = localStorage.getItem('sunday-plan-history');
+      const history = data ? JSON.parse(data) : [];
+      for (const entry of history) {
+        if (entry.recipeIds?.includes(recipe.id)) {
+          if (!lastDate || entry.date > lastDate) lastDate = entry.date;
+        }
+      }
+    } catch {}
+    // Check daily tracker
+    try {
+      const data = localStorage.getItem('sunday-daily-log');
+      const log = data ? JSON.parse(data) : {};
+      for (const [dateStr, dayData] of Object.entries(log)) {
+        for (const entry of (dayData.entries || [])) {
+          if (entry.type === 'recipe' && entry.recipeId === recipe.id) {
+            if (!lastDate || dateStr > lastDate) lastDate = dateStr;
+          }
+        }
+      }
+    } catch {}
+    if (!lastDate) return null;
+    const then = new Date(lastDate + 'T00:00:00');
+    const now = new Date();
+    now.setHours(0, 0, 0, 0);
+    return Math.round((now - then) / (1000 * 60 * 60 * 24));
+  }, [recipe]);
+
   // Build lookup maps from ingredient database
   const { dbNotesMap, dbGramsMap, dbMeasurementMap, dbLinksMap, dbNamesSet, dbNamesList } = useMemo(() => {
     const notes = new Map();
@@ -593,12 +626,21 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user, ingredien
       </button>
 
       <div className={styles.topRow}>
-          <input
-            className={`${styles.inlineInput} ${styles.titleInput}`}
-            type="text"
-            value={fields.title}
-            onChange={e => setField('title', e.target.value)}
-          />
+          <div className={styles.titleRow}>
+            <input
+              className={`${styles.inlineInput} ${styles.titleInput}`}
+              type="text"
+              value={fields.title}
+              onChange={e => setField('title', e.target.value)}
+            />
+            <span className={styles.lastPrepBadge}>
+              {daysSinceLastPrepped === 0
+                ? 'Prepped today'
+                : daysSinceLastPrepped != null
+                  ? `${daysSinceLastPrepped}d since last prepped`
+                  : 'Never prepped'}
+            </span>
+          </div>
 
           <div className={styles.metaRow}>
             <label className={styles.metaLabel}>

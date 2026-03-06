@@ -6,6 +6,8 @@ import {
   searchByEmail,
   sendFriendRequest,
   getPendingRequests,
+  getSentRequests,
+  cancelFriendRequest,
   acceptFriendRequest,
   declineFriendRequest,
   removeFriend,
@@ -33,6 +35,7 @@ export function FriendsPage({ onClose, addRecipe }) {
   const [searchStatus, setSearchStatus] = useState(null);
 
   const [requests, setRequests] = useState([]);
+  const [sentRequests, setSentRequests] = useState([]);
   const [friends, setFriends] = useState([]);
   const [sharedRecipes, setSharedRecipes] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -41,14 +44,16 @@ export function FriendsPage({ onClose, addRecipe }) {
   const refresh = useCallback(async () => {
     if (!uid) return;
     try {
-      const [name, reqs, frs, shared] = await Promise.all([
+      const [name, reqs, sent, frs, shared] = await Promise.all([
         getUsername(uid),
         getPendingRequests(uid),
+        getSentRequests(uid),
         loadFriends(uid),
         getPendingSharedRecipes(uid),
       ]);
       setMyUsername(name);
       setRequests(reqs);
+      setSentRequests(sent);
       setFriends(frs);
       setSharedRecipes(shared);
     } catch (err) {
@@ -107,8 +112,20 @@ export function FriendsPage({ onClose, addRecipe }) {
       await sendFriendRequest(uid, toUid, myUsername);
       setSearchStatus({ type: 'success', msg: 'Friend request sent!' });
       setSearchResult(null);
+      // Refresh sent requests list
+      getSentRequests(uid).then(setSentRequests).catch(() => {});
     } catch {
       setSearchStatus({ type: 'error', msg: 'Failed to send request.' });
+    }
+  }
+
+  /* ── Cancel sent request ── */
+  async function handleCancelRequest(reqId) {
+    try {
+      await cancelFriendRequest(reqId);
+      setSentRequests(prev => prev.filter(r => r.id !== reqId));
+    } catch (err) {
+      console.error('Cancel request error:', err);
     }
   }
 
@@ -271,6 +288,26 @@ export function FriendsPage({ onClose, addRecipe }) {
           ))
         )}
       </div>
+
+      {/* ── Sent Requests ── */}
+      {sentRequests.length > 0 && (
+        <div className={styles.section}>
+          <h3 className={styles.sectionTitle}>Sent Requests</h3>
+          {sentRequests.map(req => (
+            <div key={req.id} className={styles.requestRow}>
+              <div className={styles.friendInfo}>
+                <span className={styles.friendUsername}>
+                  {req.toUsername ? `@${req.toUsername}` : req.toDisplayName || 'Unknown user'}
+                </span>
+                <span className={styles.sentLabel}>Pending</span>
+              </div>
+              <button className={styles.dangerBtn} onClick={() => handleCancelRequest(req.id)}>
+                Cancel
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* ── Shared Recipes ── */}
       <div className={styles.section}>

@@ -3,6 +3,7 @@ import { RecipeCard } from './RecipeCard';
 import { loadStarterRecipes } from '../utils/starterRecipes';
 import { getUserKeyIngredients, normalize, recipeHasIngredient } from '../utils/keyIngredients';
 import { exportToCSV, importFromCSV } from '../utils/exportData';
+import { locationToRegion, getSeasonalIngredients, getRecipeSeasonalIngredients } from '../utils/seasonal';
 import { useAuth } from '../contexts/AuthContext';
 import { loadUserData, saveField } from '../utils/firestoreSync';
 import styles from './RecipeList.module.css';
@@ -35,6 +36,48 @@ const CATEGORIES = [
 
 const MAIN_CATS = CATEGORIES.filter(c => c.key === 'breakfast');
 const SIDE_CATS = CATEGORIES.filter(c => c.key === 'snacks' || c.key === 'desserts' || c.key === 'drinks');
+
+function ShopPreview({ shopItems, onClear }) {
+  const [showMeals, setShowMeals] = useState(false);
+  return (
+    <div className={styles.shopBox}>
+      <div className={styles.shopHeader}>
+        <h3 className={styles.shopHeading}>Shopping List</h3>
+        <div className={styles.shopActions}>
+          <button
+            className={`${styles.shopToggleBtn}${showMeals ? ` ${styles.shopToggleBtnActive}` : ''}`}
+            onClick={() => setShowMeals(v => !v)}
+          >
+            {showMeals ? 'Hide Meals' : 'Show Meals'}
+          </button>
+          <button className={styles.clearBtn} onClick={onClear}>Clear</button>
+        </div>
+      </div>
+      <table className={styles.shopTable}>
+        <thead>
+          <tr>
+            <th>Qty</th>
+            <th>Measure</th>
+            <th>Ingredient</th>
+            {showMeals && <th>Used In</th>}
+          </tr>
+        </thead>
+        <tbody>
+          {shopItems.map((item, i) => (
+            <tr key={i}>
+              <td>{formatQty(item.quantity)}</td>
+              <td>{item.measurement}</td>
+              <td>{item.ingredient}</td>
+              {showMeals && (
+                <td className={styles.shopMealCell}>{item.recipes.join(', ')}</td>
+              )}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
 
 export function RecipeList({
   recipes,
@@ -219,6 +262,48 @@ export function RecipeList({
     .map(id => getRecipe(id))
     .filter(Boolean);
 
+  // Build map: recipeId → days since last eaten (from plan history + daily tracker)
+  const lastEatenMap = useMemo(() => {
+    const map = {};
+    // Plan history
+    let history;
+    try {
+      const data = localStorage.getItem(HISTORY_KEY);
+      history = data ? JSON.parse(data) : [];
+    } catch { history = []; }
+    const byRecent = [...history].sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+    for (const entry of byRecent) {
+      for (const rid of entry.recipeIds) {
+        if (!map[rid]) map[rid] = entry.date;
+      }
+    }
+    // Daily tracker (may have more recent dates)
+    let dailyLog;
+    try {
+      const data = localStorage.getItem('sunday-daily-log');
+      dailyLog = data ? JSON.parse(data) : {};
+    } catch { dailyLog = {}; }
+    for (const [dateStr, dayData] of Object.entries(dailyLog)) {
+      for (const entry of (dayData.entries || [])) {
+        if (entry.type === 'recipe' && entry.recipeId) {
+          const existing = map[entry.recipeId];
+          if (!existing || dateStr > existing) {
+            map[entry.recipeId] = dateStr;
+          }
+        }
+      }
+    }
+    // Convert dates to days-since
+    const result = {};
+    const now = new Date();
+    now.setHours(0, 0, 0, 0);
+    for (const [rid, dateStr] of Object.entries(map)) {
+      const then = new Date(dateStr + 'T00:00:00');
+      result[rid] = Math.round((now - then) / (1000 * 60 * 60 * 24));
+    }
+    return result;
+  }, [weeklyPlan, recipes]);
+
   // Aggregated shopping list from selected recipes
   const shopItems = useMemo(() => {
     const selected = weeklyRecipes.filter(r => shopSelection.has(r.id));
@@ -235,12 +320,15 @@ export function RecipeList({
         const key = `${name}|||${meas}`;
         const qty = (parseFloat(ing.quantity) || 0) * scale;
         if (map.has(key)) {
-          map.get(key).quantity += qty;
+          const entry = map.get(key);
+          entry.quantity += qty;
+          if (!entry.recipes.includes(recipe.title)) entry.recipes.push(recipe.title);
         } else {
           map.set(key, {
             ingredient: ing.ingredient.trim(),
             measurement: ing.measurement || '',
             quantity: qty,
+            recipes: [recipe.title],
           });
         }
       }
@@ -360,6 +448,15 @@ export function RecipeList({
       history = [];
     }
 
+    // Also read daily tracker log for more granular "last eaten" data
+    let dailyLog;
+    try {
+      const data = localStorage.getItem('sunday-daily-log');
+      dailyLog = data ? JSON.parse(data) : {};
+    } catch {
+      dailyLog = {};
+    }
+
     // Apply same filters as the recipe list
     let filtered = freqFilter === 'all'
       ? recipes
@@ -375,7 +472,7 @@ export function RecipeList({
       (a, b) => new Date(b.timestamp) - new Date(a.timestamp)
     );
 
-    // Build map: recipeId → most recent date it was cooked
+    // Build map: recipeId → most recent date it was cooked (from plan history)
     const lastCookedMap = {};
     for (const entry of byRecent) {
       for (const rid of entry.recipeIds) {
@@ -383,9 +480,23 @@ export function RecipeList({
       }
     }
 
+    // Also check daily tracker entries for more recent "last eaten" dates
+    for (const [dateStr, dayData] of Object.entries(dailyLog)) {
+      for (const entry of (dayData.entries || [])) {
+        if (entry.type === 'recipe' && entry.recipeId) {
+          const existing = lastCookedMap[entry.recipeId];
+          if (!existing || dateStr > existing) {
+            lastCookedMap[entry.recipeId] = dateStr;
+          }
+        }
+      }
+    }
+
     // Build map: normalized key ingredient → most recent date it was eaten
     const userIngredients = getUserKeyIngredients();
     const ingredientDateMap = {};
+
+    // From plan history
     for (const keyIng of userIngredients) {
       const normKey = normalize(keyIng);
       for (const entry of byRecent) {
@@ -400,12 +511,42 @@ export function RecipeList({
       }
     }
 
+    // From daily tracker (may have more recent dates)
+    for (const [dateStr, dayData] of Object.entries(dailyLog)) {
+      for (const entry of (dayData.entries || [])) {
+        if (entry.type === 'recipe' && entry.recipeId) {
+          const recipe = getRecipe(entry.recipeId);
+          if (!recipe) continue;
+          for (const keyIng of userIngredients) {
+            const normKey = normalize(keyIng);
+            if (recipeHasIngredient(recipe, normKey)) {
+              const existing = ingredientDateMap[normKey];
+              if (!existing || dateStr > existing) {
+                ingredientDateMap[normKey] = dateStr;
+              }
+            }
+          }
+        }
+      }
+    }
+
     function daysSince(dateStr) {
       const then = new Date(dateStr + 'T00:00:00');
       const now = new Date();
       now.setHours(0, 0, 0, 0);
       return Math.round((now - then) / (1000 * 60 * 60 * 24));
     }
+
+    // Seasonal ingredients for the user's region
+    let seasonalSet = new Set();
+    try {
+      const loc = localStorage.getItem('sunday-user-location');
+      const region = locationToRegion(loc);
+      if (region) {
+        const currentMonth = new Date().getMonth() + 1;
+        seasonalSet = getSeasonalIngredients(region, currentMonth);
+      }
+    } catch {}
 
     const scored = candidates.map(recipe => {
       const lastCooked = lastCookedMap[recipe.id];
@@ -427,7 +568,11 @@ export function RecipeList({
         }
       }
 
-      const totalScore = recipeDays + ingredientScore;
+      // Seasonal boost: find in-season ingredients and add bonus
+      const seasonalMatches = getRecipeSeasonalIngredients(recipe, seasonalSet);
+      const seasonalBonus = seasonalMatches.length * 50;
+
+      const totalScore = recipeDays + ingredientScore + seasonalBonus;
 
       // Build reason text
       const parts = [];
@@ -438,7 +583,7 @@ export function RecipeList({
       }
       const reason = parts.join(' · ') || 'good variety pick';
 
-      return { recipe, totalScore, reason, recipeDays, neglectedIngredients };
+      return { recipe, totalScore, reason, recipeDays, neglectedIngredients, seasonalMatches };
     });
 
     scored.sort((a, b) => b.totalScore - a.totalScore);
@@ -511,6 +656,15 @@ export function RecipeList({
                         >
                           {recipe.title}
                         </button>
+                        <span className={styles.weekItemMeta}>
+                          {lastEatenMap[recipe.id] != null ? (
+                            <span className={styles.lastEaten}>
+                              {lastEatenMap[recipe.id] === 0 ? 'Today' : `${lastEatenMap[recipe.id]}d ago`}
+                            </span>
+                          ) : (
+                            <span className={styles.lastEatenNever}>Never</span>
+                          )}
+                        </span>
                         <span className={styles.weekItemServingsControl}>
                           <button
                             className={styles.weekServingBtn}
@@ -599,11 +753,12 @@ export function RecipeList({
                       <th>Meal</th>
                       <th>Days Since</th>
                       <th>Overdue Ingredients</th>
+                      <th>Seasonal</th>
                       <th></th>
                     </tr>
                   </thead>
                   <tbody>
-                    {suggestions.breakfasts.map(({ recipe, recipeDays, neglectedIngredients }) => (
+                    {suggestions.breakfasts.map(({ recipe, recipeDays, neglectedIngredients, seasonalMatches }) => (
                       <tr key={recipe.id}>
                         <td>
                           <button
@@ -619,6 +774,11 @@ export function RecipeList({
                         <td className={styles.suggestOverdue}>
                           {neglectedIngredients.length > 0
                             ? neglectedIngredients.slice(0, 3).join(', ')
+                            : '—'}
+                        </td>
+                        <td className={styles.suggestSeasonal}>
+                          {seasonalMatches.length > 0
+                            ? seasonalMatches.slice(0, 3).join(', ')
                             : '—'}
                         </td>
                         <td>
@@ -645,11 +805,12 @@ export function RecipeList({
                       <th>Meal</th>
                       <th>Days Since</th>
                       <th>Overdue Ingredients</th>
+                      <th>Seasonal</th>
                       <th></th>
                     </tr>
                   </thead>
                   <tbody>
-                    {suggestions.lunches.map(({ recipe, recipeDays, neglectedIngredients }) => (
+                    {suggestions.lunches.map(({ recipe, recipeDays, neglectedIngredients, seasonalMatches }) => (
                       <tr key={recipe.id}>
                         <td>
                           <button
@@ -665,6 +826,11 @@ export function RecipeList({
                         <td className={styles.suggestOverdue}>
                           {neglectedIngredients.length > 0
                             ? neglectedIngredients.slice(0, 3).join(', ')
+                            : '—'}
+                        </td>
+                        <td className={styles.suggestSeasonal}>
+                          {seasonalMatches.length > 0
+                            ? seasonalMatches.slice(0, 3).join(', ')
                             : '—'}
                         </td>
                         <td>
@@ -828,39 +994,14 @@ export function RecipeList({
 
       {/* Shopping List (from + selections) */}
       {shopItems.length > 0 && (
-        <div className={styles.shopBox}>
-          <div className={styles.shopHeader}>
-            <h3 className={styles.shopHeading}>Shopping List</h3>
-            <button
-              className={styles.clearBtn}
-              onClick={() => {
-                setShopSelection(new Set());
-                try { localStorage.setItem(SHOP_KEY, JSON.stringify([])); } catch {}
-                if (user) saveField(user.uid, 'shoppingSelection', []);
-              }}
-            >
-              Clear
-            </button>
-          </div>
-          <table className={styles.shopTable}>
-            <thead>
-              <tr>
-                <th>Qty</th>
-                <th>Measure</th>
-                <th>Ingredient</th>
-              </tr>
-            </thead>
-            <tbody>
-              {shopItems.map((item, i) => (
-                <tr key={i}>
-                  <td>{formatQty(item.quantity)}</td>
-                  <td>{item.measurement}</td>
-                  <td>{item.ingredient}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <ShopPreview
+          shopItems={shopItems}
+          onClear={() => {
+            setShopSelection(new Set());
+            try { localStorage.setItem(SHOP_KEY, JSON.stringify([])); } catch {}
+            if (user) saveField(user.uid, 'shoppingSelection', []);
+          }}
+        />
       )}
 
       {/* 5. Recipe Category Columns */}

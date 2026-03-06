@@ -97,6 +97,96 @@ function instagramCaptionProxy() {
   };
 }
 
+// Dev-only middleware: proxies USDA Branded food search for restaurant import
+function restaurantSearchProxy() {
+  return {
+    name: 'restaurant-search-proxy',
+    configureServer(server) {
+      server.middlewares.use('/api/restaurant-search', async (req, res) => {
+        const params = new URL(req.url, 'http://localhost').searchParams;
+        const query = params.get('query');
+        const type = params.get('type');
+        const fdcId = params.get('fdcId');
+        const apiKey = process.env.VITE_USDA_API_KEY || 'DEMO_KEY';
+
+        const NUTRIENT_IDS = {
+          calories: 1008, protein: 1003, carbs: 1005, fat: 1004,
+          saturatedFat: 1258, sugar: 2000, fiber: 1079, sodium: 1093,
+          potassium: 1092, calcium: 1087, iron: 1089, magnesium: 1090,
+          zinc: 1095, vitaminB12: 1178, vitaminC: 1162, cholesterol: 1253,
+        };
+
+        function extractNutrient(nutrients, nid) {
+          const m = nutrients.find(fn => (fn.nutrientId || fn.nutrient?.id) === nid);
+          return m ? (m.value ?? m.amount ?? null) : null;
+        }
+
+        try {
+          if (type === 'nutrients' && fdcId) {
+            const url = `https://api.nal.usda.gov/fdc/v1/food/${fdcId}?api_key=${apiKey}`;
+            const response = await fetch(url);
+            if (!response.ok) {
+              res.writeHead(response.status, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ error: `USDA API error: ${response.status}` }));
+              return;
+            }
+            const food = await response.json();
+            const foodNutrients = food.foodNutrients || [];
+            const nutrients = {};
+            for (const [key, nid] of Object.entries(NUTRIENT_IDS)) {
+              const val = extractNutrient(foodNutrients, nid);
+              nutrients[key] = val != null ? Math.round(val * 100) / 100 : 0;
+            }
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({
+              name: food.description,
+              brandName: food.brandName || food.brandOwner || '',
+              servingSize: food.servingSize ? `${food.servingSize}${food.servingSizeUnit || 'g'}` : '',
+              servingDescription: food.householdServingFullText || '',
+              nutrients,
+            }));
+            return;
+          }
+
+          if (!query || !query.trim()) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'Missing query parameter' }));
+            return;
+          }
+
+          const url = `https://api.nal.usda.gov/fdc/v1/foods/search?api_key=${apiKey}&query=${encodeURIComponent(query.trim())}&dataType=Branded&pageSize=20`;
+          const response = await fetch(url);
+          if (!response.ok) {
+            res.writeHead(response.status, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: `USDA API error: ${response.status}` }));
+            return;
+          }
+          const data = await response.json();
+          const results = (data.foods || []).map(food => {
+            const calories = extractNutrient(food.foodNutrients || [], 1008);
+            const protein = extractNutrient(food.foodNutrients || [], 1003);
+            return {
+              fdcId: food.fdcId,
+              name: food.description,
+              brandName: food.brandName || food.brandOwner || '',
+              servingSize: food.servingSize,
+              servingSizeUnit: food.servingSizeUnit || 'g',
+              householdServing: food.householdServingFullText || '',
+              calories: calories != null ? Math.round(calories) : null,
+              protein: protein != null ? Math.round(protein) : null,
+            };
+          });
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ results }));
+        } catch (err) {
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: err.message }));
+        }
+      });
+    },
+  };
+}
+
 // https://vite.dev/config/
 export default defineConfig({
   server: {
@@ -112,6 +202,7 @@ export default defineConfig({
     react(),
     fetchUrlProxy(),
     instagramCaptionProxy(),
+    restaurantSearchProxy(),
     VitePWA({
       registerType: 'autoUpdate',
       manifest: {

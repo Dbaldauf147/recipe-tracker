@@ -67,7 +67,7 @@ function loadWeeklyServings() {
  * Authenticated app content — rendered with key={user.uid} so it
  * remounts when the user changes, re-initializing all useState from localStorage.
  */
-function AppContent({ user, logOut, isNewUser, restartOnboarding }) {
+function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal, onCloseGoalsModal, onCompleteGoals }) {
   const { recipes, addRecipe, updateRecipe, deleteRecipe, getRecipe, importRecipes } =
     useRecipes();
 
@@ -442,6 +442,7 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding }) {
             weeklyRecipes={weeklyPlan.map(id => getRecipe(id)).filter(Boolean)}
             weeklyServings={weeklyServings}
             onClose={goBack}
+            onSaveToHistory={handleSaveToHistory}
           />
         ) : view === 'setup' ? (
           <OnboardingPage
@@ -519,6 +520,18 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding }) {
 
 
       </main>
+
+      {showGoalsModal && (
+        <GoalsPage
+          asModal
+          onComplete={(goals) => {
+            onCompleteGoals(goals);
+            onCloseGoalsModal();
+          }}
+          onSkip={onCloseGoalsModal}
+          onBack={onCloseGoalsModal}
+        />
+      )}
     </div>
   );
 }
@@ -552,7 +565,23 @@ function App() {
   const onboardingBack = hasCompletedOnboarding ? cancelOnboarding : logOut;
 
   if (currentOnboardingStep === 'goals') {
-    return <GoalsPage onComplete={completeGoals} onSkip={hasCompletedOnboarding ? cancelOnboarding : skipGoals} onBack={onboardingBack} />;
+    const goalsSkip = hasCompletedOnboarding ? cancelOnboarding : skipGoals;
+    const goalsBack = hasCompletedOnboarding ? cancelOnboarding : logOut;
+    return (
+      <ErrorBoundary>
+        <AppContent
+          key={user?.uid || 'guest'}
+          user={user}
+          logOut={logOut}
+          isNewUser={false}
+          restartOnboarding={restartOnboarding}
+          showGoalsModal={false}
+          onCloseGoalsModal={cancelOnboarding}
+          onCompleteGoals={completeGoals}
+        />
+        <GoalsPage asModal onComplete={completeGoals} onSkip={goalsSkip} onBack={goalsBack} />
+      </ErrorBoundary>
+    );
   }
 
   if (currentOnboardingStep === 'nutrition-goals') {
@@ -571,7 +600,16 @@ function App() {
   // so all useState initializers re-read from freshly-hydrated localStorage
   return (
     <ErrorBoundary>
-      <AppContent key={user?.uid || 'guest'} user={user} logOut={logOut} isNewUser={justOnboarded} restartOnboarding={restartOnboarding} />
+      <AppContent
+        key={user?.uid || 'guest'}
+        user={user}
+        logOut={logOut}
+        isNewUser={justOnboarded}
+        restartOnboarding={restartOnboarding}
+        showGoalsModal={hasCompletedOnboarding && currentOnboardingStep === 'goals'}
+        onCloseGoalsModal={cancelOnboarding}
+        onCompleteGoals={completeGoals}
+      />
     </ErrorBoundary>
   );
 }

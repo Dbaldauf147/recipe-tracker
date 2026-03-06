@@ -220,6 +220,40 @@ export async function getPendingRequests(uid) {
 }
 
 /**
+ * Get all pending friend requests sent by a user (outgoing).
+ */
+export async function getSentRequests(uid) {
+  const q = query(
+    collection(db, 'friendRequests'),
+    where('from', '==', uid),
+    where('status', '==', 'pending'),
+  );
+  const snap = await getDocs(q);
+  const results = [];
+  for (const d of snap.docs) {
+    const data = d.data();
+    let toUsername = null;
+    let toDisplayName = null;
+    try {
+      const userSnap = await getDoc(doc(db, 'users', data.to));
+      if (userSnap.exists()) {
+        toUsername = userSnap.data().username || null;
+        toDisplayName = userSnap.data().displayName || null;
+      }
+    } catch {}
+    results.push({ id: d.id, ...data, toUsername, toDisplayName });
+  }
+  return results;
+}
+
+/**
+ * Cancel a sent friend request by deleting it.
+ */
+export async function cancelFriendRequest(requestId) {
+  await deleteDoc(doc(db, 'friendRequests', requestId));
+}
+
+/**
  * Accept a friend request: delete the request doc and add each uid to the other's friends array.
  */
 export async function acceptFriendRequest(requestId, fromUid, toUid) {
