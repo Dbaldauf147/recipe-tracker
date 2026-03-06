@@ -1,5 +1,8 @@
 .container {
   max-width: 100%;
+  display: flex;
+  flex-direction: column;
+  height: calc(100vh - 80px);
 }
 
 .header {
@@ -7,6 +10,7 @@
   align-items: baseline;
   gap: 1rem;
   margin-bottom: 1rem;
+  flex-shrink: 0;
 }
 
 .backBtn {
@@ -41,6 +45,7 @@
   align-items: center;
   gap: 1rem;
   margin-bottom: 1rem;
+  flex-shrink: 0;
 }
 
 .search {
@@ -71,9 +76,9 @@
 }
 
 .tableWrap {
+  flex: 1;
   overflow-x: auto;
   overflow-y: auto;
-  max-height: 75vh;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
   background: var(--color-surface);
