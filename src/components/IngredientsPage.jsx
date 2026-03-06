@@ -77,8 +77,8 @@ const MANUAL_FIELDS = [
   { key: 'notes', label: 'Notes', type: 'text' },
 ];
 
-function ManualAddModal({ onAdd, onClose }) {
-  const [values, setValues] = useState({});
+function ManualAddModal({ onAdd, onClose, initialValues, title }) {
+  const [values, setValues] = useState(initialValues || {});
 
   function handleChange(key, val) {
     setValues(prev => ({ ...prev, [key]: val }));
@@ -104,7 +104,7 @@ function ManualAddModal({ onAdd, onClose }) {
     <div className={styles.modalOverlay} onClick={onClose}>
       <div className={styles.addModal} onClick={e => e.stopPropagation()} style={{ maxWidth: 480 }}>
         <div className={styles.modalHeader}>
-          <h3>Manual Entry</h3>
+          <h3>{title || 'Manual Entry'}</h3>
           <button className={styles.modalCloseBtn} onClick={onClose}>&times;</button>
         </div>
         <form className={styles.modalBody} onSubmit={handleSubmit}>
@@ -157,7 +157,7 @@ export function IngredientsPage({ onClose, user }) {
   const [dragOver, setDragOver] = useState(false);
   const [modalLoading, setModalLoading] = useState(false);
   const [modalError, setModalError] = useState(null);
-  const [successMsg, setSuccessMsg] = useState(null);
+  const [reviewData, setReviewData] = useState(null);
   // Photo flow
   const [photoPreviewUrl, setPhotoPreviewUrl] = useState(null);
   const [photoBase64, setPhotoBase64] = useState(null);
@@ -341,9 +341,8 @@ export function IngredientsPage({ onClose, user }) {
       const fib = parseFloat(data.fiber) || 0;
       if (!data.proteinPerCal && cal > 0) data.proteinPerCal = fmtVal(prot / cal);
       if (!data.fiberPerCal && cal > 0) data.fiberPerCal = fmtVal(fib / cal);
-      addFilledRow(data);
-      const name = data.ingredient || 'Ingredient';
-      setSuccessMsg(name);
+      setReviewData(data);
+      setShowPhotoUpload(false);
       setPhotoPreviewUrl(null);
       setPhotoBase64(null);
     } catch (err) {
@@ -470,9 +469,8 @@ export function IngredientsPage({ onClose, user }) {
       const fib = parseFloat(data.fiber) || 0;
       if (!data.proteinPerCal && cal > 0) data.proteinPerCal = fmtVal(prot / cal);
       if (!data.fiberPerCal && cal > 0) data.fiberPerCal = fmtVal(fib / cal);
-      addFilledRow(data);
-      const name = data.ingredient || 'Ingredient';
-      setSuccessMsg(name);
+      setReviewData(data);
+      setShowScreenshotDrop(false);
       setScreenshotPreview(null);
       setScreenshotBase64(null);
     } catch (err) {
@@ -501,11 +499,12 @@ export function IngredientsPage({ onClose, user }) {
       if (data.error) throw new Error(data.error);
       const items = Array.isArray(data) ? data : [data];
       if (items.length === 0) throw new Error('No nutrition data found');
-      for (const item of items) {
-        addFilledRow(item);
+      // If multiple items, add all but the last directly; show last for review
+      for (let i = 0; i < items.length - 1; i++) {
+        addFilledRow(items[i]);
       }
-      const names = items.map(i => i.ingredient || 'Ingredient').join(', ');
-      setSuccessMsg(names);
+      setReviewData(items[items.length - 1]);
+      setShowTextPaste(false);
       setPastedText('');
     } catch (err) {
       setModalError(err.message || 'Failed to look up nutrition data.');
@@ -604,13 +603,13 @@ export function IngredientsPage({ onClose, user }) {
                 <button className={styles.addMenuItem} onClick={() => { setShowAddMenu(false); setShowBarcodeScanner(true); }}>
                   <span className={styles.addMenuIcon}>&#128247;</span> Scan barcode
                 </button>
-                <button className={styles.addMenuItem} onClick={() => { setShowAddMenu(false); setShowPhotoUpload(true); setModalError(null); setSuccessMsg(null); }}>
+                <button className={styles.addMenuItem} onClick={() => { setShowAddMenu(false); setShowPhotoUpload(true); setModalError(null); }}>
                   <span className={styles.addMenuIcon}>&#128248;</span> Photo nutrition label
                 </button>
-                <button className={styles.addMenuItem} onClick={() => { setShowAddMenu(false); setShowScreenshotDrop(true); setModalError(null); setSuccessMsg(null); setScreenshotPreview(null); setScreenshotBase64(null); }}>
+                <button className={styles.addMenuItem} onClick={() => { setShowAddMenu(false); setShowScreenshotDrop(true); setModalError(null); setScreenshotPreview(null); setScreenshotBase64(null); }}>
                   <span className={styles.addMenuIcon}>&#128203;</span> Drop/paste screenshot
                 </button>
-                <button className={styles.addMenuItem} onClick={() => { setShowAddMenu(false); setShowTextPaste(true); setPastedText(''); setModalError(null); setSuccessMsg(null); }}>
+                <button className={styles.addMenuItem} onClick={() => { setShowAddMenu(false); setShowTextPaste(true); setPastedText(''); setModalError(null); }}>
                   <span className={styles.addMenuIcon}>&#128221;</span> Paste text
                 </button>
                 <button className={styles.addMenuItem} onClick={() => { setShowAddMenu(false); setShowUSDASearch(true); setModalError(null); setUsdaResults([]); setUsdaQuery(''); }}>
@@ -740,25 +739,14 @@ export function IngredientsPage({ onClose, user }) {
 
       {/* Photo upload modal */}
       {showPhotoUpload && (
-        <div className={styles.modalOverlay} onClick={() => { setShowPhotoUpload(false); setPhotoPreviewUrl(null); setPhotoBase64(null); setModalError(null); setSuccessMsg(null); }}>
+        <div className={styles.modalOverlay} onClick={() => { setShowPhotoUpload(false); setPhotoPreviewUrl(null); setPhotoBase64(null); setModalError(null); }}>
           <div className={styles.addModal} onClick={e => e.stopPropagation()}>
             <div className={styles.modalHeader}>
               <h3>Photo Nutrition Label</h3>
-              <button className={styles.modalCloseBtn} onClick={() => { setShowPhotoUpload(false); setPhotoPreviewUrl(null); setPhotoBase64(null); setModalError(null); setSuccessMsg(null); }}>&times;</button>
+              <button className={styles.modalCloseBtn} onClick={() => { setShowPhotoUpload(false); setPhotoPreviewUrl(null); setPhotoBase64(null); setModalError(null); }}>&times;</button>
             </div>
             <div className={styles.modalBody}>
-              {successMsg ? (
-                <div className={styles.successState}>
-                  <p className={styles.successText}>Ingredient added!</p>
-                  <p className={styles.successName}>{successMsg}</p>
-                  <button
-                    className={styles.photoSubmitBtn}
-                    onClick={() => { setShowPhotoUpload(false); setSuccessMsg(null); }}
-                  >
-                    Done
-                  </button>
-                </div>
-              ) : !photoPreviewUrl ? (
+              {!photoPreviewUrl ? (
                 <div className={styles.photoDropzone} onClick={() => photoInputRef.current?.click()}>
                   <p>Tap to take a photo or choose an image</p>
                   <input
@@ -790,27 +778,14 @@ export function IngredientsPage({ onClose, user }) {
 
       {/* Text paste modal */}
       {showTextPaste && (
-        <div className={styles.modalOverlay} onClick={() => { setShowTextPaste(false); setPastedText(''); setModalError(null); setSuccessMsg(null); }}>
+        <div className={styles.modalOverlay} onClick={() => { setShowTextPaste(false); setPastedText(''); setModalError(null); }}>
           <div className={styles.addModal} onClick={e => e.stopPropagation()} style={{ maxWidth: 520 }}>
             <div className={styles.modalHeader}>
               <h3>Paste Nutrition Text</h3>
-              <button className={styles.modalCloseBtn} onClick={() => { setShowTextPaste(false); setPastedText(''); setModalError(null); setSuccessMsg(null); }}>&times;</button>
+              <button className={styles.modalCloseBtn} onClick={() => { setShowTextPaste(false); setPastedText(''); setModalError(null); }}>&times;</button>
             </div>
             <div className={styles.modalBody}>
-              {successMsg ? (
-                <div className={styles.successState}>
-                  <p className={styles.successText}>Ingredient added!</p>
-                  <p className={styles.successName}>{successMsg}</p>
-                  <button
-                    className={styles.photoSubmitBtn}
-                    onClick={() => { setShowTextPaste(false); setSuccessMsg(null); }}
-                  >
-                    Done
-                  </button>
-                </div>
-              ) : (
-                <>
-                  <p className={styles.textPasteHint}>Type ingredient names (one per line) with optional portions. Data is sourced from USDA FoodData Central with estimated amino acids.</p>
+              <p className={styles.textPasteHint}>Type ingredient names (one per line) with optional portions. Data is sourced from USDA FoodData Central with estimated amino acids.</p>
                   <textarea
                     className={styles.textPasteArea}
                     value={pastedText}
@@ -827,8 +802,6 @@ export function IngredientsPage({ onClose, user }) {
                     {modalLoading ? 'Analyzing...' : 'Extract Nutrition Data'}
                   </button>
                   {modalError && <p className={styles.modalError}>{modalError}</p>}
-                </>
-              )}
             </div>
           </div>
         </div>
@@ -842,27 +815,26 @@ export function IngredientsPage({ onClose, user }) {
         />
       )}
 
+      {/* Review parsed ingredient modal */}
+      {reviewData && (
+        <ManualAddModal
+          title="Review Ingredient"
+          initialValues={reviewData}
+          onAdd={(data) => { addFilledRow(data); setReviewData(null); }}
+          onClose={() => setReviewData(null)}
+        />
+      )}
+
       {/* Screenshot drop/paste modal */}
       {showScreenshotDrop && (
-        <div className={styles.modalOverlay} onClick={() => { setShowScreenshotDrop(false); setScreenshotPreview(null); setScreenshotBase64(null); setModalError(null); setSuccessMsg(null); }}>
+        <div className={styles.modalOverlay} onClick={() => { setShowScreenshotDrop(false); setScreenshotPreview(null); setScreenshotBase64(null); setModalError(null); }}>
           <div className={styles.addModal} onClick={e => e.stopPropagation()} onPaste={handleScreenshotPaste}>
             <div className={styles.modalHeader}>
               <h3>Drop or Paste Screenshot</h3>
-              <button className={styles.modalCloseBtn} onClick={() => { setShowScreenshotDrop(false); setScreenshotPreview(null); setScreenshotBase64(null); setModalError(null); setSuccessMsg(null); }}>&times;</button>
+              <button className={styles.modalCloseBtn} onClick={() => { setShowScreenshotDrop(false); setScreenshotPreview(null); setScreenshotBase64(null); setModalError(null); }}>&times;</button>
             </div>
             <div className={styles.modalBody}>
-              {successMsg ? (
-                <div className={styles.successState}>
-                  <p className={styles.successText}>Ingredient added!</p>
-                  <p className={styles.successName}>{successMsg}</p>
-                  <button
-                    className={styles.photoSubmitBtn}
-                    onClick={() => { setShowScreenshotDrop(false); setSuccessMsg(null); }}
-                  >
-                    Done
-                  </button>
-                </div>
-              ) : !screenshotPreview ? (
+              {!screenshotPreview ? (
                 <div
                   className={`${styles.dropZone} ${dragOver ? styles.dropZoneActive : ''}`}
                   onDragOver={e => { e.preventDefault(); setDragOver(true); }}

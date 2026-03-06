@@ -114,9 +114,6 @@
   transition: color 0.12s ease;
 }
 
-.table th {
-  position: relative;
-}
 
 .table th:hover {
   color: var(--color-accent);
@@ -658,22 +655,3 @@
   color: var(--color-text);
 }
 
-/* Success state inside modals */
-.successState {
-  text-align: center;
-  padding: 2rem 1rem;
-}
-
-.successText {
-  font-size: 1.1rem;
-  font-weight: 700;
-  color: var(--color-accent);
-  margin: 0 0 0.5rem;
-}
-
-.successName {
-  font-size: 0.9rem;
-  color: var(--color-text-secondary);
-  margin: 0 0 1.5rem;
-  word-break: break-word;
-}
