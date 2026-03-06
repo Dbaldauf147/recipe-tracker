@@ -9,6 +9,31 @@ import styles from './RecipeDetail.module.css';
 
 const ADMIN_UID = import.meta.env.VITE_ADMIN_UID;
 
+function parseFraction(str) {
+  if (!str) return 0;
+  const s = str.trim();
+  const mixed = s.match(/^(\d+)\s+(\d+)\/(\d+)$/);
+  if (mixed) return parseInt(mixed[1]) + parseInt(mixed[2]) / parseInt(mixed[3]);
+  const frac = s.match(/^(\d+)\/(\d+)$/);
+  if (frac) return parseInt(frac[1]) / parseInt(frac[2]);
+  const num = parseFloat(s);
+  return isNaN(num) ? 0 : num;
+}
+
+function formatQuantity(n) {
+  if (n === 0) return '';
+  if (Number.isInteger(n)) return String(n);
+  const whole = Math.floor(n);
+  const frac = n - whole;
+  const fracs = { 0.25: '1/4', 0.333: '1/3', 0.5: '1/2', 0.667: '2/3', 0.75: '3/4' };
+  for (const [dec, str] of Object.entries(fracs)) {
+    if (Math.abs(frac - parseFloat(dec)) < 0.05) {
+      return whole > 0 ? `${whole} ${str}` : str;
+    }
+  }
+  return n.toFixed(2).replace(/\.?0+$/, '');
+}
+
 const emptyRow = { quantity: '', measurement: '', ingredient: '', notes: '', topping: false };
 const ingredientFields = ['quantity', 'measurement', 'ingredient'];
 
@@ -324,11 +349,10 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user, ingredien
   const scaleFactor = baseServings > 0 ? currentServings / baseServings : 1;
 
   function scaleQuantity(qty) {
-    const num = parseFloat(qty);
-    if (isNaN(num)) return qty;
+    const num = parseFraction(qty);
+    if (num === 0) return qty;
     const scaled = num * scaleFactor;
-    // Show clean numbers: round to 2 decimals, strip trailing zeros
-    return parseFloat(scaled.toFixed(2)).toString();
+    return formatQuantity(scaled);
   }
 
   function setField(key, value) {
@@ -802,9 +826,9 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user, ingredien
                         ...prev,
                         servings: String(adjustedServings),
                         ingredients: prev.ingredients.map(row => {
-                          const num = parseFloat(row.quantity);
-                          if (isNaN(num)) return row;
-                          return { ...row, quantity: String(parseFloat((num * factor).toFixed(2))) };
+                          const num = parseFraction(row.quantity);
+                          if (num === 0) return row;
+                          return { ...row, quantity: formatQuantity(num * factor) };
                         }),
                       }));
                       setAdjustedServings(null);
