@@ -622,9 +622,62 @@
   background: var(--color-accent-hover);
 }
 
+/* ── Skip Day ── */
+
+.skipDayRow {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 0.75rem;
+}
+
+.skipDayBtn {
+  padding: 0.35rem 1rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  font-family: inherit;
+  border: 1px dashed var(--color-border);
+  border-radius: 50px;
+  background: none;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  transition: border-color 0.15s ease, color 0.15s ease;
+}
+
+.skipDayBtn:hover {
+  border-color: var(--color-text-muted);
+  color: var(--color-text);
+}
+
+.skipDayBtnActive {
+  padding: 0.35rem 1rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  font-family: inherit;
+  border: 1px solid var(--color-accent);
+  border-radius: 50px;
+  background: var(--color-accent-light);
+  color: var(--color-accent);
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.skipDayBtnActive:hover {
+  background: var(--color-accent);
+  color: #fff;
+}
+
 /* ── Meal Log ── */
 .mealSection {
   margin-bottom: 1.25rem;
+}
+
+.mealHeaderRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 0 0 0.5rem;
+  padding-bottom: 0.3rem;
+  border-bottom: 1px solid var(--color-border);
 }
 
 .mealHeader {
@@ -633,9 +686,57 @@
   text-transform: uppercase;
   letter-spacing: 0.04em;
   color: var(--color-accent);
-  margin: 0 0 0.5rem;
-  padding-bottom: 0.3rem;
-  border-bottom: 1px solid var(--color-border);
+  margin: 0;
+}
+
+.skipBtn {
+  padding: 0.2rem 0.6rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  font-family: inherit;
+  border: 1px dashed var(--color-border);
+  border-radius: 50px;
+  background: none;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  transition: border-color 0.15s ease, color 0.15s ease;
+}
+
+.skipBtn:hover {
+  border-color: var(--color-text-muted);
+  color: var(--color-text);
+}
+
+.skipBtnActive {
+  padding: 0.2rem 0.6rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  font-family: inherit;
+  border: 1px solid var(--color-accent);
+  border-radius: 50px;
+  background: var(--color-accent-light);
+  color: var(--color-accent);
+  cursor: pointer;
+}
+
+.skipBtnActive:hover {
+  background: var(--color-accent);
+  color: #fff;
+}
+
+.skippedNote {
+  font-size: 0.82rem;
+  color: var(--color-text-muted);
+  font-style: italic;
+  padding: 0.4rem 0;
+}
+
+.skippedDayBanner {
+  text-align: center;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  padding: 1rem 0;
 }
 
 .entryRow {

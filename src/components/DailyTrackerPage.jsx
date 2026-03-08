@@ -717,11 +717,7 @@ function EntryRow({ entry, onDelete, goalKeys }) {
 }
 
 /* ── Meal Log ── */
-function MealLog({ entries, onDelete, goalKeys }) {
-  if (entries.length === 0) {
-    return <div className={styles.emptyLog}>No entries yet. Add a recipe or single item above.</div>;
-  }
-
+function MealLog({ entries, onDelete, goalKeys, skippedMeals, onToggleSkipMeal, daySkipped }) {
   const grouped = {};
   for (const slot of MEAL_SLOTS) grouped[slot] = [];
   for (const entry of entries) {
@@ -731,17 +727,41 @@ function MealLog({ entries, onDelete, goalKeys }) {
     grouped[slot].push(entry);
   }
 
+  if (daySkipped) {
+    return <div className={styles.emptyLog}>Day skipped</div>;
+  }
+
+  const hasEntries = entries.length > 0;
+  const hasSkips = skippedMeals && skippedMeals.length > 0;
+
+  if (!hasEntries && !hasSkips) {
+    return <div className={styles.emptyLog}>No entries yet. Add a recipe or single item above.</div>;
+  }
+
   return (
     <>
       {MEAL_SLOTS.map(slot => {
         const items = grouped[slot];
-        if (items.length === 0) return null;
+        const isSkipped = skippedMeals && skippedMeals.includes(slot);
+        if (items.length === 0 && !isSkipped) return null;
         return (
           <div key={slot} className={styles.mealSection}>
-            <h4 className={styles.mealHeader}>{MEAL_LABELS[slot]}</h4>
-            {items.map(entry => (
-              <EntryRow key={entry.id} entry={entry} onDelete={onDelete} goalKeys={goalKeys} />
-            ))}
+            <div className={styles.mealHeaderRow}>
+              <h4 className={styles.mealHeader}>{MEAL_LABELS[slot]}</h4>
+              <button
+                className={isSkipped ? styles.skipBtnActive : styles.skipBtn}
+                onClick={() => onToggleSkipMeal(slot)}
+              >
+                {isSkipped ? 'Skipped' : 'Skip'}
+              </button>
+            </div>
+            {isSkipped ? (
+              <div className={styles.skippedNote}>Meal skipped</div>
+            ) : (
+              items.map(entry => (
+                <EntryRow key={entry.id} entry={entry} onDelete={onDelete} goalKeys={goalKeys} />
+              ))
+            )}
           </div>
         );
       })}
@@ -750,37 +770,59 @@ function MealLog({ entries, onDelete, goalKeys }) {
 }
 
 /* ── Daily Totals Progress Bars ── */
-function DailyTotalsBar({ entries }) {
+function DailyTotalsBar({ entries, daySkipped, skippedMeals }) {
   const goals = useMemo(loadGoals, []);
 
   if (!goals) return null;
 
+  if (daySkipped) {
+    return (
+      <div className={styles.totalsCard}>
+        <h3>Daily Totals vs Goals</h3>
+        <div className={styles.skippedDayBanner}>Day Skipped</div>
+      </div>
+    );
+  }
+
+  // Filter out entries in skipped meal slots
+  const activeEntries = skippedMeals && skippedMeals.length > 0
+    ? entries.filter(e => {
+        const slot = e.type === 'custom' && !e.mealSlot ? 'snack' : (MEAL_SLOTS.includes(e.mealSlot) ? e.mealSlot : 'snack');
+        return !skippedMeals.includes(slot);
+      })
+    : entries;
+
   const totals = {};
   for (const n of NUTRIENTS) totals[n.key] = 0;
-  for (const entry of entries) {
+  for (const entry of activeEntries) {
     for (const n of NUTRIENTS) {
       totals[n.key] += entry.nutrition?.[n.key] || 0;
     }
   }
 
+  // Adjust goals proportionally for skipped meals
+  const mealCount = MEAL_SLOTS.length;
+  const skippedCount = skippedMeals ? skippedMeals.length : 0;
+  const activeFraction = skippedCount < mealCount ? (mealCount - skippedCount) / mealCount : 1;
+
   const goalRows = NUTRIENTS.filter(n => goals[n.key] > 0).map(n => {
-    const target = goals[n.key];
+    const adjustedTarget = goals[n.key] * activeFraction;
     const actual = totals[n.key];
-    const pct = Math.round((actual / target) * 100);
+    const pct = adjustedTarget > 0 ? Math.round((actual / adjustedTarget) * 100) : 0;
     let barColor;
     if (UNDER_IS_GOOD.has(n.key)) {
       barColor = pct <= 100 ? styles.progressGreen : pct <= 130 ? styles.progressYellow : styles.progressRed;
     } else {
       barColor = pct >= 100 ? styles.progressGreen : pct >= 70 ? styles.progressYellow : styles.progressRed;
     }
-    return { ...n, target, actual, pct, barColor };
+    return { ...n, target: goals[n.key], adjustedTarget, actual, pct, barColor };
   });
 
   if (goalRows.length === 0) return null;
 
   return (
     <div className={styles.totalsCard}>
-      <h3>Daily Totals vs Goals</h3>
+      <h3>Daily Totals vs Goals{skippedCount > 0 ? ` (${skippedCount} meal${skippedCount > 1 ? 's' : ''} skipped)` : ''}</h3>
       {goalRows.map(n => (
         <div key={n.key} className={styles.goalRow}>
           <span className={styles.goalLabel}>{n.label}</span>
@@ -789,7 +831,7 @@ function DailyTotalsBar({ entries }) {
           </div>
           <span className={styles.goalPct}>{n.pct}%</span>
           <span className={styles.goalValues}>
-            {Math.round(n.actual * 10) / 10}{n.unit} / {n.target}{n.unit}
+            {Math.round(n.actual * 10) / 10}{n.unit} / {Math.round(n.adjustedTarget * 10) / 10}{n.unit}
           </span>
         </div>
       ))}
@@ -821,10 +863,34 @@ function HistoryChart({ dailyLog }) {
     const data = [];
     for (let i = range - 1; i >= 0; i--) {
       const dateStr = shiftDate(today, -i);
-      const entries = dailyLog[dateStr]?.entries || [];
+      const dayData = dailyLog[dateStr] || {};
+      const entries = dayData.entries || [];
+      const daySkipped = !!dayData.daySkipped;
+      const skippedMeals = dayData.skippedMeals || [];
+
+      // Skip this day in calculations if the whole day is skipped
+      if (daySkipped) {
+        const [, m, d] = dateStr.split('-');
+        const row = { date: `${parseInt(m)}/${parseInt(d)}` };
+        for (const n of NUTRIENTS) row[n.key] = null; // null = skipped
+        data.push(row);
+        continue;
+      }
+
+      // Filter out entries in skipped meal slots
+      const activeEntries = skippedMeals.length > 0
+        ? entries.filter(e => {
+            const slot = e.type === 'custom' && !e.mealSlot ? 'snack' : (MEAL_SLOTS.includes(e.mealSlot) ? e.mealSlot : 'snack');
+            return !skippedMeals.includes(slot);
+          })
+        : entries;
+
+      const activeFraction = skippedMeals.length < MEAL_SLOTS.length
+        ? (MEAL_SLOTS.length - skippedMeals.length) / MEAL_SLOTS.length : 1;
+
       const totals = {};
       for (const n of NUTRIENTS) totals[n.key] = 0;
-      for (const entry of entries) {
+      for (const entry of activeEntries) {
         for (const n of NUTRIENTS) {
           totals[n.key] += entry.nutrition?.[n.key] || 0;
         }
@@ -832,8 +898,8 @@ function HistoryChart({ dailyLog }) {
       const [, m, d] = dateStr.split('-');
       const row = { date: `${parseInt(m)}/${parseInt(d)}` };
       for (const n of NUTRIENTS) {
-        const goal = goals[n.key];
-        row[n.key] = goal > 0 ? Math.round((totals[n.key] / goal) * 100) : 0;
+        const adjustedGoal = goals[n.key] * activeFraction;
+        row[n.key] = adjustedGoal > 0 ? Math.round((totals[n.key] / adjustedGoal) * 100) : 0;
       }
       data.push(row);
     }
@@ -921,6 +987,32 @@ export function DailyTrackerPage({ recipes, getRecipe, onClose, user, weeklyPlan
   }, []);
 
   const entries = dailyLog[date]?.entries || [];
+  const daySkipped = !!dailyLog[date]?.daySkipped;
+  const skippedMeals = dailyLog[date]?.skippedMeals || [];
+
+  function toggleSkipDay() {
+    setDailyLog(prev => {
+      const next = { ...prev };
+      if (!next[date]) next[date] = { entries: [] };
+      next[date] = { ...next[date], daySkipped: !next[date].daySkipped };
+      saveDailyLog(next, user);
+      return next;
+    });
+  }
+
+  function toggleSkipMeal(slot) {
+    setDailyLog(prev => {
+      const next = { ...prev };
+      if (!next[date]) next[date] = { entries: [] };
+      const current = next[date].skippedMeals || [];
+      const updated = current.includes(slot)
+        ? current.filter(s => s !== slot)
+        : [...current, slot];
+      next[date] = { ...next[date], skippedMeals: updated };
+      saveDailyLog(next, user);
+      return next;
+    });
+  }
 
   function addEntry(entry) {
     setDailyLog(prev => {
@@ -947,9 +1039,19 @@ export function DailyTrackerPage({ recipes, getRecipe, onClose, user, weeklyPlan
     <div className={styles.container}>
       <button className={styles.backBtn} onClick={onClose}>&larr; Back</button>
       <DateNavigator date={date} setDate={setDate} />
-      <AddEntrySection recipes={recipes} getRecipe={getRecipe} onAdd={addEntry} weeklyPlan={weeklyPlan} />
-      <MealLog entries={entries} onDelete={deleteEntry} goalKeys={goalKeys} />
-      <DailyTotalsBar entries={entries} />
+      <div className={styles.skipDayRow}>
+        <button
+          className={daySkipped ? styles.skipDayBtnActive : styles.skipDayBtn}
+          onClick={toggleSkipDay}
+        >
+          {daySkipped ? 'Day Skipped' : 'Skip Day'}
+        </button>
+      </div>
+      {!daySkipped && (
+        <AddEntrySection recipes={recipes} getRecipe={getRecipe} onAdd={addEntry} weeklyPlan={weeklyPlan} />
+      )}
+      <MealLog entries={entries} onDelete={deleteEntry} goalKeys={goalKeys} skippedMeals={skippedMeals} onToggleSkipMeal={toggleSkipMeal} daySkipped={daySkipped} />
+      <DailyTotalsBar entries={entries} daySkipped={daySkipped} skippedMeals={skippedMeals} />
       <HistoryChart dailyLog={dailyLog} />
     </div>
   );
