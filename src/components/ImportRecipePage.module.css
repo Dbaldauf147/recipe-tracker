@@ -524,6 +524,27 @@
   line-height: 1.4;
 }
 
+.aiHighlights {
+  margin: 0;
+  padding: 0.6rem 0.85rem;
+  list-style: none;
+  background: var(--color-surface-alt, #f7f7f7);
+  border-radius: var(--radius-sm);
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  font-size: 0.82rem;
+  color: var(--color-text-secondary);
+  line-height: 1.4;
+}
+
+.aiHighlights li::before {
+  content: '\2022';
+  color: var(--color-accent);
+  font-weight: 700;
+  margin-right: 0.5rem;
+}
+
 .aiCardMeta {
   display: flex;
   flex-wrap: wrap;

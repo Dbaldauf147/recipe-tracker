@@ -29,6 +29,7 @@ The JSON must be an array of exactly ${count} object${count > 1 ? 's' : ''}, eac
   "title": "Recipe Name",
   "description": "Brief 1-2 sentence description",
   "category": "breakfast" or "lunch-dinner" or "snacks" or "desserts" or "drinks",
+  "highlights": ["What makes this recipe unique vs the others - 3-4 short bullet points"],
   "servings": number,
   "prepTime": "X min",
   "cookTime": "X min",
@@ -39,6 +40,7 @@ The JSON must be an array of exactly ${count} object${count > 1 ? 's' : ''}, eac
 }
 
 Rules:
+- For the "highlights" field, write 3-4 short bullet points (each under 10 words) explaining what makes this recipe different from the others (e.g. cooking method, flavor profile, cuisine, difficulty, cook time). If only 1 recipe is requested, highlight what makes it special.
 - Each recipe should have 5-15 ingredients with realistic quantities
 - Use standard measurements (cups, tbsp, tsp, oz, lb, g, cloves, whole, etc.)
 - Instructions should be clear, numbered steps

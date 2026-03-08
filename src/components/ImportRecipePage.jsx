@@ -354,6 +354,11 @@ export function ImportRecipePage({ onSave, onCancel }) {
             <div key={idx} className={styles.aiCard}>
               <h3 className={styles.aiCardTitle}>{recipe.title}</h3>
               {recipe.description && <p className={styles.aiCardDesc}>{recipe.description}</p>}
+              {recipe.highlights && recipe.highlights.length > 0 && (
+                <ul className={styles.aiHighlights}>
+                  {recipe.highlights.map((h, i) => <li key={i}>{h}</li>)}
+                </ul>
+              )}
               <div className={styles.aiCardMeta}>
                 {recipe.servings && <span>Serves {recipe.servings}</span>}
                 {recipe.prepTime && <span>Prep: {recipe.prepTime}</span>}
