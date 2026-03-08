@@ -261,6 +261,151 @@ function categoryToSlot(category) {
   return 'snack';
 }
 
+/* ── Custom Meal Modal ── */
+function CustomMealModal({ onAdd, onClose }) {
+  const [mealName, setMealName] = useState('');
+  const [mealSlotChoice, setMealSlotChoice] = useState('lunch');
+  const [mealIngredients, setMealIngredients] = useState([]);
+  const [mealIngName, setMealIngName] = useState('');
+  const [mealIngQty, setMealIngQty] = useState('');
+  const [mealIngUnit, setMealIngUnit] = useState('g');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  function addMealIngredient() {
+    if (!mealIngName.trim()) return;
+    setMealIngredients(prev => [...prev, {
+      id: uuid(),
+      ingredient: mealIngName.trim(),
+      quantity: mealIngQty || '1',
+      measurement: mealIngUnit,
+    }]);
+    setMealIngName('');
+    setMealIngQty('');
+    setMealIngUnit('g');
+  }
+
+  function removeMealIngredient(id) {
+    setMealIngredients(prev => prev.filter(i => i.id !== id));
+  }
+
+  async function handleSubmit() {
+    if (!mealName.trim() || mealIngredients.length === 0) return;
+    setLoading(true);
+    setError('');
+    try {
+      const totalNutrition = {};
+      for (const n of NUTRIENTS) totalNutrition[n.key] = 0;
+
+      for (const ing of mealIngredients) {
+        const result = await fetchNutritionForIngredient({
+          ingredient: ing.ingredient,
+          quantity: ing.quantity,
+          measurement: ing.measurement,
+        });
+        if (result?.nutrients) {
+          for (const n of NUTRIENTS) {
+            totalNutrition[n.key] += result.nutrients[n.key] || 0;
+          }
+        }
+      }
+
+      onAdd({
+        id: uuid(),
+        type: 'custom_meal',
+        recipeName: mealName.trim(),
+        ingredients: mealIngredients.map(i => `${i.quantity} ${i.measurement} ${i.ingredient}`),
+        mealSlot: mealSlotChoice,
+        timestamp: new Date().toISOString(),
+        nutrition: totalNutrition,
+      });
+
+      onClose();
+    } catch (err) {
+      setError('Failed to look up nutrition for one or more ingredients.');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div className={styles.modalOverlay} onClick={onClose}>
+      <div className={styles.modalContent} onClick={e => e.stopPropagation()}>
+        <div className={styles.modalHeader}>
+          <h3 className={styles.modalTitle}>Custom Meal</h3>
+          <button className={styles.modalClose} onClick={onClose}>&times;</button>
+        </div>
+
+        <div className={styles.formRow}>
+          <div className={styles.formField}>
+            <span className={styles.formLabel}>Meal Name</span>
+            <input className={styles.formInput} type="text" placeholder="e.g. Chicken Stir Fry" value={mealName} onChange={e => setMealName(e.target.value)} />
+          </div>
+          <div className={styles.formFieldSmall}>
+            <span className={styles.formLabel}>Meal</span>
+            <select className={styles.formSelect} value={mealSlotChoice} onChange={e => setMealSlotChoice(e.target.value)}>
+              {MEAL_SLOTS.map(s => <option key={s} value={s}>{MEAL_LABELS[s]}</option>)}
+            </select>
+          </div>
+        </div>
+
+        <div className={styles.mealIngSection}>
+          <span className={styles.mealIngHeading}>Ingredients</span>
+          {mealIngredients.length > 0 && (
+            <div className={styles.mealIngList}>
+              {mealIngredients.map(ing => (
+                <div key={ing.id} className={styles.mealIngRow}>
+                  <span className={styles.mealIngText}>{ing.quantity} {ing.measurement} {ing.ingredient}</span>
+                  <button className={styles.mealIngRemove} onClick={() => removeMealIngredient(ing.id)}>&times;</button>
+                </div>
+              ))}
+            </div>
+          )}
+          <div className={styles.formRow}>
+            <div className={styles.formField}>
+              <IngredientCombobox
+                value={mealIngName}
+                onChange={setMealIngName}
+                onSelect={(item) => {
+                  setMealIngName(item.ingredient);
+                  if (item.measurement) {
+                    const m = item.measurement.toLowerCase().replace(/\(s\)/g, '').replace(/_.*$/, '').trim();
+                    setMealIngUnit(m || 'g');
+                  }
+                }}
+              />
+            </div>
+            <div className={styles.formFieldSmall}>
+              <input className={styles.formInput} type="number" placeholder="Qty" value={mealIngQty} onChange={e => setMealIngQty(e.target.value)} min="0.1" step="0.1" />
+            </div>
+            <div className={styles.formFieldSmall}>
+              <input className={styles.formInput} type="text" list="meal-unit-options" placeholder="g" value={mealIngUnit} onChange={e => setMealIngUnit(e.target.value)} />
+              <datalist id="meal-unit-options">
+                {MEASUREMENT_OPTIONS.map(m => <option key={m} value={m} />)}
+              </datalist>
+            </div>
+            <button className={styles.mealIngAddBtn} onClick={addMealIngredient} disabled={!mealIngName.trim()}>+</button>
+          </div>
+        </div>
+
+        {error && <p className={styles.addError}>{error}</p>}
+        {loading && <p className={styles.addLoading}>Looking up nutrition...</p>}
+
+        <div className={styles.modalActions}>
+          <button className={styles.modalCancelBtn} onClick={onClose}>Cancel</button>
+          <button
+            className={styles.addBtn}
+            onClick={handleSubmit}
+            disabled={loading || !mealName.trim() || mealIngredients.length === 0}
+          >
+            {loading ? 'Adding...' : 'Add Meal'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ── Add Entry Section ── */
 function AddEntrySection({ recipes, getRecipe, onAdd, weeklyPlan }) {
   const [tab, setTab] = useState('recipe');
@@ -270,8 +415,9 @@ function AddEntrySection({ recipes, getRecipe, onAdd, weeklyPlan }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [selectedWeekly, setSelectedWeekly] = useState(new Set());
+  const [showMealModal, setShowMealModal] = useState(false);
 
-  // Custom tab state
+  // Custom tab state (single items)
   const [ingredientName, setIngredientName] = useState('');
   const [quantity, setQuantity] = useState('');
   const [measurement, setMeasurement] = useState('g');
@@ -453,7 +599,12 @@ function AddEntrySection({ recipes, getRecipe, onAdd, weeklyPlan }) {
       <div className={styles.tabToggle}>
         <button className={tab === 'recipe' ? styles.tabBtnActive : styles.tabBtn} onClick={() => setTab('recipe')}>Recipes</button>
         <button className={tab === 'custom' ? styles.tabBtnActive : styles.tabBtn} onClick={() => setTab('custom')}>Single Items</button>
+        <button className={styles.customMealBtn} onClick={() => setShowMealModal(true)}>+ Custom Meal</button>
       </div>
+
+      {showMealModal && (
+        <CustomMealModal onAdd={onAdd} onClose={() => setShowMealModal(false)} />
+      )}
 
       {weeklyRecipes.length > 0 && (
         <div className={styles.weeklyChips}>
@@ -539,9 +690,11 @@ function AddEntrySection({ recipes, getRecipe, onAdd, weeklyPlan }) {
 
 /* ── Entry Row ── */
 function EntryRow({ entry, onDelete, goalKeys }) {
-  const name = entry.type === 'recipe' ? entry.recipeName : entry.ingredientName;
+  const name = entry.type === 'custom_meal' ? entry.recipeName : entry.type === 'recipe' ? entry.recipeName : entry.ingredientName;
   const portion = entry.type === 'recipe'
     ? (entry.customWeight ? `${entry.customWeight}g` : `${entry.servings} serving${entry.servings !== 1 ? 's' : ''}`)
+    : entry.type === 'custom_meal'
+    ? `${(entry.ingredients || []).length} ingredients`
     : `${entry.quantity} ${entry.measurement}`;
   const n = entry.nutrition || {};
   const keys = goalKeys && goalKeys.length > 0 ? goalKeys : DEFAULT_ENTRY_KEYS;
@@ -572,7 +725,7 @@ function MealLog({ entries, onDelete, goalKeys }) {
   const grouped = {};
   for (const slot of MEAL_SLOTS) grouped[slot] = [];
   for (const entry of entries) {
-    const slot = entry.type === 'custom'
+    const slot = entry.type === 'custom' && !entry.mealSlot
       ? 'snack'
       : (MEAL_SLOTS.includes(entry.mealSlot) ? entry.mealSlot : 'snack');
     grouped[slot].push(entry);

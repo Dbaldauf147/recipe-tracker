@@ -3,6 +3,10 @@
   margin: 0 auto;
 }
 
+.container:has(.aiGrid) {
+  max-width: 960px;
+}
+
 .header {
   display: flex;
   align-items: baseline;
@@ -34,6 +38,7 @@
 
 .tabs {
   display: flex;
+  flex-wrap: wrap;
   gap: 0.5rem;
   margin-bottom: 1rem;
 }
@@ -231,4 +236,395 @@
   color: var(--color-text-muted);
   line-height: 1.5;
   margin: -0.25rem 0 0;
+}
+
+.pasteFormatToggle {
+  display: flex;
+  gap: 0.25rem;
+  background: var(--color-surface-alt, #f3f4f6);
+  border-radius: 50px;
+  padding: 0.2rem;
+  align-self: flex-start;
+}
+
+.pasteFormatBtn {
+  padding: 0.3rem 0.9rem;
+  border: none;
+  border-radius: 50px;
+  background: transparent;
+  font-size: 0.82rem;
+  font-weight: 600;
+  font-family: inherit;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.pasteFormatBtn:hover {
+  color: var(--color-text);
+}
+
+.pasteFormatBtnActive {
+  background: var(--color-surface);
+  color: var(--color-text);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.ingredientTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+.ingredientTable th {
+  text-align: left;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text-muted);
+  padding: 0.4rem 0.5rem;
+  border-bottom: 2px solid var(--color-border);
+}
+
+.ingredientTable th:last-child {
+  width: 2rem;
+}
+
+.ingredientTable td {
+  padding: 0.2rem 0.25rem;
+  border-bottom: 1px solid var(--color-border-light, #f0f0f0);
+}
+
+.tableInput {
+  width: 100%;
+  padding: 0.45rem 0.6rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm, 4px);
+  font-size: 0.88rem;
+  font-family: inherit;
+  background: var(--color-surface);
+  color: var(--color-text);
+  box-sizing: border-box;
+  transition: border-color 0.15s ease;
+}
+
+.tableInput:focus {
+  outline: none;
+  border-color: var(--color-accent);
+}
+
+.tableRemoveBtn {
+  background: none;
+  border: none;
+  color: var(--color-text-muted);
+  font-size: 1.1rem;
+  cursor: pointer;
+  padding: 0.2rem 0.4rem;
+  line-height: 1;
+  border-radius: 4px;
+  transition: color 0.15s ease;
+}
+
+.tableRemoveBtn:hover {
+  color: var(--color-danger, #dc3545);
+}
+
+.tableAddRowBtn {
+  align-self: flex-start;
+  background: none;
+  border: none;
+  color: var(--color-accent);
+  font-size: 0.85rem;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  padding: 0.3rem 0;
+  transition: opacity 0.15s ease;
+}
+
+.tableAddRowBtn:hover {
+  opacity: 0.8;
+}
+
+/* Restaurant search results */
+.restaurantResults {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.restaurantItem {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  width: 100%;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md, 8px);
+  background: var(--color-surface);
+  cursor: pointer;
+  text-align: left;
+  font-family: inherit;
+  transition: border-color 0.12s ease, background 0.12s ease;
+}
+
+.restaurantItem:hover:not(:disabled) {
+  border-color: var(--color-accent);
+  background: var(--color-surface-alt, #f3f4f6);
+}
+
+.restaurantItem:disabled {
+  opacity: 0.5;
+  cursor: wait;
+}
+
+.restaurantInfo {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 0;
+}
+
+.restaurantName {
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--color-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.restaurantBrand {
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+}
+
+.restaurantMeta {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.1rem;
+  flex-shrink: 0;
+}
+
+.restaurantCal {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--color-text-secondary);
+  white-space: nowrap;
+}
+
+.restaurantProtein {
+  font-size: 0.72rem;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+
+/* ── AI Generate ── */
+
+.aiOptions {
+  display: flex;
+  align-items: flex-end;
+  gap: 1.25rem;
+}
+
+.aiCountLabel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--color-text-secondary);
+}
+
+.aiCountPicker {
+  display: flex;
+  gap: 0.25rem;
+  background: var(--color-surface-alt, #f3f4f6);
+  border-radius: 50px;
+  padding: 0.2rem;
+}
+
+.aiCountBtn {
+  width: 2.25rem;
+  height: 2.25rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  font-size: 0.88rem;
+  font-weight: 600;
+  font-family: inherit;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.aiCountBtn:hover {
+  color: var(--color-text);
+}
+
+.aiCountBtnActive {
+  background: var(--color-surface);
+  color: var(--color-accent);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.aiSubtitle {
+  font-size: 0.88rem;
+  color: var(--color-text-muted);
+  margin: -0.5rem 0 1.25rem;
+}
+
+.aiGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1.25rem;
+  margin-bottom: 1.5rem;
+}
+
+@media (max-width: 700px) {
+  .aiGrid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.aiCard {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  box-shadow: var(--shadow-sm);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.aiCard:hover {
+  border-color: var(--color-accent);
+  box-shadow: var(--shadow-md);
+}
+
+.aiCardTitle {
+  margin: 0;
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: var(--color-text);
+  letter-spacing: -0.01em;
+}
+
+.aiCardDesc {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--color-text-muted);
+  line-height: 1.4;
+}
+
+.aiCardMeta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  font-size: 0.78rem;
+  color: var(--color-text-muted);
+  font-weight: 500;
+}
+
+.aiCardSection {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.aiCardSection h4 {
+  margin: 0;
+  font-size: 0.82rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text-secondary);
+}
+
+.aiIngList {
+  margin: 0;
+  padding-left: 1.25rem;
+  font-size: 0.85rem;
+  color: var(--color-text);
+  line-height: 1.6;
+}
+
+.aiInstructions {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--color-text);
+  line-height: 1.6;
+  white-space: pre-line;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.aiCardActions {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: auto;
+  padding-top: 0.5rem;
+}
+
+.aiEditBtn {
+  flex: 1;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  font-family: inherit;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-text);
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.aiEditBtn:hover {
+  border-color: var(--color-accent);
+  background: var(--color-surface-alt);
+}
+
+.aiSaveBtn {
+  flex: 1;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  font-family: inherit;
+  border: none;
+  border-radius: var(--radius-md);
+  background: var(--color-accent);
+  color: #fff;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.aiSaveBtn:hover {
+  background: var(--color-accent-hover);
+}
+
+.aiRegenerateBtn {
+  display: block;
+  margin: 0 auto;
+  padding: 0.45rem 1.25rem;
+  font-size: 0.85rem;
+  font-weight: 500;
+  font-family: inherit;
+  border: none;
+  background: none;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  text-decoration: underline;
+  transition: color 0.15s ease;
+}
+
+.aiRegenerateBtn:hover {
+  color: var(--color-accent);
 }

@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { INGREDIENT_CATEGORIES, displayName } from '../utils/keyIngredients';
+import { INGREDIENT_CATEGORIES, getDietFilteredCategories, displayName } from '../utils/keyIngredients';
 import styles from './OnboardingPage.module.css';
 
 const INGREDIENT_EMOJI = {
@@ -63,6 +63,7 @@ function getEmoji(key) {
 const CATEGORY_ORDER = ['Protein', 'Carbs', 'Fiber', 'Fats'];
 
 export function OnboardingPage({ onComplete, initialIngredients, onCancel, onSkip }) {
+  const filteredCategories = getDietFilteredCategories();
   const knownKeys = new Set(Object.values(INGREDIENT_CATEGORIES).flat());
   const [selected, setSelected] = useState(() =>
     initialIngredients ? new Set(initialIngredients) : new Set()
@@ -74,11 +75,13 @@ export function OnboardingPage({ onComplete, initialIngredients, onCancel, onSki
 
   const allIngredientKeys = useMemo(
     () => [
-      ...Object.values(INGREDIENT_CATEGORIES).flat(),
+      ...Object.values(filteredCategories).flat(),
       ...customIngredients,
     ],
-    [customIngredients]
+    [customIngredients, filteredCategories]
   );
+
+  const filteredCategoryOrder = CATEGORY_ORDER.filter(cat => filteredCategories[cat]?.length > 0);
 
   function toggle(key) {
     setSelected(prev => {
@@ -151,7 +154,15 @@ export function OnboardingPage({ onComplete, initialIngredients, onCancel, onSki
       <div className={styles.card}>
         <img className={styles.logo} src="/prep-day-logo.png" alt="Prep Day" />
         <h2 className={styles.title}>What kinds of food would you like to eat on a regular basis?</h2>
-        <p className={styles.subtitle}>(Don't worry, you can update this later)</p>
+        <p className={styles.subtitle}>
+          {(() => {
+            try {
+              const diets = JSON.parse(localStorage.getItem('sunday-user-diet'));
+              if (diets?.length) return `Filtered for: ${diets.join(', ')}`;
+            } catch {}
+            return "(Don't worry, you can update this later)";
+          })()}
+        </p>
 
         <div className={styles.topRow}>
           <div className={styles.actions}>
@@ -188,10 +199,10 @@ export function OnboardingPage({ onComplete, initialIngredients, onCancel, onSki
         </div>
 
         <div className={styles.grid}>
-          {CATEGORY_ORDER.map(cat => (
+          {filteredCategoryOrder.map(cat => (
             <div key={cat} className={styles.column}>
               <h3 className={styles.categoryHeading}>{cat}</h3>
-              {INGREDIENT_CATEGORIES[cat].map(key => renderItem(key))}
+              {filteredCategories[cat].map(key => renderItem(key))}
             </div>
           ))}
         </div>

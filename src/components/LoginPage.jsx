@@ -36,13 +36,11 @@ export function LoginPage() {
 
   return (
     <div className={styles.page}>
+      <div className={styles.logoBadge}>Prep Day</div>
+
       {/* Left: branding + features */}
       <div className={styles.hero}>
         <div className={styles.heroContent}>
-          <div className={styles.logoBanner}>
-            <img className={styles.logoImg} src="/prep-day-logo.png" alt="Prep Day" />
-            <span className={styles.logoText}>Prep Day</span>
-          </div>
           <h1 className={styles.heroTitle}>
             Your meals,{' '}
             <span className={styles.heroTitleAccent}>planned.</span>
