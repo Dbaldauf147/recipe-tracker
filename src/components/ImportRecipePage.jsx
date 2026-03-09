@@ -353,19 +353,19 @@ export function ImportRecipePage({ onSave, onCancel }) {
           {aiRecipes.map((recipe, idx) => recipe && (
             <div key={idx} className={styles.aiCard}>
               <h3 className={styles.aiCardTitle}>{recipe.title}</h3>
+              {recipe.macrosPerServing && (
+                <div className={styles.aiMacros}>
+                  <span><strong>{recipe.macrosPerServing.calories}</strong> cal</span>
+                  <span><strong>{recipe.macrosPerServing.protein}g</strong> protein</span>
+                  <span><strong>{recipe.macrosPerServing.carbs}g</strong> carbs</span>
+                  <span><strong>{recipe.macrosPerServing.fat}g</strong> fat</span>
+                </div>
+              )}
               {recipe.description && <p className={styles.aiCardDesc}>{recipe.description}</p>}
               {recipe.highlights && recipe.highlights.length > 0 && (
                 <ul className={styles.aiHighlights}>
                   {recipe.highlights.map((h, i) => <li key={i}>{h}</li>)}
                 </ul>
-              )}
-              {recipe.macrosPerServing && (
-                <div className={styles.aiMacros}>
-                  <span>{recipe.macrosPerServing.calories} cal</span>
-                  <span>{recipe.macrosPerServing.protein}g protein</span>
-                  <span>{recipe.macrosPerServing.carbs}g carbs</span>
-                  <span>{recipe.macrosPerServing.fat}g fat</span>
-                </div>
               )}
               <div className={styles.aiCardMeta}>
                 {recipe.servings && <span>Serves {recipe.servings}</span>}

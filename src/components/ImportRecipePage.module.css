@@ -548,13 +548,22 @@
 .aiMacros {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.75rem;
-  font-size: 0.82rem;
-  font-weight: 600;
-  color: var(--color-text);
-  padding: 0.5rem 0.75rem;
-  background: var(--color-bg, #f5f5f5);
+  gap: 1rem;
+  font-size: 0.85rem;
+  color: var(--color-text-secondary, #666);
+  padding: 0.6rem 0.85rem;
+  background: #1a1a2e;
   border-radius: 8px;
+  margin-bottom: 0.25rem;
+}
+
+.aiMacros span {
+  color: #ccc;
+}
+
+.aiMacros strong {
+  color: #fff;
+  font-weight: 700;
 }
 
 .aiCardMeta {
