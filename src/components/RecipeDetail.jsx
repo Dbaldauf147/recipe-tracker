@@ -803,7 +803,7 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user, ingredien
               className={`${styles.shareBtn} ${boosted ? styles.boostBtnActive : ''}`}
               onClick={handleBoostToggle}
             >
-              {boosted ? '★ Boosted' : '☆ Boost to Top'}
+              {boosted ? '★ Added to Cook Next' : '☆ Add to Cook Next Recommendations'}
             </button>
             {showShareDropdown && (
               <div className={styles.shareDropdown}>
