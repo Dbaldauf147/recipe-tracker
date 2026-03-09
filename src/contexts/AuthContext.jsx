@@ -1,7 +1,7 @@
 import { createContext, useContext, useState, useEffect, useRef } from 'react';
 import { onAuthStateChanged, signInWithPopup, signOut, createUserWithEmailAndPassword, signInWithEmailAndPassword, updateProfile, sendPasswordResetEmail } from 'firebase/auth';
 import { auth, googleProvider, facebookProvider, appleProvider } from '../firebase';
-import { loadUserData, migrateToFirestore, hydrateLocalStorage, saveField, recordLogin } from '../utils/firestoreSync';
+import { loadUserData, migrateToFirestore, hydrateLocalStorage, saveField, recordLogin, subscribeToUserData } from '../utils/firestoreSync';
 
 const AuthContext = createContext(null);
 
@@ -56,11 +56,19 @@ export function AuthProvider({ children }) {
   const [completedSteps, setCompletedSteps] = useState([]);
   const [justOnboarded, setJustOnboarded] = useState(false);
   const [hasCompletedOnboarding, setHasCompletedOnboarding] = useState(false);
+  const firestoreUnsubRef = useRef(null);
+  const [syncVersion, setSyncVersion] = useState(0);
 
   const currentOnboardingStep = onboardingSteps[0] || null;
 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (firebaseUser) => {
+      // Clean up previous Firestore listener
+      if (firestoreUnsubRef.current) {
+        firestoreUnsubRef.current();
+        firestoreUnsubRef.current = null;
+      }
+
       if (firebaseUser) {
         // Clear stale data from any previous user before loading
         clearAppStorage();
@@ -145,6 +153,14 @@ export function AuthProvider({ children }) {
           setOnboardingSteps(['goals']);
           setCompletedSteps([]);
         }
+
+        // Start real-time sync — re-hydrate localStorage when another device writes
+        firestoreUnsubRef.current = subscribeToUserData(firebaseUser.uid, (data) => {
+          hydrateLocalStorage(data);
+          setSyncVersion(v => v + 1);
+          // Notify hooks that localStorage was updated from remote
+          window.dispatchEvent(new Event('firestore-sync'));
+        });
 
         setUser(firebaseUser);
         setDataReady(true);
@@ -344,7 +360,7 @@ export function AuthProvider({ children }) {
   }
 
   const value = {
-    user, loading, dataReady, isGuest, currentOnboardingStep, justOnboarded, hasCompletedOnboarding, authError,
+    user, loading, dataReady, syncVersion, isGuest, currentOnboardingStep, justOnboarded, hasCompletedOnboarding, authError,
     signInWithGoogle, signInWithFacebook, signInWithApple, signUpWithEmail, signInWithEmail, resetPassword, continueAsGuest, logOut,
     completeGoals, skipGoals, goBackOnboarding, advanceOnboarding,
     completeNutritionGoals, completeKeyIngredients, completeRecipeSetup,

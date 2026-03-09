@@ -141,11 +141,6 @@ export function ShoppingListPage({ weeklyRecipes, weeklyServings = {}, onClose, 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);
 
-  const dismissedNames = useMemo(
-    () => new Set(dismissed.map(d => d.name)),
-    [dismissed]
-  );
-
   const pantryNames = useMemo(() => {
     const names = new Set();
     try {
@@ -190,6 +185,11 @@ export function ShoppingListPage({ weeklyRecipes, weeklyServings = {}, onClose, 
     return false;
   }
 
+  const dismissedNames = useMemo(
+    () => new Set(dismissed.filter(d => matchesPantry(d.name)).map(d => d.name)),
+    [dismissed, pantryNames]
+  );
+
   const pantryMatchedItems = useMemo(() => {
     const matched = new Map();
     for (const recipe of weeklyRecipes) {
@@ -206,9 +206,9 @@ export function ShoppingListPage({ weeklyRecipes, weeklyServings = {}, onClose, 
         matched.set(name, e.ingredient.trim());
       }
     }
-    // Also include dismissed items not already matched by pantry
+    // Also include dismissed items, but only if they're still in pantry
     for (const d of dismissed) {
-      if (!matched.has(d.name)) {
+      if (!matched.has(d.name) && matchesPantry(d.name)) {
         matched.set(d.name, d.label);
       }
     }

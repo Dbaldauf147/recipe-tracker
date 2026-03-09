@@ -548,6 +548,12 @@ export function RecipeList({
       }
     } catch {}
 
+    // Load boosted recipes
+    let boostedIds;
+    try {
+      boostedIds = new Set(JSON.parse(localStorage.getItem('sunday-boosted-recipes') || '[]'));
+    } catch { boostedIds = new Set(); }
+
     const scored = candidates.map(recipe => {
       const lastCooked = lastCookedMap[recipe.id];
       const recipeDays = lastCooked ? daysSince(lastCooked) : 9999;
@@ -572,7 +578,8 @@ export function RecipeList({
       const seasonalMatches = getRecipeSeasonalIngredients(recipe, seasonalSet);
       const seasonalBonus = seasonalMatches.length * 50;
 
-      const totalScore = recipeDays + ingredientScore + seasonalBonus;
+      const boostBonus = boostedIds.has(recipe.id) ? 100000 : 0;
+      const totalScore = recipeDays + ingredientScore + seasonalBonus + boostBonus;
 
       // Build reason text
       const parts = [];

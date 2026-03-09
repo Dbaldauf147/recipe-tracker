@@ -234,6 +234,12 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user, ingredien
   const [friendsList, setFriendsList] = useState(null);
   const [shareMsg, setShareMsg] = useState(null);
   const shareRef = useRef(null);
+  const [boosted, setBoosted] = useState(() => {
+    try {
+      const list = JSON.parse(localStorage.getItem('sunday-boosted-recipes') || '[]');
+      return recipe ? list.includes(recipe.id) : false;
+    } catch { return false; }
+  });
   const [adjustedServings, setAdjustedServings] = useState(null);
   const [servingWeight, setServingWeight] = useState('');
   const [editingIngredients, setEditingIngredients] = useState(false);
@@ -578,6 +584,21 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user, ingredien
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [showShareDropdown]);
 
+  function handleBoostToggle() {
+    try {
+      const list = JSON.parse(localStorage.getItem('sunday-boosted-recipes') || '[]');
+      let next;
+      if (list.includes(recipe.id)) {
+        next = list.filter(id => id !== recipe.id);
+        setBoosted(false);
+      } else {
+        next = [...list, recipe.id];
+        setBoosted(true);
+      }
+      localStorage.setItem('sunday-boosted-recipes', JSON.stringify(next));
+    } catch {}
+  }
+
   async function handleShareClick() {
     if (showShareDropdown) {
       setShowShareDropdown(false);
@@ -777,6 +798,12 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user, ingredien
           <div className={styles.shareWrapper} ref={shareRef}>
             <button className={styles.shareBtn} onClick={handleShareClick}>
               Share This Recipe
+            </button>
+            <button
+              className={`${styles.shareBtn} ${boosted ? styles.boostBtnActive : ''}`}
+              onClick={handleBoostToggle}
+            >
+              {boosted ? '★ Boosted' : '☆ Boost to Top'}
             </button>
             {showShareDropdown && (
               <div className={styles.shareDropdown}>

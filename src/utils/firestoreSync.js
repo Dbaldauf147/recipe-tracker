@@ -1,4 +1,4 @@
-import { doc, getDoc, setDoc, addDoc, deleteDoc, updateDoc, collection, query, where, getDocs, arrayUnion, arrayRemove, increment } from 'firebase/firestore';
+import { doc, getDoc, setDoc, addDoc, deleteDoc, updateDoc, collection, query, where, getDocs, arrayUnion, arrayRemove, increment, onSnapshot } from 'firebase/firestore';
 import { db } from '../firebase';
 
 /**
@@ -154,6 +154,25 @@ export function hydrateLocalStorage(userData) {
   if (userData.userLocation) {
     localStorage.setItem('sunday-user-location', userData.userLocation);
   }
+}
+
+/**
+ * Subscribe to real-time updates on the user document.
+ * Calls onChange(data) whenever the document changes on the server.
+ * Returns an unsubscribe function.
+ */
+export function subscribeToUserData(uid, onChange) {
+  const ref = doc(db, 'users', uid);
+  return onSnapshot(ref, (snap) => {
+    if (snap.exists()) {
+      // Only process server-originated changes
+      if (!snap.metadata.hasPendingWrites) {
+        onChange(snap.data());
+      }
+    }
+  }, (err) => {
+    console.error('Firestore subscription error:', err);
+  });
 }
 
 /* ── Friend-related functions ── */

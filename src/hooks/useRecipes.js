@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { auth } from '../firebase';
 import { saveField } from '../utils/firestoreSync';
 import { classifyMealType } from '../utils/classifyMealType';
@@ -108,6 +108,15 @@ function save(recipes) {
 
 export function useRecipes() {
   const [recipes, setRecipes] = useState(loadRecipes);
+
+  // Re-read localStorage when remote Firestore data is synced
+  useEffect(() => {
+    function handleSync() {
+      setRecipes(loadRecipes());
+    }
+    window.addEventListener('firestore-sync', handleSync);
+    return () => window.removeEventListener('firestore-sync', handleSync);
+  }, []);
 
   function addRecipe(recipe) {
     const newRecipe = {

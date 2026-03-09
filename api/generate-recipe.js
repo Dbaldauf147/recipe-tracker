@@ -30,6 +30,7 @@ The JSON must be an array of exactly ${count} object${count > 1 ? 's' : ''}, eac
   "description": "Brief 1-2 sentence description",
   "category": "breakfast" or "lunch-dinner" or "snacks" or "desserts" or "drinks",
   "highlights": ["What makes this recipe unique vs the others - 3-4 short bullet points"],
+  "macrosPerServing": { "calories": number, "protein": number, "carbs": number, "fat": number },
   "servings": number,
   "prepTime": "X min",
   "cookTime": "X min",
@@ -45,7 +46,8 @@ Rules:
 - Use standard measurements (cups, tbsp, tsp, oz, lb, g, cloves, whole, etc.)
 - Instructions should be clear, numbered steps
 - Each recipe should be a meaningfully different approach to the user's request
-- Keep quantities and servings realistic for home cooking${dietContext}`;
+- Keep quantities and servings realistic for home cooking
+- For macrosPerServing, estimate realistic per-serving values: calories (kcal), protein (grams), carbs (grams), fat (grams) based on the ingredients and quantities${dietContext}`;
 
   try {
     const response = await fetch('https://api.anthropic.com/v1/messages', {

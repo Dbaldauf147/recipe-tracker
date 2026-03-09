@@ -887,6 +887,15 @@
   background: var(--color-accent-hover);
 }
 
+.boostBtnActive {
+  background: #d4a017;
+  box-shadow: 0 2px 8px rgba(212, 160, 23, 0.35);
+}
+
+.boostBtnActive:hover {
+  background: #b8900f;
+}
+
 .shareDropdown {
   position: absolute;
   top: calc(100% + 0.5rem);

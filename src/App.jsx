@@ -91,6 +91,17 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
   const [ingredientsVersion, setIngredientsVersion] = useState(0);
   const settingsRef = useRef(null);
 
+  // Re-read localStorage when remote Firestore data is synced
+  useEffect(() => {
+    function handleSync() {
+      setWeeklyPlan(loadWeeklyPlan());
+      setWeeklyServings(loadWeeklyServings());
+      setIngredientsVersion(v => v + 1);
+    }
+    window.addEventListener('firestore-sync', handleSync);
+    return () => window.removeEventListener('firestore-sync', handleSync);
+  }, []);
+
   useEffect(() => {
     if (!user) return;
     let cancelled = false;

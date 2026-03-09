@@ -545,6 +545,18 @@
   margin-right: 0.5rem;
 }
 
+.aiMacros {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--color-text);
+  padding: 0.5rem 0.75rem;
+  background: var(--color-bg, #f5f5f5);
+  border-radius: 8px;
+}
+
 .aiCardMeta {
   display: flex;
   flex-wrap: wrap;
