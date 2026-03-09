@@ -259,7 +259,9 @@ export function ShoppingListPage({ weeklyRecipes, weeklyServings = {}, onClose, 
               </ul>
             </div>
           )}
-          <GroceryStaples key={resetKey} onMoveToShop={handleMoveToShop} highlightNames={shopIngredientNames} />
+          {user?.email === 'baldaufdan@gmail.com' && (
+            <GroceryStaples key={resetKey} onMoveToShop={handleMoveToShop} highlightNames={shopIngredientNames} />
+          )}
         </div>
         <div className={styles.cell}>
           <PantryList
