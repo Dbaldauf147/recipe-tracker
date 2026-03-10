@@ -1,4 +1,5 @@
 import { loadIngredients } from './ingredientsStore.js';
+import { getSizeGrams } from './units.js';
 
 // Gram equivalents for common measurements (used to convert between units)
 const UNIT_TO_GRAMS = {
@@ -243,11 +244,23 @@ export async function lookupFromSheet(ingredient) {
 
   let multiplier = qty;
 
+  // Check for size-based measurement (small/medium/large) with ingredient-specific weight
+  const isSizeMeas = ['small', 'medium', 'large', 'extra large', 'xl'].includes(recipeMeasNorm);
+  if (isSizeMeas && match.grams > 0) {
+    const sizeGrams = getSizeGrams(name, recipeMeasNorm);
+    if (sizeGrams) {
+      // Convert: qty units * grams-per-unit / sheet-grams-per-serving
+      multiplier = qty * sizeGrams / match.grams;
+    }
+  }
+
   const isGrams = ['g', 'gram'].includes(recipeMeasNorm);
-  if (isGrams && match.grams > 0) {
+  if (isSizeMeas && multiplier !== qty) {
+    // Already handled by size lookup above
+  } else if (isGrams && match.grams > 0) {
     // Recipe in grams, sheet has grams-per-serving: e.g. 200g / 100g = 2x
     multiplier = qty / match.grams;
-  } else if (recipeMeasNorm && sheetMeasNorm && recipeMeasNorm !== sheetMeasNorm) {
+  } else if (!isSizeMeas && recipeMeasNorm && sheetMeasNorm && recipeMeasNorm !== sheetMeasNorm) {
     // Different volume/weight units: convert via gram equivalents
     // e.g. recipe=tsp(5g), sheet=tbsp(15g) → ratio = 5/15 = 0.333
     const recipeGrams = UNIT_TO_GRAMS[recipeMeasNorm];

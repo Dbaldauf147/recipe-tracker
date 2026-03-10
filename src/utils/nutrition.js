@@ -1,4 +1,5 @@
 import { lookupFromSheet } from './sheetNutrition.js';
+import { getSizeGrams } from './units.js';
 
 const API_KEY = import.meta.env.VITE_USDA_API_KEY || 'DEMO_KEY';
 const BASE_URL = 'https://api.nal.usda.gov/fdc/v1/foods/search';
@@ -200,11 +201,18 @@ const MEASUREMENT_TO_GRAMS = {
   can: 400, stick: 113,
 };
 
-function estimateGrams(quantity, measurement) {
+function estimateGrams(quantity, measurement, ingredientName) {
   const rawQty = parseFloat(quantity);
   const qty = isNaN(rawQty) ? 1 : rawQty;
   const unit = (measurement || '').trim().toLowerCase();
-  if (!unit || unit === 'whole' || unit === 'each' || unit === 'large' || unit === 'medium' || unit === 'small') {
+
+  // Check for size-based measurements with ingredient-specific weights
+  if (unit === 'small' || unit === 'medium' || unit === 'large' || unit === 'extra large' || unit === 'xl') {
+    const sizeGrams = getSizeGrams(ingredientName, unit);
+    if (sizeGrams) return qty * sizeGrams;
+  }
+
+  if (!unit || unit === 'whole' || unit === 'each') {
     return qty * 100;
   }
   const factor = MEASUREMENT_TO_GRAMS[unit];
@@ -246,7 +254,7 @@ async function fetchFromUSDA(ingredient) {
 
   const food = scored[0].food;
   const per100g = extractNutrients(food.foodNutrients);
-  const grams = estimateGrams(quantity, measurement);
+  const grams = estimateGrams(quantity, measurement, name);
   const scale = grams / 100;
 
   const nutrients = {};
