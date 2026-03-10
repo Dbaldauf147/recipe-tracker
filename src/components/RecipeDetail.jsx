@@ -287,13 +287,14 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user, ingredien
   }, [recipe]);
 
   // Build lookup maps from ingredient database
-  const { dbNotesMap, dbGramsMap, dbMeasurementMap, dbLinksMap, dbNamesSet, dbNamesList } = useMemo(() => {
+  const { dbNotesMap, dbGramsMap, dbMeasurementMap, dbLinksMap, dbNamesSet, dbNamesList, dbRowsByName } = useMemo(() => {
     const notes = new Map();
     const grams = new Map();
     const measurements = new Map();
     const links = new Map();
     const names = new Set();
     const namesList = [];
+    const rowsByName = new Map(); // ingredient name → array of all DB rows
     const data = loadIngredients();
     if (data) {
       for (const item of data) {
@@ -305,10 +306,13 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user, ingredien
         grams.set(key, parseFloat(item.grams) || 0);
         if (item.measurement) measurements.set(key, item.measurement.trim());
         if (item.link) links.set(key, item.link.trim());
+        // Group all rows by base ingredient name (strip size suffixes for matching)
+        if (!rowsByName.has(key)) rowsByName.set(key, []);
+        rowsByName.get(key).push(item);
       }
     }
     namesList.sort((a, b) => a.localeCompare(b));
-    return { dbNotesMap: notes, dbGramsMap: grams, dbMeasurementMap: measurements, dbLinksMap: links, dbNamesSet: names, dbNamesList: namesList };
+    return { dbNotesMap: notes, dbGramsMap: grams, dbMeasurementMap: measurements, dbLinksMap: links, dbNamesSet: names, dbNamesList: namesList, dbRowsByName: rowsByName };
   }, [ingredientsVersion]);
 
   function getDbNotes(ingredientName) {
@@ -349,6 +353,26 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user, ingredien
       if (name.includes(search) || search.includes(name)) return m;
     }
     return '';
+  }
+
+  // Find all DB rows matching an ingredient name (for size options)
+  function getDbSizeRows(ingredientName) {
+    if (!ingredientName) return [];
+    const search = ingredientName.trim().toLowerCase();
+    // Collect all rows whose ingredient name matches (exact, starts-with, or contains)
+    const results = [];
+    for (const [name, rows] of dbRowsByName) {
+      if (name === search || name.startsWith(search) || search.startsWith(name) || name.includes(search) || search.includes(name)) {
+        for (const row of rows) {
+          const meas = (row.measurement || '').trim();
+          const g = parseFloat(row.grams) || 0;
+          if (meas && g > 0) {
+            results.push({ measurement: meas, grams: g, ingredient: (row.ingredient || '').trim() });
+          }
+        }
+      }
+    }
+    return results;
   }
 
   function getDbLink(ingredientName) {
@@ -1171,17 +1195,38 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user, ingredien
                                   onClick={() => {
                                     const ingName = (row.ingredient || '').trim();
                                     const qty = parseFloat(row.quantity) || 1;
-                                    // Build size options with gram weights
+                                    const currentMeas = normalizeUnit(row.measurement || '');
+                                    // Build size options from ingredient database
+                                    const dbRows = getDbSizeRows(ingName);
                                     const sizeOptions = [];
-                                    for (const size of ['small', 'regular', 'medium', 'large', 'extra large']) {
-                                      const grams = getSizeGrams(ingName, size);
-                                      if (grams) {
-                                        const totalGrams = Math.round(qty * grams);
-                                        sizeOptions.push({ size, grams: totalGrams, perUnit: grams, label: `${size} (${grams}g each) → ${totalGrams}g` });
+                                    const seen = new Set();
+                                    for (const dbRow of dbRows) {
+                                      const meas = dbRow.measurement.toLowerCase().replace(/\(s\)/g, '').replace(/_.*$/, '').replace(/s$/, '').trim();
+                                      if (seen.has(meas)) continue;
+                                      seen.add(meas);
+                                      const totalGrams = Math.round(qty * dbRow.grams);
+                                      sizeOptions.push({
+                                        size: dbRow.measurement,
+                                        grams: totalGrams,
+                                        perUnit: dbRow.grams,
+                                        label: `${dbRow.measurement} (${dbRow.grams}g each)${qty !== 1 ? ` → ${totalGrams}g` : ''}`,
+                                      });
+                                    }
+                                    // Fallback to hardcoded SIZE_GRAMS if no DB entries
+                                    if (sizeOptions.length === 0) {
+                                      for (const size of ['small', 'regular', 'medium', 'large', 'extra large']) {
+                                        const grams = getSizeGrams(ingName, size);
+                                        if (grams) {
+                                          const totalGrams = Math.round(qty * grams);
+                                          sizeOptions.push({ size, grams: totalGrams, perUnit: grams, label: `${size} (${grams}g each)${qty !== 1 ? ` → ${totalGrams}g` : ''}` });
+                                        }
                                       }
                                     }
-                                    // Add gram conversion option
-                                    const currentGrams = getSizeGrams(ingName, normalizeUnit(row.measurement || ''));
+                                    // Add gram conversion option using current size
+                                    const currentGrams = dbRows.find(r => {
+                                      const m = r.measurement.toLowerCase().replace(/\(s\)/g, '').replace(/_.*$/, '').replace(/s$/, '').trim();
+                                      return m === currentMeas;
+                                    })?.grams || getSizeGrams(ingName, currentMeas);
                                     if (currentGrams) {
                                       const totalGrams = Math.round(qty * currentGrams);
                                       sizeOptions.push({ size: '_grams', grams: totalGrams, label: `Convert to ${totalGrams}g` });

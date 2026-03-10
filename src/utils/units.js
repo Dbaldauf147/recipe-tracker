@@ -1,3 +1,5 @@
+import { loadIngredients } from './ingredientsStore.js';
+
 // Ingredient-specific gram weights for size-based measurements (small / medium / large)
 // Maps lowercase ingredient keyword → { small, medium, large } in grams per 1 unit
 export const SIZE_GRAMS = {
@@ -59,7 +61,24 @@ export function getSizeGrams(ingredientName, size) {
   const sizeLower = size.toLowerCase().trim();
   const ingLower = ingredientName.toLowerCase().trim();
 
-  // Direct match
+  // 1. Check ingredient database first (user-defined size rows)
+  try {
+    const dbData = loadIngredients();
+    if (dbData) {
+      for (const item of dbData) {
+        const dbName = (item.ingredient || '').trim().toLowerCase();
+        const dbMeas = (item.measurement || '').trim().toLowerCase().replace(/\(s\)/g, '').replace(/_.*$/, '').replace(/s$/, '').trim();
+        const dbGrams = parseFloat(item.grams) || 0;
+        if (dbGrams > 0 && dbMeas === sizeLower) {
+          if (dbName === ingLower || dbName.includes(ingLower) || ingLower.includes(dbName)) {
+            return dbGrams;
+          }
+        }
+      }
+    }
+  } catch { /* ignore */ }
+
+  // 2. Fallback to hardcoded SIZE_GRAMS table
   if (SIZE_GRAMS[ingLower] && SIZE_GRAMS[ingLower][sizeLower] !== undefined) {
     return SIZE_GRAMS[ingLower][sizeLower];
   }
