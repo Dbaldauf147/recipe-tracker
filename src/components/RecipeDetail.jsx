@@ -520,6 +520,52 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user, ingredien
     }));
   }
 
+  function moveStep(from, to) {
+    if (to < 0 || to >= fields.steps.length) return;
+    setFields(prev => {
+      const items = [...prev.steps];
+      const [moved] = items.splice(from, 1);
+      items.splice(to, 0, moved);
+      return { ...prev, steps: items };
+    });
+  }
+
+  const [stepDragIdx, setStepDragIdx] = useState(null);
+  const [stepDragOverIdx, setStepDragOverIdx] = useState(null);
+
+  function handleStepDragStart(e, index) {
+    setStepDragIdx(index);
+    e.dataTransfer.effectAllowed = 'move';
+  }
+
+  function handleStepDragOver(e, index) {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    setStepDragOverIdx(index);
+  }
+
+  function handleStepDrop(e, index) {
+    e.preventDefault();
+    if (stepDragIdx === null || stepDragIdx === index) {
+      setStepDragIdx(null);
+      setStepDragOverIdx(null);
+      return;
+    }
+    setFields(prev => {
+      const items = [...prev.steps];
+      const [moved] = items.splice(stepDragIdx, 1);
+      items.splice(index, 0, moved);
+      return { ...prev, steps: items };
+    });
+    setStepDragIdx(null);
+    setStepDragOverIdx(null);
+  }
+
+  function handleStepDragEnd() {
+    setStepDragIdx(null);
+    setStepDragOverIdx(null);
+  }
+
   function handleSave() {
     onSave({
       title: fields.title.trim(),
@@ -1309,8 +1355,41 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user, ingredien
         <h3>Instructions</h3>
         <ol className={styles.stepsList}>
           {fields.steps.map((step, i) => (
-            <li key={i} className={styles.stepRow}>
-              <span className={styles.stepLabel}>Step {i + 1}</span>
+            <li
+              key={i}
+              className={`${styles.stepRow} ${stepDragIdx === i ? styles.draggingRow : ''} ${stepDragOverIdx === i ? styles.dragOverRow : ''}`}
+              draggable
+              onDragStart={e => handleStepDragStart(e, i)}
+              onDragOver={e => handleStepDragOver(e, i)}
+              onDrop={e => handleStepDrop(e, i)}
+              onDragEnd={handleStepDragEnd}
+            >
+              <div className={styles.stepHeader}>
+                <span className={styles.dragHandle} title="Drag to reorder">≡</span>
+                <span className={styles.stepLabel}>Step {i + 1}</span>
+                <div className={styles.stepArrows}>
+                  {i > 0 && (
+                    <button
+                      className={styles.stepArrowBtn}
+                      type="button"
+                      onClick={() => moveStep(i, i - 1)}
+                      title="Move up"
+                    >
+                      ↑
+                    </button>
+                  )}
+                  {i < fields.steps.length - 1 && (
+                    <button
+                      className={styles.stepArrowBtn}
+                      type="button"
+                      onClick={() => moveStep(i, i + 1)}
+                      title="Move down"
+                    >
+                      ↓
+                    </button>
+                  )}
+                </div>
+              </div>
               <div className={styles.stepInputWrap}>
                 <textarea
                   className={styles.stepInput}
