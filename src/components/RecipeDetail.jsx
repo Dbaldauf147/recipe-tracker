@@ -247,6 +247,8 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user, ingredien
   const [servingWeight, setServingWeight] = useState('');
   const [editingIngredients, setEditingIngredients] = useState(false);
   const [showScanner, setShowScanner] = useState(false);
+  const [showAddMenu, setShowAddMenu] = useState(false);
+  const addMenuRef = useRef(null);
   const [convertPopup, setConvertPopup] = useState(null); // { rowIdx, options: [{ qty, unit, label }] }
   const convertPopupRef = useRef(null);
   const [activeAutoIdx, setActiveAutoIdx] = useState(-1);
@@ -632,6 +634,18 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user, ingredien
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [showShareDropdown]);
+
+  // Close add menu on outside click
+  useEffect(() => {
+    if (!showAddMenu) return;
+    function handleClickOutside(e) {
+      if (addMenuRef.current && !addMenuRef.current.contains(e.target)) {
+        setShowAddMenu(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [showAddMenu]);
 
   function handleBoostToggle() {
     try {
@@ -1338,15 +1352,24 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user, ingredien
               </tbody>
             </table>
             <div className={styles.ingredientBtns}>
-              <button className={styles.addRowBtn} type="button" onClick={addRow}>
-                + Add ingredient
-              </button>
-              <button className={styles.addRowBtn} type="button" onClick={addToppingRow}>
-                + Add per meal
-              </button>
-              <button className={styles.scanBtn} type="button" onClick={() => setShowScanner(true)}>
-                Scan barcode
-              </button>
+              <div style={{ position: 'relative', display: 'inline-block' }} ref={addMenuRef}>
+                <button className={styles.addRowBtn} type="button" onClick={() => setShowAddMenu(v => !v)}>
+                  + Add ingredient ▾
+                </button>
+                {showAddMenu && (
+                  <div className={styles.addIngredientMenu}>
+                    <button className={styles.addMenuOption} onClick={() => { addRow(); setShowAddMenu(false); }}>
+                      Add manually
+                    </button>
+                    <button className={styles.addMenuOption} onClick={() => { setShowScanner(true); setShowAddMenu(false); }}>
+                      Scan barcode
+                    </button>
+                    <button className={styles.addMenuOption} onClick={() => { addToppingRow(); setShowAddMenu(false); }}>
+                      Add per meal topping
+                    </button>
+                  </div>
+                )}
+              </div>
             </div>
           </>
         ) : (
