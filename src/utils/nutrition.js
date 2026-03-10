@@ -207,7 +207,7 @@ function estimateGrams(quantity, measurement, ingredientName) {
   const unit = (measurement || '').trim().toLowerCase();
 
   // Check for size-based measurements with ingredient-specific weights
-  if (unit === 'small' || unit === 'medium' || unit === 'large' || unit === 'extra large' || unit === 'xl') {
+  if (unit === 'small' || unit === 'medium' || unit === 'large' || unit === 'extra large' || unit === 'xl' || unit === 'regular') {
     const sizeGrams = getSizeGrams(ingredientName, unit);
     if (sizeGrams) return qty * sizeGrams;
   }

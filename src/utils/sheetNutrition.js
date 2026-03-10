@@ -245,7 +245,7 @@ export async function lookupFromSheet(ingredient) {
   let multiplier = qty;
 
   // Check for size-based measurement (small/medium/large) with ingredient-specific weight
-  const isSizeMeas = ['small', 'medium', 'large', 'extra large', 'xl'].includes(recipeMeasNorm);
+  const isSizeMeas = ['small', 'medium', 'large', 'extra large', 'xl', 'regular'].includes(recipeMeasNorm);
   if (isSizeMeas && match.grams > 0) {
     const sizeGrams = getSizeGrams(name, recipeMeasNorm);
     if (sizeGrams) {

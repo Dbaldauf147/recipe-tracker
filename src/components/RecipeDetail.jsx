@@ -3,7 +3,7 @@ import { NutritionPanel } from './NutritionPanel';
 import { BarcodeScanner } from './BarcodeScanner';
 import { loadFriends, shareRecipe, getUsername, createShareLink } from '../utils/firestoreSync';
 import { loadIngredients } from '../utils/ingredientsStore';
-import { VOLUME_TO_ML, WEIGHT_TO_G } from '../utils/units';
+import { VOLUME_TO_ML, WEIGHT_TO_G, SIZE_GRAMS, getSizeGrams } from '../utils/units';
 import { classifyMealType } from '../utils/classifyMealType';
 import styles from './RecipeDetail.module.css';
 
@@ -101,12 +101,15 @@ function normalizeUnit(unit) {
   return unit.trim().toLowerCase().replace(/\(s\)$/i, '');
 }
 
+const SIZE_UNITS = ['small', 'medium', 'large', 'extra large', 'xl', 'regular'];
+
 function classifyUnit(measurement) {
   if (!measurement) return null;
   const unit = normalizeUnit(measurement);
   if (!unit) return null;
   if (VOLUME_TO_ML[unit]) return 'volume';
   if (WEIGHT_TO_G[unit]) return 'weight';
+  if (SIZE_UNITS.includes(unit)) return 'size';
   return null;
 }
 
@@ -1144,7 +1147,66 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user, ingredien
                         {field === 'measurement' && (
                           <>
                             <td style={{ position: 'relative' }}>
-                              {unitType ? (
+                              {unitType === 'size' ? (
+                                <>
+                                <button
+                                  className={styles.typeBtn}
+                                  type="button"
+                                  disabled={!parseFloat(row.quantity)}
+                                  title={!parseFloat(row.quantity) ? 'Quantity is 0' : 'Convert to grams'}
+                                  onClick={() => {
+                                    const ingName = (row.ingredient || '').trim();
+                                    const qty = parseFloat(row.quantity) || 1;
+                                    // Build size options with gram weights
+                                    const sizeOptions = [];
+                                    for (const size of ['small', 'regular', 'medium', 'large', 'extra large']) {
+                                      const grams = getSizeGrams(ingName, size);
+                                      if (grams) {
+                                        const totalGrams = Math.round(qty * grams);
+                                        sizeOptions.push({ size, grams: totalGrams, perUnit: grams, label: `${size} (${grams}g each) → ${totalGrams}g` });
+                                      }
+                                    }
+                                    // Add gram conversion option
+                                    const currentGrams = getSizeGrams(ingName, normalizeUnit(row.measurement || ''));
+                                    if (currentGrams) {
+                                      const totalGrams = Math.round(qty * currentGrams);
+                                      sizeOptions.push({ size: '_grams', grams: totalGrams, label: `Convert to ${totalGrams}g` });
+                                    }
+                                    if (sizeOptions.length > 0) {
+                                      setConvertPopup({ rowIdx: i, sizeOptions, volumeOptions: [], weightOptions: [] });
+                                    }
+                                  }}
+                                >
+                                  Size
+                                </button>
+                                {convertPopup && convertPopup.rowIdx === i && convertPopup.sizeOptions && (
+                                  <div className={styles.convertPopup} ref={convertPopupRef}>
+                                    <div className={styles.convertPopupColumns}>
+                                      <div className={styles.convertPopupCol}>
+                                        <div className={styles.convertPopupTitle}>Size → Grams</div>
+                                        {convertPopup.sizeOptions.map((opt, oi) => (
+                                          <button
+                                            key={oi}
+                                            className={styles.convertPopupOption}
+                                            onClick={() => {
+                                              if (opt.size === '_grams') {
+                                                updateIngredient(i, 'quantity', String(opt.grams));
+                                                updateIngredient(i, 'measurement', 'g');
+                                              } else {
+                                                updateIngredient(i, 'measurement', opt.size);
+                                              }
+                                              setConvertPopup(null);
+                                            }}
+                                          >
+                                            {opt.label}
+                                          </button>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  </div>
+                                )}
+                                </>
+                              ) : unitType ? (
                                 <>
                                 <button
                                   className={styles.typeBtn}
@@ -1182,7 +1244,7 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user, ingredien
                                 >
                                   {unitType === 'weight' ? 'Weight' : 'Volume'}
                                 </button>
-                                {convertPopup && convertPopup.rowIdx === i && (
+                                {convertPopup && convertPopup.rowIdx === i && !convertPopup.sizeOptions && (
                                   <div className={styles.convertPopup} ref={convertPopupRef}>
                                     <div className={styles.convertPopupColumns}>
                                       {convertPopup.volumeOptions.length > 0 && (
