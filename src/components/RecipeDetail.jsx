@@ -5,6 +5,7 @@ import { loadFriends, shareRecipe, getUsername, createShareLink } from '../utils
 import { loadIngredients } from '../utils/ingredientsStore';
 import { VOLUME_TO_ML, WEIGHT_TO_G, SIZE_GRAMS, getSizeGrams } from '../utils/units';
 import { classifyMealType } from '../utils/classifyMealType';
+import { generateMealImage, getCachedMealImage } from '../utils/generateMealImage';
 import styles from './RecipeDetail.module.css';
 
 const ADMIN_UID = import.meta.env.VITE_ADMIN_UID;
@@ -246,6 +247,30 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user, ingredien
   const [adjustedServings, setAdjustedServings] = useState(null);
   const [servingWeight, setServingWeight] = useState('');
   const [editingIngredients, setEditingIngredients] = useState(false);
+  const [mealImage, setMealImage] = useState(null);
+  const [imageLoading, setImageLoading] = useState(false);
+  const [imageError, setImageError] = useState(null);
+
+  // Load cached image on mount
+  useEffect(() => {
+    if (recipe?.id) {
+      getCachedMealImage(recipe.id).then(url => { if (url) setMealImage(url); });
+    }
+  }, [recipe?.id]);
+
+  async function handleGenerateImage() {
+    setImageLoading(true);
+    setImageError(null);
+    try {
+      const url = await generateMealImage(recipe.id, fields.title, fields.ingredients);
+      setMealImage(url);
+    } catch (err) {
+      console.error('Image generation error:', err);
+      setImageError(err.message || 'Failed to generate image');
+    } finally {
+      setImageLoading(false);
+    }
+  }
   const [showScanner, setShowScanner] = useState(false);
   const [showAddMenu, setShowAddMenu] = useState(false);
   const addMenuRef = useRef(null);
@@ -934,6 +959,30 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user, ingredien
           {shareMsg && <span className={styles.shareMsg}>{shareMsg}</span>}
         </div>
       )}
+
+      <div className={styles.mealImageSection}>
+        {mealImage ? (
+          <div className={styles.mealImageWrap}>
+            <img src={mealImage} alt={fields.title} className={styles.mealImage} />
+            <button
+              className={styles.regenBtn}
+              onClick={handleGenerateImage}
+              disabled={imageLoading}
+            >
+              {imageLoading ? 'Generating...' : 'Regenerate Image'}
+            </button>
+          </div>
+        ) : (
+          <button
+            className={styles.generateBtn}
+            onClick={handleGenerateImage}
+            disabled={imageLoading}
+          >
+            {imageLoading ? 'Generating image...' : 'Generate Meal Image'}
+          </button>
+        )}
+        {imageError && <p className={styles.imageError}>{imageError}</p>}
+      </div>
 
       <NutritionPanel
         recipeId={recipe.id}
