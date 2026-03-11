@@ -1,19 +1,26 @@
 import { GoogleGenAI } from '@google/genai';
-import { db } from '../firebase';
-import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { saveField } from './firestoreSync';
 
 const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
 
-/**
- * Generate an AI image of a meal using Gemini and store as base64 in Firestore.
- */
-export async function generateMealImage(recipeId, recipeName, ingredients) {
-  if (!GEMINI_API_KEY) throw new Error('Gemini API key not configured');
+const CACHE_KEY = 'sunday-meal-images';
 
-  // Check Firestore cache first
-  const cacheRef = doc(db, 'recipeImages', recipeId);
-  const cached = await getDoc(cacheRef);
-  if (cached.exists()) return cached.data().dataUrl;
+function loadImageCache() {
+  try { return JSON.parse(localStorage.getItem(CACHE_KEY) || '{}'); }
+  catch { return {}; }
+}
+
+function saveImageCache(cache) {
+  try { localStorage.setItem(CACHE_KEY, JSON.stringify(cache)); }
+  catch { /* storage full */ }
+}
+
+/**
+ * Generate an AI image of a meal using Gemini.
+ * Stores in localStorage and syncs to Firestore under the user doc.
+ */
+export async function generateMealImage(recipeId, recipeName, ingredients, uid) {
+  if (!GEMINI_API_KEY) throw new Error('Gemini API key not configured');
 
   // Build prompt from recipe name + ingredients
   const ingredientList = (ingredients || [])
@@ -43,8 +50,15 @@ export async function generateMealImage(recipeId, recipeName, ingredients) {
   const mimeType = imagePart.inlineData.mimeType || 'image/png';
   const dataUrl = `data:${mimeType};base64,${base64}`;
 
-  // Store in Firestore
-  await setDoc(cacheRef, { dataUrl, recipeName, createdAt: new Date().toISOString() });
+  // Save to localStorage
+  const cache = loadImageCache();
+  cache[recipeId] = dataUrl;
+  saveImageCache(cache);
+
+  // Sync to Firestore under user doc
+  if (uid) {
+    saveField(uid, 'mealImages', cache);
+  }
 
   return dataUrl;
 }
@@ -52,12 +66,7 @@ export async function generateMealImage(recipeId, recipeName, ingredients) {
 /**
  * Get cached image for a recipe (no generation).
  */
-export async function getCachedMealImage(recipeId) {
-  try {
-    const cacheRef = doc(db, 'recipeImages', recipeId);
-    const cached = await getDoc(cacheRef);
-    return cached.exists() ? cached.data().dataUrl : null;
-  } catch {
-    return null;
-  }
+export function getCachedMealImage(recipeId) {
+  const cache = loadImageCache();
+  return cache[recipeId] || null;
 }

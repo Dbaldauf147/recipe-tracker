@@ -247,22 +247,15 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user, ingredien
   const [adjustedServings, setAdjustedServings] = useState(null);
   const [servingWeight, setServingWeight] = useState('');
   const [editingIngredients, setEditingIngredients] = useState(false);
-  const [mealImage, setMealImage] = useState(null);
+  const [mealImage, setMealImage] = useState(() => recipe ? getCachedMealImage(recipe.id) : null);
   const [imageLoading, setImageLoading] = useState(false);
   const [imageError, setImageError] = useState(null);
-
-  // Load cached image on mount
-  useEffect(() => {
-    if (recipe?.id) {
-      getCachedMealImage(recipe.id).then(url => { if (url) setMealImage(url); });
-    }
-  }, [recipe?.id]);
 
   async function handleGenerateImage() {
     setImageLoading(true);
     setImageError(null);
     try {
-      const url = await generateMealImage(recipe.id, fields.title, fields.ingredients);
+      const url = await generateMealImage(recipe.id, fields.title, fields.ingredients, user?.uid);
       setMealImage(url);
     } catch (err) {
       console.error('Image generation error:', err);
@@ -759,6 +752,7 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user, ingredien
       </button>
 
       <div className={styles.topRow}>
+        <div className={styles.topRowLeft}>
           <div className={styles.titleRow}>
             <input
               className={`${styles.inlineInput} ${styles.titleInput}`}
@@ -903,6 +897,31 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user, ingredien
               </label>
             </div>
           )}
+
+        </div>
+          <div className={styles.mealImageSection}>
+            {mealImage ? (
+              <div className={styles.mealImageWrap}>
+                <img src={mealImage} alt={fields.title} className={styles.mealImage} />
+                <button
+                  className={styles.regenBtn}
+                  onClick={handleGenerateImage}
+                  disabled={imageLoading}
+                >
+                  {imageLoading ? 'Generating...' : 'Regenerate'}
+                </button>
+              </div>
+            ) : (
+              <button
+                className={styles.generateBtn}
+                onClick={handleGenerateImage}
+                disabled={imageLoading}
+              >
+                {imageLoading ? 'Generating...' : 'Generate Image'}
+              </button>
+            )}
+            {imageError && <p className={styles.imageError}>{imageError}</p>}
+          </div>
       </div>
 
       {user && (
@@ -959,30 +978,6 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user, ingredien
           {shareMsg && <span className={styles.shareMsg}>{shareMsg}</span>}
         </div>
       )}
-
-      <div className={styles.mealImageSection}>
-        {mealImage ? (
-          <div className={styles.mealImageWrap}>
-            <img src={mealImage} alt={fields.title} className={styles.mealImage} />
-            <button
-              className={styles.regenBtn}
-              onClick={handleGenerateImage}
-              disabled={imageLoading}
-            >
-              {imageLoading ? 'Generating...' : 'Regenerate Image'}
-            </button>
-          </div>
-        ) : (
-          <button
-            className={styles.generateBtn}
-            onClick={handleGenerateImage}
-            disabled={imageLoading}
-          >
-            {imageLoading ? 'Generating image...' : 'Generate Meal Image'}
-          </button>
-        )}
-        {imageError && <p className={styles.imageError}>{imageError}</p>}
-      </div>
 
       <NutritionPanel
         recipeId={recipe.id}

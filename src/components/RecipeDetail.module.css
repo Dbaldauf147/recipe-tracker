@@ -21,6 +21,14 @@
 
 .topRow {
   margin-bottom: 1.25rem;
+  display: flex;
+  gap: 1.5rem;
+  align-items: flex-start;
+}
+
+.topRowLeft {
+  flex: 1;
+  min-width: 0;
 }
 
 .titleRow {
@@ -1079,7 +1087,9 @@
 
 /* Meal Image */
 .mealImageSection {
-  margin: 1.5rem 0;
+  flex-shrink: 0;
+  width: 220px;
+  text-align: center;
 }
 
 .mealImageWrap {
@@ -1088,29 +1098,32 @@
 
 .mealImage {
   width: 100%;
-  max-width: 480px;
   border-radius: 12px;
   box-shadow: 0 2px 12px rgba(0, 0, 0, 0.1);
   display: block;
-  margin: 0 auto 0.75rem;
+  margin-bottom: 0.5rem;
 }
 
 .generateBtn {
-  display: block;
-  margin: 0 auto;
-  padding: 0.6rem 1.25rem;
+  padding: 0.5rem 1rem;
   background: var(--color-accent, #c96442);
   color: #fff;
   border: none;
   border-radius: 8px;
-  font-size: 0.9rem;
+  font-size: 0.82rem;
   font-weight: 600;
   cursor: pointer;
   transition: opacity 0.15s ease;
+  white-space: nowrap;
 }
 
 .generateBtn:hover { opacity: 0.85; }
 .generateBtn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+@media (max-width: 600px) {
+  .topRow { flex-direction: column; }
+  .mealImageSection { width: 100%; max-width: 250px; margin: 0 auto; }
+}
 
 .regenBtn {
   background: none;
