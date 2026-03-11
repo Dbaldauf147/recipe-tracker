@@ -70,9 +70,10 @@ export function deleteMealImage(recipeId, uid) {
 }
 
 /**
- * Build a Pollinations.ai image URL for a recipe.
+ * Generate a meal image using Pollinations.ai (free, no API key).
+ * Fetches via fetch() with retry, converts to data URL, and caches.
  */
-export function getPollinationsUrl(recipeName, ingredients) {
+export async function generateMealImage(recipeId, recipeName, ingredients, uid) {
   const ingredientList = (ingredients || [])
     .filter(i => (i.ingredient || '').trim())
     .map(i => i.ingredient.trim())
@@ -81,34 +82,40 @@ export function getPollinationsUrl(recipeName, ingredients) {
 
   const prompt = `Professional overhead food photography of ${recipeName} on a clean white plate, containing ${ingredientList}, natural lighting, appetizing, high quality, no text`;
   const seed = Math.floor(Math.random() * 100000);
-  return `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?width=512&height=512&nologo=true&seed=${seed}`;
-}
+  const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?width=512&height=512&nologo=true&seed=${seed}`;
 
-/**
- * Load a Pollinations image via <img>, draw to canvas, and cache as data URL.
- */
-export function loadAndCacheImage(recipeId, url, uid) {
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    img.crossOrigin = 'anonymous';
-    img.onload = () => {
-      const canvas = document.createElement('canvas');
-      canvas.width = img.naturalWidth;
-      canvas.height = img.naturalHeight;
-      const ctx = canvas.getContext('2d');
-      ctx.drawImage(img, 0, 0);
-      const dataUrl = canvas.toDataURL('image/jpeg', QUALITY);
+  // Try up to 2 times
+  let lastErr;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const res = await fetch(url);
+      if (!res.ok) {
+        lastErr = new Error(`HTTP ${res.status}`);
+        continue;
+      }
+      const blob = await res.blob();
+      if (!blob.type.startsWith('image')) {
+        lastErr = new Error('Response was not an image');
+        continue;
+      }
+      const dataUrl = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
+      });
 
       const cache = loadImageCache();
       cache[recipeId] = dataUrl;
       saveImageCache(cache);
       if (uid) saveField(uid, 'mealImages', cache);
 
-      resolve(dataUrl);
-    };
-    img.onerror = () => reject(new Error('Failed to generate image'));
-    img.src = url;
-  });
+      return dataUrl;
+    } catch (err) {
+      lastErr = err;
+    }
+  }
+  throw lastErr || new Error('Failed to generate image');
 }
 
 /**

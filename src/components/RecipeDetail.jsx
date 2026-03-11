@@ -5,7 +5,7 @@ import { loadFriends, shareRecipe, getUsername, createShareLink } from '../utils
 import { loadIngredients } from '../utils/ingredientsStore';
 import { VOLUME_TO_ML, WEIGHT_TO_G, SIZE_GRAMS, getSizeGrams } from '../utils/units';
 import { classifyMealType } from '../utils/classifyMealType';
-import { uploadMealImage, deleteMealImage, getCachedMealImage, getPollinationsUrl, loadAndCacheImage } from '../utils/generateMealImage';
+import { uploadMealImage, deleteMealImage, getCachedMealImage, generateMealImage } from '../utils/generateMealImage';
 import styles from './RecipeDetail.module.css';
 
 const ADMIN_UID = import.meta.env.VITE_ADMIN_UID;
@@ -269,8 +269,7 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user, ingredien
     setImageLoading(true);
     setImageError(null);
     try {
-      const url = getPollinationsUrl(fields.title, fields.ingredients);
-      const dataUrl = await loadAndCacheImage(recipe.id, url, user?.uid);
+      const dataUrl = await generateMealImage(recipe.id, fields.title, fields.ingredients, user?.uid);
       setMealImage(dataUrl);
     } catch (err) {
       console.error('Image generation error:', err);
