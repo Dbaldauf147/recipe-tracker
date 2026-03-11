@@ -1088,7 +1088,7 @@
 /* Meal Image */
 .mealImageSection {
   flex-shrink: 0;
-  width: 220px;
+  width: 300px;
   text-align: center;
 }
 
@@ -1122,7 +1122,7 @@
 
 @media (max-width: 600px) {
   .topRow { flex-direction: column; }
-  .mealImageSection { width: 100%; max-width: 250px; margin: 0 auto; }
+  .mealImageSection { width: 100%; max-width: 300px; margin: 0 auto; }
 }
 
 .regenBtn {
