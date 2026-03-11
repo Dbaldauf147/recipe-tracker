@@ -1,9 +1,8 @@
-import { GoogleGenAI } from '@google/genai';
 import { saveField } from './firestoreSync';
 
-const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
-
 const CACHE_KEY = 'sunday-meal-images';
+const MAX_SIZE = 800; // max width/height in pixels
+const QUALITY = 0.7; // JPEG compression quality
 
 function loadImageCache() {
   try { return JSON.parse(localStorage.getItem(CACHE_KEY) || '{}'); }
@@ -16,46 +15,40 @@ function saveImageCache(cache) {
 }
 
 /**
- * Generate an AI image of a meal using Gemini.
- * Stores in localStorage and syncs to Firestore under the user doc.
+ * Compress an image file to a smaller JPEG data URL.
  */
-export async function generateMealImage(recipeId, recipeName, ingredients, uid) {
-  if (!GEMINI_API_KEY) throw new Error('Gemini API key not configured');
-
-  // Build prompt from recipe name + ingredients
-  const ingredientList = (ingredients || [])
-    .filter(i => (i.ingredient || '').trim())
-    .map(i => i.ingredient.trim())
-    .slice(0, 15)
-    .join(', ');
-
-  const prompt = `A beautiful, appetizing overhead food photography shot of "${recipeName}" plated on a clean white dish. The meal contains: ${ingredientList}. Professional food photography, natural lighting, shallow depth of field, high resolution, no text or watermarks.`;
-
-  const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
-
-  const response = await ai.models.generateContent({
-    model: 'gemini-2.5-flash-image',
-    contents: prompt,
-    config: {
-      responseModalities: ['TEXT', 'IMAGE'],
-    },
+function compressImage(file) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      let { width, height } = img;
+      if (width > MAX_SIZE || height > MAX_SIZE) {
+        const ratio = Math.min(MAX_SIZE / width, MAX_SIZE / height);
+        width = Math.round(width * ratio);
+        height = Math.round(height * ratio);
+      }
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0, width, height);
+      resolve(canvas.toDataURL('image/jpeg', QUALITY));
+    };
+    img.onerror = () => reject(new Error('Failed to load image'));
+    img.src = URL.createObjectURL(file);
   });
+}
 
-  // Find image part in response
-  const parts = response.candidates?.[0]?.content?.parts || [];
-  const imagePart = parts.find(p => p.inlineData);
-  if (!imagePart) throw new Error('No image generated');
+/**
+ * Upload and compress a meal photo, save to localStorage + Firestore.
+ */
+export async function uploadMealImage(recipeId, file, uid) {
+  const dataUrl = await compressImage(file);
 
-  const base64 = imagePart.inlineData.data;
-  const mimeType = imagePart.inlineData.mimeType || 'image/png';
-  const dataUrl = `data:${mimeType};base64,${base64}`;
-
-  // Save to localStorage
   const cache = loadImageCache();
   cache[recipeId] = dataUrl;
   saveImageCache(cache);
 
-  // Sync to Firestore under user doc
   if (uid) {
     saveField(uid, 'mealImages', cache);
   }
@@ -64,7 +57,20 @@ export async function generateMealImage(recipeId, recipeName, ingredients, uid) 
 }
 
 /**
- * Get cached image for a recipe (no generation).
+ * Delete a meal image from cache.
+ */
+export function deleteMealImage(recipeId, uid) {
+  const cache = loadImageCache();
+  delete cache[recipeId];
+  saveImageCache(cache);
+
+  if (uid) {
+    saveField(uid, 'mealImages', cache);
+  }
+}
+
+/**
+ * Get cached image for a recipe.
  */
 export function getCachedMealImage(recipeId) {
   const cache = loadImageCache();

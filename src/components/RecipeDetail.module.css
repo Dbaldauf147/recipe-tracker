@@ -1137,7 +1137,12 @@
 }
 
 .regenBtn:hover { border-color: var(--color-accent, #c96442); color: var(--color-accent, #c96442); }
-.regenBtn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.imageActions {
+  display: flex;
+  gap: 0.4rem;
+  justify-content: center;
+}
 
 .imageError {
   text-align: center;

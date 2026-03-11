@@ -10,7 +10,6 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@google/genai": "^1.44.0",
     "cheerio": "^1.2.0",
     "firebase": "^12.9.0",
     "html5-qrcode": "^2.3.8",
