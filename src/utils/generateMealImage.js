@@ -70,6 +70,42 @@ export function deleteMealImage(recipeId, uid) {
 }
 
 /**
+ * Generate a meal image using Pollinations.ai (free, no API key).
+ * Fetches the image, converts to data URL, and caches it.
+ */
+export async function generateMealImage(recipeId, recipeName, ingredients, uid) {
+  const ingredientList = (ingredients || [])
+    .filter(i => (i.ingredient || '').trim())
+    .map(i => i.ingredient.trim())
+    .slice(0, 10)
+    .join(', ');
+
+  const prompt = `Professional overhead food photography of ${recipeName} on a clean white plate, containing ${ingredientList}, natural lighting, appetizing, high quality, no text`;
+  const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?width=800&height=800&nologo=true`;
+
+  const res = await fetch(url);
+  if (!res.ok) throw new Error('Image generation failed');
+
+  const blob = await res.blob();
+  const dataUrl = await new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
+
+  const cache = loadImageCache();
+  cache[recipeId] = dataUrl;
+  saveImageCache(cache);
+
+  if (uid) {
+    saveField(uid, 'mealImages', cache);
+  }
+
+  return dataUrl;
+}
+
+/**
  * Get cached image for a recipe.
  */
 export function getCachedMealImage(recipeId) {

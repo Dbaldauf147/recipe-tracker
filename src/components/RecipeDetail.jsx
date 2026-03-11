@@ -5,7 +5,7 @@ import { loadFriends, shareRecipe, getUsername, createShareLink } from '../utils
 import { loadIngredients } from '../utils/ingredientsStore';
 import { VOLUME_TO_ML, WEIGHT_TO_G, SIZE_GRAMS, getSizeGrams } from '../utils/units';
 import { classifyMealType } from '../utils/classifyMealType';
-import { uploadMealImage, deleteMealImage, getCachedMealImage } from '../utils/generateMealImage';
+import { uploadMealImage, deleteMealImage, getCachedMealImage, generateMealImage } from '../utils/generateMealImage';
 import styles from './RecipeDetail.module.css';
 
 const ADMIN_UID = import.meta.env.VITE_ADMIN_UID;
@@ -249,6 +249,7 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user, ingredien
   const [editingIngredients, setEditingIngredients] = useState(false);
   const [mealImage, setMealImage] = useState(() => recipe ? getCachedMealImage(recipe.id) : null);
   const [imageError, setImageError] = useState(null);
+  const [imageLoading, setImageLoading] = useState(false);
   const imageInputRef = useRef(null);
 
   async function handleImageUpload(e) {
@@ -262,6 +263,20 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user, ingredien
       setImageError('Failed to process image');
     }
     e.target.value = '';
+  }
+
+  async function handleGenerateImage() {
+    setImageLoading(true);
+    setImageError(null);
+    try {
+      const dataUrl = await generateMealImage(recipe.id, fields.title, fields.ingredients, user?.uid);
+      setMealImage(dataUrl);
+    } catch (err) {
+      console.error('Image generation error:', err);
+      setImageError('Failed to generate image');
+    } finally {
+      setImageLoading(false);
+    }
   }
 
   function handleDeleteImage() {
@@ -909,7 +924,10 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user, ingredien
                 <img src={mealImage} alt={fields.title} className={styles.mealImage} />
                 <div className={styles.imageActions}>
                   <button className={styles.regenBtn} onClick={() => imageInputRef.current?.click()}>
-                    Replace
+                    Upload
+                  </button>
+                  <button className={styles.regenBtn} onClick={handleGenerateImage} disabled={imageLoading}>
+                    {imageLoading ? 'Generating...' : 'Generate'}
                   </button>
                   <button className={styles.regenBtn} onClick={handleDeleteImage}>
                     Remove
@@ -917,9 +935,14 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user, ingredien
                 </div>
               </div>
             ) : (
-              <button className={styles.generateBtn} onClick={() => imageInputRef.current?.click()}>
-                Add Photo
-              </button>
+              <div className={styles.imageActions}>
+                <button className={styles.generateBtn} onClick={() => imageInputRef.current?.click()}>
+                  Upload Photo
+                </button>
+                <button className={styles.generateBtn} onClick={handleGenerateImage} disabled={imageLoading}>
+                  {imageLoading ? 'Generating...' : 'Generate Image'}
+                </button>
+              </div>
             )}
             <input
               ref={imageInputRef}
