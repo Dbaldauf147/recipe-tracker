@@ -54,7 +54,7 @@ function NutrientGroup({ title, keys, totals, perServing, showPerServing }) {
 
 const NUTRITION_CACHE_KEY = 'sunday-nutrition-cache';
 const CACHE_VERSION_KEY = 'sunday-nutrition-cache-version';
-const CACHE_VERSION = 5; // bump to invalidate all cached nutrition
+const CACHE_VERSION = 6; // bump to invalidate all cached nutrition
 
 // One-time cache bust when version changes
 try {
