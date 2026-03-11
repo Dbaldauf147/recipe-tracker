@@ -1,13 +1,11 @@
 import { GoogleGenAI } from '@google/genai';
-import { storage, db } from '../firebase';
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { db } from '../firebase';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 
 const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
 
 /**
- * Generate an AI image of a meal using Gemini, upload to Firebase Storage,
- * and cache the URL in Firestore.
+ * Generate an AI image of a meal using Gemini and store as base64 in Firestore.
  */
 export async function generateMealImage(recipeId, recipeName, ingredients) {
   if (!GEMINI_API_KEY) throw new Error('Gemini API key not configured');
@@ -15,7 +13,7 @@ export async function generateMealImage(recipeId, recipeName, ingredients) {
   // Check Firestore cache first
   const cacheRef = doc(db, 'recipeImages', recipeId);
   const cached = await getDoc(cacheRef);
-  if (cached.exists()) return cached.data().url;
+  if (cached.exists()) return cached.data().dataUrl;
 
   // Build prompt from recipe name + ingredients
   const ingredientList = (ingredients || [])
@@ -41,32 +39,24 @@ export async function generateMealImage(recipeId, recipeName, ingredients) {
   const imagePart = parts.find(p => p.inlineData);
   if (!imagePart) throw new Error('No image generated');
 
-  // Convert base64 to blob
   const base64 = imagePart.inlineData.data;
   const mimeType = imagePart.inlineData.mimeType || 'image/png';
-  const byteArray = Uint8Array.from(atob(base64), c => c.charCodeAt(0));
-  const blob = new Blob([byteArray], { type: mimeType });
+  const dataUrl = `data:${mimeType};base64,${base64}`;
 
-  // Upload to Firebase Storage
-  const ext = mimeType.includes('jpeg') || mimeType.includes('jpg') ? 'jpg' : 'png';
-  const storageRef = ref(storage, `recipe-images/${recipeId}.${ext}`);
-  await uploadBytes(storageRef, blob, { contentType: mimeType });
-  const url = await getDownloadURL(storageRef);
+  // Store in Firestore
+  await setDoc(cacheRef, { dataUrl, recipeName, createdAt: new Date().toISOString() });
 
-  // Cache URL in Firestore
-  await setDoc(cacheRef, { url, recipeName, createdAt: new Date().toISOString() });
-
-  return url;
+  return dataUrl;
 }
 
 /**
- * Get cached image URL for a recipe (no generation).
+ * Get cached image for a recipe (no generation).
  */
 export async function getCachedMealImage(recipeId) {
   try {
     const cacheRef = doc(db, 'recipeImages', recipeId);
     const cached = await getDoc(cacheRef);
-    return cached.exists() ? cached.data().url : null;
+    return cached.exists() ? cached.data().dataUrl : null;
   } catch {
     return null;
   }
