@@ -26,7 +26,7 @@ function divideNutrients(totals, servings) {
   for (const key in totals) {
     const val = totals[key];
     result[key] = typeof val === 'number'
-      ? Math.round((val / servings) * 10) / 10
+      ? Math.round(val / servings)
       : val;
   }
   return result;
