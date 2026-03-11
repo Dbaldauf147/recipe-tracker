@@ -25,6 +25,7 @@ export const NUTRIENTS = [
   { key: 'leucine',       label: 'Leucine',         id: 1213, unit: 'g',   decimals: 1 },
   { key: 'omega3',        label: 'Omega-3',         id: 1404, unit: 'g',   decimals: 0 },
   { key: 'vegServings',   label: 'Veg Servings',    id: null, unit: '',    decimals: 0 },
+  { key: 'fruitServings', label: 'Fruit Servings',  id: null, unit: '',    decimals: 0 },
 ];
 
 // 1 serving of vegetables ≈ 80g (WHO standard)
@@ -58,6 +59,39 @@ export function isVegetable(ingredientName) {
 export function computeVegServings(ingredientName, grams) {
   if (!isVegetable(ingredientName)) return 0;
   return Math.round((grams / VEG_SERVING_GRAMS) * 10) / 10;
+}
+
+// 1 serving of fruit ≈ 80g (WHO standard, same as vegetables)
+const FRUIT_SERVING_GRAMS = 80;
+
+const FRUIT_KEYWORDS = [
+  'apple', 'banana', 'orange', 'grape', 'strawberry', 'blueberry',
+  'raspberry', 'blackberry', 'mango', 'pineapple', 'peach', 'pear',
+  'plum', 'cherry', 'watermelon', 'cantaloupe', 'honeydew', 'kiwi',
+  'papaya', 'guava', 'lychee', 'passion fruit', 'pomegranate',
+  'fig', 'date', 'apricot', 'nectarine', 'tangerine', 'clementine',
+  'grapefruit', 'lemon', 'lime', 'coconut', 'avocado',
+  'cranberry', 'gooseberry', 'dragonfruit', 'starfruit',
+  'persimmon', 'jackfruit', 'durian', 'plantain',
+  'mixed berries', 'berries', 'fruit',
+];
+
+// Ingredient forms that are NOT real fruit servings
+const FRUIT_EXCLUDE = [
+  'powder', 'stock', 'broth', 'oil', 'extract', 'seasoning',
+  'sauce', 'vinegar', 'dried', 'flakes', 'paste', 'juice', 'jam',
+  'jelly', 'preserve', 'syrup', 'concentrate', 'zest',
+];
+
+export function isFruit(ingredientName) {
+  const lower = (ingredientName || '').toLowerCase();
+  if (FRUIT_EXCLUDE.some(ex => lower.includes(ex))) return false;
+  return FRUIT_KEYWORDS.some(f => lower.includes(f));
+}
+
+export function computeFruitServings(ingredientName, grams) {
+  if (!isFruit(ingredientName)) return 0;
+  return Math.round((grams / FRUIT_SERVING_GRAMS) * 10) / 10;
 }
 
 // Map common ingredient names to better USDA search terms.
@@ -262,6 +296,7 @@ async function fetchFromUSDA(ingredient) {
     nutrients[n.key] = roundNutrient(per100g[n.key] * scale, n.decimals);
   }
   nutrients.vegServings = computeVegServings(name, grams);
+  nutrients.fruitServings = computeFruitServings(name, grams);
 
   return {
     name: food.description,

@@ -24,7 +24,7 @@ const SHORT_LABELS = {
   saturatedFat: 'sat', sugar: 'sugar', addedSugar: 'added', fiber: 'fiber',
   sodium: 'salt', potassium: 'K', calcium: 'Ca', iron: 'Fe',
   magnesium: 'Mg', zinc: 'Zn', vitaminB12: 'B12', vitaminC: 'vit C',
-  leucine: 'leu', omega3: 'ω3', vegServings: 'veg',
+  leucine: 'leu', omega3: 'ω3', vegServings: 'veg', fruitServings: 'fruit',
 };
 
 const DEFAULT_ENTRY_KEYS = ['calories', 'protein', 'carbs', 'fat'];
@@ -973,6 +973,126 @@ function HistoryChart({ dailyLog }) {
   );
 }
 
+/* ── Fruit & Veg Servings Chart ── */
+function ServingsChart({ dailyLog }) {
+  const [range, setRange] = useState(7);
+
+  const chartData = useMemo(() => {
+    const today = todayStr();
+    const data = [];
+    for (let i = range - 1; i >= 0; i--) {
+      const dateStr = shiftDate(today, -i);
+      const dayData = dailyLog[dateStr] || {};
+      const entries = dayData.entries || [];
+      const daySkipped = !!dayData.daySkipped;
+      const skippedMeals = dayData.skippedMeals || [];
+
+      const [, m, d] = dateStr.split('-');
+      const row = { date: `${parseInt(m)}/${parseInt(d)}` };
+
+      if (daySkipped) {
+        row.veg = null;
+        row.fruit = null;
+        data.push(row);
+        continue;
+      }
+
+      const activeEntries = skippedMeals.length > 0
+        ? entries.filter(e => {
+            const slot = e.type === 'custom' && !e.mealSlot ? 'snack' : (MEAL_SLOTS.includes(e.mealSlot) ? e.mealSlot : 'snack');
+            return !skippedMeals.includes(slot);
+          })
+        : entries;
+
+      let veg = 0;
+      let fruit = 0;
+      for (const entry of activeEntries) {
+        veg += entry.nutrition?.vegServings || 0;
+        fruit += entry.nutrition?.fruitServings || 0;
+      }
+      row.veg = Math.round(veg * 10) / 10;
+      row.fruit = Math.round(fruit * 10) / 10;
+      data.push(row);
+    }
+    return data;
+  }, [dailyLog, range]);
+
+  const hasData = chartData.some(d => (d.veg != null && d.veg > 0) || (d.fruit != null && d.fruit > 0));
+
+  return (
+    <div className={styles.chartCard}>
+      <h3>Fruit & Veg Servings</h3>
+      <div className={styles.chartControls}>
+        <div className={styles.rangeToggle}>
+          {[7, 14, 30].map(r => (
+            <button
+              key={r}
+              className={range === r ? styles.rangeBtnActive : styles.rangeBtn}
+              onClick={() => setRange(r)}
+            >
+              {r}d
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {!hasData ? (
+        <div className={styles.noChartData}>No fruit or vegetable servings tracked yet.</div>
+      ) : (
+        <div className={styles.chartWrap}>
+          <ResponsiveContainer width="100%" height="100%">
+            <ComposedChart data={chartData} margin={{ top: 10, right: 15, left: 20, bottom: 5 }}>
+              <defs>
+                <linearGradient id="grad-veg" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="#22c55e" stopOpacity={0.2} />
+                  <stop offset="100%" stopColor="#22c55e" stopOpacity={0} />
+                </linearGradient>
+                <linearGradient id="grad-fruit" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="#f59e0b" stopOpacity={0.2} />
+                  <stop offset="100%" stopColor="#f59e0b" stopOpacity={0} />
+                </linearGradient>
+              </defs>
+              <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" vertical={false} />
+              <XAxis dataKey="date" tick={{ fontSize: 11, fill: '#9ca3af' }} axisLine={{ stroke: '#e5e7eb' }} tickLine={false} />
+              <YAxis tick={{ fontSize: 11, fill: '#9ca3af' }} axisLine={false} tickLine={false} label={{ value: 'Servings', angle: -90, position: 'insideLeft', style: { fontSize: 11, fill: '#9ca3af', textAnchor: 'middle' } }} />
+              <Tooltip content={<ServingsTooltip />} />
+              <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: '0.78rem', paddingTop: '0.5rem' }} />
+              <ReferenceLine y={5} stroke="#d1d5db" strokeDasharray="6 3" strokeWidth={1.5} label={{ value: '5/day', position: 'right', fontSize: 10, fill: '#9ca3af' }} />
+              <Area type="monotone" dataKey="veg" fill="url(#grad-veg)" stroke="none" name="Vegetables" legendType="none" />
+              <Area type="monotone" dataKey="fruit" fill="url(#grad-fruit)" stroke="none" name="Fruit" legendType="none" />
+              <Line type="monotone" dataKey="veg" stroke="#22c55e" strokeWidth={2.5} dot={{ r: 3, fill: '#fff', stroke: '#22c55e', strokeWidth: 2 }} activeDot={{ r: 5, fill: '#22c55e', stroke: '#fff', strokeWidth: 2 }} name="Vegetables" />
+              <Line type="monotone" dataKey="fruit" stroke="#f59e0b" strokeWidth={2.5} dot={{ r: 3, fill: '#fff', stroke: '#f59e0b', strokeWidth: 2 }} activeDot={{ r: 5, fill: '#f59e0b', stroke: '#fff', strokeWidth: 2 }} name="Fruit" />
+            </ComposedChart>
+          </ResponsiveContainer>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ServingsTooltip({ active, payload, label }) {
+  if (!active || !payload?.length) return null;
+  return (
+    <div style={{
+      background: 'rgba(255,255,255,0.95)',
+      border: '1px solid #e5e7eb',
+      borderRadius: '8px',
+      padding: '0.5rem 0.75rem',
+      boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
+      fontSize: '0.8rem',
+    }}>
+      <div style={{ fontWeight: 600, marginBottom: '0.25rem', color: '#374151' }}>{label}</div>
+      {payload.map(p => (
+        <div key={p.dataKey} style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', padding: '1px 0' }}>
+          <span style={{ width: 8, height: 8, borderRadius: '50%', background: p.color, display: 'inline-block' }} />
+          <span style={{ color: '#6b7280' }}>{p.name}:</span>
+          <span style={{ fontWeight: 600, color: '#111827' }}>{p.value} servings</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 /* ── Main Page ── */
 export function DailyTrackerPage({ recipes, getRecipe, onClose, user, weeklyPlan }) {
   const [date, setDate] = useState(todayStr);
@@ -1053,6 +1173,7 @@ export function DailyTrackerPage({ recipes, getRecipe, onClose, user, weeklyPlan
       <MealLog entries={entries} onDelete={deleteEntry} goalKeys={goalKeys} skippedMeals={skippedMeals} onToggleSkipMeal={toggleSkipMeal} daySkipped={daySkipped} />
       <DailyTotalsBar entries={entries} daySkipped={daySkipped} skippedMeals={skippedMeals} />
       <HistoryChart dailyLog={dailyLog} />
+      <ServingsChart dailyLog={dailyLog} />
     </div>
   );
 }

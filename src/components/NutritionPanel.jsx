@@ -8,7 +8,7 @@ const MACROS = ['calories', 'protein', 'carbs', 'fat', 'saturatedFat'];
 const SUGARS_FIBER = ['sugar', 'addedSugar', 'fiber'];
 const MINERALS = ['sodium', 'potassium', 'calcium', 'iron', 'magnesium', 'zinc'];
 const VITAMINS_AMINOS = ['vitaminB12', 'vitaminC', 'leucine'];
-const OTHER = ['vegServings'];
+const OTHER = ['vegServings', 'fruitServings'];
 
 function NutrientRow({ nutrient, total, perServing, showPerServing }) {
   return (
@@ -54,7 +54,7 @@ function NutrientGroup({ title, keys, totals, perServing, showPerServing }) {
 
 const NUTRITION_CACHE_KEY = 'sunday-nutrition-cache';
 const CACHE_VERSION_KEY = 'sunday-nutrition-cache-version';
-const CACHE_VERSION = 6; // bump to invalidate all cached nutrition
+const CACHE_VERSION = 7; // bump to invalidate all cached nutrition
 
 // One-time cache bust when version changes
 try {

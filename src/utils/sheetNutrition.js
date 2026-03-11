@@ -277,7 +277,7 @@ export async function lookupFromSheet(ingredient) {
   }
 
   // Round values
-  const { NUTRIENTS, computeVegServings } = await import('./nutrition.js');
+  const { NUTRIENTS, computeVegServings, computeFruitServings } = await import('./nutrition.js');
   for (const n of NUTRIENTS) {
     if (n.id === null) continue;
     if (nutrients[n.key] !== undefined) {
@@ -288,6 +288,7 @@ export async function lookupFromSheet(ingredient) {
 
   const totalGrams = match.grams ? match.grams * multiplier : null;
   nutrients.vegServings = computeVegServings(name, totalGrams || 0);
+  nutrients.fruitServings = computeFruitServings(name, totalGrams || 0);
 
   return {
     name: match.name + ' (from your sheet)',
