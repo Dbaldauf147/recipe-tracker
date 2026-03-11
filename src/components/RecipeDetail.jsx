@@ -5,7 +5,7 @@ import { loadFriends, shareRecipe, getUsername, createShareLink } from '../utils
 import { loadIngredients } from '../utils/ingredientsStore';
 import { VOLUME_TO_ML, WEIGHT_TO_G, SIZE_GRAMS, getSizeGrams } from '../utils/units';
 import { classifyMealType } from '../utils/classifyMealType';
-import { uploadMealImage, deleteMealImage, getCachedMealImage, generateMealImage } from '../utils/generateMealImage';
+import { uploadMealImage, deleteMealImage, getCachedMealImage, getPollinationsUrl, loadAndCacheImage } from '../utils/generateMealImage';
 import styles from './RecipeDetail.module.css';
 
 const ADMIN_UID = import.meta.env.VITE_ADMIN_UID;
@@ -269,11 +269,12 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user, ingredien
     setImageLoading(true);
     setImageError(null);
     try {
-      const dataUrl = await generateMealImage(recipe.id, fields.title, fields.ingredients, user?.uid);
+      const url = getPollinationsUrl(fields.title, fields.ingredients);
+      const dataUrl = await loadAndCacheImage(recipe.id, url, user?.uid);
       setMealImage(dataUrl);
     } catch (err) {
       console.error('Image generation error:', err);
-      setImageError('Failed to generate image');
+      setImageError('Failed to generate image. Try again.');
     } finally {
       setImageLoading(false);
     }
@@ -935,13 +936,22 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user, ingredien
                 </div>
               </div>
             ) : (
-              <div className={styles.imageActions}>
-                <button className={styles.generateBtn} onClick={() => imageInputRef.current?.click()}>
-                  Upload Photo
-                </button>
-                <button className={styles.generateBtn} onClick={handleGenerateImage} disabled={imageLoading}>
-                  {imageLoading ? 'Generating...' : 'Generate Image'}
-                </button>
+              <div className={styles.imagePlaceholder}>
+                {imageLoading ? (
+                  <span className={styles.placeholderText}>Generating...</span>
+                ) : (
+                  <>
+                    <span className={styles.placeholderIcon}>&#128247;</span>
+                    <div className={styles.imageActions}>
+                      <button className={styles.regenBtn} onClick={() => imageInputRef.current?.click()}>
+                        Upload
+                      </button>
+                      <button className={styles.regenBtn} onClick={handleGenerateImage}>
+                        Generate
+                      </button>
+                    </div>
+                  </>
+                )}
               </div>
             )}
             <input
