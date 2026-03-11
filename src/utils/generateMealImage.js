@@ -34,7 +34,7 @@ export async function generateMealImage(recipeId, recipeName, ingredients, uid) 
   const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
 
   const response = await ai.models.generateContent({
-    model: 'gemini-2.5-flash-preview-image-generation',
+    model: 'gemini-2.5-flash-image',
     contents: prompt,
     config: {
       responseModalities: ['TEXT', 'IMAGE'],
