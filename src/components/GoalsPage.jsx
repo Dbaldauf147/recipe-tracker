@@ -84,7 +84,6 @@ export function GoalsPage({ onComplete, onSkip, onBack, asModal }) {
       <div className={styles.card}>
         <img className={styles.logo} src="/prep-day-logo.png" alt="Prep Day" />
         <h2 className={styles.title}>What would you like to do?</h2>
-        <p className={styles.subtitle}>Select any that apply — you can always change these later</p>
 
         <div className={styles.goalList}>
           {GOALS.map(goal => (
