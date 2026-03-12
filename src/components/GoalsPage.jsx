@@ -83,7 +83,7 @@ export function GoalsPage({ onComplete, onSkip, onBack, asModal }) {
     <div className={asModal ? styles.overlay : styles.page} onClick={asModal && onSkip ? (e) => { if (e.target === e.currentTarget) onSkip(); } : undefined}>
       <div className={styles.card}>
         <img className={styles.logo} src="/prep-day-logo.png" alt="Prep Day" />
-        <h2 className={styles.title}>What are your goals?</h2>
+        <h2 className={styles.title}>What would you like to do?</h2>
         <p className={styles.subtitle}>Select any that apply — you can always change these later</p>
 
         <div className={styles.goalList}>
