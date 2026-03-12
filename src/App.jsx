@@ -182,7 +182,6 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
     { label: 'Shopping List', action: 'shopping' },
     { label: "This Week's Menu", id: 'weekly-menu' },
     { label: 'Daily Tracker', action: 'daily-tracker' },
-    { label: 'Scan Ingredient', action: 'barcode-scanner' },
     { label: 'History', action: 'history' },
   ];
 
