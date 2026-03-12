@@ -1,6 +1,8 @@
+import { getCachedMealImage } from '../utils/generateMealImage';
 import styles from './RecipeCard.module.css';
 
 export function RecipeCard({ recipe, onClick, draggable = false, onAdd, editMode, onDelete }) {
+  const mealImage = getCachedMealImage(recipe.id);
   function handleDragStart(e) {
     e.dataTransfer.setData('text/plain', recipe.id);
     e.dataTransfer.effectAllowed = 'copyMove';
@@ -27,6 +29,9 @@ export function RecipeCard({ recipe, onClick, draggable = false, onAdd, editMode
       onDragStart={draggable ? handleDragStart : undefined}
       onDragEnd={draggable ? handleDragEnd : undefined}
     >
+      {mealImage && (
+        <img className={styles.thumbnail} src={mealImage} alt="" />
+      )}
       <div className={styles.cardContent}>
         <span className={styles.name}>{recipe.title}</span>
         {isQuick && (
