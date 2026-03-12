@@ -60,6 +60,10 @@ export function GoalsPage({ onComplete, onSkip, onBack, asModal }) {
       return new Set();
     }
   });
+  const [customDiet, setCustomDiet] = useState(() => {
+    try { return localStorage.getItem('sunday-user-custom-diet') || ''; }
+    catch { return ''; }
+  });
 
   function toggle(key) {
     setSelected(prev => {
@@ -118,6 +122,14 @@ export function GoalsPage({ onComplete, onSkip, onBack, asModal }) {
                       </button>
                     ))}
                   </div>
+                  <input
+                    className={styles.customDietInput}
+                    type="text"
+                    placeholder="Or type your own diet..."
+                    value={customDiet}
+                    onClick={e => e.stopPropagation()}
+                    onChange={e => setCustomDiet(e.target.value)}
+                  />
                 </div>
               )}
               {goal.key === 'whats_in_season' && selected.has('whats_in_season') && (
@@ -146,6 +158,7 @@ export function GoalsPage({ onComplete, onSkip, onBack, asModal }) {
           <button className={styles.startBtn} onClick={() => {
             if (location.trim()) localStorage.setItem('sunday-user-location', location.trim());
             if (selectedDiets.size > 0) localStorage.setItem('sunday-user-diet', JSON.stringify([...selectedDiets]));
+            if (customDiet.trim()) localStorage.setItem('sunday-user-custom-diet', customDiet.trim());
             onComplete([...selected]);
           }}>
             Continue
