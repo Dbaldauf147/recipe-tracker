@@ -90,7 +90,7 @@ export async function generateMealImage(recipeId, recipeName, ingredients, uid) 
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
       const res = await fetch(
-        'https://api-inference.huggingface.co/models/black-forest-labs/FLUX.1-schnell',
+        'https://router.huggingface.co/hf-inference/models/black-forest-labs/FLUX.1-schnell',
         {
           method: 'POST',
           headers: {
