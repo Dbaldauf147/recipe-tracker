@@ -36,6 +36,20 @@ const USDA_NUTRIENT_IDS = {
   leucine: 1213, omega3: 1404,
 };
 
+function ordinal(n) {
+  const s = ['th', 'st', 'nd', 'rd'];
+  const v = n % 100;
+  return n + (s[(v - 20) % 10] || s[v] || s[0]);
+}
+
+function fmtDate(val) {
+  if (!val) return '';
+  const d = new Date(val);
+  if (isNaN(d.getTime())) return val;
+  const months = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+  return `${months[d.getMonth()]} ${ordinal(d.getDate())}, ${d.getFullYear()}`;
+}
+
 function fmtVal(val) {
   if (val == null || val === 0) return '';
   const s = String(Math.round(val * 100) / 100);
@@ -44,7 +58,7 @@ function fmtVal(val) {
 }
 
 const COL_WIDTHS_KEY = 'sunday-ingredients-col-widths';
-const DEFAULT_WIDTHS = { ingredient: 220, measurement: 70, notes: 100, link: 80, storage: 70 };
+const DEFAULT_WIDTHS = { ingredient: 220, measurement: 70, notes: 100, link: 80, storage: 70, lastBought: 140 };
 
 function loadColWidths() {
   try {
@@ -681,7 +695,7 @@ export function IngredientsPage({ onClose, user }) {
                         />
                       ) : (
                         <span className={styles.cellText}>
-                          {key === 'grams' && row[key] ? String(Math.round(parseFloat(row[key])) || row[key]) : (key === 'proteinPerCal' || key === 'fiberPerCal') && row[key] ? String(parseFloat(parseFloat(row[key]).toFixed(3)) || row[key]) : (row[key] || '')}
+                          {key === 'lastBought' ? fmtDate(row[key]) : key === 'grams' && row[key] ? String(Math.round(parseFloat(row[key])) || row[key]) : (key === 'proteinPerCal' || key === 'fiberPerCal') && row[key] ? String(parseFloat(parseFloat(row[key]).toFixed(3)) || row[key]) : (row[key] || '')}
                         </span>
                       )}
                     </td>
