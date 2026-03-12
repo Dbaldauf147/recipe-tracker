@@ -154,6 +154,10 @@ export function hydrateLocalStorage(userData) {
   if (userData.userLocation) {
     localStorage.setItem('sunday-user-location', userData.userLocation);
   }
+
+  if (userData.mealImages && typeof userData.mealImages === 'object') {
+    localStorage.setItem('sunday-meal-images', JSON.stringify(userData.mealImages));
+  }
 }
 
 /**

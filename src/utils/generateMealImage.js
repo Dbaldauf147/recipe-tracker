@@ -1,4 +1,4 @@
-import { saveField } from './firestoreSync';
+import { saveField, loadUserData } from './firestoreSync';
 
 const CACHE_KEY = 'sunday-meal-images';
 const MAX_SIZE = 800; // max width/height in pixels
@@ -139,6 +139,33 @@ export async function generateMealImage(recipeId, recipeName, ingredients, uid) 
     }
   }
   throw lastErr || new Error('Failed to generate image');
+}
+
+/**
+ * Sync meal images from Firestore into localStorage.
+ * Merges remote images with local ones (local wins on conflict).
+ */
+export async function syncMealImages(uid) {
+  if (!uid) return;
+  try {
+    const data = await loadUserData(uid);
+    const remote = data?.mealImages || {};
+    if (!remote || Object.keys(remote).length === 0) return;
+    const local = loadImageCache();
+    // Merge: remote fills in any missing keys, local keeps its own
+    let changed = false;
+    for (const [id, url] of Object.entries(remote)) {
+      if (!local[id]) {
+        local[id] = url;
+        changed = true;
+      }
+    }
+    if (changed) {
+      saveImageCache(local);
+    }
+  } catch (err) {
+    console.error('syncMealImages:', err);
+  }
 }
 
 /**
