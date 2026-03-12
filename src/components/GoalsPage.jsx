@@ -4,7 +4,7 @@ import styles from './GoalsPage.module.css';
 const GOALS = [
   {
     key: 'daily_nutrition_goals',
-    title: 'Daily Nutrition Goals',
+    title: 'Track nutrition',
     description: 'Get meal recommendations based on daily nutrition goals',
   },
   {
@@ -14,7 +14,7 @@ const GOALS = [
   },
   {
     key: 'whats_in_season',
-    title: "What's In Season",
+    title: "Eat what's in season",
     description: "Get recommendations for what's in season",
   },
   {
