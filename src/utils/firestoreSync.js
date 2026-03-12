@@ -161,7 +161,10 @@ export function hydrateLocalStorage(userData) {
   }
 
   if (userData.mealImages && typeof userData.mealImages === 'object') {
+    console.log('[hydrate] mealImages found in Firestore, keys:', Object.keys(userData.mealImages));
     localStorage.setItem('sunday-meal-images', JSON.stringify(userData.mealImages));
+  } else {
+    console.log('[hydrate] NO mealImages in Firestore data');
   }
 }
 

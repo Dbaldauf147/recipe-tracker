@@ -131,7 +131,14 @@ export async function generateMealImage(recipeId, recipeName, ingredients, uid) 
       const cache = loadImageCache();
       cache[recipeId] = dataUrl;
       saveImageCache(cache);
-      if (uid) saveField(uid, 'mealImages', cache);
+      if (uid) {
+        try {
+          await saveField(uid, 'mealImages', cache);
+          console.log('[mealImage] saved to Firestore, keys:', Object.keys(cache));
+        } catch (err) {
+          console.error('[mealImage] Firestore save FAILED:', err);
+        }
+      }
 
       return dataUrl;
     } catch (err) {
@@ -151,6 +158,7 @@ export async function syncMealImages(uid) {
     const data = await loadUserData(uid);
     const remote = data?.mealImages || {};
     const local = loadImageCache();
+    console.log('[mealImage] sync - remote keys:', Object.keys(remote), 'local keys:', Object.keys(local));
 
     let localChanged = false;
     let remoteChanged = false;
