@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   INGREDIENT_FIELDS,
   loadIngredients,
@@ -8,6 +8,7 @@ import {
   applyGramsData,
 } from '../utils/ingredientsStore.js';
 import { lookupBarcodeFullNutrition } from '../utils/openFoodFacts.js';
+import { locationToRegion, getSeasonalIngredients } from '../utils/seasonal.js';
 import { BarcodeScanner } from './BarcodeScanner.jsx';
 import styles from './IngredientsPage.module.css';
 
@@ -149,8 +150,29 @@ function ManualAddModal({ onAdd, onClose, initialValues, title }) {
   );
 }
 
+function isIngredientInSeason(name, seasonalSet) {
+  if (!name || seasonalSet.size === 0) return false;
+  const lower = name.toLowerCase().trim();
+  for (const seasonal of seasonalSet) {
+    if (lower.includes(seasonal) || seasonal.includes(lower)) return true;
+  }
+  return false;
+}
+
 export function IngredientsPage({ onClose, user }) {
   const isAdmin = user?.uid === ADMIN_UID;
+
+  // Compute seasonal ingredients set
+  const seasonalSet = (() => {
+    try {
+      const loc = localStorage.getItem('sunday-user-location') || '';
+      const region = locationToRegion(loc);
+      if (!region) return new Set();
+      const month = new Date().getMonth() + 1;
+      return getSeasonalIngredients(region, month);
+    } catch { return new Set(); }
+  })();
+
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -649,26 +671,30 @@ export function IngredientsPage({ onClose, user }) {
           <table className={styles.table}>
             <thead>
               <tr>
-                {DISPLAY_KEYS.map(key => {
+                {DISPLAY_KEYS.map((key, ki) => {
                   const field = FIELD_MAP[key];
                   return (
-                    <th
-                      key={key}
-                      onClick={() => handleSort(key)}
-                      className={sortKey === key ? styles.sortedTh : ''}
-                      style={{ width: getColWidth(key), minWidth: getColWidth(key) }}
-                    >
-                      {field.label}
-                      {sortKey === key && (
-                        <span className={styles.sortArrow}>
-                          {sortAsc ? ' \u25B2' : ' \u25BC'}
-                        </span>
+                    <React.Fragment key={key}>
+                      <th
+                        onClick={() => handleSort(key)}
+                        className={sortKey === key ? styles.sortedTh : ''}
+                        style={{ width: getColWidth(key), minWidth: getColWidth(key) }}
+                      >
+                        {field.label}
+                        {sortKey === key && (
+                          <span className={styles.sortArrow}>
+                            {sortAsc ? ' \u25B2' : ' \u25BC'}
+                          </span>
+                        )}
+                        <span
+                          className={styles.resizeHandle}
+                          onMouseDown={e => handleResizeStart(e, key)}
+                        />
+                      </th>
+                      {key === 'ingredient' && (
+                        <th style={{ width: 80, minWidth: 80 }}>In Season</th>
                       )}
-                      <span
-                        className={styles.resizeHandle}
-                        onMouseDown={e => handleResizeStart(e, key)}
-                      />
-                    </th>
+                    </React.Fragment>
                   );
                 })}
                 <th className={styles.actionTh} />
@@ -678,27 +704,36 @@ export function IngredientsPage({ onClose, user }) {
               {sorted.map(({ row, origIdx }) => (
                 <tr key={origIdx}>
                   {DISPLAY_KEYS.map(key => (
-                    <td key={key} style={{ width: getColWidth(key), minWidth: getColWidth(key) }}>
-                      {isAdmin ? (
-                        <input
-                          className={styles.cellInput}
-                          style={{ maxWidth: 'none' }}
-                          value={row[key] || ''}
-                          onChange={e => updateField(origIdx, key, e.target.value)}
-                          onBlur={key === 'grams' ? e => {
-                            const num = parseFloat(e.target.value);
-                            if (!isNaN(num)) updateField(origIdx, key, String(Math.round(num)));
-                          } : (key === 'proteinPerCal' || key === 'fiberPerCal') ? e => {
-                            const num = parseFloat(e.target.value);
-                            if (!isNaN(num)) updateField(origIdx, key, String(parseFloat(num.toFixed(3))));
-                          } : undefined}
-                        />
-                      ) : (
-                        <span className={styles.cellText}>
-                          {key === 'lastBought' ? fmtDate(row[key]) : key === 'grams' && row[key] ? String(Math.round(parseFloat(row[key])) || row[key]) : (key === 'proteinPerCal' || key === 'fiberPerCal') && row[key] ? String(parseFloat(parseFloat(row[key]).toFixed(3)) || row[key]) : (row[key] || '')}
-                        </span>
+                    <React.Fragment key={key}>
+                      <td style={{ width: getColWidth(key), minWidth: getColWidth(key) }}>
+                        {isAdmin ? (
+                          <input
+                            className={styles.cellInput}
+                            style={{ maxWidth: 'none' }}
+                            value={row[key] || ''}
+                            onChange={e => updateField(origIdx, key, e.target.value)}
+                            onBlur={key === 'grams' ? e => {
+                              const num = parseFloat(e.target.value);
+                              if (!isNaN(num)) updateField(origIdx, key, String(Math.round(num)));
+                            } : (key === 'proteinPerCal' || key === 'fiberPerCal') ? e => {
+                              const num = parseFloat(e.target.value);
+                              if (!isNaN(num)) updateField(origIdx, key, String(parseFloat(num.toFixed(3))));
+                            } : undefined}
+                          />
+                        ) : (
+                          <span className={styles.cellText}>
+                            {key === 'lastBought' ? fmtDate(row[key]) : key === 'grams' && row[key] ? String(Math.round(parseFloat(row[key])) || row[key]) : (key === 'proteinPerCal' || key === 'fiberPerCal') && row[key] ? String(parseFloat(parseFloat(row[key]).toFixed(3)) || row[key]) : (row[key] || '')}
+                          </span>
+                        )}
+                      </td>
+                      {key === 'ingredient' && (
+                        <td style={{ width: 80, minWidth: 80 }}>
+                          {isIngredientInSeason(row.ingredient, seasonalSet) && (
+                            <span className={styles.seasonBadge}>In Season</span>
+                          )}
+                        </td>
                       )}
-                    </td>
+                    </React.Fragment>
                   ))}
                   <td>
                     <button
