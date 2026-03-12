@@ -9,7 +9,7 @@ const GOALS = [
   },
   {
     key: 'follow_diet',
-    title: 'Follow a Diet',
+    title: 'Follow a specific diet',
     description: 'Get recommendations tailored to a specific diet',
   },
   {
