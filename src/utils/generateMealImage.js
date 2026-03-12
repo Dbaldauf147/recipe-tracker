@@ -142,26 +142,41 @@ export async function generateMealImage(recipeId, recipeName, ingredients, uid) 
 }
 
 /**
- * Sync meal images from Firestore into localStorage.
- * Merges remote images with local ones (local wins on conflict).
+ * Sync meal images between Firestore and localStorage.
+ * Merges in both directions so images appear on all devices.
  */
 export async function syncMealImages(uid) {
   if (!uid) return;
   try {
     const data = await loadUserData(uid);
     const remote = data?.mealImages || {};
-    if (!remote || Object.keys(remote).length === 0) return;
     const local = loadImageCache();
-    // Merge: remote fills in any missing keys, local keeps its own
-    let changed = false;
+
+    let localChanged = false;
+    let remoteChanged = false;
+
+    // Pull: remote → local (fill in missing)
     for (const [id, url] of Object.entries(remote)) {
       if (!local[id]) {
         local[id] = url;
-        changed = true;
+        localChanged = true;
       }
     }
-    if (changed) {
-      saveImageCache(local);
+
+    // Push: local → remote (fill in missing)
+    for (const [id, url] of Object.entries(local)) {
+      if (!remote[id]) {
+        remote[id] = url;
+        remoteChanged = true;
+      }
+    }
+
+    if (localChanged) {
+      saveImageCache({ ...local, ...remote });
+    }
+
+    if (remoteChanged) {
+      saveField(uid, 'mealImages', { ...remote, ...local });
     }
   } catch (err) {
     console.error('syncMealImages:', err);

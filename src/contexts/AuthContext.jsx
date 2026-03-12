@@ -2,6 +2,7 @@ import { createContext, useContext, useState, useEffect, useRef } from 'react';
 import { onAuthStateChanged, signInWithPopup, signOut, createUserWithEmailAndPassword, signInWithEmailAndPassword, updateProfile, sendPasswordResetEmail } from 'firebase/auth';
 import { auth, googleProvider, facebookProvider, appleProvider } from '../firebase';
 import { loadUserData, migrateToFirestore, hydrateLocalStorage, saveField, recordLogin, subscribeToUserData } from '../utils/firestoreSync';
+import { syncMealImages } from '../utils/generateMealImage';
 
 const AuthContext = createContext(null);
 
@@ -111,6 +112,9 @@ export function AuthProvider({ children }) {
             }),
           }).catch(() => {});
         }
+
+        // Sync meal images from Firestore (fills in any missing local images)
+        syncMealImages(firebaseUser.uid).catch(() => {});
 
         // Add pending shared recipe to user's recipes after hydration
         if (pendingRecipe) {

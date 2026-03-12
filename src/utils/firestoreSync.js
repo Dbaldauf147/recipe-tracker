@@ -100,6 +100,11 @@ export async function migrateToFirestore(uid) {
     if (dailyLog) data.dailyLog = JSON.parse(dailyLog);
   } catch {}
 
+  try {
+    const mealImages = localStorage.getItem('sunday-meal-images');
+    if (mealImages) data.mealImages = JSON.parse(mealImages);
+  } catch {}
+
   if (Object.keys(data).length === 0) return;
 
   try {
