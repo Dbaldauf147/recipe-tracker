@@ -19,7 +19,7 @@ const GOALS = [
   },
   {
     key: 'ingredient_variety',
-    title: 'Ingredient Variety',
+    title: 'Cycle healthy ingredients in my diet',
     description: 'Cycle healthy ingredients to ensure variety in your diet',
   },
 ];
