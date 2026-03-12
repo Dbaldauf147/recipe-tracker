@@ -44,7 +44,7 @@ function fmtVal(val) {
 }
 
 const COL_WIDTHS_KEY = 'sunday-ingredients-col-widths';
-const DEFAULT_WIDTHS = { ingredient: 140, measurement: 70, notes: 100, link: 80, storage: 70 };
+const DEFAULT_WIDTHS = { ingredient: 220, measurement: 70, notes: 100, link: 80, storage: 70 };
 
 function loadColWidths() {
   try {
@@ -593,7 +593,7 @@ export function IngredientsPage({ onClose, user }) {
           value={search}
           onChange={e => setSearch(e.target.value)}
         />
-        {!loading && !error && isAdmin && (
+        {!loading && !error && (
           <div className={styles.addMenuWrap} ref={addMenuRef}>
             <button className={styles.addBtn} onClick={() => setShowAddMenu(v => !v)}>
               + Add ingredient &#9662;

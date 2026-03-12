@@ -163,14 +163,14 @@
   left: 0;
   background: var(--color-surface);
   z-index: 1;
-  min-width: 90px;
+  min-width: 180px;
 }
 
 .table th:first-child {
   position: sticky;
   left: 0;
   z-index: 3;
-  min-width: 90px;
+  min-width: 180px;
 }
 
 .table td:first-child .cellInput {
