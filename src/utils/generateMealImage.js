@@ -70,10 +70,13 @@ export function deleteMealImage(recipeId, uid) {
 }
 
 /**
- * Generate a meal image using Pollinations.ai (free, no API key).
- * Fetches via fetch() with retry, converts to data URL, and caches.
+ * Generate a meal image using Hugging Face Inference API (free tier).
+ * Uses FLUX.1-schnell model for fast, high-quality image generation.
  */
 export async function generateMealImage(recipeId, recipeName, ingredients, uid) {
+  const apiKey = import.meta.env.VITE_HF_API_KEY;
+  if (!apiKey) throw new Error('Hugging Face API key not configured');
+
   const ingredientList = (ingredients || [])
     .filter(i => (i.ingredient || '').trim())
     .map(i => i.ingredient.trim())
@@ -81,23 +84,43 @@ export async function generateMealImage(recipeId, recipeName, ingredients, uid) 
     .join(', ');
 
   const prompt = `Professional overhead food photography of ${recipeName} on a clean white plate, containing ${ingredientList}, natural lighting, appetizing, high quality, no text`;
-  const seed = Math.floor(Math.random() * 100000);
-  const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?width=512&height=512&nologo=true&seed=${seed}`;
 
   // Try up to 2 times
   let lastErr;
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
-      const res = await fetch(url);
-      if (!res.ok) {
-        lastErr = new Error(`HTTP ${res.status}`);
+      const res = await fetch(
+        'https://api-inference.huggingface.co/models/black-forest-labs/FLUX.1-schnell',
+        {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${apiKey}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ inputs: prompt }),
+        }
+      );
+
+      if (res.status === 503) {
+        // Model is loading, wait and retry
+        const body = await res.json().catch(() => ({}));
+        const wait = Math.min((body.estimated_time || 20) * 1000, 60000);
+        await new Promise(r => setTimeout(r, wait));
         continue;
       }
+
+      if (!res.ok) {
+        const errText = await res.text().catch(() => '');
+        lastErr = new Error(`HTTP ${res.status}: ${errText}`);
+        continue;
+      }
+
       const blob = await res.blob();
       if (!blob.type.startsWith('image')) {
         lastErr = new Error('Response was not an image');
         continue;
       }
+
       const dataUrl = await new Promise((resolve, reject) => {
         const reader = new FileReader();
         reader.onload = () => resolve(reader.result);
