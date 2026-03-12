@@ -22,6 +22,11 @@ const GOALS = [
     title: 'Cycle healthy ingredients in my diet',
     description: 'Cycle healthy ingredients to ensure variety in your diet',
   },
+  {
+    key: 'import_meals',
+    title: 'Import meals from social media or websites',
+    description: 'Save recipes from Instagram, TikTok, blogs, and more',
+  },
 ];
 
 const DIET_TYPES = [
