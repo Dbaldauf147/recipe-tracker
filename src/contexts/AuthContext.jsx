@@ -113,8 +113,8 @@ export function AuthProvider({ children }) {
           }).catch(() => {});
         }
 
-        // Sync meal images from Firestore (fills in any missing local images)
-        syncMealImages(firebaseUser.uid).catch(() => {});
+        // Sync meal images between Firestore and localStorage
+        await syncMealImages(firebaseUser.uid).catch(() => {});
 
         // Add pending shared recipe to user's recipes after hydration
         if (pendingRecipe) {
