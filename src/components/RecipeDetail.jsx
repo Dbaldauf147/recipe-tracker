@@ -806,7 +806,7 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user, ingredien
                 type="text"
                 value={fields.prepTime}
                 onChange={e => setField('prepTime', e.target.value)}
-                placeholder="15 min"
+                placeholder="-"
               />
             </label>
             <label className={styles.metaLabel}>
@@ -816,7 +816,7 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user, ingredien
                 type="text"
                 value={fields.cookTime}
                 onChange={e => setField('cookTime', e.target.value)}
-                placeholder="30 min"
+                placeholder="-"
               />
             </label>
           </div>
