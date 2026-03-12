@@ -1,4 +1,5 @@
-import { saveField, loadUserData } from './firestoreSync';
+import { doc, getDoc, setDoc, deleteDoc, collection, getDocs } from 'firebase/firestore';
+import { db } from '../firebase';
 
 const CACHE_KEY = 'sunday-meal-images';
 const MAX_SIZE = 800; // max width/height in pixels
@@ -12,6 +13,42 @@ function loadImageCache() {
 function saveImageCache(cache) {
   try { localStorage.setItem(CACHE_KEY, JSON.stringify(cache)); }
   catch { /* storage full */ }
+}
+
+/** Save a single meal image to its own Firestore document. */
+async function saveImageToFirestore(uid, recipeId, dataUrl) {
+  try {
+    const ref = doc(db, 'users', uid, 'mealImages', recipeId);
+    await setDoc(ref, { dataUrl });
+  } catch (err) {
+    console.error('[mealImage] Firestore save failed:', err);
+  }
+}
+
+/** Delete a single meal image from Firestore. */
+async function deleteImageFromFirestore(uid, recipeId) {
+  try {
+    const ref = doc(db, 'users', uid, 'mealImages', recipeId);
+    await deleteDoc(ref);
+  } catch (err) {
+    console.error('[mealImage] Firestore delete failed:', err);
+  }
+}
+
+/** Load all meal images from Firestore for a user. */
+async function loadImagesFromFirestore(uid) {
+  try {
+    const colRef = collection(db, 'users', uid, 'mealImages');
+    const snap = await getDocs(colRef);
+    const images = {};
+    snap.forEach(d => {
+      images[d.id] = d.data().dataUrl;
+    });
+    return images;
+  } catch (err) {
+    console.error('[mealImage] Firestore load failed:', err);
+    return {};
+  }
 }
 
 /**
@@ -50,14 +87,14 @@ export async function uploadMealImage(recipeId, file, uid) {
   saveImageCache(cache);
 
   if (uid) {
-    saveField(uid, 'mealImages', cache);
+    saveImageToFirestore(uid, recipeId, dataUrl);
   }
 
   return dataUrl;
 }
 
 /**
- * Delete a meal image from cache.
+ * Delete a meal image from cache and Firestore.
  */
 export function deleteMealImage(recipeId, uid) {
   const cache = loadImageCache();
@@ -65,7 +102,7 @@ export function deleteMealImage(recipeId, uid) {
   saveImageCache(cache);
 
   if (uid) {
-    saveField(uid, 'mealImages', cache);
+    deleteImageFromFirestore(uid, recipeId);
   }
 }
 
@@ -132,12 +169,7 @@ export async function generateMealImage(recipeId, recipeName, ingredients, uid) 
       cache[recipeId] = dataUrl;
       saveImageCache(cache);
       if (uid) {
-        try {
-          await saveField(uid, 'mealImages', cache);
-          console.log('[mealImage] saved to Firestore, keys:', Object.keys(cache));
-        } catch (err) {
-          console.error('[mealImage] Firestore save FAILED:', err);
-        }
+        await saveImageToFirestore(uid, recipeId, dataUrl);
       }
 
       return dataUrl;
@@ -150,41 +182,25 @@ export async function generateMealImage(recipeId, recipeName, ingredients, uid) 
 
 /**
  * Sync meal images between Firestore and localStorage.
- * Merges in both directions so images appear on all devices.
+ * Each image is its own Firestore doc, avoiding the 1MB user doc limit.
  */
 export async function syncMealImages(uid) {
   if (!uid) return;
   try {
-    const data = await loadUserData(uid);
-    const remote = data?.mealImages || {};
+    const remote = await loadImagesFromFirestore(uid);
     const local = loadImageCache();
-    console.log('[mealImage] sync - remote keys:', Object.keys(remote), 'local keys:', Object.keys(local));
 
-    let localChanged = false;
-    let remoteChanged = false;
+    // Merge: remote fills local, local fills remote
+    const merged = { ...remote, ...local };
 
-    // Pull: remote → local (fill in missing)
-    for (const [id, url] of Object.entries(remote)) {
-      if (!local[id]) {
-        local[id] = url;
-        localChanged = true;
-      }
-    }
+    // Update localStorage with merged set
+    saveImageCache(merged);
 
-    // Push: local → remote (fill in missing)
+    // Push any local-only images to Firestore
     for (const [id, url] of Object.entries(local)) {
       if (!remote[id]) {
-        remote[id] = url;
-        remoteChanged = true;
+        saveImageToFirestore(uid, id, url);
       }
-    }
-
-    if (localChanged) {
-      saveImageCache({ ...local, ...remote });
-    }
-
-    if (remoteChanged) {
-      saveField(uid, 'mealImages', { ...remote, ...local });
     }
   } catch (err) {
     console.error('syncMealImages:', err);

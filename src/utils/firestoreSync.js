@@ -100,10 +100,7 @@ export async function migrateToFirestore(uid) {
     if (dailyLog) data.dailyLog = JSON.parse(dailyLog);
   } catch {}
 
-  try {
-    const mealImages = localStorage.getItem('sunday-meal-images');
-    if (mealImages) data.mealImages = JSON.parse(mealImages);
-  } catch {}
+  // mealImages are stored in their own collection, not in the user doc
 
   if (Object.keys(data).length === 0) return;
 
@@ -160,12 +157,8 @@ export function hydrateLocalStorage(userData) {
     localStorage.setItem('sunday-user-location', userData.userLocation);
   }
 
-  if (userData.mealImages && typeof userData.mealImages === 'object') {
-    console.log('[hydrate] mealImages found in Firestore, keys:', Object.keys(userData.mealImages));
-    localStorage.setItem('sunday-meal-images', JSON.stringify(userData.mealImages));
-  } else {
-    console.log('[hydrate] NO mealImages in Firestore data');
-  }
+  // mealImages are stored in separate Firestore docs (mealImages/{uid}/images/{recipeId})
+  // and synced via syncMealImages() — not part of the user document anymore.
 }
 
 /**
