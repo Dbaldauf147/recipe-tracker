@@ -6,24 +6,57 @@ const BASE_URL = 'https://api.nal.usda.gov/fdc/v1/foods/search';
 
 // All tracked nutrients with their USDA FoodData Central IDs, units, and rounding precision.
 export const NUTRIENTS = [
+  // Macros
   { key: 'calories',      label: 'Calories',        id: 1008, unit: '',    decimals: 0 },
   { key: 'protein',       label: 'Protein',         id: 1003, unit: 'g',   decimals: 0 },
   { key: 'carbs',         label: 'Carbs',           id: 1005, unit: 'g',   decimals: 0 },
   { key: 'fat',           label: 'Fat',             id: 1004, unit: 'g',   decimals: 0 },
   { key: 'saturatedFat',  label: 'Saturated Fat',   id: 1258, unit: 'g',   decimals: 1 },
+  { key: 'transFat',      label: 'Trans Fat',       id: 1257, unit: 'g',   decimals: 1 },
+  { key: 'cholesterol',   label: 'Cholesterol',     id: 1253, unit: 'mg',  decimals: 0 },
   { key: 'sugar',         label: 'Sugar',           id: 2000, unit: 'g',   decimals: 0 },
   { key: 'addedSugar',    label: 'Added Sugar',     id: 1235, unit: 'g',   decimals: 0 },
   { key: 'fiber',         label: 'Fiber',           id: 1079, unit: 'g',   decimals: 0 },
-  { key: 'sodium',        label: 'Salt',            id: 1093, unit: 'mg',  decimals: 0 },
+  // Minerals
+  { key: 'sodium',        label: 'Sodium',          id: 1093, unit: 'mg',  decimals: 0 },
   { key: 'potassium',     label: 'Potassium',       id: 1092, unit: 'mg',  decimals: 0 },
   { key: 'calcium',       label: 'Calcium',         id: 1087, unit: 'mg',  decimals: 0 },
   { key: 'iron',          label: 'Iron',            id: 1089, unit: 'mg',  decimals: 1 },
   { key: 'magnesium',     label: 'Magnesium',       id: 1090, unit: 'mg',  decimals: 0 },
   { key: 'zinc',          label: 'Zinc',            id: 1095, unit: 'mg',  decimals: 1 },
-  { key: 'vitaminB12',    label: 'B12',             id: 1178, unit: 'µg',  decimals: 1 },
+  { key: 'phosphorus',    label: 'Phosphorus',      id: 1091, unit: 'mg',  decimals: 0 },
+  { key: 'selenium',      label: 'Selenium',        id: 1103, unit: 'µg',  decimals: 1 },
+  { key: 'copper',        label: 'Copper',          id: 1098, unit: 'mg',  decimals: 2 },
+  { key: 'manganese',     label: 'Manganese',       id: 1101, unit: 'mg',  decimals: 2 },
+  { key: 'chromium',      label: 'Chromium',        id: 1096, unit: 'µg',  decimals: 0 },
+  // Vitamins
+  { key: 'vitaminA',      label: 'Vitamin A',       id: 1106, unit: 'µg',  decimals: 0 },
   { key: 'vitaminC',      label: 'Vitamin C',       id: 1162, unit: 'mg',  decimals: 0 },
+  { key: 'vitaminD',      label: 'Vitamin D',       id: 1114, unit: 'µg',  decimals: 1 },
+  { key: 'vitaminE',      label: 'Vitamin E',       id: 1109, unit: 'mg',  decimals: 1 },
+  { key: 'vitaminK',      label: 'Vitamin K',       id: 1185, unit: 'µg',  decimals: 0 },
+  { key: 'vitaminB1',     label: 'Thiamin (B1)',    id: 1165, unit: 'mg',  decimals: 2 },
+  { key: 'vitaminB2',     label: 'Riboflavin (B2)', id: 1166, unit: 'mg',  decimals: 2 },
+  { key: 'vitaminB3',     label: 'Niacin (B3)',     id: 1167, unit: 'mg',  decimals: 1 },
+  { key: 'vitaminB5',     label: 'Pantothenic Acid (B5)', id: 1170, unit: 'mg', decimals: 1 },
+  { key: 'vitaminB6',     label: 'Vitamin B6',      id: 1175, unit: 'mg',  decimals: 2 },
+  { key: 'vitaminB7',     label: 'Biotin (B7)',     id: 1176, unit: 'µg',  decimals: 0 },
+  { key: 'vitaminB9',     label: 'Folate (B9)',     id: 1177, unit: 'µg',  decimals: 0 },
+  { key: 'vitaminB12',    label: 'Vitamin B12',     id: 1178, unit: 'µg',  decimals: 1 },
+  // Amino Acids
   { key: 'leucine',       label: 'Leucine',         id: 1213, unit: 'g',   decimals: 1 },
-  { key: 'omega3',        label: 'Omega-3',         id: 1404, unit: 'g',   decimals: 0 },
+  { key: 'isoleucine',    label: 'Isoleucine',      id: 1212, unit: 'g',   decimals: 1 },
+  { key: 'valine',        label: 'Valine',          id: 1219, unit: 'g',   decimals: 1 },
+  { key: 'histidine',     label: 'Histidine',       id: 1221, unit: 'g',   decimals: 1 },
+  { key: 'lysine',        label: 'Lysine',          id: 1214, unit: 'g',   decimals: 1 },
+  { key: 'methionine',    label: 'Methionine',      id: 1215, unit: 'g',   decimals: 1 },
+  { key: 'phenylalanine', label: 'Phenylalanine',   id: 1217, unit: 'g',   decimals: 1 },
+  { key: 'threonine',     label: 'Threonine',       id: 1211, unit: 'g',   decimals: 1 },
+  { key: 'tryptophan',    label: 'Tryptophan',      id: 1210, unit: 'g',   decimals: 2 },
+  // Fatty Acids
+  { key: 'omega3',        label: 'Omega-3',         id: 1404, unit: 'g',   decimals: 1 },
+  { key: 'omega6',        label: 'Omega-6',         id: 1316, unit: 'g',   decimals: 1 },
+  // Servings
   { key: 'vegServings',   label: 'Veg Servings',    id: null, unit: '',    decimals: 0 },
   { key: 'fruitServings', label: 'Fruit Servings',  id: null, unit: '',    decimals: 0 },
 ];
@@ -269,12 +302,12 @@ function roundNutrient(value, decimals) {
   return Math.round(value * factor) / factor;
 }
 
-async function fetchFromUSDA(ingredient) {
+async function fetchFromUSDA(ingredient, dataTypes = 'Foundation,SR%20Legacy') {
   const { quantity, measurement, ingredient: name } = ingredient;
   if (!name.trim()) return null;
 
   const searchTerm = getSearchTerm(name);
-  const url = `${BASE_URL}?api_key=${API_KEY}&query=${encodeURIComponent(searchTerm)}&pageSize=5&dataType=Foundation,SR%20Legacy`;
+  const url = `${BASE_URL}?api_key=${API_KEY}&query=${encodeURIComponent(searchTerm)}&pageSize=5&dataType=${dataTypes}`;
 
   const res = await fetch(url);
   if (!res.ok) throw new Error(`USDA API error: ${res.status}`);
@@ -298,20 +331,182 @@ async function fetchFromUSDA(ingredient) {
   nutrients.vegServings = computeVegServings(name, grams);
   nutrients.fruitServings = computeFruitServings(name, grams);
 
+  const sourceLabel = dataTypes.includes('Branded') ? 'usda-branded' : 'usda';
   return {
     name: food.description,
     matchedTo: name,
     grams: Math.round(grams),
     nutrients,
-    source: 'usda',
+    source: sourceLabel,
   };
 }
 
-// Try Google Sheet first, fall back to USDA.
+// Open Food Facts name-based search (international coverage)
+const OFF_SEARCH_URL = 'https://world.openfoodfacts.org/cgi/search.pl';
+
+async function fetchFromOpenFoodFacts(ingredient) {
+  const { quantity, measurement, ingredient: name } = ingredient;
+  if (!name.trim()) return null;
+
+  const url = `${OFF_SEARCH_URL}?search_terms=${encodeURIComponent(name)}&search_simple=1&action=process&json=1&page_size=3&fields=product_name,nutriments,serving_quantity`;
+  const res = await fetch(url);
+  if (!res.ok) return null;
+
+  const data = await res.json();
+  if (!data.products || data.products.length === 0) return null;
+
+  // Pick first product with nutriment data
+  const product = data.products.find(p => p.nutriments && p.nutriments['energy-kcal_100g'] != null);
+  if (!product) return null;
+
+  const n = product.nutriments;
+  const grams = estimateGrams(quantity, measurement, name);
+  const scale = grams / 100;
+
+  const toMg = (key) => {
+    const val = n[key + '_100g'] || 0;
+    const unit = n[key + '_unit'] || 'g';
+    if (unit === 'mg') return val;
+    if (unit === 'µg' || unit === 'mcg') return val / 1000;
+    return val * 1000;
+  };
+  const toMcg = (key) => {
+    const val = n[key + '_100g'] || 0;
+    const unit = n[key + '_unit'] || 'g';
+    if (unit === 'µg' || unit === 'mcg') return val;
+    if (unit === 'mg') return val * 1000;
+    return val * 1000000;
+  };
+
+  const nutrients = {
+    calories:     roundNutrient((n['energy-kcal_100g'] || 0) * scale, 0),
+    protein:      roundNutrient((n['proteins_100g'] || 0) * scale, 0),
+    carbs:        roundNutrient((n['carbohydrates_100g'] || 0) * scale, 0),
+    fat:          roundNutrient((n['fat_100g'] || 0) * scale, 0),
+    saturatedFat: roundNutrient((n['saturated-fat_100g'] || 0) * scale, 1),
+    sugar:        roundNutrient((n['sugars_100g'] || 0) * scale, 0),
+    addedSugar:   roundNutrient((n['added-sugars_100g'] || 0) * scale, 0),
+    fiber:        roundNutrient((n['fiber_100g'] || 0) * scale, 0),
+    sodium:       roundNutrient(toMg('sodium') * scale, 0),
+    potassium:    roundNutrient(toMg('potassium') * scale, 0),
+    calcium:      roundNutrient(toMg('calcium') * scale, 0),
+    iron:         roundNutrient(toMg('iron') * scale, 1),
+    magnesium:    roundNutrient(toMg('magnesium') * scale, 0),
+    zinc:         roundNutrient(toMg('zinc') * scale, 1),
+    vitaminB12:   roundNutrient(toMcg('vitamin-b12') * scale, 1),
+    vitaminC:     roundNutrient(toMg('vitamin-c') * scale, 0),
+    leucine:      0,
+    omega3:       0,
+    vegServings:  computeVegServings(name, grams),
+    fruitServings: computeFruitServings(name, grams),
+  };
+
+  return {
+    name: product.product_name || name,
+    matchedTo: name,
+    grams: Math.round(grams),
+    nutrients,
+    source: 'openfoodfacts',
+  };
+}
+
+// Canadian Nutrient File (CNF) via Canada Open Data API
+const CNF_SEARCH_URL = 'https://food-nutrition.canada.ca/api/canadian-nutrient-file/food/?lang=en&type=json';
+
+async function fetchFromCNF(ingredient) {
+  const { quantity, measurement, ingredient: name } = ingredient;
+  if (!name.trim()) return null;
+
+  try {
+    const searchUrl = `${CNF_SEARCH_URL}&name=${encodeURIComponent(name)}`;
+    const res = await fetch(searchUrl);
+    if (!res.ok) return null;
+
+    const foods = await res.json();
+    if (!Array.isArray(foods) || foods.length === 0) return null;
+
+    const food = foods[0];
+    const foodCode = food.food_code;
+
+    // Fetch nutrients for this food
+    const nutUrl = `https://food-nutrition.canada.ca/api/canadian-nutrient-file/nutrientamount/?lang=en&type=json&id=${foodCode}`;
+    const nutRes = await fetch(nutUrl);
+    if (!nutRes.ok) return null;
+
+    const nutData = await nutRes.json();
+    if (!Array.isArray(nutData)) return null;
+
+    // CNF nutrient IDs (similar to USDA)
+    const CNF_MAP = {
+      208: 'calories', 203: 'protein', 205: 'carbs', 204: 'fat',
+      606: 'saturatedFat', 605: 'transFat', 601: 'cholesterol',
+      269: 'sugar', 291: 'fiber',
+      307: 'sodium', 306: 'potassium', 301: 'calcium', 303: 'iron',
+      304: 'magnesium', 309: 'zinc', 305: 'phosphorus', 317: 'selenium',
+      312: 'copper', 315: 'manganese',
+      320: 'vitaminA', 401: 'vitaminC', 324: 'vitaminD', 323: 'vitaminE', 430: 'vitaminK',
+      404: 'vitaminB1', 405: 'vitaminB2', 406: 'vitaminB3', 410: 'vitaminB5',
+      415: 'vitaminB6', 418: 'vitaminB12', 417: 'vitaminB9',
+      504: 'leucine', 503: 'isoleucine', 510: 'valine', 512: 'histidine',
+      505: 'lysine', 506: 'methionine', 508: 'phenylalanine', 502: 'threonine', 501: 'tryptophan',
+    };
+
+    const per100g = {};
+    for (const entry of nutData) {
+      const key = CNF_MAP[entry.nutrient_name_id || entry.nutrient_id];
+      if (key) per100g[key] = entry.nutrient_value || 0;
+    }
+
+    const grams = estimateGrams(quantity, measurement, name);
+    const scale = grams / 100;
+
+    const nutrients = {};
+    for (const n of NUTRIENTS) {
+      nutrients[n.key] = roundNutrient((per100g[n.key] || 0) * scale, n.decimals);
+    }
+    nutrients.vegServings = computeVegServings(name, grams);
+    nutrients.fruitServings = computeFruitServings(name, grams);
+
+    return {
+      name: food.food_description || name,
+      matchedTo: name,
+      grams: Math.round(grams),
+      nutrients,
+      source: 'cnf',
+    };
+  } catch {
+    return null;
+  }
+}
+
+// Multi-source lookup chain:
+// 1. Custom Sheet (user-curated, highest priority)
+// 2. USDA Foundation + SR Legacy (gold-standard raw ingredient data)
+// 3. USDA Branded (packaged/restaurant products via FDC UPC)
+// 4. Open Food Facts (international product data — covers BLS, NEVO, CoFID, NUTTAB, etc.)
+// 5. Canadian Nutrient File (CNF — Canadian foods)
 export async function fetchNutritionForIngredient(ingredient) {
+  // 1. Custom sheet
   const sheetResult = await lookupFromSheet(ingredient).catch(() => null);
   if (sheetResult) return sheetResult;
-  return fetchFromUSDA(ingredient);
+
+  // 2. USDA Foundation + SR Legacy
+  const usdaResult = await fetchFromUSDA(ingredient, 'Foundation,SR%20Legacy').catch(() => null);
+  if (usdaResult) return usdaResult;
+
+  // 3. USDA Branded (FDC UPC / Survey)
+  const brandedResult = await fetchFromUSDA(ingredient, 'Branded,Survey%20(FNDDS)').catch(() => null);
+  if (brandedResult) return brandedResult;
+
+  // 4. Open Food Facts (international)
+  const offResult = await fetchFromOpenFoodFacts(ingredient).catch(() => null);
+  if (offResult) return offResult;
+
+  // 5. Canadian Nutrient File
+  const cnfResult = await fetchFromCNF(ingredient).catch(() => null);
+  if (cnfResult) return cnfResult;
+
+  return null;
 }
 
 export async function fetchNutritionForRecipe(ingredients) {

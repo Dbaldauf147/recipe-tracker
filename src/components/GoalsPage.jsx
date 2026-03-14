@@ -27,6 +27,20 @@ const GOALS = [
     title: 'Import meals from social media or websites',
     description: 'Save recipes from Instagram, TikTok, blogs, and more',
   },
+  {
+    key: 'find_recipes',
+    title: 'Find new recipes',
+    description: 'Discover new meals based on your preferences and ingredients',
+  },
+];
+
+const REGIONS = [
+  { key: 'northeast', label: 'Northeast', states: 'ME, NH, VT, MA, RI, CT, NY, NJ, PA, MD, DE' },
+  { key: 'southeast', label: 'Southeast', states: 'VA, NC, SC, GA, FL, AL, MS, TN, KY, LA, AR, WV' },
+  { key: 'midwest', label: 'Midwest', states: 'OH, MI, IN, IL, WI, MN, IA, MO, ND, SD, NE, KS' },
+  { key: 'southwest', label: 'Southwest', states: 'TX, OK, NM, AZ, NV, UT, CO' },
+  { key: 'west_coast', label: 'West Coast', states: 'CA, HI' },
+  { key: 'pacific_northwest', label: 'Pacific Northwest', states: 'OR, WA, ID, MT, WY, AK' },
 ];
 
 const DIET_TYPES = [
@@ -44,7 +58,32 @@ const DIET_TYPES = [
   'High-Protein',
 ];
 
+const FOCUS_OPTIONS = [
+  {
+    key: 'nutrition',
+    title: 'Dig into my nutrition data',
+    description: 'Track nutrients, set daily targets, and see how your meals stack up',
+  },
+  {
+    key: 'meal-planning',
+    title: 'Plan my meals',
+    description: 'Build weekly menus, generate shopping lists, and stay organized',
+  },
+];
+
 export function GoalsPage({ onComplete, onSkip, onBack, asModal }) {
+  const [focus, setFocus] = useState(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem('sunday-user-focus'));
+      return saved ? new Set(saved) : new Set();
+    } catch { return new Set(); }
+  });
+  const [focusChosen, setFocusChosen] = useState(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem('sunday-user-focus'));
+      return Array.isArray(saved) && saved.length > 0;
+    } catch { return false; }
+  });
   const [selected, setSelected] = useState(() => {
     try {
       const saved = JSON.parse(localStorage.getItem('sunday-user-goals'));
@@ -86,6 +125,73 @@ export function GoalsPage({ onComplete, onSkip, onBack, asModal }) {
       else next.add(diet);
       return next;
     });
+  }
+
+  // Always show the 2-option focus screen
+  if (true) {
+    return (
+      <div className={asModal ? styles.overlay : styles.page} onClick={asModal && onSkip ? (e) => { if (e.target === e.currentTarget) onSkip(); } : undefined}>
+        <div className={styles.card}>
+          <img className={styles.logo} src="/prep-day-logo.png" alt="Prep Day" />
+          <h2 className={styles.title}>How would you like to use Prep Day?</h2>
+
+          <div className={styles.goalList}>
+            {FOCUS_OPTIONS.map(opt => (
+              <div
+                key={opt.key}
+                className={`${styles.goalCard} ${focus.has(opt.key) ? styles.goalSelected : ''}`}
+                onClick={() => setFocus(prev => {
+                  const next = new Set(prev);
+                  if (next.has(opt.key)) next.delete(opt.key);
+                  else next.add(opt.key);
+                  return next;
+                })}
+              >
+                <input
+                  type="checkbox"
+                  className={styles.checkbox}
+                  checked={focus.has(opt.key)}
+                  onChange={() => setFocus(prev => {
+                    const next = new Set(prev);
+                    if (next.has(opt.key)) next.delete(opt.key);
+                    else next.add(opt.key);
+                    return next;
+                  })}
+                  onClick={e => e.stopPropagation()}
+                />
+                <div className={styles.goalText}>
+                  <span className={styles.goalTitle}>{opt.title}</span>
+                  <span className={styles.goalDesc}>{opt.description}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div className={styles.bottomActions}>
+            {onBack && (
+              <button className={styles.backBtn} onClick={onBack}>
+                &larr; Back
+              </button>
+            )}
+            <button
+              className={styles.startBtn}
+              disabled={focus.size === 0}
+              onClick={() => {
+                localStorage.setItem('sunday-user-focus', JSON.stringify([...focus]));
+                onComplete([]);
+              }}
+            >
+              Continue
+            </button>
+          </div>
+          {onSkip && (
+            <button className={styles.skipBtn} onClick={onSkip}>
+              Skip for now
+            </button>
+          )}
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -139,15 +245,19 @@ export function GoalsPage({ onComplete, onSkip, onBack, asModal }) {
               )}
               {goal.key === 'whats_in_season' && selected.has('whats_in_season') && (
                 <div className={styles.locationPrompt}>
-                  <label className={styles.locationLabel}>What's your location?</label>
-                  <input
-                    type="text"
-                    className={styles.locationInput}
-                    placeholder="e.g. California, New York, Texas"
-                    value={location}
-                    onChange={e => setLocation(e.target.value)}
-                    onClick={e => e.stopPropagation()}
-                  />
+                  <label className={styles.locationLabel}>What region are you in?</label>
+                  <div className={styles.regionGrid}>
+                    {REGIONS.map(r => (
+                      <button
+                        key={r.key}
+                        className={`${styles.regionChip} ${location === r.key ? styles.regionChipSelected : ''}`}
+                        onClick={e => { e.stopPropagation(); setLocation(r.key); }}
+                      >
+                        <span className={styles.regionName}>{r.label}</span>
+                        <span className={styles.regionStates}>{r.states}</span>
+                      </button>
+                    ))}
+                  </div>
                 </div>
               )}
             </div>
@@ -155,11 +265,9 @@ export function GoalsPage({ onComplete, onSkip, onBack, asModal }) {
         </div>
 
         <div className={styles.bottomActions}>
-          {onBack && (
-            <button className={styles.backBtn} onClick={onBack}>
-              &larr; Back
-            </button>
-          )}
+          <button className={styles.backBtn} onClick={() => setFocusChosen(false)}>
+            &larr; Back
+          </button>
           <button className={styles.startBtn} onClick={() => {
             if (location.trim()) localStorage.setItem('sunday-user-location', location.trim());
             if (selectedDiets.size > 0) localStorage.setItem('sunday-user-diet', JSON.stringify([...selectedDiets]));

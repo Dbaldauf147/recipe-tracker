@@ -1,8 +1,20 @@
-import { useMemo } from 'react';
-import { getUserKeyIngredients, normalize, recipeHasIngredient, displayName } from '../utils/keyIngredients';
+import { useMemo, useState, useEffect } from 'react';
+import { getUserKeyIngredients, saveUserKeyIngredients, normalize, recipeHasIngredient, displayName } from '../utils/keyIngredients';
+import { locationToRegion, getSeasonalIngredients } from '../utils/seasonal';
+import SEASONAL_DATA from '../data/seasonalIngredients.js';
+import { lookupSeasonalData } from '../utils/seasonalCache';
 import styles from './KeyIngredientsPage.module.css';
 
 const HISTORY_KEY = 'sunday-plan-history';
+
+const MONTH_ABBR = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+/** Format an array of month numbers (1-12) into a readable range like "Jun – Sep" */
+function formatMonthRange(months) {
+  if (!months || months.length === 0) return null;
+  const sorted = [...months].sort((a, b) => a - b);
+  return `${MONTH_ABBR[sorted[0] - 1]} – ${MONTH_ABBR[sorted[sorted.length - 1] - 1]}`;
+}
 
 /** Calculate days between a date string (YYYY-MM-DD) and today */
 function daysSince(dateStr) {
@@ -22,7 +34,41 @@ function loadHistory() {
 }
 
 export function KeyIngredientsPage({ recipes, getRecipe, onClose, onSetup }) {
-  const userIngredients = getUserKeyIngredients();
+  const [userIngredients, setUserIngredients] = useState(getUserKeyIngredients);
+  const [addValue, setAddValue] = useState('');
+
+  function handleRemove(key) {
+    const next = userIngredients.filter(k => k !== key);
+    saveUserKeyIngredients(next);
+    setUserIngredients(next);
+  }
+
+  function handleAdd() {
+    const raw = addValue.trim();
+    if (!raw) return;
+    const key = raw.toLowerCase().replace(/\s+/g, '_');
+    if (userIngredients.some(k => normalize(k) === normalize(key))) {
+      setAddValue('');
+      return;
+    }
+    const next = [...userIngredients, key];
+    saveUserKeyIngredients(next);
+    setUserIngredients(next);
+    setAddValue('');
+  }
+
+  // Get seasonal ingredients for user's region
+  const seasonalSet = useMemo(() => {
+    try {
+      const location = localStorage.getItem('sunday-seasonal-location') || '';
+      const region = locationToRegion(location);
+      if (!region) return new Set();
+      const month = new Date().getMonth() + 1;
+      return getSeasonalIngredients(region, month);
+    } catch {
+      return new Set();
+    }
+  }, []);
 
   const { sorted, lastEatenMap, mealsMap, neverCount } = useMemo(() => {
     const history = loadHistory();
@@ -69,8 +115,63 @@ export function KeyIngredientsPage({ recipes, getRecipe, onClose, onSetup }) {
       mealsMap: meals,
       neverCount: sortedKeys.filter(k => !dateMap[k]).length,
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [recipes]);
+  }, [recipes, userIngredients]);
+
+  // Get the user's region for seasonal lookups
+  const userRegion = useMemo(() => {
+    try {
+      const location = localStorage.getItem('sunday-seasonal-location') || '';
+      return locationToRegion(location);
+    } catch {
+      return null;
+    }
+  }, []);
+
+  // Hybrid seasonal lookup: static data + cached AI lookups
+  const [seasonalLookup, setSeasonalLookup] = useState({});
+
+  useEffect(() => {
+    if (!userRegion || userIngredients.length === 0) return;
+    const names = userIngredients.map(k => k.replace(/_/g, ' '));
+    lookupSeasonalData(names, userRegion).then(result => {
+      setSeasonalLookup(result);
+    });
+  }, [userRegion, userIngredients]);
+
+  function isInSeason(ingredientKey) {
+    const currentMonth = new Date().getMonth() + 1;
+    const norm = normalize(ingredientKey);
+    // Check hybrid lookup first
+    const months = seasonalLookup[norm];
+    if (months && months.length > 0) return months.includes(currentMonth);
+    // Fall back to static seasonalSet
+    if (seasonalSet.size === 0) return false;
+    for (const s of seasonalSet) {
+      if (normalize(s) === norm || norm.includes(normalize(s)) || normalize(s).includes(norm)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /** Get the season month range string for an ingredient, or null */
+  function getSeasonText(ingredientKey) {
+    const norm = normalize(ingredientKey);
+    // Check hybrid lookup first
+    const months = seasonalLookup[norm];
+    if (months && months.length > 0) return formatMonthRange(months);
+    // Fall back to static data
+    if (!userRegion) return null;
+    const regionData = SEASONAL_DATA[userRegion];
+    if (!regionData) return null;
+    for (const [name, m] of Object.entries(regionData)) {
+      const normName = normalize(name);
+      if (normName === norm || norm.includes(normName) || normName.includes(norm)) {
+        return formatMonthRange(m);
+      }
+    }
+    return null;
+  }
 
   return (
     <div className={styles.container}>
@@ -91,10 +192,11 @@ export function KeyIngredientsPage({ recipes, getRecipe, onClose, onSetup }) {
         <table className={styles.table}>
           <thead>
             <tr>
-              <th>Ingredient</th>
-              <th>Last Eaten</th>
-              <th>Days Since</th>
-              <th>Meals</th>
+              <th className={styles.colRemove}></th>
+              <th className={styles.colIngredient}>Ingredient</th>
+              <th className={styles.colSeason}>Season</th>
+              <th className={styles.colDays}>Days Since</th>
+              <th className={styles.colMeals}>Meals</th>
             </tr>
           </thead>
           <tbody>
@@ -102,19 +204,29 @@ export function KeyIngredientsPage({ recipes, getRecipe, onClose, onSetup }) {
               const date = lastEatenMap[key];
               const days = date ? daysSince(date) : null;
               const meals = mealsMap[key] || [];
+              const seasonal = isInSeason(key);
+              const seasonText = getSeasonText(key);
               return (
-                <tr key={key}>
-                  <td className={styles.ingredientName}>{displayName(key)}</td>
-                  <td>
-                    {date ? (
-                      <span className={styles.date}>{date}</span>
-                    ) : (
-                      <span className={styles.never}>Never</span>
-                    )}
+                <tr key={key} className={seasonal ? styles.seasonalRow : undefined}>
+                  <td className={styles.removeCell}>
+                    <button
+                      className={styles.removeBtn}
+                      onClick={() => handleRemove(key)}
+                      title="Remove ingredient"
+                    >
+                      &times;
+                    </button>
+                  </td>
+                  <td className={styles.ingredientName}>
+                    {displayName(key)}
+                    {seasonal && <span className={styles.seasonalBadge} title="In season">In Season</span>}
+                  </td>
+                  <td className={seasonText ? styles.seasonText : styles.never}>
+                    {seasonText || '\u2014'}
                   </td>
                   <td>
                     {days !== null ? (
-                      <span className={styles.days}>{days}</span>
+                      <span className={`${styles.days} ${days >= 14 ? styles.daysOverdue : ''}`}>{days}</span>
                     ) : (
                       <span className={styles.never}>&mdash;</span>
                     )}
@@ -131,6 +243,20 @@ export function KeyIngredientsPage({ recipes, getRecipe, onClose, onSetup }) {
             })}
           </tbody>
         </table>
+      </div>
+
+      <div className={styles.addRow}>
+        <input
+          className={styles.addInput}
+          type="text"
+          placeholder="Add key ingredient…"
+          value={addValue}
+          onChange={e => setAddValue(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Enter') handleAdd(); }}
+        />
+        <button className={styles.addBtn} onClick={handleAdd}>
+          Add
+        </button>
       </div>
     </div>
   );

@@ -141,7 +141,8 @@ export function hydrateLocalStorage(userData) {
     localStorage.setItem('sunday-body-stats', JSON.stringify(userData.bodyStats));
   }
 
-  if (userData.dailyLog) {
+  // Only hydrate dailyLog if not currently being edited locally
+  if (userData.dailyLog && !window.__dailyLogLocalEdit) {
     localStorage.setItem('sunday-daily-log', JSON.stringify(userData.dailyLog));
   }
 
@@ -202,7 +203,14 @@ export async function searchByUsername(username) {
   const lower = username.toLowerCase();
   const snap = await getDoc(doc(db, 'usernames', lower));
   if (!snap.exists()) return null;
-  return { uid: snap.data().uid, username: lower };
+  const foundUid = snap.data().uid;
+  // Also fetch email for notifications
+  let email = null;
+  try {
+    const userSnap = await getDoc(doc(db, 'users', foundUid));
+    if (userSnap.exists()) email = userSnap.data().email || null;
+  } catch {}
+  return { uid: foundUid, username: lower, email };
 }
 
 /**
@@ -221,13 +229,15 @@ export async function searchByEmail(email) {
 /**
  * Send a friend request from one user to another.
  */
-export async function sendFriendRequest(fromUid, toUid, fromUsername) {
-  await addDoc(collection(db, 'friendRequests'), {
+export async function sendFriendRequest(fromUid, toUid, fromUsername, message) {
+  const data = {
     from: fromUid,
     to: toUid,
     fromUsername,
     status: 'pending',
-  });
+  };
+  if (message) data.message = message;
+  await addDoc(collection(db, 'friendRequests'), data);
 }
 
 /**

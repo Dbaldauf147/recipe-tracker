@@ -117,7 +117,15 @@ export function ShoppingListPage({ weeklyRecipes, weeklyServings = {}, onClose, 
       if (!key) continue;
       try {
         const existing = JSON.parse(localStorage.getItem(key) || '[]');
-        localStorage.setItem(key, JSON.stringify([...existing, ...items]));
+        // Only add back items that aren't already in the list (prevent duplicates)
+        const existingNames = new Set(existing.map(e => (e.ingredient || '').toLowerCase().trim()));
+        const newItems = items.filter(item => {
+          const name = (item.ingredient || '').toLowerCase().trim();
+          return name && !existingNames.has(name);
+        });
+        if (newItems.length > 0) {
+          localStorage.setItem(key, JSON.stringify([...existing, ...newItems]));
+        }
       } catch {}
     }
 

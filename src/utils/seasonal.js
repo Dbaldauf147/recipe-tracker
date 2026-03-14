@@ -16,6 +16,23 @@ const LOCATION_TO_REGION = {
   'west_coast': 'west_coast',
   'pacific_northwest': 'pacific_northwest',
   'pnw': 'pacific_northwest',
+  // US states → regions
+  'maine': 'northeast', 'new hampshire': 'northeast', 'vermont': 'northeast',
+  'massachusetts': 'northeast', 'rhode island': 'northeast', 'connecticut': 'northeast',
+  'new york': 'northeast', 'new jersey': 'northeast', 'pennsylvania': 'northeast',
+  'maryland': 'northeast', 'delaware': 'northeast',
+  'virginia': 'southeast', 'west virginia': 'southeast', 'north carolina': 'southeast',
+  'south carolina': 'southeast', 'georgia': 'southeast', 'florida': 'southeast',
+  'alabama': 'southeast', 'mississippi': 'southeast', 'tennessee': 'southeast',
+  'kentucky': 'southeast', 'louisiana': 'southeast', 'arkansas': 'southeast',
+  'ohio': 'midwest', 'michigan': 'midwest', 'indiana': 'midwest', 'illinois': 'midwest',
+  'wisconsin': 'midwest', 'minnesota': 'midwest', 'iowa': 'midwest', 'missouri': 'midwest',
+  'north dakota': 'midwest', 'south dakota': 'midwest', 'nebraska': 'midwest', 'kansas': 'midwest',
+  'texas': 'southwest', 'oklahoma': 'southwest', 'new mexico': 'southwest', 'arizona': 'southwest',
+  'nevada': 'southwest', 'utah': 'southwest', 'colorado': 'southwest',
+  'california': 'west_coast', 'hawaii': 'west_coast',
+  'oregon': 'pacific_northwest', 'washington': 'pacific_northwest', 'idaho': 'pacific_northwest',
+  'montana': 'pacific_northwest', 'wyoming': 'pacific_northwest', 'alaska': 'pacific_northwest',
 };
 
 export function locationToRegion(location) {

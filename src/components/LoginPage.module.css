@@ -14,7 +14,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 4rem 3rem;
+  padding: 5rem 3rem 4rem;
   background: #f0f0f0;
   position: relative;
   overflow: hidden;
@@ -53,17 +53,16 @@
 
 .logoBadge {
   position: absolute;
-  top: 1.5rem;
-  left: 1.5rem;
+  top: 0;
+  left: 0;
+  right: 0;
   background: #000;
   color: #fff;
-  font-size: 1.5rem;
+  font-size: 2rem;
   font-weight: 700;
   letter-spacing: -0.02em;
-  padding: 0.6rem 1.5rem;
-  border-radius: 14px;
+  padding: 1rem 1.5rem;
   z-index: 2;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
   white-space: nowrap;
 }
 
@@ -506,10 +505,8 @@
   }
 
   .logoBadge {
-    font-size: 1.15rem;
-    padding: 0.5rem 1.1rem;
-    top: 1rem;
-    left: 1rem;
+    font-size: 1.5rem;
+    padding: 0.75rem 1.1rem;
   }
 
   .heroTitle {

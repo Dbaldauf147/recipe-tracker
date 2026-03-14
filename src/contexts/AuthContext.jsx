@@ -2,7 +2,7 @@ import { createContext, useContext, useState, useEffect, useRef } from 'react';
 import { onAuthStateChanged, signInWithPopup, signOut, createUserWithEmailAndPassword, signInWithEmailAndPassword, updateProfile, sendPasswordResetEmail } from 'firebase/auth';
 import { auth, googleProvider, facebookProvider, appleProvider } from '../firebase';
 import { loadUserData, migrateToFirestore, hydrateLocalStorage, saveField, recordLogin, subscribeToUserData } from '../utils/firestoreSync';
-import { syncMealImages } from '../utils/generateMealImage';
+import { syncMealImages, clearImageCache } from '../utils/generateMealImage';
 
 const AuthContext = createContext(null);
 
@@ -27,7 +27,6 @@ const APP_STORAGE_KEYS = [
   'sunday-body-stats',
   'sunday-weekly-servings',
   'sunday-daily-log',
-  'sunday-meal-images',
 ];
 
 function clearAppStorage() {
@@ -74,6 +73,7 @@ export function AuthProvider({ children }) {
       if (firebaseUser) {
         // Clear stale data from any previous user before loading
         clearAppStorage();
+        clearImageCache();
         setDataReady(false);
 
         // User signed in — load or migrate data
@@ -244,20 +244,25 @@ export function AuthProvider({ children }) {
       // Save location if set
       const loc = localStorage.getItem('sunday-user-location');
       if (loc) await saveField(user.uid, 'userLocation', loc);
+      // Save focus if set
+      try {
+        const focus = localStorage.getItem('sunday-user-focus');
+        if (focus) await saveField(user.uid, 'userFocus', JSON.parse(focus));
+      } catch {}
     }
 
-    // Build the remaining step queue based on selected goals
-    const remaining = buildStepsFromGoals(goals);
-
-    // Replace the queue: remove 'goals' from front, set remaining
-    setOnboardingSteps(remaining);
+    // Skip all remaining onboarding — go straight to the main page
+    if (user) {
+      await saveField(user.uid, 'onboardingComplete', true);
+    }
+    setHasCompletedOnboarding(true);
+    setOnboardingSteps([]);
     setCompletedSteps(prev => [...prev, 'goals']);
+    setJustOnboarded(true);
   }
 
   function skipGoals() {
-    // No goals selected — go straight to recipe-setup
-    setOnboardingSteps(['recipe-setup']);
-    setCompletedSteps(prev => [...prev, 'goals']);
+    completeGoals([]);
   }
 
   async function completeNutritionGoals(targets, stats) {
@@ -340,6 +345,7 @@ export function AuthProvider({ children }) {
 
   async function logOut() {
     clearAppStorage();
+    clearImageCache();
     if (isGuestRef.current) {
       isGuestRef.current = false;
       setIsGuest(false);

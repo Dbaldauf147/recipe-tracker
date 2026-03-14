@@ -1,7 +1,121 @@
 .container {
-  max-width: 900px;
+  max-width: 1400px;
   margin: 0 auto;
-  padding: 1rem;
+  padding: 1rem 2rem;
+  overflow: visible;
+}
+
+/* ── Week Calendar ── */
+.weekCalendar {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.weekCalHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.5rem;
+}
+
+.weekCalMonth {
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.weekCalArrow {
+  background: none;
+  border: none;
+  font-size: 1rem;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  padding: 0.25rem 0.5rem;
+  border-radius: 6px;
+  transition: color 0.15s ease, background 0.15s ease;
+}
+
+.weekCalArrow:hover {
+  color: var(--color-accent);
+  background: var(--color-surface-alt);
+}
+
+.weekCalDays {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.25rem;
+}
+
+.weekCalDay {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.15rem;
+  padding: 0.4rem 0.2rem;
+  border: 2px solid transparent;
+  border-radius: 10px;
+  background: none;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 0.12s ease, border-color 0.12s ease;
+  position: relative;
+}
+
+.weekCalDay:hover {
+  background: var(--color-surface-alt);
+}
+
+.weekCalDaySelected {
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+}
+
+.weekCalDaySelected:hover {
+  background: var(--color-accent-hover);
+}
+
+.weekCalDayToday {
+  border-color: var(--color-accent);
+}
+
+.weekCalDayName {
+  font-size: 0.65rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+  letter-spacing: 0.02em;
+}
+
+.weekCalDaySelected .weekCalDayName {
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.weekCalDayNum {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--color-text);
+  line-height: 1;
+}
+
+.weekCalDaySelected .weekCalDayNum {
+  color: #fff;
+}
+
+.weekCalDot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--color-accent);
+  position: absolute;
+  bottom: 3px;
+}
+
+.weekCalDaySelected .weekCalDot {
+  background: rgba(255, 255, 255, 0.8);
 }
 
 /* ── Date Navigator ── */
@@ -441,6 +555,26 @@
   color: var(--color-text);
 }
 
+.recipeModalContent {
+  background: var(--color-surface);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-lg);
+  padding: 1.5rem 2rem;
+  max-width: 800px;
+  width: 100%;
+  max-height: 90vh;
+  overflow-y: auto;
+  animation: modalSlideIn 0.2s ease;
+  position: relative;
+}
+
+.recipeModalContent .modalClose {
+  position: absolute;
+  top: 1rem;
+  right: 1rem;
+  z-index: 10;
+}
+
 .modalActions {
   display: flex;
   justify-content: flex-end;
@@ -463,6 +597,275 @@
 
 .modalCancelBtn:hover {
   background: var(--color-surface-alt);
+}
+
+/* ── Track Menu Options ── */
+
+.trackMenuOptions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.trackMenuBtn {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 1rem 1.25rem;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  text-align: left;
+  font-family: inherit;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.trackMenuBtn:hover {
+  border-color: var(--color-text);
+  background: var(--color-surface-alt, #f9f9f9);
+}
+
+.trackMenuBtnInfo {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.trackMenuBtnLabel {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.trackMenuBtnDesc {
+  font-size: 0.8rem;
+  color: var(--color-text-muted);
+}
+
+.trackMenuBtnActive {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 1rem 1.25rem;
+  background: var(--color-surface-alt, #f9f9f9);
+  border: 1px solid var(--color-text);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  text-align: left;
+  font-family: inherit;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.trackMenuBtnActive:hover {
+  background: var(--color-surface);
+}
+
+.trackMenuBtnArrow {
+  font-size: 1.5rem;
+  color: var(--color-text-muted);
+  line-height: 1;
+}
+
+.trackMenuDivider {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin: 0.25rem 0;
+  color: var(--color-text-muted);
+  font-size: 0.78rem;
+}
+
+.trackMenuDivider::before,
+.trackMenuDivider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--color-border);
+}
+
+.trackMenuBack {
+  background: none;
+  border: none;
+  font-family: inherit;
+  font-size: 0.85rem;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  padding: 0;
+  margin-bottom: 0.75rem;
+}
+
+.trackMenuBack:hover {
+  color: var(--color-text);
+}
+
+.trackMenuSubtitle {
+  margin: 0 0 1rem;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+/* ── More Nutrients Dropdown ── */
+
+.moreNutrientsWrap {
+  position: relative;
+}
+
+.moreNutrientsBtn {
+  background: none;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 0.2rem 0.6rem;
+  font-size: 0.78rem;
+  font-weight: 500;
+  font-family: inherit;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  transition: border-color 0.15s ease, color 0.15s ease;
+}
+
+.moreNutrientsBtn:hover {
+  border-color: var(--color-text);
+  color: var(--color-text);
+}
+
+.moreNutrientsDropdown {
+  position: absolute;
+  top: calc(100% + 0.35rem);
+  right: 0;
+  z-index: 100;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md, 0 4px 12px rgba(0,0,0,0.12));
+  padding: 0.5rem 0;
+  min-width: 180px;
+  max-height: 280px;
+  overflow-y: auto;
+}
+
+.moreNutrientsItem {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.4rem 0.85rem;
+  font-size: 0.82rem;
+  color: var(--color-text);
+  cursor: pointer;
+  transition: background 0.1s ease;
+}
+
+.moreNutrientsItem:hover {
+  background: var(--color-surface-alt, #f5f3f0);
+}
+
+.moreNutrientsItem input[type="checkbox"] {
+  accent-color: var(--color-accent);
+}
+
+/* ── AI Estimate ── */
+
+.aiEstimateHint {
+  margin: 0 0 0.75rem;
+  font-size: 0.82rem;
+  color: var(--color-text-muted);
+}
+
+.aiEstimateInput {
+  width: 100%;
+  padding: 0.6rem 0.85rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  font-size: 0.9rem;
+  font-family: inherit;
+  color: var(--color-text);
+  background: var(--color-surface);
+  resize: vertical;
+  box-sizing: border-box;
+}
+
+.aiEstimateInput:focus {
+  outline: none;
+  border-color: var(--color-accent);
+}
+
+.aiEstimateResult {
+  margin-top: 1rem;
+  padding: 1rem;
+  background: var(--color-surface-alt, #f9f7f4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.aiEstimateTitle {
+  margin: 0 0 0.5rem;
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--color-text);
+}
+
+.aiEstimateMacros {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  font-size: 0.85rem;
+  color: var(--color-text-secondary, #666);
+  padding: 0.5rem 0.75rem;
+  background: var(--color-header-bg, #2C2520);
+  border-radius: 8px;
+  margin-bottom: 0.5rem;
+}
+
+.aiEstimateMacros span {
+  color: #ccc;
+}
+
+.aiEstimateMacros strong {
+  color: #fff;
+  font-weight: 700;
+}
+
+.aiEstimateBreakdown {
+  margin: 0.5rem 0;
+  overflow-x: auto;
+}
+
+.aiEstimateTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+}
+
+.aiEstimateTable th {
+  text-align: left;
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--color-text-muted);
+  padding: 0.35rem 0.5rem;
+  border-bottom: 2px solid var(--color-border);
+}
+
+.aiEstimateTable th:not(:first-child) {
+  text-align: right;
+  width: 55px;
+}
+
+.aiEstimateTable td {
+  padding: 0.35rem 0.5rem;
+  border-bottom: 1px solid var(--color-border-light, #f0f0f0);
+  color: var(--color-text);
+}
+
+.aiEstimateTable td:not(:first-child) {
+  text-align: right;
+  font-weight: 600;
+  font-size: 0.78rem;
+  color: var(--color-text-secondary, #555);
 }
 
 /* ── Custom Meal Ingredients ── */
@@ -625,9 +1028,7 @@
 /* ── Skip Day ── */
 
 .skipDayRow {
-  display: flex;
-  justify-content: flex-end;
-  margin-bottom: 0.75rem;
+  display: none;
 }
 
 .skipDayBtn {
@@ -662,6 +1063,50 @@
 }
 
 .skipDayBtnActive:hover {
+  background: var(--color-accent);
+  color: #fff;
+}
+
+/* ── Skip Meal Buttons ── */
+.skipMealsRow {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+  flex-wrap: wrap;
+}
+
+.skipMealBtn {
+  padding: 0.35rem 0.85rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  font-family: inherit;
+  border: 1px dashed var(--color-border);
+  border-radius: 50px;
+  background: none;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  transition: border-color 0.15s ease, color 0.15s ease;
+}
+
+.skipMealBtn:hover {
+  border-color: var(--color-text-muted);
+  color: var(--color-text);
+}
+
+.skipMealBtnActive {
+  padding: 0.35rem 0.85rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  font-family: inherit;
+  border: 1px solid var(--color-accent);
+  border-radius: 50px;
+  background: var(--color-accent-light);
+  color: var(--color-accent);
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.skipMealBtnActive:hover {
   background: var(--color-accent);
   color: #fff;
 }
@@ -724,6 +1169,15 @@
   color: #fff;
 }
 
+.skippedTag {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--color-accent);
+  background: var(--color-accent-light);
+  padding: 0.15rem 0.5rem;
+  border-radius: 50px;
+}
+
 .skippedNote {
   font-size: 0.82rem;
   color: var(--color-text-muted);
@@ -739,9 +1193,22 @@
   padding: 1rem 0;
 }
 
+.mealScoreBadge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 2px solid;
+  font-size: 0.72rem;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
 .entryRow {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   flex-wrap: wrap;
   gap: 0.35rem 0.5rem;
   padding: 0.5rem 0;
@@ -964,29 +1431,940 @@
   font-style: italic;
 }
 
-/* ── Back button ── */
-.backBtn {
-  padding: 0.5rem 1rem;
-  font-size: 0.88rem;
-  font-family: inherit;
-  font-weight: 500;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  background: var(--color-surface);
-  color: var(--color-text-muted);
-  cursor: pointer;
-  transition: background 0.15s ease;
+/* ── Top bar ── */
+.topBar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   margin-bottom: 1rem;
 }
 
+.backBtn {
+  background: none;
+  border: none;
+  color: var(--color-text-muted);
+  font-size: 0.9rem;
+  font-weight: 500;
+  cursor: pointer;
+  padding: 0;
+  transition: color 0.15s ease;
+}
+
 .backBtn:hover {
+  color: var(--color-accent);
+}
+
+.viewToggle {
+  display: flex;
+  border: 1px solid var(--color-border);
+  border-radius: 50px;
+  overflow: hidden;
+}
+
+.viewToggleBtn {
+  padding: 0.35rem 1rem;
+  border: none;
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+  font-size: 0.8rem;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.viewToggleActive {
+  background: var(--color-accent);
+  color: #fff;
+}
+
+/* ── Weekly View ── */
+.weeklyView {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 1.25rem;
+}
+
+.weeklyTitle {
+  margin: 0 0 1rem;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.weeklyTableWrap {
+  overflow-x: auto;
+}
+
+.weeklyTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+.weeklyTable th {
+  text-align: center;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  padding: 0.4rem 0.6rem;
+  border-bottom: 2px solid var(--color-border);
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.weeklyTable td {
+  text-align: center;
+  padding: 0.5rem 0.6rem;
+  border-bottom: 1px solid var(--color-border-light);
+}
+
+.weeklyDayCell {
+  text-align: left !important;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.weeklyDayName {
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.weeklyDayNum {
+  font-size: 0.78rem;
+  color: var(--color-text-muted);
+}
+
+.weeklySkipped td {
+  color: var(--color-text-muted);
+  font-style: italic;
+}
+
+.weeklyGood {
+  color: var(--color-success, #16a34a);
+  font-weight: 600;
+}
+
+.weeklyWarn {
+  color: #D4A574;
+  font-weight: 600;
+}
+
+.weeklyOver {
+  color: var(--color-danger, #dc2626);
+  font-weight: 600;
+}
+
+.weeklyUnder {
+  color: var(--color-text-muted);
+}
+
+.weeklyAvgRow {
   background: var(--color-surface-alt);
+}
+
+.weeklyAvgRow td {
+  border-top: 2px solid var(--color-border);
+  border-bottom: none;
+}
+
+.weeklyGoalRow td {
+  border-bottom: none;
+  color: var(--color-text-muted);
+  font-size: 0.78rem;
+}
+
+.weeklyGoalLabel {
+  font-weight: 600;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+/* ── Top Row with Mini Calendar ── */
+.topRow {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1.5rem;
+  margin-bottom: 1rem;
+}
+
+.topRowLeft {
+  flex: 1;
+  min-width: 0;
+}
+
+.topRowRight {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.5rem;
+}
+
+/* ── Weekly + Calendar Side-by-Side ── */
+.weeklyWithCal {
+  display: flex;
+  gap: 1.25rem;
+  align-items: flex-start;
+  margin-bottom: 1.5rem;
+  margin-right: -240px;
+}
+
+.weeklyWithCalLeft {
+  flex: 1;
+  min-width: 0;
+}
+
+.weeklyWithCalRight {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  flex-shrink: 0;
+  width: 220px;
+}
+
+@media (max-width: 1200px) {
+  .weeklyWithCal {
+    margin-right: 0;
+  }
+}
+
+@media (max-width: 900px) {
+  .weeklyWithCal {
+    flex-direction: column;
+    margin-right: 0;
+  }
+  .weeklyWithCalRight {
+    align-items: stretch;
+    width: 100%;
+  }
+}
+
+/* ── Mini Calendar ── */
+.miniCal {
+  width: 210px;
+  flex-shrink: 0;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 0.5rem;
+}
+
+.miniCalHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.35rem;
+}
+
+.miniCalMonth {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.miniCalArrow {
+  background: none;
+  border: none;
+  font-size: 0.8rem;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  padding: 0.15rem 0.35rem;
+  border-radius: 4px;
+  transition: color 0.15s ease, background 0.15s ease;
+}
+
+.miniCalArrow:hover {
+  color: var(--color-accent);
+  background: var(--color-surface-alt);
+}
+
+.miniCalGrid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 1px;
+  text-align: center;
+}
+
+.miniCalDowHeader {
+  font-size: 0.6rem;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  padding: 0.15rem 0;
+}
+
+.miniCalCell {
+  position: relative;
+  background: none;
+  border: none;
+  font-size: 0.7rem;
+  font-weight: 500;
+  color: var(--color-text);
+  cursor: pointer;
+  padding: 0.2rem 0;
+  border-radius: 4px;
+  font-family: inherit;
+  transition: background 0.12s ease;
+  line-height: 1.4;
+}
+
+.miniCalCell:hover {
+  background: var(--color-surface-alt);
+}
+
+.miniCalFullDay {
+  background: var(--color-accent-light, rgba(201, 100, 66, 0.15));
+  font-weight: 700;
+  border-radius: 50%;
+  outline: 2px solid var(--color-success, #16a34a);
+  outline-offset: -1px;
+}
+
+.miniCalSelected {
+  background: var(--color-accent) !important;
+  color: #fff !important;
+  font-weight: 700;
+}
+
+.miniCalToday {
+  outline: 2px solid var(--color-accent);
+  outline-offset: -2px;
+}
+
+.miniCalEmpty {
+  padding: 0.2rem 0;
+}
+
+.miniCalDot {
+  position: absolute;
+  bottom: 1px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: var(--color-accent);
+}
+
+.miniCalStar {
+  position: absolute;
+  top: -4px;
+  right: -2px;
+  font-size: 0.5rem;
+  line-height: 1;
+}
+
+.miniCalSelected .miniCalDot {
+  background: rgba(255, 255, 255, 0.8);
+}
+
+/* ── Weekly Columns View ── */
+.weeklyColsWrap {
+  overflow-x: auto;
+}
+
+.weeklyCols {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 0.6rem;
+  min-width: 700px;
+}
+
+.weeklyCol {
+  background: var(--color-surface-alt, #f9f7f4);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  min-height: 150px;
+}
+
+.weeklyColActive {
+  outline: 2px solid var(--color-accent);
+  outline-offset: -2px;
+}
+
+.weeklyColHeader {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.25rem;
+  padding: 0.5rem;
+  background: var(--color-header-bg, #2C2520);
+  color: #fff;
+}
+
+.weeklyColActive .weeklyColHeader {
+  background: var(--color-accent);
+}
+
+.weeklyTitleRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.75rem;
+}
+
+.weeklyTitleRow .weeklyTitle {
+  margin: 0;
+}
+
+.streakBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--color-accent);
+  background: var(--color-accent-light, rgba(201, 100, 66, 0.1));
+  padding: 0.25rem 0.65rem;
+  border-radius: 50px;
+}
+
+.streakRow {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.streakBest {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--color-text-muted);
+}
+
+.streakFire {
+  font-size: 0.9rem;
+}
+
+.weeklyColStar {
+  font-size: 0.7rem;
+  line-height: 1;
+}
+
+.weeklyColDay {
+  font-size: 0.88rem;
+  font-weight: 600;
+}
+
+.weeklyColNum {
+  font-size: 0.82rem;
+  opacity: 0.7;
+}
+
+.weeklyColBody {
+  padding: 0.6rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.weeklyColSlot {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.weeklySlotHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.weeklyColSlotLabel {
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-accent);
+}
+
+.weeklySlotBtns {
+  display: flex;
+  gap: 0.15rem;
+}
+
+.weeklySlotAddBtn,
+.weeklySlotRemoveBtn {
+  background: none;
+  border: 1px solid var(--color-border);
+  border-radius: 50%;
+  width: 20px;
+  height: 20px;
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  line-height: 1;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+  flex-shrink: 0;
+}
+
+.weeklySlotAddBtn:hover {
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+  color: #fff;
+}
+
+.weeklySlotRemoveBtn:hover {
+  background: var(--color-danger, #dc2626);
+  border-color: var(--color-danger, #dc2626);
+  color: #fff;
+}
+
+.weeklySlotDragOver {
+  background: var(--color-accent-light, rgba(201, 100, 66, 0.12));
+  border-radius: 4px;
+  outline: 2px dashed var(--color-accent);
+  outline-offset: -2px;
+}
+
+.weeklyColMeal {
+  font-size: 0.85rem;
+  color: var(--color-text);
+  line-height: 1.35;
+  padding: 0.3rem 0.45rem;
+  background: var(--color-surface);
+  border-radius: 4px;
+  border: 1px solid var(--color-border-light, #f0f0f0);
+  cursor: grab;
+  transition: box-shadow 0.15s ease, transform 0.1s ease;
+}
+
+.weeklyColMeal:active {
+  cursor: grabbing;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  transform: scale(1.02);
+}
+
+.weeklyColMealClickable {
+  cursor: pointer;
+  color: var(--color-text);
+  text-decoration: underline;
+  text-decoration-color: transparent;
+  transition: text-decoration-color 0.15s ease, box-shadow 0.15s ease, transform 0.1s ease;
+}
+
+.weeklyColMealClickable:hover {
+  text-decoration-color: var(--color-text);
+}
+
+.weeklyColSkipped {
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+  font-style: italic;
+  text-align: center;
+  padding: 1rem 0;
+}
+
+.weeklyColSkippedMeal {
+  font-size: 0.85rem;
+  color: var(--color-text);
+  line-height: 1.35;
+  padding: 0.3rem 0.45rem;
+  background: var(--color-surface);
+  border-radius: 4px;
+  border: 1px solid var(--color-border-light, #f0f0f0);
+}
+
+.weeklyColNotTracked {
+  font-size: 0.85rem;
+  color: var(--color-text-muted);
+  font-style: italic;
+  line-height: 1.35;
+  padding: 0.3rem 0.45rem;
+}
+
+.weeklyColEmpty {
+  font-size: 0.72rem;
+  color: var(--color-text-muted);
+  text-align: center;
+}
+
+/* ── Weekly Macro Columns ── */
+.weeklyMacroCol {
+  background: var(--color-surface-alt, #f9f7f4);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.weeklyMacroColActive {
+  outline: 2px solid var(--color-accent);
+  outline-offset: -2px;
+}
+
+.weeklyMacroBody {
+  padding: 0.5rem 0.45rem;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 0.25rem 0.35rem;
+  align-items: center;
+}
+
+.weeklyMacroRowLabel {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.weeklyMacroVal {
+  font-weight: 700;
+  color: var(--color-text);
+  font-size: 0.88rem;
+  text-align: right;
+}
+
+.weeklyMacroPct {
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-align: right;
+}
+
+.weeklyMacroRowDash {
+  font-size: 0.72rem;
+  color: var(--color-text-muted);
+  grid-column: 2 / 4;
+  text-align: center;
+}
+
+/* ── Two-column layout ── */
+.twoColRow {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1.5rem;
+  margin-bottom: 1.5rem;
+}
+
+/* ── KPI Alerts ── */
+.kpiAlerts {
+  margin-bottom: 1.5rem;
+}
+
+.kpiTitle {
+  margin: 0 0 0.75rem;
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--color-text, #1A1A1A);
+}
+
+.kpiList {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 0.75rem;
+}
+
+.kpiItem {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.kpiHeadline {
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--color-danger, #dc2626);
+  padding: 0.5rem 0 0.35rem;
+}
+
+.kpiCard {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem;
+  background: rgba(220, 38, 38, 0.06);
+  border: 1px solid rgba(220, 38, 38, 0.2);
+  border-radius: var(--radius-md) var(--radius-md) 0 0;
+}
+
+.kpiPct {
+  font-size: 1.3rem;
+  font-weight: 800;
+  color: var(--color-danger, #dc2626);
+  flex-shrink: 0;
+}
+
+.kpiMessage {
+  font-size: 0.85rem;
+  color: var(--color-text);
+  line-height: 1.35;
+}
+
+.kpiRecList {
+  border: 1px solid rgba(220, 38, 38, 0.2);
+  border-top: none;
+  border-radius: 0 0 var(--radius-md) var(--radius-md);
+  overflow: hidden;
+}
+
+.kpiRec {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  padding: 0.6rem 1rem;
+  background: var(--color-surface);
+  border-top: 1px solid var(--color-border-light, #f0f0f0);
+}
+
+.kpiRecList .kpiRec:first-child {
+  border-top: none;
+}
+
+.kpiRecTop {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.kpiRecNameLink {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--color-text);
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-color: transparent;
+  transition: text-decoration-color 0.15s ease;
+}
+
+.kpiRecNameLink:hover {
+  text-decoration-color: var(--color-text);
+}
+
+.kpiRecActions {
+  margin-top: 0.2rem;
+}
+
+.kpiRecConfirm {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.kpiRecConfirmText {
+  font-size: 0.78rem;
+  color: var(--color-text);
+  font-weight: 500;
+}
+
+.kpiRecCheckBtn {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: none;
+  background: var(--color-success, #16a34a);
+  color: #fff;
+  font-size: 0.85rem;
+  font-weight: 700;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: opacity 0.15s ease;
+}
+
+.kpiRecCheckBtn:hover {
+  opacity: 0.85;
+}
+
+.kpiRecXBtn {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: 1px solid var(--color-border);
+  background: none;
+  color: var(--color-text-muted);
+  font-size: 1rem;
+  font-weight: 700;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.kpiRecXBtn:hover {
+  background: var(--color-danger, #dc2626);
+  border-color: var(--color-danger, #dc2626);
+  color: #fff;
+}
+
+.kpiRecLabel {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--color-success, #16a34a);
+}
+
+.kpiRecName {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.kpiRecReason {
+  font-size: 0.78rem;
+  color: var(--color-text-muted);
+}
+
+.kpiRecEmpty {
+  font-size: 0.82rem;
+  color: var(--color-text-muted);
+}
+
+.kpiRecAddBtn {
+  padding: 0.3rem 0.85rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  font-family: inherit;
+  border: none;
+  border-radius: 50px;
+  background: var(--color-accent);
+  color: #fff;
+  cursor: pointer;
+  transition: opacity 0.15s ease;
+}
+
+.kpiRecAddBtn:hover {
+  opacity: 0.85;
+}
+
+.kpiRecPlusBtn {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: none;
+  background: var(--color-accent, #C96442);
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: #fff;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  line-height: 1;
+  transition: opacity 0.15s ease;
+}
+
+.kpiRecPlusBtn:hover {
+  opacity: 0.85;
+}
+
+/* ── Recommended Meals ── */
+.recMeals {
+  margin-bottom: 1.5rem;
+}
+
+.recMealsTitle {
+  margin: 0 0 0.25rem;
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--color-text);
+}
+
+.recMealsSubtitle {
+  margin: 0 0 0.75rem;
+  font-size: 0.82rem;
+  color: var(--color-text-muted);
+}
+
+.recMealsGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 0.75rem;
+}
+
+.recMealCard {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.recMealName {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--color-text);
+}
+
+.recMealCategory {
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--color-accent);
+}
+
+.recMealReasons {
+  margin: 0.25rem 0 0;
+  padding-left: 1.1rem;
+  font-size: 0.82rem;
+  color: var(--color-text-secondary, #555);
+  line-height: 1.5;
+}
+
+.recMealReasons li {
+  margin-bottom: 0.15rem;
+}
+
+.recMealsEmpty {
+  background: var(--color-surface);
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 1.25rem 1.5rem;
+  text-align: center;
+}
+
+.recMealsEmpty p {
+  margin: 0 0 0.75rem;
+  font-size: 0.9rem;
+  color: var(--color-text-muted);
+}
+
+.recMealsAddBtn {
+  padding: 0.5rem 1.25rem;
+  font-size: 0.88rem;
+  font-weight: 600;
+  font-family: inherit;
+  border: none;
+  border-radius: 50px;
+  background: var(--color-accent);
+  color: #fff;
+  cursor: pointer;
+  transition: opacity 0.15s ease;
+}
+
+.recMealsAddBtn:hover {
+  opacity: 0.85;
 }
 
 /* ── Responsive ── */
 @media (max-width: 600px) {
   .container {
     padding: 0.75rem;
+  }
+
+  .topRow {
+    flex-direction: column;
+  }
+
+  .miniCal {
+    width: 100%;
+  }
+
+  .weeklyCols {
+    grid-template-columns: repeat(3, 1fr);
+    min-width: 0;
   }
 
   .entryRow {
@@ -1009,5 +2387,9 @@
 
   .goalValues {
     display: none;
+  }
+
+  .twoColRow {
+    grid-template-columns: 1fr;
   }
 }

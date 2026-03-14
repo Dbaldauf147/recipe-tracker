@@ -16,14 +16,6 @@ function parseFraction(str) {
 function formatQuantity(n) {
   if (n === 0) return '';
   if (Number.isInteger(n)) return String(n);
-  const whole = Math.floor(n);
-  const frac = n - whole;
-  const fracs = { 0.25: '1/4', 0.333: '1/3', 0.5: '1/2', 0.667: '2/3', 0.75: '3/4' };
-  for (const [dec, str] of Object.entries(fracs)) {
-    if (Math.abs(frac - parseFloat(dec)) < 0.05) {
-      return whole > 0 ? `${whole} ${str}` : str;
-    }
-  }
   return n.toFixed(2).replace(/\.?0+$/, '');
 }
 
@@ -51,29 +43,45 @@ const SECTION_KEYWORDS = {
     'apple', 'apricot', 'arugula', 'artichoke', 'asparagus', 'avocado',
     'banana', 'basil', 'beet', 'bell pepper', 'berry', 'blackberry',
     'blackberries', 'blueberry', 'blueberries', 'bok choy', 'broccoli',
-    'brussels sprout', 'cabbage', 'cantaloupe', 'carrot', 'cauliflower',
-    'celery', 'chard', 'cherry', 'cherries', 'cilantro', 'clementine',
-    'collard', 'corn', 'cranberry', 'cranberries', 'cucumber', 'dill',
-    'eggplant', 'endive', 'fennel', 'fig', 'fruit', 'garlic', 'ginger',
-    'grape', 'green bean', 'green onion', 'habanero', 'herb', 'honeydew',
-    'jalapeno', 'kale', 'kiwi', 'leek', 'lemon', 'lettuce', 'lime',
-    'mango', 'melon', 'mint', 'mushroom', 'nectarine', 'okra', 'onion',
-    'orange', 'papaya', 'parsley', 'parsnip', 'pea', 'peach', 'pear',
-    'pepper', 'pineapple', 'plantain', 'plum', 'poblano', 'pomegranate',
-    'potato', 'pumpkin', 'radicchio', 'radish', 'raspberry', 'raspberries',
-    'rhubarb', 'rosemary', 'sage', 'scallion', 'shallot', 'snap pea',
-    'snow pea', 'spinach', 'spring mix', 'squash', 'strawberry',
-    'strawberries', 'sweet potato', 'thyme', 'tomatillo', 'tomato',
-    'turnip', 'watermelon', 'watercress', 'zucchini', 'edamame',
+    'broccolini', 'brussels sprout', 'butternut', 'cabbage', 'cantaloupe',
+    'carrot', 'cauliflower', 'celery', 'chard', 'cherry', 'cherries',
+    'chive', 'cilantro', 'clementine', 'collard', 'corn', 'cranberry',
+    'cranberries', 'cucumber', 'daikon', 'dill', 'eggplant', 'endive',
+    'escarole', 'fennel', 'fig', 'fruit', 'garlic', 'ginger', 'grape',
+    'grapefruit', 'green bean', 'green onion', 'habanero', 'herb',
+    'honeydew', 'jalapeno', 'jicama', 'kale', 'kiwi', 'kohlrabi',
+    'kumquat', 'leek', 'lemon', 'lettuce', 'lime', 'lychee', 'mango',
+    'melon', 'mint', 'mushroom', 'nectarine', 'okra', 'onion', 'orange',
+    'papaya', 'parsley', 'parsnip', 'passion fruit', 'pea', 'peach',
+    'pear', 'pepper', 'persimmon', 'pineapple', 'plantain', 'plum',
+    'poblano', 'pomegranate', 'potato', 'pumpkin', 'radicchio', 'radish',
+    'raspberry', 'raspberries', 'rhubarb', 'romaine', 'rosemary', 'rutabaga',
+    'sage', 'scallion', 'serrano', 'shallot', 'snap pea', 'snow pea',
+    'spinach', 'spring mix', 'sprout', 'squash', 'starfruit', 'strawberry',
+    'strawberries', 'sweet potato', 'tangerine', 'thyme', 'tomatillo',
+    'tomato', 'turnip', 'vegetable', 'veggie', 'watermelon', 'watercress',
+    'yam', 'zucchini', 'edamame', 'mixed greens', 'baby spinach',
+    'red onion', 'yellow onion', 'white onion', 'red pepper', 'green pepper',
+    'yellow pepper', 'jalapeno pepper', 'roma tomato', 'cherry tomato',
+    'grape tomato', 'heirloom tomato', 'russet potato', 'yukon gold',
+    'baby carrot', 'fresh herb', 'mixed berry', 'mixed berries',
   ],
   meat: [
     'beef', 'bison', 'chicken', 'duck', 'ground turkey', 'ham', 'lamb',
     'pork', 'prosciutto', 'salami', 'sausage', 'steak', 'turkey', 'veal',
-    'venison', 'bacon', 'chorizo', 'pepperoni', 'meatball',
-    'salmon', 'tuna', 'shrimp', 'cod', 'tilapia', 'halibut', 'crab',
-    'lobster', 'scallop', 'clam', 'mussel', 'oyster', 'anchovy',
-    'sardine', 'trout', 'catfish', 'mahi', 'swordfish', 'fish',
-    'seafood', 'calamari', 'octopus',
+    'venison', 'bacon', 'chorizo', 'pepperoni', 'meatball', 'meat',
+    'ground beef', 'ground pork', 'ground chicken', 'chicken breast',
+    'chicken thigh', 'chicken wing', 'chicken drumstick', 'chicken tender',
+    'pork chop', 'pork loin', 'pork tenderloin', 'pork belly', 'ribs',
+    'short rib', 'sirloin', 'ribeye', 'filet', 'flank steak', 'roast',
+    'tenderloin', 'brisket', 'pastrami', 'deli meat', 'lunch meat',
+    'hot dog', 'bratwurst', 'kielbasa', 'andouille', 'italian sausage',
+    'breakfast sausage', 'turkey sausage', 'chicken sausage',
+    'salmon', 'tuna', 'shrimp', 'prawn', 'cod', 'tilapia', 'halibut',
+    'crab', 'lobster', 'scallop', 'clam', 'mussel', 'oyster', 'anchovy',
+    'sardine', 'trout', 'catfish', 'mahi', 'swordfish', 'fish', 'bass',
+    'snapper', 'grouper', 'haddock', 'perch', 'pike', 'walleye',
+    'seafood', 'calamari', 'octopus', 'crawfish', 'crayfish',
   ],
   dairy: [
     'butter', 'buttermilk', 'cheddar', 'cheese', 'colby', 'cottage cheese',
@@ -82,13 +90,22 @@ const SECTION_KEYWORDS = {
     'heavy whipping', 'kefir', 'mascarpone', 'milk', 'monterey jack',
     'mozzarella', 'parmesan', 'pecorino', 'provolone', 'queso',
     'ricotta', 'sour cream', 'swiss', 'whipped cream', 'whipping cream',
-    'yogurt', 'goat cheese', 'brie', 'camembert',
+    'yogurt', 'goat cheese', 'brie', 'camembert', 'havarti', 'muenster',
+    'string cheese', 'american cheese', 'velveeta', 'neufchatel',
+    'greek yogurt', 'plain yogurt', 'skyr', 'labneh',
+    'whole milk', 'skim milk', '2% milk', '1% milk',
+    'unsalted butter', 'salted butter', 'margarine',
+    'egg white', 'egg yolk', 'liquid egg',
   ],
   bakery: [
     'bagel', 'baguette', 'bread', 'brioche', 'bun', 'ciabatta',
     'cornbread', 'crouton', 'english muffin', 'flatbread', 'focaccia',
     'hamburger bun', 'hot dog bun', 'naan', 'pita', 'roll', 'sourdough',
-    'tortilla', 'wrap', 'croissant',
+    'tortilla', 'wrap', 'croissant', 'muffin', 'donut', 'doughnut',
+    'danish', 'scone', 'biscuit', 'cornbread mix', 'dinner roll',
+    'hoagie', 'sub roll', 'slider bun', 'rye bread', 'pumpernickel',
+    'whole wheat bread', 'white bread', 'multigrain', 'flour tortilla',
+    'corn tortilla', 'lavash', 'challah', 'texas toast',
   ],
   frozen: [
     'frozen', 'ice cream', 'popsicle', 'sorbet', 'gelato',
@@ -97,9 +114,15 @@ const SECTION_KEYWORDS = {
   grains: [
     'barley', 'basmati', 'brown rice', 'buckwheat', 'bulgur', 'cereal',
     'couscous', 'farro', 'fusilli', 'granola', 'jasmine rice', 'linguine',
-    'macaroni', 'noodle', 'oat', 'orzo', 'pasta', 'penne', 'polenta',
-    'quinoa', 'ramen', 'rice', 'rigatoni', 'rotini', 'spaghetti',
-    'udon', 'vermicelli', 'wild rice',
+    'macaroni', 'noodle', 'oat', 'oatmeal', 'orzo', 'pasta', 'penne',
+    'polenta', 'quinoa', 'ramen', 'rice', 'rigatoni', 'rotini',
+    'spaghetti', 'udon', 'vermicelli', 'wild rice', 'white rice',
+    'angel hair', 'bow tie', 'farfalle', 'lasagna', 'lasagne',
+    'elbow macaroni', 'egg noodle', 'rice noodle', 'soba',
+    'tortellini', 'ravioli', 'gnocchi', 'millet', 'amaranth',
+    'cream of wheat', 'grits', 'instant oat', 'rolled oat',
+    'steel cut oat', 'cracker', 'rice cake', 'popcorn',
+    'pretzel', 'chip', 'tortilla chip',
   ],
   canned: [
     'canned', 'tinned', 'tomato paste', 'tomato sauce', 'crushed tomato',
@@ -109,6 +132,13 @@ const SECTION_KEYWORDS = {
     'broth', 'stock', 'bouillon', 'condensed', 'evaporated milk',
     'artichoke heart', 'roasted pepper', 'pickle', 'caper',
     'sun-dried tomato', 'sundried tomato', 'chipotle in adobo',
+    'marinara sauce', 'enchilada sauce', 'green chile', 'diced green',
+    'cream of mushroom', 'cream of chicken', 'tomato soup',
+    'olive', 'kalamata', 'jalapeno jar', 'pepperoncini',
+    'bamboo shoot', 'water chestnut', 'hearts of palm',
+    'refried bean', 'baked bean', 'chili bean',
+    'chicken broth', 'beef broth', 'vegetable broth', 'bone broth',
+    'pasta sauce', 'pizza sauce', 'alfredo sauce',
   ],
   baking: [
     'flour', 'sugar', 'brown sugar', 'powdered sugar', 'confectioner',
@@ -117,31 +147,50 @@ const SECTION_KEYWORDS = {
     'vanilla extract', 'almond extract', 'food coloring', 'sprinkles',
     'gelatin', 'pectin', 'molasses', 'corn syrup', 'shortening',
     'cake mix', 'brownie mix', 'pancake mix', 'bread crumb',
-    'panko', 'graham cracker',
+    'panko', 'graham cracker', 'coconut flour', 'almond flour',
+    'tapioca starch', 'arrowroot', 'xanthan gum', 'meringue powder',
+    'pie crust', 'puff pastry', 'phyllo', 'marshmallow',
+    'sweetened condensed', 'evaporated', 'cream of coconut',
+    'vanilla bean', 'extract', 'food color', 'icing',
+    'whole wheat flour', 'self-rising flour', 'cake flour',
+    'cornmeal', 'semolina',
   ],
   spices: [
     'allspice', 'anise', 'basil dried', 'bay leaf', 'black pepper',
     'cajun', 'cardamom', 'cayenne', 'chili flake', 'chili powder',
     'chinese five spice', 'cinnamon', 'clove', 'coriander', 'cumin',
-    'curry', 'dill weed', 'everything bagel', 'fennel seed', 'garam masala',
-    'garlic powder', 'ginger powder', 'italian seasoning', 'marjoram',
-    'mustard powder', 'nutmeg', 'onion powder', 'oregano', 'paprika',
-    'pepper flake', 'red pepper flake', 'rosemary dried', 'saffron',
-    'salt', 'seasoning', 'sesame seed', 'smoked paprika', 'star anise',
-    'sumac', 'tarragon', 'thyme dried', 'turmeric', 'white pepper',
-    'spice', 'herb blend', 'za\'atar', 'tajin',
+    'curry', 'curry powder', 'dill weed', 'everything bagel', 'fennel seed',
+    'garam masala', 'garlic powder', 'garlic salt', 'ginger powder',
+    'italian seasoning', 'lemon pepper', 'marjoram', 'mustard powder',
+    'mustard seed', 'nutmeg', 'onion powder', 'oregano', 'paprika',
+    'pepper flake', 'red pepper flake', 'crushed red pepper',
+    'rosemary dried', 'saffron', 'salt', 'sea salt', 'kosher salt',
+    'seasoning', 'seasoned salt', 'sesame seed', 'smoked paprika',
+    'star anise', 'sumac', 'tarragon', 'thyme dried', 'turmeric',
+    'white pepper', 'spice', 'herb blend', 'za\'atar', 'tajin',
+    'old bay', 'taco seasoning', 'ranch seasoning', 'adobo seasoning',
+    'celery salt', 'celery seed', 'dried oregano', 'dried basil',
+    'dried thyme', 'dried parsley', 'dried rosemary', 'poultry seasoning',
+    'steak seasoning', 'montreal seasoning', 'chili lime',
   ],
   oils: [
     'olive oil', 'canola oil', 'coconut oil', 'cooking spray', 'corn oil',
-    'fish sauce', 'grapeseed oil', 'hot sauce', 'hoisin', 'honey', 'jam',
-    'jelly', 'ketchup', 'maple syrup', 'marinara', 'mayo', 'mayonnaise',
-    'mirin', 'miso', 'mustard', 'oyster sauce', 'peanut butter',
+    'avocado oil', 'fish sauce', 'grapeseed oil', 'hot sauce', 'hoisin',
+    'honey', 'jam', 'jelly', 'ketchup', 'maple syrup', 'marinara',
+    'mayo', 'mayonnaise', 'mirin', 'miso', 'mustard', 'dijon',
+    'yellow mustard', 'whole grain mustard', 'oyster sauce',
+    'peanut butter', 'almond butter', 'sunflower butter', 'nutella',
     'preserves', 'ranch', 'relish', 'salad dressing', 'salsa',
     'sesame oil', 'soy sauce', 'sriracha', 'tahini', 'tamari',
     'teriyaki', 'vinegar', 'vegetable oil', 'oil', 'worcestershire',
     'bbq sauce', 'buffalo sauce', 'chili sauce', 'chimichurri',
     'pesto', 'tzatziki', 'hummus', 'guacamole', 'agave',
-    'rice vinegar', 'balsamic', 'apple cider vinegar',
+    'rice vinegar', 'balsamic', 'apple cider vinegar', 'red wine vinegar',
+    'white wine vinegar', 'sherry vinegar', 'champagne vinegar',
+    'extra virgin', 'evoo', 'spray oil', 'cooking oil',
+    'steak sauce', 'a1', 'chutney', 'aioli', 'remoulade',
+    'cocktail sauce', 'tartar sauce', 'duck sauce', 'plum sauce',
+    'truffle oil', 'walnut oil', 'flaxseed oil',
   ],
   nuts: [
     'almond', 'brazil nut', 'cashew', 'chestnut', 'dried cranberry',
@@ -454,13 +503,11 @@ export function ShoppingList({ weeklyRecipes, weeklyServings = {}, extraItems = 
             <tbody>
               {SECTIONS.map(section => {
                 const sectionItems = grouped[section.key];
+                if (sectionItems.length === 0) return null;
                 return [
                   <tr key={`h-${section.key}`} className={styles.sectionHeaderRow}>
                     <td colSpan={colCount} className={styles.sectionHeading}>
                       {section.label}
-                      {sectionItems.length === 0 && (
-                        <span className={styles.emptySection}> — none</span>
-                      )}
                     </td>
                   </tr>,
                   ...sectionItems.map((item, i) => {

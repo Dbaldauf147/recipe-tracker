@@ -75,6 +75,81 @@
   font-size: 0.88rem;
 }
 
+/* Plate chart */
+.plateWrap {
+  display: flex;
+  align-items: center;
+  gap: 1.25rem;
+  margin-bottom: 1rem;
+  padding: 0.75rem;
+  background: var(--color-surface-alt);
+  border-radius: var(--radius-sm);
+}
+
+.plateSvg {
+  width: 150px;
+  height: 150px;
+  flex-shrink: 0;
+}
+
+.plateLegend {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.legendItem {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.82rem;
+}
+
+.legendDot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.legendLabel {
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.legendValue {
+  color: var(--color-text-muted);
+  font-size: 0.78rem;
+}
+
+@media (max-width: 400px) {
+  .plateWrap {
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+  }
+}
+
+/* Meal Score */
+.mealScore {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.scoreRing {
+  display: block;
+}
+
+.scoreLabel {
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
 /* Nutrient summary groups */
 .groups {
   display: grid;
@@ -300,4 +375,19 @@
   margin: 0.75rem 0 0;
   font-size: 0.75rem;
   color: var(--color-text-muted);
+}
+
+.sourcesLink {
+  background: none;
+  border: none;
+  color: var(--color-accent);
+  font-size: 0.75rem;
+  font-family: inherit;
+  cursor: pointer;
+  padding: 0;
+  text-decoration: underline;
+}
+
+.sourcesLink:hover {
+  color: var(--color-accent-hover);
 }

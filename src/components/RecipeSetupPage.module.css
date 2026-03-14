@@ -275,20 +275,18 @@
 }
 
 .backBtn {
-  padding: 0.65rem 1.5rem;
-  font-size: 0.95rem;
-  font-family: inherit;
-  font-weight: 500;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  background: var(--color-surface);
+  background: none;
+  border: none;
   color: var(--color-text-muted);
+  font-size: 0.9rem;
+  font-weight: 500;
   cursor: pointer;
-  transition: background 0.15s ease;
+  padding: 0;
+  transition: color 0.15s ease;
 }
 
 .backBtn:hover {
-  background: var(--color-surface-alt);
+  color: var(--color-accent);
 }
 
 .skipBtn {

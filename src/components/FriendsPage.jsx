@@ -33,6 +33,7 @@ export function FriendsPage({ onClose, addRecipe }) {
   const [searchInput, setSearchInput] = useState('');
   const [searchResult, setSearchResult] = useState(null); // { uid, username } | 'none'
   const [searchStatus, setSearchStatus] = useState(null);
+  const [requestMessage, setRequestMessage] = useState('');
 
   const [requests, setRequests] = useState([]);
   const [sentRequests, setSentRequests] = useState([]);
@@ -109,9 +110,27 @@ export function FriendsPage({ onClose, addRecipe }) {
   /* ── Send request ── */
   async function handleSendRequest(toUid) {
     try {
-      await sendFriendRequest(uid, toUid, myUsername);
+      const msg = requestMessage.trim();
+      await sendFriendRequest(uid, toUid, myUsername, msg || undefined);
+
+      // Send email notification (fire-and-forget)
+      const toEmail = searchResult?.email;
+      if (toEmail) {
+        fetch('/api/notify-friend-request', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            toEmail,
+            toName: searchResult.username || '',
+            fromUsername: myUsername,
+            message: msg || undefined,
+          }),
+        }).catch(() => {});
+      }
+
       setSearchStatus({ type: 'success', msg: 'Friend request sent!' });
       setSearchResult(null);
+      setRequestMessage('');
       // Refresh sent requests list
       getSentRequests(uid).then(setSentRequests).catch(() => {});
     } catch {
@@ -257,9 +276,18 @@ export function FriendsPage({ onClose, addRecipe }) {
               {friends.some(f => f.uid === searchResult.uid) ? (
                 <span className={styles.emptyText}>Already friends</span>
               ) : (
-                <button className={styles.actionBtn} onClick={() => handleSendRequest(searchResult.uid)}>
-                  Send Request
-                </button>
+                <div className={styles.sendRequestWrap}>
+                  <input
+                    className={styles.input}
+                    type="text"
+                    placeholder="Add a message (optional)"
+                    value={requestMessage}
+                    onChange={e => setRequestMessage(e.target.value)}
+                  />
+                  <button className={styles.actionBtn} onClick={() => handleSendRequest(searchResult.uid)}>
+                    Send Request
+                  </button>
+                </div>
               )}
             </div>
           )}
@@ -279,7 +307,10 @@ export function FriendsPage({ onClose, addRecipe }) {
         ) : (
           requests.map(req => (
             <div key={req.id} className={styles.requestRow}>
-              <span className={styles.friendUsername}>@{req.fromUsername}</span>
+              <div className={styles.friendInfo}>
+                <span className={styles.friendUsername}>@{req.fromUsername}</span>
+                {req.message && <span className={styles.requestMsg}>"{req.message}"</span>}
+              </div>
               <div className={styles.requestActions}>
                 <button className={styles.actionBtn} onClick={() => handleAccept(req)}>Accept</button>
                 <button className={styles.dangerBtn} onClick={() => handleDecline(req)}>Decline</button>

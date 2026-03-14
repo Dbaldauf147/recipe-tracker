@@ -176,6 +176,13 @@ export function getUserKeyIngredients() {
   return getDietFilteredIngredients(DEFAULT_KEY_INGREDIENTS);
 }
 
+/** Save the user's key ingredients list */
+export function saveUserKeyIngredients(ingredients) {
+  try {
+    localStorage.setItem(KEY_INGREDIENTS_STORAGE, JSON.stringify(ingredients));
+  } catch {}
+}
+
 /** Format a snake_case ingredient key for display */
 export function displayName(key) {
   return key

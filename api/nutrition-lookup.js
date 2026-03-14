@@ -12,6 +12,8 @@ const NUTRIENT_IDS = {
   carbs: 1005,
   fat: 1004,
   saturatedFat: 1258,
+  transFat: 1257,
+  cholesterol: 1253,
   sugar: 2000,
   addedSugar: 1235,
   fiber: 1079,
@@ -21,12 +23,37 @@ const NUTRIENT_IDS = {
   iron: 1089,
   magnesium: 1090,
   zinc: 1095,
-  vitaminB12: 1178,
+  phosphorus: 1091,
+  selenium: 1103,
+  copper: 1098,
+  manganese: 1101,
+  chromium: 1096,
+  vitaminA: 1106,
   vitaminC: 1162,
+  vitaminD: 1114,
+  vitaminE: 1109,
+  vitaminK: 1185,
+  vitaminB1: 1165,
+  vitaminB2: 1166,
+  vitaminB3: 1167,
+  vitaminB5: 1170,
+  vitaminB6: 1175,
+  vitaminB7: 1176,
+  vitaminB9: 1177,
+  vitaminB12: 1178,
   leucine: 1213,
-  omega3DHA: 1272,   // DHA
-  omega3EPA: 1278,   // EPA
-  omega3ALA: 1404,   // ALA
+  isoleucine: 1212,
+  valine: 1219,
+  histidine: 1221,
+  lysine: 1214,
+  methionine: 1215,
+  phenylalanine: 1217,
+  threonine: 1211,
+  tryptophan: 1210,
+  omega3DHA: 1272,
+  omega3EPA: 1278,
+  omega3ALA: 1404,
+  omega6: 1316,
 };
 
 // Typical leucine content as % of total protein by food category
@@ -160,77 +187,235 @@ function fmtVal(val) {
   return s.replace(/0+$/, '').replace(/\.$/, '');
 }
 
-async function lookupIngredient(ingredientText) {
-  const { ingredient, quantity, unit } = parsePortionFromText(ingredientText);
-  const grams = resolveGrams(quantity, unit, ingredient);
-  const scaleFactor = grams / 100; // USDA values are per 100g
-
-  // Search USDA
-  const url = `${USDA_SEARCH_URL}?api_key=${USDA_API_KEY}&query=${encodeURIComponent(ingredient)}&pageSize=3&dataType=Foundation,SR%20Legacy`;
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`USDA API error: ${res.status}`);
-  const data = await res.json();
-
-  if (!data.foods || data.foods.length === 0) {
-    return null;
-  }
-
-  const food = data.foods[0];
+// Build a row from USDA food data
+function buildRowFromUSDA(food, grams, scaleFactor, quantity, unit) {
   const nutrients = food.foodNutrients || [];
-
-  // Extract per-100g values
   const per100 = {};
   for (const [key, nid] of Object.entries(NUTRIENT_IDS)) {
     per100[key] = extractNutrient(nutrients, nid);
   }
 
-  // Scale to requested portion
   const row = {
     ingredient: food.description,
     grams: String(Math.round(grams)),
     measurement: unit ? `${quantity} ${unit}${quantity > 1 ? 's' : ''}` : `${Math.round(grams)}g`,
   };
 
-  // Main nutrients - scale from per-100g
-  const nutrientKeys = ['calories', 'protein', 'carbs', 'fat', 'saturatedFat', 'sugar',
-    'addedSugar', 'fiber', 'sodium', 'potassium', 'calcium', 'iron',
-    'magnesium', 'zinc', 'vitaminB12', 'vitaminC'];
+  const nutrientKeys = ['calories', 'protein', 'carbs', 'fat', 'saturatedFat', 'transFat',
+    'cholesterol', 'sugar', 'addedSugar', 'fiber', 'sodium', 'potassium', 'calcium', 'iron',
+    'magnesium', 'zinc', 'phosphorus', 'selenium', 'copper', 'manganese', 'chromium',
+    'vitaminA', 'vitaminC', 'vitaminD', 'vitaminE', 'vitaminK',
+    'vitaminB1', 'vitaminB2', 'vitaminB3', 'vitaminB5', 'vitaminB6', 'vitaminB7', 'vitaminB9', 'vitaminB12'];
 
   for (const key of nutrientKeys) {
     const val = per100[key];
     row[key] = val != null ? fmtVal(val * scaleFactor) : '';
   }
 
-  // Leucine: use USDA value if available, otherwise estimate from protein
-  const usdaLeucine = per100.leucine;
+  // Amino acids (USDA stores in mg, convert to g)
+  const aminoKeys = ['leucine', 'isoleucine', 'valine', 'histidine', 'lysine', 'methionine', 'phenylalanine', 'threonine', 'tryptophan'];
   const protein = per100.protein || 0;
-  if (usdaLeucine != null && usdaLeucine > 0) {
-    row.leucine = fmtVal(usdaLeucine * scaleFactor / 1000); // USDA leucine is in mg, convert to g
-  } else if (protein > 0) {
-    const estimatedLeucine = estimateLeucine(protein * scaleFactor, food.description);
-    row.leucine = fmtVal(estimatedLeucine);
-  } else {
-    row.leucine = '';
+  for (const key of aminoKeys) {
+    const val = per100[key];
+    if (val != null && val > 0) {
+      row[key] = fmtVal(val * scaleFactor / 1000); // mg → g
+    } else if (key === 'leucine' && protein > 0) {
+      row[key] = fmtVal(estimateLeucine(protein * scaleFactor, food.description));
+    } else {
+      row[key] = '';
+    }
   }
 
-  // Omega-3: sum DHA + EPA + ALA from USDA, all in g per 100g
+  // Omega-3: sum DHA + EPA + ALA
   const dha = per100.omega3DHA || 0;
   const epa = per100.omega3EPA || 0;
   const ala = per100.omega3ALA || 0;
   const totalOmega3 = (dha + epa + ala) * scaleFactor;
   row.omega3 = totalOmega3 > 0 ? fmtVal(totalOmega3) : '';
+  row.omega6 = per100.omega6 != null ? fmtVal(per100.omega6 * scaleFactor) : '';
 
-  // Derived fields
   const cal = parseFloat(row.calories) || 0;
   const prot = parseFloat(row.protein) || 0;
   const fib = parseFloat(row.fiber) || 0;
   row.proteinPerCal = cal > 0 ? fmtVal(prot / cal) : '';
   row.fiberPerCal = cal > 0 ? fmtVal(fib / cal) : '';
-
-  // Source info
   row.notes = `USDA ${food.dataType || ''} #${food.fdcId}`;
 
   return row;
+}
+
+async function lookupFromUSDA(ingredient, grams, scaleFactor, quantity, unit, dataTypes) {
+  const url = `${USDA_SEARCH_URL}?api_key=${USDA_API_KEY}&query=${encodeURIComponent(ingredient)}&pageSize=3&dataType=${dataTypes}`;
+  const res = await fetch(url);
+  if (!res.ok) return null;
+  const data = await res.json();
+  if (!data.foods || data.foods.length === 0) return null;
+  return buildRowFromUSDA(data.foods[0], grams, scaleFactor, quantity, unit);
+}
+
+// Open Food Facts name-based search
+async function lookupFromOpenFoodFacts(ingredient, grams, scaleFactor, quantity, unit) {
+  const url = `https://world.openfoodfacts.org/cgi/search.pl?search_terms=${encodeURIComponent(ingredient)}&search_simple=1&action=process&json=1&page_size=3&fields=product_name,nutriments`;
+  const res = await fetch(url);
+  if (!res.ok) return null;
+  const data = await res.json();
+  if (!data.products || data.products.length === 0) return null;
+
+  const product = data.products.find(p => p.nutriments && p.nutriments['energy-kcal_100g'] != null);
+  if (!product) return null;
+
+  const n = product.nutriments;
+  const toMg = (key) => {
+    const val = n[key + '_100g'] || 0;
+    const u = n[key + '_unit'] || 'g';
+    if (u === 'mg') return val;
+    if (u === 'µg' || u === 'mcg') return val / 1000;
+    return val * 1000;
+  };
+  const toMcg = (key) => {
+    const val = n[key + '_100g'] || 0;
+    const u = n[key + '_unit'] || 'g';
+    if (u === 'µg' || u === 'mcg') return val;
+    if (u === 'mg') return val * 1000;
+    return val * 1000000;
+  };
+
+  const protein = (n['proteins_100g'] || 0) * scaleFactor;
+  const row = {
+    ingredient: product.product_name || ingredient,
+    grams: String(Math.round(grams)),
+    measurement: unit ? `${quantity} ${unit}${quantity > 1 ? 's' : ''}` : `${Math.round(grams)}g`,
+    calories: fmtVal((n['energy-kcal_100g'] || 0) * scaleFactor),
+    protein: fmtVal(protein),
+    carbs: fmtVal((n['carbohydrates_100g'] || 0) * scaleFactor),
+    fat: fmtVal((n['fat_100g'] || 0) * scaleFactor),
+    saturatedFat: fmtVal((n['saturated-fat_100g'] || 0) * scaleFactor),
+    sugar: fmtVal((n['sugars_100g'] || 0) * scaleFactor),
+    addedSugar: fmtVal((n['added-sugars_100g'] || 0) * scaleFactor),
+    fiber: fmtVal((n['fiber_100g'] || 0) * scaleFactor),
+    sodium: fmtVal(toMg('sodium') * scaleFactor),
+    potassium: fmtVal(toMg('potassium') * scaleFactor),
+    calcium: fmtVal(toMg('calcium') * scaleFactor),
+    iron: fmtVal(toMg('iron') * scaleFactor),
+    magnesium: fmtVal(toMg('magnesium') * scaleFactor),
+    zinc: fmtVal(toMg('zinc') * scaleFactor),
+    vitaminB12: fmtVal(toMcg('vitamin-b12') * scaleFactor),
+    vitaminC: fmtVal(toMg('vitamin-c') * scaleFactor),
+    leucine: protein > 0 ? fmtVal(estimateLeucine(protein, product.product_name || ingredient)) : '',
+    omega3: '',
+    notes: `Open Food Facts`,
+  };
+  const cal = parseFloat(row.calories) || 0;
+  const prot = parseFloat(row.protein) || 0;
+  const fib = parseFloat(row.fiber) || 0;
+  row.proteinPerCal = cal > 0 ? fmtVal(prot / cal) : '';
+  row.fiberPerCal = cal > 0 ? fmtVal(fib / cal) : '';
+  return row;
+}
+
+// Canadian Nutrient File (CNF)
+async function lookupFromCNF(ingredient, grams, scaleFactor, quantity, unit) {
+  const searchUrl = `https://food-nutrition.canada.ca/api/canadian-nutrient-file/food/?lang=en&type=json&name=${encodeURIComponent(ingredient)}`;
+  const res = await fetch(searchUrl);
+  if (!res.ok) return null;
+  const foods = await res.json();
+  if (!Array.isArray(foods) || foods.length === 0) return null;
+
+  const food = foods[0];
+  const nutUrl = `https://food-nutrition.canada.ca/api/canadian-nutrient-file/nutrientamount/?lang=en&type=json&id=${food.food_code}`;
+  const nutRes = await fetch(nutUrl);
+  if (!nutRes.ok) return null;
+  const nutData = await nutRes.json();
+  if (!Array.isArray(nutData)) return null;
+
+  const CNF_MAP = {
+    208: 'calories', 203: 'protein', 205: 'carbs', 204: 'fat',
+    606: 'saturatedFat', 605: 'transFat', 601: 'cholesterol',
+    269: 'sugar', 291: 'fiber',
+    307: 'sodium', 306: 'potassium', 301: 'calcium', 303: 'iron',
+    304: 'magnesium', 309: 'zinc', 305: 'phosphorus', 317: 'selenium',
+    312: 'copper', 315: 'manganese',
+    320: 'vitaminA', 401: 'vitaminC', 324: 'vitaminD', 323: 'vitaminE', 430: 'vitaminK',
+    404: 'vitaminB1', 405: 'vitaminB2', 406: 'vitaminB3', 410: 'vitaminB5',
+    415: 'vitaminB6', 418: 'vitaminB12', 417: 'vitaminB9',
+    504: 'leucine', 503: 'isoleucine', 510: 'valine', 512: 'histidine',
+    505: 'lysine', 506: 'methionine', 508: 'phenylalanine', 502: 'threonine', 501: 'tryptophan',
+  };
+
+  const per100 = {};
+  for (const entry of nutData) {
+    const key = CNF_MAP[entry.nutrient_name_id || entry.nutrient_id];
+    if (key) per100[key] = entry.nutrient_value || 0;
+  }
+
+  const nutrientKeys = ['calories', 'protein', 'carbs', 'fat', 'saturatedFat', 'transFat',
+    'cholesterol', 'sugar', 'addedSugar', 'fiber', 'sodium', 'potassium', 'calcium', 'iron',
+    'magnesium', 'zinc', 'phosphorus', 'selenium', 'copper', 'manganese',
+    'vitaminA', 'vitaminC', 'vitaminD', 'vitaminE', 'vitaminK',
+    'vitaminB1', 'vitaminB2', 'vitaminB3', 'vitaminB5', 'vitaminB6', 'vitaminB9', 'vitaminB12'];
+
+  const row = {
+    ingredient: food.food_description || ingredient,
+    grams: String(Math.round(grams)),
+    measurement: unit ? `${quantity} ${unit}${quantity > 1 ? 's' : ''}` : `${Math.round(grams)}g`,
+  };
+
+  for (const key of nutrientKeys) {
+    row[key] = per100[key] != null ? fmtVal(per100[key] * scaleFactor) : '';
+  }
+
+  // Amino acids (CNF stores in mg, convert to g)
+  const protein = per100.protein || 0;
+  const aminoKeys = ['leucine', 'isoleucine', 'valine', 'histidine', 'lysine', 'methionine', 'phenylalanine', 'threonine', 'tryptophan'];
+  for (const key of aminoKeys) {
+    const val = per100[key];
+    if (val != null && val > 0) {
+      row[key] = fmtVal(val * scaleFactor / 1000);
+    } else if (key === 'leucine' && protein > 0) {
+      row[key] = fmtVal(estimateLeucine(protein * scaleFactor, food.food_description || ingredient));
+    } else {
+      row[key] = '';
+    }
+  }
+  row.omega3 = '';
+  row.omega6 = '';
+
+  const cal = parseFloat(row.calories) || 0;
+  const prot = parseFloat(row.protein) || 0;
+  const fib = parseFloat(row.fiber) || 0;
+  row.proteinPerCal = cal > 0 ? fmtVal(prot / cal) : '';
+  row.fiberPerCal = cal > 0 ? fmtVal(fib / cal) : '';
+  row.notes = `Canadian Nutrient File #${food.food_code}`;
+  return row;
+}
+
+// Multi-source lookup chain:
+// 1. USDA Foundation + SR Legacy (gold-standard raw ingredient data)
+// 2. USDA Branded + Survey/FNDDS (packaged foods, restaurant items)
+// 3. Open Food Facts (international — aggregates BLS, NEVO, CoFID, NUTTAB, Frida, IFCDB data)
+// 4. Canadian Nutrient File (CNF)
+async function lookupIngredient(ingredientText) {
+  const { ingredient, quantity, unit } = parsePortionFromText(ingredientText);
+  const grams = resolveGrams(quantity, unit, ingredient);
+  const scaleFactor = grams / 100;
+
+  // 1. USDA Foundation + SR Legacy
+  const usdaResult = await lookupFromUSDA(ingredient, grams, scaleFactor, quantity, unit, 'Foundation,SR%20Legacy').catch(() => null);
+  if (usdaResult) return usdaResult;
+
+  // 2. USDA Branded + Survey
+  const brandedResult = await lookupFromUSDA(ingredient, grams, scaleFactor, quantity, unit, 'Branded,Survey%20(FNDDS)').catch(() => null);
+  if (brandedResult) return brandedResult;
+
+  // 3. Open Food Facts
+  const offResult = await lookupFromOpenFoodFacts(ingredient, grams, scaleFactor, quantity, unit).catch(() => null);
+  if (offResult) return offResult;
+
+  // 4. Canadian Nutrient File
+  const cnfResult = await lookupFromCNF(ingredient, grams, scaleFactor, quantity, unit).catch(() => null);
+  if (cnfResult) return cnfResult;
+
+  return null;
 }
 
 export default async function handler(req, res) {

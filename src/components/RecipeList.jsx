@@ -6,6 +6,7 @@ import { exportToCSV, importFromCSV } from '../utils/exportData';
 import { locationToRegion, getSeasonalIngredients, getRecipeSeasonalIngredients } from '../utils/seasonal';
 import { useAuth } from '../contexts/AuthContext';
 import { loadUserData, saveField } from '../utils/firestoreSync';
+import { copyMealImage } from '../utils/generateMealImage';
 import styles from './RecipeList.module.css';
 
 const ADMIN_UID = import.meta.env.VITE_ADMIN_UID;
@@ -17,13 +18,7 @@ const WEEKLY_GOALS_KEY = 'sunday-weekly-goals';
 function formatQty(n) {
   if (!n) return '';
   if (Number.isInteger(n)) return String(n);
-  const whole = Math.floor(n);
-  const frac = n - whole;
-  const fracs = { 0.25: '\u00BC', 0.333: '\u2153', 0.5: '\u00BD', 0.667: '\u2154', 0.75: '\u00BE' };
-  for (const [dec, ch] of Object.entries(fracs)) {
-    if (Math.abs(frac - parseFloat(dec)) < 0.05) return whole ? `${whole} ${ch}` : ch;
-  }
-  return n % 1 === 0 ? String(n) : n.toFixed(1);
+  return n.toFixed(2).replace(/\.?0+$/, '');
 }
 
 const CATEGORIES = [
@@ -101,17 +96,24 @@ export function RecipeList({
   const [importing, setImporting] = useState(false);
   const [importResult, setImportResult] = useState(null);
   const [dragOverTarget, setDragOverTarget] = useState(null);
-  const [freqFilter, setFreqFilter] = useState(isNewUser ? 'all' : 'common');
+  const [showRare, setShowRare] = useState(isNewUser);
+  const [showRetired, setShowRetired] = useState(false);
   const [checkedTypes, setCheckedTypes] = useState(new Set());
+  const [checkedCategories, setCheckedCategories] = useState(new Set());
+  const [checkedCuisines, setCheckedCuisines] = useState(new Set());
+  const [mealFilterOpen, setMealFilterOpen] = useState(false);
+  const mealFilterRef = useRef(null);
   const [showSaved, setShowSaved] = useState(false);
   const [quickTitle, setQuickTitle] = useState('');
   const [quickCategory, setQuickCategory] = useState('lunch-dinner');
   const [importSearch, setImportSearch] = useState('');
   const [editMode, setEditMode] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-  const [discoverOpen, setDiscoverOpen] = useState(false);
-  const [settingsOpen, setSettingsOpen] = useState(false);
-  const settingsRef = useRef(null);
+  const [discoverOpen, setDiscoverOpen] = useState(true);
+  const [showDiscoverTip, setShowDiscoverTip] = useState(false);
+  const [weekMenuOpen, setWeekMenuOpen] = useState(true);
+  const [suggestOpen, setSuggestOpen] = useState(true);
+  const [myRecipesOpen, setMyRecipesOpen] = useState(true);
   const [lastAdded, setLastAdded] = useState(null);
   const [weeklyGoals, setWeeklyGoals] = useState(() => {
     try {
@@ -143,16 +145,27 @@ export function RecipeList({
     }
   }, [isNewUser]);
 
+  const [showAddTip, setShowAddTip] = useState(false);
+
   useEffect(() => {
-    if (!settingsOpen) return;
+    if (recipes.length === 0) {
+      const timer = setTimeout(() => setShowAddTip(true), 600);
+      return () => clearTimeout(timer);
+    } else {
+      setShowAddTip(false);
+    }
+  }, [recipes.length]);
+
+  useEffect(() => {
+    if (!mealFilterOpen) return;
     function handleClick(e) {
-      if (settingsRef.current && !settingsRef.current.contains(e.target)) {
-        setSettingsOpen(false);
+      if (mealFilterRef.current && !mealFilterRef.current.contains(e.target)) {
+        setMealFilterOpen(false);
       }
     }
     document.addEventListener('mousedown', handleClick);
     return () => document.removeEventListener('mousedown', handleClick);
-  }, [settingsOpen]);
+  }, [mealFilterOpen]);
 
   function updateWeeklyGoal(key, value) {
     const num = parseInt(value) || 0;
@@ -225,13 +238,24 @@ export function RecipeList({
     .filter(t => !PRESET_TYPES.includes(t.toLowerCase()));
   const mealTypes = [...new Set([...PRESET_TYPES, ...customTypes])].sort();
 
-  // Filter by frequency, meal type, and search query, then group by category
+  const cuisineList = [...new Set(recipes.map(r => r.cuisine).filter(Boolean))].sort();
+
+  // Filter by frequency, meal type, cuisine, and search query, then group by category
   const weekSet = new Set(weeklyPlan);
-  let visible = freqFilter === 'all'
-    ? recipes
-    : recipes.filter(r => (r.frequency || 'common') === freqFilter);
+  let visible = recipes.filter(r => {
+    const freq = r.frequency || 'common';
+    if (freq === 'retired') return showRetired;
+    if (freq === 'rare') return showRare;
+    return true; // common always shown
+  });
   if (checkedTypes.size > 0) {
     visible = visible.filter(r => checkedTypes.has(r.mealType || ''));
+  }
+  if (checkedCategories.size > 0) {
+    visible = visible.filter(r => checkedCategories.has(r.category || 'lunch-dinner'));
+  }
+  if (checkedCuisines.size > 0) {
+    visible = visible.filter(r => checkedCuisines.has(r.cuisine || ''));
   }
   if (searchQuery.trim()) {
     const q = searchQuery.trim().toLowerCase();
@@ -261,6 +285,13 @@ export function RecipeList({
   const weeklyRecipes = weeklyPlan
     .map(id => getRecipe(id))
     .filter(Boolean);
+
+  const filteredWeeklyRecipes = weeklyRecipes.filter(r => {
+    if (checkedTypes.size > 0 && !checkedTypes.has(r.mealType || '')) return false;
+    if (checkedCategories.size > 0 && !checkedCategories.has(r.category || 'lunch-dinner')) return false;
+    if (checkedCuisines.size > 0 && !checkedCuisines.has(r.cuisine || '')) return false;
+    return true;
+  });
 
   // Build map: recipeId → days since last eaten (from plan history + daily tracker)
   const lastEatenMap = useMemo(() => {
@@ -419,24 +450,82 @@ export function RecipeList({
     let available = adminRecipes
       .filter(r => !existingTitles.has(r.title.toLowerCase()) && !addedIds.has(r.title.toLowerCase()));
     // Apply frequency filter
-    if (freqFilter !== 'all') {
-      available = available.filter(r => (r.frequency || 'common') === freqFilter);
-    }
+    available = available.filter(r => {
+      const freq = r.frequency || 'common';
+      if (freq === 'retired') return showRetired;
+      if (freq === 'rare') return showRare;
+      return true;
+    });
     // Apply meal type filter
     if (checkedTypes.size > 0) {
       available = available.filter(r => checkedTypes.has(r.mealType || ''));
+    }
+    if (checkedCategories.size > 0) {
+      available = available.filter(r => checkedCategories.has(r.category || 'lunch-dinner'));
+    }
+    if (checkedCuisines.size > 0) {
+      available = available.filter(r => checkedCuisines.has(r.cuisine || ''));
     }
     available.sort((a, b) => a.title.localeCompare(b.title));
     if (!importSearch.trim()) return available;
     const q = importSearch.trim().toLowerCase();
     return available.filter(r => r.title.toLowerCase().includes(q));
-  }, [adminRecipes, recipes, addedIds, importSearch, freqFilter, checkedTypes]);
+  }, [adminRecipes, recipes, addedIds, importSearch, showRare, showRetired, checkedTypes, checkedCategories, checkedCuisines]);
 
   function handleAddDiscover(recipe) {
-    const { id, createdAt, ...rest } = recipe;
-    onAddRecipe({ ...rest, source: 'discover' });
+    const { id: adminRecipeId, createdAt, ...rest } = recipe;
+    const newRecipe = onAddRecipe({ ...rest, source: 'discover' });
     setAddedIds(prev => new Set(prev).add(recipe.title.toLowerCase()));
+
+    // Copy the admin's meal image to the user's account
+    if (user && ADMIN_UID && adminRecipeId && newRecipe?.id) {
+      copyMealImage(ADMIN_UID, adminRecipeId, user.uid, newRecipe.id).catch(() => {});
+    }
   }
+
+  // Macro match scores for all recipes
+  const macroMatchMap = useMemo(() => {
+    const map = {};
+    let goals = null;
+    try {
+      const raw = localStorage.getItem('sunday-nutrition-goals');
+      goals = raw ? JSON.parse(raw) : null;
+    } catch {}
+    if (!goals || !goals.calories || goals.calories <= 0) return map;
+    const pCal = (goals.protein || 0) * 4;
+    const cCal = (goals.carbs || 0) * 4;
+    const fCal = (goals.fat || 0) * 9;
+    const total = pCal + cCal + fCal;
+    if (total <= 0) return map;
+    const goalPcts = {
+      protein: pCal / total * 100,
+      carbs: cCal / total * 100,
+      fat: fCal / total * 100,
+    };
+    let cache = {};
+    try {
+      cache = JSON.parse(localStorage.getItem('sunday-nutrition-cache') || '{}');
+    } catch {}
+    for (const recipe of recipes) {
+      const cached = cache[recipe.id];
+      const nutData = cached?.data || cached;
+      if (!nutData || !nutData.totals) continue;
+      const t = nutData.totals;
+      const cal = t.calories;
+      if (!cal || cal <= 0) continue;
+      const pPct = ((t.protein || 0) * 4) / cal * 100;
+      const cPct = ((t.carbs || 0) * 4) / cal * 100;
+      const fPct = ((t.fat || 0) * 9) / cal * 100;
+      const deviation = (
+        Math.abs(pPct - goalPcts.protein) +
+        Math.abs(cPct - goalPcts.carbs) +
+        Math.abs(fPct - goalPcts.fat)
+      ) / 3;
+      const score = Math.max(0, Math.round(100 - deviation * (100 / 30)));
+      map[recipe.id] = score;
+    }
+    return map;
+  }, [recipes]);
 
   // Suggested meals: score recipes by staleness + neglected key ingredients
   const suggestions = useMemo(() => {
@@ -458,11 +547,20 @@ export function RecipeList({
     }
 
     // Apply same filters as the recipe list
-    let filtered = freqFilter === 'all'
-      ? recipes
-      : recipes.filter(r => (r.frequency || 'common') === freqFilter);
+    let filtered = recipes.filter(r => {
+      const freq = r.frequency || 'common';
+      if (freq === 'retired') return showRetired;
+      if (freq === 'rare') return showRare;
+      return true;
+    });
     if (checkedTypes.size > 0) {
       filtered = filtered.filter(r => checkedTypes.has(r.mealType || ''));
+    }
+    if (checkedCategories.size > 0) {
+      filtered = filtered.filter(r => checkedCategories.has(r.category || 'lunch-dinner'));
+    }
+    if (checkedCuisines.size > 0) {
+      filtered = filtered.filter(r => checkedCuisines.has(r.cuisine || ''));
     }
     const candidates = filtered.filter(r => !weekSet.has(r.id));
     if (candidates.length === 0) return { breakfasts: [], lunches: [] };
@@ -554,6 +652,7 @@ export function RecipeList({
       boostedIds = new Set(JSON.parse(localStorage.getItem('sunday-boosted-recipes') || '[]'));
     } catch { boostedIds = new Set(); }
 
+
     const scored = candidates.map(recipe => {
       const lastCooked = lastCookedMap[recipe.id];
       const recipeDays = lastCooked ? daysSince(lastCooked) : 9999;
@@ -578,8 +677,12 @@ export function RecipeList({
       const seasonalMatches = getRecipeSeasonalIngredients(recipe, seasonalSet);
       const seasonalBonus = seasonalMatches.length * 50;
 
+      // Macro match score
+      const macroScore = macroMatchMap[recipe.id] || 0;
+      const macroBonus = macroScore * 2;
+
       const boostBonus = boostedIds.has(recipe.id) ? 100000 : 0;
-      const totalScore = recipeDays + ingredientScore + seasonalBonus + boostBonus;
+      const totalScore = recipeDays + ingredientScore + seasonalBonus + macroBonus + boostBonus;
 
       // Build reason text
       const parts = [];
@@ -595,11 +698,11 @@ export function RecipeList({
 
     scored.sort((a, b) => b.totalScore - a.totalScore);
 
-    const breakfasts = scored.filter(s => s.recipe.category === 'breakfast').slice(0, 4);
-    const lunches = scored.filter(s => s.recipe.category === 'lunch-dinner').slice(0, 4);
+    const breakfasts = scored.filter(s => s.recipe.category === 'breakfast').slice(0, 3);
+    const lunches = scored.filter(s => s.recipe.category === 'lunch-dinner').slice(0, 3);
     return { breakfasts, lunches };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [recipes, weeklyPlan, freqFilter, checkedTypes]);
+  }, [recipes, weeklyPlan, showRare, showRetired, checkedTypes, checkedCategories]);
 
   return (
     <div className={styles.container}>
@@ -612,7 +715,136 @@ export function RecipeList({
         onChange={handleImportCSV}
       />
 
+
+      {/* Global meal filter dropdown */}
+      <div className={styles.topFilterRow}>
+        <div className={styles.mealFilterWrap} ref={mealFilterRef}>
+          <button
+            className={`${styles.filterBtn} ${(checkedTypes.size > 0 || checkedCategories.size > 0 || checkedCuisines.size > 0 || showRare || showRetired) ? styles.filterBtnActive : ''}`}
+            onClick={() => setMealFilterOpen(p => !p)}
+          >
+            {(() => {
+              const count = checkedTypes.size + checkedCategories.size + checkedCuisines.size + (showRare ? 1 : 0) + (showRetired ? 1 : 0);
+              return `Filters${count > 0 ? ` (${count})` : ''}`;
+            })()}
+            <span className={styles.dropdownCaret}>&#9662;</span>
+          </button>
+          {mealFilterOpen && (
+            <div className={styles.mealFilterDropdown}>
+              <div className={styles.mealFilterGroup}>
+                <span className={styles.mealFilterLabel}>Category</span>
+                {[
+                  { key: 'breakfast', label: 'Breakfast' },
+                  { key: 'lunch-dinner', label: 'Lunch & Dinner' },
+                  { key: 'snacks', label: 'Snacks' },
+                  { key: 'desserts', label: 'Desserts' },
+                  { key: 'drinks', label: 'Drinks' },
+                ].map(opt => (
+                  <label key={opt.key} className={styles.mealFilterOption}>
+                    <input
+                      type="checkbox"
+                      checked={checkedCategories.has(opt.key)}
+                      onChange={() => {
+                        setCheckedCategories(prev => {
+                          const next = new Set(prev);
+                          if (next.has(opt.key)) next.delete(opt.key);
+                          else next.add(opt.key);
+                          return next;
+                        });
+                      }}
+                    />
+                    {opt.label}
+                  </label>
+                ))}
+              </div>
+              {mealTypes.length > 0 && (
+                <div className={styles.mealFilterGroup}>
+                  <span className={styles.mealFilterLabel}>Meal Type</span>
+                  {mealTypes.map(type => (
+                    <label key={type} className={styles.mealFilterOption}>
+                      <input
+                        type="checkbox"
+                        checked={checkedTypes.has(type)}
+                        onChange={() => {
+                          setCheckedTypes(prev => {
+                            const next = new Set(prev);
+                            if (next.has(type)) next.delete(type);
+                            else next.add(type);
+                            return next;
+                          });
+                        }}
+                      />
+                      {type.charAt(0).toUpperCase() + type.slice(1)}
+                    </label>
+                  ))}
+                </div>
+              )}
+              <div className={styles.mealFilterGroup}>
+                <span className={styles.mealFilterLabel}>Frequency</span>
+                <label className={styles.mealFilterOption}>
+                  <input type="checkbox" checked={showRare} onChange={() => setShowRare(p => !p)} />
+                  Rare
+                </label>
+                <label className={styles.mealFilterOption}>
+                  <input type="checkbox" checked={showRetired} onChange={() => setShowRetired(p => !p)} />
+                  Retired
+                </label>
+              </div>
+              {cuisineList.length > 0 && (
+                <div className={styles.mealFilterGroup}>
+                  <span className={styles.mealFilterLabel}>Cuisine</span>
+                  {cuisineList.map(c => (
+                    <label key={c} className={styles.mealFilterOption}>
+                      <input
+                        type="checkbox"
+                        checked={checkedCuisines.has(c)}
+                        onChange={() => {
+                          setCheckedCuisines(prev => {
+                            const next = new Set(prev);
+                            if (next.has(c)) next.delete(c);
+                            else next.add(c);
+                            return next;
+                          });
+                        }}
+                      />
+                      {c.charAt(0).toUpperCase() + c.slice(1)}
+                    </label>
+                  ))}
+                </div>
+              )}
+              {(checkedTypes.size > 0 || checkedCategories.size > 0 || checkedCuisines.size > 0 || showRare || showRetired) && (
+                <button
+                  className={styles.mealFilterClear}
+                  onClick={() => { setCheckedTypes(new Set()); setCheckedCategories(new Set()); setCheckedCuisines(new Set()); setShowRare(false); setShowRetired(false); }}
+                >
+                  Clear all
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+
       {/* 1. This Week's Menu — full-width, dominant */}
+      <div className={styles.weekHeader}>
+        <button className={styles.collapseToggle} onClick={() => setWeekMenuOpen(p => !p)}>
+          <span className={`${styles.collapseArrow}${weekMenuOpen ? ` ${styles.collapseArrowOpen}` : ''}`}>&#9660;</span>
+          <h3 className={styles.weekHeading}>This Week's Menu</h3>
+        </button>
+        {weeklyRecipes.length > 0 && (
+          <div className={styles.weekActions}>
+            <button className={styles.saveHistoryBtn} onClick={handleSaveClick}>
+              Save to History
+            </button>
+            {showSaved && (
+              <span className={styles.savedToast}>Saved!</span>
+            )}
+            <button className={styles.clearBtn} onClick={onClearWeek}>
+              Clear all
+            </button>
+          </div>
+        )}
+      </div>
       <div
         id="weekly-menu"
         className={`${styles.weekBox} ${dragOverTarget === 'weekly' ? styles.weekBoxDragOver : ''}`}
@@ -623,25 +855,10 @@ export function RecipeList({
         role="region"
         aria-label="This Week's Menu"
       >
-        <div className={styles.weekHeader}>
-          <h3 className={styles.weekHeading}>This Week's Menu</h3>
-          {weeklyRecipes.length > 0 && (
-            <div className={styles.weekActions}>
-              <button className={styles.saveHistoryBtn} onClick={handleSaveClick}>
-                Save to History
-              </button>
-              {showSaved && (
-                <span className={styles.savedToast}>Saved!</span>
-              )}
-              <button className={styles.clearBtn} onClick={onClearWeek}>
-                Clear all
-              </button>
-            </div>
-          )}
-        </div>
+        {weekMenuOpen && (
         <div className={styles.weekContent}>
           <div className={styles.weekMain}>
-            {weeklyRecipes.length === 0 ? (
+            {filteredWeeklyRecipes.length === 0 ? (
               <div className={styles.weekEmpty}>
                 <span className={styles.weekEmptyIcon}>🍽</span>
                 <span>Drag recipes here to plan your week</span>
@@ -649,7 +866,7 @@ export function RecipeList({
               </div>
             ) : (
               <div className={styles.weekList}>
-                {weeklyRecipes.map(recipe => {
+                {filteredWeeklyRecipes.map(recipe => {
                   const planned = getPlannedServings(recipe);
                   return (
                     <div
@@ -663,15 +880,6 @@ export function RecipeList({
                         >
                           {recipe.title}
                         </button>
-                        <span className={styles.weekItemMeta}>
-                          {lastEatenMap[recipe.id] != null ? (
-                            <span className={styles.lastEaten}>
-                              {lastEatenMap[recipe.id] === 0 ? 'Today' : `${lastEatenMap[recipe.id]}d ago`}
-                            </span>
-                          ) : (
-                            <span className={styles.lastEatenNever}>Never</span>
-                          )}
-                        </span>
                         <span className={styles.weekItemServingsControl}>
                           <button
                             className={styles.weekServingBtn}
@@ -704,53 +912,67 @@ export function RecipeList({
             )}
           </div>
           <div className={styles.weekServings}>
-            <h4 className={styles.weekServingsTitle}>Amount of Meals</h4>
             {(() => {
-              const bCount = weeklyRecipes.filter(r => r.category === 'breakfast').reduce((sum, r) => sum + getPlannedServings(r), 0);
-              const ldCount = weeklyRecipes.filter(r => r.category === 'lunch-dinner').reduce((sum, r) => sum + getPlannedServings(r), 0);
+              const bCount = filteredWeeklyRecipes.filter(r => r.category === 'breakfast').reduce((sum, r) => sum + getPlannedServings(r), 0);
+              const ldCount = filteredWeeklyRecipes.filter(r => r.category === 'lunch-dinner').reduce((sum, r) => sum + getPlannedServings(r), 0);
               return (
-                <>
-                  <div className={styles.servingRow}>
-                    <span className={styles.servingLabel}>Breakfast</span>
-                    <span className={`${styles.servingCount} ${bCount >= weeklyGoals.breakfast ? styles.servingMet : styles.servingUnder}`}>
-                      {bCount}
-                    </span>
-                    <span className={styles.servingGoal}>/</span>
-                    <input
-                      className={styles.goalInput}
-                      type="number"
-                      min="0"
-                      value={weeklyGoals.breakfast}
-                      onChange={e => updateWeeklyGoal('breakfast', e.target.value)}
-                    />
-                  </div>
-                  <div className={styles.servingRow}>
-                    <span className={styles.servingLabel}>Lunch & Dinner</span>
-                    <span className={`${styles.servingCount} ${ldCount >= weeklyGoals.lunchDinner ? styles.servingMet : styles.servingUnder}`}>
-                      {ldCount}
-                    </span>
-                    <span className={styles.servingGoal}>/</span>
-                    <input
-                      className={styles.goalInput}
-                      type="number"
-                      min="0"
-                      value={weeklyGoals.lunchDinner}
-                      onChange={e => updateWeeklyGoal('lunchDinner', e.target.value)}
-                    />
-                  </div>
-                </>
+                <table className={styles.mealsTable}>
+                  <thead>
+                    <tr>
+                      <th></th>
+                      <th className={styles.mealsColHeader}>Meals</th>
+                      <th className={styles.mealsColHeader}>Target</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td className={styles.servingLabel}>Breakfast</td>
+                      <td className={`${styles.servingCount} ${bCount >= weeklyGoals.breakfast ? styles.servingMet : styles.servingUnder}`}>
+                        {bCount}
+                      </td>
+                      <td>
+                        <input
+                          className={styles.goalInput}
+                          type="number"
+                          min="0"
+                          value={weeklyGoals.breakfast}
+                          onChange={e => updateWeeklyGoal('breakfast', e.target.value)}
+                        />
+                      </td>
+                    </tr>
+                    <tr>
+                      <td className={styles.servingLabel}>Lunch & Dinner</td>
+                      <td className={`${styles.servingCount} ${ldCount >= weeklyGoals.lunchDinner ? styles.servingMet : styles.servingUnder}`}>
+                        {ldCount}
+                      </td>
+                      <td>
+                        <input
+                          className={styles.goalInput}
+                          type="number"
+                          min="0"
+                          value={weeklyGoals.lunchDinner}
+                          onChange={e => updateWeeklyGoal('lunchDinner', e.target.value)}
+                        />
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
               );
             })()}
           </div>
         </div>
+        )}
       </div>
 
       {/* 2. Suggested Meals + Discover Recipes row */}
       <div className={styles.suggestDiscoverRow}>
       {(suggestions.breakfasts.length > 0 || suggestions.lunches.length > 0) && (
         <div className={styles.suggestBox} role="region" aria-label="Suggested Meals">
-          <h3 className={styles.suggestHeading}>Suggested Meals</h3>
-          <div className={styles.suggestColumns}>
+          <button className={styles.collapseToggle} onClick={() => setSuggestOpen(p => !p)}>
+            <span className={`${styles.collapseArrow}${suggestOpen ? ` ${styles.collapseArrowOpen}` : ''}`}>&#9660;</span>
+            <h3 className={styles.suggestHeading}>Suggested Meals</h3>
+          </button>
+          {suggestOpen && <div className={styles.suggestColumns}>
             {suggestions.breakfasts.length > 0 && (
               <div className={styles.suggestColumn}>
                 <span className={styles.suggestCategoryLabel}>Breakfast</span>
@@ -766,7 +988,12 @@ export function RecipeList({
                   </thead>
                   <tbody>
                     {suggestions.breakfasts.map(({ recipe, recipeDays, neglectedIngredients, seasonalMatches }) => (
-                      <tr key={recipe.id}>
+                      <tr
+                        key={recipe.id}
+                        draggable
+                        onDragStart={e => e.dataTransfer.setData('text/plain', recipe.id)}
+                        style={{ cursor: 'grab' }}
+                      >
                         <td>
                           <button
                             className={styles.suggestName}
@@ -818,7 +1045,12 @@ export function RecipeList({
                   </thead>
                   <tbody>
                     {suggestions.lunches.map(({ recipe, recipeDays, neglectedIngredients, seasonalMatches }) => (
-                      <tr key={recipe.id}>
+                      <tr
+                        key={recipe.id}
+                        draggable
+                        onDragStart={e => e.dataTransfer.setData('text/plain', recipe.id)}
+                        style={{ cursor: 'grab' }}
+                      >
                         <td>
                           <button
                             className={styles.suggestName}
@@ -855,20 +1087,22 @@ export function RecipeList({
                 </table>
               </div>
             )}
-          </div>
+          </div>}
         </div>
       )}
 
       {/* Discover Recipes — collapsible panel */}
       <div className={styles.discoverPanel}>
-        <button
-          className={styles.discoverToggle}
-          onClick={() => setDiscoverOpen(prev => !prev)}
-          aria-expanded={discoverOpen}
-        >
-          <span className={`${styles.discoverArrow}${discoverOpen ? ` ${styles.discoverArrowOpen}` : ''}`}>▼</span>
-          Discover Recipes
-        </button>
+        <div className={styles.discoverToggleWrap}>
+          <button
+            className={styles.discoverToggle}
+            onClick={() => setDiscoverOpen(prev => !prev)}
+            aria-expanded={discoverOpen}
+          >
+            <span className={`${styles.discoverArrow}${discoverOpen ? ` ${styles.discoverArrowOpen}` : ''}`}>▼</span>
+            Discover Meals
+          </button>
+        </div>
         {discoverOpen && (
           <div className={styles.discoverContent}>
             <div className={styles.addRecipeBox}>
@@ -880,7 +1114,7 @@ export function RecipeList({
                 onChange={e => setImportSearch(e.target.value)}
               />
               <div className={styles.importList}>
-                {importableRecipes.slice(0, 5).map(recipe => (
+                {importableRecipes.slice(0, 10).map(recipe => (
                   <div key={recipe.id} className={styles.importItem}>
                     <div className={styles.importInfo}>
                       <span className={styles.importName}>{recipe.title}</span>
@@ -911,45 +1145,15 @@ export function RecipeList({
 
       {/* 4. My Recipes heading + Search + Filter Row */}
       <div className={styles.sectionHeader}>
-        <h3 className={styles.sectionHeading}>My Recipes</h3>
-        <div className={styles.settingsWrap} ref={settingsRef}>
-          <button
-            className={styles.gearBtn}
-            onClick={() => setSettingsOpen(prev => !prev)}
-            aria-label="Settings"
-          >
-            &#9881;
-          </button>
-          {settingsOpen && (
-            <div className={styles.settingsDropdown}>
-              <button
-                className={styles.settingsItem}
-                onClick={() => { importFileRef.current?.click(); setSettingsOpen(false); }}
-              >
-                Import Recipe Data
-              </button>
-              <button
-                className={styles.settingsItem}
-                onClick={() => { exportToCSV(); setSettingsOpen(false); }}
-              >
-                Export Recipe Data
-              </button>
-              {user?.email === 'baldaufdan@gmail.com' && (
-                <button
-                  className={styles.settingsItem}
-                  onClick={() => { handleImport(); setSettingsOpen(false); }}
-                  disabled={importing}
-                >
-                  {importing ? 'Importing...' : 'Import from Sheet'}
-                </button>
-              )}
-            </div>
-          )}
-        </div>
+        <button className={styles.collapseToggle} onClick={() => setMyRecipesOpen(p => !p)}>
+          <span className={`${styles.collapseArrow}${myRecipesOpen ? ` ${styles.collapseArrowOpen}` : ''}`}>&#9660;</span>
+          <h3 className={styles.sectionHeading}>My Recipes</h3>
+        </button>
       </div>
       {importResult && (
         <p className={styles.importResult}>{importResult}</p>
       )}
+      {myRecipesOpen && <>
       <div className={styles.searchRow}>
         <input
           className={styles.searchInput}
@@ -959,46 +1163,6 @@ export function RecipeList({
           onChange={e => setSearchQuery(e.target.value)}
         />
       </div>
-      <div className={styles.filterRow}>
-        <div className={styles.filterBar}>
-          {[
-            { key: 'all', label: 'All' },
-            { key: 'common', label: 'Common' },
-            { key: 'rare', label: 'Rare' },
-            { key: 'retired', label: 'Retired' },
-          ].map(opt => (
-            <button
-              key={opt.key}
-              className={`${styles.filterBtn} ${freqFilter === opt.key ? styles.filterBtnActive : ''}`}
-              onClick={() => setFreqFilter(opt.key)}
-            >
-              {opt.label}
-            </button>
-          ))}
-        </div>
-
-        {mealTypes.length > 0 && (
-          <div className={styles.filterBar}>
-            {mealTypes.map(type => (
-              <button
-                key={type}
-                className={`${styles.filterBtn} ${checkedTypes.has(type) ? styles.filterBtnActive : ''}`}
-                onClick={() => {
-                  setCheckedTypes(prev => {
-                    const next = new Set(prev);
-                    if (next.has(type)) next.delete(type);
-                    else next.add(type);
-                    return next;
-                  });
-                }}
-              >
-                {type.charAt(0).toUpperCase() + type.slice(1)}
-              </button>
-            ))}
-          </div>
-        )}
-      </div>
-
       {/* Shopping List (from + selections) */}
       {shopItems.length > 0 && (
         <ShopPreview
@@ -1039,6 +1203,7 @@ export function RecipeList({
                     onAdd={editMode ? undefined : handleAddToWeekWithPulse}
                     editMode={editMode}
                     onDelete={onDelete}
+                    macroScore={macroMatchMap[recipe.id]}
                   />
                 ))}
               </div>
@@ -1075,9 +1240,17 @@ export function RecipeList({
           )}
         </div>
         <div className={styles.rightCol}>
-          <button className={styles.addBtn} onClick={onAdd} style={{ width: '100%' }}>
-            + Add Recipe
-          </button>
+          <div className={styles.addBtnWrap}>
+            <button className={`${styles.addBtn} ${showAddTip ? styles.addBtnHighlight : ''}`} onClick={() => { onAdd(); setShowAddTip(false); }} style={{ width: '100%' }}>
+              + Recipe
+            </button>
+            {showAddTip && (
+              <div className={styles.addBtnTipPopup}>
+                <button className={styles.addBtnTipClose} onClick={() => setShowAddTip(false)}>&times;</button>
+                <strong>Start here!</strong> Import recipes from websites, social media, or let AI create them for you.
+              </div>
+            )}
+          </div>
           <button
             className={`${styles.importBtn}${editMode ? ` ${styles.editBtnActive}` : ''}`}
             onClick={() => setEditMode(prev => !prev)}
@@ -1121,6 +1294,7 @@ export function RecipeList({
           </div>
         </div>
       </div>
+      </>}
     </div>
   );
 }

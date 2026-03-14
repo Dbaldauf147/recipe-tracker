@@ -7,6 +7,7 @@
   align-items: baseline;
   gap: 1rem;
   margin-bottom: 1.5rem;
+  flex-wrap: wrap;
 }
 
 .backBtn {
@@ -66,6 +67,7 @@
   width: 100%;
   border-collapse: collapse;
   font-size: 0.88rem;
+  table-layout: fixed;
 }
 
 .table th {
@@ -83,6 +85,8 @@
   padding: 0.45rem 0.75rem;
   border-bottom: 1px solid var(--color-border-light);
   color: var(--color-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .table tbody tr:hover {
@@ -93,8 +97,30 @@
   border-bottom: none;
 }
 
+/* Column widths */
+.colRemove {
+  width: 40px;
+}
+
+.colIngredient {
+  width: 20%;
+}
+
+.colSeason {
+  width: 13%;
+}
+
+.colDays {
+  width: 9%;
+}
+
+.colMeals {
+  width: auto;
+}
+
 .ingredientName {
   font-weight: 500;
+  white-space: nowrap;
 }
 
 .never {
@@ -104,6 +130,7 @@
 
 .date {
   color: var(--color-text-secondary);
+  white-space: nowrap;
 }
 
 .days {
@@ -111,7 +138,105 @@
   font-variant-numeric: tabular-nums;
 }
 
+.daysOverdue {
+  color: var(--color-danger, #d64545);
+}
+
 .meals {
   font-size: 0.82rem;
   color: var(--color-text-secondary);
+}
+
+.seasonText {
+  font-size: 0.82rem;
+  color: #2e7d32;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+/* Seasonal flagging */
+.seasonalRow {
+  background: rgba(76, 175, 80, 0.04);
+}
+
+.seasonalBadge {
+  display: inline-block;
+  margin-left: 0.4rem;
+  padding: 0.1rem 0.4rem;
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: #2e7d32;
+  background: rgba(76, 175, 80, 0.12);
+  border-radius: 4px;
+  vertical-align: middle;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+/* Remove button */
+.removeCell {
+  text-align: center;
+  padding: 0.45rem 0.25rem !important;
+  overflow: visible;
+}
+
+.removeBtn {
+  background: none;
+  border: none;
+  color: var(--color-text-muted);
+  font-size: 1.2rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0.25rem 0.4rem;
+  border-radius: 4px;
+  transition: color 0.15s ease, background 0.15s ease;
+  opacity: 0.6;
+}
+
+.removeBtn:hover {
+  color: var(--color-danger, #d64545);
+  background: rgba(214, 69, 69, 0.08);
+  opacity: 1;
+}
+
+/* Add ingredient row */
+.addRow {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 1rem;
+}
+
+.addInput {
+  flex: 1;
+  max-width: 300px;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  font-size: 0.88rem;
+  font-family: inherit;
+  background: var(--color-surface);
+  color: var(--color-text);
+  transition: border-color 0.15s ease;
+}
+
+.addInput:focus {
+  outline: none;
+  border-color: var(--color-accent);
+}
+
+.addBtn {
+  padding: 0.5rem 1rem;
+  background: var(--color-accent);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius-md);
+  font-size: 0.85rem;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: opacity 0.15s ease;
+}
+
+.addBtn:hover {
+  opacity: 0.85;
 }

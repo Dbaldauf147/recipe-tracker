@@ -32,6 +32,220 @@ function divideNutrients(totals, servings) {
   return result;
 }
 
+export function PlateChart({ protein, carbs, fat }) {
+  const total = protein + carbs + fat;
+  if (total === 0) return null;
+
+  const pPct = protein / total;
+  const cPct = carbs / total;
+  const fPct = fat / total;
+
+  // Warm earth-tone palette matching the site
+  const cx = 120, cy = 120, r = 85;
+  const slices = [
+    { pct: pPct, color: '#C96442', colorDark: '#A85035', label: 'Protein', grams: protein },
+    { pct: cPct, color: '#D4A574', colorDark: '#BF8F5E', label: 'Carbs', grams: carbs },
+    { pct: fPct, color: '#8B9A6B', colorDark: '#738159', label: 'Fat', grams: fat },
+  ];
+
+  let cumulative = 0;
+  const paths = slices.map((slice, i) => {
+    if (slice.pct === 0) return null;
+    const startAngle = cumulative * 2 * Math.PI - Math.PI / 2;
+    cumulative += slice.pct;
+    const endAngle = cumulative * 2 * Math.PI - Math.PI / 2;
+    const largeArc = slice.pct > 0.5 ? 1 : 0;
+    const x1 = cx + r * Math.cos(startAngle);
+    const y1 = cy + r * Math.sin(startAngle);
+    const x2 = cx + r * Math.cos(endAngle);
+    const y2 = cy + r * Math.sin(endAngle);
+    if (slice.pct >= 0.999) {
+      return (
+        <circle key={i} cx={cx} cy={cy} r={r} fill={`url(#food${i})`} />
+      );
+    }
+    return (
+      <path
+        key={i}
+        d={`M${cx},${cy} L${x1},${y1} A${r},${r} 0 ${largeArc},1 ${x2},${y2} Z`}
+        fill={`url(#food${i})`}
+      />
+    );
+  });
+
+  // Divider lines between slices
+  let cum3 = 0;
+  const dividers = slices.map((slice, i) => {
+    if (slice.pct === 0 || slice.pct >= 0.999) { cum3 += slice.pct; return null; }
+    const angle = cum3 * 2 * Math.PI - Math.PI / 2;
+    cum3 += slice.pct;
+    const x1 = cx;
+    const y1 = cy;
+    const x2 = cx + r * Math.cos(angle);
+    const y2 = cy + r * Math.sin(angle);
+    return <line key={`d${i}`} x1={x1} y1={y1} x2={x2} y2={y2} stroke="#F5F1EC" strokeWidth="2" />;
+  });
+
+  // Label positions at midpoint of each arc
+  let cum2 = 0;
+  const labels = slices.map((slice, i) => {
+    if (slice.pct < 0.05) { cum2 += slice.pct; return null; }
+    const midAngle = (cum2 + slice.pct / 2) * 2 * Math.PI - Math.PI / 2;
+    cum2 += slice.pct;
+    const lr = r * 0.6;
+    const lx = cx + lr * Math.cos(midAngle);
+    const ly = cy + lr * Math.sin(midAngle);
+    return (
+      <text key={i} x={lx} y={ly} textAnchor="middle" dominantBaseline="central" fill="#fff" fontSize="12" fontWeight="700"
+        style={{ textShadow: '0 1px 2px rgba(0,0,0,0.3)' }}>
+        {Math.round(slice.pct * 100)}%
+      </text>
+    );
+  });
+
+  return (
+    <div className={styles.plateWrap}>
+      <svg viewBox="0 0 240 240" className={styles.plateSvg}>
+        <defs>
+          {/* Gradients for food-like texture on each slice */}
+          {slices.map((s, i) => (
+            <radialGradient key={i} id={`food${i}`} cx="50%" cy="40%" r="60%">
+              <stop offset="0%" stopColor={s.color} stopOpacity="1" />
+              <stop offset="100%" stopColor={s.colorDark} stopOpacity="1" />
+            </radialGradient>
+          ))}
+          {/* Plate rim gradient */}
+          <radialGradient id="plateRim" cx="45%" cy="40%" r="55%">
+            <stop offset="0%" stopColor="#F5F1EC" />
+            <stop offset="100%" stopColor="#E8E0D8" />
+          </radialGradient>
+          {/* Plate shadow */}
+          <filter id="plateShadow" x="-10%" y="-5%" width="120%" height="125%">
+            <feDropShadow dx="0" dy="3" stdDeviation="4" floodColor="#2C2520" floodOpacity="0.12" />
+          </filter>
+          {/* Inner highlight for plate sheen */}
+          <radialGradient id="plateSheen" cx="40%" cy="35%" r="50%">
+            <stop offset="0%" stopColor="#fff" stopOpacity="0.18" />
+            <stop offset="100%" stopColor="#fff" stopOpacity="0" />
+          </radialGradient>
+        </defs>
+
+        {/* Plate outer rim with shadow */}
+        <circle cx={cx} cy={cy} r={r + 18} fill="url(#plateRim)" filter="url(#plateShadow)" />
+        {/* Rim inner edge */}
+        <circle cx={cx} cy={cy} r={r + 10} fill="none" stroke="#E8E0D8" strokeWidth="1" />
+        {/* Lip highlight */}
+        <circle cx={cx} cy={cy} r={r + 14} fill="none" stroke="#fff" strokeWidth="1" opacity="0.5" />
+
+        {/* Food area */}
+        <clipPath id="plateClip">
+          <circle cx={cx} cy={cy} r={r} />
+        </clipPath>
+        <g clipPath="url(#plateClip)">
+          {paths}
+          {dividers}
+          {/* Subtle highlight overlay for food sheen */}
+          <circle cx={cx} cy={cy} r={r} fill="url(#plateSheen)" />
+        </g>
+
+        {/* Plate inner edge ring */}
+        <circle cx={cx} cy={cy} r={r} fill="none" stroke="#E8E0D8" strokeWidth="1.5" />
+
+        {labels}
+      </svg>
+      <div className={styles.plateLegend}>
+        {slices.map(s => (
+          <div key={s.label} className={styles.legendItem}>
+            <span className={styles.legendDot} style={{ background: s.color }} />
+            <span className={styles.legendLabel}>{s.label}</span>
+            <span className={styles.legendValue}>{s.grams}g ({Math.round(s.pct * 100)}%)</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// Nutrients where being under the goal is desirable
+const UNDER_IS_GOOD_SET = new Set(['calories', 'carbs', 'fat', 'saturatedFat', 'sugar', 'addedSugar', 'sodium']);
+
+export function MealScore({ totals, servings = 1 }) {
+  const goals = useMemo(() => {
+    try {
+      const raw = localStorage.getItem(GOALS_KEY);
+      return raw ? JSON.parse(raw) : null;
+    } catch { return null; }
+  }, []);
+
+  if (!totals || !goals) return null;
+
+  const perServing = {};
+  for (const key in totals) {
+    const val = totals[key];
+    perServing[key] = typeof val === 'number' ? Math.round(val / servings) : val;
+  }
+
+  // Score each nutrient that has a goal set
+  const scores = [];
+  for (const n of NUTRIENTS) {
+    if (!goals[n.key] || goals[n.key] <= 0) continue;
+    const mealGoal = goals[n.key] / 3;
+    const actual = perServing[n.key] || 0;
+    const ratio = actual / mealGoal;
+
+    let score;
+    if (UNDER_IS_GOOD_SET.has(n.key)) {
+      // Under = perfect (100), over = penalize proportionally
+      score = ratio <= 1 ? 1 : Math.max(0, 2 - ratio);
+    } else {
+      // Over = perfect (100), under = proportional
+      score = ratio >= 1 ? 1 : ratio;
+    }
+    scores.push(score);
+  }
+
+  if (scores.length === 0) return null;
+
+  const avg = Math.round((scores.reduce((a, b) => a + b, 0) / scores.length) * 100);
+
+  // Color based on score
+  let color, label;
+  if (avg >= 85) { color = 'var(--color-success, #16a34a)'; label = 'Great'; }
+  else if (avg >= 65) { color = 'var(--color-accent, #C96442)'; label = 'Good'; }
+  else if (avg >= 45) { color = '#D4A574'; label = 'Fair'; }
+  else { color = 'var(--color-danger, #dc2626)'; label = 'Poor'; }
+
+  // SVG ring
+  const size = 64, stroke = 5, r = (size - stroke) / 2;
+  const circumference = 2 * Math.PI * r;
+  const dashOffset = circumference * (1 - avg / 100);
+
+  return (
+    <div className={styles.mealScore}>
+      <svg width={size} height={size} className={styles.scoreRing}>
+        <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="var(--color-border-light, #F0EBE4)" strokeWidth={stroke} />
+        <circle
+          cx={size / 2} cy={size / 2} r={r} fill="none"
+          stroke={color} strokeWidth={stroke}
+          strokeDasharray={circumference}
+          strokeDashoffset={dashOffset}
+          strokeLinecap="round"
+          transform={`rotate(-90 ${size / 2} ${size / 2})`}
+        />
+        <text x={size / 2} y={size / 2 - 2} textAnchor="middle" dominantBaseline="central"
+          fill={color} fontSize="16" fontWeight="700">
+          {avg}
+        </text>
+        <text x={size / 2} y={size / 2 + 12} textAnchor="middle" dominantBaseline="central"
+          fill="var(--color-text-muted)" fontSize="8" fontWeight="600">
+          {label}
+        </text>
+      </svg>
+      <span className={styles.scoreLabel}>Meal Score</span>
+    </div>
+  );
+}
+
 function NutrientGroup({ title, keys, totals, perServing, showPerServing }) {
   return (
     <div className={styles.group}>
@@ -83,7 +297,7 @@ function saveCachedNutrition(recipeId, data, fingerprint) {
   }
 }
 
-export function NutritionPanel({ recipeId, ingredients, servings = 1, portionLabel }) {
+export function NutritionPanel({ recipeId, ingredients, servings = 1, portionLabel, onViewSources, onNutritionData }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -112,6 +326,10 @@ export function NutritionPanel({ recipeId, ingredients, servings = 1, portionLab
       setLoading(false);
     }
   }
+
+  useEffect(() => {
+    if (data && onNutritionData) onNutritionData(data);
+  }, [data]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const goals = useMemo(() => {
     try {
@@ -325,7 +543,13 @@ export function NutritionPanel({ recipeId, ingredients, servings = 1, portionLab
       </details>
 
       <p className={styles.disclaimer}>
-        Nutrition data from USDA FoodData Central. Values are estimates based on approximate unit conversions.
+        Nutrition data from USDA FoodData Central, Open Food Facts, and Canadian Nutrient File. Values are estimates based on approximate unit conversions.
+        {onViewSources && (
+          <>
+            {' '}
+            <button className={styles.sourcesLink} onClick={onViewSources}>View all sources</button>
+          </>
+        )}
       </p>
     </div>
   );

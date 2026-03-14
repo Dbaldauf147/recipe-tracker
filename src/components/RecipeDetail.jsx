@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { NutritionPanel } from './NutritionPanel';
+import { NutritionPanel, PlateChart, MealScore } from './NutritionPanel';
 import { BarcodeScanner } from './BarcodeScanner';
 import { loadFriends, shareRecipe, getUsername, createShareLink } from '../utils/firestoreSync';
 import { loadIngredients } from '../utils/ingredientsStore';
@@ -24,14 +24,6 @@ function parseFraction(str) {
 function formatQuantity(n) {
   if (n === 0) return '';
   if (Number.isInteger(n)) return String(n);
-  const whole = Math.floor(n);
-  const frac = n - whole;
-  const fracs = { 0.25: '1/4', 0.333: '1/3', 0.5: '1/2', 0.667: '2/3', 0.75: '3/4' };
-  for (const [dec, str] of Object.entries(fracs)) {
-    if (Math.abs(frac - parseFloat(dec)) < 0.05) {
-      return whole > 0 ? `${whole} ${str}` : str;
-    }
-  }
   return n.toFixed(2).replace(/\.?0+$/, '');
 }
 
@@ -203,13 +195,25 @@ function getCrossConversion(qty, measurement, dbGrams, dbMeasurement) {
   return { weight: '', volume: '' };
 }
 
+const CUISINE_OPTIONS = [
+  'American', 'Brazilian', 'Caribbean', 'Chinese', 'Ethiopian', 'Filipino',
+  'French', 'German', 'Greek', 'Indian', 'Indonesian', 'Irish',
+  'Israeli', 'Italian', 'Jamaican', 'Japanese', 'Korean', 'Lebanese',
+  'Malaysian', 'Mediterranean', 'Mexican', 'Moroccan', 'Peruvian', 'Polish',
+  'Spanish', 'Swedish', 'Thai', 'Turkish', 'Vietnamese', 'Other',
+];
+
 function initFields(recipe) {
   const type = recipe.mealType || '';
   const presets = ['meat', 'pescatarian', 'vegan', 'vegetarian', 'keto', ''];
+  const cuisineVal = recipe.cuisine || '';
+  const isPresetCuisine = CUISINE_OPTIONS.map(c => c.toLowerCase()).includes(cuisineVal.toLowerCase());
   return {
     title: recipe.title || '',
     category: recipe.category || 'lunch-dinner',
     frequency: recipe.frequency || 'common',
+    cuisine: isPresetCuisine ? cuisineVal : (cuisineVal ? 'other' : ''),
+    customCuisine: (!isPresetCuisine && cuisineVal) ? cuisineVal : '',
     mealType: presets.includes(type) ? type : 'custom',
     customMealType: presets.includes(type) ? '' : type,
     servings: recipe.servings || '1',
@@ -232,29 +236,26 @@ function initFields(recipe) {
   };
 }
 
-export function RecipeDetail({ recipe, onSave, onDelete, onBack, user, ingredientsVersion }) {
+export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, weeklyPlan, user, ingredientsVersion, onViewSources }) {
   const [fields, setFields] = useState(() => recipe ? initFields(recipe) : null);
   const [showShareDropdown, setShowShareDropdown] = useState(false);
   const [friendsList, setFriendsList] = useState(null);
   const [shareMsg, setShareMsg] = useState(null);
+  const [nutritionTotals, setNutritionTotals] = useState(null);
   const shareRef = useRef(null);
-  const [boosted, setBoosted] = useState(() => {
-    try {
-      const list = JSON.parse(localStorage.getItem('sunday-boosted-recipes') || '[]');
-      return recipe ? list.includes(recipe.id) : false;
-    } catch { return false; }
-  });
+  const isInWeek = recipe ? (weeklyPlan || []).includes(recipe.id) : false;
   const [adjustedServings, setAdjustedServings] = useState(null);
   const [servingWeight, setServingWeight] = useState('');
-  const [editingIngredients, setEditingIngredients] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const editingIngredients = editing;
+  const [showSaved, setShowSaved] = useState(0);
   const [mealImage, setMealImage] = useState(() => recipe ? getCachedMealImage(recipe.id) : null);
   const [imageError, setImageError] = useState(null);
   const [imageLoading, setImageLoading] = useState(false);
   const imageInputRef = useRef(null);
 
-  async function handleImageUpload(e) {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  async function handleImageFile(file) {
+    if (!file || !file.type.startsWith('image/')) return;
     setImageError(null);
     try {
       const dataUrl = await uploadMealImage(recipe.id, file, user?.uid);
@@ -262,8 +263,52 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user, ingredien
     } catch (err) {
       setImageError('Failed to process image');
     }
+  }
+
+  async function handleImageUpload(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    await handleImageFile(file);
     e.target.value = '';
   }
+
+  const [dragOver, setDragOver] = useState(false);
+
+  function handleDragOver(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragOver(true);
+  }
+
+  function handleDragLeave(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragOver(false);
+  }
+
+  async function handleDrop(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragOver(false);
+    const file = e.dataTransfer.files?.[0];
+    await handleImageFile(file);
+  }
+
+  useEffect(() => {
+    function handlePaste(e) {
+      const items = e.clipboardData?.items;
+      if (!items) return;
+      for (const item of items) {
+        if (item.type.startsWith('image/')) {
+          e.preventDefault();
+          handleImageFile(item.getAsFile());
+          return;
+        }
+      }
+    }
+    document.addEventListener('paste', handlePaste);
+    return () => document.removeEventListener('paste', handlePaste);
+  }, [recipe?.id, user?.uid]);
 
   async function handleGenerateImage() {
     setImageLoading(true);
@@ -637,6 +682,7 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user, ingredien
       title: fields.title.trim(),
       category: fields.category,
       frequency: fields.frequency,
+      cuisine: fields.cuisine === 'other' ? (fields.customCuisine.trim() || '') : fields.cuisine,
       mealType: (() => {
         const manual = fields.mealType === 'custom' ? fields.customMealType.trim() : fields.mealType;
         if (manual) return manual;
@@ -667,7 +713,10 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user, ingredien
       initialRef.current = false;
       return;
     }
-    const timer = setTimeout(() => handleSave(), 500);
+    const timer = setTimeout(() => {
+      handleSave();
+      setShowSaved(k => k + 1);
+    }, 500);
     return () => clearTimeout(timer);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fields]);
@@ -708,19 +757,10 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user, ingredien
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [showAddMenu]);
 
-  function handleBoostToggle() {
-    try {
-      const list = JSON.parse(localStorage.getItem('sunday-boosted-recipes') || '[]');
-      let next;
-      if (list.includes(recipe.id)) {
-        next = list.filter(id => id !== recipe.id);
-        setBoosted(false);
-      } else {
-        next = [...list, recipe.id];
-        setBoosted(true);
-      }
-      localStorage.setItem('sunday-boosted-recipes', JSON.stringify(next));
-    } catch {}
+  function handleAddToWeekClick() {
+    if (!isInWeek && onAddToWeek) {
+      onAddToWeek(recipe.id);
+    }
   }
 
   async function handleShareClick() {
@@ -766,19 +806,92 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user, ingredien
 
   return (
     <div className={styles.container}>
-      <button className={styles.backBtn} onClick={onBack}>
-        &larr; Back to recipes
-      </button>
+      <div className={styles.headerRow}>
+        <button className={styles.backBtn} onClick={onBack}>
+          &larr; Back to recipes
+        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+          {user && (
+            <>
+              <div className={styles.shareWrapper} ref={shareRef}>
+                <button className={styles.headerShareBtn} onClick={handleShareClick}>
+                  Share
+                </button>
+                {showShareDropdown && (
+                  <div className={styles.shareDropdown}>
+                    {friendsList && friendsList.length === 0 && (
+                      <span className={styles.noFriends}>No friends yet</span>
+                    )}
+                    {friendsList && friendsList.map(f => (
+                      <button
+                        key={f.uid}
+                        className={styles.friendOption}
+                        onClick={() => handleShareWith(f)}
+                      >
+                        {f.username ? `@${f.username}` : f.displayName || f.uid}
+                      </button>
+                    ))}
+                    <div className={styles.shareDivider} />
+                    <button
+                      className={styles.shareLinkBtn}
+                      onClick={async () => {
+                        try {
+                          const cleanRecipe = JSON.parse(JSON.stringify(recipe));
+                          const token = await createShareLink(user.uid, cleanRecipe);
+                          const slug = recipe.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+                          const url = window.location.origin + '?share=' + token + '&recipe=' + slug;
+                          await navigator.clipboard.writeText(url);
+                          setShowShareDropdown(false);
+                          setShareMsg('Link copied!');
+                          setTimeout(() => setShareMsg(null), 3000);
+                        } catch (err) {
+                          console.error('Create link error:', err);
+                          setShareMsg('Failed to create link.');
+                          setTimeout(() => setShareMsg(null), 3000);
+                        }
+                      }}
+                    >
+                      Create Link
+                    </button>
+                  </div>
+                )}
+              </div>
+              {shareMsg && <span className={styles.shareMsg}>{shareMsg}</span>}
+              <button
+                className={`${styles.headerShareBtn} ${isInWeek ? styles.boostBtnActive : ''}`}
+                onClick={handleAddToWeekClick}
+                disabled={isInWeek}
+              >
+                {isInWeek ? '✓ Added' : '+ This Week'}
+              </button>
+            </>
+          )}
+          {showSaved > 0 && <span key={showSaved} className={styles.savedToast}>Saved!</span>}
+          <button className={styles.editToggleBtn} onClick={() => setEditing(e => !e)}>
+            {editing ? 'Done' : 'Edit'}
+          </button>
+        </div>
+      </div>
 
       <div className={styles.topRow}>
         <div className={styles.topRowLeft}>
           <div className={styles.titleRow}>
-            <input
-              className={`${styles.inlineInput} ${styles.titleInput}`}
-              type="text"
-              value={fields.title}
-              onChange={e => setField('title', e.target.value)}
-            />
+            {editing ? (
+              <input
+                className={`${styles.inlineInput} ${styles.titleInput}`}
+                type="text"
+                value={fields.title}
+                onChange={e => setField('title', e.target.value)}
+              />
+            ) : (
+              <h1 className={styles.titleDisplay}>{fields.title}</h1>
+            )}
+            {!editing && nutritionTotals && (
+              <MealScore
+                totals={nutritionTotals}
+                servings={(foodWeight > 0 && servingWeightNum > 0) ? foodWeight / servingWeightNum : (adjustedServings ?? baseServings)}
+              />
+            )}
             <span className={styles.lastPrepBadge}>
               {daysSinceLastPrepped === 0
                 ? 'Prepped today'
@@ -788,159 +901,242 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user, ingredien
             </span>
           </div>
 
-          <div className={styles.metaRow}>
-            <label className={styles.metaLabel}>
-              Serves
-              <input
-                className={`${styles.inlineInput} ${styles.metaInput}`}
-                type="number"
-                min="1"
-                value={fields.servings}
-                onChange={e => setField('servings', e.target.value)}
-              />
-            </label>
-            <label className={styles.metaLabel}>
-              Prep
-              <input
-                className={`${styles.inlineInput} ${styles.metaInput}`}
-                type="text"
-                value={fields.prepTime}
-                onChange={e => setField('prepTime', e.target.value)}
-                placeholder="-"
-              />
-            </label>
-            <label className={styles.metaLabel}>
-              Cook
-              <input
-                className={`${styles.inlineInput} ${styles.metaInput}`}
-                type="text"
-                value={fields.cookTime}
-                onChange={e => setField('cookTime', e.target.value)}
-                placeholder="-"
-              />
-            </label>
-          </div>
+          {editing ? (
+            <>
+              <div className={styles.metaRow}>
+                <label className={styles.metaLabel}>
+                  Serves
+                  <input
+                    className={`${styles.inlineInput} ${styles.metaInput}`}
+                    type="number"
+                    min="1"
+                    value={fields.servings}
+                    onChange={e => setField('servings', e.target.value)}
+                  />
+                </label>
+                <label className={styles.metaLabel}>
+                  Prep
+                  <input
+                    className={`${styles.inlineInput} ${styles.metaInput}`}
+                    type="text"
+                    value={fields.prepTime}
+                    onChange={e => setField('prepTime', e.target.value)}
+                    placeholder="-"
+                  />
+                </label>
+                <label className={styles.metaLabel}>
+                  Cook
+                  <input
+                    className={`${styles.inlineInput} ${styles.metaInput}`}
+                    type="text"
+                    value={fields.cookTime}
+                    onChange={e => setField('cookTime', e.target.value)}
+                    placeholder="-"
+                  />
+                </label>
+              </div>
 
-          <div className={styles.metaRow}>
-            <label className={styles.metaLabel}>
-              Category
-              <select
-                className={styles.inlineSelect}
-                value={fields.category}
-                onChange={e => setField('category', e.target.value)}
-              >
-                <option value="breakfast">Breakfast</option>
-                <option value="lunch-dinner">Lunch & Dinner</option>
-                <option value="snacks">Snacks</option>
-                <option value="desserts">Desserts</option>
-                <option value="drinks">Drinks</option>
-              </select>
-            </label>
-            <label className={styles.metaLabel}>
-              Frequency
-              <select
-                className={styles.inlineSelect}
-                value={fields.frequency}
-                onChange={e => setField('frequency', e.target.value)}
-              >
-                <option value="common">Common</option>
-                <option value="rare">Rare</option>
-                <option value="retired">Retired</option>
-              </select>
-            </label>
-            <label className={styles.metaLabel}>
-              Meal Type
-              <select
-                className={styles.inlineSelect}
-                value={fields.mealType}
-                onChange={e => {
-                  setField('mealType', e.target.value);
-                  if (e.target.value !== 'custom') setField('customMealType', '');
-                }}
-              >
-                <option value="">— None —</option>
-                <option value="meat">Meat</option>
-                <option value="pescatarian">Pescatarian</option>
-                <option value="vegan">Vegan</option>
-                <option value="vegetarian">Vegetarian</option>
-                <option value="keto">Keto</option>
-                <option value="custom">Custom...</option>
-              </select>
-            </label>
-            {fields.mealType === 'custom' && (
-              <input
-                className={`${styles.inlineInput} ${styles.metaInput}`}
-                type="text"
-                value={fields.customMealType}
-                onChange={e => setField('customMealType', e.target.value)}
-                placeholder="e.g. Keto, Paleo"
-              />
-            )}
-          </div>
+              <div className={styles.metaRow}>
+                <label className={styles.metaLabel}>
+                  Category
+                  <select
+                    className={styles.inlineSelect}
+                    value={fields.category}
+                    onChange={e => setField('category', e.target.value)}
+                  >
+                    <option value="breakfast">Breakfast</option>
+                    <option value="lunch-dinner">Lunch & Dinner</option>
+                    <option value="snacks">Snacks</option>
+                    <option value="desserts">Desserts</option>
+                    <option value="drinks">Drinks</option>
+                  </select>
+                </label>
+                <label className={styles.metaLabel}>
+                  Frequency
+                  <select
+                    className={styles.inlineSelect}
+                    value={fields.frequency}
+                    onChange={e => setField('frequency', e.target.value)}
+                  >
+                    <option value="common">Common</option>
+                    <option value="rare">Rare</option>
+                    <option value="retired">Retired</option>
+                  </select>
+                </label>
+                <label className={styles.metaLabel}>
+                  Meal Type
+                  <select
+                    className={styles.inlineSelect}
+                    value={fields.mealType}
+                    onChange={e => {
+                      setField('mealType', e.target.value);
+                      if (e.target.value !== 'custom') setField('customMealType', '');
+                    }}
+                  >
+                    <option value="">— None —</option>
+                    <option value="meat">Meat</option>
+                    <option value="pescatarian">Pescatarian</option>
+                    <option value="vegan">Vegan</option>
+                    <option value="vegetarian">Vegetarian</option>
+                    <option value="keto">Keto</option>
+                    <option value="custom">Custom...</option>
+                  </select>
+                </label>
+                {fields.mealType === 'custom' && (
+                  <input
+                    className={`${styles.inlineInput} ${styles.metaInput}`}
+                    type="text"
+                    value={fields.customMealType}
+                    onChange={e => setField('customMealType', e.target.value)}
+                    placeholder="e.g. Keto, Paleo"
+                  />
+                )}
+                <label className={styles.metaLabel}>
+                  Cuisine
+                  <select
+                    className={styles.inlineSelect}
+                    value={fields.cuisine}
+                    onChange={e => {
+                      setField('cuisine', e.target.value);
+                      if (e.target.value !== 'other') setField('customCuisine', '');
+                    }}
+                  >
+                    <option value="">— None —</option>
+                    {CUISINE_OPTIONS.map(c => (
+                      <option key={c} value={c.toLowerCase()}>{c}</option>
+                    ))}
+                  </select>
+                </label>
+                {fields.cuisine === 'other' && (
+                  <input
+                    className={`${styles.inlineInput} ${styles.metaInput}`}
+                    type="text"
+                    value={fields.customCuisine}
+                    onChange={e => setField('customCuisine', e.target.value)}
+                    placeholder="e.g. Cajun, Peruvian"
+                  />
+                )}
+              </div>
 
-          <div className={styles.metaRow}>
-            <label className={styles.metaLabel} style={{ flex: 1 }}>
-              Source URL
-              <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-                <input
-                  className={styles.inlineInput}
-                  type="text"
-                  value={fields.sourceUrl}
-                  onChange={e => setField('sourceUrl', e.target.value)}
-                  placeholder="Recipe link"
-                  style={{ flex: 1 }}
-                />
-                {fields.sourceUrl.trim() && (
+              <div className={styles.metaRow}>
+                <label className={styles.metaLabel} style={{ flex: 1 }}>
+                  Source URL
+                  <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                    <input
+                      className={styles.inlineInput}
+                      type="text"
+                      value={fields.sourceUrl}
+                      onChange={e => setField('sourceUrl', e.target.value)}
+                      placeholder="Recipe link"
+                      style={{ flex: 1 }}
+                    />
+                    {fields.sourceUrl.trim() && (
+                      <a
+                        href={fields.sourceUrl.trim().startsWith('http') ? fields.sourceUrl.trim() : `https://${fields.sourceUrl.trim()}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className={styles.sourceLink}
+                      >
+                        Open
+                      </a>
+                    )}
+                  </div>
+                </label>
+              </div>
+
+              {user?.uid === ADMIN_UID && (
+                <div className={styles.metaRow}>
+                  <label className={styles.metaLabel} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
+                    <input
+                      type="checkbox"
+                      checked={fields.starterRecipe}
+                      onChange={e => setField('starterRecipe', e.target.checked)}
+                    />
+                    Include in starter recipes
+                  </label>
+                </div>
+              )}
+            </>
+          ) : (
+            <>
+              <div className={styles.metaRow}>
+                <span className={styles.metaValue}>Serves {fields.servings || '-'}</span>
+                <span className={styles.metaDot}>&middot;</span>
+                <span className={styles.metaValue}>Prep {fields.prepTime || '-'}</span>
+                <span className={styles.metaDot}>&middot;</span>
+                <span className={styles.metaValue}>Cook {fields.cookTime || '-'}</span>
+              </div>
+              <div className={styles.metaRow}>
+                <span className={styles.metaValue} style={{ textTransform: 'capitalize' }}>{(fields.category || '').replace('-', ' & ')}</span>
+                <span className={styles.metaDot}>&middot;</span>
+                <span className={styles.metaValue} style={{ textTransform: 'capitalize' }}>{fields.frequency || 'common'}</span>
+                {(fields.mealType && fields.mealType !== 'custom') && (
+                  <>
+                    <span className={styles.metaDot}>&middot;</span>
+                    <span className={styles.metaValue} style={{ textTransform: 'capitalize' }}>{fields.mealType}</span>
+                  </>
+                )}
+                {fields.mealType === 'custom' && fields.customMealType && (
+                  <>
+                    <span className={styles.metaDot}>&middot;</span>
+                    <span className={styles.metaValue}>{fields.customMealType}</span>
+                  </>
+                )}
+                <span className={styles.metaDot}>&middot;</span>
+                <span className={styles.metaValue} style={{ textTransform: 'capitalize' }}>{recipe.cuisine || 'No cuisine'}</span>
+              </div>
+              <div className={styles.metaRow}>
+                {fields.sourceUrl.trim() ? (
                   <a
                     href={fields.sourceUrl.trim().startsWith('http') ? fields.sourceUrl.trim() : `https://${fields.sourceUrl.trim()}`}
                     target="_blank"
                     rel="noopener noreferrer"
                     className={styles.sourceLink}
                   >
-                    Open
+                    View source recipe
                   </a>
+                ) : (
+                  <span className={styles.metaValue}>No source URL</span>
                 )}
               </div>
-            </label>
-          </div>
-
-          {user?.uid === ADMIN_UID && (
-            <div className={styles.metaRow}>
-              <label className={styles.metaLabel} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
-                <input
-                  type="checkbox"
-                  checked={fields.starterRecipe}
-                  onChange={e => setField('starterRecipe', e.target.checked)}
-                />
-                Include in starter recipes
-              </label>
-            </div>
+            </>
           )}
 
         </div>
-          <div className={styles.mealImageSection}>
+          <div
+            className={`${styles.mealImageSection} ${dragOver ? styles.mealImageDragOver : ''}`}
+            onDragOver={handleDragOver}
+            onDragLeave={handleDragLeave}
+            onDrop={handleDrop}
+          >
             {mealImage ? (
               <div className={styles.mealImageWrap}>
                 <img src={mealImage} alt={fields.title} className={styles.mealImage} />
-                <div className={styles.imageActions}>
-                  <button className={styles.regenBtn} onClick={() => imageInputRef.current?.click()}>
-                    Upload
-                  </button>
-                  <button className={styles.regenBtn} onClick={handleGenerateImage} disabled={imageLoading}>
-                    {imageLoading ? 'Generating...' : 'Generate'}
-                  </button>
-                  <button className={styles.regenBtn} onClick={handleDeleteImage}>
-                    Remove
-                  </button>
-                </div>
+                {editing && (
+                  <div className={styles.imageActions}>
+                    <button className={styles.regenBtn} onClick={() => imageInputRef.current?.click()}>
+                      Upload
+                    </button>
+                    <button className={styles.regenBtn} onClick={handleGenerateImage} disabled={imageLoading}>
+                      {imageLoading ? 'Generating...' : 'Generate'}
+                    </button>
+                    <button className={styles.regenBtn} onClick={handleDeleteImage}>
+                      Remove
+                    </button>
+                  </div>
+                )}
+                {dragOver && <div className={styles.dropOverlay}>Drop image here</div>}
               </div>
-            ) : (
+            ) : editing ? (
               <div className={styles.imagePlaceholder}>
                 {imageLoading ? (
                   <span className={styles.placeholderText}>Generating...</span>
+                ) : dragOver ? (
+                  <span className={styles.placeholderText}>Drop image here</span>
                 ) : (
                   <>
                     <span className={styles.placeholderIcon}>&#128247;</span>
+                    <span className={styles.placeholderText}>Drag & drop or paste an image</span>
                     <div className={styles.imageActions}>
                       <button className={styles.regenBtn} onClick={() => imageInputRef.current?.click()}>
                         Upload
@@ -952,7 +1148,7 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user, ingredien
                   </>
                 )}
               </div>
-            )}
+            ) : null}
             <input
               ref={imageInputRef}
               type="file"
@@ -965,59 +1161,12 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user, ingredien
           </div>
       </div>
 
-      {user && (
-        <div className={styles.shareRow}>
-          <div className={styles.shareWrapper} ref={shareRef}>
-            <button className={styles.shareBtn} onClick={handleShareClick}>
-              Share This Recipe
-            </button>
-            <button
-              className={`${styles.shareBtn} ${boosted ? styles.boostBtnActive : ''}`}
-              onClick={handleBoostToggle}
-            >
-              {boosted ? '★ Added to Next Week' : '☆ Add This to Next Week\'s Shopping List'}
-            </button>
-            {showShareDropdown && (
-              <div className={styles.shareDropdown}>
-                {friendsList && friendsList.length === 0 && (
-                  <span className={styles.noFriends}>No friends yet</span>
-                )}
-                {friendsList && friendsList.map(f => (
-                  <button
-                    key={f.uid}
-                    className={styles.friendOption}
-                    onClick={() => handleShareWith(f)}
-                  >
-                    @{f.username}
-                  </button>
-                ))}
-                <div className={styles.shareDivider} />
-                <button
-                  className={styles.shareLinkBtn}
-                  onClick={async () => {
-                    try {
-                      const cleanRecipe = JSON.parse(JSON.stringify(recipe));
-                      const token = await createShareLink(user.uid, cleanRecipe);
-                      const slug = recipe.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
-                      const url = window.location.origin + '?share=' + token + '&recipe=' + slug;
-                      await navigator.clipboard.writeText(url);
-                      setShowShareDropdown(false);
-                      setShareMsg('Link copied!');
-                      setTimeout(() => setShareMsg(null), 3000);
-                    } catch (err) {
-                      console.error('Create link error:', err);
-                      setShareMsg('Failed to create link.');
-                      setTimeout(() => setShareMsg(null), 3000);
-                    }
-                  }}
-                >
-                  Create Link
-                </button>
-              </div>
-            )}
-          </div>
-          {shareMsg && <span className={styles.shareMsg}>{shareMsg}</span>}
-        </div>
+      {nutritionTotals && (
+        <PlateChart
+          protein={nutritionTotals.protein || 0}
+          carbs={nutritionTotals.carbs || 0}
+          fat={nutritionTotals.fat || 0}
+        />
       )}
 
       <NutritionPanel
@@ -1025,6 +1174,8 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user, ingredien
         ingredients={fields.ingredients}
         servings={(foodWeight > 0 && servingWeightNum > 0) ? foodWeight / servingWeightNum : (adjustedServings ?? baseServings)}
         portionLabel={servingWeightNum > 0 && foodWeight > 0 ? `My portion (${servingWeight}g)` : null}
+        onViewSources={onViewSources}
+        onNutritionData={(d) => setNutritionTotals(d?.totals || null)}
       />
 
       <div className={styles.ingredientsCol}>
@@ -1080,38 +1231,6 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user, ingredien
                 </>
               )}
             </div>
-            {editingIngredients ? (
-              <>
-                <button
-                  className={styles.editToggleBtn}
-                  type="button"
-                  onClick={() => {
-                    const restored = (recipe.ingredients && recipe.ingredients.length > 0)
-                      ? recipe.ingredients.map(r => ({ ...r }))
-                      : [{ ...emptyRow }];
-                    setFields(prev => ({ ...prev, ingredients: restored }));
-                    setEditingIngredients(false);
-                  }}
-                >
-                  Cancel
-                </button>
-                <button
-                  className={styles.editToggleBtn}
-                  type="button"
-                  onClick={() => setEditingIngredients(false)}
-                >
-                  Save
-                </button>
-              </>
-            ) : (
-              <button
-                className={styles.editToggleBtn}
-                type="button"
-                onClick={() => setEditingIngredients(true)}
-              >
-                Edit
-              </button>
-            )}
           </div>
         </div>
 
@@ -1568,79 +1687,94 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, user, ingredien
 
       <div className={styles.section}>
         <h3>Instructions</h3>
-        <ol className={styles.stepsList}>
-          {fields.steps.map((step, i) => (
-            <li
-              key={i}
-              className={`${styles.stepRow} ${stepDragIdx === i ? styles.draggingRow : ''} ${stepDragOverIdx === i ? styles.dragOverRow : ''}`}
-              draggable
-              onDragStart={e => handleStepDragStart(e, i)}
-              onDragOver={e => handleStepDragOver(e, i)}
-              onDrop={e => handleStepDrop(e, i)}
-              onDragEnd={handleStepDragEnd}
-            >
-              <div className={styles.stepHeader}>
-                <span className={styles.dragHandle} title="Drag to reorder">≡</span>
-                <span className={styles.stepLabel}>Step {i + 1}</span>
-                <div className={styles.stepArrows}>
-                  {i > 0 && (
-                    <button
-                      className={styles.stepArrowBtn}
-                      type="button"
-                      onClick={() => moveStep(i, i - 1)}
-                      title="Move up"
-                    >
-                      ↑
-                    </button>
-                  )}
-                  {i < fields.steps.length - 1 && (
-                    <button
-                      className={styles.stepArrowBtn}
-                      type="button"
-                      onClick={() => moveStep(i, i + 1)}
-                      title="Move down"
-                    >
-                      ↓
-                    </button>
-                  )}
-                </div>
-              </div>
-              <div className={styles.stepInputWrap}>
-                <textarea
-                  className={styles.stepInput}
-                  value={step}
-                  rows={2}
-                  onChange={e => updateStep(i, e.target.value)}
-                  placeholder={`Step ${i + 1}...`}
-                />
-                {fields.steps.length > 1 && (
-                  <button
-                    className={styles.removeBtn}
-                    type="button"
-                    onClick={() => removeStep(i)}
-                  >
-                    &times;
-                  </button>
-                )}
-              </div>
-            </li>
-          ))}
-        </ol>
-        <button className={styles.addRowBtn} type="button" onClick={addStep}>
-          + Add step
-        </button>
+        {editing ? (
+          <>
+            <ol className={styles.stepsList}>
+              {fields.steps.map((step, i) => (
+                <li
+                  key={i}
+                  className={`${styles.stepRow} ${stepDragIdx === i ? styles.draggingRow : ''} ${stepDragOverIdx === i ? styles.dragOverRow : ''}`}
+                  draggable
+                  onDragStart={e => handleStepDragStart(e, i)}
+                  onDragOver={e => handleStepDragOver(e, i)}
+                  onDrop={e => handleStepDrop(e, i)}
+                  onDragEnd={handleStepDragEnd}
+                >
+                  <div className={styles.stepHeader}>
+                    <span className={styles.dragHandle} title="Drag to reorder">≡</span>
+                    <span className={styles.stepLabel}>Step {i + 1}</span>
+                    <div className={styles.stepArrows}>
+                      {i > 0 && (
+                        <button
+                          className={styles.stepArrowBtn}
+                          type="button"
+                          onClick={() => moveStep(i, i - 1)}
+                          title="Move up"
+                        >
+                          ↑
+                        </button>
+                      )}
+                      {i < fields.steps.length - 1 && (
+                        <button
+                          className={styles.stepArrowBtn}
+                          type="button"
+                          onClick={() => moveStep(i, i + 1)}
+                          title="Move down"
+                        >
+                          ↓
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                  <div className={styles.stepInputWrap}>
+                    <textarea
+                      className={styles.stepInput}
+                      value={step}
+                      rows={2}
+                      onChange={e => updateStep(i, e.target.value)}
+                      placeholder={`Step ${i + 1}...`}
+                    />
+                    {fields.steps.length > 1 && (
+                      <button
+                        className={styles.removeBtn}
+                        type="button"
+                        onClick={() => removeStep(i)}
+                      >
+                        &times;
+                      </button>
+                    )}
+                  </div>
+                </li>
+              ))}
+            </ol>
+            <button className={styles.addRowBtn} type="button" onClick={addStep}>
+              + Add step
+            </button>
+          </>
+        ) : (
+          <ol className={styles.stepsListReadonly}>
+            {fields.steps.filter(s => s.trim()).map((step, i) => (
+              <li key={i} className={styles.stepReadonly}>{step}</li>
+            ))}
+            {fields.steps.filter(s => s.trim()).length === 0 && (
+              <p className={styles.emptyText}>No instructions yet</p>
+            )}
+          </ol>
+        )}
       </div>
 
-      <div className={styles.actions}>
-        <button
-          className={styles.deleteBtn}
-          onClick={() => {
-            if (confirm('Delete this recipe?')) onDelete(recipe.id);
-          }}
-        >
-          Delete
-        </button>
-      </div>
+      {editing && (
+        <div className={styles.actions}>
+          <button
+            className={styles.deleteBtn}
+            onClick={() => {
+              if (confirm('Delete this recipe?')) onDelete(recipe.id);
+            }}
+          >
+            Delete
+          </button>
+        </div>
+      )}
 
       {showScanner && (
         <BarcodeScanner

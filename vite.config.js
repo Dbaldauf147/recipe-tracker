@@ -97,6 +97,55 @@ function instagramCaptionProxy() {
   };
 }
 
+// Dev-only middleware: fetches TikTok captions via oEmbed API
+function tiktokCaptionProxy() {
+  return {
+    name: 'tiktok-caption-proxy',
+    configureServer(server) {
+      server.middlewares.use('/api/tiktok-caption', async (req, res) => {
+        const url = new URL(req.url, 'http://localhost').searchParams.get('url');
+        if (!url) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Missing url parameter' }));
+          return;
+        }
+        if (!/tiktok\.com/i.test(url)) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Invalid TikTok URL' }));
+          return;
+        }
+        try {
+          // Use TikTok oEmbed API
+          const oembedUrl = `https://www.tiktok.com/oembed?url=${encodeURIComponent(url)}`;
+          const oembedRes = await fetch(oembedUrl, {
+            headers: {
+              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+              'Accept': 'application/json',
+            },
+          });
+          if (oembedRes.ok) {
+            const data = await oembedRes.json();
+            if (data.title) {
+              res.writeHead(200, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({
+                caption: data.title,
+                author: data.author_name || '',
+                authorUrl: data.author_url || '',
+              }));
+              return;
+            }
+          }
+          res.writeHead(404, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'No caption found for this TikTok video' }));
+        } catch (err) {
+          res.writeHead(502, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: err.message }));
+        }
+      });
+    },
+  };
+}
+
 // Dev-only middleware: proxies USDA Branded food search for restaurant import
 function restaurantSearchProxy() {
   return {
@@ -202,9 +251,10 @@ export default defineConfig({
     react(),
     fetchUrlProxy(),
     instagramCaptionProxy(),
+    tiktokCaptionProxy(),
     restaurantSearchProxy(),
     VitePWA({
-      registerType: 'autoUpdate',
+      registerType: 'prompt',
       manifest: {
         name: 'Prep Day',
         short_name: 'Prep Day',

@@ -117,13 +117,29 @@
 
 .resultCard {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
+  flex-direction: column;
+  gap: 0.5rem;
   padding: 0.65rem 0.85rem;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
   background: var(--color-surface);
   margin-top: 0.75rem;
+}
+
+.sendRequestWrap {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.sendRequestWrap .input {
+  flex: 1;
+}
+
+.requestMsg {
+  font-size: 0.82rem;
+  color: var(--color-text-muted);
+  font-style: italic;
 }
 
 .resultName {

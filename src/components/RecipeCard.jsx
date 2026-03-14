@@ -1,7 +1,7 @@
 import { getCachedMealImage } from '../utils/generateMealImage';
 import styles from './RecipeCard.module.css';
 
-export function RecipeCard({ recipe, onClick, draggable = false, onAdd, editMode, onDelete }) {
+export function RecipeCard({ recipe, onClick, draggable = false, onAdd, editMode, onDelete, macroScore }) {
   const mealImage = getCachedMealImage(recipe.id);
   function handleDragStart(e) {
     e.dataTransfer.setData('text/plain', recipe.id);
@@ -34,13 +34,18 @@ export function RecipeCard({ recipe, onClick, draggable = false, onAdd, editMode
       )}
       <div className={styles.cardContent}>
         <span className={styles.name}>{recipe.title}</span>
-        {isQuick && (
-          <div className={styles.tags}>
+        <div className={styles.tags}>
+          {isQuick && (
             <span className={`${styles.signal} ${styles.signalQuick}`}>
               Quick
             </span>
-          </div>
-        )}
+          )}
+          {macroScore != null && (
+            <span className={`${styles.signal} ${macroScore >= 70 ? styles.signalMacroGood : macroScore >= 40 ? styles.signalMacroOk : styles.signalMacroPoor}`}>
+              {macroScore}% match
+            </span>
+          )}
+        </div>
       </div>
       {editMode && onDelete ? (
         <button

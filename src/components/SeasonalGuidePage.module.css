@@ -1,0 +1,261 @@
+.container {
+  max-width: 100%;
+}
+
+.header {
+  display: flex;
+  align-items: baseline;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+  flex-wrap: wrap;
+}
+
+.backBtn {
+  background: none;
+  border: none;
+  color: var(--color-text-muted);
+  font-size: 0.9rem;
+  font-weight: 500;
+  cursor: pointer;
+  padding: 0;
+  transition: color 0.15s ease;
+}
+
+.backBtn:hover {
+  color: var(--color-accent);
+}
+
+.title {
+  margin: 0;
+  font-size: 1.4rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.regionBadge {
+  padding: 0.2rem 0.6rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #2e7d32;
+  background: rgba(76, 175, 80, 0.1);
+  border-radius: 50px;
+}
+
+.regionSelect {
+  padding: 0.35rem 0.6rem;
+  font-size: 0.85rem;
+  font-weight: 500;
+  font-family: inherit;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm, 4px);
+  background: var(--color-surface);
+  color: var(--color-text);
+  cursor: pointer;
+}
+
+.count {
+  font-size: 0.82rem;
+  color: var(--color-text-muted);
+}
+
+.empty {
+  color: var(--color-text-muted);
+  font-style: italic;
+  padding: 2rem 0;
+}
+
+/* Lookup row */
+.lookupRow {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.lookupInput {
+  flex: 1;
+  max-width: 400px;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  font-size: 0.88rem;
+  font-family: inherit;
+  background: var(--color-surface);
+  color: var(--color-text);
+  transition: border-color 0.15s ease;
+}
+
+.lookupInput:focus {
+  outline: none;
+  border-color: var(--color-accent);
+}
+
+.lookupInput:disabled {
+  opacity: 0.6;
+}
+
+.lookupBtn {
+  padding: 0.5rem 1rem;
+  background: var(--color-accent);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius-md);
+  font-size: 0.85rem;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: opacity 0.15s ease;
+  white-space: nowrap;
+}
+
+.lookupBtn:hover:not(:disabled) {
+  opacity: 0.85;
+}
+
+.lookupBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* AI badge */
+.aiBadge {
+  display: inline-block;
+  margin-left: 0.35rem;
+  padding: 0.05rem 0.3rem;
+  font-size: 0.6rem;
+  font-weight: 700;
+  color: var(--color-accent);
+  background: rgba(74, 144, 217, 0.1);
+  border-radius: 3px;
+  vertical-align: middle;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+/* Month filter row */
+.filterRow {
+  display: flex;
+  gap: 0.25rem;
+  margin-bottom: 1rem;
+  flex-wrap: wrap;
+}
+
+.monthBtn {
+  padding: 0.3rem 0.5rem;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+  font-size: 0.72rem;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.monthBtn:hover {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+
+.monthBtnActive {
+  background: var(--color-accent);
+  color: #fff;
+  border-color: var(--color-accent);
+}
+
+.monthBtnCurrent {
+  border-color: #2e7d32;
+}
+
+/* Table */
+.tableWrap {
+  overflow-x: auto;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-sm);
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+  table-layout: fixed;
+}
+
+.table th {
+  text-align: center;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  padding: 0.45rem 0.25rem;
+  border-bottom: 2px solid var(--color-border);
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.table td {
+  padding: 0.35rem 0.25rem;
+  border-bottom: 1px solid var(--color-border-light);
+  text-align: center;
+}
+
+.table tbody tr:hover {
+  background: var(--color-surface-alt);
+}
+
+.table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.colName {
+  width: 140px;
+  text-align: left !important;
+}
+
+.colMonth {
+  width: auto;
+}
+
+.currentMonthCol {
+  background: rgba(74, 144, 217, 0.06);
+}
+
+.ingredientName {
+  font-weight: 500;
+  text-align: left !important;
+  white-space: nowrap;
+  padding-left: 0.5rem !important;
+}
+
+.monthCell {
+  vertical-align: middle;
+}
+
+.inSeason {
+  background: rgba(76, 175, 80, 0.08);
+}
+
+.inSeasonCurrent {
+  background: rgba(76, 175, 80, 0.18);
+}
+
+.inSeasonRow {
+  /* subtle left accent for currently in-season rows */
+}
+
+.dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #4caf50;
+}
+
+.footer {
+  margin-top: 0.75rem;
+  font-size: 0.8rem;
+  color: var(--color-text-muted);
+}

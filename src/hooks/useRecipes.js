@@ -129,6 +129,7 @@ export function useRecipes() {
       save(next);
       return next;
     });
+    return newRecipe;
   }
 
   function updateRecipe(id, updates) {

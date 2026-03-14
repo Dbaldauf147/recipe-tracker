@@ -89,6 +89,21 @@
   background: var(--color-success-light);
 }
 
+.signalMacroGood {
+  color: #15803d;
+  background: #dcfce7;
+}
+
+.signalMacroOk {
+  color: #a16207;
+  background: #fef9c3;
+}
+
+.signalMacroPoor {
+  color: #b91c1c;
+  background: #fee2e2;
+}
+
 .addBtn {
   background: none;
   border: 1px solid var(--color-accent);

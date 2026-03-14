@@ -1,15 +1,131 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { parseRecipeText, parseIngredientLine } from '../utils/parseRecipeText';
 import { fetchRecipeFromUrl } from '../utils/fetchRecipeFromUrl';
 import { fetchInstagramCaption } from '../utils/fetchInstagramCaption';
 import { fetchTikTokRecipe, fetchTikTokCaption } from '../utils/fetchTikTokRecipe';
 import { classifyMealType } from '../utils/classifyMealType';
+import { loadStarterRecipes } from '../utils/starterRecipes';
 import { RecipeForm } from './RecipeForm';
 import styles from './ImportRecipePage.module.css';
 
+const DISCOVER_CATEGORIES = [
+  { key: 'breakfast', label: 'Breakfast' },
+  { key: 'lunch-dinner', label: 'Lunch & Dinner' },
+  { key: 'snacks', label: 'Snacks' },
+  { key: 'desserts', label: 'Desserts' },
+  { key: 'drinks', label: 'Drinks' },
+];
+
+function DiscoverMealsPanel({ onSave }) {
+  const [recipes, setRecipes] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState('');
+  const [activeCategory, setActiveCategory] = useState('all');
+  const [addedSet, setAddedSet] = useState(new Set());
+
+  useEffect(() => {
+    loadStarterRecipes().then(r => { setRecipes(r); setLoading(false); }).catch(() => setLoading(false));
+  }, []);
+
+  const filtered = useMemo(() => {
+    let list = recipes;
+    if (activeCategory !== 'all') {
+      list = list.filter(r => (r.category || 'lunch-dinner') === activeCategory);
+    }
+    if (search.trim()) {
+      const q = search.trim().toLowerCase();
+      list = list.filter(r => r.title.toLowerCase().includes(q));
+    }
+    return list;
+  }, [recipes, activeCategory, search]);
+
+  const grouped = useMemo(() => {
+    if (activeCategory !== 'all') return null;
+    const groups = {};
+    for (const cat of DISCOVER_CATEGORIES) groups[cat.key] = [];
+    for (const r of filtered) {
+      const cat = r.category || 'lunch-dinner';
+      if (groups[cat]) groups[cat].push(r);
+      else if (groups['lunch-dinner']) groups['lunch-dinner'].push(r);
+    }
+    return groups;
+  }, [filtered, activeCategory]);
+
+  function handleAdd(recipe) {
+    const { id, createdAt, ...rest } = recipe;
+    onSave({ ...rest, source: 'discover' });
+    setAddedSet(prev => new Set(prev).add(recipe.title.toLowerCase()));
+  }
+
+  if (loading) return <p className={styles.instagramHelp}>Loading recipes...</p>;
+  if (recipes.length === 0) return <p className={styles.instagramHelp}>No curated recipes available yet.</p>;
+
+  return (
+    <div>
+      <input
+        className={styles.input}
+        type="text"
+        value={search}
+        onChange={e => setSearch(e.target.value)}
+        placeholder="Search meals..."
+        style={{ marginBottom: '0.75rem' }}
+      />
+      <div className={styles.discoverCategoryTabs}>
+        <button className={`${styles.discoverTab} ${activeCategory === 'all' ? styles.discoverTabActive : ''}`} onClick={() => setActiveCategory('all')}>All</button>
+        {DISCOVER_CATEGORIES.map(cat => (
+          <button key={cat.key} className={`${styles.discoverTab} ${activeCategory === cat.key ? styles.discoverTabActive : ''}`} onClick={() => setActiveCategory(cat.key)}>{cat.label}</button>
+        ))}
+      </div>
+      {activeCategory !== 'all' ? (
+        <div className={styles.discoverGrid}>
+          {filtered.map(r => (
+            <div key={r.id || r.title} className={styles.discoverCard}>
+              <span className={styles.discoverCardTitle}>{r.title}</span>
+              {r.description && <span className={styles.discoverCardDesc}>{r.description}</span>}
+              <span className={styles.discoverCardMeta}>{(r.ingredients || []).length} ingredients{r.servings ? ` · ${r.servings} servings` : ''}</span>
+              {addedSet.has(r.title.toLowerCase()) ? (
+                <span className={styles.discoverCardAdded}>Added</span>
+              ) : (
+                <button className={styles.discoverCardBtn} onClick={() => handleAdd(r)}>+ Add</button>
+              )}
+            </div>
+          ))}
+          {filtered.length === 0 && <p className={styles.instagramHelp}>No recipes found.</p>}
+        </div>
+      ) : (
+        DISCOVER_CATEGORIES.map(cat => {
+          const items = grouped?.[cat.key] || [];
+          if (items.length === 0) return null;
+          return (
+            <div key={cat.key} style={{ marginBottom: '1.25rem' }}>
+              <h4 className={styles.discoverSectionTitle}>{cat.label}</h4>
+              <div className={styles.discoverGrid}>
+                {items.slice(0, 6).map(r => (
+                  <div key={r.id || r.title} className={styles.discoverCard}>
+                    <span className={styles.discoverCardTitle}>{r.title}</span>
+                    <span className={styles.discoverCardMeta}>{(r.ingredients || []).length} ingredients</span>
+                    {addedSet.has(r.title.toLowerCase()) ? (
+                      <span className={styles.discoverCardAdded}>Added</span>
+                    ) : (
+                      <button className={styles.discoverCardBtn} onClick={() => handleAdd(r)}>+ Add</button>
+                    )}
+                  </div>
+                ))}
+              </div>
+              {items.length > 6 && (
+                <button className={styles.discoverSeeAll} onClick={() => setActiveCategory(cat.key)}>See all {cat.label} ({items.length})</button>
+              )}
+            </div>
+          );
+        })
+      )}
+    </div>
+  );
+}
+
 export function ImportRecipePage({ onSave, onCancel }) {
   const [phase, setPhase] = useState('paste'); // 'paste' | 'review' | 'ai-results'
-  const [importMode, setImportMode] = useState('url'); // 'url' | 'tiktok' | 'instagram' | 'paste' | 'manual' | 'restaurant' | 'ai'
+  const [importMode, setImportMode] = useState(''); // '' | 'url' | 'tiktok' | 'instagram' | 'pinterest' | 'paste' | 'manual' | 'restaurant' | 'ai'
   const [rawText, setRawText] = useState('');
   const [pasteFormat, setPasteFormat] = useState('text'); // 'text' | 'table'
   const [restaurantQuery, setRestaurantQuery] = useState('');
@@ -22,8 +138,10 @@ export function ImportRecipePage({ onSave, onCancel }) {
   ]);
   const [recipeTitle, setRecipeTitle] = useState('');
   const [sourceUrl, setSourceUrl] = useState('');
+  const [linkUrl, setLinkUrl] = useState('');
   const [instagramUrl, setInstagramUrl] = useState('');
   const [tiktokUrl, setTiktokUrl] = useState('');
+  const [pinterestUrl, setPinterestUrl] = useState('');
   const [parsedRecipe, setParsedRecipe] = useState(null);
   const [fetching, setFetching] = useState(false);
   const [fetchError, setFetchError] = useState('');
@@ -151,6 +269,109 @@ export function ImportRecipePage({ onSave, onCancel }) {
       setFetchError(err.message || 'Failed to fetch TikTok caption.');
     } finally {
       setFetching(false);
+    }
+  }
+
+  async function handleFetchPinterest() {
+    const url = pinterestUrl.trim();
+    if (!url) return;
+    setFetching(true);
+    setFetchError('');
+    try {
+      // Step 1: Extract the source recipe URL from the Pinterest pin
+      const extractRes = await fetch(`/api/fetch-url?url=${encodeURIComponent(url)}&pinterest=true`);
+      if (!extractRes.ok) {
+        const err = await extractRes.json().catch(() => ({}));
+        throw new Error(err.error || 'Failed to extract recipe link from Pinterest.');
+      }
+      const { sourceUrl: recipeUrl } = await extractRes.json();
+
+      // Step 2: Fetch the actual recipe from the source URL
+      const recipe = await fetchRecipeFromUrl(recipeUrl);
+      setParsedRecipe({
+        ...recipe,
+        sourceUrl: recipeUrl,
+        mealType: recipe.mealType || classifyMealType(recipe.ingredients || []),
+      });
+      setPhase('review');
+    } catch (err) {
+      setFetchError(err.message || 'Failed to import recipe from Pinterest.');
+    } finally {
+      setFetching(false);
+    }
+  }
+
+  function detectUrlType(url) {
+    const u = url.toLowerCase();
+    if (u.includes('tiktok.com')) return 'tiktok';
+    if (u.includes('instagram.com')) return 'instagram';
+    if (u.includes('pinterest.com') || u.includes('pin.it')) return 'pinterest';
+    return 'url';
+  }
+
+  async function handleSmartImport() {
+    const url = linkUrl.trim();
+    if (!url) return;
+    const type = detectUrlType(url);
+    setImportMode(type);
+    if (type === 'tiktok') {
+      setTiktokUrl(url);
+      setFetching(true);
+      setFetchError('');
+      try {
+        const recipe = await fetchTikTokRecipe(url);
+        setParsedRecipe({ ...recipe, mealType: recipe.mealType || classifyMealType(recipe.ingredients || []) });
+        setPhase('review');
+      } catch (err) {
+        setFetchError(err.message || 'Failed to fetch recipe from TikTok.');
+      } finally {
+        setFetching(false);
+      }
+    } else if (type === 'instagram') {
+      setInstagramUrl(url);
+      setFetching(true);
+      setFetchError('');
+      try {
+        const caption = await fetchInstagramCaption(url);
+        setRawText(caption);
+        setPhase('paste');
+      } catch (err) {
+        setFetchError(err.message || 'Failed to fetch Instagram caption.');
+      } finally {
+        setFetching(false);
+      }
+    } else if (type === 'pinterest') {
+      setPinterestUrl(url);
+      setFetching(true);
+      setFetchError('');
+      try {
+        const extractRes = await fetch(`/api/fetch-url?url=${encodeURIComponent(url)}&pinterest=true`);
+        if (!extractRes.ok) {
+          const err = await extractRes.json().catch(() => ({}));
+          throw new Error(err.error || 'Failed to extract recipe link from Pinterest.');
+        }
+        const { sourceUrl: recipeUrl } = await extractRes.json();
+        const recipe = await fetchRecipeFromUrl(recipeUrl);
+        setParsedRecipe({ ...recipe, sourceUrl: recipeUrl, mealType: recipe.mealType || classifyMealType(recipe.ingredients || []) });
+        setPhase('review');
+      } catch (err) {
+        setFetchError(err.message || 'Failed to import recipe from Pinterest.');
+      } finally {
+        setFetching(false);
+      }
+    } else {
+      setSourceUrl(url);
+      setFetching(true);
+      setFetchError('');
+      try {
+        const recipe = await fetchRecipeFromUrl(url);
+        setParsedRecipe({ ...recipe, mealType: recipe.mealType || classifyMealType(recipe.ingredients || []) });
+        setPhase('review');
+      } catch (err) {
+        setFetchError(err.message || 'Failed to fetch recipe from URL.');
+      } finally {
+        setFetching(false);
+      }
     }
   }
 
@@ -429,27 +650,138 @@ export function ImportRecipePage({ onSave, onCancel }) {
         <h2 className={styles.title}>Import Recipe</h2>
       </div>
 
-      <div className={styles.tabs}>
-        {[
-          ['ai', 'AI Generate'],
-          ['manual', 'Manual'],
-          ['url', 'URL'],
-          ['restaurant', 'Restaurant'],
-          ['tiktok', 'TikTok'],
-          ['instagram', 'Instagram'],
-          ['paste', 'Paste'],
-        ].map(([mode, label]) => (
+      {!importMode && (
+        <div className={styles.menuList}>
+          {/* Discover Meals */}
           <button
-            key={mode}
-            className={`${styles.tab} ${importMode === mode ? styles.tabActive : ''}`}
-            onClick={() => mode === 'manual' ? handleStartManual() : (setImportMode(mode), setPhase('paste'))}
+            className={styles.menuItemBtn}
+            onClick={() => { setImportMode('discover'); setPhase('paste'); }}
           >
-            {label}
+            <div className={styles.menuItemTop}>
+              <span className={styles.menuItemLabel}>Discover Meals</span>
+              <span className={styles.menuItemDesc}>Browse our curated meal collection</span>
+            </div>
+            <span className={styles.menuItemArrow}>&rsaquo;</span>
           </button>
-        ))}
-      </div>
 
+          {/* AI Generate */}
+          <div className={styles.menuItem}>
+            <div className={styles.menuItemTop}>
+              <span className={styles.menuItemLabel}>AI Generate</span>
+              <span className={styles.menuItemDesc}>Describe a meal and let AI create the recipe</span>
+            </div>
+            <div className={styles.menuItemInput}>
+              <input
+                className={styles.menuInlineInput}
+                type="text"
+                value={aiPrompt}
+                onChange={e => setAiPrompt(e.target.value)}
+                placeholder="e.g. A healthy chicken lunch"
+                onKeyDown={e => { if (e.key === 'Enter' && aiPrompt.trim()) { setImportMode('ai'); setPhase('paste'); handleAiGenerate(); } }}
+              />
+              <button
+                className={styles.menuGoBtn}
+                disabled={!aiPrompt.trim() || fetching}
+                onClick={() => { setImportMode('ai'); setPhase('paste'); handleAiGenerate(); }}
+              >
+                Go
+              </button>
+            </div>
+          </div>
+
+          {/* Import from Link */}
+          <div className={styles.menuItem}>
+            <div className={styles.menuItemTop}>
+              <span className={styles.menuItemLabel}>Import from Link</span>
+              <span className={styles.menuItemDesc}>Websites, Instagram, TikTok, etc.</span>
+            </div>
+            <div className={styles.platformIcons}>
+              <svg className={styles.platformIcon} viewBox="0 0 24 24" title="Website" style={{color: '#555'}}><path fill="currentColor" d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/></svg>
+              <svg className={styles.platformIcon} viewBox="0 0 48 48" title="TikTok"><path fill="#25F4EE" d="M33.3 8.4h-4.1v21.9a5.4 5.4 0 0 1-5.4 5.1 5.4 5.4 0 0 1-2.5-.6 5.4 5.4 0 0 0 7.9-4.8V8.4h4.1z"/><path fill="#25F4EE" d="M34.8 15.2v4.2a13.5 13.5 0 0 1-7.9-2.5v11.4a10 10 0 0 1-10 10 9.9 9.9 0 0 1-5.8-1.9 10 10 0 0 0 17.3-6.8V18.2a13.5 13.5 0 0 0 7.9 2.5v-4.2a9.4 9.4 0 0 1-1.5-1.3z"/><path fill="#FE2C55" d="M26.9 16.9v11.4a10 10 0 0 1-10 10 9.9 9.9 0 0 1-5.8-1.9A10 10 0 0 0 19 40a10 10 0 0 0 10-10V18.6a13.5 13.5 0 0 0 7.9 2.5v-4.2a9.4 9.4 0 0 1-5.9-5.5h-4.1v21.9a5.4 5.4 0 0 1-7.9 4.8 5.4 5.4 0 0 0 8-4.8V16.9z"/><path fill="#010101" d="M26.9 16.9v11.4a10 10 0 0 1-15.8 8.1A10 10 0 0 0 27 28.3V16.9a13.5 13.5 0 0 0 7.9 2.5v-4.2a9.4 9.4 0 0 1-5.9-5.5h-4.1v21.5a5.4 5.4 0 0 1-5.4 5.4 5.4 5.4 0 0 1-5.1-3.5 5.4 5.4 0 0 0 8-4.8V16.9h-1.5z" opacity="0"/></svg>
+              <svg className={styles.platformIcon} viewBox="0 0 24 24" title="Instagram"><defs><linearGradient id="igGrad" x1="0%" y1="100%" x2="100%" y2="0%"><stop offset="0%" stopColor="#FFDC80"/><stop offset="25%" stopColor="#F77737"/><stop offset="50%" stopColor="#E1306C"/><stop offset="75%" stopColor="#C13584"/><stop offset="100%" stopColor="#833AB4"/></linearGradient></defs><path fill="url(#igGrad)" d="M7.8 2h8.4C19.4 2 22 4.6 22 7.8v8.4a5.8 5.8 0 0 1-5.8 5.8H7.8C4.6 22 2 19.4 2 16.2V7.8A5.8 5.8 0 0 1 7.8 2m-.2 2A3.6 3.6 0 0 0 4 7.6v8.8C4 18.39 5.61 20 7.6 20h8.8a3.6 3.6 0 0 0 3.6-3.6V7.6C20 5.61 18.39 4 16.4 4H7.6m9.65 1.5a1.25 1.25 0 1 1 0 2.5 1.25 1.25 0 0 1 0-2.5M12 7a5 5 0 1 1 0 10 5 5 0 0 1 0-10m0 2a3 3 0 1 0 0 6 3 3 0 0 0 0-6z"/></svg>
+              <svg className={styles.platformIcon} viewBox="0 0 24 24" title="Pinterest"><path fill="#E60023" d="M12 2C6.48 2 2 6.48 2 12c0 4.24 2.65 7.86 6.39 9.29-.09-.78-.17-1.98.04-2.83.19-.78 1.22-5.17 1.22-5.17s-.31-.62-.31-1.54c0-1.45.84-2.53 1.88-2.53.89 0 1.32.67 1.32 1.47 0 .89-.57 2.23-.86 3.47-.25 1.04.52 1.88 1.54 1.88 1.84 0 3.26-1.94 3.26-4.75 0-2.48-1.79-4.22-4.33-4.22-2.95 0-4.68 2.21-4.68 4.5 0 .89.34 1.85.77 2.37.08.1.1.19.07.3-.08.31-.25 1.04-.29 1.18-.05.19-.15.23-.35.14-1.31-.61-2.13-2.53-2.13-4.07 0-3.31 2.41-6.36 6.95-6.36 3.64 0 6.48 2.6 6.48 6.07 0 3.62-2.28 6.53-5.45 6.53-1.06 0-2.07-.55-2.41-1.21l-.66 2.5c-.24.91-.88 2.05-1.32 2.75.99.31 2.04.47 3.13.47 5.52 0 10-4.48 10-10S17.52 2 12 2z"/></svg>
+            </div>
+            <div className={styles.menuItemInput}>
+              <input
+                className={styles.menuInlineInput}
+                type="url"
+                value={linkUrl}
+                onChange={e => setLinkUrl(e.target.value)}
+                placeholder="Paste a URL from any supported site..."
+                onKeyDown={e => { if (e.key === 'Enter' && linkUrl.trim()) handleSmartImport(); }}
+                disabled={fetching}
+              />
+              <button
+                className={styles.menuGoBtn}
+                disabled={!linkUrl.trim() || fetching}
+                onClick={handleSmartImport}
+              >
+                {fetching ? '...' : 'Go'}
+              </button>
+            </div>
+            {fetchError && !importMode && <div className={styles.fetchError}>{fetchError}</div>}
+          </div>
+
+          {/* Restaurant */}
+          <div className={styles.menuItem}>
+            <div className={styles.menuItemTop}>
+              <span className={styles.menuItemLabel}>Restaurant</span>
+              <span className={styles.menuItemDesc}>Search restaurant menu items</span>
+            </div>
+            <div className={styles.menuItemInput}>
+              <input
+                className={styles.menuInlineInput}
+                type="text"
+                value={restaurantQuery}
+                onChange={e => setRestaurantQuery(e.target.value)}
+                placeholder="e.g. Chipotle chicken burrito bowl"
+                onKeyDown={e => { if (e.key === 'Enter' && restaurantQuery.trim()) { setImportMode('restaurant'); setPhase('paste'); } }}
+              />
+              <button
+                className={styles.menuGoBtn}
+                disabled={!restaurantQuery.trim()}
+                onClick={() => { setImportMode('restaurant'); setPhase('paste'); }}
+              >
+                Go
+              </button>
+            </div>
+          </div>
+
+          {/* Paste */}
+          <button
+            className={styles.menuItemBtn}
+            onClick={() => { setImportMode('paste'); setPhase('paste'); }}
+          >
+            <div className={styles.menuItemTop}>
+              <span className={styles.menuItemLabel}>Paste Text</span>
+              <span className={styles.menuItemDesc}>Paste recipe text or a table</span>
+            </div>
+            <span className={styles.menuItemArrow}>&rsaquo;</span>
+          </button>
+
+          {/* Manual */}
+          <button
+            className={styles.menuItemBtn}
+            onClick={handleStartManual}
+          >
+            <div className={styles.menuItemTop}>
+              <span className={styles.menuItemLabel}>Manual Entry</span>
+              <span className={styles.menuItemDesc}>Type in the recipe yourself</span>
+            </div>
+            <span className={styles.menuItemArrow}>&rsaquo;</span>
+          </button>
+        </div>
+      )}
+
+      {importMode && <>
+      <button className={styles.backToMenu} onClick={() => { setImportMode(''); setFetchError(''); setRawText(''); }}>
+        &larr; Back to options
+      </button>
       <div className={styles.card}>
+        {importMode === 'discover' && (
+          <DiscoverMealsPanel onSave={onSave} />
+        )}
+
         {importMode === 'ai' && (
           <>
             <label className={styles.label}>
@@ -641,6 +973,40 @@ export function ImportRecipePage({ onSave, onCancel }) {
             >
               Parse Recipe
             </button>
+          </>
+        )}
+
+        {importMode === 'pinterest' && (
+          <>
+            <label className={styles.label}>
+              Pinterest Pin URL
+              <input
+                className={styles.input}
+                type="url"
+                value={pinterestUrl}
+                onChange={e => setPinterestUrl(e.target.value)}
+                placeholder="https://www.pinterest.com/pin/..."
+                disabled={fetching}
+              />
+            </label>
+
+            <div className={styles.urlActions}>
+              <button
+                className={styles.fetchBtn}
+                onClick={handleFetchPinterest}
+                disabled={!pinterestUrl.trim() || fetching}
+              >
+                {fetching ? 'Fetching...' : 'Import from Pinterest'}
+              </button>
+            </div>
+
+            {fetchError && (
+              <div className={styles.fetchError}>{fetchError}</div>
+            )}
+
+            {fetching && (
+              <p className={styles.instagramHelp}>Finding the recipe linked in this pin...</p>
+            )}
           </>
         )}
 
@@ -839,6 +1205,7 @@ export function ImportRecipePage({ onSave, onCancel }) {
           </>
         )}
       </div>
+      </>}
     </div>
   );
 }

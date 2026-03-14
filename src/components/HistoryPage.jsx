@@ -108,7 +108,7 @@ export function HistoryPage({ getRecipe, recipes, onClose }) {
         <button className={styles.backBtn} onClick={onClose}>
           &larr; Back
         </button>
-        <h2 className={styles.title}>History</h2>
+        <h2 className={styles.title}>Meal History</h2>
         {importStatus === null ? (
           <button className={styles.importBtn} onClick={handleImport}>
             Import History

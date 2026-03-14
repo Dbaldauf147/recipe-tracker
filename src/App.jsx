@@ -17,12 +17,95 @@ import { OnboardingPage } from './components/OnboardingPage';
 import { AdminDashboard } from './components/AdminDashboard';
 import { SharedRecipePage } from './components/SharedRecipePage';
 import { GoalsPage } from './components/GoalsPage';
+import { SeasonalGuidePage } from './components/SeasonalGuidePage';
+import { SourcesPage } from './components/SourcesPage';
 import { NutritionGoalsPage } from './components/NutritionGoalsPage';
 import { DailyTrackerPage } from './components/DailyTrackerPage';
 import { BarcodeScannerPage } from './components/BarcodeScannerPage';
 import { RecipeSetupPage } from './components/RecipeSetupPage';
 import React from 'react';
 import styles from './App.module.css';
+
+function HelpBubble({ user, currentView }) {
+  const [open, setOpen] = useState(false);
+  const [message, setMessage] = useState('');
+  const [sending, setSending] = useState(false);
+  const [sent, setSent] = useState(false);
+  const ref = useRef(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function handleClick(e) {
+      if (ref.current && !ref.current.contains(e.target)) setOpen(false);
+    }
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, [open]);
+
+  async function handleSubmit() {
+    if (!message.trim()) return;
+    setSending(true);
+    try {
+      await fetch('/api/notify-signup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type: 'issue',
+          message: message.trim(),
+          page: currentView || 'unknown',
+          userEmail: user?.email || '',
+          userName: user?.displayName || '',
+        }),
+      });
+      setSent(true);
+      setMessage('');
+      setTimeout(() => { setSent(false); setOpen(false); }, 2000);
+    } catch {
+      // silently fail
+    } finally {
+      setSending(false);
+    }
+  }
+
+  return (
+    <div ref={ref} className={styles.helpBubble}>
+      {open && (
+        <div className={styles.helpPanel}>
+          {sent ? (
+            <p className={styles.helpSent}>Thanks! We received your report.</p>
+          ) : (
+            <>
+              <h4 className={styles.helpTitle}>Report an Issue</h4>
+              <textarea
+                className={styles.helpTextarea}
+                rows={4}
+                value={message}
+                onChange={e => setMessage(e.target.value)}
+                placeholder="Describe the issue you're experiencing..."
+                disabled={sending}
+              />
+              <button
+                className={styles.helpSubmit}
+                onClick={handleSubmit}
+                disabled={!message.trim() || sending}
+              >
+                {sending ? 'Sending...' : 'Send Report'}
+              </button>
+            </>
+          )}
+        </div>
+      )}
+      <button
+        className={styles.helpBtn}
+        onClick={() => { setOpen(o => !o); setSent(false); }}
+        aria-label="Report an issue"
+      >
+        <span className={styles.helpBtnIcon}>?</span>
+        <span className={styles.helpBtnText}>Request Help</span>
+      </button>
+    </div>
+  );
+}
 
 class ErrorBoundary extends React.Component {
   constructor(props) { super(props); this.state = { error: null }; }
@@ -87,6 +170,7 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
   const [weeklyPlan, setWeeklyPlan] = useState(loadWeeklyPlan);
   const [weeklyServings, setWeeklyServings] = useState(loadWeeklyServings);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [showImportModal, setShowImportModal] = useState(false);
   const [pendingCount, setPendingCount] = useState(0);
   const [ingredientsVersion, setIngredientsVersion] = useState(0);
   const settingsRef = useRef(null);
@@ -140,7 +224,8 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
     if (nextSelectedId !== undefined) setSelectedId(nextSelectedId);
     setView(nextView);
     const hash = nextSelectedId !== undefined ? `${nextView}/${nextSelectedId}` : nextView;
-    window.history.replaceState(null, '', `#${hash}`);
+    window.history.pushState({ view: nextView, selectedId: nextSelectedId ?? null }, '', `#${hash}`);
+    window.scrollTo(0, 0);
   }
 
   function goBack() {
@@ -159,7 +244,16 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
       window.history.replaceState(null, '', `#${hash}`);
       return next;
     });
+    window.scrollTo(0, 0);
   }
+
+  useEffect(() => {
+    function handlePopState() {
+      goBack();
+    }
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
   function saveWeek(plan) {
     try { localStorage.setItem(WEEKLY_KEY, JSON.stringify(plan)); } catch {}
     if (user) saveField(user.uid, 'weeklyPlan', plan);
@@ -181,8 +275,7 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
   const NAV_ITEMS = [
     { label: 'Shopping List', action: 'shopping' },
     { label: "This Week's Menu", id: 'weekly-menu' },
-    { label: 'Daily Tracker', action: 'daily-tracker' },
-    { label: 'History', action: 'history' },
+    { label: 'Track Meals', action: 'daily-tracker' },
   ];
 
   function handleNavClick(item) {
@@ -371,6 +464,25 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
               <div className={styles.settingsDivider} />
               <button
                 className={styles.settingsMenuItem}
+                onClick={() => { navigateTo('history'); setSettingsOpen(false); }}
+              >
+                Meal History
+              </button>
+              <button
+                className={styles.settingsMenuItem}
+                onClick={() => { navigateTo('seasonal-guide'); setSettingsOpen(false); }}
+              >
+                Seasonal Guide
+              </button>
+              <button
+                className={styles.settingsMenuItem}
+                onClick={() => { navigateTo('sources'); setSettingsOpen(false); }}
+              >
+                Sources
+              </button>
+              <div className={styles.settingsDivider} />
+              <button
+                className={styles.settingsMenuItem}
                 onClick={() => { navigateTo('ingredients'); setSettingsOpen(false); }}
               >
                 Ingredients
@@ -406,7 +518,7 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
         {view === 'barcode-scanner' ? (
           <BarcodeScannerPage onClose={goBack} user={user} />
         ) : view === 'daily-tracker' ? (
-          <DailyTrackerPage recipes={recipes} getRecipe={getRecipe} onClose={goBack} user={user} weeklyPlan={weeklyPlan} />
+          <DailyTrackerPage recipes={recipes} getRecipe={getRecipe} onClose={goBack} user={user} weeklyPlan={weeklyPlan} onViewRecipe={(id) => navigateTo('detail', id)} onImportRecipe={() => navigateTo('import')} />
         ) : view === 'nutrition-goals' ? (() => {
           let savedGoals = {};
           let savedSelected = null;
@@ -435,7 +547,6 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
                   saveField(user.uid, 'nutritionGoals', goals);
                   if (stats) saveField(user.uid, 'bodyStats', stats);
                 }
-                goBack();
               }}
               onBack={goBack}
             />
@@ -471,6 +582,10 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
             onClose={goBack}
             onSetup={() => navigateTo('setup')}
           />
+        ) : view === 'seasonal-guide' ? (
+          <SeasonalGuidePage onClose={goBack} />
+        ) : view === 'sources' ? (
+          <SourcesPage onClose={goBack} />
         ) : view === 'history' ? (
           <HistoryPage
             getRecipe={getRecipe}
@@ -499,8 +614,11 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
               onSave={handleUpdate}
               onDelete={handleDelete}
               onBack={goBack}
+              onAddToWeek={handleAddToWeek}
+              weeklyPlan={weeklyPlan}
               user={user}
               ingredientsVersion={ingredientsVersion}
+              onViewSources={() => navigateTo('sources')}
             />
           </ErrorBoundary>
         ) : view === 'add' ? (
@@ -510,7 +628,7 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
             <RecipeList
               recipes={recipes}
               onSelect={handleSelect}
-              onAdd={() => navigateTo('import')}
+              onAdd={() => setShowImportModal(true)}
               onImport={importRecipes}
               weeklyPlan={weeklyPlan}
               weeklyServings={weeklyServings}
@@ -531,6 +649,18 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
 
       </main>
 
+      {showImportModal && (
+        <div className={styles.importModalOverlay} onClick={() => setShowImportModal(false)}>
+          <div className={styles.importModalContent} onClick={e => e.stopPropagation()}>
+            <button className={styles.importModalClose} onClick={() => setShowImportModal(false)}>&times;</button>
+            <ImportRecipePage
+              onSave={(data) => { addRecipe(data); setShowImportModal(false); }}
+              onCancel={() => setShowImportModal(false)}
+            />
+          </div>
+        </div>
+      )}
+
       {showGoalsModal && (
         <GoalsPage
           asModal
@@ -542,6 +672,8 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
           onBack={onCloseGoalsModal}
         />
       )}
+
+      <HelpBubble user={user} currentView={view} />
     </div>
   );
 }
@@ -603,7 +735,7 @@ function App() {
   }
 
   if (currentOnboardingStep === 'recipe-setup') {
-    return <RecipeSetupPage onComplete={completeRecipeSetup} onBack={goBackOnboarding} onSkip={completeRecipeSetup} />;
+    return <ImportRecipePage onSave={(data) => { addRecipe(data); completeRecipeSetup(); }} onCancel={completeRecipeSetup} />;
   }
 
   // key={user?.uid} forces full remount when the user changes,
