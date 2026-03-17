@@ -372,8 +372,40 @@ export function NutritionPanel({ recipeId, ingredients, servings = 1, portionLab
     );
   }
 
-  const { items, totals } = data;
-  const perServing = divideNutrients(totals, servings);
+  const { items, totals: rawTotals } = data;
+
+  // Separate main vs per-meal (topping) ingredient nutrients
+  // Per-meal ingredients are applied per serving, not divided
+  const mainTotals = {};
+  const toppingTotals = {};
+  for (const n of NUTRIENTS) {
+    mainTotals[n.key] = 0;
+    toppingTotals[n.key] = 0;
+  }
+  const filteredIngredients = (ingredients || []).filter(row => (row.ingredient || '').trim());
+  items.forEach((item, i) => {
+    const isTopping = filteredIngredients[i]?.topping;
+    for (const n of NUTRIENTS) {
+      if (isTopping) {
+        toppingTotals[n.key] += item.nutrients[n.key] || 0;
+      } else {
+        mainTotals[n.key] += item.nutrients[n.key] || 0;
+      }
+    }
+  });
+
+  // Total recipe = main ingredients + (topping × servings)
+  const totals = {};
+  for (const n of NUTRIENTS) {
+    totals[n.key] = Math.round((mainTotals[n.key] + toppingTotals[n.key] * servings) * 100) / 100;
+  }
+
+  // Per serving = (main / servings) + topping
+  const perServing = {};
+  for (const n of NUTRIENTS) {
+    const val = (servings > 0 ? mainTotals[n.key] / servings : mainTotals[n.key]) + toppingTotals[n.key];
+    perServing[n.key] = Math.round(val);
+  }
 
   return (
     <div className={styles.container}>
@@ -425,8 +457,11 @@ export function NutritionPanel({ recipeId, ingredients, servings = 1, portionLab
           const pct = Math.round((actual / mealGoal) * 100);
           if (pct > 100 && SHOW_CONTRIBUTORS.includes(n.key) && items.length > 0) {
             const sorted = [...items]
-              .map(it => {
-                const val = usePerServing ? (it.nutrients[n.key] || 0) / servings : (it.nutrients[n.key] || 0);
+              .map((it, idx) => {
+                const isTopping = filteredIngredients[idx]?.topping;
+                const raw = it.nutrients[n.key] || 0;
+                // Per-meal (topping) items are already per-serving, main items get divided
+                const val = usePerServing ? (isTopping ? raw : raw / servings) : (isTopping ? raw * servings : raw);
                 const look = ingLookup[(it.matchedTo || '').trim().toLowerCase()] || {};
                 return { name: it.matchedTo, val, qty: look.qty, meas: look.meas, unit: n.unit };
               })

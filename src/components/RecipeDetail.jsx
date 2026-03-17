@@ -1215,64 +1215,8 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
         onNutritionData={(d) => setNutritionTotals(d?.totals || null)}
       />
 
-      <div className={styles.ingredientsCol}>
-        <div className={styles.ingredientsHeader}>
-          <h3>Ingredients</h3>
-          <div className={styles.ingredientsActions}>
-            <div className={styles.servingAdjuster}>
-              <button
-                className={styles.servingBtn}
-                type="button"
-                onClick={() => setAdjustedServings(Math.max(1, currentServings - 1))}
-              >
-                &minus;
-              </button>
-              <span className={styles.servingDisplay}>
-                {currentServings} {currentServings === 1 ? 'serving' : 'servings'}
-              </span>
-              <button
-                className={styles.servingBtn}
-                type="button"
-                onClick={() => setAdjustedServings(currentServings + 1)}
-              >
-                +
-              </button>
-              {adjustedServings !== null && adjustedServings !== baseServings && (
-                <>
-                  <button
-                    className={styles.servingReset}
-                    type="button"
-                    onClick={() => setAdjustedServings(null)}
-                  >
-                    Reset
-                  </button>
-                  <button
-                    className={styles.servingSave}
-                    type="button"
-                    onClick={() => {
-                      const factor = baseServings > 0 ? adjustedServings / baseServings : 1;
-                      setFields(prev => ({
-                        ...prev,
-                        servings: String(adjustedServings),
-                        ingredients: prev.ingredients.map(row => {
-                          const num = parseFraction(row.quantity);
-                          if (num === 0) return row;
-                          return { ...row, quantity: formatQuantity(num * factor) };
-                        }),
-                      }));
-                      setAdjustedServings(null);
-                    }}
-                  >
-                    Save
-                  </button>
-                </>
-              )}
-            </div>
-          </div>
-        </div>
-
-        <details className={styles.weightDetails}>
-          <summary>Scale weight</summary>
+      <details className={styles.weightDetails}>
+          <summary>Weigh portion size</summary>
           <div className={styles.weightAdjuster}>
             <label className={styles.weightLabel}>
               Total weight
@@ -1347,6 +1291,63 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
             )}
           </div>
         </details>
+
+      <div className={styles.ingredientsCol}>
+        <div className={styles.ingredientsHeader}>
+          <h3>Ingredients</h3>
+          <div className={styles.ingredientsActions}>
+            <div className={styles.servingAdjuster}>
+              <button
+                className={styles.servingBtn}
+                type="button"
+                onClick={() => setAdjustedServings(Math.max(1, currentServings - 1))}
+              >
+                &minus;
+              </button>
+              <span className={styles.servingDisplay}>
+                {currentServings} {currentServings === 1 ? 'serving' : 'servings'}
+              </span>
+              <button
+                className={styles.servingBtn}
+                type="button"
+                onClick={() => setAdjustedServings(currentServings + 1)}
+              >
+                +
+              </button>
+              {adjustedServings !== null && adjustedServings !== baseServings && (
+                <>
+                  <button
+                    className={styles.servingReset}
+                    type="button"
+                    onClick={() => setAdjustedServings(null)}
+                  >
+                    Reset
+                  </button>
+                  <button
+                    className={styles.servingSave}
+                    type="button"
+                    onClick={() => {
+                      const factor = baseServings > 0 ? adjustedServings / baseServings : 1;
+                      setFields(prev => ({
+                        ...prev,
+                        servings: String(adjustedServings),
+                        ingredients: prev.ingredients.map(row => {
+                          const num = parseFraction(row.quantity);
+                          if (num === 0) return row;
+                          return { ...row, quantity: formatQuantity(num * factor) };
+                        }),
+                      }));
+                      setAdjustedServings(null);
+                    }}
+                  >
+                    Save
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+
 
         {editingIngredients ? (
           <>
