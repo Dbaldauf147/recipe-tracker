@@ -810,6 +810,46 @@
   accent-color: var(--color-accent);
 }
 
+/* ── Snack Tracker ── */
+.snackList {
+  margin-top: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.snackItem {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.4rem 0.6rem;
+  background: var(--color-surface-alt, #f9f7f4);
+  border: 1px solid var(--color-border-light, #f0f0f0);
+  border-radius: var(--radius-sm);
+  font-size: 0.85rem;
+}
+
+.snackItemCal {
+  margin-left: auto;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--color-text-muted);
+}
+
+.snackItemRemove {
+  background: none;
+  border: none;
+  color: var(--color-text-muted);
+  font-size: 1rem;
+  cursor: pointer;
+  opacity: 0.4;
+}
+
+.snackItemRemove:hover {
+  opacity: 1;
+  color: var(--color-danger, #dc2626);
+}
+
 /* ── AI Estimate ── */
 
 .aiEstimateHint {

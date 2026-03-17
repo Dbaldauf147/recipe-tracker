@@ -521,7 +521,8 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
   const weightBasedServings = (foodWeight > 0 && servingWeightNum > 0)
     ? (servingWeightNum / foodWeight) * baseServings
     : null;
-  const currentServings = weightBasedServings ?? adjustedServings ?? baseServings;
+  const rawCurrentServings = weightBasedServings ?? adjustedServings ?? baseServings;
+  const currentServings = typeof rawCurrentServings === 'number' ? parseFloat(rawCurrentServings.toFixed(2)) : rawCurrentServings;
   const scaleFactor = baseServings > 0 ? currentServings / baseServings : 1;
 
   function scaleQuantity(qty) {
@@ -671,6 +672,8 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
     });
   }
 
+  const [stepVersion, setStepVersion] = useState(0);
+
   function moveStep(from, to) {
     if (to < 0 || to >= fields.steps.length) return;
     setFields(prev => {
@@ -686,6 +689,7 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
       pairs.forEach((p, i) => { if (p.ings.length > 0) newMap[i] = p.ings; });
       return { ...prev, steps: newSteps, stepIngredients: newMap };
     });
+    setStepVersion(v => v + 1);
   }
 
   const [stepDragIdx, setStepDragIdx] = useState(null);
@@ -720,6 +724,7 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
       pairs.forEach((p, i) => { if (p.ings.length > 0) newMap[i] = p.ings; });
       return { ...prev, steps: newSteps, stepIngredients: newMap };
     });
+    setStepVersion(v => v + 1);
     setStepDragIdx(null);
     setStepDragOverIdx(null);
   }
@@ -970,7 +975,7 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
                   />
                 </label>
                 <label className={styles.metaLabel}>
-                  Prep
+                  Prep Time
                   <input
                     className={`${styles.inlineInput} ${styles.metaInput}`}
                     type="text"
@@ -980,7 +985,7 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
                   />
                 </label>
                 <label className={styles.metaLabel}>
-                  Cook
+                  Cook Time
                   <input
                     className={`${styles.inlineInput} ${styles.metaInput}`}
                     type="text"
@@ -1782,16 +1787,6 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
 
         {cookMode ? (
           <div className={styles.cookModeView}>
-            <table className={styles.cookModeTable}>
-              <thead>
-                <tr>
-                  <th className={styles.cookModeStepCol}>Instructions</th>
-                  <th>Qty</th>
-                  <th>Unit</th>
-                  <th>Ingredient</th>
-                </tr>
-              </thead>
-              <tbody>
                 {(editing ? fields.steps : fields.steps.filter(s => s.trim())).map((step, si) => {
                   const assignedIndices = fields.stepIngredients[si] || [];
                   const assignedIngs = assignedIndices.map(idx => fields.ingredients[idx]).filter(Boolean);
@@ -1799,13 +1794,17 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
                     ing.ingredient.trim() && !Object.values(fields.stepIngredients).flat().includes(idx)
                   );
                   return (
-                    <React.Fragment key={si}>
-                      <tr
-                        className={`${styles.cookModeRow} ${stepDragIdx === si ? styles.draggingRow : ''} ${stepDragOverIdx === si ? styles.dragOverRow : ''}`}
-                        onDragOver={e => { if (editing) { e.preventDefault(); handleStepDragOver(e, si); } }}
-                        onDrop={e => editing && handleStepDrop(e, si)}
-                        onDragEnd={() => { setStepDragIdx(null); setStepDragOverIdx(null); }}
-                      >
+                    <div
+                      key={si}
+                      className={`${styles.cookModeStepGroup} ${stepDragIdx === si ? styles.draggingRow : ''} ${stepDragOverIdx === si ? styles.dragOverRow : ''}`}
+                      onDragOver={e => { if (editing) { e.preventDefault(); handleStepDragOver(e, si); } }}
+                      onDrop={e => editing && handleStepDrop(e, si)}
+                      onDragEnd={() => { setStepDragIdx(null); setStepDragOverIdx(null); }}
+                    >
+                    <table className={styles.cookModeTable}>
+                    <colgroup><col/><col/><col/><col/></colgroup>
+                    <tbody>
+                      <tr className={styles.cookModeRow}>
                         <td className={styles.cookModeStep} rowSpan={Math.max(1, assignedIngs.length)}>
                           <div className={styles.cookModeStepHeader}>
                             {editing && <span className={styles.cookModeDragHandle} draggable onDragStart={e => handleStepDragStart(e, si)} title="Drag to reorder">&#x2630;</span>}
@@ -1819,6 +1818,7 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
                           </div>
                           {editing ? (
                             <div
+                              key={`cm-${si}-v${stepVersion}`}
                               className={styles.cookModeStepInput}
                               contentEditable
                               suppressContentEditableWarning
@@ -2011,11 +2011,10 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
                           </td>
                         </tr>
                       ))}
-                    </React.Fragment>
+                    </tbody></table>
+                    </div>
                   );
                 })}
-              </tbody>
-            </table>
             {editing && (
               <button className={styles.addRowBtn} type="button" onClick={addStep}>
                 + Add step
@@ -2040,36 +2039,10 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
                   <div className={styles.stepHeader}>
                     <span className={styles.dragHandle} title="Drag to reorder">≡</span>
                     <span className={styles.stepLabel}>Step {i + 1}</span>
-                    <div className={styles.stepArrows}>
-                      {i > 0 && (
-                        <button
-                          className={styles.stepArrowBtn}
-                          type="button"
-                          onClick={() => moveStep(i, i - 1)}
-                          title="Move up"
-                        >
-                          ↑
-                        </button>
-                      )}
-                      {i < fields.steps.length - 1 && (
-                        <button
-                          className={styles.stepArrowBtn}
-                          type="button"
-                          onClick={() => moveStep(i, i + 1)}
-                          title="Move down"
-                        >
-                          ↓
-                        </button>
-                      )}
-                    </div>
                   </div>
                   <div className={styles.stepInputWrap}>
-                    <div className={styles.formatBar}>
-                      <button type="button" className={styles.formatBtn} title="Bold (Ctrl+B)" onMouseDown={e => { e.preventDefault(); applyFormat('bold'); }}><strong>B</strong></button>
-                      <button type="button" className={styles.formatBtn} title="Italic (Ctrl+I)" onMouseDown={e => { e.preventDefault(); applyFormat('italic'); }}><em>I</em></button>
-                      <button type="button" className={styles.formatBtn} title="Underline (Ctrl+U)" onMouseDown={e => { e.preventDefault(); applyFormat('underline'); }}><u>U</u></button>
-                    </div>
                     <div
+                      key={`std-${i}-v${stepVersion}`}
                       className={styles.stepInput}
                       contentEditable
                       suppressContentEditableWarning

@@ -575,7 +575,13 @@
   width: 100%;
   border-collapse: collapse;
   font-size: 0.88rem;
+  table-layout: fixed;
 }
+
+.cookModeTable col:nth-child(1) { width: 60%; }
+.cookModeTable col:nth-child(2) { width: 8%; }
+.cookModeTable col:nth-child(3) { width: 10%; }
+.cookModeTable col:nth-child(4) { width: 22%; }
 
 .cookModeTable th {
   text-align: left;
@@ -602,8 +608,22 @@
   border-bottom: 1px solid var(--color-border);
 }
 
-.cookModeStep {
+.cookModeStepGroup {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  margin-bottom: 0.75rem;
+  overflow: hidden;
+}
+
+.cookModeStepGroup:nth-child(odd) {
+  background: var(--color-surface);
+}
+
+.cookModeStepGroup:nth-child(even) {
   background: var(--color-surface-alt, #f9f7f4);
+}
+
+.cookModeStep {
   border-right: 3px solid var(--color-accent);
 }
 
@@ -620,7 +640,7 @@
 .cookModeStepHeader {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  gap: 0.4rem;
 }
 
 .cookModeDragHandle {
@@ -643,6 +663,7 @@
   cursor: pointer;
   opacity: 0.4;
   line-height: 1;
+  margin-left: auto;
 }
 
 .cookModeStepDelete:hover {
@@ -803,64 +824,10 @@
   color: var(--color-accent);
 }
 
-.stepArrows {
-  display: flex;
-  gap: 0.2rem;
-  margin-left: auto;
-}
-
-.stepArrowBtn {
-  background: var(--color-surface-alt, #f0f0f0);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm, 6px);
-  width: 28px;
-  height: 28px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  font-size: 0.85rem;
-  color: var(--color-text-secondary);
-  transition: background 0.15s ease, color 0.15s ease;
-}
-
-.stepArrowBtn:hover {
-  background: var(--color-accent);
-  color: #fff;
-  border-color: var(--color-accent);
-}
-
 .stepInputWrap {
   display: flex;
   align-items: flex-start;
   gap: 0.4rem;
-}
-
-.formatBar {
-  display: flex;
-  gap: 0.2rem;
-  margin-bottom: 0.25rem;
-}
-
-.formatBtn {
-  width: 28px;
-  height: 24px;
-  border: 1px solid var(--color-border);
-  border-radius: 4px;
-  background: var(--color-surface);
-  font-size: 0.78rem;
-  font-family: inherit;
-  color: var(--color-text);
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: background 0.12s ease, border-color 0.12s ease;
-}
-
-.formatBtn:hover {
-  background: var(--color-surface-alt, #f5f3f0);
-  border-color: var(--color-accent);
 }
 
 .stepInput {

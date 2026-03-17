@@ -895,6 +895,119 @@ function CustomMealInline({ onAdd, onBack }) {
   );
 }
 
+/* ── Multi Snack Tracker (direct search, add multiple) ── */
+function SnackTrackerInline({ onAdd, onClose }) {
+  const [items, setItems] = useState([]);
+  const [ingredientName, setIngredientName] = useState('');
+  const [quantity, setQuantity] = useState('');
+  const [measurement, setMeasurement] = useState('g');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+
+  async function handleAddItem() {
+    if (!ingredientName.trim()) return;
+    setLoading(true);
+    setError('');
+    try {
+      const result = await fetchNutritionForIngredient({
+        ingredient: ingredientName.trim(),
+        quantity: quantity || '1',
+        measurement,
+      });
+      if (!result) {
+        setError('No nutrition data found.');
+        return;
+      }
+      setItems(prev => [...prev, {
+        id: uuid(),
+        ingredientName: ingredientName.trim(),
+        quantity: parseFloat(quantity) || 1,
+        measurement,
+        nutrition: result.nutrients,
+      }]);
+      setIngredientName('');
+      setQuantity('');
+      setMeasurement('g');
+    } catch {
+      setError('Failed to look up nutrition.');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function removeItem(id) {
+    setItems(prev => prev.filter(i => i.id !== id));
+  }
+
+  function handleSubmitAll() {
+    for (const item of items) {
+      onAdd({
+        id: uuid(),
+        type: 'custom',
+        ingredientName: item.ingredientName,
+        quantity: item.quantity,
+        measurement: item.measurement,
+        mealSlot: 'snack',
+        timestamp: new Date().toISOString(),
+        nutrition: item.nutrition,
+      });
+    }
+    if (onClose) onClose();
+  }
+
+  return (
+    <div>
+      <div className={styles.formRow}>
+        <div className={styles.formField}>
+          <span className={styles.formLabel}>Search ingredient</span>
+          <IngredientCombobox
+            value={ingredientName}
+            onChange={setIngredientName}
+            onSelect={(item) => {
+              setIngredientName(item.ingredient);
+              if (item.measurement) {
+                const m = item.measurement.toLowerCase().replace(/\(s\)/g, '').replace(/_.*$/, '').trim();
+                setMeasurement(m || 'g');
+              }
+            }}
+          />
+        </div>
+        <div className={styles.formFieldSmall}>
+          <span className={styles.formLabel}>Qty</span>
+          <input className={styles.formInput} type="number" value={quantity} onChange={e => setQuantity(e.target.value)} placeholder="1" min="0.1" step="0.1" />
+        </div>
+        <div className={styles.formFieldSmall}>
+          <span className={styles.formLabel}>Unit</span>
+          <input className={styles.formInput} type="text" list="snack-unit-opts" value={measurement} onChange={e => setMeasurement(e.target.value)} placeholder="g" />
+          <datalist id="snack-unit-opts">
+            {MEASUREMENT_OPTIONS.map(m => <option key={m} value={m} />)}
+          </datalist>
+        </div>
+        <button className={styles.mealIngAddBtn} onClick={handleAddItem} disabled={loading || !ingredientName.trim()}>
+          {loading ? '...' : '+'}
+        </button>
+      </div>
+      {error && <p className={styles.addError}>{error}</p>}
+
+      {items.length > 0 && (
+        <div className={styles.snackList}>
+          {items.map(item => (
+            <div key={item.id} className={styles.snackItem}>
+              <span>{item.quantity} {item.measurement} {item.ingredientName}</span>
+              <span className={styles.snackItemCal}>{Math.round(item.nutrition?.calories || 0)} cal</span>
+              <button className={styles.snackItemRemove} onClick={() => removeItem(item.id)}>&times;</button>
+            </div>
+          ))}
+          <button className={styles.addBtn} onClick={handleSubmitAll}>
+            Add {items.length} Snack{items.length > 1 ? 's' : ''}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* ── Track Single Ingredient ── */
 function TrackIngredientInline({ onAdd, onBack }) {
   const [ingredientName, setIngredientName] = useState('');
@@ -2192,6 +2305,7 @@ function KpiAlerts({ dailyLog, recipes, onImportRecipe, cacheVersion, onViewReci
       }
     }
 
+    results.sort((a, b) => a.pct - b.pct);
     return results;
   }, [dailyLog, goals, recipes, cacheVersion, endDate]);
 
@@ -2440,7 +2554,12 @@ export function DailyTrackerPage({ recipes, getRecipe, onClose, user, weeklyPlan
               </h3>
               <button className={styles.modalClose} onClick={() => setAddModal(null)}>&times;</button>
             </div>
-            {!addModal.mode ? (
+            {!addModal.mode && addModal.targetSlot === 'snack' ? (
+              <SnackTrackerInline
+                onAdd={(entry) => { addEntry(entry, addModal.targetDate, addModal.targetSlot); }}
+                onClose={() => setAddModal(null)}
+              />
+            ) : !addModal.mode ? (
               <div className={styles.trackMenuOptions}>
                 {(() => {
                   // Find 3 recently tracked recipes for this slot type
@@ -2504,13 +2623,6 @@ export function DailyTrackerPage({ recipes, getRecipe, onClose, user, weeklyPlan
                   <div className={styles.trackMenuBtnInfo}>
                     <span className={styles.trackMenuBtnLabel}>Import New Recipe</span>
                     <span className={styles.trackMenuBtnDesc}>Import from URL, TikTok, or other sources</span>
-                  </div>
-                  <span className={styles.trackMenuBtnArrow}>&rsaquo;</span>
-                </button>
-                <button className={styles.trackMenuBtn} onClick={() => setAddModal(prev => ({ ...prev, mode: 'ingredient' }))}>
-                  <div className={styles.trackMenuBtnInfo}>
-                    <span className={styles.trackMenuBtnLabel}>Track Ingredient</span>
-                    <span className={styles.trackMenuBtnDesc}>Log a single ingredient or snack item</span>
                   </div>
                   <span className={styles.trackMenuBtnArrow}>&rsaquo;</span>
                 </button>
