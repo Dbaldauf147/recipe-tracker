@@ -2208,7 +2208,9 @@ function WeeklyView({ dailyLog, date, recipes, onDayClick, onMoveEntry, onAddToS
 /* ── KPI Alerts (merged with recommendations) ── */
 const WEEKLY_PLAN_KEY = 'sunday-weekly-plan';
 
-function KpiAlerts({ dailyLog, recipes, onImportRecipe, cacheVersion, onViewRecipe, selectedDate }) {
+const ADMIN_UID = import.meta.env.VITE_ADMIN_UID;
+
+function KpiAlerts({ dailyLog, recipes, onImportRecipe, cacheVersion, onViewRecipe, selectedDate, user }) {
   const goals = useMemo(loadGoals, []);
   const [, forceUpdate] = useState(0);
   const [confirmAdd, setConfirmAdd] = useState(null); // recipeId or null
@@ -2376,12 +2378,53 @@ function KpiAlerts({ dailyLog, recipes, onImportRecipe, cacheVersion, onViewReci
     return results;
   }, [dailyLog, goals, recipes, cacheVersion, endDate]);
 
-  if (data.length === 0) return null;
+  // Admin-only: tracking quality stats for past week
+  const trackingStats = useMemo(() => {
+    if (!user || user.uid !== ADMIN_UID) return null;
+    let totalSlots = 0;
+    let estimatedCount = 0;
+    let untrackedCount = 0;
+    for (let i = 0; i < 7; i++) {
+      const dateStr = shiftDate(endDate, -i);
+      const dayData = dailyLog[dateStr] || {};
+      if (dayData.daySkipped) continue;
+      const skippedMeals = dayData.skippedMeals || [];
+      const activeSlots = ['breakfast', 'lunch', 'dinner'].filter(s => !skippedMeals.includes(s));
+      totalSlots += activeSlots.length;
+      const entries = dayData.entries || [];
+      for (const slot of activeSlots) {
+        const slotEntries = entries.filter(e => (e.mealSlot || 'snack') === slot);
+        if (slotEntries.length === 0) {
+          untrackedCount++;
+        } else if (slotEntries.some(e => e.type === 'custom_meal' || e.type === 'custom')) {
+          estimatedCount++;
+        }
+      }
+    }
+    if (totalSlots === 0) return null;
+    return {
+      estimatedPct: Math.round((estimatedCount / totalSlots) * 100),
+      untrackedPct: Math.round((untrackedCount / totalSlots) * 100),
+    };
+  }, [dailyLog, user, endDate]);
+
+  if (data.length === 0 && !trackingStats) return null;
 
   return (
     <div className={styles.kpiAlerts}>
       <h3 className={styles.kpiTitle}>Areas to Improve</h3>
       <p className={styles.kpiSubtitle}>Based on the food log from {dateRangeLabel}</p>
+      {trackingStats && (
+        <div className={styles.trackingQuality}>
+          <span className={styles.trackingStat}>
+            <strong>{trackingStats.estimatedPct}%</strong> estimated meals
+          </span>
+          <span className={styles.trackingStatDivider}>&middot;</span>
+          <span className={styles.trackingStat}>
+            <strong>{trackingStats.untrackedPct}%</strong> not tracked
+          </span>
+        </div>
+      )}
       <div className={styles.kpiList}>
         {data.map(a => (
           <div key={a.label} className={styles.kpiItem}>
@@ -2611,7 +2654,7 @@ export function DailyTrackerPage({ recipes, getRecipe, onClose, user, weeklyPlan
         <HistoryChart dailyLog={dailyLog} />
         <ServingsChart dailyLog={dailyLog} />
       </div>
-      <KpiAlerts dailyLog={dailyLog} recipes={recipes} onImportRecipe={onImportRecipe} cacheVersion={cacheVersion} onViewRecipe={(id) => setViewRecipeId(id)} selectedDate={date} />
+      <KpiAlerts dailyLog={dailyLog} recipes={recipes} onImportRecipe={onImportRecipe} cacheVersion={cacheVersion} onViewRecipe={(id) => setViewRecipeId(id)} selectedDate={date} user={user} />
       {addModal && (
         <div className={styles.modalOverlay} onClick={() => setAddModal(null)}>
           <div className={styles.modalContent} onClick={e => e.stopPropagation()}>
@@ -2619,7 +2662,17 @@ export function DailyTrackerPage({ recipes, getRecipe, onClose, user, weeklyPlan
               <h3 className={styles.modalTitle}>
                 Track {MEAL_LABELS[addModal.targetSlot]} — {formatDate(addModal.targetDate)}
               </h3>
-              <button className={styles.modalClose} onClick={() => setAddModal(null)}>&times;</button>
+              <div className={styles.modalHeaderRight}>
+                {!addModal.mode && addModal.targetSlot !== 'snack' && (() => {
+                  const isSkipped = (dailyLog[addModal.targetDate]?.skippedMeals || []).includes(addModal.targetSlot);
+                  return (
+                    <button className={styles.skipMealHeaderBtn} onClick={() => { toggleSkipMeal(addModal.targetSlot, addModal.targetDate); setAddModal(null); }}>
+                      {isSkipped ? 'Resume Tracking' : `I Didn't Eat ${MEAL_LABELS[addModal.targetSlot]}`}
+                    </button>
+                  );
+                })()}
+                <button className={styles.modalClose} onClick={() => setAddModal(null)}>&times;</button>
+              </div>
             </div>
             {!addModal.mode && addModal.targetSlot === 'snack' ? (
               <SnackTrackerInline
@@ -2749,17 +2802,6 @@ export function DailyTrackerPage({ recipes, getRecipe, onClose, user, weeklyPlan
                   </div>
                   <span className={styles.trackMenuBtnArrow}>&rsaquo;</span>
                 </button>
-                {addModal.targetSlot !== 'snack' && (() => {
-                  const isSkipped = (dailyLog[addModal.targetDate]?.skippedMeals || []).includes(addModal.targetSlot);
-                  return (
-                    <button className={isSkipped ? styles.trackMenuBtnActive : styles.trackMenuBtn} onClick={() => { toggleSkipMeal(addModal.targetSlot, addModal.targetDate); setAddModal(null); }}>
-                      <div className={styles.trackMenuBtnInfo}>
-                        <span className={styles.trackMenuBtnLabel}>{isSkipped ? 'Resume Tracking' : `I Didn't Eat ${MEAL_LABELS[addModal.targetSlot]}`}</span>
-                        <span className={styles.trackMenuBtnDesc}>{isSkipped ? 'Start tracking this meal again' : 'Skip this meal for the day'}</span>
-                      </div>
-                    </button>
-                  );
-                })()}
               </div>
             ) : addModal.mode === 'adjust' ? (
               <AddRecipeAdjust

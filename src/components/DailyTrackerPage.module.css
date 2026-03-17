@@ -601,6 +601,31 @@
   color: var(--color-text);
 }
 
+.modalHeaderRight {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.skipMealHeaderBtn {
+  background: none;
+  border: 1px solid var(--color-border);
+  border-radius: 50px;
+  padding: 0.3rem 0.75rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  font-family: inherit;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: border-color 0.15s ease, color 0.15s ease;
+}
+
+.skipMealHeaderBtn:hover {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+
 .recipeModalContent {
   background: var(--color-surface);
   border-radius: 16px;
@@ -771,6 +796,7 @@
   display: flex;
   flex-direction: column;
   gap: 0.3rem;
+  align-items: flex-start;
 }
 
 .recentMealBtn {
@@ -2231,6 +2257,23 @@
 .kpiSubtitle {
   margin: 0 0 0.75rem;
   font-size: 0.82rem;
+  color: var(--color-text-muted);
+}
+
+.trackingQuality {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+  font-size: 0.8rem;
+  color: var(--color-text-secondary);
+}
+
+.trackingStat strong {
+  color: var(--color-text);
+}
+
+.trackingStatDivider {
   color: var(--color-text-muted);
 }
 
