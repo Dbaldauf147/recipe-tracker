@@ -1240,9 +1240,9 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
                 <thead>
                   <tr>
                     <th></th>
-                    <th>Food + Container</th>
+                    <th>All Food + Containers</th>
                     <th>Container</th>
-                    <th>Container Weight</th>
+                    <th>Total Weight of Containers</th>
                     <th>Food Weight</th>
                     <th>My Serving</th>
                     <th>Servings</th>
