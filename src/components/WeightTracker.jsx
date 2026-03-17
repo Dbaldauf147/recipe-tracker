@@ -327,7 +327,17 @@ export function WeightTracker({ onClose, user }) {
       : ws.repeatUnit === 'month' ? ws.repeatEvery * 30
       : ws.repeatEvery * 365;
     const GAP_THRESHOLD = baseInterval + Math.round(baseInterval * 0.3); // interval + 30% buffer (weekly = 9 days)
-    // Track used week labels to disambiguate duplicates
+    // Collect all week numbers that have actual data
+    const actualWeeks = new Set();
+    if (ws.repeatUnit === 'week') {
+      for (const e of filtered) {
+        const dt = new Date(e.date + 'T00:00:00');
+        const startOfYear = new Date(dt.getFullYear(), 0, 1);
+        const wkDiff = (dt - startOfYear + ((startOfYear.getDay() + 6) % 7) * 86400000);
+        actualWeeks.add(Math.ceil(wkDiff / 604800000));
+      }
+    }
+
     const usedWeekLabels = {};
     function getLabel(dateStr) {
       const [y, m, d] = dateStr.split('-');
@@ -338,7 +348,6 @@ export function WeightTracker({ onClose, user }) {
         const wk = Math.ceil(wkDiff / 604800000);
         const key = `Wk ${wk}`;
         if (usedWeekLabels[key]) {
-          // Second entry in same week — add date
           return `${parseInt(m)}/${parseInt(d)}`;
         }
         usedWeekLabels[key] = true;
@@ -373,6 +382,13 @@ export function WeightTracker({ onClose, user }) {
             const estDate = new Date(prevDate.getTime() + frac * (currDate - prevDate));
             const estDateStr = `${estDate.getFullYear()}-${String(estDate.getMonth() + 1).padStart(2, '0')}-${String(estDate.getDate()).padStart(2, '0')}`;
             const estWeight = Math.round((prevWeight + (currWeight - prevWeight) * frac) * 10) / 10;
+            // Skip if this estimated point falls in a week that has actual data
+            if (ws.repeatUnit === 'week') {
+              const estDt = new Date(estDateStr + 'T00:00:00');
+              const soy = new Date(estDt.getFullYear(), 0, 1);
+              const estWk = Math.ceil((estDt - soy + ((soy.getDay() + 6) % 7) * 86400000) / 604800000);
+              if (actualWeeks.has(estWk)) continue;
+            }
             points.push({
               date: getLabel(estDateStr),
               weight: estWeight,
