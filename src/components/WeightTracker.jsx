@@ -665,8 +665,59 @@ export function WeightTracker({ onClose, user }) {
                 </tr>
               );
             })()}
-            {[...log].reverse().map((entry, i) => (
-              <tr key={entry.date + '-' + i}>
+            {(() => {
+              // Build merged list: real entries + missed scheduled weigh-ins
+              const ws = getWeighSettings();
+              const logSet = new Set(log.map(e => e.date));
+              const today = new Date(); today.setHours(0, 0, 0, 0);
+              const merged = [];
+              const reversedLog = [...log].reverse();
+
+              for (let li = 0; li < reversedLog.length; li++) {
+                const entry = reversedLog[li];
+                merged.push({ type: 'entry', entry, logIndex: log.length - 1 - li });
+
+                // Check for missed dates between this entry and the next (older) one
+                if (li < reversedLog.length - 1) {
+                  const nextEntry = reversedLog[li + 1];
+                  const startDate = new Date(nextEntry.date + 'T00:00:00');
+                  const endDate = new Date(entry.date + 'T00:00:00');
+                  // Scan between the two dates for missed scheduled days
+                  const missed = [];
+                  const d = new Date(endDate);
+                  d.setDate(d.getDate() - 1);
+                  while (d > startDate) {
+                    if (isWeighDay(d, ws) && d < today) {
+                      const ds = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+                      if (!logSet.has(ds)) missed.push(ds);
+                    }
+                    d.setDate(d.getDate() - 1);
+                  }
+                  for (const mDate of missed) {
+                    merged.push({ type: 'missed', date: mDate });
+                  }
+                }
+              }
+
+              return merged.map((item, mi) => {
+                if (item.type === 'missed') {
+                  const d = new Date(item.date + 'T00:00:00');
+                  const start = new Date(d.getFullYear(), 0, 1);
+                  const diff = (d - start + ((start.getDay() + 6) % 7) * 86400000);
+                  const wk = Math.ceil(diff / 604800000);
+                  return (
+                    <tr key={`missed-${item.date}`} className={styles.missedRow}>
+                      <td>{d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</td>
+                      <td className={styles.weekCol}>{wk}</td>
+                      <td className={styles.missedLabel}>Missing</td>
+                      <td></td>
+                    </tr>
+                  );
+                }
+                const entry = item.entry;
+                const i = log.length - 1 - item.logIndex; // reversed index for table
+                return (
+              <tr key={entry.date + '-' + mi}>
                 <td>
                   <input
                     className={styles.logInput}
@@ -676,10 +727,9 @@ export function WeightTracker({ onClose, user }) {
                       const newDate = e.target.value;
                       if (!newDate) return;
                       setLog(prev => {
-                        const idx = prev.length - 1 - i;
+                        const idx = item.logIndex;
                         const next = [...prev];
                         next[idx] = { ...next[idx], date: newDate };
-                        // Re-sort and dedupe
                         const map = {};
                         for (const en of next) { if (en.date && en.weight) map[en.date] = en; }
                         const sorted = Object.values(map).sort((a, b) => a.date.localeCompare(b.date));
@@ -705,7 +755,7 @@ export function WeightTracker({ onClose, user }) {
                     onChange={e => {
                       const w = e.target.value;
                       setLog(prev => {
-                        const idx = prev.length - 1 - i;
+                        const idx = item.logIndex;
                         const next = [...prev];
                         next[idx] = { ...next[idx], weight: parseFloat(w) || '' };
                         saveWeightLog(next.filter(en => en.date && en.weight), user);
@@ -753,7 +803,9 @@ export function WeightTracker({ onClose, user }) {
                   <button className={styles.logDelete} onClick={() => handleDelete(entry.date)}>&times;</button>
                 </td>
               </tr>
-            ))}
+                );
+              });
+            })()}
           </tbody>
         </table>
         {log.length === 0 && <p className={styles.emptyLog}>No entries yet. Log your first weight above.</p>}
