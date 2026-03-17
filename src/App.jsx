@@ -643,7 +643,6 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
             onComplete={(ingredients) => {
               localStorage.setItem('sunday-key-ingredients', JSON.stringify(ingredients));
               if (user) saveField(user.uid, 'keyIngredients', ingredients);
-              goBack();
             }}
             onCancel={goBack}
           />

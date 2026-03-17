@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { INGREDIENT_CATEGORIES, getDietFilteredCategories, displayName } from '../utils/keyIngredients';
 import styles from './OnboardingPage.module.css';
 
@@ -72,6 +72,9 @@ export function OnboardingPage({ onComplete, initialIngredients, onCancel, onSki
     initialIngredients ? initialIngredients.filter(k => !knownKeys.has(k)) : []
   );
   const [customInput, setCustomInput] = useState('');
+  const [showSaved, setShowSaved] = useState(false);
+  const autoSaveRef = useRef(null);
+  const savedTimerRef = useRef(null);
 
   const allIngredientKeys = useMemo(
     () => [
@@ -82,6 +85,25 @@ export function OnboardingPage({ onComplete, initialIngredients, onCancel, onSki
   );
 
   const filteredCategoryOrder = CATEGORY_ORDER.filter(cat => filteredCategories[cat]?.length > 0);
+
+  // Auto-save with debounce when editing existing ingredients
+  const doAutoSave = useCallback(() => {
+    if (!initialIngredients) return;
+    const result = allIngredientKeys.filter(k => selected.has(k));
+    onComplete(result);
+    setShowSaved(true);
+    clearTimeout(savedTimerRef.current);
+    savedTimerRef.current = setTimeout(() => setShowSaved(false), 2000);
+  }, [allIngredientKeys, selected, initialIngredients, onComplete]);
+
+  const hasMounted = useRef(false);
+  useEffect(() => {
+    if (!initialIngredients) return;
+    if (!hasMounted.current) { hasMounted.current = true; return; }
+    clearTimeout(autoSaveRef.current);
+    autoSaveRef.current = setTimeout(doAutoSave, 1000);
+    return () => clearTimeout(autoSaveRef.current);
+  }, [selected, customIngredients]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function toggle(key) {
     setSelected(prev => {
@@ -222,14 +244,19 @@ export function OnboardingPage({ onComplete, initialIngredients, onCancel, onSki
               &larr; Back
             </button>
           )}
-          <button
-            className={styles.startBtn}
-            onClick={handleSubmit}
-            disabled={selected.size === 0}
-          >
-            {initialIngredients ? 'Save Changes' : 'Get Started'}
-          </button>
+          {!initialIngredients && (
+            <button
+              className={styles.startBtn}
+              onClick={handleSubmit}
+              disabled={selected.size === 0}
+            >
+              Get Started
+            </button>
+          )}
         </div>
+        {showSaved && (
+          <div className={styles.savedToast}>Saved!</div>
+        )}
         {onSkip && (
           <button className={styles.skipBtn} onClick={onSkip}>
             Skip for now
