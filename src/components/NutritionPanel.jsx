@@ -297,7 +297,7 @@ function saveCachedNutrition(recipeId, data, fingerprint) {
   }
 }
 
-export function NutritionPanel({ recipeId, ingredients, servings = 1, portionLabel, onViewSources, onNutritionData }) {
+export function NutritionPanel({ recipeId, ingredients, servings = 1, portionLabel, onViewSources, onNutritionData, weighPortionContent }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -435,6 +435,8 @@ export function NutritionPanel({ recipeId, ingredients, servings = 1, portionLab
         <NutrientGroup title="Vitamins & Aminos" keys={VITAMINS_AMINOS} totals={totals} perServing={perServing} showPerServing={showPerServing && (servings > 1 || !!portionLabel)} />
         <NutrientGroup title="Other" keys={OTHER} totals={totals} perServing={perServing} showPerServing={showPerServing && (servings > 1 || !!portionLabel)} />
       </div>
+
+      {weighPortionContent}
 
       {goals && (() => {
         const SHOW_CONTRIBUTORS = ['calories', 'carbs', 'fat', 'sugar', 'addedSugar', 'saturatedFat', 'sodium'];

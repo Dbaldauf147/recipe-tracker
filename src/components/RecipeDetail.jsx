@@ -1213,84 +1213,85 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
         portionLabel={servingWeightNum > 0 && foodWeight > 0 ? `My portion (${servingWeight}g)` : null}
         onViewSources={onViewSources}
         onNutritionData={(d) => setNutritionTotals(d?.totals || null)}
-      />
-
-      <details className={styles.weightDetails}>
-          <summary>Weigh portion size</summary>
-          <div className={styles.weightAdjuster}>
-            <label className={styles.weightLabel}>
-              Total weight
-              <input
-                className={styles.weightInput}
-                type="number"
-                min="0"
-                placeholder="g"
-                value={fields.totalWeight}
-                onChange={e => setField('totalWeight', e.target.value)}
-              />
-            </label>
-            <div className={styles.containersSection}>
-              <span className={styles.containersLabel}>Containers</span>
-              {(fields.containers || [{ weight: '' }]).length > 1 ? (
-                <div className={styles.containerList}>
-                  {(fields.containers || []).map((c, ci) => (
-                    <div key={ci} className={styles.containerRow}>
-                      <span className={styles.containerNum}>#{ci + 1}</span>
-                      <input className={styles.weightInput} type="number" min="0" placeholder="g" value={c.weight || ''} onChange={e => {
-                        setFields(prev => { const next = [...(prev.containers || [])]; next[ci] = { ...next[ci], weight: e.target.value }; return { ...prev, containers: next }; });
-                      }} />
-                      <button className={styles.containerRemove} onClick={() => {
-                        setFields(prev => ({ ...prev, containers: (prev.containers || []).filter((_, i) => i !== ci) }));
-                      }}>&times;</button>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                (fields.containers || [{ weight: '' }]).map((c, ci) => (
-                  <div key={ci} className={styles.containerRow}>
-                    <input className={styles.weightInput} type="number" min="0" placeholder="g" value={c.weight || ''} onChange={e => {
-                      setFields(prev => { const next = [...(prev.containers || [{ weight: '' }])]; next[ci] = { ...next[ci], weight: e.target.value }; return { ...prev, containers: next }; });
-                    }} />
+        weighPortionContent={
+          <details className={styles.weightDetails}>
+            <summary>Weigh portion size</summary>
+            <div className={styles.weightAdjuster}>
+              <label className={styles.weightLabel}>
+                Total weight
+                <input
+                  className={styles.weightInput}
+                  type="number"
+                  min="0"
+                  placeholder="g"
+                  value={fields.totalWeight}
+                  onChange={e => setField('totalWeight', e.target.value)}
+                />
+              </label>
+              <div className={styles.containersSection}>
+                <span className={styles.containersLabel}>Containers</span>
+                {(fields.containers || [{ weight: '' }]).length > 1 ? (
+                  <div className={styles.containerList}>
+                    {(fields.containers || []).map((c, ci) => (
+                      <div key={ci} className={styles.containerRow}>
+                        <span className={styles.containerNum}>#{ci + 1}</span>
+                        <input className={styles.weightInput} type="number" min="0" placeholder="g" value={c.weight || ''} onChange={e => {
+                          setFields(prev => { const next = [...(prev.containers || [])]; next[ci] = { ...next[ci], weight: e.target.value }; return { ...prev, containers: next }; });
+                        }} />
+                        <button className={styles.containerRemove} onClick={() => {
+                          setFields(prev => ({ ...prev, containers: (prev.containers || []).filter((_, i) => i !== ci) }));
+                        }}>&times;</button>
+                      </div>
+                    ))}
                   </div>
-                ))
+                ) : (
+                  (fields.containers || [{ weight: '' }]).map((c, ci) => (
+                    <div key={ci} className={styles.containerRow}>
+                      <input className={styles.weightInput} type="number" min="0" placeholder="g" value={c.weight || ''} onChange={e => {
+                        setFields(prev => { const next = [...(prev.containers || [{ weight: '' }])]; next[ci] = { ...next[ci], weight: e.target.value }; return { ...prev, containers: next }; });
+                      }} />
+                    </div>
+                  ))
+                )}
+                <button className={styles.containerAddBtn} onClick={() => {
+                  setFields(prev => ({
+                    ...prev,
+                    containers: [...(prev.containers || [{ label: '', weight: '' }]), { label: '', weight: '' }],
+                  }));
+                }}>+ Add Container</button>
+                {containerWeightNum > 0 && (
+                  <span className={styles.containerTotal}>Total: {containerWeightNum}g</span>
+                )}
+              </div>
+              {totalWeightNum > 0 && (
+                <span className={styles.weightCalc}>
+                  Food: {foodWeight}g
+                </span>
               )}
-              <button className={styles.containerAddBtn} onClick={() => {
-                setFields(prev => ({
-                  ...prev,
-                  containers: [...(prev.containers || [{ label: '', weight: '' }]), { label: '', weight: '' }],
-                }));
-              }}>+ Add Container</button>
-              {containerWeightNum > 0 && (
-                <span className={styles.containerTotal}>Total: {containerWeightNum}g</span>
+              {foodWeight > 0 && (
+                <>
+                  <label className={styles.weightLabel}>
+                    My serving
+                    <input
+                      className={styles.weightInput}
+                      type="number"
+                      min="0"
+                      placeholder="g"
+                      value={servingWeight || defaultServingWeight}
+                      onChange={e => setServingWeight(e.target.value)}
+                    />
+                  </label>
+                  {weightBasedServings !== null && (
+                    <span className={styles.weightResult}>
+                      = {parseFloat(weightBasedServings.toFixed(2))} {weightBasedServings === 1 ? 'serving' : 'servings'}
+                    </span>
+                  )}
+                </>
               )}
             </div>
-            {totalWeightNum > 0 && (
-              <span className={styles.weightCalc}>
-                Food: {foodWeight}g
-              </span>
-            )}
-            {foodWeight > 0 && (
-              <>
-                <label className={styles.weightLabel}>
-                  My serving
-                  <input
-                    className={styles.weightInput}
-                    type="number"
-                    min="0"
-                    placeholder="g"
-                    value={servingWeight || defaultServingWeight}
-                    onChange={e => setServingWeight(e.target.value)}
-                  />
-                </label>
-                {weightBasedServings !== null && (
-                  <span className={styles.weightResult}>
-                    = {parseFloat(weightBasedServings.toFixed(2))} {weightBasedServings === 1 ? 'serving' : 'servings'}
-                  </span>
-                )}
-              </>
-            )}
-          </div>
-        </details>
+          </details>
+        }
+      />
 
       <div className={styles.ingredientsCol}>
         <div className={styles.ingredientsHeader}>
