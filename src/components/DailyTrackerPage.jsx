@@ -1225,11 +1225,39 @@ function AddRecipeQuick({ recipes, getRecipe, onAdd, onBack, weeklyPlan, inline,
   const [error, setError] = useState('');
   const [showWeight, setShowWeight] = useState(false);
   const [mealWeight, setMealWeight] = useState('');
+  const [previewNutrition, setPreviewNutrition] = useState(null); // { perServing, recipeServings }
+  const prevPreviewId = useRef('');
 
   // Sync with externally selected recipe (from quick picks)
   useEffect(() => {
     if (externalRecipeId) setRecipeId(externalRecipeId);
   }, [externalRecipeId]);
+
+  // Fetch nutrition for preview when recipe is selected
+  useEffect(() => {
+    if (!recipeId) { setPreviewNutrition(null); prevPreviewId.current = ''; return; }
+    if (prevPreviewId.current === recipeId) return;
+    prevPreviewId.current = recipeId;
+    setPreviewNutrition(null);
+    const recipe = getRecipe(recipeId);
+    if (!recipe) return;
+    const cache = loadNutritionCache();
+    if (cache[recipeId]?.totals) {
+      const recipeServings = parseInt(recipe.servings) || 1;
+      const perServing = {};
+      for (const n of NUTRIENTS) perServing[n.key] = (cache[recipeId].totals[n.key] || 0) / recipeServings;
+      setPreviewNutrition({ perServing, recipeServings });
+      return;
+    }
+    // Fetch if not cached
+    fetchNutritionForRecipe(recipe.ingredients || []).then(result => {
+      try { const c = loadNutritionCache(); c[recipeId] = result; localStorage.setItem(NUTRITION_CACHE_KEY, JSON.stringify(c)); } catch {}
+      const recipeServings = parseInt(recipe.servings) || 1;
+      const perServing = {};
+      for (const n of NUTRIENTS) perServing[n.key] = (result.totals[n.key] || 0) / recipeServings;
+      setPreviewNutrition({ perServing, recipeServings });
+    }).catch(() => {});
+  }, [recipeId, getRecipe]);
 
   const sortedRecipes = useMemo(() => {
     const filtered = [...recipes].filter(r => (r.frequency || 'common') !== 'retired');
@@ -1354,17 +1382,16 @@ function AddRecipeQuick({ recipes, getRecipe, onAdd, onBack, weeklyPlan, inline,
         const recipeServings = parseInt(recipe.servings) || 1;
         const factor = (mw / foodWeight) * recipeServings;
         const servingsDisplay = parseFloat(factor.toFixed(2));
-        const cache = loadNutritionCache();
-        const cached = cache[recipeId];
-        if (!cached?.totals) return (
+
+        if (!previewNutrition) return (
           <div className={styles.weightPreview}>
             <span className={styles.weightPreviewServings}>{servingsDisplay} {servingsDisplay === 1 ? 'serving' : 'servings'}</span>
             <span className={styles.weightPreviewNote}>({mw}g of {foodWeight}g total)</span>
+            <div className={styles.weightPreviewMacros}><span style={{ color: 'var(--color-text-muted)' }}>Loading nutrition...</span></div>
           </div>
         );
-        const perServing = {};
-        for (const n of NUTRIENTS) perServing[n.key] = (cached.totals[n.key] || 0) / recipeServings;
-        const scaled = scaleNutrition(perServing, factor);
+
+        const scaled = scaleNutrition(previewNutrition.perServing, factor);
         return (
           <div className={styles.weightPreview}>
             <span className={styles.weightPreviewServings}>{servingsDisplay} {servingsDisplay === 1 ? 'serving' : 'servings'}</span>
