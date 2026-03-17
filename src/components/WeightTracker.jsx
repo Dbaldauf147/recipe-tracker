@@ -169,7 +169,7 @@ export function WeightTracker({ onClose, user }) {
   });
   const [weight, setWeight] = useState('');
   const [rangeMode, setRangeMode] = useState('weeks'); // 'weeks' | 'years' | 'custom'
-  const [rangeCount, setRangeCount] = useState(4);
+  const [rangeCount, setRangeCount] = useState(8);
   const [customStart, setCustomStart] = useState('');
   const [customEnd, setCustomEnd] = useState('');
 
@@ -419,7 +419,7 @@ export function WeightTracker({ onClose, user }) {
           </div>
           <div className={styles.chartControls}>
             <div className={styles.rangeToggle}>
-              <button className={rangeMode === 'weeks' ? styles.rangeBtnActive : styles.rangeBtn} onClick={() => { setRangeMode('weeks'); setRangeCount(4); }}>Weeks</button>
+              <button className={rangeMode === 'weeks' ? styles.rangeBtnActive : styles.rangeBtn} onClick={() => { setRangeMode('weeks'); setRangeCount(8); }}>Weeks</button>
               <button className={rangeMode === 'months' ? styles.rangeBtnActive : styles.rangeBtn} onClick={() => { setRangeMode('months'); setRangeCount(3); }}>Months</button>
               <button className={rangeMode === 'years' ? styles.rangeBtnActive : styles.rangeBtn} onClick={() => { setRangeMode('years'); setRangeCount(1); }}>Years</button>
               <button className={rangeMode === 'custom' ? styles.rangeBtnActive : styles.rangeBtn} onClick={() => setRangeMode('custom')}>Custom</button>
