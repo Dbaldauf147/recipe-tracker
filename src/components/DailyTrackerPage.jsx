@@ -1342,6 +1342,42 @@ function AddRecipeQuick({ recipes, getRecipe, onAdd, onBack, weeklyPlan, inline,
           </div>
         </div>
       )}
+      {showWeight && recipeId && mealWeight && (() => {
+        const recipe = getRecipe(recipeId);
+        if (!recipe) return null;
+        const totalWeightNum = parseFloat(recipe.totalWeight) || 0;
+        const containerWeightNum = (recipe.containers || []).reduce((sum, c) => sum + (parseFloat(c.weight) || 0), 0) || parseFloat(recipe.containerWeight) || 0;
+        const foodWeight = Math.max(0, totalWeightNum - containerWeightNum);
+        if (foodWeight <= 0) return <p className={styles.weightPreviewError}>No total weight set on this recipe. Go to the recipe's "Weigh portion size" section first.</p>;
+        const mw = parseFloat(mealWeight);
+        if (!mw || mw <= 0) return null;
+        const recipeServings = parseInt(recipe.servings) || 1;
+        const factor = (mw / foodWeight) * recipeServings;
+        const servingsDisplay = parseFloat(factor.toFixed(2));
+        const cache = loadNutritionCache();
+        const cached = cache[recipeId];
+        if (!cached?.totals) return (
+          <div className={styles.weightPreview}>
+            <span className={styles.weightPreviewServings}>{servingsDisplay} {servingsDisplay === 1 ? 'serving' : 'servings'}</span>
+            <span className={styles.weightPreviewNote}>({mw}g of {foodWeight}g total)</span>
+          </div>
+        );
+        const perServing = {};
+        for (const n of NUTRIENTS) perServing[n.key] = (cached.totals[n.key] || 0) / recipeServings;
+        const scaled = scaleNutrition(perServing, factor);
+        return (
+          <div className={styles.weightPreview}>
+            <span className={styles.weightPreviewServings}>{servingsDisplay} {servingsDisplay === 1 ? 'serving' : 'servings'}</span>
+            <span className={styles.weightPreviewNote}>({mw}g of {foodWeight}g total)</span>
+            <div className={styles.weightPreviewMacros}>
+              <span>{Math.round(scaled.calories || 0)} cal</span>
+              <span>{Math.round(scaled.protein || 0)}g protein</span>
+              <span>{Math.round(scaled.carbs || 0)}g carbs</span>
+              <span>{Math.round(scaled.fat || 0)}g fat</span>
+            </div>
+          </div>
+        );
+      })()}
       <div className={styles.formRow} style={{ gap: '0.5rem' }}>
         <button className={styles.addBtn} onClick={() => handleAdd(showWeight && mealWeight)} disabled={loading || !recipeId}>{loading ? 'Adding...' : 'Add Meal'}</button>
         <button

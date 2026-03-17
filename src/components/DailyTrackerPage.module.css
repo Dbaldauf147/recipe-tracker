@@ -1142,6 +1142,41 @@
   margin-top: 0.25rem;
 }
 
+.weightPreview {
+  background: var(--color-surface-alt, #faf9f7);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md, 8px);
+  padding: 0.5rem 0.75rem;
+  margin-bottom: 0.5rem;
+}
+
+.weightPreviewServings {
+  font-weight: 700;
+  font-size: 0.9rem;
+  color: var(--color-accent);
+}
+
+.weightPreviewNote {
+  font-size: 0.78rem;
+  color: var(--color-text-muted);
+  margin-left: 0.4rem;
+}
+
+.weightPreviewMacros {
+  display: flex;
+  gap: 0.75rem;
+  margin-top: 0.3rem;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--color-text-secondary);
+}
+
+.weightPreviewError {
+  font-size: 0.8rem;
+  color: var(--color-danger, #dc2626);
+  margin: 0.25rem 0 0.5rem;
+}
+
 .addLoading {
   color: var(--color-text-muted);
   font-size: 0.8rem;
