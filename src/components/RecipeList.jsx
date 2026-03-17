@@ -97,7 +97,7 @@ export function RecipeList({
   const [importing, setImporting] = useState(false);
   const [importResult, setImportResult] = useState(null);
   const [dragOverTarget, setDragOverTarget] = useState(null);
-  const [showRare, setShowRare] = useState(isNewUser);
+  const [showRare, setShowRare] = useState(false);
   const [showRetired, setShowRetired] = useState(false);
   const [checkedTypes, setCheckedTypes] = useState(new Set());
   const [checkedCategories, setCheckedCategories] = useState(new Set());
