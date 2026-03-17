@@ -1219,17 +1219,25 @@ For each ingredient, include a "nutrition" object with estimated calories, prote
 }
 
 /* ── Add Recipe Quick (1 serving) ── */
-function AddRecipeQuick({ recipes, getRecipe, onAdd, onBack, weeklyPlan, inline }) {
+function AddRecipeQuick({ recipes, getRecipe, onAdd, onBack, weeklyPlan, inline, targetSlot }) {
   const [recipeId, setRecipeId] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
-  const sortedRecipes = useMemo(() =>
-    [...recipes]
-      .filter(r => (r.frequency || 'common') !== 'retired')
-      .sort((a, b) => (a.title || '').localeCompare(b.title || '')),
-    [recipes]
-  );
+  const sortedRecipes = useMemo(() => {
+    const filtered = [...recipes].filter(r => (r.frequency || 'common') !== 'retired');
+    if (targetSlot) {
+      const slotCategory = targetSlot === 'breakfast' ? 'breakfast' : 'lunch-dinner';
+      // Sort matching category first, then alphabetical
+      return filtered.sort((a, b) => {
+        const aMatch = (a.category || 'lunch-dinner') === slotCategory ? 0 : 1;
+        const bMatch = (b.category || 'lunch-dinner') === slotCategory ? 0 : 1;
+        if (aMatch !== bMatch) return aMatch - bMatch;
+        return (a.title || '').localeCompare(b.title || '');
+      });
+    }
+    return filtered.sort((a, b) => (a.title || '').localeCompare(b.title || ''));
+  }, [recipes, targetSlot]);
 
   const weeklyRecipes = useMemo(() => {
     if (!weeklyPlan || weeklyPlan.length === 0) return [];
@@ -1269,7 +1277,7 @@ function AddRecipeQuick({ recipes, getRecipe, onAdd, onBack, weeklyPlan, inline 
     <div>
       {!inline && onBack && <button className={styles.trackMenuBack} onClick={onBack}>&larr; Back</button>}
       {!inline && <h4 className={styles.trackMenuSubtitle}>Add Recipe (1 serving)</h4>}
-      {weeklyRecipes.length > 0 && (
+      {!inline && weeklyRecipes.length > 0 && (
         <div className={styles.weeklyChips}>
           <span className={styles.weeklyLabel}>This Week's Menu</span>
           {weeklyRecipes.map(r => (
@@ -2562,17 +2570,16 @@ export function DailyTrackerPage({ recipes, getRecipe, onClose, user, weeklyPlan
             ) : !addModal.mode ? (
               <div className={styles.trackMenuOptions}>
                 {(() => {
-                  // Find 3 recently tracked recipes for this slot type
+                  // Find recently tracked recipes for this slot type
                   const slot = addModal.targetSlot;
-                  const isMainMeal = ['breakfast', 'lunch', 'dinner'].includes(slot);
                   const seen = new Set();
                   const recent = [];
                   const dates = Object.keys(dailyLog).sort().reverse();
                   for (const d of dates) {
-                    if (recent.length >= 3) break;
+                    if (recent.length >= 5) break;
                     const entries = dailyLog[d]?.entries || [];
                     for (const entry of entries) {
-                      if (recent.length >= 3) break;
+                      if (recent.length >= 5) break;
                       if (entry.type !== 'recipe' || !entry.recipeId) continue;
                       if (seen.has(entry.recipeId)) continue;
                       const entrySlot = entry.mealSlot || 'snack';
@@ -2583,24 +2590,66 @@ export function DailyTrackerPage({ recipes, getRecipe, onClose, user, weeklyPlan
                       recent.push(entry);
                     }
                   }
-                  if (recent.length === 0) return null;
+
+                  // Get this week's menu filtered by slot category
+                  const slotCategory = slot === 'breakfast' ? 'breakfast' : 'lunch-dinner';
+                  const weeklyFiltered = (weeklyPlan || [])
+                    .map(id => recipes.find(r => r.id === id))
+                    .filter(r => r && (r.category || 'lunch-dinner') === slotCategory);
+
                   return (
-                    <div className={styles.recentMeals}>
-                      <span className={styles.recentMealsLabel}>Recently Tracked</span>
-                      <div className={styles.recentMealsList}>
-                        {recent.map(entry => (
-                          <button
-                            key={entry.recipeId}
-                            className={styles.recentMealBtn}
-                            onClick={() => {
-                              addEntry({ ...entry, id: uuid(), timestamp: new Date().toISOString() }, addModal.targetDate, addModal.targetSlot);
-                              setAddModal(null);
-                            }}
-                          >
-                            {entry.recipeName}
-                          </button>
-                        ))}
-                      </div>
+                    <div className={styles.quickPickRow}>
+                      {recent.length > 0 && (
+                        <div className={styles.quickPickBucket}>
+                          <span className={styles.quickPickLabel}>Recently Tracked</span>
+                          <div className={styles.quickPickList}>
+                            {recent.map(entry => (
+                              <button
+                                key={entry.recipeId}
+                                className={styles.recentMealBtn}
+                                onClick={() => {
+                                  addEntry({ ...entry, id: uuid(), timestamp: new Date().toISOString() }, addModal.targetDate, addModal.targetSlot);
+                                  setAddModal(null);
+                                }}
+                              >
+                                {entry.recipeName}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      {weeklyFiltered.length > 0 && (
+                        <div className={styles.quickPickBucket}>
+                          <span className={styles.quickPickLabel}>This Week's Menu</span>
+                          <div className={styles.quickPickList}>
+                            {weeklyFiltered.map(r => (
+                              <button
+                                key={r.id}
+                                className={styles.recentMealBtn}
+                                onClick={async () => {
+                                  const cache = loadNutritionCache();
+                                  let totalNutrition;
+                                  if (cache[r.id]) {
+                                    totalNutrition = cache[r.id].totals;
+                                  } else {
+                                    const result = await fetchNutritionForRecipe(r.ingredients || []);
+                                    totalNutrition = result.totals;
+                                    try { cache[r.id] = result; localStorage.setItem(NUTRITION_CACHE_KEY, JSON.stringify(cache)); } catch {}
+                                  }
+                                  const recipeServings = r.servings || 1;
+                                  const perServing = {};
+                                  for (const n of NUTRIENTS) perServing[n.key] = (totalNutrition[n.key] || 0) / recipeServings;
+                                  const nutrition = scaleNutrition(perServing, 1);
+                                  addEntry({ id: uuid(), type: 'recipe', recipeId: r.id, recipeName: r.title, servings: 1, customWeight: null, timestamp: new Date().toISOString(), nutrition }, addModal.targetDate, addModal.targetSlot);
+                                  setAddModal(null);
+                                }}
+                              >
+                                {r.title}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   );
                 })()}
@@ -2610,6 +2659,7 @@ export function DailyTrackerPage({ recipes, getRecipe, onClose, user, weeklyPlan
                   onAdd={(entry) => { addEntry(entry, addModal.targetDate, addModal.targetSlot); setAddModal(null); }}
                   weeklyPlan={weeklyPlan}
                   inline
+                  targetSlot={addModal.targetSlot}
                 />
                 <div className={styles.trackMenuDivider}><span>or</span></div>
                 <button className={styles.trackMenuBtn} onClick={() => setAddModal(prev => ({ ...prev, mode: 'adjust' }))}>

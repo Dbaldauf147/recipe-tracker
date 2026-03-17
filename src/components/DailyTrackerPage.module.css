@@ -695,6 +695,38 @@
   gap: 0.35rem;
 }
 
+/* Side-by-side quick pick buckets */
+.quickPickRow {
+  display: flex;
+  gap: 1rem;
+  margin-bottom: 0.75rem;
+}
+
+.quickPickBucket {
+  flex: 1 1 0;
+  min-width: 0;
+  background: var(--color-surface-alt, #faf9f7);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md, 8px);
+  padding: 0.6rem 0.75rem;
+}
+
+.quickPickLabel {
+  display: block;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #e67e22;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  margin-bottom: 0.4rem;
+}
+
+.quickPickList {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
 .recentMealBtn {
   padding: 0.35rem 0.75rem;
   border: 1px solid var(--color-border);
