@@ -768,7 +768,7 @@ export function ShoppingList({ weeklyRecipes, weeklyServings = {}, extraItems = 
                           <td className={styles.dismissCell}>
                             <button
                               className={styles.dismissBtn}
-                              onClick={e => { e.stopPropagation(); onDismissItem(item.ingredient); }}
+                              onClick={e => { e.stopPropagation(); onDismissItem(item.ingredient, item.recipes || []); }}
                               title="Remove from list"
                             >
                               &times;

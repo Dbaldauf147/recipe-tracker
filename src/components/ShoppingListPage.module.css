@@ -61,6 +61,72 @@
   color: var(--color-text-muted);
 }
 
+.hiddenBox {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 1rem 1.25rem;
+  box-shadow: var(--shadow-sm);
+  margin-bottom: 1rem;
+}
+
+.hiddenHeading {
+  margin: 0 0 0.5rem;
+  font-size: 0.9rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.hiddenList {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.hiddenItem {
+  padding: 0.4rem 0;
+  border-bottom: 1px solid var(--color-border-light);
+}
+
+.hiddenItem:last-child {
+  border-bottom: none;
+}
+
+.hiddenItemTop {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.hiddenItemName {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.hiddenItemMeals {
+  display: block;
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+  margin-top: 0.15rem;
+}
+
+.hiddenUndoBtn {
+  background: none;
+  border: none;
+  color: var(--color-accent);
+  font-size: 0.75rem;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  text-decoration: underline;
+  padding: 0;
+}
+
+.hiddenUndoBtn:hover {
+  color: var(--color-accent-hover);
+}
+
 .pantryMatchBox {
   background: var(--color-surface);
   border: 1px solid var(--color-border);

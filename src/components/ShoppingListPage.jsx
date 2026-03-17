@@ -137,11 +137,11 @@ export function ShoppingListPage({ weeklyRecipes, weeklyServings = {}, onClose, 
     setResetKey(k => k + 1);
   }, [extras, user]);
 
-  const handleDismissItem = useCallback((ingredientName) => {
+  const handleDismissItem = useCallback((ingredientName, recipes) => {
     setDismissed(prev => {
       const norm = ingredientName.toLowerCase().trim();
       if (prev.some(d => d.name === norm)) return prev;
-      const next = [...prev, { name: norm, label: ingredientName.trim() }];
+      const next = [...prev, { name: norm, label: ingredientName.trim(), recipes: recipes || [] }];
       localStorage.setItem(DISMISSED_KEY, JSON.stringify(next));
       if (user) saveField(user.uid, 'shopDismissed', next);
       return next;
@@ -194,8 +194,14 @@ export function ShoppingListPage({ weeklyRecipes, weeklyServings = {}, onClose, 
   }
 
   const dismissedNames = useMemo(
-    () => new Set(dismissed.filter(d => matchesPantry(d.name)).map(d => d.name)),
-    [dismissed, pantryNames]
+    () => new Set(dismissed.map(d => d.name)),
+    [dismissed]
+  );
+
+  // Items manually hidden (x'd) that aren't just pantry matches
+  const hiddenItems = useMemo(
+    () => dismissed.filter(d => d.recipes && d.recipes.length > 0),
+    [dismissed]
   );
 
   const pantryMatchedItems = useMemo(() => {
@@ -270,6 +276,37 @@ export function ShoppingListPage({ weeklyRecipes, weeklyServings = {}, onClose, 
           />
         </div>
         <div className={styles.cell}>
+          {hiddenItems.length > 0 && (
+            <div className={styles.hiddenBox}>
+              <h3 className={styles.hiddenHeading}>Hidden from Shopping List</h3>
+              <ul className={styles.hiddenList}>
+                {hiddenItems.map(d => (
+                  <li key={d.name} className={styles.hiddenItem}>
+                    <div className={styles.hiddenItemTop}>
+                      <span className={styles.hiddenItemName}>{d.label}</span>
+                      <button
+                        className={styles.hiddenUndoBtn}
+                        onClick={() => {
+                          setDismissed(prev => {
+                            const next = prev.filter(x => x.name !== d.name);
+                            localStorage.setItem(DISMISSED_KEY, JSON.stringify(next));
+                            if (user) saveField(user.uid, 'shopDismissed', next);
+                            return next;
+                          });
+                        }}
+                        title="Add back to shopping list"
+                      >
+                        Unhide
+                      </button>
+                    </div>
+                    {d.recipes.length > 0 && (
+                      <span className={styles.hiddenItemMeals}>Used in: {d.recipes.join(', ')}</span>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
           {pantryMatchedItems.labels.length > 0 && (
             <div className={styles.pantryMatchBox}>
               <h3 className={styles.pantryMatchHeading}>Already In Your Pantry</h3>
