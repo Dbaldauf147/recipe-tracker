@@ -1405,18 +1405,21 @@ function AddRecipeQuick({ recipes, getRecipe, onAdd, onBack, weeklyPlan, inline,
         return (
           <div className={styles.weightPreview}>
             <span className={styles.weightPreviewServings}>{servingsDisplay} {servingsDisplay === 1 ? 'serving' : 'servings'}</span>
-            <span className={styles.weightPreviewNote}>({mw}g of {foodWeight}g total)</span>
+            <span className={styles.weightPreviewNote}>({mw}g of {foodWeight}g food weight)</span>
             <div className={styles.weightPreviewMacros}>
               <span>{Math.round(scaled.calories || 0)} cal</span>
               <span>{Math.round(scaled.protein || 0)}g protein</span>
               <span>{Math.round(scaled.carbs || 0)}g carbs</span>
               <span>{Math.round(scaled.fat || 0)}g fat</span>
             </div>
+            {totalWeightNum !== foodWeight && (
+              <div className={styles.weightPreviewDetail}>Scale: {totalWeightNum}g − Container: {containerWeightNum}g = Food: {foodWeight}g</div>
+            )}
           </div>
         );
       })()}
       <div className={styles.formRow} style={{ gap: '0.5rem' }}>
-        <button className={styles.addBtn} onClick={() => handleAdd(showWeight && mealWeight)} disabled={loading || !recipeId}>{loading ? 'Adding...' : 'Add Meal'}</button>
+        <button className={styles.addBtn} onClick={() => handleAdd(!!(showWeight && mealWeight && parseFloat(mealWeight) > 0))} disabled={loading || !recipeId}>{loading ? 'Adding...' : (showWeight && mealWeight && parseFloat(mealWeight) > 0 ? `Add Meal (${mealWeight}g)` : 'Add Meal')}</button>
         <button
           className={showWeight ? styles.addBtnSecondaryActive : styles.addBtnSecondary}
           onClick={() => setShowWeight(prev => !prev)}

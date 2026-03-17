@@ -1171,6 +1171,12 @@
   color: var(--color-text-secondary);
 }
 
+.weightPreviewDetail {
+  font-size: 0.72rem;
+  color: var(--color-text-muted);
+  margin-top: 0.2rem;
+}
+
 .weightPreviewError {
   font-size: 0.8rem;
   color: var(--color-danger, #dc2626);
