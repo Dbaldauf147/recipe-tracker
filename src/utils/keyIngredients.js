@@ -190,12 +190,13 @@ export function displayName(key) {
     .replace(/\b\w/g, c => c.toUpperCase());
 }
 
-/** Normalize a string for fuzzy matching */
+/** Normalize a string for fuzzy matching — strips (s), trailing s, underscores */
 export function normalize(str) {
   return str
     .toLowerCase()
     .replace(/_/g, ' ')
     .replace(/\(.*?\)/g, '')
+    .replace(/s$/, '')
     .trim();
 }
 
