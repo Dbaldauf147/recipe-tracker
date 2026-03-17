@@ -293,6 +293,87 @@ function saveCachedNutrition(recipeId, data, fingerprint) {
   }
 }
 
+const BREAKDOWN_STORAGE_KEY = 'sunday-breakdown-columns';
+const DEFAULT_BREAKDOWN_COLS = ['calories', 'protein', 'carbs', 'fat', 'fiber'];
+
+function IngredientBreakdown({ items, totals }) {
+  const [selectedCols, setSelectedCols] = useState(() => {
+    try {
+      const saved = localStorage.getItem(BREAKDOWN_STORAGE_KEY);
+      return saved ? JSON.parse(saved) : DEFAULT_BREAKDOWN_COLS;
+    } catch { return DEFAULT_BREAKDOWN_COLS; }
+  });
+  const [showPicker, setShowPicker] = useState(false);
+
+  function toggleCol(key) {
+    setSelectedCols(prev => {
+      const next = prev.includes(key) ? prev.filter(k => k !== key) : [...prev, key];
+      localStorage.setItem(BREAKDOWN_STORAGE_KEY, JSON.stringify(next));
+      return next;
+    });
+  }
+
+  const visibleNutrients = NUTRIENTS.filter(n => selectedCols.includes(n.key));
+
+  return (
+    <details className={styles.details}>
+      <summary>Per-ingredient breakdown</summary>
+      <div className={styles.breakdownControls}>
+        <button className={styles.colPickerBtn} onClick={() => setShowPicker(p => !p)}>
+          {showPicker ? 'Done' : 'Choose columns'}
+        </button>
+        {showPicker && (
+          <div className={styles.colPickerGrid}>
+            {NUTRIENTS.map(n => (
+              <label key={n.key} className={styles.colPickerLabel}>
+                <input type="checkbox" checked={selectedCols.includes(n.key)} onChange={() => toggleCol(n.key)} />
+                {n.label}
+              </label>
+            ))}
+          </div>
+        )}
+      </div>
+      <div className={styles.tableWrap}>
+        <table className={styles.table}>
+          <thead>
+            <tr>
+              <th>Ingredient</th>
+              {visibleNutrients.map(n => (
+                <th key={n.key}>{n.label}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {items.map((item, i) => (
+              <tr key={i}>
+                <td className={styles.ingredientCell}>
+                  <span>{item.matchedTo}</span>
+                  <span className={styles.matchNote}>
+                    {item.name.toLowerCase()} ({item.grams}g)
+                  </span>
+                </td>
+                {visibleNutrients.map(n => (
+                  <td key={n.key}>
+                    {item.nutrients[n.key]}{n.unit}
+                  </td>
+                ))}
+              </tr>
+            ))}
+            <tr className={styles.totalRow}>
+              <td><strong>Total</strong></td>
+              {visibleNutrients.map(n => (
+                <td key={n.key}>
+                  <strong>{totals[n.key]}{n.unit}</strong>
+                </td>
+              ))}
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </details>
+  );
+}
+
 export function NutritionPanel({ recipeId, ingredients, servings = 1, portionLabel, onViewSources, onNutritionData, weighPortionContent }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -537,46 +618,7 @@ export function NutritionPanel({ recipeId, ingredients, servings = 1, portionLab
         );
       })()}
 
-      <details className={styles.details}>
-        <summary>Per-ingredient breakdown</summary>
-        <div className={styles.tableWrap}>
-          <table className={styles.table}>
-            <thead>
-              <tr>
-                <th>Ingredient</th>
-                {NUTRIENTS.map(n => (
-                  <th key={n.key}>{n.label}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {items.map((item, i) => (
-                <tr key={i}>
-                  <td className={styles.ingredientCell}>
-                    <span>{item.matchedTo}</span>
-                    <span className={styles.matchNote}>
-                      {item.name.toLowerCase()} ({item.grams}g)
-                    </span>
-                  </td>
-                  {NUTRIENTS.map(n => (
-                    <td key={n.key}>
-                      {item.nutrients[n.key]}{n.unit}
-                    </td>
-                  ))}
-                </tr>
-              ))}
-              <tr className={styles.totalRow}>
-                <td><strong>Total</strong></td>
-                {NUTRIENTS.map(n => (
-                  <td key={n.key}>
-                    <strong>{totals[n.key]}{n.unit}</strong>
-                  </td>
-                ))}
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </details>
+      <IngredientBreakdown items={items} totals={totals} />
 
       <p className={styles.disclaimer}>
         Nutrition data from USDA FoodData Central, Open Food Facts, and Canadian Nutrient File. Values are estimates based on approximate unit conversions.
