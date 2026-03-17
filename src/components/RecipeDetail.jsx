@@ -6,6 +6,7 @@ import { loadIngredients } from '../utils/ingredientsStore';
 import { VOLUME_TO_ML, WEIGHT_TO_G, SIZE_GRAMS, getSizeGrams } from '../utils/units';
 import { classifyMealType } from '../utils/classifyMealType';
 import { uploadMealImage, deleteMealImage, getCachedMealImage, generateMealImage } from '../utils/generateMealImage';
+import { getIngredientTags, getTagInfo } from '../utils/ingredientTags';
 import styles from './RecipeDetail.module.css';
 
 const ADMIN_UID = import.meta.env.VITE_ADMIN_UID;
@@ -203,6 +204,24 @@ const CUISINE_OPTIONS = [
   'Spanish', 'Swedish', 'Thai', 'Turkish', 'Vietnamese', 'Other',
 ];
 
+function renderFormattedText(text) {
+  if (!text) return text;
+  // Render stored HTML or plain text
+  if (text.includes('<')) {
+    return <span dangerouslySetInnerHTML={{ __html: text }} />;
+  }
+  // Legacy markdown support
+  let html = text
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*(.+?)\*/g, '<em>$1</em>')
+    .replace(/__(.+?)__/g, '<u>$1</u>');
+  return <span dangerouslySetInnerHTML={{ __html: html }} />;
+}
+
+function applyFormat(command) {
+  document.execCommand(command, false, null);
+}
+
 function initFields(recipe) {
   const type = recipe.mealType || '';
   const presets = ['meat', 'pescatarian', 'vegan', 'vegetarian', 'keto', ''];
@@ -222,7 +241,9 @@ function initFields(recipe) {
     sourceUrl: recipe.sourceUrl || '',
     totalWeight: recipe.totalWeight || '',
     containerWeight: recipe.containerWeight || '',
+    containers: recipe.containers || [{ label: '', weight: '' }],
     starterRecipe: recipe.starterRecipe || false,
+    notes: recipe.notes || '',
     ingredients: (recipe.ingredients && recipe.ingredients.length > 0)
       ? recipe.ingredients.map(r => ({ ...r }))
       : [{ ...emptyRow }],
@@ -233,6 +254,7 @@ function initFields(recipe) {
         .filter(Boolean);
       return parsed.length > 0 ? parsed : [''];
     })(),
+    stepIngredients: recipe.stepIngredients || {},
   };
 }
 
@@ -246,7 +268,11 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
   const isInWeek = recipe ? (weeklyPlan || []).includes(recipe.id) : false;
   const [adjustedServings, setAdjustedServings] = useState(null);
   const [servingWeight, setServingWeight] = useState('');
-  const [editing, setEditing] = useState(false);
+  const [editing, setEditing] = useState(true);
+  const autoSaveRef = useRef(null);
+  const [cookMode, setCookMode] = useState(() => {
+    try { return localStorage.getItem('sunday-cook-mode') === 'true'; } catch { return false; }
+  });
   const editingIngredients = editing;
   const [showSaved, setShowSaved] = useState(0);
   const [mealImage, setMealImage] = useState(() => recipe ? getCachedMealImage(recipe.id) : null);
@@ -486,7 +512,7 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
 
   const baseServings = parseInt(fields?.servings) || 1;
   const totalWeightNum = parseFloat(fields?.totalWeight) || 0;
-  const containerWeightNum = parseFloat(fields?.containerWeight) || 0;
+  const containerWeightNum = (fields?.containers || []).reduce((sum, c) => sum + (parseFloat(c.weight) || 0), 0) || parseFloat(fields?.containerWeight) || 0;
   const foodWeight = Math.max(0, totalWeightNum - containerWeightNum);
   const defaultServingWeight = (foodWeight > 0 && baseServings > 0)
     ? String(Math.round(foodWeight / baseServings))
@@ -621,23 +647,44 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
   }
 
   function addStep() {
-    setFields(prev => ({ ...prev, steps: [...prev.steps, ''] }));
+    setFields(prev => {
+      const newSteps = [...prev.steps, ''];
+      // Ensure the new step index has no ingredients
+      const newMap = { ...prev.stepIngredients };
+      delete newMap[newSteps.length - 1];
+      return { ...prev, steps: newSteps, stepIngredients: newMap };
+    });
   }
 
   function removeStep(index) {
-    setFields(prev => ({
-      ...prev,
-      steps: prev.steps.filter((_, i) => i !== index),
-    }));
+    setFields(prev => {
+      const newSteps = prev.steps.filter((_, i) => i !== index);
+      // Rebuild stepIngredients with shifted indices
+      const oldMap = prev.stepIngredients || {};
+      const newMap = {};
+      for (const [key, val] of Object.entries(oldMap)) {
+        const k = parseInt(key);
+        if (k < index) newMap[k] = val;
+        else if (k > index) newMap[k - 1] = val;
+      }
+      return { ...prev, steps: newSteps, stepIngredients: newMap };
+    });
   }
 
   function moveStep(from, to) {
     if (to < 0 || to >= fields.steps.length) return;
     setFields(prev => {
-      const items = [...prev.steps];
-      const [moved] = items.splice(from, 1);
-      items.splice(to, 0, moved);
-      return { ...prev, steps: items };
+      // Build an array of [step, ingredients] pairs in original order
+      const oldMap = prev.stepIngredients || {};
+      const pairs = prev.steps.map((step, i) => ({ step, ings: oldMap[i] || [] }));
+      // Move the pair
+      const [moved] = pairs.splice(from, 1);
+      pairs.splice(to, 0, moved);
+      // Rebuild steps and stepIngredients from the reordered pairs
+      const newSteps = pairs.map(p => p.step);
+      const newMap = {};
+      pairs.forEach((p, i) => { if (p.ings.length > 0) newMap[i] = p.ings; });
+      return { ...prev, steps: newSteps, stepIngredients: newMap };
     });
   }
 
@@ -662,11 +709,16 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
       setStepDragOverIdx(null);
       return;
     }
+    // Use moveStep logic to keep ingredients with their steps
     setFields(prev => {
-      const items = [...prev.steps];
-      const [moved] = items.splice(stepDragIdx, 1);
-      items.splice(index, 0, moved);
-      return { ...prev, steps: items };
+      const oldMap = prev.stepIngredients || {};
+      const pairs = prev.steps.map((step, i) => ({ step, ings: oldMap[i] || [] }));
+      const [moved] = pairs.splice(stepDragIdx, 1);
+      pairs.splice(index, 0, moved);
+      const newSteps = pairs.map(p => p.step);
+      const newMap = {};
+      pairs.forEach((p, i) => { if (p.ings.length > 0) newMap[i] = p.ings; });
+      return { ...prev, steps: newSteps, stepIngredients: newMap };
     });
     setStepDragIdx(null);
     setStepDragOverIdx(null);
@@ -695,9 +747,12 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
       sourceUrl: fields.sourceUrl.trim(),
       totalWeight: fields.totalWeight.trim(),
       containerWeight: fields.containerWeight.trim(),
+      containers: (fields.containers || []).filter(c => c.weight),
       starterRecipe: fields.starterRecipe,
       ingredients: fields.ingredients.filter(row => row.ingredient.trim() !== ''),
+      notes: fields.notes || '',
       instructions: fields.steps.filter(s => s.trim()).join('\n'),
+      stepIngredients: fields.stepIngredients || {},
     });
   }
 
@@ -706,7 +761,16 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
     onBack();
   }
 
-  // Auto-save after 500ms of inactivity
+  // Save on unmount to prevent losing changes when modal closes
+  const fieldsRef = useRef(fields);
+  fieldsRef.current = fields;
+  const handleSaveRef = useRef(handleSave);
+  handleSaveRef.current = handleSave;
+  useEffect(() => {
+    return () => { handleSaveRef.current(); };
+  }, []);
+
+  // Auto-save after 2 seconds of inactivity
   const initialRef = useRef(true);
   useEffect(() => {
     if (!fields || initialRef.current) {
@@ -716,7 +780,7 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
     const timer = setTimeout(() => {
       handleSave();
       setShowSaved(k => k + 1);
-    }, 500);
+    }, 2000);
     return () => clearTimeout(timer);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fields]);
@@ -867,9 +931,6 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
             </>
           )}
           {showSaved > 0 && <span key={showSaved} className={styles.savedToast}>Saved!</span>}
-          <button className={styles.editToggleBtn} onClick={() => setEditing(e => !e)}>
-            {editing ? 'Done' : 'Edit'}
-          </button>
         </div>
       </div>
 
@@ -885,12 +946,6 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
               />
             ) : (
               <h1 className={styles.titleDisplay}>{fields.title}</h1>
-            )}
-            {!editing && nutritionTotals && (
-              <MealScore
-                totals={nutritionTotals}
-                servings={(foodWeight > 0 && servingWeightNum > 0) ? foodWeight / servingWeightNum : (adjustedServings ?? baseServings)}
-              />
             )}
             <span className={styles.lastPrepBadge}>
               {daysSinceLastPrepped === 0
@@ -1044,27 +1099,15 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
                 </label>
               </div>
 
-              {user?.uid === ADMIN_UID && (
-                <div className={styles.metaRow}>
-                  <label className={styles.metaLabel} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
-                    <input
-                      type="checkbox"
-                      checked={fields.starterRecipe}
-                      onChange={e => setField('starterRecipe', e.target.checked)}
-                    />
-                    Include in starter recipes
-                  </label>
-                </div>
-              )}
             </>
           ) : (
             <>
               <div className={styles.metaRow}>
                 <span className={styles.metaValue}>Serves {fields.servings || '-'}</span>
                 <span className={styles.metaDot}>&middot;</span>
-                <span className={styles.metaValue}>Prep {fields.prepTime || '-'}</span>
+                <span className={styles.metaValue}>Prep Time {fields.prepTime || '-'}</span>
                 <span className={styles.metaDot}>&middot;</span>
-                <span className={styles.metaValue}>Cook {fields.cookTime || '-'}</span>
+                <span className={styles.metaValue}>Cook Time {fields.cookTime || '-'}</span>
               </div>
               <div className={styles.metaRow}>
                 <span className={styles.metaValue} style={{ textTransform: 'capitalize' }}>{(fields.category || '').replace('-', ' & ')}</span>
@@ -1114,15 +1157,9 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
                 <img src={mealImage} alt={fields.title} className={styles.mealImage} />
                 {editing && (
                   <div className={styles.imageActions}>
-                    <button className={styles.regenBtn} onClick={() => imageInputRef.current?.click()}>
-                      Upload
-                    </button>
-                    <button className={styles.regenBtn} onClick={handleGenerateImage} disabled={imageLoading}>
-                      {imageLoading ? 'Generating...' : 'Generate'}
-                    </button>
-                    <button className={styles.regenBtn} onClick={handleDeleteImage}>
-                      Remove
-                    </button>
+                    <button className={styles.regenBtn} onClick={() => imageInputRef.current?.click()}>Upload</button>
+                    <button className={styles.regenBtn} onClick={handleGenerateImage} disabled={imageLoading}>{imageLoading ? 'Generating...' : 'Generate'}</button>
+                    <button className={styles.regenBtn} onClick={handleDeleteImage}>Remove</button>
                   </div>
                 )}
                 {dragOver && <div className={styles.dropOverlay}>Drop image here</div>}
@@ -1138,12 +1175,8 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
                     <span className={styles.placeholderIcon}>&#128247;</span>
                     <span className={styles.placeholderText}>Drag & drop or paste an image</span>
                     <div className={styles.imageActions}>
-                      <button className={styles.regenBtn} onClick={() => imageInputRef.current?.click()}>
-                        Upload
-                      </button>
-                      <button className={styles.regenBtn} onClick={handleGenerateImage}>
-                        Generate
-                      </button>
+                      <button className={styles.regenBtn} onClick={() => imageInputRef.current?.click()}>Upload</button>
+                      <button className={styles.regenBtn} onClick={handleGenerateImage}>Generate</button>
                     </div>
                   </>
                 )}
@@ -1159,15 +1192,14 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
             />
             {imageError && <p className={styles.imageError}>{imageError}</p>}
           </div>
+          {user?.uid === ADMIN_UID && (
+            <label style={{ position: 'absolute', right: '-180px', top: '0', display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', fontSize: '0.82rem', color: 'var(--color-text-muted)', whiteSpace: 'nowrap' }}>
+              <input type="checkbox" checked={fields.starterRecipe} onChange={e => setField('starterRecipe', e.target.checked)} />
+              Starter recipe
+            </label>
+          )}
       </div>
 
-      {nutritionTotals && (
-        <PlateChart
-          protein={nutritionTotals.protein || 0}
-          carbs={nutritionTotals.carbs || 0}
-          fat={nutritionTotals.fat || 0}
-        />
-      )}
 
       <NutritionPanel
         recipeId={recipe.id}
@@ -1248,17 +1280,41 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
                 onChange={e => setField('totalWeight', e.target.value)}
               />
             </label>
-            <label className={styles.weightLabel}>
-              Container
-              <input
-                className={styles.weightInput}
-                type="number"
-                min="0"
-                placeholder="g"
-                value={fields.containerWeight}
-                onChange={e => setField('containerWeight', e.target.value)}
-              />
-            </label>
+            <div className={styles.containersSection}>
+              <span className={styles.containersLabel}>Containers</span>
+              {(fields.containers || [{ weight: '' }]).length > 1 ? (
+                <div className={styles.containerList}>
+                  {(fields.containers || []).map((c, ci) => (
+                    <div key={ci} className={styles.containerRow}>
+                      <span className={styles.containerNum}>#{ci + 1}</span>
+                      <input className={styles.weightInput} type="number" min="0" placeholder="g" value={c.weight || ''} onChange={e => {
+                        setFields(prev => { const next = [...(prev.containers || [])]; next[ci] = { ...next[ci], weight: e.target.value }; return { ...prev, containers: next }; });
+                      }} />
+                      <button className={styles.containerRemove} onClick={() => {
+                        setFields(prev => ({ ...prev, containers: (prev.containers || []).filter((_, i) => i !== ci) }));
+                      }}>&times;</button>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                (fields.containers || [{ weight: '' }]).map((c, ci) => (
+                  <div key={ci} className={styles.containerRow}>
+                    <input className={styles.weightInput} type="number" min="0" placeholder="g" value={c.weight || ''} onChange={e => {
+                      setFields(prev => { const next = [...(prev.containers || [{ weight: '' }])]; next[ci] = { ...next[ci], weight: e.target.value }; return { ...prev, containers: next }; });
+                    }} />
+                  </div>
+                ))
+              )}
+              <button className={styles.containerAddBtn} onClick={() => {
+                setFields(prev => ({
+                  ...prev,
+                  containers: [...(prev.containers || [{ label: '', weight: '' }]), { label: '', weight: '' }],
+                }));
+              }}>+ Add Container</button>
+              {containerWeightNum > 0 && (
+                <span className={styles.containerTotal}>Total: {containerWeightNum}g</span>
+              )}
+            </div>
             {totalWeightNum > 0 && (
               <span className={styles.weightCalc}>
                 Food: {foodWeight}g
@@ -1563,10 +1619,11 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
                     <td className={styles.gramsCell}>
                       {dbGrams > 0 ? dbGrams : <span className={styles.gramsEmpty}>—</span>}
                     </td>
-                    <td className={styles.linkCell}>
-                      {(() => { const link = getDbLink(row.ingredient); return link ? (
-                        <a href={link} target="_blank" rel="noopener noreferrer" className={styles.ingredientLink} title={link}>Link</a>
-                      ) : null; })()}
+                    <td className={styles.tagCell}>
+                      {getIngredientTags(row.ingredient).filter(t => !['vegan', 'gluten-free', 'dairy-free', 'high-carb', 'high-protein'].includes(t)).slice(0, 3).map(tagKey => {
+                        const info = getTagInfo(tagKey);
+                        return <span key={tagKey} className={styles.ingTag} style={{ color: info.color, borderColor: info.color }}>{info.label}</span>;
+                      })}
                     </td>
                     <td>
                       <button
@@ -1639,7 +1696,7 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
                 const toppingRows = visibleRows.filter(({ row }) => row.topping);
                 const renderViewRow = ({ row, origIdx }) => {
                   const dbNotes = getDbNotes(row.ingredient);
-                  const dbLink = getDbLink(row.ingredient);
+                  const dbLink = row.link || getDbLink(row.ingredient);
                   const noWeight = isInDb(row.ingredient) && classifyUnit(row.measurement) === 'volume' && !getDbGrams(row.ingredient);
                   const rawQty = row.quantity || '';
                   const displayQty = rawQty ? scaleQuantity(rawQty) : '';
@@ -1658,12 +1715,11 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
                           <span className={styles.noWeightWarning} title="No weight conversion available — add grams to ingredient database"> ⚖</span>
                         )}
                       </td>
-                      <td className={styles.linkCell}>
-                        {dbLink && (
-                          <a href={dbLink} target="_blank" rel="noopener noreferrer" className={styles.ingredientLink} title={dbLink}>
-                            Link
-                          </a>
-                        )}
+                      <td className={styles.tagCell}>
+                        {getIngredientTags(row.ingredient).slice(0, 3).map(tagKey => {
+                          const info = getTagInfo(tagKey);
+                          return <span key={tagKey} className={styles.ingTag} style={{ color: info.color, borderColor: info.color }}>{info.label}</span>;
+                        })}
                       </td>
                     </tr>
                   );
@@ -1686,7 +1742,288 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
       </div>
 
       <div className={styles.section}>
-        <h3>Instructions</h3>
+        <h3>Notes</h3>
+        <div
+          className={styles.notesInput}
+          contentEditable
+          suppressContentEditableWarning
+          ref={el => { if (el && !el.dataset.init) { el.innerHTML = fields.notes || ''; el.dataset.init = '1'; } }}
+          onInput={e => {
+            if (autoSaveRef.current) clearTimeout(autoSaveRef.current);
+            const target = e.currentTarget;
+            if (!target) return;
+            const html = target.innerHTML;
+            autoSaveRef.current = setTimeout(() => {
+              setFields(prev => ({ ...prev, notes: html }));
+            }, 2000);
+          }}
+          onBlur={e => {
+            if (autoSaveRef.current) clearTimeout(autoSaveRef.current);
+            const target = e.currentTarget;
+            if (!target) return;
+            setFields(prev => ({ ...prev, notes: target.innerHTML }));
+          }}
+          onKeyDown={e => {
+            if (e.key === 'b' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); applyFormat('bold'); }
+            if (e.key === 'i' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); applyFormat('italic'); }
+            if (e.key === 'u' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); applyFormat('underline'); }
+          }}
+          data-placeholder="Add notes, changes to try next time, or things to remember..."
+        />
+      </div>
+
+      <div className={styles.section}>
+        <div className={styles.instructionHeader}>
+          <h3>Instructions</h3>
+          <button className={cookMode ? styles.cookModeBtnActive : styles.cookModeBtn} onClick={() => setCookMode(prev => { const next = !prev; localStorage.setItem('sunday-cook-mode', String(next)); return next; })}>
+            {cookMode ? 'Standard View' : 'Cook Mode'}
+          </button>
+        </div>
+
+        {cookMode ? (
+          <div className={styles.cookModeView}>
+            <table className={styles.cookModeTable}>
+              <thead>
+                <tr>
+                  <th className={styles.cookModeStepCol}>Instructions</th>
+                  <th>Qty</th>
+                  <th>Unit</th>
+                  <th>Ingredient</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(editing ? fields.steps : fields.steps.filter(s => s.trim())).map((step, si) => {
+                  const assignedIndices = fields.stepIngredients[si] || [];
+                  const assignedIngs = assignedIndices.map(idx => fields.ingredients[idx]).filter(Boolean);
+                  const unassigned = fields.ingredients.filter((ing, idx) =>
+                    ing.ingredient.trim() && !Object.values(fields.stepIngredients).flat().includes(idx)
+                  );
+                  return (
+                    <React.Fragment key={si}>
+                      <tr
+                        className={`${styles.cookModeRow} ${stepDragIdx === si ? styles.draggingRow : ''} ${stepDragOverIdx === si ? styles.dragOverRow : ''}`}
+                        onDragOver={e => { if (editing) { e.preventDefault(); handleStepDragOver(e, si); } }}
+                        onDrop={e => editing && handleStepDrop(e, si)}
+                        onDragEnd={() => { setStepDragIdx(null); setStepDragOverIdx(null); }}
+                      >
+                        <td className={styles.cookModeStep} rowSpan={Math.max(1, assignedIngs.length)}>
+                          <div className={styles.cookModeStepHeader}>
+                            {editing && <span className={styles.cookModeDragHandle} draggable onDragStart={e => handleStepDragStart(e, si)} title="Drag to reorder">&#x2630;</span>}
+                            <span className={styles.cookModeStepNum}>Step {si + 1}</span>
+                            {editing && fields.steps.filter(s => s.trim()).length > 1 && (
+                              <button className={styles.cookModeStepDelete} onClick={() => {
+                                const realIdx = fields.steps.indexOf(step);
+                                if (realIdx >= 0) removeStep(realIdx);
+                              }} title="Delete step">&times;</button>
+                            )}
+                          </div>
+                          {editing ? (
+                            <div
+                              className={styles.cookModeStepInput}
+                              contentEditable
+                              suppressContentEditableWarning
+                              ref={el => { if (el && !el.dataset.init) { el.innerHTML = step || ''; el.dataset.init = '1'; } }}
+                              onInput={e => {
+                                if (autoSaveRef.current) clearTimeout(autoSaveRef.current);
+                                const target = e.currentTarget;
+                                if (!target) return;
+                                const html = target.innerHTML;
+                                const idx = fields.steps.indexOf(step) >= 0 ? fields.steps.indexOf(step) : si;
+                                autoSaveRef.current = setTimeout(() => {
+                                  updateStep(idx, html);
+                                }, 2000);
+                              }}
+                              onBlur={e => {
+                                if (autoSaveRef.current) clearTimeout(autoSaveRef.current);
+                                const target = e.currentTarget;
+                                if (!target) return;
+                                const idx = fields.steps.indexOf(step) >= 0 ? fields.steps.indexOf(step) : si;
+                                updateStep(idx, target.innerHTML);
+                              }}
+                              onKeyDown={e => {
+                                if (e.key === 'b' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); applyFormat('bold'); }
+                                if (e.key === 'i' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); applyFormat('italic'); }
+                                if (e.key === 'u' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); applyFormat('underline'); }
+                              }}
+                            />
+                          ) : (
+                            <span className={styles.cookModeStepText}>{renderFormattedText(step)}</span>
+                          )}
+                        </td>
+                        {assignedIngs.length > 0 ? (
+                          <>
+                            <td className={styles.cookModeQty}>{assignedIngs[0].quantity}</td>
+                            <td className={styles.cookModeMeas} style={{ position: 'relative', cursor: 'pointer', textDecoration: 'underline', textDecorationStyle: 'dotted' }} onClick={() => {
+                              const ing = assignedIngs[0];
+                              const dbGrams = getDbGrams(ing.ingredient);
+                              const dbMeas = getDbMeasurement(ing.ingredient);
+                              const convs = getConversions(ing.quantity, ing.measurement, dbGrams);
+                              const cross = getCrossConversion(ing.quantity, ing.measurement, dbGrams, dbMeas);
+                              const volumeOptions = [];
+                              if (cross.volume) { const p = cross.volume.match(/^([\d.]+)\s+(.+)$/); if (p) volumeOptions.push({ qty: p[1], unit: p[2], label: `${p[1]} ${p[2]}` }); }
+                              for (const c of convs) { if (VOLUME_TO_ML[c.unit] && !volumeOptions.some(o => o.unit === c.unit)) volumeOptions.push({ qty: String(c.qty), unit: c.unit, label: `${c.qty} ${c.unit}` }); }
+                              const weightOptions = [];
+                              if (cross.weight) { const p = cross.weight.match(/^([\d.]+)\s*(.+)$/); if (p) weightOptions.push({ qty: p[1], unit: p[2], label: `${p[1]} ${p[2]}` }); }
+                              for (const c of convs) { if (WEIGHT_TO_G[c.unit] && !weightOptions.some(o => o.unit === c.unit)) weightOptions.push({ qty: String(c.qty), unit: c.unit, label: `${c.qty} ${c.unit}` }); }
+                              if (volumeOptions.length > 0 || weightOptions.length > 0) setConvertPopup({ cookIdx: `${si}-0`, volumeOptions, weightOptions, origIdx: assignedIndices[0] });
+                            }}>
+                              {assignedIngs[0].measurement}
+                              {convertPopup?.cookIdx === `${si}-0` && (
+                                <div className={styles.convertPopup} ref={convertPopupRef}>
+                                  <div className={styles.convertPopupColumns}>
+                                    {convertPopup.volumeOptions?.length > 0 && (
+                                      <div className={styles.convertPopupCol}>
+                                        <div className={styles.convertPopupTitle}>Volume</div>
+                                        {convertPopup.volumeOptions.map((opt, oi) => (
+                                          <button key={`v${oi}`} className={styles.convertPopupOption} onClick={e => { e.stopPropagation(); updateIngredient(convertPopup.origIdx, 'quantity', opt.qty); updateIngredient(convertPopup.origIdx, 'measurement', opt.unit); setConvertPopup(null); }}>{opt.label}</button>
+                                        ))}
+                                      </div>
+                                    )}
+                                    {convertPopup.weightOptions?.length > 0 && (
+                                      <div className={styles.convertPopupCol}>
+                                        <div className={styles.convertPopupTitle}>Weight</div>
+                                        {convertPopup.weightOptions.map((opt, oi) => (
+                                          <button key={`w${oi}`} className={styles.convertPopupOption} onClick={e => { e.stopPropagation(); updateIngredient(convertPopup.origIdx, 'quantity', opt.qty); updateIngredient(convertPopup.origIdx, 'measurement', opt.unit); setConvertPopup(null); }}>{opt.label}</button>
+                                        ))}
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+                              )}
+                            </td>
+                            <td className={styles.cookModeIng}>
+                              <div className={styles.cookModeIngRow}>
+                                <span>{assignedIngs[0].ingredient}</span>
+                                {editing && <button className={styles.cookModeRemove} onClick={() => {
+                                  setFields(prev => {
+                                    const map = { ...prev.stepIngredients };
+                                    map[si] = (map[si] || []).filter(idx => idx !== assignedIndices[0]);
+                                    return { ...prev, stepIngredients: map };
+                                  });
+                                }}>&times;</button>}
+                                {editing && assignedIngs.length === 1 && (
+                                  <select className={styles.cookModeAddInline} value="" onChange={e => {
+                                    const idx = parseInt(e.target.value);
+                                    if (isNaN(idx)) return;
+                                    setFields(prev => {
+                                      const map = { ...prev.stepIngredients };
+                                      map[si] = [...(map[si] || []), idx];
+                                      return { ...prev, stepIngredients: map };
+                                    });
+                                  }}>
+                                    <option value="">+ Add</option>
+                                    {fields.ingredients.map((ig, idx) => ig.ingredient.trim() ? (
+                                      <option key={idx} value={idx}>{ig.quantity} {ig.measurement} {ig.ingredient}</option>
+                                    ) : null)}
+                                  </select>
+                                )}
+                              </div>
+                            </td>
+                          </>
+                        ) : (
+                          <td colSpan={3} className={styles.cookModeEmpty}>
+                            {editing && (
+                              <select className={styles.cookModeSelect} value="" onChange={e => {
+                                const idx = parseInt(e.target.value);
+                                if (isNaN(idx)) return;
+                                setFields(prev => {
+                                  const map = { ...prev.stepIngredients };
+                                  map[si] = [...(map[si] || []), idx];
+                                  return { ...prev, stepIngredients: map };
+                                });
+                              }}>
+                                <option value="">+ Assign ingredient...</option>
+                                {fields.ingredients.map((ing, idx) => ing.ingredient.trim() ? (
+                                  <option key={idx} value={idx}>{ing.quantity} {ing.measurement} {ing.ingredient}</option>
+                                ) : null)}
+                              </select>
+                            )}
+                          </td>
+                        )}
+                      </tr>
+                      {assignedIngs.slice(1).map((ing, ii) => (
+                        <tr key={`${si}-${ii + 1}`}>
+                          <td className={styles.cookModeQty}>{ing.quantity}</td>
+                          <td className={styles.cookModeMeas} style={{ position: 'relative', cursor: 'pointer', textDecoration: 'underline', textDecorationStyle: 'dotted' }} onClick={() => {
+                            const dbGrams = getDbGrams(ing.ingredient);
+                            const dbMeas = getDbMeasurement(ing.ingredient);
+                            const convs = getConversions(ing.quantity, ing.measurement, dbGrams);
+                            const cross = getCrossConversion(ing.quantity, ing.measurement, dbGrams, dbMeas);
+                            const volumeOptions = [];
+                            if (cross.volume) { const p = cross.volume.match(/^([\d.]+)\s+(.+)$/); if (p) volumeOptions.push({ qty: p[1], unit: p[2], label: `${p[1]} ${p[2]}` }); }
+                            for (const c of convs) { if (VOLUME_TO_ML[c.unit] && !volumeOptions.some(o => o.unit === c.unit)) volumeOptions.push({ qty: String(c.qty), unit: c.unit, label: `${c.qty} ${c.unit}` }); }
+                            const weightOptions = [];
+                            if (cross.weight) { const p = cross.weight.match(/^([\d.]+)\s*(.+)$/); if (p) weightOptions.push({ qty: p[1], unit: p[2], label: `${p[1]} ${p[2]}` }); }
+                            for (const c of convs) { if (WEIGHT_TO_G[c.unit] && !weightOptions.some(o => o.unit === c.unit)) weightOptions.push({ qty: String(c.qty), unit: c.unit, label: `${c.qty} ${c.unit}` }); }
+                            if (volumeOptions.length > 0 || weightOptions.length > 0) setConvertPopup({ cookIdx: `${si}-${ii+1}`, volumeOptions, weightOptions, origIdx: assignedIndices[ii+1] });
+                          }}>
+                            {ing.measurement}
+                            {convertPopup?.cookIdx === `${si}-${ii+1}` && (
+                              <div className={styles.convertPopup} ref={convertPopupRef}>
+                                <div className={styles.convertPopupColumns}>
+                                  {convertPopup.volumeOptions?.length > 0 && (
+                                    <div className={styles.convertPopupCol}>
+                                      <div className={styles.convertPopupTitle}>Volume</div>
+                                      {convertPopup.volumeOptions.map((opt, oi) => (
+                                        <button key={`v${oi}`} className={styles.convertPopupOption} onClick={e => { e.stopPropagation(); updateIngredient(convertPopup.origIdx, 'quantity', opt.qty); updateIngredient(convertPopup.origIdx, 'measurement', opt.unit); setConvertPopup(null); }}>{opt.label}</button>
+                                      ))}
+                                    </div>
+                                  )}
+                                  {convertPopup.weightOptions?.length > 0 && (
+                                    <div className={styles.convertPopupCol}>
+                                      <div className={styles.convertPopupTitle}>Weight</div>
+                                      {convertPopup.weightOptions.map((opt, oi) => (
+                                        <button key={`w${oi}`} className={styles.convertPopupOption} onClick={e => { e.stopPropagation(); updateIngredient(convertPopup.origIdx, 'quantity', opt.qty); updateIngredient(convertPopup.origIdx, 'measurement', opt.unit); setConvertPopup(null); }}>{opt.label}</button>
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            )}
+                          </td>
+                          <td className={styles.cookModeIng}>
+                            <div className={styles.cookModeIngRow}>
+                              <span>{ing.ingredient}</span>
+                              {editing && <button className={styles.cookModeRemove} onClick={() => {
+                                setFields(prev => {
+                                  const map = { ...prev.stepIngredients };
+                                  map[si] = (map[si] || []).filter(idx => idx !== assignedIndices[ii + 1]);
+                                  return { ...prev, stepIngredients: map };
+                                });
+                              }}>&times;</button>}
+                              {editing && ii === assignedIngs.length - 2 && (
+                                <select className={styles.cookModeAddInline} value="" onChange={e => {
+                                  const idx = parseInt(e.target.value);
+                                  if (isNaN(idx)) return;
+                                  setFields(prev => {
+                                    const map = { ...prev.stepIngredients };
+                                    map[si] = [...(map[si] || []), idx];
+                                    return { ...prev, stepIngredients: map };
+                                  });
+                                }}>
+                                  <option value="">+ Add</option>
+                                  {fields.ingredients.map((ig, idx) => ig.ingredient.trim() ? (
+                                    <option key={idx} value={idx}>{ig.quantity} {ig.measurement} {ig.ingredient}</option>
+                                  ) : null)}
+                                </select>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </React.Fragment>
+                  );
+                })}
+              </tbody>
+            </table>
+            {editing && (
+              <button className={styles.addRowBtn} type="button" onClick={addStep}>
+                + Add step
+              </button>
+            )}
+          </div>
+        ) : (
+        <>
         {editing ? (
           <>
             <ol className={styles.stepsList}>
@@ -1727,12 +2064,38 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
                     </div>
                   </div>
                   <div className={styles.stepInputWrap}>
-                    <textarea
+                    <div className={styles.formatBar}>
+                      <button type="button" className={styles.formatBtn} title="Bold (Ctrl+B)" onMouseDown={e => { e.preventDefault(); applyFormat('bold'); }}><strong>B</strong></button>
+                      <button type="button" className={styles.formatBtn} title="Italic (Ctrl+I)" onMouseDown={e => { e.preventDefault(); applyFormat('italic'); }}><em>I</em></button>
+                      <button type="button" className={styles.formatBtn} title="Underline (Ctrl+U)" onMouseDown={e => { e.preventDefault(); applyFormat('underline'); }}><u>U</u></button>
+                    </div>
+                    <div
                       className={styles.stepInput}
-                      value={step}
-                      rows={2}
-                      onChange={e => updateStep(i, e.target.value)}
-                      placeholder={`Step ${i + 1}...`}
+                      contentEditable
+                      suppressContentEditableWarning
+                      ref={el => { if (el && !el.dataset.init) { el.innerHTML = step || ''; el.dataset.init = '1'; } }}
+                      onInput={e => {
+                        if (autoSaveRef.current) clearTimeout(autoSaveRef.current);
+                        const target = e.currentTarget;
+                        if (!target) return;
+                        const html = target.innerHTML;
+                        const idx = i;
+                        autoSaveRef.current = setTimeout(() => {
+                          updateStep(idx, html);
+                        }, 2000);
+                      }}
+                      onBlur={e => {
+                        if (autoSaveRef.current) clearTimeout(autoSaveRef.current);
+                        const target = e.currentTarget;
+                        if (!target) return;
+                        updateStep(i, target.innerHTML);
+                      }}
+                      onKeyDown={e => {
+                        if (e.key === 'b' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); applyFormat('bold'); }
+                        if (e.key === 'i' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); applyFormat('italic'); }
+                        if (e.key === 'u' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); applyFormat('underline'); }
+                      }}
+                      data-placeholder={`Step ${i + 1}...`}
                     />
                     {fields.steps.length > 1 && (
                       <button
@@ -1754,12 +2117,14 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
         ) : (
           <ol className={styles.stepsListReadonly}>
             {fields.steps.filter(s => s.trim()).map((step, i) => (
-              <li key={i} className={styles.stepReadonly}>{step}</li>
+              <li key={i} className={styles.stepReadonly}>{renderFormattedText(step)}</li>
             ))}
             {fields.steps.filter(s => s.trim()).length === 0 && (
               <p className={styles.emptyText}>No instructions yet</p>
             )}
           </ol>
+        )}
+        </>
         )}
       </div>
 

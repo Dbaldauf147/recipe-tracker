@@ -350,7 +350,7 @@
   border: 1px solid var(--color-border);
   border-top: none;
   border-radius: 0 0 var(--radius-sm, 4px) var(--radius-sm, 4px);
-  z-index: 10;
+  z-index: 2100;
   box-shadow: var(--shadow-sm);
 }
 
@@ -557,15 +557,23 @@
 
 .recipeModalContent {
   background: var(--color-surface);
-  border-radius: var(--radius-xl);
-  box-shadow: var(--shadow-lg);
-  padding: 1.5rem 2rem;
-  max-width: 800px;
-  width: 100%;
-  max-height: 90vh;
+  border-radius: 16px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+  padding: 2rem;
+  max-width: 80vw;
+  width: 80vw;
+  min-width: 900px;
+  max-height: 92vh;
   overflow-y: auto;
   animation: modalSlideIn 0.2s ease;
   position: relative;
+}
+
+@media (max-width: 950px) {
+  .recipeModalContent {
+    min-width: 0;
+    width: 95vw;
+  }
 }
 
 .recipeModalContent .modalClose {
@@ -667,6 +675,42 @@
   font-size: 1.5rem;
   color: var(--color-text-muted);
   line-height: 1;
+}
+
+.recentMeals {
+  margin-bottom: 0.75rem;
+}
+
+.recentMealsLabel {
+  display: block;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  margin-bottom: 0.35rem;
+}
+
+.recentMealsList {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.recentMealBtn {
+  padding: 0.35rem 0.75rem;
+  border: 1px solid var(--color-border);
+  border-radius: 50px;
+  background: var(--color-surface);
+  font-size: 0.82rem;
+  font-weight: 500;
+  font-family: inherit;
+  color: var(--color-text);
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.recentMealBtn:hover {
+  border-color: var(--color-accent);
+  background: var(--color-accent-light, rgba(201, 100, 66, 0.1));
 }
 
 .trackMenuDivider {
@@ -1735,6 +1779,11 @@
   outline-offset: -2px;
 }
 
+.miniCalOtherMonth {
+  color: var(--color-text-muted);
+  opacity: 0.4;
+}
+
 .miniCalEmpty {
   padding: 0.2rem 0;
 }
@@ -1851,6 +1900,12 @@
 
 .weeklyColNum {
   font-size: 0.82rem;
+  opacity: 0.8;
+}
+
+.weeklyColOrd {
+  font-size: 0.55rem;
+  font-weight: 600;
   opacity: 0.7;
 }
 
@@ -2049,10 +2104,16 @@
 }
 
 .kpiTitle {
-  margin: 0 0 0.75rem;
+  margin: 0 0 0.15rem;
   font-size: 1rem;
   font-weight: 700;
   color: var(--color-text, #1A1A1A);
+}
+
+.kpiSubtitle {
+  margin: 0 0 0.75rem;
+  font-size: 0.82rem;
+  color: var(--color-text-muted);
 }
 
 .kpiList {
@@ -2111,6 +2172,13 @@
   padding: 0.6rem 1rem;
   background: var(--color-surface);
   border-top: 1px solid var(--color-border-light, #f0f0f0);
+}
+
+.kpiRecHeader {
+  padding: 0.5rem 1rem;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--color-text-muted);
 }
 
 .kpiRecList .kpiRec:first-child {
@@ -2233,6 +2301,12 @@
 
 .kpiRecAddBtn:hover {
   opacity: 0.85;
+}
+
+.kpiRecInList {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--color-success, #16a34a);
 }
 
 .kpiRecPlusBtn {

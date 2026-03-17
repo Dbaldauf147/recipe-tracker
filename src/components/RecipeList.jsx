@@ -7,6 +7,7 @@ import { locationToRegion, getSeasonalIngredients, getRecipeSeasonalIngredients 
 import { useAuth } from '../contexts/AuthContext';
 import { loadUserData, saveField } from '../utils/firestoreSync';
 import { copyMealImage } from '../utils/generateMealImage';
+import { ALL_TAGS, TAG_CATEGORIES, recipeMatchesTags } from '../utils/ingredientTags';
 import styles from './RecipeList.module.css';
 
 const ADMIN_UID = import.meta.env.VITE_ADMIN_UID;
@@ -101,6 +102,7 @@ export function RecipeList({
   const [checkedTypes, setCheckedTypes] = useState(new Set());
   const [checkedCategories, setCheckedCategories] = useState(new Set());
   const [checkedCuisines, setCheckedCuisines] = useState(new Set());
+  const [checkedTags, setCheckedTags] = useState(new Set());
   const [mealFilterOpen, setMealFilterOpen] = useState(false);
   const mealFilterRef = useRef(null);
   const [showSaved, setShowSaved] = useState(false);
@@ -256,6 +258,9 @@ export function RecipeList({
   }
   if (checkedCuisines.size > 0) {
     visible = visible.filter(r => checkedCuisines.has(r.cuisine || ''));
+  }
+  if (checkedTags.size > 0) {
+    visible = visible.filter(r => recipeMatchesTags(r, checkedTags));
   }
   if (searchQuery.trim()) {
     const q = searchQuery.trim().toLowerCase();
@@ -720,11 +725,11 @@ export function RecipeList({
       <div className={styles.topFilterRow}>
         <div className={styles.mealFilterWrap} ref={mealFilterRef}>
           <button
-            className={`${styles.filterBtn} ${(checkedTypes.size > 0 || checkedCategories.size > 0 || checkedCuisines.size > 0 || showRare || showRetired) ? styles.filterBtnActive : ''}`}
+            className={`${styles.filterBtn} ${(checkedTypes.size > 0 || checkedCategories.size > 0 || checkedCuisines.size > 0 || checkedTags.size > 0 || showRare || showRetired) ? styles.filterBtnActive : ''}`}
             onClick={() => setMealFilterOpen(p => !p)}
           >
             {(() => {
-              const count = checkedTypes.size + checkedCategories.size + checkedCuisines.size + (showRare ? 1 : 0) + (showRetired ? 1 : 0);
+              const count = checkedTypes.size + checkedCategories.size + checkedCuisines.size + checkedTags.size + (showRare ? 1 : 0) + (showRetired ? 1 : 0);
               return `Filters${count > 0 ? ` (${count})` : ''}`;
             })()}
             <span className={styles.dropdownCaret}>&#9662;</span>
@@ -812,10 +817,33 @@ export function RecipeList({
                   ))}
                 </div>
               )}
-              {(checkedTypes.size > 0 || checkedCategories.size > 0 || checkedCuisines.size > 0 || showRare || showRetired) && (
+              <div className={styles.mealFilterGroup}>
+                <span className={styles.mealFilterLabel}>Ingredient Tags</span>
+                {Object.entries(TAG_CATEGORIES).map(([catKey, cat]) => {
+                  const catTags = ALL_TAGS.filter(t => t.category === catKey);
+                  return catTags.map(tag => (
+                    <label key={tag.key} className={styles.mealFilterOption}>
+                      <input
+                        type="checkbox"
+                        checked={checkedTags.has(tag.key)}
+                        onChange={() => {
+                          setCheckedTags(prev => {
+                            const next = new Set(prev);
+                            if (next.has(tag.key)) next.delete(tag.key);
+                            else next.add(tag.key);
+                            return next;
+                          });
+                        }}
+                      />
+                      <span style={{ color: cat.color, fontWeight: 600 }}>{tag.label}</span>
+                    </label>
+                  ));
+                })}
+              </div>
+              {(checkedTypes.size > 0 || checkedCategories.size > 0 || checkedCuisines.size > 0 || checkedTags.size > 0 || showRare || showRetired) && (
                 <button
                   className={styles.mealFilterClear}
-                  onClick={() => { setCheckedTypes(new Set()); setCheckedCategories(new Set()); setCheckedCuisines(new Set()); setShowRare(false); setShowRetired(false); }}
+                  onClick={() => { setCheckedTypes(new Set()); setCheckedCategories(new Set()); setCheckedCuisines(new Set()); setCheckedTags(new Set()); setShowRare(false); setShowRetired(false); }}
                 >
                   Clear all
                 </button>
@@ -1203,7 +1231,7 @@ export function RecipeList({
                     onAdd={editMode ? undefined : handleAddToWeekWithPulse}
                     editMode={editMode}
                     onDelete={onDelete}
-                    macroScore={macroMatchMap[recipe.id]}
+                    showTags={false}
                   />
                 ))}
               </div>
@@ -1234,6 +1262,7 @@ export function RecipeList({
                   onAdd={editMode ? undefined : handleAddToWeekWithPulse}
                   editMode={editMode}
                   onDelete={onDelete}
+                  showTags={false}
                 />
               ))}
             </div>
@@ -1285,6 +1314,7 @@ export function RecipeList({
                       onAdd={editMode ? undefined : handleAddToWeekWithPulse}
                       editMode={editMode}
                       onDelete={onDelete}
+                      showTags={false}
                     />
                   ))}
                 </div>

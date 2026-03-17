@@ -84,7 +84,7 @@ function DiscoverMealsPanel({ onSave }) {
               {r.description && <span className={styles.discoverCardDesc}>{r.description}</span>}
               <span className={styles.discoverCardMeta}>{(r.ingredients || []).length} ingredients{r.servings ? ` · ${r.servings} servings` : ''}</span>
               {addedSet.has(r.title.toLowerCase()) ? (
-                <span className={styles.discoverCardAdded}>Added</span>
+                <span className={styles.discoverCardAdded}>Added to Shopping List</span>
               ) : (
                 <button className={styles.discoverCardBtn} onClick={() => handleAdd(r)}>+ Add</button>
               )}
@@ -105,7 +105,7 @@ function DiscoverMealsPanel({ onSave }) {
                     <span className={styles.discoverCardTitle}>{r.title}</span>
                     <span className={styles.discoverCardMeta}>{(r.ingredients || []).length} ingredients</span>
                     {addedSet.has(r.title.toLowerCase()) ? (
-                      <span className={styles.discoverCardAdded}>Added</span>
+                      <span className={styles.discoverCardAdded}>Added to Shopping List</span>
                     ) : (
                       <button className={styles.discoverCardBtn} onClick={() => handleAdd(r)}>+ Add</button>
                     )}

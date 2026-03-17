@@ -124,10 +124,18 @@
 }
 
 .savedToast {
-  color: #22c55e;
-  font-size: 0.82rem;
-  font-weight: 600;
-  animation: fadeInOut 2s ease forwards;
+  position: fixed;
+  bottom: 1.5rem;
+  right: 1.5rem;
+  z-index: 9999;
+  background: #22c55e;
+  color: #fff;
+  font-size: 0.88rem;
+  font-weight: 700;
+  padding: 0.6rem 1.25rem;
+  border-radius: 50px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  animation: fadeInOut 2.5s ease forwards;
 }
 
 @keyframes fadeInOut {
@@ -142,6 +150,7 @@
   display: flex;
   gap: 1.5rem;
   align-items: flex-start;
+  position: relative;
 }
 
 .topRowLeft {
@@ -351,6 +360,109 @@
   border-color: var(--color-accent);
 }
 
+.containersSection {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.containersLabel {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--color-text-secondary);
+}
+
+.containerRow {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.containerNameInput {
+  width: 100px;
+  padding: 0.3rem 0.5rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm, 4px);
+  font-size: 0.85rem;
+  font-family: inherit;
+  color: var(--color-text);
+}
+
+.containerNameInput:focus {
+  outline: none;
+  border-color: var(--color-accent);
+}
+
+.containerTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+.containerTable th {
+  text-align: left;
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--color-text-muted);
+  padding: 0.3rem 0.4rem;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.containerTable th:last-child {
+  width: 2rem;
+}
+
+.containerTable td {
+  padding: 0.2rem 0.3rem;
+}
+
+.containerList {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.containerNum {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  min-width: 1.5rem;
+}
+
+.containerRemove {
+  background: none;
+  border: none;
+  color: var(--color-text-muted);
+  font-size: 1rem;
+  cursor: pointer;
+  opacity: 0.4;
+}
+
+.containerRemove:hover {
+  opacity: 1;
+  color: var(--color-danger, #dc2626);
+}
+
+.containerAddBtn {
+  background: none;
+  border: none;
+  color: var(--color-accent);
+  font-size: 0.78rem;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  padding: 0;
+  align-self: flex-start;
+}
+
+.containerTotal {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--color-text-muted);
+}
+
 .weightCalc {
   font-size: 0.85rem;
   font-weight: 600;
@@ -389,6 +501,270 @@
   font-weight: 600;
   letter-spacing: -0.01em;
   color: var(--color-accent);
+}
+
+/* ── Notes ── */
+.notesInput {
+  padding: 0.6rem 0.85rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm, 6px);
+  background: var(--color-surface-alt, #faf9f7);
+  color: var(--color-text);
+  font-size: 0.9rem;
+  font-family: inherit;
+  line-height: 1.6;
+  min-height: 3rem;
+  outline: none;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  transition: border-color 0.15s ease;
+}
+
+.notesInput:focus {
+  border-color: var(--color-accent);
+  background: var(--color-surface);
+}
+
+.notesInput:empty::before {
+  content: attr(data-placeholder);
+  color: var(--color-text-muted);
+  opacity: 0.5;
+}
+
+/* ── Cook Mode ── */
+.instructionHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.5rem;
+}
+
+.instructionHeader h3 {
+  margin: 0;
+}
+
+.cookModeBtn, .cookModeBtnActive {
+  padding: 0.3rem 0.75rem;
+  border: 1px solid var(--color-border);
+  border-radius: 50px;
+  background: none;
+  font-size: 0.78rem;
+  font-weight: 600;
+  font-family: inherit;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.cookModeBtnActive {
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+  color: #fff;
+}
+
+.cookModeBtn:hover {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+
+.cookModeView {
+  overflow-x: auto;
+}
+
+.cookModeTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.88rem;
+}
+
+.cookModeTable th {
+  text-align: left;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--color-text-muted);
+  padding: 0.5rem;
+  border-bottom: 2px solid var(--color-border);
+}
+
+.cookModeStepCol {
+  width: 50%;
+}
+
+.cookModeTable td {
+  padding: 0.5rem;
+  border-bottom: 1px solid var(--color-border-light, #f0f0f0);
+  vertical-align: top;
+}
+
+.cookModeRow td:first-child {
+  border-bottom: 1px solid var(--color-border);
+}
+
+.cookModeStep {
+  background: var(--color-surface-alt, #f9f7f4);
+  border-right: 3px solid var(--color-accent);
+}
+
+.cookModeStepNum {
+  display: block;
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-accent);
+  margin-bottom: 0.25rem;
+}
+
+.cookModeStepHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.cookModeDragHandle {
+  cursor: grab;
+  color: var(--color-text-muted);
+  opacity: 0.4;
+  font-size: 0.85rem;
+  user-select: none;
+}
+
+.cookModeDragHandle:hover {
+  opacity: 0.8;
+}
+
+.cookModeStepDelete {
+  background: none;
+  border: none;
+  color: var(--color-text-muted);
+  font-size: 1.1rem;
+  cursor: pointer;
+  opacity: 0.4;
+  line-height: 1;
+}
+
+.cookModeStepDelete:hover {
+  opacity: 1;
+  color: var(--color-danger, #dc2626);
+}
+
+.cookModeStepText {
+  font-size: 0.88rem;
+  line-height: 1.5;
+  color: var(--color-text);
+}
+
+.cookModeStepInput {
+  width: 100%;
+  font-size: 0.88rem;
+  line-height: 1.5;
+  font-family: inherit;
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm, 4px);
+  padding: 0.4rem 0.5rem;
+  background: var(--color-surface);
+  box-sizing: border-box;
+  min-height: 3rem;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  outline: none;
+}
+
+.cookModeStepInput:focus {
+  border-color: var(--color-accent);
+}
+
+.cookModeQty {
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.cookModeMeas {
+  color: var(--color-text-secondary, #555);
+  white-space: nowrap;
+}
+
+.cookModeIng {
+  color: var(--color-text);
+  font-weight: 500;
+}
+
+.cookModeEmpty {
+  color: var(--color-text-muted);
+  font-style: italic;
+}
+
+.cookModeRemove {
+  background: none;
+  border: none;
+  color: var(--color-text-muted);
+  font-size: 1rem;
+  cursor: pointer;
+  margin-left: 0.3rem;
+  opacity: 0.4;
+}
+
+.cookModeRemove:hover {
+  opacity: 1;
+  color: var(--color-danger, #dc2626);
+}
+
+.cookModeIngRow {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  flex-wrap: wrap;
+}
+
+.cookModeAddInline {
+  margin-left: auto;
+  padding: 0.1rem 0.35rem;
+  border: 1px solid var(--color-border);
+  border-radius: 50px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  font-family: inherit;
+  color: var(--color-accent);
+  background: none;
+  cursor: pointer;
+}
+
+.cookModeAddInline:hover {
+  border-color: var(--color-accent);
+  background: var(--color-accent-light, rgba(201, 100, 66, 0.08));
+}
+
+.cookModeAddBtn {
+  padding: 0.15rem 0.4rem;
+  border: 1px solid var(--color-border);
+  border-radius: 50px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  font-family: inherit;
+  color: var(--color-accent);
+  background: none;
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+.cookModeAddBtn:hover {
+  border-color: var(--color-accent);
+  background: var(--color-accent-light, rgba(201, 100, 66, 0.08));
+}
+
+.cookModeSelect {
+  padding: 0.2rem 0.4rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm, 4px);
+  font-size: 0.78rem;
+  font-family: inherit;
+  color: var(--color-text-muted);
+  background: var(--color-surface);
+  cursor: pointer;
 }
 
 .stepsList {
@@ -460,6 +836,33 @@
   gap: 0.4rem;
 }
 
+.formatBar {
+  display: flex;
+  gap: 0.2rem;
+  margin-bottom: 0.25rem;
+}
+
+.formatBtn {
+  width: 28px;
+  height: 24px;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  background: var(--color-surface);
+  font-size: 0.78rem;
+  font-family: inherit;
+  color: var(--color-text);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+
+.formatBtn:hover {
+  background: var(--color-surface-alt, #f5f3f0);
+  border-color: var(--color-accent);
+}
+
 .stepInput {
   flex: 1;
   padding: 0.3rem 0.4rem;
@@ -472,8 +875,16 @@
   color: var(--color-text);
   outline: none;
   box-sizing: border-box;
-  resize: vertical;
+  min-height: 3rem;
   transition: border-color 0.15s ease;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+
+.stepInput:empty::before {
+  content: attr(data-placeholder);
+  color: var(--color-text-muted);
+  opacity: 0.5;
 }
 
 .stepInput:focus {
@@ -703,8 +1114,50 @@
 }
 
 .linkCell {
-  width: 2.5rem;
+  width: 8rem;
   text-align: center;
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.tagCell {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.2rem;
+  padding: 0.2rem 0;
+}
+
+.ingTag {
+  font-size: 0.6rem;
+  font-weight: 600;
+  padding: 0.05rem 0.3rem;
+  border-radius: 50px;
+  border: 1px solid;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+
+.linkInput {
+  width: 100%;
+  padding: 0.25rem 0.45rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm, 4px);
+  font-size: 0.75rem;
+  font-family: inherit;
+  color: var(--color-text);
+  background: var(--color-surface);
+  box-sizing: border-box;
+}
+
+.linkInput:focus {
+  outline: none;
+  border-color: var(--color-accent);
+}
+
+.linkInput::placeholder {
+  color: var(--color-text-muted);
+  opacity: 0.6;
 }
 
 .ingredientLink {
@@ -712,6 +1165,7 @@
   color: var(--color-accent);
   text-decoration: none;
   font-weight: 500;
+  flex-shrink: 0;
 }
 
 .ingredientLink:hover {

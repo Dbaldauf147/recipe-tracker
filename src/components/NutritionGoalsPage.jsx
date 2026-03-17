@@ -13,7 +13,6 @@ const FATTY_ACIDS = ['omega3', 'omega6'];
 const CUSTOM_GOALS = [
   { key: 'fruitServings', label: 'Fruit Servings', unit: 'servings', decimals: 0 },
   { key: 'vegServings', label: 'Vegetable Servings', unit: 'servings', decimals: 0 },
-  { key: 'fermentedFoods', label: 'Fermented Foods', unit: 'servings', decimals: 0 },
 ];
 
 const PLATE_GOALS = [
@@ -113,7 +112,6 @@ const ACTIVITY_LEVELS = [
   { key: 'light',      label: 'Lightly Active',  desc: 'Exercise 1-2 days/week',         multiplier: 1.375, proteinPerLb: 0.7 },
   { key: 'moderate',   label: 'Moderately Active', desc: 'Exercise 3-5 days/week',       multiplier: 1.55, proteinPerLb: 0.8 },
   { key: 'active',     label: 'Very Active',     desc: 'Hard exercise 6-7 days/week',    multiplier: 1.725, proteinPerLb: 0.9 },
-  { key: 'extra',      label: 'Extra Active',    desc: 'Very hard exercise or physical job', multiplier: 1.9, proteinPerLb: 1.0 },
 ];
 
 function computeTargets(gender, heightFt, heightIn, weight, age, activityLevel, bodyGoalKey) {
@@ -394,148 +392,60 @@ export function NutritionGoalsPage({ onComplete, onBack, onSkip, initialSelected
           <p className={styles.subtitle}>Enter your info to get personalized targets, or set them manually.</p>
           <div className={styles.goalsAndInfo}>
             <div className={styles.goalsCol}>
-              <h4 className={styles.groupTitle}>Weight Goals</h4>
-              <p className={styles.goalHint}>Select all that apply</p>
-              <div className={styles.goalRow}>
-                {WEIGHT_GOALS.map(g => (
-                  <button
-                    key={g.key}
-                    type="button"
-                    className={weightGoals.has(g.key) ? styles.goalBtnActive : styles.goalBtn}
-                    onClick={() => {
-                      setWeightGoals(prev => {
-                        const next = new Set(prev);
-                        if (next.has(g.key)) next.delete(g.key);
-                        else next.add(g.key);
-                        return next;
-                      });
-                    }}
-                  >
-                    {g.label}
-                  </button>
-                ))}
-              </div>
-              {weightGoals.size > 0 && (
-                <>
-                  <p className={styles.goalHint}>How would you like to set your targets?</p>
-                  <div className={styles.goalRow}>
-                    <button
-                      type="button"
-                      className={macroApproach === 'manual' ? styles.goalBtnActive : styles.goalBtn}
-                      onClick={() => setMacroApproach('manual')}
-                    >
-                      Set Macro % Targets
-                    </button>
-                    <button
-                      type="button"
-                      className={macroApproach === 'calculate' ? styles.goalBtnActive : styles.goalBtn}
-                      onClick={() => setMacroApproach('calculate')}
-                    >
-                      Calculate My Targets
-                    </button>
-                  </div>
-                </>
-              )}
-              <h4 className={styles.groupTitle}>Meal Tracking</h4>
-              <p className={styles.goalHint}>Select all that apply</p>
-              <div className={styles.goalRow}>
-                {MEAL_TRACKING_GOALS.map(m => (
-                  <button
-                    key={m.key}
-                    type="button"
-                    className={mealTrackingGoals.has(m.key) ? styles.goalBtnActive : styles.goalBtn}
-                    onClick={() => {
-                      setMealTrackingGoals(prev => {
-                        const next = new Set(prev);
-                        if (next.has(m.key)) next.delete(m.key);
-                        else next.add(m.key);
-                        return next;
-                      });
-                    }}
-                  >
-                    {m.label}
-                  </button>
-                ))}
-              </div>
-              <h4 className={styles.groupTitle}>Fruit & Vegetable Tracking</h4>
-              <p className={styles.goalHint}>Select all that apply</p>
-              <div className={styles.goalRow}>
-                {FRUIT_VEG_GOALS.map(fv => (
-                  <button
-                    key={fv.key}
-                    type="button"
-                    className={fruitVegGoals.has(fv.key) ? styles.goalBtnActive : styles.goalBtn}
-                    onClick={() => {
-                      setFruitVegGoals(prev => {
-                        const next = new Set(prev);
-                        if (next.has(fv.key)) next.delete(fv.key);
-                        else next.add(fv.key);
-                        return next;
-                      });
-                      if (fv.key === 'trackFruit') {
-                        setSelected(prev => { const n = new Set(prev); n.add('fruitServings'); return n; });
-                      } else if (fv.key === 'trackVeg') {
-                        setSelected(prev => { const n = new Set(prev); n.add('vegServings'); return n; });
-                      }
-                    }}
-                  >
-                    {fv.label}
-                  </button>
-                ))}
-              </div>
-              <h4 className={styles.groupTitle}>% of Plate Tracking</h4>
-              <div className={styles.goalRow}>
-                <button
-                  type="button"
-                  className={trackPlate ? styles.goalBtnActive : styles.goalBtn}
-                  onClick={() => {
-                    const next = !trackPlate;
-                    setTrackPlate(next);
-                    if (next) {
-                      setSelected(prev => {
-                        const n = new Set(prev);
-                        PLATE_GOALS.forEach(g => n.add(g.key));
-                        return n;
-                      });
-                    } else {
-                      setSelected(prev => {
-                        const n = new Set(prev);
-                        PLATE_GOALS.forEach(g => n.delete(g.key));
-                        return n;
-                      });
-                    }
-                  }}
-                >
-                  Track % of Plate
-                </button>
-              </div>
-              {trackPlate && (
-                <div className={styles.plateGoalInputs}>
-                  {PLATE_GOALS.map(g => (
-                    <div key={g.key} className={styles.nutrientRow}>
-                      <label className={styles.nutrientLabel}>{g.label}</label>
-                      <input
-                        type="number"
-                        className={styles.nutrientInput}
-                        value={targets[g.key]}
-                        onChange={e => setTarget(g.key, parseFloat(e.target.value) || 0)}
-                        min={0}
-                        max={100}
-                        step={1}
-                      />
-                      <span className={styles.nutrientUnit}>%</span>
-                    </div>
-                  ))}
-                  {(() => {
-                    const total = (targets.plateProtein || 0) + (targets.plateCarbs || 0) + (targets.plateFat || 0);
-                    return (
-                      <div className={`${styles.pctTotalRow} ${total !== 100 ? styles.pctTotalWarn : ''}`}>
-                        Total: {total}%{total !== 100 && ' (should be 100%)'}
-                      </div>
-                    );
-                  })()}
-                </div>
-              )}
+              <h4 className={styles.groupTitle}>Goals</h4>
+              <table className={styles.goalsTable}>
+                <tbody>
+                  <tr>
+                    <td className={styles.goalsTableLabel}>Weight Goal</td>
+                    <td className={styles.goalsTableBtns}>
+                      {[{ key: 'lose', label: 'Lose Weight' }, { key: 'maintain', label: 'Maintain' }, { key: 'gain', label: 'Gain Weight' }].map(g => (
+                        <button key={g.key} type="button" className={weightGoals.has(g.key) ? styles.goalBtnActive : styles.goalBtn} onClick={() => setWeightGoals(new Set([g.key]))}>{g.label}</button>
+                      ))}
+                    </td>
+                  </tr>
+                  <tr>
+                    <td className={styles.goalsTableLabel}>Looking to Gain Muscle</td>
+                    <td className={styles.goalsTableBtns}>
+                      {[{ key: 'muscle', label: 'Yes' }, { key: 'no-muscle', label: 'No' }].map(g => (
+                        <button key={g.key} type="button" className={weightGoals.has(g.key) ? styles.goalBtnActive : styles.goalBtn} onClick={() => { setWeightGoals(prev => { const next = new Set(prev); next.delete('muscle'); next.delete('no-muscle'); next.add(g.key); return next; }); }}>{g.label}</button>
+                      ))}
+                    </td>
+                  </tr>
+                  <tr>
+                    <td className={styles.goalsTableLabel}>Weigh Your Food</td>
+                    <td className={styles.goalsTableBtns}>
+                      {[{ key: 'weighFood', label: 'Yes' }, { key: 'noWeighFood', label: 'No' }].map(g => (
+                        <button key={g.key} type="button" className={mealTrackingGoals.has(g.key) ? styles.goalBtnActive : styles.goalBtn} onClick={() => { setMealTrackingGoals(prev => { const next = new Set(prev); next.delete('weighFood'); next.delete('noWeighFood'); next.add(g.key); return next; }); }}>{g.label}</button>
+                      ))}
+                    </td>
+                  </tr>
+                  <tr>
+                    <td className={styles.goalsTableLabel}>Track Your Meals</td>
+                    <td className={styles.goalsTableBtns}>
+                      {[{ key: 'trackDaily', label: '3 Meals a Day' }, { key: 'trackWeekly', label: 'Per Grocery Shop' }].map(g => (
+                        <button key={g.key} type="button" className={mealTrackingGoals.has(g.key) ? styles.goalBtnActive : styles.goalBtn} onClick={() => { setMealTrackingGoals(prev => { const next = new Set(prev); next.delete('trackDaily'); next.delete('trackWeekly'); next.add(g.key); return next; }); }}>{g.label}</button>
+                      ))}
+                    </td>
+                  </tr>
+                  <tr>
+                    <td className={styles.goalsTableLabel}>Weigh Yourself</td>
+                    <td className={styles.goalsTableBtns}>
+                      {[{ key: 'weighDaily', label: 'Daily' }, { key: 'weighWeekly', label: 'Weekly' }, { key: 'weighMonthly', label: 'Monthly' }].map(g => (
+                        <button key={g.key} type="button" className={mealTrackingGoals.has(g.key) ? styles.goalBtnActive : styles.goalBtn} onClick={() => { setMealTrackingGoals(prev => { const next = new Set(prev); next.delete('weighDaily'); next.delete('weighWeekly'); next.delete('weighMonthly'); next.add(g.key); return next; }); }}>{g.label}</button>
+                      ))}
+                    </td>
+                  </tr>
+                  <tr>
+                    <td className={styles.goalsTableLabel}>Track Vitamins & Minerals</td>
+                    <td className={styles.goalsTableBtns}>
+                      {[{ key: 'trackMinerals', label: 'Minerals' }, { key: 'trackVitamins', label: 'Vitamins' }, { key: 'trackAminos', label: 'Amino Acids/Fatty Acids' }].map(g => (
+                        <button key={g.key} type="button" className={mealTrackingGoals.has(g.key) ? styles.goalBtnActive : styles.goalBtn} onClick={() => { setMealTrackingGoals(prev => { const next = new Set(prev); if (next.has(g.key)) next.delete(g.key); else next.add(g.key); return next; }); }}>{g.label}</button>
+                      ))}
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+
             </div>
             {macroApproach === 'manual' && (
               <div className={styles.infoCol}>
@@ -752,7 +662,12 @@ export function NutritionGoalsPage({ onComplete, onBack, onSkip, initialSelected
             </button>
           </div>
           <div className={styles.nutrientGrid}>
-          {GROUPS.map(group => {
+          {GROUPS.filter(group => {
+            if (group.title === 'Minerals' && !mealTrackingGoals.has('trackMinerals')) return false;
+            if (group.title === 'Vitamins' && !mealTrackingGoals.has('trackVitamins')) return false;
+            if ((group.title === 'Amino Acids' || group.title === 'Fatty Acids') && !mealTrackingGoals.has('trackAminos')) return false;
+            return true;
+          }).map(group => {
             const isMacros = group.title === 'Macros';
             const pctTotal = macroPcts.protein + macroPcts.carbs + macroPcts.fat;
             return (

@@ -43,24 +43,30 @@ export default async function handler(req, res) {
     return res.status(400).send('Missing email');
   }
 
+  const apiKey = process.env.RESEND_API_KEY;
+  if (!apiKey) {
+    console.error('RESEND_API_KEY not configured');
+    return res.status(500).json({ error: 'RESEND_API_KEY not configured' });
+  }
+
   const response = await fetch('https://api.resend.com/emails', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
+      Authorization: `Bearer ${apiKey}`,
     },
     body: JSON.stringify({
       from: 'Prep Day <onboarding@resend.dev>',
       to: 'baldaufdan@gmail.com',
       subject: `New Prep Day Signup: ${name || 'Unknown'}`,
-      text: `New user signed up for Prep Day!\n\nName: ${name || 'N/A'}\nEmail: ${email}`,
+      text: `New user signed up for Prep Day!\n\nName: ${name || 'N/A'}\nEmail: ${email}\nTime: ${new Date().toISOString()}`,
     }),
   });
 
   if (!response.ok) {
     const err = await response.text();
     console.error('Resend error:', err);
-    return res.status(500).send('Failed to send notification');
+    return res.status(500).json({ error: err });
   }
 
   return res.status(200).send('Notification sent');

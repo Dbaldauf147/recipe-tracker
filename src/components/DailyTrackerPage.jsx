@@ -83,6 +83,12 @@ function uuid() {
   return crypto.randomUUID();
 }
 
+function ordinal(n) {
+  const s = ['th', 'st', 'nd', 'rd'];
+  const v = n % 100;
+  return s[(v - 20) % 10] || s[v] || s[0];
+}
+
 function loadDailyLog() {
   try {
     const raw = localStorage.getItem(DAILY_LOG_KEY);
@@ -268,24 +274,46 @@ function MiniCalendar({ date, setDate, dailyLog }) {
   const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
 
   const cells = [];
-  for (let i = 0; i < mondayStart; i++) cells.push(null);
-  for (let d = 1; d <= daysInMonth; d++) {
-    const dateStr = `${viewYear}-${String(viewMonth + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+
+  function buildCell(year, month, day) {
+    const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
     const dayData = dailyLog[dateStr];
     const entries = dayData?.entries || [];
-    const slotsWithEntries = new Set();
+    let mainMealCount = (dayData?.skippedMeals || []).length;
     for (const entry of entries) {
       const slot = entry.mealSlot && ['breakfast', 'lunch', 'dinner'].includes(entry.mealSlot) ? entry.mealSlot : null;
-      if (slot) slotsWithEntries.add(slot);
+      if (slot) mainMealCount++;
     }
-    cells.push({
+    return {
       dateStr,
-      day: d,
+      day,
       isSelected: dateStr === date,
       isToday: dateStr === today,
       hasEntries: entries.length > 0 || !!dayData?.daySkipped,
-      fullDay: slotsWithEntries.size >= 3,
-    });
+      fullDay: mainMealCount >= 3,
+      isOtherMonth: month !== viewMonth || year !== viewYear,
+    };
+  }
+
+  // Previous month trailing days
+  const prevMonthDays = new Date(viewYear, viewMonth, 0).getDate();
+  const prevM = viewMonth === 0 ? 11 : viewMonth - 1;
+  const prevY = viewMonth === 0 ? viewYear - 1 : viewYear;
+  for (let i = mondayStart - 1; i >= 0; i--) {
+    cells.push(buildCell(prevY, prevM, prevMonthDays - i));
+  }
+
+  // Current month days
+  for (let d = 1; d <= daysInMonth; d++) {
+    cells.push(buildCell(viewYear, viewMonth, d));
+  }
+
+  // Next month leading days (fill to complete last week)
+  const nextM = viewMonth === 11 ? 0 : viewMonth + 1;
+  const nextY = viewMonth === 11 ? viewYear + 1 : viewYear;
+  const remaining = cells.length % 7 === 0 ? 0 : 7 - (cells.length % 7);
+  for (let d = 1; d <= remaining; d++) {
+    cells.push(buildCell(nextY, nextM, d));
   }
 
   function prevMonth() {
@@ -308,18 +336,16 @@ function MiniCalendar({ date, setDate, dailyLog }) {
         {dayHeaders.map((h, i) => (
           <span key={i} className={styles.miniCalDowHeader}>{h}</span>
         ))}
-        {cells.map((cell, i) => cell ? (
+        {cells.map((cell) => (
           <button
             key={cell.dateStr}
-            className={`${styles.miniCalCell} ${cell.isSelected ? styles.miniCalSelected : ''} ${cell.isToday ? styles.miniCalToday : ''} ${cell.fullDay ? styles.miniCalFullDay : ''}`}
+            className={`${styles.miniCalCell} ${cell.isSelected ? styles.miniCalSelected : ''} ${cell.isToday ? styles.miniCalToday : ''} ${cell.fullDay && !cell.isOtherMonth ? styles.miniCalFullDay : ''} ${cell.isOtherMonth ? styles.miniCalOtherMonth : ''}`}
             onClick={() => setDate(cell.dateStr)}
           >
             {cell.day}
-            {cell.fullDay && <span className={styles.miniCalStar}>&#x2B50;</span>}
-            {cell.hasEntries && !cell.fullDay && <span className={styles.miniCalDot} />}
+            {cell.fullDay && !cell.isOtherMonth && <span className={styles.miniCalStar}>&#x2B50;</span>}
+            {cell.hasEntries && !cell.fullDay && !cell.isOtherMonth && <span className={styles.miniCalDot} />}
           </button>
-        ) : (
-          <span key={`empty-${i}`} className={styles.miniCalEmpty} />
         ))}
       </div>
     </div>
@@ -865,6 +891,87 @@ function CustomMealInline({ onAdd, onBack }) {
       <div className={styles.formRow}>
         <button className={styles.addBtn} onClick={handleSubmit} disabled={loading || !mealName.trim() || mealIngredients.length === 0}>{loading ? 'Adding...' : 'Add Meal'}</button>
       </div>
+    </div>
+  );
+}
+
+/* ── Track Single Ingredient ── */
+function TrackIngredientInline({ onAdd, onBack }) {
+  const [ingredientName, setIngredientName] = useState('');
+  const [quantity, setQuantity] = useState('');
+  const [measurement, setMeasurement] = useState('g');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  async function handleAdd() {
+    if (!ingredientName.trim()) return;
+    setLoading(true);
+    setError('');
+    try {
+      const result = await fetchNutritionForIngredient({
+        ingredient: ingredientName.trim(),
+        quantity: quantity || '1',
+        measurement,
+      });
+      if (!result) {
+        setError('No nutrition data found for that ingredient.');
+        return;
+      }
+      onAdd({
+        id: uuid(),
+        type: 'custom',
+        ingredientName: ingredientName.trim(),
+        quantity: parseFloat(quantity) || 1,
+        measurement,
+        mealSlot: 'snack',
+        timestamp: new Date().toISOString(),
+        nutrition: result.nutrients,
+      });
+    } catch {
+      setError('Failed to look up nutrition. Try again.');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div>
+      <button className={styles.trackMenuBack} onClick={onBack}>&larr; Back</button>
+      <h4 className={styles.trackMenuSubtitle}>Track Ingredient</h4>
+      <div className={styles.formRow}>
+        <div className={styles.formField}>
+          <span className={styles.formLabel}>Ingredient</span>
+          <IngredientCombobox
+            value={ingredientName}
+            onChange={setIngredientName}
+            onSelect={(item) => {
+              setIngredientName(item.ingredient);
+              if (item.measurement) {
+                const m = item.measurement.toLowerCase().replace(/\(s\)/g, '').replace(/_.*$/, '').trim();
+                setMeasurement(m || 'g');
+              }
+            }}
+          />
+        </div>
+        <div className={styles.formFieldSmall}>
+          <span className={styles.formLabel}>Qty</span>
+          <input className={styles.formInput} type="number" value={quantity} onChange={e => setQuantity(e.target.value)} placeholder="1" min="0.1" step="0.1" />
+        </div>
+        <div className={styles.formFieldSmall}>
+          <span className={styles.formLabel}>Unit</span>
+          <input className={styles.formInput} type="text" list="track-ing-units" value={measurement} onChange={e => setMeasurement(e.target.value)} placeholder="g" />
+          <datalist id="track-ing-units">
+            {MEASUREMENT_OPTIONS.map(m => <option key={m} value={m} />)}
+          </datalist>
+        </div>
+      </div>
+      <div className={styles.formRow}>
+        <button className={styles.addBtn} onClick={handleAdd} disabled={loading || !ingredientName.trim()}>
+          {loading ? 'Adding...' : 'Add Ingredient'}
+        </button>
+      </div>
+      {error && <p className={styles.addError}>{error}</p>}
+      {loading && <p className={styles.addLoading}>Looking up nutrition...</p>}
     </div>
   );
 }
@@ -1489,7 +1596,7 @@ function HistoryChart({ dailyLog }) {
       ) : (
         <div className={styles.chartWrap}>
           <ResponsiveContainer width="100%" height="100%">
-            <ComposedChart data={chartData} margin={{ top: 10, right: 15, left: 20, bottom: 5 }}>
+            <ComposedChart data={chartData} margin={{ top: 10, right: 55, left: 20, bottom: 5 }}>
               <defs>
                 {selectedNutrients.filter(k => goals[k] > 0).map((key, i) => (
                   <linearGradient key={key} id={`grad-${key}`} x1="0" y1="0" x2="0" y2="1">
@@ -1500,9 +1607,9 @@ function HistoryChart({ dailyLog }) {
               </defs>
               <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" vertical={false} />
               <XAxis dataKey="date" tick={{ fontSize: 11, fill: '#9ca3af' }} axisLine={{ stroke: '#e5e7eb' }} tickLine={false} />
-              <YAxis tick={{ fontSize: 11, fill: '#9ca3af' }} unit="%" axisLine={false} tickLine={false} label={{ value: '% of Daily Target', angle: -90, position: 'insideLeft', style: { fontSize: 11, fill: '#9ca3af', textAnchor: 'middle' } }} />
+              <YAxis tick={{ fontSize: 11, fill: '#9ca3af' }} unit="%" axisLine={false} tickLine={false} />
               <Tooltip content={<ChartTooltip />} />
-              <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: '0.78rem', paddingTop: '0.5rem' }} />
+              <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: '0.78rem', paddingTop: '0.5rem', textAlign: 'left' }} align="left" />
               <ReferenceLine y={100} stroke="#d1d5db" strokeDasharray="6 3" strokeWidth={1.5} label={{ value: '100%', position: 'right', fontSize: 10, fill: '#9ca3af' }} />
               {selectedNutrients.filter(k => goals[k] > 0).map((key, i) => (
                 <Area key={`area-${key}`} type="monotone" dataKey={key} fill={`url(#grad-${key})`} stroke="none" name={NUTRIENTS.find(n => n.key === key)?.label || key} legendType="none" />
@@ -1594,7 +1701,7 @@ function ServingsChart({ dailyLog }) {
       ) : (
         <div className={styles.chartWrap}>
           <ResponsiveContainer width="100%" height="100%">
-            <ComposedChart data={chartData} margin={{ top: 10, right: 15, left: 20, bottom: 5 }}>
+            <ComposedChart data={chartData} margin={{ top: 10, right: 55, left: 20, bottom: 5 }}>
               <defs>
                 <linearGradient id="grad-veg" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="0%" stopColor="#22c55e" stopOpacity={0.2} />
@@ -1607,9 +1714,9 @@ function ServingsChart({ dailyLog }) {
               </defs>
               <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" vertical={false} />
               <XAxis dataKey="date" tick={{ fontSize: 11, fill: '#9ca3af' }} axisLine={{ stroke: '#e5e7eb' }} tickLine={false} />
-              <YAxis tick={{ fontSize: 11, fill: '#9ca3af' }} axisLine={false} tickLine={false} label={{ value: 'Servings', angle: -90, position: 'insideLeft', style: { fontSize: 11, fill: '#9ca3af', textAnchor: 'middle' } }} />
+              <YAxis tick={{ fontSize: 11, fill: '#9ca3af' }} axisLine={false} tickLine={false} />
               <Tooltip content={<ServingsTooltip />} />
-              <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: '0.78rem', paddingTop: '0.5rem' }} />
+              <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: '0.78rem', paddingTop: '0.5rem', textAlign: 'left' }} align="left" />
               <ReferenceLine y={vegTarget} stroke="#22c55e" strokeDasharray="6 3" strokeWidth={1.5} label={{ value: `Veg ${vegTarget}`, position: 'right', fontSize: 10, fill: '#22c55e' }} />
               <ReferenceLine y={fruitTarget} stroke="#f59e0b" strokeDasharray="6 3" strokeWidth={1.5} label={{ value: `Fruit ${fruitTarget}`, position: 'right', fontSize: 10, fill: '#f59e0b' }} />
               <Area type="monotone" dataKey="veg" fill="url(#grad-veg)" stroke="none" name="Vegetables" legendType="none" />
@@ -1688,8 +1795,9 @@ function WeeklyView({ dailyLog, date, recipes, onDayClick, onMoveEntry, onAddToS
       }
     }
 
-    // Count distinct main meal slots with entries (breakfast, lunch, dinner)
-    const mealsTracked = ['breakfast', 'lunch', 'dinner'].filter(slot => bySlot[slot].length > 0).length;
+    // Count main meal entries (breakfast, lunch, dinner) — 3+ entries = full day
+    const skippedCount = (dayData.skippedMeals || []).length;
+    const mainMealEntries = ['breakfast', 'lunch', 'dinner'].reduce((sum, slot) => sum + bySlot[slot].length, 0) + skippedCount;
 
     days.push({
       dateStr,
@@ -1700,31 +1808,40 @@ function WeeklyView({ dailyLog, date, recipes, onDayClick, onMoveEntry, onAddToS
       bySlot,
       totals,
       hasEntries: entries.length > 0,
-      fullDay: mealsTracked >= 3,
+      fullDay: mainMealEntries >= 3,
       isPast: dateStr < todayStr(),
     });
   }
 
-  // Compute current streak: consecutive days (ending today or yesterday) with 3 meals tracked
+  // Compute current streak: consecutive days with 3+ meals tracked
+  // Today doesn't break the streak if incomplete — start from yesterday, then add today if it qualifies
   const streak = useMemo(() => {
     const today = todayStr();
-    let count = 0;
-    let checkDate = today;
-    while (true) {
-      const dayData = dailyLog[checkDate];
-      if (!dayData) break;
+
+    function dayQualifies(dateStr) {
+      const dayData = dailyLog[dateStr];
+      if (!dayData) return false;
+      if (dayData.daySkipped) return true;
       const entries = dayData.entries || [];
-      if (dayData.daySkipped) { checkDate = shiftDate(checkDate, -1); count++; continue; }
-      const bySlotCheck = {};
-      for (const slot of ['breakfast', 'lunch', 'dinner']) bySlotCheck[slot] = 0;
+      let mainCount = (dayData.skippedMeals || []).length;
       for (const entry of entries) {
-        const slot = entry.mealSlot && ['breakfast', 'lunch', 'dinner'].includes(entry.mealSlot) ? entry.mealSlot : null;
-        if (slot) bySlotCheck[slot]++;
+        if (entry.mealSlot && ['breakfast', 'lunch', 'dinner'].includes(entry.mealSlot)) mainCount++;
       }
-      const tracked = Object.values(bySlotCheck).filter(v => v > 0).length;
-      if (tracked >= 3) { count++; checkDate = shiftDate(checkDate, -1); }
+      return mainCount >= 3;
+    }
+
+    // Count streak backwards from yesterday
+    let count = 0;
+    let checkDate = shiftDate(today, -1);
+    while (true) {
+      if (!dailyLog[checkDate]) break;
+      if (dayQualifies(checkDate)) { count++; checkDate = shiftDate(checkDate, -1); }
       else break;
     }
+
+    // Add today if it also qualifies
+    if (dayQualifies(today)) count++;
+
     return count;
   }, [dailyLog]);
 
@@ -1736,15 +1853,13 @@ function WeeklyView({ dailyLog, date, recipes, onDayClick, onMoveEntry, onAddToS
     function isFullDay(dateStr) {
       const dayData = dailyLog[dateStr];
       if (!dayData) return false;
-      if (dayData.daySkipped) return false;
+      if (dayData.daySkipped) return true;
       const entries = dayData.entries || [];
-      const bySlot = {};
-      for (const slot of ['breakfast', 'lunch', 'dinner']) bySlot[slot] = 0;
+      let mainCount = (dayData.skippedMeals || []).length;
       for (const entry of entries) {
-        const slot = entry.mealSlot && ['breakfast', 'lunch', 'dinner'].includes(entry.mealSlot) ? entry.mealSlot : null;
-        if (slot) bySlot[slot]++;
+        if (entry.mealSlot && ['breakfast', 'lunch', 'dinner'].includes(entry.mealSlot)) mainCount++;
       }
-      return Object.values(bySlot).filter(v => v > 0).length >= 3;
+      return mainCount >= 3;
     }
 
     let best = 0;
@@ -1770,21 +1885,15 @@ function WeeklyView({ dailyLog, date, recipes, onDayClick, onMoveEntry, onAddToS
   return (
     <div className={styles.weeklyView}>
       <div className={styles.weeklyTitleRow}>
-        <h3 className={styles.weeklyTitle}>Weekly Meals</h3>
-        {(streak > 0 || longestStreak > 0) && (
-          <div className={styles.streakRow}>
-            {streak > 0 && (
-              <span className={styles.streakBadge}>
-                <span className={styles.streakFire}>&#x1F525;</span> {streak} day streak
-              </span>
-            )}
-            {longestStreak > 0 && (
-              <span className={styles.streakBest}>
-                Best: {longestStreak} days
-              </span>
-            )}
-          </div>
-        )}
+        <h3 className={styles.weeklyTitle}>Food Log</h3>
+        <div className={styles.streakRow}>
+          <span className={styles.streakBadge}>
+            <span className={styles.streakFire}>&#x1F525;</span> {streak} day streak
+          </span>
+          <span className={styles.streakBest}>
+            Best: {longestStreak} days
+          </span>
+        </div>
       </div>
       <div className={styles.weeklyColsWrap}>
         <div className={styles.weeklyCols}>
@@ -1793,7 +1902,7 @@ function WeeklyView({ dailyLog, date, recipes, onDayClick, onMoveEntry, onAddToS
               <div className={styles.weeklyColHeader}>
                 {day.fullDay && <span className={styles.weeklyColStar}>&#x2B50;</span>}
                 <span className={styles.weeklyColDay}>{day.label}</span>
-                <span className={styles.weeklyColNum}>{day.dayNum}</span>
+                <span className={styles.weeklyColNum}>{day.dayNum}<sup className={styles.weeklyColOrd}>{ordinal(day.dayNum)}</sup></span>
               </div>
               <div className={styles.weeklyColBody}>
                 {day.daySkipped ? (
@@ -2029,19 +2138,28 @@ function KpiAlerts({ dailyLog, recipes, onImportRecipe, cacheVersion, onViewReci
       return scored.slice(0, count);
     }
 
-    // Check macros
+    // Check all nutrients with goals (exclude fruit/veg — handled separately below)
+    const OVER_IS_BAD = new Set(['calories', 'carbs', 'fat', 'saturatedFat', 'sugar', 'addedSugar', 'sodium']);
+    const SKIP_KEYS = new Set(['vegServings', 'fruitServings', 'fermentedFoods']);
     for (const key of Object.keys(nutrientTotals)) {
       if (nutrientDays[key] === 0) continue;
+      if (SKIP_KEYS.has(key)) continue;
       const avgPct = Math.round((nutrientTotals[key] / nutrientDays[key]) * 100);
       const n = NUTRIENTS.find(x => x.key === key);
       const label = n?.label || key;
 
-      if (key === 'protein' && avgPct < 100) {
-        const recs = findBestRecipes(key, true);
-        results.push({ label, pct: avgPct, headline: label, message: `Only ${avgPct}% of protein goal this past week`, recs });
-      } else if (['calories', 'carbs', 'fat'].includes(key) && avgPct > 100) {
-        const recs = findBestRecipes(key, false);
-        results.push({ label, pct: avgPct, headline: label, message: `${avgPct}% of ${label.toLowerCase()} goal this past week`, recs });
+      if (OVER_IS_BAD.has(key)) {
+        // These nutrients: being over 100% is bad
+        if (avgPct > 100) {
+          const recs = findBestRecipes(key, false);
+          results.push({ label, pct: avgPct, headline: label, message: `${avgPct}% of ${label.toLowerCase()} goal this past week`, recs });
+        }
+      } else {
+        // All other nutrients (protein, fiber, vitamins, minerals): being under 100% is bad
+        if (avgPct < 100) {
+          const recs = findBestRecipes(key, true);
+          results.push({ label, pct: avgPct, headline: label, message: `Only ${avgPct}% of ${label.toLowerCase()} goal this past week`, recs });
+        }
       }
     }
 
@@ -2081,7 +2199,8 @@ function KpiAlerts({ dailyLog, recipes, onImportRecipe, cacheVersion, onViewReci
 
   return (
     <div className={styles.kpiAlerts}>
-      <h3 className={styles.kpiTitle}>Areas to Improve ({dateRangeLabel})</h3>
+      <h3 className={styles.kpiTitle}>Areas to Improve</h3>
+      <p className={styles.kpiSubtitle}>Based on the food log from {dateRangeLabel}</p>
       <div className={styles.kpiList}>
         {data.map(a => (
           <div key={a.label} className={styles.kpiItem}>
@@ -2092,23 +2211,29 @@ function KpiAlerts({ dailyLog, recipes, onImportRecipe, cacheVersion, onViewReci
             </div>
             {a.recs && a.recs.length > 0 ? (
               <div className={styles.kpiRecList}>
+                <div className={styles.kpiRecHeader}>Consider These Meals to Close the Gap</div>
                 {a.recs.map(rec => (
                   <div key={rec.id} className={styles.kpiRec}>
                     <div className={styles.kpiRecTop}>
-                      <span className={styles.kpiRecLabel}>Try:</span>
                       <span className={styles.kpiRecNameLink} onClick={() => onViewRecipe && onViewRecipe(rec.id)}>{rec.title}</span>
                     </div>
                     <span className={styles.kpiRecReason}>{rec.reason}</span>
                     <div className={styles.kpiRecActions}>
-                      {confirmAdd === rec.id ? (
-                        <div className={styles.kpiRecConfirm}>
-                          <span className={styles.kpiRecConfirmText}>Add to shopping list?</span>
-                          <button className={styles.kpiRecCheckBtn} onClick={() => { addToWeeklyPlan(rec.id); setConfirmAdd(null); }}>&#x2713;</button>
-                          <button className={styles.kpiRecXBtn} onClick={() => setConfirmAdd(null)}>&times;</button>
-                        </div>
-                      ) : (
-                        <button className={styles.kpiRecPlusBtn} onClick={() => setConfirmAdd(rec.id)}>+</button>
-                      )}
+                      {(() => {
+                        try {
+                          const plan = JSON.parse(localStorage.getItem(WEEKLY_PLAN_KEY) || '[]');
+                          if (plan.includes(rec.id)) return <span className={styles.kpiRecInList}>In Shopping List</span>;
+                        } catch {}
+                        return confirmAdd === rec.id ? (
+                          <div className={styles.kpiRecConfirm}>
+                            <span className={styles.kpiRecConfirmText}>Add to shopping list?</span>
+                            <button className={styles.kpiRecCheckBtn} onClick={() => { addToWeeklyPlan(rec.id); setConfirmAdd(null); }}>&#x2713;</button>
+                            <button className={styles.kpiRecXBtn} onClick={() => setConfirmAdd(null)}>&times;</button>
+                          </div>
+                        ) : (
+                          <button className={styles.kpiRecPlusBtn} onClick={() => setConfirmAdd(rec.id)}>+</button>
+                        );
+                      })()}
                     </div>
                   </div>
                 ))}
@@ -2317,6 +2442,49 @@ export function DailyTrackerPage({ recipes, getRecipe, onClose, user, weeklyPlan
             </div>
             {!addModal.mode ? (
               <div className={styles.trackMenuOptions}>
+                {(() => {
+                  // Find 3 recently tracked recipes for this slot type
+                  const slot = addModal.targetSlot;
+                  const isMainMeal = ['breakfast', 'lunch', 'dinner'].includes(slot);
+                  const seen = new Set();
+                  const recent = [];
+                  const dates = Object.keys(dailyLog).sort().reverse();
+                  for (const d of dates) {
+                    if (recent.length >= 3) break;
+                    const entries = dailyLog[d]?.entries || [];
+                    for (const entry of entries) {
+                      if (recent.length >= 3) break;
+                      if (entry.type !== 'recipe' || !entry.recipeId) continue;
+                      if (seen.has(entry.recipeId)) continue;
+                      const entrySlot = entry.mealSlot || 'snack';
+                      if (slot === 'snack' && entrySlot !== 'snack') continue;
+                      if (slot === 'breakfast' && entrySlot !== 'breakfast') continue;
+                      if ((slot === 'lunch' || slot === 'dinner') && entrySlot !== 'lunch' && entrySlot !== 'dinner') continue;
+                      seen.add(entry.recipeId);
+                      recent.push(entry);
+                    }
+                  }
+                  if (recent.length === 0) return null;
+                  return (
+                    <div className={styles.recentMeals}>
+                      <span className={styles.recentMealsLabel}>Recently Tracked</span>
+                      <div className={styles.recentMealsList}>
+                        {recent.map(entry => (
+                          <button
+                            key={entry.recipeId}
+                            className={styles.recentMealBtn}
+                            onClick={() => {
+                              addEntry({ ...entry, id: uuid(), timestamp: new Date().toISOString() }, addModal.targetDate, addModal.targetSlot);
+                              setAddModal(null);
+                            }}
+                          >
+                            {entry.recipeName}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })()}
                 <AddRecipeQuick
                   recipes={recipes}
                   getRecipe={getRecipe}
@@ -2336,6 +2504,13 @@ export function DailyTrackerPage({ recipes, getRecipe, onClose, user, weeklyPlan
                   <div className={styles.trackMenuBtnInfo}>
                     <span className={styles.trackMenuBtnLabel}>Import New Recipe</span>
                     <span className={styles.trackMenuBtnDesc}>Import from URL, TikTok, or other sources</span>
+                  </div>
+                  <span className={styles.trackMenuBtnArrow}>&rsaquo;</span>
+                </button>
+                <button className={styles.trackMenuBtn} onClick={() => setAddModal(prev => ({ ...prev, mode: 'ingredient' }))}>
+                  <div className={styles.trackMenuBtnInfo}>
+                    <span className={styles.trackMenuBtnLabel}>Track Ingredient</span>
+                    <span className={styles.trackMenuBtnDesc}>Log a single ingredient or snack item</span>
                   </div>
                   <span className={styles.trackMenuBtnArrow}>&rsaquo;</span>
                 </button>
@@ -2375,6 +2550,11 @@ export function DailyTrackerPage({ recipes, getRecipe, onClose, user, weeklyPlan
               />
             ) : addModal.mode === 'custom' ? (
               <CustomMealInline
+                onAdd={(entry) => { addEntry(entry, addModal.targetDate, addModal.targetSlot); setAddModal(null); }}
+                onBack={() => setAddModal(prev => ({ ...prev, mode: null }))}
+              />
+            ) : addModal.mode === 'ingredient' ? (
+              <TrackIngredientInline
                 onAdd={(entry) => { addEntry(entry, addModal.targetDate, addModal.targetSlot); setAddModal(null); }}
                 onBack={() => setAddModal(prev => ({ ...prev, mode: null }))}
               />

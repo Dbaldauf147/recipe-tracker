@@ -1,8 +1,10 @@
 import { getCachedMealImage } from '../utils/generateMealImage';
+import { getRecipeTags, getTagInfo } from '../utils/ingredientTags';
 import styles from './RecipeCard.module.css';
 
-export function RecipeCard({ recipe, onClick, draggable = false, onAdd, editMode, onDelete, macroScore }) {
+export function RecipeCard({ recipe, onClick, draggable = false, onAdd, editMode, onDelete, macroScore, showTags = true }) {
   const mealImage = getCachedMealImage(recipe.id);
+  const recipeTags = showTags ? getRecipeTags(recipe).slice(0, 4) : [];
   function handleDragStart(e) {
     e.dataTransfer.setData('text/plain', recipe.id);
     e.dataTransfer.effectAllowed = 'copyMove';
@@ -40,11 +42,14 @@ export function RecipeCard({ recipe, onClick, draggable = false, onAdd, editMode
               Quick
             </span>
           )}
-          {macroScore != null && (
-            <span className={`${styles.signal} ${macroScore >= 70 ? styles.signalMacroGood : macroScore >= 40 ? styles.signalMacroOk : styles.signalMacroPoor}`}>
-              {macroScore}% match
-            </span>
-          )}
+          {recipeTags.map(tagKey => {
+            const info = getTagInfo(tagKey);
+            return (
+              <span key={tagKey} className={styles.ingredientTag} style={{ color: info.color, borderColor: info.color }}>
+                {info.label}
+              </span>
+            );
+          })}
         </div>
       </div>
       {editMode && onDelete ? (

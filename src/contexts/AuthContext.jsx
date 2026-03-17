@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useEffect, useRef } from 'react';
-import { onAuthStateChanged, signInWithPopup, signOut, createUserWithEmailAndPassword, signInWithEmailAndPassword, updateProfile, sendPasswordResetEmail } from 'firebase/auth';
+import { onAuthStateChanged, signInWithPopup, signOut, createUserWithEmailAndPassword, signInWithEmailAndPassword, updateProfile, sendPasswordResetEmail, deleteUser as firebaseDeleteUser } from 'firebase/auth';
 import { auth, googleProvider, facebookProvider, appleProvider } from '../firebase';
 import { loadUserData, migrateToFirestore, hydrateLocalStorage, saveField, recordLogin, subscribeToUserData } from '../utils/firestoreSync';
 import { syncMealImages, clearImageCache } from '../utils/generateMealImage';
@@ -359,6 +359,30 @@ export function AuthProvider({ children }) {
     }
   }
 
+  async function deleteAccount() {
+    const currentUser = auth.currentUser;
+    if (!currentUser) return;
+    try {
+      // Delete user document from Firestore
+      const { doc, deleteDoc } = await import('firebase/firestore');
+      const { db } = await import('../firebase');
+      await deleteDoc(doc(db, 'users', currentUser.uid));
+      // Clear all local data
+      clearAppStorage();
+      clearImageCache();
+      // Delete the Firebase Auth account
+      await firebaseDeleteUser(currentUser);
+      setUser(null);
+      setDataReady(false);
+    } catch (err) {
+      console.error('Delete account error:', err);
+      if (err.code === 'auth/requires-recent-login') {
+        throw new Error('For security, please sign out and sign back in, then try deleting again.');
+      }
+      throw err;
+    }
+  }
+
   function restartOnboarding() {
     setOnboardingSteps(['goals']);
     setCompletedSteps([]);
@@ -372,7 +396,7 @@ export function AuthProvider({ children }) {
 
   const value = {
     user, loading, dataReady, syncVersion, isGuest, currentOnboardingStep, justOnboarded, hasCompletedOnboarding, authError,
-    signInWithGoogle, signInWithFacebook, signInWithApple, signUpWithEmail, signInWithEmail, resetPassword, continueAsGuest, logOut,
+    signInWithGoogle, signInWithFacebook, signInWithApple, signUpWithEmail, signInWithEmail, resetPassword, continueAsGuest, logOut, deleteAccount,
     completeGoals, skipGoals, goBackOnboarding, advanceOnboarding,
     completeNutritionGoals, completeKeyIngredients, completeRecipeSetup,
     restartOnboarding, cancelOnboarding,

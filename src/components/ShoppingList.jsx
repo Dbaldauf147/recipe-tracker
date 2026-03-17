@@ -15,8 +15,8 @@ function parseFraction(str) {
 
 function formatQuantity(n) {
   if (n === 0) return '';
-  if (Number.isInteger(n)) return String(n);
-  return n.toFixed(2).replace(/\.?0+$/, '');
+  if (Number.isInteger(n)) return n.toLocaleString();
+  return parseFloat(n.toFixed(2)).toLocaleString();
 }
 
 // ── Grocery store section categorization ──
@@ -335,6 +335,74 @@ function buildShoppingList(recipes, weeklyServings = {}) {
   return map;
 }
 
+// Unit conversion tables
+const VOLUME_TO_ML = { ml: 1, tsp: 4.93, tbsp: 14.79, 'fl oz': 29.57, cup: 236.59, pt: 473.18, qt: 946.35, gal: 3785.41, l: 1000 };
+const WEIGHT_TO_G = { g: 1, mg: 0.001, oz: 28.35, lb: 453.59, kg: 1000 };
+const VOLUME_UNITS = ['tsp', 'tbsp', 'fl oz', 'cup', 'pt', 'qt', 'gal', 'ml', 'l'];
+const WEIGHT_UNITS = ['g', 'oz', 'lb', 'kg'];
+const SIZE_UNITS = ['small', 'medium', 'large', 'piece', 'slice', 'whole', 'can'];
+
+const UNIT_ALIASES = {
+  teaspoon: 'tsp', teaspoons: 'tsp', tsp: 'tsp',
+  tablespoon: 'tbsp', tablespoons: 'tbsp', tbsp: 'tbsp',
+  'fluid ounce': 'fl oz', 'fl oz': 'fl oz',
+  cup: 'cup', cups: 'cup',
+  pint: 'pt', pints: 'pt', pt: 'pt',
+  quart: 'qt', quarts: 'qt', qt: 'qt',
+  gallon: 'gal', gallons: 'gal', gal: 'gal',
+  milliliter: 'ml', milliliters: 'ml', ml: 'ml',
+  liter: 'l', liters: 'l', l: 'l',
+  gram: 'g', grams: 'g', g: 'g',
+  milligram: 'mg', milligrams: 'mg', mg: 'mg',
+  ounce: 'oz', ounces: 'oz', oz: 'oz',
+  pound: 'lb', pounds: 'lb', lb: 'lb', lbs: 'lb',
+  kilogram: 'kg', kilograms: 'kg', kg: 'kg',
+};
+
+function normalizeShopUnit(unit) {
+  if (!unit) return '';
+  return UNIT_ALIASES[unit.toLowerCase().trim()] || unit.toLowerCase().trim();
+}
+
+function getConversions(qty, measurement) {
+  if (!measurement || !qty) return [];
+  const num = parseFloat(qty);
+  if (isNaN(num) || num === 0) return [];
+  const unit = normalizeShopUnit(measurement);
+  const results = [];
+
+  function fmtConvert(val, unit) {
+    // Round grams to nearest 1; others to 2 decimal places
+    const rounded = (unit === 'g' || unit === 'mg') ? Math.round(val) : parseFloat(val.toFixed(2));
+    // Add comma for thousands
+    const display = rounded.toLocaleString();
+    return { qty: rounded, label: `${display} ${unit}` };
+  }
+
+  if (VOLUME_TO_ML[unit]) {
+    const ml = num * VOLUME_TO_ML[unit];
+    for (const target of VOLUME_UNITS) {
+      if (target === unit) continue;
+      const converted = ml / VOLUME_TO_ML[target];
+      if (converted >= 0.01 && converted <= 100000) {
+        const fmt = fmtConvert(converted, target);
+        results.push({ qty: fmt.qty, unit: target, label: fmt.label, type: 'volume' });
+      }
+    }
+  } else if (WEIGHT_TO_G[unit]) {
+    const g = num * WEIGHT_TO_G[unit];
+    for (const target of WEIGHT_UNITS) {
+      if (target === unit) continue;
+      const converted = g / WEIGHT_TO_G[target];
+      if (converted >= 0.01 && converted <= 100000) {
+        const fmt = fmtConvert(converted, target);
+        results.push({ qty: fmt.qty, unit: target, label: fmt.label, type: 'weight' });
+      }
+    }
+  }
+  return results;
+}
+
 export function ShoppingList({ weeklyRecipes, weeklyServings = {}, extraItems = [], onClearExtras, onAddCustomItem, pantryNames, dismissedNames, onDismissItem, user }) {
   const isAdmin = user?.email === 'baldaufdan@gmail.com';
 
@@ -413,12 +481,56 @@ export function ShoppingList({ weeklyRecipes, weeklyServings = {}, extraItems = 
         map[row.ingredient.toLowerCase().trim()] = row.link;
       }
     }
+    // Also collect links from recipe ingredients
+    for (const recipe of weeklyRecipes) {
+      for (const ing of (recipe.ingredients || [])) {
+        if (ing.ingredient && ing.link) {
+          const key = ing.ingredient.toLowerCase().trim();
+          if (!map[key]) map[key] = ing.link;
+        }
+      }
+    }
     return map;
-  }, []);
+  }, [weeklyRecipes]);
+
+  const SHOP_LINKS_KEY = 'sunday-shop-links';
+  const [customLinks, setCustomLinks] = useState(() => {
+    try { return JSON.parse(localStorage.getItem(SHOP_LINKS_KEY) || '{}'); } catch { return {}; }
+  });
+  const [editingLink, setEditingLink] = useState(null); // ingredient key
+
+  function saveCustomLink(ingredientKey, url) {
+    setCustomLinks(prev => {
+      const next = { ...prev, [ingredientKey]: url };
+      localStorage.setItem(SHOP_LINKS_KEY, JSON.stringify(next));
+      if (user) {
+        import('../utils/firestoreSync').then(m => m.saveField(user.uid, 'shopLinks', next)).catch(() => {});
+      }
+      return next;
+    });
+    setEditingLink(null);
+  }
 
   const [checked, setChecked] = useState(new Set());
+  const [unitOverrides, setUnitOverrides] = useState({}); // { ingredientKey: targetUnit }
+  const [convertPopup, setConvertPopup] = useState(null); // ingredientKey or null
   const [adding, setAdding] = useState(false);
   const [newItem, setNewItem] = useState('');
+
+  // Build autocomplete suggestions from ingredient DB + recipe ingredients
+  const ingredientSuggestions = useMemo(() => {
+    const names = new Set();
+    const db = loadIngredients() || [];
+    for (const row of db) {
+      if (row.ingredient) names.add(row.ingredient.trim());
+    }
+    for (const recipe of weeklyRecipes) {
+      for (const ing of (recipe.ingredients || [])) {
+        if (ing.ingredient) names.add(ing.ingredient.trim());
+      }
+    }
+    return [...names].sort();
+  }, [weeklyRecipes]);
   const [showMeals, setShowMeals] = useState(false);
 
   function toggleItem(key) {
@@ -472,15 +584,34 @@ export function ShoppingList({ weeklyRecipes, weeklyServings = {}, extraItems = 
       </div>
       {adding && onAddCustomItem && (
         <div className={styles.addRow}>
-          <input
-            className={styles.addInput}
-            type="text"
-            placeholder="Item name"
-            value={newItem}
-            onChange={e => setNewItem(e.target.value)}
-            onKeyDown={e => { if (e.key === 'Enter') handleAddSubmit(); }}
-            autoFocus
-          />
+          <div className={styles.addInputWrap}>
+            <input
+              className={styles.addInput}
+              type="text"
+              placeholder="Item name"
+              value={newItem}
+              onChange={e => setNewItem(e.target.value)}
+              onKeyDown={e => {
+                if (e.key === 'Enter') handleAddSubmit();
+                if (e.key === 'Escape') { setAdding(false); setNewItem(''); }
+              }}
+              autoFocus
+            />
+            {newItem.trim().length >= 2 && (() => {
+              const q = newItem.trim().toLowerCase();
+              const matches = ingredientSuggestions.filter(n => n.toLowerCase().includes(q)).slice(0, 8);
+              if (matches.length === 0) return null;
+              return (
+                <div className={styles.addSuggestions}>
+                  {matches.map(n => (
+                    <button key={n} className={styles.addSuggestionItem} onMouseDown={e => { e.preventDefault(); setNewItem(n); }}>
+                      {n}
+                    </button>
+                  ))}
+                </div>
+              );
+            })()}
+          </div>
           <button className={styles.addBtn} onClick={handleAddSubmit}>Add</button>
           <button className={styles.addBtn} onClick={() => { setAdding(false); setNewItem(''); }}>Cancel</button>
         </div>
@@ -513,7 +644,9 @@ export function ShoppingList({ weeklyRecipes, weeklyServings = {}, extraItems = 
                   ...sectionItems.map((item, i) => {
                     const key = `${item.ingredient}|||${item.measurement}`;
                     const done = checked.has(key);
-                    const link = ingredientLinks[item.ingredient.toLowerCase().trim()];
+                    const ingKey = item.ingredient.toLowerCase().trim();
+                    const link = customLinks[ingKey] || ingredientLinks[ingKey];
+                    const isEditingThis = editingLink === ingKey;
                     return (
                       <tr
                         key={`${section.key}-${i}`}
@@ -529,20 +662,87 @@ export function ShoppingList({ weeklyRecipes, weeklyServings = {}, extraItems = 
                             onClick={e => e.stopPropagation()}
                           />
                         </td>
-                        <td className={styles.qtyCell}>{formatQuantity(item.quantity)}</td>
-                        <td className={styles.measCell}>{item.measurement}</td>
+                        {(() => {
+                          const override = unitOverrides[ingKey];
+                          const conversions = getConversions(item.quantity, item.measurement);
+                          const hasConversions = conversions.length > 0;
+                          let displayQty = item.quantity;
+                          let displayUnit = item.measurement;
+
+                          if (override && override.unit) {
+                            displayQty = override.qty;
+                            displayUnit = override.unit;
+                          } else if (override) {
+                            const match = conversions.find(c => c.unit === override);
+                            if (match) { displayQty = match.qty; displayUnit = match.unit; }
+                          }
+
+                          return (
+                            <>
+                              <td className={styles.qtyCell}>{formatQuantity(displayQty)}</td>
+                              <td
+                                className={styles.measCell}
+                                onClick={e => { e.stopPropagation(); setConvertPopup(convertPopup === ingKey ? null : ingKey); }}
+                                style={{ cursor: 'pointer', textDecoration: 'underline', textDecorationStyle: 'dotted' }}
+                              >
+                                {displayUnit || '—'}
+                                {convertPopup === ingKey && (
+                                  <div className={styles.convertDropdown} onClick={e => e.stopPropagation()}>
+                                    <div className={styles.convertTitle}>Convert to:</div>
+                                    <button
+                                      className={`${styles.convertOption} ${!override ? styles.convertOptionActive : ''}`}
+                                      onClick={() => { setUnitOverrides(prev => { const n = { ...prev }; delete n[ingKey]; return n; }); setConvertPopup(null); }}
+                                    >
+                                      {formatQuantity(item.quantity)} {item.measurement || '(none)'} (original)
+                                    </button>
+                                    {hasConversions && conversions.map(c => (
+                                      <button
+                                        key={c.unit}
+                                        className={`${styles.convertOption} ${(typeof override === 'string' && override === c.unit) ? styles.convertOptionActive : ''}`}
+                                        onClick={() => { setUnitOverrides(prev => ({ ...prev, [ingKey]: c.unit })); setConvertPopup(null); }}
+                                      >
+                                        {c.label}
+                                      </button>
+                                    ))}
+                                    {!hasConversions && (
+                                      <>
+                                        <div className={styles.convertTitle}>Volume</div>
+                                        {VOLUME_UNITS.map(u => (
+                                          <button key={u} className={styles.convertOption} onClick={() => { setUnitOverrides(prev => ({ ...prev, [ingKey]: { unit: u, qty: item.quantity } })); setConvertPopup(null); }}>{u}</button>
+                                        ))}
+                                        <div className={styles.convertTitle}>Weight</div>
+                                        {WEIGHT_UNITS.map(u => (
+                                          <button key={u} className={styles.convertOption} onClick={() => { setUnitOverrides(prev => ({ ...prev, [ingKey]: { unit: u, qty: item.quantity } })); setConvertPopup(null); }}>{u}</button>
+                                        ))}
+                                      </>
+                                    )}
+                                  </div>
+                                )}
+                              </td>
+                            </>
+                          );
+                        })()}
                         <td>{item.ingredient}</td>
-                        <td className={styles.linkCell}>
-                          {link && (
-                            <a
-                              href={link.startsWith('http') ? link : `https://${link}`}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              onClick={e => e.stopPropagation()}
-                              className={styles.searchLink}
-                            >
-                              &#x1F50D;
-                            </a>
+                        <td className={styles.linkCol} onClick={e => e.stopPropagation()}>
+                          {link ? (
+                            <>
+                              <a href={link.startsWith('http') ? link : `https://${link}`} target="_blank" rel="noopener noreferrer" className={styles.searchLink}>Link</a>
+                              <button className={styles.editLinkBtn} onClick={() => setEditingLink(ingKey)}>&#x270E;</button>
+                            </>
+                          ) : (
+                            <button className={styles.addLinkBtn} onClick={() => setEditingLink(ingKey)}>+</button>
+                          )}
+                          {isEditingThis && (
+                            <div className={styles.linkPopup}>
+                              <div className={styles.linkPopupContent}>
+                                <span className={styles.linkPopupLabel}>Link for {item.ingredient}</span>
+                                <input className={styles.linkPopupInput} type="url" defaultValue={link || ''} autoFocus placeholder="https://..." onKeyDown={e => { if (e.key === 'Enter') saveCustomLink(ingKey, e.target.value.trim()); if (e.key === 'Escape') setEditingLink(null); }} />
+                                <div className={styles.linkPopupBtns}>
+                                  <button className={styles.linkPopupCancel} onClick={() => setEditingLink(null)}>Cancel</button>
+                                  <button className={styles.linkPopupSave} onClick={e => { const input = e.target.closest(`.${styles.linkPopupContent}`).querySelector('input'); saveCustomLink(ingKey, input.value.trim()); }}>Save</button>
+                                </div>
+                              </div>
+                            </div>
                           )}
                         </td>
                         {showMeals && (

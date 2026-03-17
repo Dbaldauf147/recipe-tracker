@@ -239,6 +239,22 @@ export function ShoppingListPage({ weeklyRecipes, weeklyServings = {}, onClose, 
         </p>
       )}
 
+      {weeklyRecipes.length > 0 && onSaveToHistory && (
+        <div className={styles.completedRow}>
+          <button
+            className={styles.completedBtn}
+            onClick={() => {
+              onSaveToHistory();
+              setSaved(true);
+              setTimeout(() => setSaved(false), 3000);
+            }}
+          >
+            Completed Shopping
+          </button>
+          {saved && <span className={styles.savedToast}>Saved to history!</span>}
+        </div>
+      )}
+
       <div className={styles.grid}>
         <div className={styles.cell}>
           <ShoppingList
@@ -297,21 +313,6 @@ export function ShoppingListPage({ weeklyRecipes, weeklyServings = {}, onClose, 
         </div>
       </div>
 
-      {weeklyRecipes.length > 0 && onSaveToHistory && (
-        <div className={styles.completedRow}>
-          <button
-            className={styles.completedBtn}
-            onClick={() => {
-              onSaveToHistory();
-              setSaved(true);
-              setTimeout(() => setSaved(false), 3000);
-            }}
-          >
-            Completed Shopping
-          </button>
-          {saved && <span className={styles.savedToast}>Saved to history!</span>}
-        </div>
-      )}
     </div>
   );
 }

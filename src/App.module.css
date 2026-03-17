@@ -166,6 +166,30 @@
   color: #ffffff;
 }
 
+.deleteAccountBtn {
+  display: block;
+  width: 100%;
+  padding: 0.5rem 1rem;
+  text-align: left;
+  background: none;
+  border: none;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  color: #ef4444;
+  font-size: 0.82rem;
+  font-family: inherit;
+  cursor: pointer;
+  margin-top: 0.25rem;
+}
+
+.deleteAccountBtn:hover {
+  background: rgba(239, 68, 68, 0.15);
+}
+
+.deleteAccountBtn:disabled {
+  opacity: 0.5;
+  cursor: wait;
+}
+
 .badge {
   position: absolute;
   top: 2px;
@@ -245,6 +269,76 @@
   z-index: 1000;
 }
 
+/* ── Weigh Alert (nav) ── */
+.weighAlert {
+  padding: 0.3rem 0.75rem;
+  border: none;
+  border-radius: 50px;
+  background: var(--color-accent, #C96442);
+  color: #fff;
+  font-size: 0.78rem;
+  font-weight: 700;
+  font-family: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+  animation: weighPulse 2s ease infinite;
+  transition: opacity 0.15s ease;
+}
+
+.weighAlert:hover {
+  opacity: 0.85;
+}
+
+@keyframes weighPulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(201, 100, 66, 0.4); }
+  50% { box-shadow: 0 0 0 6px rgba(201, 100, 66, 0); }
+}
+
+/* ── Weigh Banner ── */
+.weighBanner {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.65rem 1rem;
+  background: var(--color-accent-light, rgba(201, 100, 66, 0.1));
+  border: 1px solid var(--color-accent);
+  border-radius: var(--radius-md);
+  margin: 0 2rem 1rem;
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--color-accent);
+}
+
+.weighBannerBtn {
+  padding: 0.3rem 0.85rem;
+  border: none;
+  border-radius: 50px;
+  background: var(--color-accent);
+  color: #fff;
+  font-size: 0.82rem;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.weighBannerBtn:hover {
+  opacity: 0.85;
+}
+
+.weighBannerClose {
+  margin-left: auto;
+  background: none;
+  border: none;
+  color: var(--color-accent);
+  font-size: 1.2rem;
+  cursor: pointer;
+  opacity: 0.6;
+}
+
+.weighBannerClose:hover {
+  opacity: 1;
+}
+
 /* ── Import Modal ── */
 .importModalOverlay {
   position: fixed;
@@ -263,12 +357,20 @@
   border-radius: 16px;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
   padding: 2rem;
-  max-width: 750px;
-  width: 100%;
-  max-height: 90vh;
+  max-width: 80vw;
+  width: 80vw;
+  min-width: 900px;
+  max-height: 92vh;
   overflow-y: auto;
   position: relative;
   animation: importSlideIn 0.2s ease;
+}
+
+@media (max-width: 650px) {
+  .importModalContent {
+    min-width: 0;
+    width: 95vw;
+  }
 }
 
 @keyframes importSlideIn {

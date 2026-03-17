@@ -4,6 +4,8 @@ import { useAuth } from './contexts/AuthContext';
 import { saveField, getPendingRequests, getPendingSharedRecipes } from './utils/firestoreSync';
 import { RecipeList } from './components/RecipeList';
 import { RecipeDetail } from './components/RecipeDetail';
+import { WeightTracker, checkWeighReminder } from './components/WeightTracker';
+import { AccountSettings } from './components/AccountSettings';
 import { RecipeForm } from './components/RecipeForm';
 import { IngredientsPage } from './components/IngredientsPage';
 import { loadIngredientsFromFirestore } from './utils/ingredientsStore';
@@ -100,8 +102,7 @@ function HelpBubble({ user, currentView }) {
         onClick={() => { setOpen(o => !o); setSent(false); }}
         aria-label="Report an issue"
       >
-        <span className={styles.helpBtnIcon}>?</span>
-        <span className={styles.helpBtnText}>Request Help</span>
+        <span className={styles.helpBtnText}>Report an Issue</span>
       </button>
     </div>
   );
@@ -125,6 +126,31 @@ class ErrorBoundary extends React.Component {
 }
 
 const ADMIN_UID = import.meta.env.VITE_ADMIN_UID;
+function DeleteAccountButton({ onDeleted }) {
+  const { deleteAccount } = useAuth();
+  const [deleting, setDeleting] = useState(false);
+
+  async function handleDelete() {
+    if (!confirm('Are you sure you want to delete your account? This will permanently delete all your data and cannot be undone.')) return;
+    if (!confirm('This is permanent. All recipes, meal logs, weight data, and settings will be lost. Continue?')) return;
+    setDeleting(true);
+    try {
+      await deleteAccount();
+      onDeleted();
+    } catch (err) {
+      alert(err.message || 'Failed to delete account. Try signing out and back in first.');
+    } finally {
+      setDeleting(false);
+    }
+  }
+
+  return (
+    <button className={styles.deleteAccountBtn} onClick={handleDelete} disabled={deleting}>
+      {deleting ? 'Deleting...' : 'Delete Account'}
+    </button>
+  );
+}
+
 const WEEKLY_KEY = 'sunday-weekly-plan';
 const WEEKLY_SERVINGS_KEY = 'sunday-weekly-servings';
 
@@ -171,6 +197,9 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
   const [weeklyServings, setWeeklyServings] = useState(loadWeeklyServings);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
+  const [viewRecipeId, setViewRecipeId] = useState(null);
+  const [weighBannerDismissed, setWeighBannerDismissed] = useState(false);
+  const showWeighBanner = !weighBannerDismissed && checkWeighReminder();
   const [pendingCount, setPendingCount] = useState(0);
   const [ingredientsVersion, setIngredientsVersion] = useState(0);
   const settingsRef = useRef(null);
@@ -272,10 +301,19 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
     });
   }
 
+  const showWeightTab = (() => {
+    try {
+      const stats = JSON.parse(localStorage.getItem('sunday-body-stats') || '{}');
+      const goals = stats.mealTrackingGoals || [];
+      return goals.includes('weighDaily') || goals.includes('weighWeekly') || goals.includes('weighBiweekly') || goals.includes('weighMonthly');
+    } catch { return false; }
+  })();
+
   const NAV_ITEMS = [
     { label: 'Shopping List', action: 'shopping' },
-    { label: "This Week's Menu", id: 'weekly-menu' },
+    { label: 'Recipes', id: 'weekly-menu' },
     { label: 'Track Meals', action: 'daily-tracker' },
+    ...(showWeightTab ? [{ label: 'Weight', action: 'weight-tracker' }] : []),
   ];
 
   function handleNavClick(item) {
@@ -291,6 +329,8 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
       navigateTo('nutrition-goals');
     } else if (item.action === 'daily-tracker') {
       navigateTo('daily-tracker');
+    } else if (item.action === 'weight-tracker') {
+      navigateTo('weight-tracker');
     } else if (item.action === 'barcode-scanner') {
       navigateTo('barcode-scanner');
     } else if (item.id) {
@@ -303,7 +343,7 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
   }
 
   function handleSelect(id) {
-    navigateTo('detail', id);
+    setViewRecipeId(id);
   }
 
   function handleAdd(data) {
@@ -393,6 +433,14 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
           Prep Day
         </span>
         <nav className={styles.nav}>
+          {showWeighBanner && (
+            <button
+              className={styles.weighAlert}
+              onClick={() => { navigateTo('weight-tracker'); setWeighBannerDismissed(true); }}
+            >
+              Log Weight
+            </button>
+          )}
           {NAV_ITEMS.map(item => {
             const isActive = item.action
               ? view === item.action
@@ -435,15 +483,16 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
               </div>
               <button
                 className={styles.settingsMenuItem}
+                onClick={() => { navigateTo('account-settings'); setSettingsOpen(false); }}
+              >
+                Account Settings
+              </button>
+              <div className={styles.settingsDivider} />
+              <button
+                className={styles.settingsMenuItem}
                 onClick={() => { navigateTo('key-ingredients'); setSettingsOpen(false); }}
               >
                 Key Ingredients
-              </button>
-              <button
-                className={styles.settingsMenuItem}
-                onClick={() => { navigateTo('import'); setSettingsOpen(false); }}
-              >
-                Import Recipe
               </button>
               <button
                 className={styles.settingsMenuItem}
@@ -519,6 +568,10 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
           <BarcodeScannerPage onClose={goBack} user={user} />
         ) : view === 'daily-tracker' ? (
           <DailyTrackerPage recipes={recipes} getRecipe={getRecipe} onClose={goBack} user={user} weeklyPlan={weeklyPlan} onViewRecipe={(id) => navigateTo('detail', id)} onImportRecipe={() => navigateTo('import')} />
+        ) : view === 'account-settings' ? (
+          <AccountSettings user={user} onClose={goBack} />
+        ) : view === 'weight-tracker' ? (
+          <WeightTracker onClose={goBack} user={user} />
         ) : view === 'nutrition-goals' ? (() => {
           let savedGoals = {};
           let savedSelected = null;
@@ -660,6 +713,27 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
           </div>
         </div>
       )}
+
+      {viewRecipeId && (() => {
+        const recipe = getRecipe(viewRecipeId);
+        if (!recipe) { setViewRecipeId(null); return null; }
+        return (
+          <div className={styles.importModalOverlay} onClick={() => setViewRecipeId(null)}>
+            <div className={styles.importModalContent} onClick={e => e.stopPropagation()}>
+              <button className={styles.importModalClose} onClick={() => setViewRecipeId(null)}>&times;</button>
+              <RecipeDetail
+                recipe={recipe}
+                onBack={() => setViewRecipeId(null)}
+                onSave={(data) => { updateRecipe(viewRecipeId, data); }}
+                onDelete={() => { handleDelete(viewRecipeId); setViewRecipeId(null); }}
+                onAddToWeek={() => handleAddToWeek(viewRecipeId)}
+                weeklyPlan={weeklyPlan}
+                user={user}
+              />
+            </div>
+          </div>
+        );
+      })()}
 
       {showGoalsModal && (
         <GoalsPage

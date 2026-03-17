@@ -1,0 +1,829 @@
+.container {
+  max-width: 1300px;
+  margin: 0 auto;
+  padding: 1rem 2rem;
+}
+
+.header {
+  display: flex;
+  align-items: baseline;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.backBtn {
+  background: none;
+  border: none;
+  color: var(--color-text-muted);
+  font-size: 0.9rem;
+  font-weight: 500;
+  cursor: pointer;
+  padding: 0;
+}
+
+.backBtn:hover {
+  color: var(--color-accent);
+}
+
+.title {
+  margin: 0;
+  font-size: 1.4rem;
+  font-weight: 700;
+}
+
+.reminder {
+  background: var(--color-accent-light, rgba(201, 100, 66, 0.1));
+  border: 1px solid var(--color-accent);
+  border-radius: var(--radius-md);
+  padding: 0.75rem 1rem;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--color-accent);
+  margin-bottom: 1rem;
+}
+
+.nextWeigh {
+  font-size: 0.85rem;
+  color: var(--color-text-muted);
+  margin-bottom: 0.5rem;
+}
+
+.notifRow {
+  margin-bottom: 1rem;
+}
+
+.notifLabel {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.82rem;
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+
+.notifLabel input {
+  accent-color: var(--color-accent);
+}
+
+.mainWithCal {
+  display: flex;
+  gap: 1.25rem;
+  align-items: flex-start;
+}
+
+.mainLeft {
+  flex: 1;
+  min-width: 0;
+}
+
+.mainRight {
+  flex-shrink: 0;
+  position: sticky;
+  top: 1rem;
+}
+
+/* ── Weight Calendar ── */
+.calSection {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 0.75rem 1rem;
+  width: 210px;
+  flex-shrink: 0;
+}
+
+.calHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.5rem;
+}
+
+.calMonth {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.calArrow {
+  background: none;
+  border: none;
+  font-size: 0.9rem;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  padding: 0.2rem 0.4rem;
+}
+
+.calArrow:hover {
+  color: var(--color-accent);
+}
+
+.calGrid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 2px;
+  text-align: center;
+}
+
+.calDow {
+  font-size: 0.65rem;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  padding: 0.15rem 0;
+}
+
+.calEmpty {
+  padding: 0.2rem 0;
+}
+
+.calDay {
+  font-size: 0.7rem;
+  padding: 0.2rem 0;
+  border-radius: 4px;
+  color: var(--color-text);
+  cursor: default;
+}
+
+.calToday {
+  outline: 2px solid var(--color-accent);
+  outline-offset: -1px;
+  font-weight: 700;
+}
+
+.calLogged {
+  background: var(--color-success, #16a34a);
+  color: #fff;
+  font-weight: 600;
+  border-radius: 50%;
+}
+
+.calScheduled {
+  background: rgba(201, 100, 66, 0.35);
+  border-radius: 50%;
+  font-weight: 600;
+}
+
+.calLegend {
+  display: flex;
+  gap: 1rem;
+  margin-top: 0.5rem;
+  justify-content: center;
+}
+
+.calLegendItem {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.7rem;
+  color: var(--color-text-muted);
+}
+
+.calLegendDotLogged {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--color-success, #16a34a);
+}
+
+.calLegendDotScheduled {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: rgba(201, 100, 66, 0.35);
+}
+
+.setReminderBtn {
+  width: 100%;
+  padding: 0.45rem 0.75rem;
+  margin-top: 0.75rem;
+  border: 1px solid var(--color-border);
+  border-radius: 50px;
+  background: none;
+  font-size: 0.78rem;
+  font-weight: 600;
+  font-family: inherit;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  transition: border-color 0.15s ease, color 0.15s ease;
+}
+
+.setReminderBtn:hover {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+
+.reminderPopupOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  background: rgba(0, 0, 0, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.reminderPopup {
+  background: var(--color-surface, #fff);
+  border-radius: 12px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
+  padding: 1.5rem;
+  width: 340px;
+  max-width: 90vw;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.reminderPopupHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.reminderPopupHeader h4 {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+.reminderPopupClose {
+  background: none;
+  border: none;
+  font-size: 1.3rem;
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+
+.reminderPopupClose:hover {
+  color: var(--color-text);
+}
+
+.reminderSettings {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 1rem 1.25rem;
+  flex: 1;
+  min-width: 250px;
+}
+
+.reminderCols {
+  display: flex;
+  gap: 1.5rem;
+}
+
+.reminderCol {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.reminderTitle {
+  margin: 0 0 0.6rem;
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: var(--color-text);
+}
+
+.reminderRow {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin-bottom: 0.6rem;
+}
+
+
+
+.reminderRow:last-child {
+  margin-bottom: 0;
+}
+
+.reminderLabel {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+
+.reminderBtns {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.reminderBtn, .reminderBtnActive {
+  padding: 0.3rem 0.7rem;
+  border: 1px solid var(--color-border);
+  border-radius: 50px;
+  background: none;
+  font-size: 0.78rem;
+  font-weight: 600;
+  font-family: inherit;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.reminderBtnActive {
+  background: var(--color-accent, #C96442);
+  border-color: var(--color-accent, #C96442);
+  color: #fff;
+}
+
+.reminderBtn:hover {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+
+.inputRow {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 1.5rem;
+}
+
+.weightInput {
+  flex: 1;
+  max-width: 250px;
+  padding: 0.6rem 0.85rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  font-size: 1rem;
+  font-family: inherit;
+  color: var(--color-text);
+  background: var(--color-surface);
+}
+
+.weightInput:focus {
+  outline: none;
+  border-color: var(--color-accent);
+}
+
+.addBtn {
+  padding: 0.6rem 1.25rem;
+  border: none;
+  border-radius: var(--radius-md);
+  background: var(--color-accent);
+  color: #fff;
+  font-size: 0.9rem;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.addBtn:hover {
+  opacity: 0.85;
+}
+
+.addBtn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.targetSection {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  margin-bottom: 1rem;
+}
+
+.inputSep {
+  color: var(--color-border);
+  font-size: 1.2rem;
+}
+
+.targetLabel {
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--color-accent, #C96442);
+  white-space: nowrap;
+}
+
+.targetInput {
+  width: 100px;
+  padding: 0.6rem 0.85rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  font-size: 1rem;
+  font-family: inherit;
+  color: var(--color-text);
+  background: var(--color-surface);
+}
+
+.targetInput:focus {
+  outline: none;
+  border-color: var(--color-success, #16a34a);
+}
+
+.statsRow {
+  display: flex;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+  flex-wrap: wrap;
+}
+
+.statCard {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 0.75rem 1.25rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 100px;
+}
+
+.statValue {
+  font-size: 1.3rem;
+  font-weight: 800;
+  color: var(--color-text);
+}
+
+.statLabel {
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+  font-weight: 500;
+}
+
+.rangeCounter {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.counterBtn {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  border: 1px solid var(--color-border);
+  background: none;
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--color-text);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.counterBtn:hover {
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+  color: #fff;
+}
+
+.counterValue {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--color-text);
+  min-width: 60px;
+  text-align: center;
+}
+
+.customRange {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+.dateInput {
+  padding: 0.3rem 0.5rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm, 4px);
+  font-size: 0.82rem;
+  font-family: inherit;
+  color: var(--color-text);
+  background: var(--color-surface);
+}
+
+.dateInput:focus {
+  outline: none;
+  border-color: var(--color-accent);
+}
+
+.dateSep {
+  font-size: 0.82rem;
+  color: var(--color-text-muted);
+}
+
+.chartCard {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 1.25rem;
+  margin-bottom: 1.5rem;
+}
+
+.chartTitleRow {
+  display: flex;
+  align-items: baseline;
+  gap: 1rem;
+  margin-bottom: 0.5rem;
+}
+
+.chartTitle {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--color-text);
+}
+
+.trendArrow {
+  font-size: 0.85rem;
+  font-weight: 700;
+}
+
+.chartControls {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.rangeToggle {
+  display: flex;
+  gap: 0.25rem;
+  background: var(--color-surface-alt, #f3f4f6);
+  border-radius: 50px;
+  padding: 0.2rem;
+}
+
+.rangeBtn, .rangeBtnActive {
+  padding: 0.25rem 0.7rem;
+  border: none;
+  border-radius: 50px;
+  background: transparent;
+  font-size: 0.78rem;
+  font-weight: 600;
+  font-family: inherit;
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+
+.rangeBtnActive {
+  background: var(--color-surface);
+  color: var(--color-accent);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.chartWrap {
+  height: 250px;
+}
+
+.logSection {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 1.25rem;
+}
+
+.logTitle {
+  margin: 0 0 0.75rem;
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+/* ── Statistical Analysis ── */
+.analysisSection {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 1.25rem;
+  margin-bottom: 1.5rem;
+}
+
+.analysisTitle {
+  margin: 0 0 0.75rem;
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--color-text);
+}
+
+.analysisGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+.analysisStat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 0.6rem;
+  background: var(--color-surface-alt, #f9f7f4);
+  border-radius: var(--radius-md);
+}
+
+.analysisValue {
+  font-size: 1.1rem;
+  font-weight: 800;
+  color: var(--color-text);
+}
+
+.analysisLabel {
+  font-size: 0.72rem;
+  color: var(--color-text-muted);
+  text-align: center;
+}
+
+.alertsBox {
+  background: rgba(220, 38, 38, 0.05);
+  border: 1px solid rgba(220, 38, 38, 0.15);
+  border-radius: var(--radius-md);
+  padding: 0.75rem 1rem;
+}
+
+.alertsTitle {
+  margin: 0 0 0.5rem;
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--color-danger, #dc2626);
+}
+
+.alertRow {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  padding: 0.3rem 0;
+  font-size: 0.82rem;
+  color: var(--color-text);
+}
+
+.alertIcon {
+  font-weight: 800;
+  color: var(--color-danger, #dc2626);
+  flex-shrink: 0;
+}
+
+.alertText {
+  line-height: 1.4;
+}
+
+.addRowBtn {
+  background: none;
+  border: 1px solid var(--color-border);
+  border-radius: 50px;
+  padding: 0.3rem 0.85rem;
+  font-size: 0.82rem;
+  font-weight: 600;
+  font-family: inherit;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  margin-bottom: 0.75rem;
+  transition: border-color 0.15s ease, color 0.15s ease;
+}
+
+.addRowBtn:hover {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+
+.upcomingSection {
+  margin-bottom: 1rem;
+}
+
+.upcomingLabel {
+  display: block;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  margin-bottom: 0.4rem;
+}
+
+.upcomingSlots {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.upcomingSlot {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.5rem 0.75rem;
+  background: var(--color-accent-light, rgba(201, 100, 66, 0.08));
+  border: 1px dashed var(--color-accent);
+  border-radius: var(--radius-md);
+  min-width: 80px;
+}
+
+.upcomingDate {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--color-accent);
+}
+
+.upcomingInput {
+  width: 70px;
+  padding: 0.3rem 0.4rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm, 4px);
+  font-size: 0.85rem;
+  font-family: inherit;
+  color: var(--color-text);
+  text-align: center;
+  background: var(--color-surface);
+}
+
+.upcomingInput:focus {
+  outline: none;
+  border-color: var(--color-accent);
+}
+
+.upcomingInput::placeholder {
+  color: var(--color-text-muted);
+  opacity: 0.5;
+}
+
+.logTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.88rem;
+}
+
+.logTable th {
+  text-align: left;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text-muted);
+  padding: 0.4rem 0.5rem;
+  border-bottom: 2px solid var(--color-border);
+}
+
+.logTable th:last-child {
+  width: 2rem;
+}
+
+.logTable td {
+  padding: 0.25rem 0.35rem;
+  border-bottom: 1px solid var(--color-border-light, #f0f0f0);
+}
+
+.logInput {
+  width: 100%;
+  padding: 0.3rem 0.5rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm, 4px);
+  font-size: 0.85rem;
+  font-family: inherit;
+  color: var(--color-text);
+  background: var(--color-surface);
+  box-sizing: border-box;
+}
+
+.logInput:focus {
+  outline: none;
+  border-color: var(--color-accent);
+}
+
+.upcomingRowFuture td {
+  color: var(--color-text-muted);
+  opacity: 0.5;
+  font-style: italic;
+}
+
+.upcomingRowReady td {
+  background: var(--color-accent-light, rgba(201, 100, 66, 0.08));
+}
+
+.upcomingPlaceholder {
+  color: var(--color-text-muted);
+  opacity: 0.4;
+}
+
+.weekCol {
+  text-align: center;
+  font-size: 0.82rem;
+  color: var(--color-text-muted);
+  font-weight: 500;
+  width: 3rem;
+}
+
+.logDelete {
+  margin-left: auto;
+  background: none;
+  border: none;
+  color: var(--color-text-muted);
+  font-size: 1.1rem;
+  cursor: pointer;
+  opacity: 0.4;
+}
+
+.logDelete:hover {
+  opacity: 1;
+  color: var(--color-danger, #dc2626);
+}
+
+.emptyLog {
+  font-size: 0.88rem;
+  color: var(--color-text-muted);
+  margin: 0;
+}
