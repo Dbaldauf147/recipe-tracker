@@ -411,6 +411,8 @@ export function NutritionPanel({ recipeId, ingredients, servings = 1, portionLab
     <div className={styles.container}>
       <h3>Nutrition <span className={styles.estimate}>(estimate)</span></h3>
 
+      <MealScore totals={totals} servings={servings} />
+
       {(servings > 1 || portionLabel) && (
         <div className={styles.servingsToggle}>
           <button
