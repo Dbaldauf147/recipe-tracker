@@ -320,7 +320,13 @@ export function WeightTracker({ onClose, user }) {
     }
     const useMonthYear = range > 70 || filtered.length > 20;
     const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-    const GAP_THRESHOLD = 21; // days — if gap > 3 weeks, show dashed line
+    // Dynamic gap threshold based on schedule
+    const ws = getWeighSettings();
+    const baseInterval = ws.repeatUnit === 'day' ? ws.repeatEvery
+      : ws.repeatUnit === 'week' ? ws.repeatEvery * 7
+      : ws.repeatUnit === 'month' ? ws.repeatEvery * 30
+      : ws.repeatEvery * 365;
+    const GAP_THRESHOLD = Math.max(baseInterval * 2, 14); // 2x the schedule interval, min 14 days
     const gapSet = new Set(); // indices where a gap starts (i.e., this point follows a gap)
     for (let i = 1; i < filtered.length; i++) {
       const prevDate = new Date(filtered[i - 1].date + 'T00:00:00');
