@@ -1314,12 +1314,19 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
                   ))}
                 </tbody>
               </table>
-              <button className={styles.containerAddBtn} onClick={() => {
-                setFields(prev => ({
-                  ...prev,
-                  containers: [...(prev.containers || [{ label: '', weight: '' }]), { label: '', weight: '' }],
-                }));
-              }}>+ Add Container</button>
+              <div className={styles.weighActions}>
+                <button className={styles.containerAddBtn} onClick={() => {
+                  setFields(prev => ({
+                    ...prev,
+                    containers: [...(prev.containers || [{ label: '', weight: '' }]), { label: '', weight: '' }],
+                  }));
+                }}>+ Add Container</button>
+                {foodWeight > 0 && servingWeight && servingWeight !== defaultServingWeight && (
+                  <button className={styles.weighResetBtn} onClick={() => setServingWeight('')}>
+                    Reset to 1 serving
+                  </button>
+                )}
+              </div>
             </div>
           </details>
         }

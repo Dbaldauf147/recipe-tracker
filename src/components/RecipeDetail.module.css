@@ -513,6 +513,12 @@
   color: var(--color-danger, #dc2626);
 }
 
+.weighActions {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
 .containerAddBtn {
   background: none;
   border: none;
@@ -522,7 +528,21 @@
   font-family: inherit;
   cursor: pointer;
   padding: 0;
-  align-self: flex-start;
+}
+
+.weighResetBtn {
+  background: none;
+  border: none;
+  color: var(--color-text-muted);
+  font-size: 0.75rem;
+  font-family: inherit;
+  cursor: pointer;
+  padding: 0;
+  text-decoration: underline;
+}
+
+.weighResetBtn:hover {
+  color: var(--color-accent);
 }
 
 .containerTotal {
