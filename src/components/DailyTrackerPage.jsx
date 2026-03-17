@@ -1343,19 +1343,14 @@ function AddRecipeQuick({ recipes, getRecipe, onAdd, onBack, weeklyPlan, inline,
         </div>
       )}
       <div className={styles.formRow} style={{ gap: '0.5rem' }}>
-        <button className={styles.addBtn} onClick={() => handleAdd(false)} disabled={loading || !recipeId}>{loading ? 'Adding...' : 'Add Meal'}</button>
+        <button className={styles.addBtn} onClick={() => handleAdd(showWeight && mealWeight)} disabled={loading || !recipeId}>{loading ? 'Adding...' : 'Add Meal'}</button>
         <button
           className={showWeight ? styles.addBtnSecondaryActive : styles.addBtnSecondary}
-          onClick={() => {
-            if (showWeight && mealWeight) {
-              handleAdd(true);
-            } else {
-              setShowWeight(prev => !prev);
-            }
-          }}
+          onClick={() => setShowWeight(prev => !prev)}
           disabled={loading || !recipeId}
+          type="button"
         >
-          {showWeight && mealWeight ? (loading ? 'Adding...' : 'Add by Weight') : 'Meal Weight'}
+          {showWeight ? 'Hide Weight' : 'Meal Weight'}
         </button>
       </div>
       {error && <p className={styles.addError}>{error}</p>}
