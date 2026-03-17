@@ -824,6 +824,87 @@
   color: var(--color-accent);
 }
 
+/* ── Step Section Titles ── */
+.stepSectionRow {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  margin-bottom: 0.4rem;
+}
+
+.stepSectionInput {
+  flex: 1;
+  padding: 0.3rem 0.5rem;
+  font-size: 0.95rem;
+  font-weight: 700;
+  font-family: inherit;
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius-sm, 6px);
+  background: transparent;
+  color: var(--color-accent);
+  outline: none;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.stepSectionInput:focus {
+  border-color: var(--color-accent);
+}
+
+.stepSectionRemove {
+  background: none;
+  border: none;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  font-size: 1rem;
+  padding: 0 0.3rem;
+}
+
+.stepSectionRemove:hover {
+  color: var(--color-danger, #c0392b);
+}
+
+.stepSectionAddBtn {
+  background: none;
+  border: none;
+  color: var(--color-text-muted);
+  font-size: 0.72rem;
+  cursor: pointer;
+  margin-left: auto;
+  padding: 0.1rem 0.4rem;
+  border-radius: var(--radius-sm, 6px);
+  transition: color 0.15s ease;
+}
+
+.stepSectionAddBtn:hover {
+  color: var(--color-accent);
+}
+
+.stepSectionTitle {
+  list-style: none;
+  font-weight: 700;
+  font-size: 1rem;
+  color: var(--color-accent);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  margin: 0.8rem 0 0.3rem;
+  padding: 0;
+}
+
+.stepSectionTitle:first-child {
+  margin-top: 0;
+}
+
+.cookModeSectionTitle {
+  font-weight: 700;
+  font-size: 1rem;
+  color: var(--color-accent);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  margin: 0.6rem 0 0.3rem;
+  padding: 0;
+}
+
 .stepInputWrap {
   display: flex;
   align-items: flex-start;

@@ -255,6 +255,7 @@ function initFields(recipe) {
       return parsed.length > 0 ? parsed : [''];
     })(),
     stepIngredients: recipe.stepIngredients || {},
+    stepSections: recipe.stepSections || {},
   };
 }
 
@@ -660,15 +661,22 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
   function removeStep(index) {
     setFields(prev => {
       const newSteps = prev.steps.filter((_, i) => i !== index);
-      // Rebuild stepIngredients with shifted indices
+      // Rebuild stepIngredients and stepSections with shifted indices
       const oldMap = prev.stepIngredients || {};
+      const oldSections = prev.stepSections || {};
       const newMap = {};
+      const newSections = {};
       for (const [key, val] of Object.entries(oldMap)) {
         const k = parseInt(key);
         if (k < index) newMap[k] = val;
         else if (k > index) newMap[k - 1] = val;
       }
-      return { ...prev, steps: newSteps, stepIngredients: newMap };
+      for (const [key, val] of Object.entries(oldSections)) {
+        const k = parseInt(key);
+        if (k < index) newSections[k] = val;
+        else if (k > index) newSections[k - 1] = val;
+      }
+      return { ...prev, steps: newSteps, stepIngredients: newMap, stepSections: newSections };
     });
   }
 
@@ -679,15 +687,20 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
     setFields(prev => {
       // Build an array of [step, ingredients] pairs in original order
       const oldMap = prev.stepIngredients || {};
-      const pairs = prev.steps.map((step, i) => ({ step, ings: oldMap[i] || [] }));
+      const oldSections = prev.stepSections || {};
+      const pairs = prev.steps.map((step, i) => ({ step, ings: oldMap[i] || [], section: oldSections[i] || '' }));
       // Move the pair
       const [moved] = pairs.splice(from, 1);
       pairs.splice(to, 0, moved);
-      // Rebuild steps and stepIngredients from the reordered pairs
+      // Rebuild steps, stepIngredients, and stepSections from the reordered pairs
       const newSteps = pairs.map(p => p.step);
       const newMap = {};
-      pairs.forEach((p, i) => { if (p.ings.length > 0) newMap[i] = p.ings; });
-      return { ...prev, steps: newSteps, stepIngredients: newMap };
+      const newSections = {};
+      pairs.forEach((p, i) => {
+        if (p.ings.length > 0) newMap[i] = p.ings;
+        if (p.section) newSections[i] = p.section;
+      });
+      return { ...prev, steps: newSteps, stepIngredients: newMap, stepSections: newSections };
     });
     setStepVersion(v => v + 1);
   }
@@ -758,6 +771,7 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
       notes: fields.notes || '',
       instructions: fields.steps.filter(s => s.trim()).join('\n'),
       stepIngredients: fields.stepIngredients || {},
+      stepSections: fields.stepSections || {},
     });
   }
 
@@ -1803,6 +1817,9 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
                       onDrop={e => editing && handleStepDrop(e, si)}
                       onDragEnd={() => { setStepDragIdx(null); setStepDragOverIdx(null); }}
                     >
+                    {(fields.stepSections || {})[si] && (
+                      <div className={styles.cookModeSectionTitle}>{fields.stepSections[si]}</div>
+                    )}
                     <table className={styles.cookModeTable}>
                     <colgroup><col/><col/><col/><col/></colgroup>
                     <tbody>
@@ -2038,9 +2055,45 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
                   onDrop={e => handleStepDrop(e, i)}
                   onDragEnd={handleStepDragEnd}
                 >
+                  {(fields.stepSections || {})[i] !== undefined && (
+                    <div className={styles.stepSectionRow}>
+                      <input
+                        className={styles.stepSectionInput}
+                        type="text"
+                        value={(fields.stepSections || {})[i] || ''}
+                        onChange={e => {
+                          const val = e.target.value;
+                          setFields(prev => ({ ...prev, stepSections: { ...prev.stepSections, [i]: val } }));
+                        }}
+                        placeholder="Section title (e.g. Sauce, Rice, Assembly...)"
+                      />
+                      <button
+                        className={styles.stepSectionRemove}
+                        type="button"
+                        title="Remove section title"
+                        onClick={() => {
+                          setFields(prev => {
+                            const next = { ...prev.stepSections };
+                            delete next[i];
+                            return { ...prev, stepSections: next };
+                          });
+                        }}
+                      >&times;</button>
+                    </div>
+                  )}
                   <div className={styles.stepHeader}>
                     <span className={styles.dragHandle} title="Drag to reorder">≡</span>
                     <span className={styles.stepLabel}>Step {i + 1}</span>
+                    {(fields.stepSections || {})[i] === undefined && (
+                      <button
+                        className={styles.stepSectionAddBtn}
+                        type="button"
+                        title="Add section title above this step"
+                        onClick={() => {
+                          setFields(prev => ({ ...prev, stepSections: { ...prev.stepSections, [i]: '' } }));
+                        }}
+                      >+ Section</button>
+                    )}
                   </div>
                   <div className={styles.stepInputWrap}>
                     <div
@@ -2091,8 +2144,13 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
           </>
         ) : (
           <ol className={styles.stepsListReadonly}>
-            {fields.steps.filter(s => s.trim()).map((step, i) => (
-              <li key={i} className={styles.stepReadonly}>{renderFormattedText(step)}</li>
+            {fields.steps.map((step, origIdx) => ({ step, origIdx })).filter(({ step }) => step.trim()).map(({ step, origIdx }, i) => (
+              <React.Fragment key={i}>
+                {(fields.stepSections || {})[origIdx] && (
+                  <li className={styles.stepSectionTitle}>{fields.stepSections[origIdx]}</li>
+                )}
+                <li className={styles.stepReadonly}>{renderFormattedText(step)}</li>
+              </React.Fragment>
             ))}
             {fields.steps.filter(s => s.trim()).length === 0 && (
               <p className={styles.emptyText}>No instructions yet</p>
