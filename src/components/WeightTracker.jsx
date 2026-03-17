@@ -224,6 +224,27 @@ export function WeightTracker({ onClose, user }) {
     }
     return merged;
   });
+  // Get user's weight goal for color-coding
+  const weightGoal = useMemo(() => {
+    try {
+      const stats = JSON.parse(localStorage.getItem('sunday-body-stats') || '{}');
+      const goals = stats.weightGoals || [];
+      if (goals.includes('gain')) return 'gain';
+      if (goals.includes('lose')) return 'lose';
+      if (goals.includes('maintain')) return 'maintain';
+    } catch {}
+    return 'lose'; // default assumption
+  }, []);
+
+  // Returns green if change aligns with goal, red if opposite, neutral if maintain/stable
+  function changeColor(change) {
+    if (Math.abs(change) < 0.2) return 'var(--color-text)';
+    if (weightGoal === 'gain') return change > 0 ? 'var(--color-success, #16a34a)' : 'var(--color-danger, #dc2626)';
+    if (weightGoal === 'lose') return change < 0 ? 'var(--color-success, #16a34a)' : 'var(--color-danger, #dc2626)';
+    // maintain: any significant change is orange/neutral
+    return Math.abs(change) > 1 ? 'var(--color-accent)' : 'var(--color-text)';
+  }
+
   const [weight, setWeight] = useState('');
   const [rangeMode, setRangeMode] = useState('weeks'); // 'weeks' | 'years' | 'custom'
   const [rangeCount, setRangeCount] = useState(8);
@@ -564,7 +585,7 @@ export function WeightTracker({ onClose, user }) {
         <div className={styles.statsRow}>
           {stats.weekChange !== null && (
             <div className={styles.statCard}>
-              <span className={styles.statValue} style={{ color: stats.weekChange < 0 ? 'var(--color-success, #16a34a)' : stats.weekChange > 0 ? 'var(--color-danger, #dc2626)' : 'var(--color-text)' }}>
+              <span className={styles.statValue} style={{ color: changeColor(stats.weekChange) }}>
                 {stats.weekChange > 0 ? '+' : ''}{stats.weekChange.toFixed(1)}
               </span>
               <span className={styles.statLabel}>This Week</span>
@@ -580,7 +601,7 @@ export function WeightTracker({ onClose, user }) {
           <div className={styles.chartTitleRow}>
             <h3 className={styles.chartTitle}>Your Weight</h3>
             {analysis && Math.abs(analysis.trendChange) >= 0.5 && (
-              <span className={styles.trendArrow} style={{ color: analysis.trendChange > 0 ? '#dc2626' : '#16a34a' }}>
+              <span className={styles.trendArrow} style={{ color: changeColor(analysis.trendChange) }}>
                 {analysis.trendChange > 0 ? '↗' : '↘'} {analysis.trendLabel} ({analysis.trendChange > 0 ? '+' : ''}{analysis.trendChange} lbs)
               </span>
             )}
