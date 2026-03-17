@@ -148,6 +148,27 @@
   border: 1px solid var(--color-accent, #C96442);
 }
 
+.trendOnTrack {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--color-success, #16a34a);
+  padding: 0.3rem 0;
+}
+
+.trendOffTrack {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--color-danger, #dc2626);
+  padding: 0.3rem 0;
+}
+
+.trendNeutral {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  padding: 0.3rem 0;
+}
+
 .goalNotTracked {
   font-size: 0.78rem;
   font-style: italic;

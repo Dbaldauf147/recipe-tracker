@@ -213,6 +213,31 @@ function computeTargets(gender, heightFt, heightIn, weight, age, activityLevel, 
   };
 }
 
+const WEIGHT_KEY = 'sunday-weight-log';
+
+function getWeightTrend() {
+  try {
+    const log = JSON.parse(localStorage.getItem(WEIGHT_KEY) || '[]');
+    if (log.length < 2) return null;
+    // Look at last 4 weeks
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - 28);
+    const cutoffStr = `${cutoff.getFullYear()}-${String(cutoff.getMonth() + 1).padStart(2, '0')}-${String(cutoff.getDate()).padStart(2, '0')}`;
+    const recent = log.filter(e => e.date >= cutoffStr);
+    if (recent.length < 2) {
+      // Fall back to last 2 entries
+      const last = log[log.length - 1].weight;
+      const prev = log[log.length - 2].weight;
+      const change = last - prev;
+      return { change: Math.round(change * 10) / 10, direction: change > 0.3 ? 'up' : change < -0.3 ? 'down' : 'stable' };
+    }
+    const first = recent[0].weight;
+    const last = recent[recent.length - 1].weight;
+    const change = last - first;
+    return { change: Math.round(change * 10) / 10, direction: change > 0.5 ? 'up' : change < -0.5 ? 'down' : 'stable' };
+  } catch { return null; }
+}
+
 export function NutritionGoalsPage({ onComplete, onBack, onSkip, initialSelected, initialTargets, initialStats }) {
   const isSettings = !!initialTargets;
   const [selected, setSelected] = useState(() =>
@@ -439,6 +464,23 @@ export function NutritionGoalsPage({ onComplete, onBack, onSkip, initialSelected
                       {!['lose', 'maintain', 'gain'].some(k => weightGoals.has(k)) && (
                         <span className={styles.goalNotTracked}>Weight not tracked</span>
                       )}
+                      {['lose', 'maintain', 'gain'].some(k => weightGoals.has(k)) && (() => {
+                        const trend = getWeightTrend();
+                        if (!trend) return null;
+                        const goal = weightGoals.has('lose') ? 'lose' : weightGoals.has('gain') ? 'gain' : 'maintain';
+                        const onTrack = (goal === 'lose' && trend.direction === 'down')
+                          || (goal === 'gain' && trend.direction === 'up')
+                          || (goal === 'maintain' && trend.direction === 'stable');
+                        const offTrack = (goal === 'lose' && trend.direction === 'up')
+                          || (goal === 'gain' && trend.direction === 'down');
+                        const arrow = trend.direction === 'up' ? '↑' : trend.direction === 'down' ? '↓' : '→';
+                        const sign = trend.change > 0 ? '+' : '';
+                        return (
+                          <span className={onTrack ? styles.trendOnTrack : offTrack ? styles.trendOffTrack : styles.trendNeutral}>
+                            {arrow} {sign}{trend.change} lbs {onTrack ? 'On track' : offTrack ? 'Off track' : 'Holding steady'}
+                          </span>
+                        );
+                      })()}
                     </td>
                   </tr>
                   <tr>
