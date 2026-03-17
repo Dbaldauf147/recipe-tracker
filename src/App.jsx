@@ -506,6 +506,15 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
               >
                 Account Settings
               </button>
+              <button
+                className={styles.settingsMenuItem}
+                onClick={() => { navigateTo('friends'); setSettingsOpen(false); }}
+              >
+                Friends
+                {pendingCount > 0 && (
+                  <span className={styles.menuBadge}>{pendingCount}</span>
+                )}
+              </button>
               <div className={styles.settingsDivider} />
               <button
                 className={styles.settingsMenuItem}
@@ -554,15 +563,6 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
                 onClick={() => { navigateTo('ingredients'); setSettingsOpen(false); }}
               >
                 Ingredients
-              </button>
-              <button
-                className={styles.settingsMenuItem}
-                onClick={() => { navigateTo('friends'); setSettingsOpen(false); }}
-              >
-                Friends
-                {pendingCount > 0 && (
-                  <span className={styles.menuBadge}>{pendingCount}</span>
-                )}
               </button>
               <button
                 className={styles.settingsMenuItem}
