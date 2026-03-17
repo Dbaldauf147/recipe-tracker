@@ -337,7 +337,21 @@ export function WeightTracker({ onClose, user }) {
 
     return filtered.map((e, i) => {
       const [y, m, d] = e.date.split('-');
-      const label = useMonthYear ? `${MONTH_NAMES[parseInt(m) - 1]} '${y.slice(2)}` : `${parseInt(m)}/${parseInt(d)}`;
+      let label;
+      if (ws.repeatUnit === 'week') {
+        // Show week number
+        const dt = new Date(e.date + 'T00:00:00');
+        const startOfYear = new Date(dt.getFullYear(), 0, 1);
+        const wkDiff = (dt - startOfYear + ((startOfYear.getDay() + 6) % 7) * 86400000);
+        const wk = Math.ceil(wkDiff / 604800000);
+        label = `Wk ${wk}`;
+      } else if (ws.repeatUnit === 'month' || ws.repeatUnit === 'year') {
+        label = `${MONTH_NAMES[parseInt(m) - 1]} '${y.slice(2)}`;
+      } else if (useMonthYear) {
+        label = `${MONTH_NAMES[parseInt(m) - 1]} '${y.slice(2)}`;
+      } else {
+        label = `${parseInt(m)}/${parseInt(d)}`;
+      }
       const isGapEnd = gapSet.has(i);
       const isGapStart = gapSet.has(i + 1);
       return {
