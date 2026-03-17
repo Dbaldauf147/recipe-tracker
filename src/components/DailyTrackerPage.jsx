@@ -1313,22 +1313,30 @@ function AddRecipeQuick({ recipes, getRecipe, onAdd, onBack, weeklyPlan, inline,
         try { cache[recipeId] = result; localStorage.setItem(NUTRITION_CACHE_KEY, JSON.stringify(cache)); } catch {}
       }
       const recipeServings = parseInt(recipe.servings) || 1;
-      const perServing = {};
-      for (const n of NUTRIENTS) perServing[n.key] = (totalNutrition[n.key] || 0) / recipeServings;
 
-      let factor = 1;
       if (useWeight) {
+        // Weight-based: scale total recipe nutrition by (portionWeight / foodWeight)
+        // This matches the recipe page's "Weigh portion size" calculation exactly
         const totalWeightNum = parseFloat(recipe.totalWeight) || 0;
         const containerWeightNum = (recipe.containers || []).reduce((sum, c) => sum + (parseFloat(c.weight) || 0), 0) || parseFloat(recipe.containerWeight) || 0;
         const foodWeight = Math.max(0, totalWeightNum - containerWeightNum);
         const mw = parseFloat(mealWeight);
-        factor = foodWeight > 0 ? mw / foodWeight * recipeServings : 1;
+        const weightFraction = foodWeight > 0 ? mw / foodWeight : 1;
+        const nutrition = {};
+        for (const n of NUTRIENTS) {
+          nutrition[n.key] = Math.round(((totalNutrition[n.key] || 0) * weightFraction) * 10) / 10;
+        }
+        const servingsCount = parseFloat((weightFraction * recipeServings).toFixed(2));
+        const mealSlot = inline ? undefined : categoryToSlot(recipe.category);
+        onAdd({ id: uuid(), type: 'recipe', recipeId, recipeName: recipe.title, servings: servingsCount, customWeight: mw, ...(mealSlot ? { mealSlot } : {}), timestamp: new Date().toISOString(), nutrition });
+      } else {
+        // Standard: 1 serving
+        const perServing = {};
+        for (const n of NUTRIENTS) perServing[n.key] = (totalNutrition[n.key] || 0) / recipeServings;
+        const nutrition = scaleNutrition(perServing, 1);
+        const mealSlot = inline ? undefined : categoryToSlot(recipe.category);
+        onAdd({ id: uuid(), type: 'recipe', recipeId, recipeName: recipe.title, servings: 1, customWeight: null, ...(mealSlot ? { mealSlot } : {}), timestamp: new Date().toISOString(), nutrition });
       }
-
-      const nutrition = scaleNutrition(perServing, factor);
-      const mealSlot = inline ? undefined : categoryToSlot(recipe.category);
-      const cw = useWeight ? parseFloat(mealWeight) : null;
-      onAdd({ id: uuid(), type: 'recipe', recipeId, recipeName: recipe.title, servings: useWeight ? parseFloat((factor).toFixed(2)) : 1, customWeight: cw, ...(mealSlot ? { mealSlot } : {}), timestamp: new Date().toISOString(), nutrition });
     } catch {
       setError('Failed to look up nutrition. Try again.');
     } finally {
@@ -1379,29 +1387,32 @@ function AddRecipeQuick({ recipes, getRecipe, onAdd, onBack, weeklyPlan, inline,
         const mw = parseFloat(mealWeight);
         if (!mw || mw <= 0) return null;
         const recipeServings = parseInt(recipe.servings) || 1;
-        const factor = (mw / foodWeight) * recipeServings;
-        const servingsDisplay = parseFloat(factor.toFixed(2));
+        const weightFraction = mw / foodWeight;
+        const servingsDisplay = parseFloat((weightFraction * recipeServings).toFixed(2));
 
-        // Try cache directly as fallback if previewNutrition hasn't loaded
-        let perServing = previewNutrition?.perServing;
-        if (!perServing) {
-          const cache = loadNutritionCache();
-          const cached = cache[recipeId];
-          if (cached?.totals) {
-            perServing = {};
-            for (const n of NUTRIENTS) perServing[n.key] = (cached.totals[n.key] || 0) / recipeServings;
-          }
+        // Get total recipe nutrition for weight-based scaling
+        let recipeTotals = null;
+        const cache = loadNutritionCache();
+        const cached = cache[recipeId];
+        if (cached?.totals) recipeTotals = cached.totals;
+        if (!recipeTotals && previewNutrition?.perServing) {
+          recipeTotals = {};
+          for (const n of NUTRIENTS) recipeTotals[n.key] = (previewNutrition.perServing[n.key] || 0) * recipeServings;
         }
 
-        if (!perServing) return (
+        if (!recipeTotals) return (
           <div className={styles.weightPreview}>
             <span className={styles.weightPreviewServings}>{servingsDisplay} {servingsDisplay === 1 ? 'serving' : 'servings'}</span>
-            <span className={styles.weightPreviewNote}>({mw}g of {foodWeight}g total)</span>
+            <span className={styles.weightPreviewNote}>({mw}g of {foodWeight}g food weight)</span>
             <div className={styles.weightPreviewMacros}><span style={{ color: 'var(--color-text-muted)' }}>Loading nutrition...</span></div>
           </div>
         );
 
-        const scaled = scaleNutrition(perServing, factor);
+        // Scale total recipe nutrition by weight fraction
+        // This matches recipe page: totals * (portionWeight / foodWeight)
+        const scaled = {};
+        for (const n of NUTRIENTS) scaled[n.key] = Math.round(((recipeTotals[n.key] || 0) * weightFraction) * 10) / 10;
+
         return (
           <div className={styles.weightPreview}>
             <span className={styles.weightPreviewServings}>{servingsDisplay} {servingsDisplay === 1 ? 'serving' : 'servings'}</span>
