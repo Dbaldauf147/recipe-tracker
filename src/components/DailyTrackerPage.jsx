@@ -138,6 +138,57 @@ function getCachedTotals(cacheEntry) {
   return null;
 }
 
+// Get items array from cache entry (both formats)
+function getCachedItems(cacheEntry) {
+  if (!cacheEntry) return null;
+  if (cacheEntry.items) return cacheEntry.items;
+  if (cacheEntry.data?.items) return cacheEntry.data.items;
+  return null;
+}
+
+/**
+ * Compute nutrition for a portion weight, matching NutritionPanel exactly.
+ * Splits main vs topping (per-meal) ingredients:
+ *   portion nutrition = (mainTotals * weightFraction) + toppingTotals
+ * This matches recipe page: perServing = (main / servings) + topping
+ */
+function computeWeightNutrition(cacheEntry, recipeIngredients, weightFraction) {
+  const items = getCachedItems(cacheEntry);
+  const totals = getCachedTotals(cacheEntry);
+  if (!totals) return null;
+
+  // If no items array, fall back to simple scaling
+  if (!items || !recipeIngredients) {
+    const result = {};
+    for (const n of NUTRIENTS) result[n.key] = Math.round(((totals[n.key] || 0) * weightFraction) * 10) / 10;
+    return result;
+  }
+
+  // Split main vs topping, matching NutritionPanel logic
+  const mainTotals = {};
+  const toppingTotals = {};
+  for (const n of NUTRIENTS) { mainTotals[n.key] = 0; toppingTotals[n.key] = 0; }
+
+  const filtered = recipeIngredients.filter(row => (row.ingredient || '').trim());
+  items.forEach((item, i) => {
+    const isTopping = filtered[i]?.topping;
+    for (const n of NUTRIENTS) {
+      if (isTopping) {
+        toppingTotals[n.key] += item.nutrients?.[n.key] || 0;
+      } else {
+        mainTotals[n.key] += item.nutrients?.[n.key] || 0;
+      }
+    }
+  });
+
+  // portion = (main * weightFraction) + topping (full value per serving)
+  const result = {};
+  for (const n of NUTRIENTS) {
+    result[n.key] = Math.round(((mainTotals[n.key] * weightFraction) + toppingTotals[n.key]) * 10) / 10;
+  }
+  return result;
+}
+
 function scaleNutrition(nutrition, factor) {
   const scaled = {};
   for (const n of NUTRIENTS) {
@@ -1322,17 +1373,14 @@ function AddRecipeQuick({ recipes, getRecipe, onAdd, onBack, weeklyPlan, inline,
       const recipeServings = parseInt(recipe.servings) || 1;
 
       if (useWeight) {
-        // Weight-based: scale total recipe nutrition by (portionWeight / foodWeight)
-        // This matches the recipe page's "Weigh portion size" calculation exactly
+        // Weight-based: split main vs topping ingredients, matching NutritionPanel exactly
         const totalWeightNum = parseFloat(recipe.totalWeight) || 0;
         const containerWeightNum = (recipe.containers || []).reduce((sum, c) => sum + (parseFloat(c.weight) || 0), 0) || parseFloat(recipe.containerWeight) || 0;
         const foodWeight = Math.max(0, totalWeightNum - containerWeightNum);
         const mw = parseFloat(mealWeight);
         const weightFraction = foodWeight > 0 ? mw / foodWeight : 1;
-        const nutrition = {};
-        for (const n of NUTRIENTS) {
-          nutrition[n.key] = Math.round(((totalNutrition[n.key] || 0) * weightFraction) * 10) / 10;
-        }
+        const nutrition = computeWeightNutrition(cache[recipeId], recipe.ingredients, weightFraction)
+          || (() => { const r = {}; for (const n of NUTRIENTS) r[n.key] = Math.round(((totalNutrition[n.key] || 0) * weightFraction) * 10) / 10; return r; })();
         const servingsCount = parseFloat((weightFraction * recipeServings).toFixed(2));
         const mealSlot = inline ? undefined : categoryToSlot(recipe.category);
         onAdd({ id: uuid(), type: 'recipe', recipeId, recipeName: recipe.title, servings: servingsCount, customWeight: mw, ...(mealSlot ? { mealSlot } : {}), timestamp: new Date().toISOString(), nutrition });
@@ -1397,28 +1445,18 @@ function AddRecipeQuick({ recipes, getRecipe, onAdd, onBack, weeklyPlan, inline,
         const weightFraction = mw / foodWeight;
         const servingsDisplay = parseFloat((weightFraction * recipeServings).toFixed(2));
 
-        // Get total recipe nutrition for weight-based scaling
-        let recipeTotals = null;
+        // Compute nutrition matching NutritionPanel: split main vs topping
         const cache = loadNutritionCache();
         const cached = cache[recipeId];
-        if (getCachedTotals(cached)) recipeTotals = getCachedTotals(cached);
-        if (!recipeTotals && previewNutrition?.perServing) {
-          recipeTotals = {};
-          for (const n of NUTRIENTS) recipeTotals[n.key] = (previewNutrition.perServing[n.key] || 0) * recipeServings;
-        }
+        const scaled = computeWeightNutrition(cached, recipe.ingredients, weightFraction);
 
-        if (!recipeTotals) return (
+        if (!scaled) return (
           <div className={styles.weightPreview}>
             <span className={styles.weightPreviewServings}>{servingsDisplay} {servingsDisplay === 1 ? 'serving' : 'servings'}</span>
             <span className={styles.weightPreviewNote}>({mw}g of {foodWeight}g food weight)</span>
             <div className={styles.weightPreviewMacros}><span style={{ color: 'var(--color-text-muted)' }}>Loading nutrition...</span></div>
           </div>
         );
-
-        // Scale total recipe nutrition by weight fraction
-        // This matches recipe page: totals * (portionWeight / foodWeight)
-        const scaled = {};
-        for (const n of NUTRIENTS) scaled[n.key] = Math.round(((recipeTotals[n.key] || 0) * weightFraction) * 10) / 10;
 
         return (
           <div className={styles.weightPreview}>
