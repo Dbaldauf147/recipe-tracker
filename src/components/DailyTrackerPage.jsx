@@ -1219,12 +1219,17 @@ For each ingredient, include a "nutrition" object with estimated calories, prote
 }
 
 /* ── Add Recipe Quick (1 serving) ── */
-function AddRecipeQuick({ recipes, getRecipe, onAdd, onBack, weeklyPlan, inline, targetSlot }) {
+function AddRecipeQuick({ recipes, getRecipe, onAdd, onBack, weeklyPlan, inline, targetSlot, externalRecipeId }) {
   const [recipeId, setRecipeId] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [showWeight, setShowWeight] = useState(false);
   const [mealWeight, setMealWeight] = useState('');
+
+  // Sync with externally selected recipe (from quick picks)
+  useEffect(() => {
+    if (externalRecipeId) setRecipeId(externalRecipeId);
+  }, [externalRecipeId]);
 
   const sortedRecipes = useMemo(() => {
     const filtered = [...recipes].filter(r => (r.frequency || 'common') !== 'retired');
@@ -2480,6 +2485,7 @@ function KpiAlerts({ dailyLog, recipes, onImportRecipe, cacheVersion, onViewReci
 export function DailyTrackerPage({ recipes, getRecipe, onClose, user, weeklyPlan, onViewRecipe, onImportRecipe }) {
   const [date, setDate] = useState(todayStr);
   const [addModal, setAddModal] = useState(null); // { targetDate, targetSlot, mode } or null
+  const [quickPickRecipeId, setQuickPickRecipeId] = useState('');
   const [viewRecipeId, setViewRecipeId] = useState(null);
   const [dailyLog, setDailyLog] = useState(loadDailyLog);
   const [cacheVersion, setCacheVersion] = useState(0);
@@ -2633,6 +2639,7 @@ export function DailyTrackerPage({ recipes, getRecipe, onClose, user, weeklyPlan
   }
 
   function handleAddToSlot(targetDate, targetSlot) {
+    setQuickPickRecipeId('');
     setAddModal({ targetDate, targetSlot });
   }
 
@@ -2718,11 +2725,8 @@ export function DailyTrackerPage({ recipes, getRecipe, onClose, user, weeklyPlan
                             {recent.map(entry => (
                               <button
                                 key={entry.recipeId}
-                                className={styles.recentMealBtn}
-                                onClick={() => {
-                                  addEntry({ ...entry, id: uuid(), timestamp: new Date().toISOString() }, addModal.targetDate, addModal.targetSlot);
-                                  setAddModal(null);
-                                }}
+                                className={quickPickRecipeId === entry.recipeId ? styles.recentMealBtnActive : styles.recentMealBtn}
+                                onClick={() => setQuickPickRecipeId(entry.recipeId)}
                               >
                                 {entry.recipeName}
                               </button>
@@ -2737,24 +2741,8 @@ export function DailyTrackerPage({ recipes, getRecipe, onClose, user, weeklyPlan
                             {weeklyFiltered.map(r => (
                               <button
                                 key={r.id}
-                                className={styles.recentMealBtn}
-                                onClick={async () => {
-                                  const cache = loadNutritionCache();
-                                  let totalNutrition;
-                                  if (cache[r.id]) {
-                                    totalNutrition = cache[r.id].totals;
-                                  } else {
-                                    const result = await fetchNutritionForRecipe(r.ingredients || []);
-                                    totalNutrition = result.totals;
-                                    try { cache[r.id] = result; localStorage.setItem(NUTRITION_CACHE_KEY, JSON.stringify(cache)); } catch {}
-                                  }
-                                  const recipeServings = r.servings || 1;
-                                  const perServing = {};
-                                  for (const n of NUTRIENTS) perServing[n.key] = (totalNutrition[n.key] || 0) / recipeServings;
-                                  const nutrition = scaleNutrition(perServing, 1);
-                                  addEntry({ id: uuid(), type: 'recipe', recipeId: r.id, recipeName: r.title, servings: 1, customWeight: null, timestamp: new Date().toISOString(), nutrition }, addModal.targetDate, addModal.targetSlot);
-                                  setAddModal(null);
-                                }}
+                                className={quickPickRecipeId === r.id ? styles.recentMealBtnActive : styles.recentMealBtn}
+                                onClick={() => setQuickPickRecipeId(r.id)}
                               >
                                 {r.title}
                               </button>
@@ -2772,6 +2760,7 @@ export function DailyTrackerPage({ recipes, getRecipe, onClose, user, weeklyPlan
                   weeklyPlan={weeklyPlan}
                   inline
                   targetSlot={addModal.targetSlot}
+                  externalRecipeId={quickPickRecipeId}
                 />
                 <div className={styles.trackMenuDivider}><span>or</span></div>
                 <button className={styles.trackMenuBtn} onClick={() => setAddModal(prev => ({ ...prev, mode: 'adjust' }))}>
