@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, ReferenceLine } from 'recharts';
 import { saveField } from '../utils/firestoreSync';
 import styles from './WeightTracker.module.css';
@@ -21,15 +21,30 @@ function todayStr() {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
-function getWeighFrequency() {
+function getWeighSettings() {
   try {
     const stats = JSON.parse(localStorage.getItem('sunday-body-stats') || '{}');
-    const goals = stats.mealTrackingGoals || [];
-    if (goals.includes('weighDaily')) return 'daily';
-    if (goals.includes('weighWeekly')) return 'weekly';
-    if (goals.includes('weighBiweekly')) return 'biweekly';
-    if (goals.includes('weighMonthly')) return 'monthly';
+    return {
+      repeatEvery: stats.weighRepeatEvery || 1,
+      repeatUnit: stats.weighRepeatUnit || 'week',
+      weekDays: stats.weighWeekDays || ['monday'],
+      monthOption: stats.weighMonthOption || 'day', // 'day' or 'weekday'
+      monthDay: stats.weighMonthDay || 1,
+      monthWeek: stats.weighMonthWeek || '1st',
+      monthWeekday: stats.weighMonthWeekday || 'monday',
+    };
   } catch {}
+  return { repeatEvery: 1, repeatUnit: 'week', weekDays: ['monday'], monthOption: 'day', monthDay: 1, monthWeek: '1st', monthWeekday: 'monday' };
+}
+
+// Legacy compat
+function getWeighFrequency() {
+  const s = getWeighSettings();
+  if (s.repeatUnit === 'day') return 'daily';
+  if (s.repeatUnit === 'week' && s.repeatEvery === 2) return 'biweekly';
+  if (s.repeatUnit === 'week') return 'weekly';
+  if (s.repeatUnit === 'month') return 'monthly';
+  if (s.repeatUnit === 'year') return 'monthly';
   return 'weekly';
 }
 
@@ -40,32 +55,77 @@ function getDaysSinceLastWeigh(log) {
   return diff;
 }
 
+const DAY_MAP = { sunday: 0, monday: 1, tuesday: 2, wednesday: 3, thursday: 4, friday: 5, saturday: 6 };
+const DAY_NAMES = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+
+function isWeighDay(date, settings) {
+  const { repeatUnit, repeatEvery, weekDays, monthOption, monthDay, monthWeek, monthWeekday } = settings;
+  if (repeatUnit === 'day') return true;
+  if (repeatUnit === 'week') {
+    const dayName = DAY_NAMES[date.getDay()];
+    return (weekDays || ['monday']).includes(dayName);
+  }
+  if (repeatUnit === 'month') {
+    if (monthOption === 'day') return date.getDate() === (monthDay || 1);
+    // Nth weekday
+    const weekNum = { '1st': 1, '2nd': 2, '3rd': 3, '4th': 4, 'last': -1 };
+    const targetDow = DAY_MAP[monthWeekday || 'monday'];
+    if (weekNum[monthWeek] === -1) {
+      const lastDay = new Date(date.getFullYear(), date.getMonth() + 1, 0);
+      let d = lastDay.getDate();
+      while (new Date(date.getFullYear(), date.getMonth(), d).getDay() !== targetDow) d--;
+      return date.getDate() === d;
+    }
+    const n = weekNum[monthWeek] || 1;
+    let count = 0;
+    for (let d = 1; d <= date.getDate(); d++) {
+      if (new Date(date.getFullYear(), date.getMonth(), d).getDay() === targetDow) count++;
+    }
+    return count === n && date.getDay() === targetDow;
+  }
+  if (repeatUnit === 'year') {
+    return date.getMonth() === 0 && date.getDate() === 1; // Jan 1
+  }
+  return false;
+}
+
 function shouldWeighToday(log) {
-  const freq = getWeighFrequency();
+  const settings = getWeighSettings();
   const days = getDaysSinceLastWeigh(log);
   if (days === null) return true;
-  if (freq === 'daily') return days >= 1;
-  if (freq === 'weekly') return days >= 7;
-  if (freq === 'biweekly') return days >= 14;
-  if (freq === 'monthly') {
-    // Check if it's the 1st of the month and no entry this month
-    const today = new Date();
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  if (!isWeighDay(today, settings)) return false;
+  // Check repeat interval
+  if (settings.repeatUnit === 'day') return days >= settings.repeatEvery;
+  if (settings.repeatUnit === 'week') {
+    return days >= (settings.repeatEvery * 7 - 6); // Allow within the target week
+  }
+  if (settings.repeatUnit === 'month') {
     const thisMonth = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
-    const hasThisMonth = log.some(e => e.date.startsWith(thisMonth));
-    return !hasThisMonth;
+    return !log.some(e => e.date.startsWith(thisMonth));
   }
   return days >= 7;
 }
 
 function getNextWeighDate(log) {
-  const freq = getWeighFrequency();
+  const settings = getWeighSettings();
   if (log.length === 0) return 'Today';
   const last = new Date(log[log.length - 1].date + 'T00:00:00');
-  const next = new Date(last);
-  if (freq === 'daily') next.setDate(next.getDate() + 1);
-  else if (freq === 'weekly') next.setDate(next.getDate() + 7);
-  else if (freq === 'monthly') { next.setMonth(next.getMonth() + 1); next.setDate(1); }
-  return next.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  // Scan forward up to 365 days to find next weigh day
+  for (let i = 1; i <= 365; i++) {
+    const candidate = new Date(last);
+    candidate.setDate(candidate.getDate() + i);
+    if (candidate < today && i < 365) continue; // skip past dates unless far future
+    if (isWeighDay(candidate, settings)) {
+      if (settings.repeatUnit === 'day' && i < settings.repeatEvery) continue;
+      if (settings.repeatUnit === 'week' && i < settings.repeatEvery * 7 - 6) continue;
+      return candidate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    }
+  }
+  return 'Today';
 }
 
 function requestNotificationPermission() {
@@ -85,18 +145,15 @@ function sendWeighReminder() {
 
 const SEED_DATA = [{"date":"2022-09-25","weight":163.2},{"date":"2022-10-01","weight":166.2},{"date":"2022-10-15","weight":162.6},{"date":"2022-10-23","weight":165},{"date":"2022-11-20","weight":159.8},{"date":"2022-11-27","weight":163},{"date":"2022-12-06","weight":163.6},{"date":"2022-12-11","weight":159},{"date":"2022-12-18","weight":162.4},{"date":"2022-12-26","weight":163.4},{"date":"2023-01-01","weight":166.6},{"date":"2023-01-08","weight":168.2},{"date":"2023-01-24","weight":165},{"date":"2023-01-29","weight":166.2},{"date":"2023-02-05","weight":168.4},{"date":"2023-02-12","weight":166.2},{"date":"2023-02-20","weight":166.4},{"date":"2023-02-27","weight":165},{"date":"2023-03-05","weight":166},{"date":"2023-03-12","weight":167.4},{"date":"2023-03-19","weight":168.2},{"date":"2023-03-27","weight":166.8},{"date":"2023-04-04","weight":169.4},{"date":"2023-04-16","weight":169.6},{"date":"2023-04-23","weight":168},{"date":"2023-04-30","weight":168.8},{"date":"2023-05-07","weight":169.4},{"date":"2023-05-15","weight":174},{"date":"2023-05-22","weight":170.2},{"date":"2023-05-29","weight":173.2},{"date":"2023-06-04","weight":172.2},{"date":"2023-06-11","weight":173.6},{"date":"2023-06-19","weight":172.8},{"date":"2023-06-28","weight":171.8},{"date":"2023-07-04","weight":172.8},{"date":"2023-07-09","weight":177},{"date":"2023-07-16","weight":172.8},{"date":"2023-07-24","weight":171.2},{"date":"2023-07-31","weight":171.6},{"date":"2023-08-06","weight":170.6},{"date":"2023-08-14","weight":171.8},{"date":"2023-08-21","weight":173},{"date":"2023-08-27","weight":176},{"date":"2023-09-06","weight":173.6},{"date":"2023-09-11","weight":173},{"date":"2023-09-17","weight":175.4},{"date":"2023-09-24","weight":175},{"date":"2023-10-01","weight":174.6},{"date":"2023-10-08","weight":174.2},{"date":"2023-10-15","weight":174.6},{"date":"2023-10-22","weight":173.2},{"date":"2023-10-31","weight":171},{"date":"2023-11-05","weight":174.6},{"date":"2023-11-12","weight":175.2},{"date":"2023-11-19","weight":173.6},{"date":"2023-11-27","weight":171.6},{"date":"2023-12-03","weight":174.4},{"date":"2023-12-10","weight":174.8},{"date":"2023-12-17","weight":173.2},{"date":"2024-01-01","weight":175},{"date":"2024-01-07","weight":173.4},{"date":"2024-01-16","weight":173.2},{"date":"2024-01-21","weight":173.2},{"date":"2024-01-28","weight":176.8},{"date":"2024-02-13","weight":170.8},{"date":"2024-02-18","weight":171.8},{"date":"2024-02-28","weight":172.4},{"date":"2024-03-03","weight":172.4},{"date":"2024-03-31","weight":170.8},{"date":"2024-04-07","weight":171.6},{"date":"2024-04-16","weight":168},{"date":"2024-04-21","weight":168.6},{"date":"2024-04-29","weight":166.6},{"date":"2024-05-05","weight":171.6},{"date":"2024-05-15","weight":169.4},{"date":"2024-05-19","weight":170.1},{"date":"2024-06-01","weight":168.2},{"date":"2024-06-04","weight":168.6},{"date":"2024-06-17","weight":171.6},{"date":"2024-06-23","weight":172.6},{"date":"2024-07-03","weight":173.3},{"date":"2024-07-08","weight":172.8},{"date":"2024-07-15","weight":172.6},{"date":"2024-07-21","weight":173},{"date":"2024-07-29","weight":174},{"date":"2024-08-06","weight":171.8},{"date":"2024-08-11","weight":174.2},{"date":"2024-08-19","weight":176},{"date":"2024-08-24","weight":176.2},{"date":"2024-09-02","weight":174},{"date":"2024-09-10","weight":176.4},{"date":"2024-09-15","weight":177.6},{"date":"2024-09-23","weight":174.6},{"date":"2024-09-30","weight":175},{"date":"2024-10-06","weight":177},{"date":"2024-10-14","weight":174.2},{"date":"2024-10-20","weight":176.8},{"date":"2024-10-30","weight":176.6},{"date":"2024-11-04","weight":178.2},{"date":"2024-11-11","weight":174.8},{"date":"2024-11-17","weight":176.6},{"date":"2024-11-24","weight":175.2},{"date":"2024-12-03","weight":175.2},{"date":"2024-12-14","weight":177.4},{"date":"2024-12-15","weight":176.6},{"date":"2024-12-22","weight":177},{"date":"2025-01-03","weight":175},{"date":"2025-01-11","weight":176.6},{"date":"2025-01-20","weight":175.2},{"date":"2025-01-28","weight":174.6},{"date":"2025-02-02","weight":175.2},{"date":"2025-02-08","weight":174.4},{"date":"2025-02-14","weight":174.4},{"date":"2025-02-16","weight":176.2},{"date":"2025-03-02","weight":175.2},{"date":"2025-03-09","weight":176.6},{"date":"2025-03-20","weight":175},{"date":"2025-03-29","weight":173},{"date":"2025-04-05","weight":175.4},{"date":"2025-04-06","weight":178.4},{"date":"2025-04-19","weight":174.6},{"date":"2025-04-25","weight":176.6},{"date":"2025-05-01","weight":174.4},{"date":"2025-05-10","weight":175.2},{"date":"2025-05-12","weight":176.4},{"date":"2025-05-18","weight":176},{"date":"2025-05-23","weight":177.2},{"date":"2025-06-01","weight":177},{"date":"2025-06-07","weight":176.4},{"date":"2025-06-15","weight":174.8},{"date":"2025-06-22","weight":177.2},{"date":"2025-06-29","weight":175.2},{"date":"2025-07-07","weight":176.2},{"date":"2025-07-14","weight":175.4},{"date":"2025-07-22","weight":176.6},{"date":"2025-07-28","weight":175},{"date":"2025-08-04","weight":172.6},{"date":"2025-08-12","weight":173.2},{"date":"2025-08-18","weight":174.2},{"date":"2025-08-24","weight":176.2},{"date":"2025-09-01","weight":174.2},{"date":"2025-09-07","weight":172.6},{"date":"2025-09-17","weight":174},{"date":"2025-09-25","weight":172.4},{"date":"2025-09-29","weight":172.4},{"date":"2025-10-08","weight":172.5},{"date":"2025-10-15","weight":173.5},{"date":"2025-10-22","weight":173.5},{"date":"2025-10-28","weight":178},{"date":"2025-11-02","weight":177.2},{"date":"2025-11-09","weight":174},{"date":"2025-11-20","weight":175.2},{"date":"2025-11-23","weight":174},{"date":"2025-11-30","weight":173.4},{"date":"2025-12-09","weight":174.8},{"date":"2025-12-14","weight":179.6},{"date":"2025-12-23","weight":174.8},{"date":"2025-12-29","weight":177.2},{"date":"2026-01-05","weight":175.8},{"date":"2026-01-11","weight":176.4},{"date":"2026-01-16","weight":177.2},{"date":"2026-01-25","weight":176.4},{"date":"2026-02-04","weight":175.4},{"date":"2026-02-08","weight":178.6},{"date":"2026-02-15","weight":178.8},{"date":"2026-02-22","weight":181.4},{"date":"2026-03-04","weight":178.6}];
 
-function WeightCalendar({ log, weighFreq, weighDay }) {
+function WeightCalendar({ log }) {
   const [calMonth, setCalMonth] = useState(() => new Date().getMonth());
   const [calYear, setCalYear] = useState(() => new Date().getFullYear());
   const logDates = new Set(log.map(e => e.date));
-  const dayMap = { sunday: 0, monday: 1, tuesday: 2, wednesday: 3, thursday: 4, friday: 5, saturday: 6 };
+  const settings = getWeighSettings();
 
   function isScheduledDay(year, month, day) {
     const d = new Date(year, month, day);
-    if (weighFreq === 'daily') return true;
-    if (weighFreq === 'weekly') return d.getDay() === (dayMap[weighDay] || 1);
-    if (weighFreq === 'monthly') return day === 1;
-    return false;
+    return isWeighDay(d, settings);
   }
 
   const firstDay = new Date(calYear, calMonth, 1);
@@ -177,35 +234,46 @@ export function WeightTracker({ onClose, user }) {
     try { return localStorage.getItem('sunday-weight-notif') === 'true'; } catch { return false; }
   });
 
-  const [weighFreq, setWeighFreq] = useState(() => getWeighFrequency());
+  const [weighSettings, setWeighSettings] = useState(() => getWeighSettings());
   const [showReminderPopup, setShowReminderPopup] = useState(false);
-  const [weighDay, setWeighDay] = useState(() => {
-    try { return JSON.parse(localStorage.getItem('sunday-body-stats') || '{}').weighDay || 'monday'; } catch { return 'monday'; }
-  });
-  const [weighMonthDay, setWeighMonthDay] = useState(() => {
-    try { return JSON.parse(localStorage.getItem('sunday-body-stats') || '{}').weighMonthDay || '1st'; } catch { return '1st'; }
-  });
+  const [showSaved, setShowSaved] = useState(false);
+  const savedTimerRef = useRef(null);
+  const weighFreq = getWeighFrequency(); // legacy for display
 
-  function saveWeighSettings(freq, day, monthDay) {
-    try {
-      const stats = JSON.parse(localStorage.getItem('sunday-body-stats') || '{}');
-      const goals = (stats.mealTrackingGoals || []).filter(g => !g.startsWith('weigh'));
-      if (freq === 'daily') goals.push('weighDaily');
-      else if (freq === 'weekly') goals.push('weighWeekly');
-      else if (freq === 'biweekly') goals.push('weighBiweekly');
-      else if (freq === 'monthly') goals.push('weighMonthly');
-      stats.mealTrackingGoals = goals;
-      stats.weighDay = day;
-      stats.weighMonthDay = monthDay || weighMonthDay;
-      localStorage.setItem('sunday-body-stats', JSON.stringify(stats));
-      if (user) saveField(user.uid, 'bodyStats', stats);
-    } catch {}
+  function updateWeighSettings(patch) {
+    setWeighSettings(prev => {
+      const next = { ...prev, ...patch };
+      try {
+        const stats = JSON.parse(localStorage.getItem('sunday-body-stats') || '{}');
+        stats.weighRepeatEvery = next.repeatEvery;
+        stats.weighRepeatUnit = next.repeatUnit;
+        stats.weighWeekDays = next.weekDays;
+        stats.weighMonthOption = next.monthOption;
+        stats.weighMonthDay = next.monthDay;
+        stats.weighMonthWeek = next.monthWeek;
+        stats.weighMonthWeekday = next.monthWeekday;
+        // Legacy goals compat
+        const goals = (stats.mealTrackingGoals || []).filter(g => !g.startsWith('weigh'));
+        if (next.repeatUnit === 'day') goals.push('weighDaily');
+        else if (next.repeatUnit === 'week' && next.repeatEvery === 2) goals.push('weighBiweekly');
+        else if (next.repeatUnit === 'week') goals.push('weighWeekly');
+        else if (next.repeatUnit === 'month') goals.push('weighMonthly');
+        stats.mealTrackingGoals = goals;
+        localStorage.setItem('sunday-body-stats', JSON.stringify(stats));
+        if (user) saveField(user.uid, 'bodyStats', stats);
+      } catch {}
+      // Show saved toast
+      setShowSaved(true);
+      clearTimeout(savedTimerRef.current);
+      savedTimerRef.current = setTimeout(() => setShowSaved(false), 2000);
+      return next;
+    });
   }
 
   const range = rangeMode === 'weeks' ? rangeCount * 7 : rangeMode === 'months' ? rangeCount * 30 : rangeMode === 'years' ? rangeCount * 365 : 0;
   const showCustom = rangeMode === 'custom';
   const today = todayStr();
-  const frequency = weighFreq;
+  const frequency = `every ${weighSettings.repeatEvery} ${weighSettings.repeatUnit}${weighSettings.repeatEvery > 1 ? 's' : ''}`;
   const nextWeighDate = getNextWeighDate(log);
 
   // Send browser notification if weigh-in is due
@@ -511,26 +579,12 @@ export function WeightTracker({ onClose, user }) {
               todayDate.setHours(0, 0, 0, 0);
               let nextDs = null;
 
-              if (weighFreq === 'daily') {
-                for (let i = 0; i < 7 && !nextDs; i++) {
-                  const d = new Date(todayDate); d.setDate(d.getDate() + i);
-                  const ds = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-                  if (!existingDates.has(ds)) nextDs = ds;
-                }
-              } else if (weighFreq === 'weekly') {
-                const dayMap = { sunday: 0, monday: 1, tuesday: 2, wednesday: 3, thursday: 4, friday: 5, saturday: 6 };
-                const targetDay = dayMap[weighDay] || 1;
-                const d = new Date(todayDate);
-                const diff = (targetDay - d.getDay() + 7) % 7;
-                d.setDate(d.getDate() + (diff === 0 && existingDates.has(todayStr()) ? 7 : diff));
+              const ws = getWeighSettings();
+              for (let i = 0; i < 90 && !nextDs; i++) {
+                const d = new Date(todayDate); d.setDate(d.getDate() + i);
+                if (!isWeighDay(d, ws)) continue;
                 const ds = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
                 if (!existingDates.has(ds)) nextDs = ds;
-              } else if (weighFreq === 'monthly') {
-                for (let i = 0; i < 3 && !nextDs; i++) {
-                  const d = new Date(todayDate.getFullYear(), todayDate.getMonth() + i, 1);
-                  const ds = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`;
-                  if (!existingDates.has(ds)) nextDs = ds;
-                }
               }
 
               if (!nextDs) return null;
@@ -679,7 +733,7 @@ export function WeightTracker({ onClose, user }) {
       </div>
       </div>
       <div className={styles.mainRight}>
-        <WeightCalendar log={log} weighFreq={weighFreq} weighDay={weighDay} />
+        <WeightCalendar log={log} />
         <button className={styles.setReminderBtn} onClick={() => setShowReminderPopup(true)}>
           Set Reminder Schedule
         </button>
@@ -691,39 +745,74 @@ export function WeightTracker({ onClose, user }) {
                 <button className={styles.reminderPopupClose} onClick={() => setShowReminderPopup(false)}>&times;</button>
               </div>
               <div className={styles.reminderCol}>
-                <span className={styles.reminderLabel}>Frequency</span>
-                <div className={styles.reminderBtns}>
-                  {[{ key: 'daily', label: 'Daily' }, { key: 'weekly', label: 'Weekly' }, { key: 'biweekly', label: 'Every 2 Weeks' }, { key: 'monthly', label: 'Monthly' }].map(opt => (
-                    <button key={opt.key} className={weighFreq === opt.key ? styles.reminderBtnActive : styles.reminderBtn} onClick={() => { setWeighFreq(opt.key); saveWeighSettings(opt.key, weighDay); }}>{opt.label}</button>
-                  ))}
+                <span className={styles.reminderLabel}>Repeat every</span>
+                <div className={styles.repeatEveryRow}>
+                  <button className={styles.counterBtn} onClick={() => updateWeighSettings({ repeatEvery: Math.max(1, weighSettings.repeatEvery - 1) })}>&minus;</button>
+                  <span className={styles.counterValue}>{weighSettings.repeatEvery}</span>
+                  <button className={styles.counterBtn} onClick={() => updateWeighSettings({ repeatEvery: weighSettings.repeatEvery + 1 })}>+</button>
+                  <div className={styles.reminderBtns}>
+                    {['day', 'week', 'month', 'year'].map(u => (
+                      <button key={u} className={weighSettings.repeatUnit === u ? styles.reminderBtnActive : styles.reminderBtn} onClick={() => updateWeighSettings({ repeatUnit: u })}>
+                        {u}{weighSettings.repeatEvery > 1 ? 's' : ''}
+                      </button>
+                    ))}
+                  </div>
                 </div>
               </div>
-              {(weighFreq === 'weekly' || weighFreq === 'biweekly') && (
+              {weighSettings.repeatUnit === 'week' && (
                 <div className={styles.reminderCol}>
-                  <span className={styles.reminderLabel}>Day</span>
+                  <span className={styles.reminderLabel}>Repeat on</span>
                   <div className={styles.reminderBtns}>
-                    {['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'].map(d => (
-                      <button key={d} className={weighDay === d ? styles.reminderBtnActive : styles.reminderBtn} onClick={() => { setWeighDay(d); saveWeighSettings(weighFreq, d); }}>{d.slice(0, 3).charAt(0).toUpperCase() + d.slice(1, 3)}</button>
+                    {['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'].map(d => (
+                      <button
+                        key={d}
+                        className={(weighSettings.weekDays || []).includes(d) ? styles.reminderBtnActive : styles.reminderBtn}
+                        onClick={() => {
+                          const current = weighSettings.weekDays || [];
+                          const next = current.includes(d) ? current.filter(x => x !== d) : [...current, d];
+                          if (next.length > 0) updateWeighSettings({ weekDays: next });
+                        }}
+                      >
+                        {d.charAt(0).toUpperCase()}
+                      </button>
                     ))}
                   </div>
                 </div>
               )}
-              {weighFreq === 'monthly' && (
+              {weighSettings.repeatUnit === 'month' && (
                 <div className={styles.reminderCol}>
-                  <span className={styles.reminderLabel}>When</span>
+                  <span className={styles.reminderLabel}>On</span>
                   <div className={styles.reminderBtns}>
-                    {[
-                      { key: '1st', label: '1st of month' },
-                      { key: '15th', label: '15th of month' },
-                      { key: 'last', label: 'Last day of month' },
-                      { key: '1st-mon', label: '1st Monday' },
-                      { key: '2nd-mon', label: '2nd Monday' },
-                      { key: '1st-sun', label: '1st Sunday' },
-                      { key: '2nd-sun', label: '2nd Sunday' },
-                    ].map(opt => (
-                      <button key={opt.key} className={weighMonthDay === opt.key ? styles.reminderBtnActive : styles.reminderBtn} onClick={() => { setWeighMonthDay(opt.key); saveWeighSettings(weighFreq, weighDay, opt.key); }}>{opt.label}</button>
-                    ))}
+                    <button className={weighSettings.monthOption === 'day' ? styles.reminderBtnActive : styles.reminderBtn} onClick={() => updateWeighSettings({ monthOption: 'day' })}>
+                      Day {weighSettings.monthDay || 1}
+                    </button>
+                    <button className={weighSettings.monthOption === 'weekday' ? styles.reminderBtnActive : styles.reminderBtn} onClick={() => updateWeighSettings({ monthOption: 'weekday' })}>
+                      {weighSettings.monthWeek || '1st'} {(weighSettings.monthWeekday || 'monday').charAt(0).toUpperCase() + (weighSettings.monthWeekday || 'monday').slice(1)}
+                    </button>
                   </div>
+                  {weighSettings.monthOption === 'day' && (
+                    <div className={styles.repeatEveryRow} style={{ marginTop: '0.4rem' }}>
+                      <button className={styles.counterBtn} onClick={() => updateWeighSettings({ monthDay: Math.max(1, (weighSettings.monthDay || 1) - 1) })}>&minus;</button>
+                      <span className={styles.counterValue}>{weighSettings.monthDay || 1}</span>
+                      <button className={styles.counterBtn} onClick={() => updateWeighSettings({ monthDay: Math.min(31, (weighSettings.monthDay || 1) + 1) })}>+</button>
+                    </div>
+                  )}
+                  {weighSettings.monthOption === 'weekday' && (
+                    <>
+                      <div className={styles.reminderBtns} style={{ marginTop: '0.4rem' }}>
+                        {['1st', '2nd', '3rd', '4th', 'last'].map(w => (
+                          <button key={w} className={weighSettings.monthWeek === w ? styles.reminderBtnActive : styles.reminderBtn} onClick={() => updateWeighSettings({ monthWeek: w })}>{w}</button>
+                        ))}
+                      </div>
+                      <div className={styles.reminderBtns} style={{ marginTop: '0.3rem' }}>
+                        {['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'].map(d => (
+                          <button key={d} className={weighSettings.monthWeekday === d ? styles.reminderBtnActive : styles.reminderBtn} onClick={() => updateWeighSettings({ monthWeekday: d })}>
+                            {d.slice(0, 3).charAt(0).toUpperCase() + d.slice(1, 3)}
+                          </button>
+                        ))}
+                      </div>
+                    </>
+                  )}
                 </div>
               )}
             </div>
@@ -731,6 +820,7 @@ export function WeightTracker({ onClose, user }) {
         )}
       </div>
       </div>
+      {showSaved && <div className={styles.savedToast}>Saved!</div>}
     </div>
   );
 }
