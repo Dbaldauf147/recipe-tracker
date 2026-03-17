@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { NUTRIENTS } from '../utils/nutrition';
 import styles from './NutritionGoalsPage.module.css';
 
@@ -277,12 +277,45 @@ export function NutritionGoalsPage({ onComplete, onBack, onSkip, initialSelected
     }
   }, [gender, heightFt, heightIn, weight, age, activityLevel, weightGoals]);
 
+  const autoSaveRef = useRef(null);
+  const savedTimerRef = useRef(null);
   const initialRender = useRef(true);
+
+  const doAutoSave = useCallback(() => {
+    if (!isSettings) return;
+    const result = {};
+    for (const key of selected) {
+      result[key] = targets[key];
+    }
+    const stats = {};
+    if (gender) stats.gender = gender;
+    if (heightFt !== '') stats.heightFt = Number(heightFt);
+    if (heightIn !== '') stats.heightIn = Number(heightIn);
+    if (weight !== '') stats.weight = Number(weight);
+    if (age !== '') stats.age = Number(age);
+    if (activityLevel) stats.activityLevel = activityLevel;
+    if (weightGoals.size > 0) stats.weightGoals = [...weightGoals];
+    if (mealTrackingGoals.size > 0) stats.mealTrackingGoals = [...mealTrackingGoals];
+    if (fruitVegGoals.size > 0) stats.fruitVegGoals = [...fruitVegGoals];
+    if (macroApproach) stats.macroApproach = macroApproach;
+    stats.trackPlate = trackPlate;
+    onComplete(result, Object.keys(stats).length > 0 ? stats : null);
+    setSaved(true);
+    setDirty(false);
+    clearTimeout(savedTimerRef.current);
+    savedTimerRef.current = setTimeout(() => setSaved(false), 2000);
+  }, [isSettings, selected, targets, gender, heightFt, heightIn, weight, age, activityLevel, weightGoals, mealTrackingGoals, fruitVegGoals, macroApproach, trackPlate, onComplete]);
+
   useEffect(() => {
     if (initialRender.current) { initialRender.current = false; return; }
     setDirty(true);
     setSaved(false);
-  }, [gender, heightFt, heightIn, weight, age, activityLevel, weightGoals, mealTrackingGoals, fruitVegGoals, macroApproach, trackPlate]);
+    if (isSettings) {
+      clearTimeout(autoSaveRef.current);
+      autoSaveRef.current = setTimeout(doAutoSave, 1000);
+    }
+    return () => clearTimeout(autoSaveRef.current);
+  }, [gender, heightFt, heightIn, weight, age, activityLevel, weightGoals, mealTrackingGoals, fruitVegGoals, macroApproach, trackPlate, selected, targets]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function markDirty() {
     setDirty(true);
@@ -372,13 +405,15 @@ export function NutritionGoalsPage({ onComplete, onBack, onSkip, initialSelected
         <div className={styles.topRight}>
           <div className={styles.saveRow}>
             {saved && <span className={styles.savedMsg}>Saved!</span>}
-            <button
-              className={styles.continueBtn}
-              onClick={handleContinue}
-              disabled={selected.size === 0 || (isSettings && !dirty)}
-            >
-              {isSettings ? 'Save Changes' : 'Continue'}
-            </button>
+            {!isSettings && (
+              <button
+                className={styles.continueBtn}
+                onClick={handleContinue}
+                disabled={selected.size === 0}
+              >
+                Continue
+              </button>
+            )}
           </div>
           {onSkip && (
             <button className={styles.skipBtn} onClick={onSkip}>
@@ -399,7 +434,7 @@ export function NutritionGoalsPage({ onComplete, onBack, onSkip, initialSelected
                     <td className={styles.goalsTableLabel}>Weight Goal</td>
                     <td className={styles.goalsTableBtns}>
                       {[{ key: 'lose', label: 'Lose Weight' }, { key: 'maintain', label: 'Maintain' }, { key: 'gain', label: 'Gain Weight' }].map(g => (
-                        <button key={g.key} type="button" className={weightGoals.has(g.key) ? styles.goalBtnActive : styles.goalBtn} onClick={() => setWeightGoals(new Set([g.key]))}>{g.label}</button>
+                        <button key={g.key} type="button" className={weightGoals.has(g.key) ? styles.goalBtnActive : styles.goalBtn} onClick={() => { if (weightGoals.has(g.key)) { setWeightGoals(prev => { const next = new Set(prev); next.delete(g.key); return next; }); } else { setWeightGoals(new Set([g.key])); } }}>{g.label}</button>
                       ))}
                     </td>
                   </tr>
@@ -407,7 +442,7 @@ export function NutritionGoalsPage({ onComplete, onBack, onSkip, initialSelected
                     <td className={styles.goalsTableLabel}>Looking to Gain Muscle</td>
                     <td className={styles.goalsTableBtns}>
                       {[{ key: 'muscle', label: 'Yes' }, { key: 'no-muscle', label: 'No' }].map(g => (
-                        <button key={g.key} type="button" className={weightGoals.has(g.key) ? styles.goalBtnActive : styles.goalBtn} onClick={() => { setWeightGoals(prev => { const next = new Set(prev); next.delete('muscle'); next.delete('no-muscle'); next.add(g.key); return next; }); }}>{g.label}</button>
+                        <button key={g.key} type="button" className={weightGoals.has(g.key) ? styles.goalBtnActive : styles.goalBtn} onClick={() => { setWeightGoals(prev => { const next = new Set(prev); if (next.has(g.key)) { next.delete(g.key); } else { next.delete('muscle'); next.delete('no-muscle'); next.add(g.key); } return next; }); }}>{g.label}</button>
                       ))}
                     </td>
                   </tr>
@@ -415,7 +450,7 @@ export function NutritionGoalsPage({ onComplete, onBack, onSkip, initialSelected
                     <td className={styles.goalsTableLabel}>Weigh Your Food</td>
                     <td className={styles.goalsTableBtns}>
                       {[{ key: 'weighFood', label: 'Yes' }, { key: 'noWeighFood', label: 'No' }].map(g => (
-                        <button key={g.key} type="button" className={mealTrackingGoals.has(g.key) ? styles.goalBtnActive : styles.goalBtn} onClick={() => { setMealTrackingGoals(prev => { const next = new Set(prev); next.delete('weighFood'); next.delete('noWeighFood'); next.add(g.key); return next; }); }}>{g.label}</button>
+                        <button key={g.key} type="button" className={mealTrackingGoals.has(g.key) ? styles.goalBtnActive : styles.goalBtn} onClick={() => { setMealTrackingGoals(prev => { const next = new Set(prev); if (next.has(g.key)) { next.delete(g.key); } else { next.delete('weighFood'); next.delete('noWeighFood'); next.add(g.key); } return next; }); }}>{g.label}</button>
                       ))}
                     </td>
                   </tr>
@@ -423,7 +458,7 @@ export function NutritionGoalsPage({ onComplete, onBack, onSkip, initialSelected
                     <td className={styles.goalsTableLabel}>Track Your Meals</td>
                     <td className={styles.goalsTableBtns}>
                       {[{ key: 'trackDaily', label: '3 Meals a Day' }, { key: 'trackWeekly', label: 'Per Grocery Shop' }].map(g => (
-                        <button key={g.key} type="button" className={mealTrackingGoals.has(g.key) ? styles.goalBtnActive : styles.goalBtn} onClick={() => { setMealTrackingGoals(prev => { const next = new Set(prev); next.delete('trackDaily'); next.delete('trackWeekly'); next.add(g.key); return next; }); }}>{g.label}</button>
+                        <button key={g.key} type="button" className={mealTrackingGoals.has(g.key) ? styles.goalBtnActive : styles.goalBtn} onClick={() => { setMealTrackingGoals(prev => { const next = new Set(prev); if (next.has(g.key)) { next.delete(g.key); } else { next.delete('trackDaily'); next.delete('trackWeekly'); next.add(g.key); } return next; }); }}>{g.label}</button>
                       ))}
                     </td>
                   </tr>
@@ -431,7 +466,7 @@ export function NutritionGoalsPage({ onComplete, onBack, onSkip, initialSelected
                     <td className={styles.goalsTableLabel}>Weigh Yourself</td>
                     <td className={styles.goalsTableBtns}>
                       {[{ key: 'weighDaily', label: 'Daily' }, { key: 'weighWeekly', label: 'Weekly' }, { key: 'weighMonthly', label: 'Monthly' }].map(g => (
-                        <button key={g.key} type="button" className={mealTrackingGoals.has(g.key) ? styles.goalBtnActive : styles.goalBtn} onClick={() => { setMealTrackingGoals(prev => { const next = new Set(prev); next.delete('weighDaily'); next.delete('weighWeekly'); next.delete('weighMonthly'); next.add(g.key); return next; }); }}>{g.label}</button>
+                        <button key={g.key} type="button" className={mealTrackingGoals.has(g.key) ? styles.goalBtnActive : styles.goalBtn} onClick={() => { setMealTrackingGoals(prev => { const next = new Set(prev); if (next.has(g.key)) { next.delete(g.key); } else { next.delete('weighDaily'); next.delete('weighWeekly'); next.delete('weighMonthly'); next.add(g.key); } return next; }); }}>{g.label}</button>
                       ))}
                     </td>
                   </tr>
