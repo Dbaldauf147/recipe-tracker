@@ -326,7 +326,7 @@ export function WeightTracker({ onClose, user }) {
       : ws.repeatUnit === 'week' ? ws.repeatEvery * 7
       : ws.repeatUnit === 'month' ? ws.repeatEvery * 30
       : ws.repeatEvery * 365;
-    const GAP_THRESHOLD = Math.max(baseInterval * 2, 14); // 2x the schedule interval, min 14 days
+    const GAP_THRESHOLD = Math.max(Math.round(baseInterval * 1.5), 10); // 1.5x the schedule interval, min 10 days
     function getLabel(dateStr) {
       const [y, m, d] = dateStr.split('-');
       if (ws.repeatUnit === 'week') {
