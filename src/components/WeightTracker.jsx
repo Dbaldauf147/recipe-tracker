@@ -327,6 +327,8 @@ export function WeightTracker({ onClose, user }) {
       : ws.repeatUnit === 'month' ? ws.repeatEvery * 30
       : ws.repeatEvery * 365;
     const GAP_THRESHOLD = baseInterval + Math.round(baseInterval * 0.3); // interval + 30% buffer (weekly = 9 days)
+    // Track used week labels to disambiguate duplicates
+    const usedWeekLabels = {};
     function getLabel(dateStr) {
       const [y, m, d] = dateStr.split('-');
       if (ws.repeatUnit === 'week') {
@@ -334,7 +336,13 @@ export function WeightTracker({ onClose, user }) {
         const startOfYear = new Date(dt.getFullYear(), 0, 1);
         const wkDiff = (dt - startOfYear + ((startOfYear.getDay() + 6) % 7) * 86400000);
         const wk = Math.ceil(wkDiff / 604800000);
-        return `Wk ${wk}`;
+        const key = `Wk ${wk}`;
+        if (usedWeekLabels[key]) {
+          // Second entry in same week — add date
+          return `${parseInt(m)}/${parseInt(d)}`;
+        }
+        usedWeekLabels[key] = true;
+        return key;
       } else if (ws.repeatUnit === 'month' || ws.repeatUnit === 'year') {
         return `${MONTH_NAMES[parseInt(m) - 1]} '${y.slice(2)}`;
       } else if (useMonthYear) {
