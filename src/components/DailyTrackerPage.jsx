@@ -128,6 +128,16 @@ function loadNutritionCache() {
   }
 }
 
+// Get totals from cache entry, handling both formats:
+// NutritionPanel format: { data: { items, totals }, fingerprint }
+// DailyTracker format: { items, totals }
+function getCachedTotals(cacheEntry) {
+  if (!cacheEntry) return null;
+  if (cacheEntry.totals) return cacheEntry.totals;
+  if (cacheEntry.data?.totals) return cacheEntry.data.totals;
+  return null;
+}
+
 function scaleNutrition(nutrition, factor) {
   const scaled = {};
   for (const n of NUTRIENTS) {
@@ -561,9 +571,8 @@ function AddEntrySection({ recipes, getRecipe, onAdd, weeklyPlan }) {
     try {
       const cache = loadNutritionCache();
       let totalNutrition;
-      if (cache[recipeId]) {
-        totalNutrition = cache[recipeId].totals;
-      } else {
+      totalNutrition = getCachedTotals(cache[recipeId]);
+      if (!totalNutrition) {
         const result = await fetchNutritionForRecipe(recipe.ingredients || []);
         totalNutrition = result.totals;
         try {
@@ -672,9 +681,8 @@ function AddEntrySection({ recipes, getRecipe, onAdd, weeklyPlan }) {
         const recipe = getRecipe(rid);
         if (!recipe) continue;
         let totalNutrition;
-        if (cache[rid]) {
-          totalNutrition = cache[rid].totals;
-        } else {
+        totalNutrition = getCachedTotals(cache[rid]);
+        if (!totalNutrition) {
           const result = await fetchNutritionForRecipe(recipe.ingredients || []);
           totalNutrition = result.totals;
           try {
@@ -1242,10 +1250,10 @@ function AddRecipeQuick({ recipes, getRecipe, onAdd, onBack, weeklyPlan, inline,
     const recipe = getRecipe(recipeId);
     if (!recipe) return;
     const cache = loadNutritionCache();
-    if (cache[recipeId]?.totals) {
+    if (getCachedTotals(cache[recipeId])) {
       const recipeServings = parseInt(recipe.servings) || 1;
       const perServing = {};
-      for (const n of NUTRIENTS) perServing[n.key] = (cache[recipeId].totals[n.key] || 0) / recipeServings;
+      for (const n of NUTRIENTS) perServing[n.key] = (getCachedTotals(cache[recipeId])[n.key] || 0) / recipeServings;
       setPreviewNutrition({ perServing, recipeServings });
       return;
     }
@@ -1305,9 +1313,8 @@ function AddRecipeQuick({ recipes, getRecipe, onAdd, onBack, weeklyPlan, inline,
     try {
       const cache = loadNutritionCache();
       let totalNutrition;
-      if (cache[recipeId]) {
-        totalNutrition = cache[recipeId].totals;
-      } else {
+      totalNutrition = getCachedTotals(cache[recipeId]);
+      if (!totalNutrition) {
         const result = await fetchNutritionForRecipe(recipe.ingredients || []);
         totalNutrition = result.totals;
         try { cache[recipeId] = result; localStorage.setItem(NUTRITION_CACHE_KEY, JSON.stringify(cache)); } catch {}
@@ -1394,7 +1401,7 @@ function AddRecipeQuick({ recipes, getRecipe, onAdd, onBack, weeklyPlan, inline,
         let recipeTotals = null;
         const cache = loadNutritionCache();
         const cached = cache[recipeId];
-        if (cached?.totals) recipeTotals = cached.totals;
+        if (getCachedTotals(cached)) recipeTotals = getCachedTotals(cached);
         if (!recipeTotals && previewNutrition?.perServing) {
           recipeTotals = {};
           for (const n of NUTRIENTS) recipeTotals[n.key] = (previewNutrition.perServing[n.key] || 0) * recipeServings;
@@ -1469,9 +1476,8 @@ function AddRecipeAdjust({ recipes, getRecipe, onAdd, onBack, weeklyPlan }) {
     try {
       const cache = loadNutritionCache();
       let totalNutrition;
-      if (cache[recipeId]) {
-        totalNutrition = cache[recipeId].totals;
-      } else {
+      totalNutrition = getCachedTotals(cache[recipeId]);
+      if (!totalNutrition) {
         const result = await fetchNutritionForRecipe(recipe.ingredients || []);
         totalNutrition = result.totals;
         try { cache[recipeId] = result; localStorage.setItem(NUTRITION_CACHE_KEY, JSON.stringify(cache)); } catch {}
@@ -2374,9 +2380,9 @@ function KpiAlerts({ dailyLog, recipes, onImportRecipe, cacheVersion, onViewReci
       for (const recipe of recipes) {
         if ((recipe.frequency || 'common') === 'retired') continue;
         const cached = cache[recipe.id];
-        if (!cached?.totals) continue;
+        if (!getCachedTotals(cached)) continue;
         const recipeServings = recipe.servings || 1;
-        const perServing = (cached.totals[key] || 0) / recipeServings;
+        const perServing = (getCachedTotals(cached)[key] || 0) / recipeServings;
         const goal = goals[key] || 1;
         const pctOfGoal = Math.round((perServing / goal) * 100);
         const unit = key === 'calories' ? '' : 'g';
@@ -2396,9 +2402,9 @@ function KpiAlerts({ dailyLog, recipes, onImportRecipe, cacheVersion, onViewReci
       for (const recipe of recipes) {
         if ((recipe.frequency || 'common') === 'retired') continue;
         const cached = cache[recipe.id];
-        if (!cached?.totals) continue;
+        if (!getCachedTotals(cached)) continue;
         const recipeServings = recipe.servings || 1;
-        const perServing = (cached.totals[servingKey] || 0) / recipeServings;
+        const perServing = (getCachedTotals(cached)[servingKey] || 0) / recipeServings;
         if (perServing > 0) {
           scored.push({ id: recipe.id, title: recipe.title, reason: `${Math.round(perServing * 10) / 10} servings per portion`, score: perServing });
         }
