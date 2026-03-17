@@ -327,43 +327,80 @@ export function WeightTracker({ onClose, user }) {
       : ws.repeatUnit === 'month' ? ws.repeatEvery * 30
       : ws.repeatEvery * 365;
     const GAP_THRESHOLD = Math.max(baseInterval * 2, 14); // 2x the schedule interval, min 14 days
-    const gapSet = new Set(); // indices where a gap starts (i.e., this point follows a gap)
-    for (let i = 1; i < filtered.length; i++) {
-      const prevDate = new Date(filtered[i - 1].date + 'T00:00:00');
-      const currDate = new Date(filtered[i].date + 'T00:00:00');
-      const daysBetween = Math.round((currDate - prevDate) / (1000 * 60 * 60 * 24));
-      if (daysBetween > GAP_THRESHOLD) gapSet.add(i);
-    }
-
-    return filtered.map((e, i) => {
-      const [y, m, d] = e.date.split('-');
-      let label;
+    function getLabel(dateStr) {
+      const [y, m, d] = dateStr.split('-');
       if (ws.repeatUnit === 'week') {
-        // Show week number
-        const dt = new Date(e.date + 'T00:00:00');
+        const dt = new Date(dateStr + 'T00:00:00');
         const startOfYear = new Date(dt.getFullYear(), 0, 1);
         const wkDiff = (dt - startOfYear + ((startOfYear.getDay() + 6) % 7) * 86400000);
         const wk = Math.ceil(wkDiff / 604800000);
-        label = `Wk ${wk}`;
+        return `Wk ${wk}`;
       } else if (ws.repeatUnit === 'month' || ws.repeatUnit === 'year') {
-        label = `${MONTH_NAMES[parseInt(m) - 1]} '${y.slice(2)}`;
+        return `${MONTH_NAMES[parseInt(m) - 1]} '${y.slice(2)}`;
       } else if (useMonthYear) {
-        label = `${MONTH_NAMES[parseInt(m) - 1]} '${y.slice(2)}`;
-      } else {
-        label = `${parseInt(m)}/${parseInt(d)}`;
+        return `${MONTH_NAMES[parseInt(m) - 1]} '${y.slice(2)}`;
       }
-      const isGapEnd = gapSet.has(i);
-      const isGapStart = gapSet.has(i + 1);
-      return {
-        date: label,
+      return `${parseInt(m)}/${parseInt(d)}`;
+    }
+
+    // Build points array, inserting estimated gap points for missing weeks/months
+    const points = [];
+    for (let i = 0; i < filtered.length; i++) {
+      const e = filtered[i];
+
+      if (i > 0) {
+        const prevDate = new Date(filtered[i - 1].date + 'T00:00:00');
+        const currDate = new Date(e.date + 'T00:00:00');
+        const daysBetween = Math.round((currDate - prevDate) / (1000 * 60 * 60 * 24));
+
+        if (daysBetween > GAP_THRESHOLD) {
+          const prevWeight = filtered[i - 1].weight;
+          const currWeight = e.weight;
+
+          // Insert estimated points for each missing interval
+          const intervalDays = ws.repeatUnit === 'month' ? 30 : ws.repeatUnit === 'week' ? ws.repeatEvery * 7 : GAP_THRESHOLD;
+          const steps = Math.max(1, Math.round(daysBetween / intervalDays)) - 1;
+          for (let s = 1; s <= steps; s++) {
+            const frac = s / (steps + 1);
+            const estDate = new Date(prevDate.getTime() + frac * (currDate - prevDate));
+            const estDateStr = `${estDate.getFullYear()}-${String(estDate.getMonth() + 1).padStart(2, '0')}-${String(estDate.getDate()).padStart(2, '0')}`;
+            const estWeight = Math.round((prevWeight + (currWeight - prevWeight) * frac) * 10) / 10;
+            points.push({
+              date: getLabel(estDateStr),
+              weight: estWeight,
+              rawDate: estDateStr,
+              solidWeight: null, // no solid line through estimates
+              gapWeight: estWeight,
+              estimated: true,
+            });
+          }
+
+          // Mark the boundaries
+          if (points.length > 0 && !points[points.length - 1].estimated) {
+            points[points.length - 1].gapWeight = points[points.length - 1].weight;
+          }
+          points.push({
+            date: getLabel(e.date),
+            weight: e.weight,
+            rawDate: e.date,
+            solidWeight: e.weight,
+            gapWeight: e.weight,
+            estimated: false,
+          });
+          continue;
+        }
+      }
+
+      points.push({
+        date: getLabel(e.date),
         weight: e.weight,
         rawDate: e.date,
-        // solidWeight breaks at gap boundaries (null before a gap-end point)
-        solidWeight: isGapEnd ? null : e.weight,
-        // gapWeight connects across gaps (dashed line)
-        gapWeight: (isGapEnd || isGapStart) ? e.weight : null,
-      };
-    });
+        solidWeight: e.weight,
+        gapWeight: null,
+        estimated: false,
+      });
+    }
+    return points;
   }, [log, range]);
 
   const stats = useMemo(() => {
@@ -558,8 +595,8 @@ export function WeightTracker({ onClose, user }) {
                   const alert = analysis?.alerts?.find(a => a.rawDate === d.rawDate);
                   return (
                     <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 8, padding: '0.5rem 0.75rem', fontSize: '0.82rem', boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }}>
-                      <div style={{ fontWeight: 700 }}>{d.date}: {d.weight} lbs</div>
-                      {alert && <div style={{ color: alert.direction === 'up' ? '#dc2626' : '#16a34a', fontWeight: 600, marginTop: 2 }}>
+                      <div style={{ fontWeight: 700 }}>{d.date}: {d.weight} lbs{d.estimated ? ' (estimated)' : ''}</div>
+                      {alert && !d.estimated && <div style={{ color: alert.direction === 'up' ? '#dc2626' : '#16a34a', fontWeight: 600, marginTop: 2 }}>
                         {alert.direction === 'up' ? '↑ Significant spike' : '↓ Significant drop'} ({alert.zScore.toFixed(1)}σ)
                       </div>}
                     </div>
@@ -568,7 +605,11 @@ export function WeightTracker({ onClose, user }) {
                 {goalWeight && (
                   <ReferenceLine y={goalWeight} stroke="#22c55e" strokeDasharray="6 3" strokeWidth={1.5} label={{ value: `Goal: ${goalWeight}`, position: 'right', fontSize: 10, fill: '#22c55e' }} />
                 )}
-                <Line type="monotone" dataKey="gapWeight" stroke="var(--color-accent, #C96442)" strokeWidth={1.5} strokeDasharray="6 4" strokeOpacity={0.4} dot={false} activeDot={false} connectNulls />
+                <Line type="monotone" dataKey="gapWeight" stroke="var(--color-accent, #C96442)" strokeWidth={1.5} strokeDasharray="6 4" strokeOpacity={0.4} dot={(props) => {
+                  const { cx, cy, payload } = props;
+                  if (cx == null || cy == null || !payload.estimated) return null;
+                  return <circle key={`est-${payload.rawDate}`} cx={cx} cy={cy} r={3} fill="none" stroke="#C96442" strokeWidth={1.5} strokeDasharray="2 2" opacity={0.5} />;
+                }} activeDot={false} connectNulls />
                 <Line type="monotone" dataKey="solidWeight" stroke="var(--color-accent, #C96442)" strokeWidth={2.5} connectNulls={false} dot={(props) => {
                   const { cx, cy, payload } = props;
                   if (cx == null || cy == null) return null;
@@ -583,10 +624,10 @@ export function WeightTracker({ onClose, user }) {
                   }
                   return <circle key={payload.rawDate} cx={cx} cy={cy} r={3} fill="#fff" stroke="#C96442" strokeWidth={2} />;
                 }} activeDot={{ r: 6 }} />
-                {/* Dots for gap-end points (solidWeight is null but we still want the dot) */}
+                {/* Dots for real data points at gap boundaries */}
                 <Line type="monotone" dataKey="weight" stroke="none" strokeWidth={0} dot={(props) => {
                   const { cx, cy, payload } = props;
-                  if (cx == null || cy == null || payload.solidWeight !== null) return null;
+                  if (cx == null || cy == null || payload.estimated || payload.solidWeight !== null) return null;
                   return <circle key={`gap-${payload.rawDate}`} cx={cx} cy={cy} r={3} fill="#fff" stroke="#C96442" strokeWidth={2} />;
                 }} activeDot={false} />
               </LineChart>
