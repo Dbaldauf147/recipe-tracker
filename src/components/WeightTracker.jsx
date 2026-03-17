@@ -668,10 +668,39 @@ export function WeightTracker({ onClose, user }) {
             {(() => {
               // Build merged list: real entries + missed scheduled weigh-ins
               const ws = getWeighSettings();
-              const logSet = new Set(log.map(e => e.date));
               const today = new Date(); today.setHours(0, 0, 0, 0);
               const merged = [];
               const reversedLog = [...log].reverse();
+
+              // Build sets for week/month coverage from actual log entries
+              const logWeeks = new Set(); // "YYYY-WW" for each logged entry
+              const logMonths = new Set(); // "YYYY-MM" for each logged entry
+              for (const e of log) {
+                const d = new Date(e.date + 'T00:00:00');
+                const startOfYear = new Date(d.getFullYear(), 0, 1);
+                const wkDiff = (d - startOfYear + ((startOfYear.getDay() + 6) % 7) * 86400000);
+                const wk = Math.ceil(wkDiff / 604800000);
+                logWeeks.add(`${d.getFullYear()}-W${wk}`);
+                logMonths.add(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
+              }
+
+              function isCoveredByNearbyEntry(dateStr) {
+                const d = new Date(dateStr + 'T00:00:00');
+                if (ws.repeatUnit === 'month' || ws.repeatUnit === 'year') {
+                  // Any entry in the same month counts
+                  const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+                  return logMonths.has(key);
+                }
+                if (ws.repeatUnit === 'week') {
+                  // Any entry in the same week counts
+                  const startOfYear = new Date(d.getFullYear(), 0, 1);
+                  const wkDiff = (d - startOfYear + ((startOfYear.getDay() + 6) % 7) * 86400000);
+                  const wk = Math.ceil(wkDiff / 604800000);
+                  return logWeeks.has(`${d.getFullYear()}-W${wk}`);
+                }
+                // For daily, exact date match
+                return log.some(e => e.date === dateStr);
+              }
 
               for (let li = 0; li < reversedLog.length; li++) {
                 const entry = reversedLog[li];
@@ -682,14 +711,13 @@ export function WeightTracker({ onClose, user }) {
                   const nextEntry = reversedLog[li + 1];
                   const startDate = new Date(nextEntry.date + 'T00:00:00');
                   const endDate = new Date(entry.date + 'T00:00:00');
-                  // Scan between the two dates for missed scheduled days
                   const missed = [];
                   const d = new Date(endDate);
                   d.setDate(d.getDate() - 1);
                   while (d > startDate) {
                     if (isWeighDay(d, ws) && d < today) {
                       const ds = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-                      if (!logSet.has(ds)) missed.push(ds);
+                      if (!isCoveredByNearbyEntry(ds)) missed.push(ds);
                     }
                     d.setDate(d.getDate() - 1);
                   }
