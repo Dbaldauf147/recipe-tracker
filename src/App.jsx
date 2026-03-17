@@ -215,6 +215,25 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
     return () => window.removeEventListener('firestore-sync', handleSync);
   }, []);
 
+  // One-time migration: set key ingredients for admin user
+  useEffect(() => {
+    if (!user || user.uid !== ADMIN_UID) return;
+    if (localStorage.getItem('migration-key-ingredients-v1')) return;
+    const ingredients = [
+      'eggplant','seaweed','beets_pickled','alfalfa sprouts','olive(s)_pitted black',
+      'asparagus','oregano_dried','orange(s)','chickpeas/garbanzo beans','shiitake mushrooms',
+      'zucchini','green peas','red cabbage','green beans','collard greens','thyme_dried',
+      'cauliflower','carrots_baby','hemp seeds','tumeric','brussel sprouts','lime(s)',
+      'lentils_green','broccoli','lemon juice','ginger root','banana(s)','apple(s)_honey crisp',
+      'cacao','rasberries','sweet potato(s)','bell pepper(s)','spinach','black beans','kale',
+      'avocado(s)','blackberry(s)','blueberries','garlic','chia seeds','flaxseed meal',
+      'tomato','cinnamon'
+    ];
+    localStorage.setItem('sunday-key-ingredients', JSON.stringify(ingredients));
+    saveField(user.uid, 'keyIngredients', ingredients);
+    localStorage.setItem('migration-key-ingredients-v1', 'done');
+  }, [user]);
+
   useEffect(() => {
     if (!user) return;
     let cancelled = false;
