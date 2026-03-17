@@ -1312,7 +1312,7 @@ function AddRecipeQuick({ recipes, getRecipe, onAdd, onBack, weeklyPlan, inline,
         totalNutrition = result.totals;
         try { cache[recipeId] = result; localStorage.setItem(NUTRITION_CACHE_KEY, JSON.stringify(cache)); } catch {}
       }
-      const recipeServings = recipe.servings || 1;
+      const recipeServings = parseInt(recipe.servings) || 1;
       const perServing = {};
       for (const n of NUTRIENTS) perServing[n.key] = (totalNutrition[n.key] || 0) / recipeServings;
 
@@ -1322,8 +1322,7 @@ function AddRecipeQuick({ recipes, getRecipe, onAdd, onBack, weeklyPlan, inline,
         const containerWeightNum = (recipe.containers || []).reduce((sum, c) => sum + (parseFloat(c.weight) || 0), 0) || parseFloat(recipe.containerWeight) || 0;
         const foodWeight = Math.max(0, totalWeightNum - containerWeightNum);
         const mw = parseFloat(mealWeight);
-        // factor = (mealWeight / foodWeight) * recipeServings
-        factor = foodWeight > 0 ? (mw / foodWeight) * recipeServings : 1;
+        factor = foodWeight > 0 ? mw / foodWeight * recipeServings : 1;
       }
 
       const nutrition = scaleNutrition(perServing, factor);
@@ -1383,7 +1382,18 @@ function AddRecipeQuick({ recipes, getRecipe, onAdd, onBack, weeklyPlan, inline,
         const factor = (mw / foodWeight) * recipeServings;
         const servingsDisplay = parseFloat(factor.toFixed(2));
 
-        if (!previewNutrition) return (
+        // Try cache directly as fallback if previewNutrition hasn't loaded
+        let perServing = previewNutrition?.perServing;
+        if (!perServing) {
+          const cache = loadNutritionCache();
+          const cached = cache[recipeId];
+          if (cached?.totals) {
+            perServing = {};
+            for (const n of NUTRIENTS) perServing[n.key] = (cached.totals[n.key] || 0) / recipeServings;
+          }
+        }
+
+        if (!perServing) return (
           <div className={styles.weightPreview}>
             <span className={styles.weightPreviewServings}>{servingsDisplay} {servingsDisplay === 1 ? 'serving' : 'servings'}</span>
             <span className={styles.weightPreviewNote}>({mw}g of {foodWeight}g total)</span>
@@ -1391,7 +1401,7 @@ function AddRecipeQuick({ recipes, getRecipe, onAdd, onBack, weeklyPlan, inline,
           </div>
         );
 
-        const scaled = scaleNutrition(previewNutrition.perServing, factor);
+        const scaled = scaleNutrition(perServing, factor);
         return (
           <div className={styles.weightPreview}>
             <span className={styles.weightPreviewServings}>{servingsDisplay} {servingsDisplay === 1 ? 'serving' : 'servings'}</span>
