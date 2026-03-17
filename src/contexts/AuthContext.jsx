@@ -97,6 +97,14 @@ export function AuthProvider({ children }) {
           }
         } catch {}
 
+        // Always save email and display name to Firestore for friend request notifications
+        if (firebaseUser.email) {
+          saveField(firebaseUser.uid, 'email', firebaseUser.email).catch(() => {});
+        }
+        if (firebaseUser.displayName) {
+          saveField(firebaseUser.uid, 'displayName', firebaseUser.displayName).catch(() => {});
+        }
+
         if (userData) {
           // Existing Firestore data → hydrate localStorage
           hydrateLocalStorage(userData);
