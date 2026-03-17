@@ -248,6 +248,10 @@ function initFields(recipe) {
       ? recipe.ingredients.map(r => ({ ...r }))
       : [{ ...emptyRow }],
     steps: (() => {
+      // Prefer stepsArray (preserves line breaks within steps) over instructions string
+      if (recipe.stepsArray && recipe.stepsArray.length > 0) {
+        return recipe.stepsArray;
+      }
       const parsed = (recipe.instructions || '')
         .split('\n')
         .map(s => s.replace(/^\d+[\.\)]\s*/, '').trim())
@@ -769,7 +773,8 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
       starterRecipe: fields.starterRecipe,
       ingredients: fields.ingredients.filter(row => row.ingredient.trim() !== ''),
       notes: fields.notes || '',
-      instructions: fields.steps.filter(s => s.trim()).join('\n'),
+      instructions: fields.steps.filter(s => s.trim()).map(s => s.replace(/<br\s*\/?>/gi, ' ').replace(/<[^>]*>/g, '')).join('\n'),
+      stepsArray: fields.steps,
       stepIngredients: fields.stepIngredients || {},
       stepSections: fields.stepSections || {},
     });
