@@ -1223,6 +1223,8 @@ function AddRecipeQuick({ recipes, getRecipe, onAdd, onBack, weeklyPlan, inline,
   const [recipeId, setRecipeId] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [showWeight, setShowWeight] = useState(false);
+  const [mealWeight, setMealWeight] = useState('');
 
   const sortedRecipes = useMemo(() => {
     const filtered = [...recipes].filter(r => (r.frequency || 'common') !== 'retired');
@@ -1244,10 +1246,27 @@ function AddRecipeQuick({ recipes, getRecipe, onAdd, onBack, weeklyPlan, inline,
     return weeklyPlan.map(id => recipes.find(r => r.id === id)).filter(Boolean);
   }, [weeklyPlan, recipes]);
 
-  async function handleAdd() {
+  async function handleAdd(useWeight) {
     if (!recipeId) return;
     const recipe = getRecipe(recipeId);
     if (!recipe) return;
+
+    // If using weight mode, validate
+    if (useWeight) {
+      const totalWeightNum = parseFloat(recipe.totalWeight) || 0;
+      const containerWeightNum = (recipe.containers || []).reduce((sum, c) => sum + (parseFloat(c.weight) || 0), 0) || parseFloat(recipe.containerWeight) || 0;
+      const foodWeight = Math.max(0, totalWeightNum - containerWeightNum);
+      if (foodWeight <= 0) {
+        setError('Weigh meal first — go to the recipe and enter the total weight in "Weigh portion size".');
+        return;
+      }
+      const mw = parseFloat(mealWeight);
+      if (!mw || mw <= 0) {
+        setError('Enter your meal weight in grams.');
+        return;
+      }
+    }
+
     setLoading(true);
     setError('');
     try {
@@ -1263,9 +1282,21 @@ function AddRecipeQuick({ recipes, getRecipe, onAdd, onBack, weeklyPlan, inline,
       const recipeServings = recipe.servings || 1;
       const perServing = {};
       for (const n of NUTRIENTS) perServing[n.key] = (totalNutrition[n.key] || 0) / recipeServings;
-      const nutrition = scaleNutrition(perServing, 1);
+
+      let factor = 1;
+      if (useWeight) {
+        const totalWeightNum = parseFloat(recipe.totalWeight) || 0;
+        const containerWeightNum = (recipe.containers || []).reduce((sum, c) => sum + (parseFloat(c.weight) || 0), 0) || parseFloat(recipe.containerWeight) || 0;
+        const foodWeight = Math.max(0, totalWeightNum - containerWeightNum);
+        const mw = parseFloat(mealWeight);
+        // factor = (mealWeight / foodWeight) * recipeServings
+        factor = foodWeight > 0 ? (mw / foodWeight) * recipeServings : 1;
+      }
+
+      const nutrition = scaleNutrition(perServing, factor);
       const mealSlot = inline ? undefined : categoryToSlot(recipe.category);
-      onAdd({ id: uuid(), type: 'recipe', recipeId, recipeName: recipe.title, servings: 1, customWeight: null, ...(mealSlot ? { mealSlot } : {}), timestamp: new Date().toISOString(), nutrition });
+      const cw = useWeight ? parseFloat(mealWeight) : null;
+      onAdd({ id: uuid(), type: 'recipe', recipeId, recipeName: recipe.title, servings: useWeight ? parseFloat((factor).toFixed(2)) : 1, customWeight: cw, ...(mealSlot ? { mealSlot } : {}), timestamp: new Date().toISOString(), nutrition });
     } catch {
       setError('Failed to look up nutrition. Try again.');
     } finally {
@@ -1291,8 +1322,36 @@ function AddRecipeQuick({ recipes, getRecipe, onAdd, onBack, weeklyPlan, inline,
           <RecipeCombobox recipes={sortedRecipes} value={recipeId} onSelect={setRecipeId} />
         </div>
       </div>
-      <div className={styles.formRow}>
-        <button className={styles.addBtn} onClick={handleAdd} disabled={loading || !recipeId}>{loading ? 'Adding...' : 'Add Meal'}</button>
+      {showWeight && (
+        <div className={styles.formRow}>
+          <div className={styles.formField}>
+            <span className={styles.formLabel}>My portion weight (g)</span>
+            <input
+              className={styles.formInput}
+              type="number"
+              min="0"
+              placeholder="grams"
+              value={mealWeight}
+              onChange={e => setMealWeight(e.target.value)}
+            />
+          </div>
+        </div>
+      )}
+      <div className={styles.formRow} style={{ gap: '0.5rem' }}>
+        <button className={styles.addBtn} onClick={() => handleAdd(false)} disabled={loading || !recipeId}>{loading ? 'Adding...' : 'Add Meal'}</button>
+        <button
+          className={showWeight ? styles.addBtnSecondaryActive : styles.addBtnSecondary}
+          onClick={() => {
+            if (showWeight && mealWeight) {
+              handleAdd(true);
+            } else {
+              setShowWeight(prev => !prev);
+            }
+          }}
+          disabled={loading || !recipeId}
+        >
+          {showWeight && mealWeight ? (loading ? 'Adding...' : 'Add by Weight') : 'Meal Weight'}
+        </button>
       </div>
       {error && <p className={styles.addError}>{error}</p>}
     </div>

@@ -468,6 +468,52 @@
   cursor: not-allowed;
 }
 
+.addBtnSecondary {
+  padding: 0.45rem 1.25rem;
+  background: none;
+  color: var(--color-accent);
+  border: 1px solid var(--color-accent);
+  border-radius: 50px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+  white-space: nowrap;
+}
+
+.addBtnSecondary:hover {
+  background: var(--color-accent-light, rgba(201, 100, 66, 0.1));
+}
+
+.addBtnSecondary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.addBtnSecondaryActive {
+  padding: 0.45rem 1.25rem;
+  background: var(--color-accent);
+  color: #fff;
+  border: 1px solid var(--color-accent);
+  border-radius: 50px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.15s ease;
+  white-space: nowrap;
+}
+
+.addBtnSecondaryActive:hover {
+  background: var(--color-accent-hover);
+}
+
+.addBtnSecondaryActive:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 /* ── Custom Meal Button ── */
 
 .customMealBtn {
