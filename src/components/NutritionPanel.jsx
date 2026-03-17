@@ -215,13 +215,13 @@ export function MealScore({ totals, servings = 1 }) {
   else if (avg >= 45) { color = '#D4A574'; label = 'Fair'; }
   else { color = 'var(--color-danger, #dc2626)'; label = 'Poor'; }
 
-  // SVG ring
-  const size = 64, stroke = 5, r = (size - stroke) / 2;
+  // SVG ring (compact for inline header)
+  const size = 40, stroke = 4, r = (size - stroke) / 2;
   const circumference = 2 * Math.PI * r;
   const dashOffset = circumference * (1 - avg / 100);
 
   return (
-    <div className={styles.mealScore}>
+    <div className={styles.mealScore} title={`Meal Score: ${avg} — ${label}`}>
       <svg width={size} height={size} className={styles.scoreRing}>
         <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="var(--color-border-light, #F0EBE4)" strokeWidth={stroke} />
         <circle
@@ -232,16 +232,12 @@ export function MealScore({ totals, servings = 1 }) {
           strokeLinecap="round"
           transform={`rotate(-90 ${size / 2} ${size / 2})`}
         />
-        <text x={size / 2} y={size / 2 - 2} textAnchor="middle" dominantBaseline="central"
-          fill={color} fontSize="16" fontWeight="700">
+        <text x={size / 2} y={size / 2} textAnchor="middle" dominantBaseline="central"
+          fill={color} fontSize="13" fontWeight="700">
           {avg}
         </text>
-        <text x={size / 2} y={size / 2 + 12} textAnchor="middle" dominantBaseline="central"
-          fill="var(--color-text-muted)" fontSize="8" fontWeight="600">
-          {label}
-        </text>
       </svg>
-      <span className={styles.scoreLabel}>Meal Score</span>
+      <span className={styles.scoreLabel}>{label}</span>
     </div>
   );
 }
@@ -409,9 +405,10 @@ export function NutritionPanel({ recipeId, ingredients, servings = 1, portionLab
 
   return (
     <div className={styles.container}>
-      <h3>Nutrition <span className={styles.estimate}>(estimate)</span></h3>
-
-      <MealScore totals={totals} servings={servings} />
+      <div className={styles.nutritionHeader}>
+        <h3>Nutrition <span className={styles.estimate}>(estimate)</span></h3>
+        <MealScore totals={totals} servings={servings} />
+      </div>
 
       {(servings > 1 || portionLabel) && (
         <div className={styles.servingsToggle}>
