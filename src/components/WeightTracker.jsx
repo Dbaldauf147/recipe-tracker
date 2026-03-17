@@ -359,7 +359,7 @@ export function WeightTracker({ onClose, user }) {
 
           // Insert estimated points for each missing interval
           const intervalDays = ws.repeatUnit === 'month' ? 30 : ws.repeatUnit === 'week' ? ws.repeatEvery * 7 : GAP_THRESHOLD;
-          const steps = Math.max(1, Math.round(daysBetween / intervalDays)) - 1;
+          const steps = Math.max(1, Math.ceil(daysBetween / intervalDays) - 1);
           for (let s = 1; s <= steps; s++) {
             const frac = s / (steps + 1);
             const estDate = new Date(prevDate.getTime() + frac * (currDate - prevDate));
