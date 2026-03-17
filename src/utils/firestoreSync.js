@@ -323,7 +323,7 @@ export async function loadFriends(uid) {
     const fSnap = await getDoc(doc(db, 'users', fid));
     if (fSnap.exists()) {
       const data = fSnap.data();
-      friends.push({ uid: fid, username: data.username || '', displayName: data.displayName || '' });
+      friends.push({ uid: fid, username: data.username || '', displayName: data.displayName || '', email: data.email || '' });
     }
   }
   return friends;

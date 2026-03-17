@@ -871,6 +871,22 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
       // Strip undefined values — Firestore rejects them
       const cleanRecipe = JSON.parse(JSON.stringify(recipe));
       await shareRecipe(user.uid, friend.uid, myUsername || user.displayName, cleanRecipe);
+
+      // Send email notification (fire-and-forget)
+      if (friend.email) {
+        fetch('/api/notify-friend-request', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            type: 'shared-recipe',
+            toEmail: friend.email,
+            toName: friend.displayName || friend.username || '',
+            fromUsername: myUsername || user.displayName || '',
+            recipeName: recipe.title || 'Untitled',
+          }),
+        }).catch(() => {});
+      }
+
       setShowShareDropdown(false);
       setShareMsg(`Shared with @${friend.username}!`);
       setTimeout(() => setShareMsg(null), 3000);
