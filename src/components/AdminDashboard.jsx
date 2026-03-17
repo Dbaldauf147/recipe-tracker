@@ -1,16 +1,75 @@
 import { useState, useEffect } from 'react';
-import { loadAllUsers } from '../utils/firestoreSync';
+import { loadAllUsers, deleteUserDoc } from '../utils/firestoreSync';
 import styles from './AdminDashboard.module.css';
+
+/**
+ * Auto-clean users: remove duplicates (same email, keep best) and empty users (no name, no recipes).
+ * Returns the cleaned list.
+ */
+async function cleanupUsers(allUsers) {
+  const toDelete = [];
+
+  // 1. Find duplicates by email — keep the one with most recipes, then most logins
+  const byEmail = {};
+  for (const u of allUsers) {
+    const email = (u.email || '').toLowerCase().trim();
+    if (!email) continue;
+    if (!byEmail[email]) byEmail[email] = [];
+    byEmail[email].push(u);
+  }
+  for (const [, group] of Object.entries(byEmail)) {
+    if (group.length <= 1) continue;
+    // Sort: most recipes first, then most logins, then most recent login
+    group.sort((a, b) => {
+      const aRec = (a.recipes || []).length;
+      const bRec = (b.recipes || []).length;
+      if (aRec !== bRec) return bRec - aRec;
+      const aLog = a.loginCount || 0;
+      const bLog = b.loginCount || 0;
+      if (aLog !== bLog) return bLog - aLog;
+      return (b.lastLogin || '').localeCompare(a.lastLogin || '');
+    });
+    // Keep first, delete rest
+    for (let i = 1; i < group.length; i++) {
+      toDelete.push(group[i].uid);
+    }
+  }
+
+  // 2. Remove users with no name AND no recipes AND no login history
+  for (const u of allUsers) {
+    if (toDelete.includes(u.uid)) continue;
+    const hasName = (u.displayName || '').trim();
+    const hasEmail = (u.email || '').trim();
+    const hasRecipes = (u.recipes || []).length > 0;
+    const hasLogins = (u.loginCount || 0) > 0;
+    if (!hasName && !hasEmail && !hasRecipes && !hasLogins) {
+      toDelete.push(u.uid);
+    }
+  }
+
+  if (toDelete.length === 0) return allUsers;
+
+  // Delete in parallel
+  const deleteSet = new Set(toDelete);
+  await Promise.all(toDelete.map(uid => deleteUserDoc(uid).catch(() => {})));
+  return allUsers.filter(u => !deleteSet.has(u.uid));
+}
 
 export function AdminDashboard({ onClose }) {
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [cleanedCount, setCleanedCount] = useState(0);
   const [sortField, setSortField] = useState('lastLogin');
   const [sortDir, setSortDir] = useState('desc');
 
   useEffect(() => {
     loadAllUsers()
-      .then(setUsers)
+      .then(async (allUsers) => {
+        const before = allUsers.length;
+        const cleaned = await cleanupUsers(allUsers);
+        setCleanedCount(before - cleaned.length);
+        setUsers(cleaned);
+      })
       .catch(err => console.error('Failed to load users:', err))
       .finally(() => setLoading(false));
   }, []);
@@ -97,6 +156,11 @@ export function AdminDashboard({ onClose }) {
         &larr; Back
       </button>
       <h2 className={styles.heading}>Admin Dashboard</h2>
+      {cleanedCount > 0 && (
+        <p style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)', margin: '0 0 0.75rem' }}>
+          Cleaned {cleanedCount} duplicate/empty user{cleanedCount > 1 ? 's' : ''}
+        </p>
+      )}
 
       <div className={styles.statsRow}>
         <div className={styles.statCard}>

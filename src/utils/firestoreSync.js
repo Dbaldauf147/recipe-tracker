@@ -430,3 +430,10 @@ export async function loadAllUsers() {
   const snap = await getDocs(collection(db, 'users'));
   return snap.docs.map(d => ({ uid: d.id, ...d.data() }));
 }
+
+/**
+ * Delete a user document from Firestore (admin cleanup).
+ */
+export async function deleteUserDoc(uid) {
+  await deleteDoc(doc(db, 'users', uid));
+}
