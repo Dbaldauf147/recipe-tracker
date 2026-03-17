@@ -330,8 +330,76 @@
 
 .weightAdjuster {
   display: flex;
-  align-items: flex-end;
-  gap: 0.75rem;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.weighTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+}
+
+.weighTable th {
+  text-align: left;
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--color-text-muted);
+  padding: 0.3rem 0.4rem;
+  border-bottom: 1px solid var(--color-border);
+  white-space: nowrap;
+}
+
+.weighTable td {
+  padding: 0.25rem 0.4rem;
+  vertical-align: middle;
+}
+
+.weighRowNum {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+
+.weighRowRemove {
+  background: none;
+  border: none;
+  color: var(--color-text-muted);
+  font-size: 0.85rem;
+  cursor: pointer;
+  opacity: 0.4;
+  margin-left: 0.2rem;
+  padding: 0;
+}
+
+.weighRowRemove:hover {
+  opacity: 1;
+  color: var(--color-danger, #dc2626);
+}
+
+.weighInput {
+  width: 70px;
+  padding: 0.25rem 0.35rem;
+  font-size: 0.82rem;
+  font-family: inherit;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm, 4px);
+  background: var(--color-surface);
+  color: var(--color-text);
+  outline: none;
+}
+
+.weighInput:focus {
+  border-color: var(--color-accent);
+}
+
+.weighCalc {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--color-text-secondary);
 }
 
 .weightLabel {
