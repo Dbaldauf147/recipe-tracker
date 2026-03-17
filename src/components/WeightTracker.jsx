@@ -320,11 +320,30 @@ export function WeightTracker({ onClose, user }) {
     }
     const useMonthYear = range > 70 || filtered.length > 20;
     const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-    return filtered.map(e => {
-        const [y, m, d] = e.date.split('-');
-        const label = useMonthYear ? `${MONTH_NAMES[parseInt(m) - 1]} '${y.slice(2)}` : `${parseInt(m)}/${parseInt(d)}`;
-        return { date: label, weight: e.weight, rawDate: e.date };
-      });
+    const GAP_THRESHOLD = 21; // days — if gap > 3 weeks, show dashed line
+    const gapSet = new Set(); // indices where a gap starts (i.e., this point follows a gap)
+    for (let i = 1; i < filtered.length; i++) {
+      const prevDate = new Date(filtered[i - 1].date + 'T00:00:00');
+      const currDate = new Date(filtered[i].date + 'T00:00:00');
+      const daysBetween = Math.round((currDate - prevDate) / (1000 * 60 * 60 * 24));
+      if (daysBetween > GAP_THRESHOLD) gapSet.add(i);
+    }
+
+    return filtered.map((e, i) => {
+      const [y, m, d] = e.date.split('-');
+      const label = useMonthYear ? `${MONTH_NAMES[parseInt(m) - 1]} '${y.slice(2)}` : `${parseInt(m)}/${parseInt(d)}`;
+      const isGapEnd = gapSet.has(i);
+      const isGapStart = gapSet.has(i + 1);
+      return {
+        date: label,
+        weight: e.weight,
+        rawDate: e.date,
+        // solidWeight breaks at gap boundaries (null before a gap-end point)
+        solidWeight: isGapEnd ? null : e.weight,
+        // gapWeight connects across gaps (dashed line)
+        gapWeight: (isGapEnd || isGapStart) ? e.weight : null,
+      };
+    });
   }, [log, range]);
 
   const stats = useMemo(() => {
@@ -529,19 +548,27 @@ export function WeightTracker({ onClose, user }) {
                 {goalWeight && (
                   <ReferenceLine y={goalWeight} stroke="#22c55e" strokeDasharray="6 3" strokeWidth={1.5} label={{ value: `Goal: ${goalWeight}`, position: 'right', fontSize: 10, fill: '#22c55e' }} />
                 )}
-                <Line type="monotone" dataKey="weight" stroke="var(--color-accent, #C96442)" strokeWidth={2.5} dot={(props) => {
+                <Line type="monotone" dataKey="gapWeight" stroke="var(--color-accent, #C96442)" strokeWidth={1.5} strokeDasharray="6 4" strokeOpacity={0.4} dot={false} activeDot={false} connectNulls />
+                <Line type="monotone" dataKey="solidWeight" stroke="var(--color-accent, #C96442)" strokeWidth={2.5} connectNulls={false} dot={(props) => {
                   const { cx, cy, payload } = props;
+                  if (cx == null || cy == null) return null;
                   const alert = analysis?.alerts?.find(a => a.rawDate === payload.rawDate);
                   if (alert) {
                     return (
-                      <g key={payload.date}>
+                      <g key={payload.rawDate}>
                         <circle cx={cx} cy={cy} r={6} fill={alert.direction === 'up' ? '#dc2626' : '#16a34a'} opacity={0.15} />
                         <circle cx={cx} cy={cy} r={4} fill={alert.direction === 'up' ? '#dc2626' : '#16a34a'} stroke="#fff" strokeWidth={2} />
                       </g>
                     );
                   }
-                  return <circle key={payload.date} cx={cx} cy={cy} r={3} fill="#fff" stroke="#C96442" strokeWidth={2} />;
+                  return <circle key={payload.rawDate} cx={cx} cy={cy} r={3} fill="#fff" stroke="#C96442" strokeWidth={2} />;
                 }} activeDot={{ r: 6 }} />
+                {/* Dots for gap-end points (solidWeight is null but we still want the dot) */}
+                <Line type="monotone" dataKey="weight" stroke="none" strokeWidth={0} dot={(props) => {
+                  const { cx, cy, payload } = props;
+                  if (cx == null || cy == null || payload.solidWeight !== null) return null;
+                  return <circle key={`gap-${payload.rawDate}`} cx={cx} cy={cy} r={3} fill="#fff" stroke="#C96442" strokeWidth={2} />;
+                }} activeDot={false} />
               </LineChart>
             </ResponsiveContainer>
           </div>
