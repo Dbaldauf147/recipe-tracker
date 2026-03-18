@@ -172,8 +172,9 @@ export function FriendsPage({ onClose, addRecipe }) {
       try {
         const senderData = await loadUserData(req.from);
         const senderEmail = senderData?.email;
+        console.log('Accept notification: sender=', req.from, 'email=', senderEmail, 'myUsername=', myUsername);
         if (senderEmail) {
-          fetch('/api/notify-friend-request', {
+          const emailRes = await fetch('/api/notify-friend-request', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -182,9 +183,14 @@ export function FriendsPage({ onClose, addRecipe }) {
               toName: req.fromUsername || '',
               fromUsername: myUsername || '',
             }),
-          }).catch(() => {});
+          });
+          console.log('Accept email sent:', emailRes.ok, emailRes.status);
+        } else {
+          console.warn('No email found for sender', req.from);
         }
-      } catch {}
+      } catch (emailErr) {
+        console.error('Accept notification error:', emailErr);
+      }
 
       await refresh();
     } catch (err) {
