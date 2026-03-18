@@ -2790,7 +2790,7 @@ export function DailyTrackerPage({ recipes, getRecipe, onClose, user, weeklyPlan
       <KpiAlerts dailyLog={dailyLog} recipes={recipes} onImportRecipe={onImportRecipe} cacheVersion={cacheVersion} onViewRecipe={(id) => setViewRecipeId(id)} selectedDate={date} user={user} />
       {addModal && (
         <div className={styles.modalOverlay} onClick={() => setAddModal(null)}>
-          <div className={styles.modalContent} onClick={e => e.stopPropagation()}>
+          <div className={`${styles.modalContent}${addModal.mode === 'ai-estimate' ? ` ${styles.modalContentWide}` : ''}`} onClick={e => e.stopPropagation()}>
             <div className={styles.modalHeader}>
               <h3 className={styles.modalTitle}>
                 Track {MEAL_LABELS[addModal.targetSlot]} — {formatDate(addModal.targetDate)}

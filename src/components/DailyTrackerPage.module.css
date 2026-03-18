@@ -568,6 +568,10 @@
   animation: modalSlideIn 0.2s ease;
 }
 
+.modalContentWide {
+  max-width: 900px;
+}
+
 @keyframes modalSlideIn {
   from { opacity: 0; transform: translateY(20px); }
   to { opacity: 1; transform: translateY(0); }
@@ -977,7 +981,8 @@
 
 .aiEstimateInput {
   width: 100%;
-  padding: 0.6rem 0.85rem;
+  min-height: 120px;
+  padding: 0.75rem 1rem;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);
   font-size: 0.9rem;
@@ -986,6 +991,7 @@
   background: var(--color-surface);
   resize: vertical;
   box-sizing: border-box;
+  line-height: 1.5;
 }
 
 .aiEstimateInput:focus {
