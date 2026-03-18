@@ -2889,13 +2889,6 @@ export function DailyTrackerPage({ recipes, getRecipe, onClose, user, weeklyPlan
                   externalRecipeId={quickPickRecipeId}
                 />
                 <div className={styles.trackMenuDivider}><span>or</span></div>
-                <button className={styles.trackMenuBtn} onClick={() => setAddModal(prev => ({ ...prev, mode: 'adjust' }))}>
-                  <div className={styles.trackMenuBtnInfo}>
-                    <span className={styles.trackMenuBtnLabel}>Adjust Servings</span>
-                    <span className={styles.trackMenuBtnDesc}>Customize servings or weight</span>
-                  </div>
-                  <span className={styles.trackMenuBtnArrow}>&rsaquo;</span>
-                </button>
                 <button className={styles.trackMenuBtn} onClick={() => { setAddModal(null); if (onImportRecipe) onImportRecipe(); }}>
                   <div className={styles.trackMenuBtnInfo}>
                     <span className={styles.trackMenuBtnLabel}>Import New Recipe</span>
