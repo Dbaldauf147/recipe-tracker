@@ -10,8 +10,8 @@ const DAILY_LOG_KEY = 'sunday-daily-log';
 const GOALS_KEY = 'sunday-nutrition-goals';
 const NUTRITION_CACHE_KEY = 'sunday-nutrition-cache';
 
-const MEAL_SLOTS = ['breakfast', 'lunch', 'dinner', 'snack'];
-const MEAL_LABELS = { breakfast: 'Breakfast', lunch: 'Lunch', dinner: 'Dinner', snack: 'Snacks & Drinks' };
+const MEAL_SLOTS = ['breakfast', 'lunch', 'dinner', 'dessert', 'snack'];
+const MEAL_LABELS = { breakfast: 'Breakfast', lunch: 'Lunch', dinner: 'Dinner', dessert: 'Dessert', snack: 'Snacks & Drinks' };
 
 const UNDER_IS_GOOD = new Set(['calories', 'carbs', 'fat', 'saturatedFat', 'sugar', 'addedSugar', 'fiber', 'sodium', 'potassium']);
 
@@ -429,7 +429,8 @@ function categoryToSlot(category) {
   if (category === 'lunch-dinner') {
     return new Date().getHours() < 15 ? 'lunch' : 'dinner';
   }
-  if (category === 'snacks' || category === 'desserts' || category === 'drinks') return 'snack';
+  if (category === 'desserts' || category === 'dessert') return 'dessert';
+  if (category === 'snacks' || category === 'drinks') return 'snack';
   const hour = new Date().getHours();
   if (hour < 11) return 'breakfast';
   if (hour < 15) return 'lunch';
