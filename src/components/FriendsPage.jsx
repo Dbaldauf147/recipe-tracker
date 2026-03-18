@@ -12,6 +12,7 @@ import {
   declineFriendRequest,
   removeFriend,
   loadFriends,
+  loadUserData,
   getUsername,
   getPendingSharedRecipes,
   acceptSharedRecipe,
@@ -166,6 +167,25 @@ export function FriendsPage({ onClose, addRecipe }) {
   async function handleAccept(req) {
     try {
       await acceptFriendRequest(req.id, req.from, uid);
+
+      // Notify the sender that their request was accepted
+      try {
+        const senderData = await loadUserData(req.from);
+        const senderEmail = senderData?.email;
+        if (senderEmail) {
+          fetch('/api/notify-friend-request', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              type: 'friend-accepted',
+              toEmail: senderEmail,
+              toName: req.fromUsername || '',
+              fromUsername: myUsername || '',
+            }),
+          }).catch(() => {});
+        }
+      } catch {}
+
       await refresh();
     } catch (err) {
       console.error('Accept error:', err);

@@ -12,7 +12,10 @@ export default async function handler(req, res) {
 
   let subject, text;
 
-  if (type === 'shared-recipe') {
+  if (type === 'friend-accepted') {
+    subject = `${fromUsername || 'Someone'} accepted your friend request on Prep Day`;
+    text = `Hi${toName ? ` ${toName}` : ''}!\n\n@${fromUsername || 'A user'} accepted your friend request on Prep Day. You're now friends!\n\nLog in to share recipes and more: https://prep-day.com\n\n— Prep Day`;
+  } else if (type === 'shared-recipe') {
     subject = `${fromUsername || 'Someone'} shared a recipe with you on Prep Day`;
     text = `Hi${toName ? ` ${toName}` : ''}!\n\n@${fromUsername || 'A user'} shared a recipe with you on Prep Day: "${recipeName || 'Untitled'}"\n\nLog in to view and accept it: https://prep-day.com\n\n— Prep Day`;
   } else {
