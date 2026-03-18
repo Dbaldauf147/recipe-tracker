@@ -2808,10 +2808,20 @@ export function DailyTrackerPage({ recipes, getRecipe, onClose, user, weeklyPlan
               </div>
             </div>
             {!addModal.mode && addModal.targetSlot === 'snack' ? (
-              <SnackTrackerInline
-                onAdd={(entry) => { addEntry(entry, addModal.targetDate, addModal.targetSlot); }}
-                onClose={() => setAddModal(null)}
-              />
+              <>
+                <SnackTrackerInline
+                  onAdd={(entry) => { addEntry(entry, addModal.targetDate, addModal.targetSlot); }}
+                  onClose={() => setAddModal(null)}
+                />
+                <div className={styles.trackMenuDivider}><span>or</span></div>
+                <button className={styles.trackMenuBtn} onClick={() => setAddModal(prev => ({ ...prev, mode: 'ai-estimate' }))}>
+                  <div className={styles.trackMenuBtnInfo}>
+                    <span className={styles.trackMenuBtnLabel}>AI Estimate</span>
+                    <span className={styles.trackMenuBtnDesc}>Describe a snack or drink and get a nutrition estimate</span>
+                  </div>
+                  <span className={styles.trackMenuBtnArrow}>&rsaquo;</span>
+                </button>
+              </>
             ) : !addModal.mode ? (
               <div className={styles.trackMenuOptions}>
                 {(() => {
