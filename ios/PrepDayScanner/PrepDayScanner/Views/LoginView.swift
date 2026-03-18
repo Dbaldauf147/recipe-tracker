@@ -1,4 +1,5 @@
 import SwiftUI
+import AuthenticationServices
 
 struct LoginView: View {
     @ObservedObject var authVM: AuthViewModel
@@ -18,16 +19,31 @@ struct LoginView: View {
                 .foregroundColor(.secondary)
                 .multilineTextAlignment(.center)
 
-            Button(action: { authVM.signInWithGoogle() }) {
-                HStack {
-                    Image(systemName: "person.crop.circle.fill")
-                    Text("Sign in with Google")
+            VStack(spacing: 12) {
+                // Apple Sign-In
+                SignInWithAppleButton(.signIn) { request in
+                    let hashedNonce = authVM.prepareAppleSignIn()
+                    request.requestedScopes = [.fullName, .email]
+                    request.nonce = hashedNonce
+                } onCompletion: { result in
+                    authVM.handleAppleSignIn(result: result)
                 }
-                .frame(maxWidth: .infinity)
-                .padding()
-                .background(Color.blue)
-                .foregroundColor(.white)
+                .signInWithAppleButtonStyle(.black)
+                .frame(height: 50)
                 .cornerRadius(12)
+
+                // Google Sign-In
+                Button(action: { authVM.signInWithGoogle() }) {
+                    HStack {
+                        Image(systemName: "person.crop.circle.fill")
+                        Text("Sign in with Google")
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding()
+                    .background(Color.blue)
+                    .foregroundColor(.white)
+                    .cornerRadius(12)
+                }
             }
             .padding(.horizontal, 40)
 
