@@ -16,6 +16,8 @@ import {
   getPendingSharedRecipes,
   acceptSharedRecipe,
   declineSharedRecipe,
+  toggleRecipeAccess,
+  loadFriendRecipes,
 } from '../utils/firestoreSync';
 import styles from './FriendsPage.module.css';
 
@@ -39,6 +41,7 @@ export function FriendsPage({ onClose, addRecipe }) {
   const [sentRequests, setSentRequests] = useState([]);
   const [friends, setFriends] = useState([]);
   const [sharedRecipes, setSharedRecipes] = useState([]);
+  const [browseFriend, setBrowseFriend] = useState(null); // { uid, username, loading, recipes }
   const [loading, setLoading] = useState(true);
 
   /* ── Load initial data ── */
@@ -380,6 +383,32 @@ export function FriendsPage({ onClose, addRecipe }) {
               <div className={styles.friendInfo}>
                 <span className={styles.friendUsername}>@{f.username}</span>
                 {f.displayName && <span className={styles.friendDisplayName}>{f.displayName}</span>}
+                <div className={styles.friendAccessRow}>
+                  <label className={styles.shareToggle}>
+                    <input
+                      type="checkbox"
+                      checked={f.iGrantedAccess}
+                      onChange={async (e) => {
+                        const grant = e.target.checked;
+                        await toggleRecipeAccess(uid, f.uid, grant);
+                        setFriends(prev => prev.map(fr => fr.uid === f.uid ? { ...fr, iGrantedAccess: grant } : fr));
+                      }}
+                    />
+                    Share my recipes
+                  </label>
+                  {f.hasGrantedAccess && (
+                    <button
+                      className={styles.browseBtn}
+                      onClick={async () => {
+                        setBrowseFriend(prev => prev?.uid === f.uid ? null : { uid: f.uid, username: f.username || f.displayName, loading: true, recipes: [] });
+                        const data = await loadFriendRecipes(f.uid);
+                        setBrowseFriend({ uid: f.uid, username: f.username || f.displayName, loading: false, recipes: data.recipes });
+                      }}
+                    >
+                      Browse their recipes
+                    </button>
+                  )}
+                </div>
               </div>
               <button className={styles.dangerBtn} onClick={() => handleRemove(f.uid)}>
                 Remove
@@ -388,6 +417,47 @@ export function FriendsPage({ onClose, addRecipe }) {
           ))
         )}
       </div>
+
+      {/* ── Browse Friend's Recipes ── */}
+      {browseFriend && (
+        <div className={styles.section}>
+          <div className={styles.browseFriendHeader}>
+            <h3 className={styles.sectionTitle}>@{browseFriend.username}'s Recipes</h3>
+            <button className={styles.closeBtn} onClick={() => setBrowseFriend(null)}>&times;</button>
+          </div>
+          {browseFriend.loading ? (
+            <p className={styles.emptyText}>Loading recipes...</p>
+          ) : browseFriend.recipes.length === 0 ? (
+            <p className={styles.emptyText}>No recipes shared.</p>
+          ) : (
+            <div className={styles.friendRecipeList}>
+              {browseFriend.recipes
+                .filter(r => (r.frequency || 'common') !== 'retired')
+                .sort((a, b) => (a.title || '').localeCompare(b.title || ''))
+                .map((r, i) => (
+                <div key={r.id || i} className={styles.friendRecipeRow}>
+                  <span className={styles.friendRecipeName}>{r.title}</span>
+                  <span className={styles.friendRecipeMeta}>
+                    {r.category === 'breakfast' ? 'Breakfast' : 'Lunch/Dinner'}
+                    {r.prepTime && ` · ${r.prepTime}`}
+                  </span>
+                  <button
+                    className={styles.importBtn}
+                    onClick={() => {
+                      if (addRecipe) {
+                        const { id, ...recipeData } = r;
+                        addRecipe({ ...recipeData, source: 'shared' });
+                      }
+                    }}
+                  >
+                    + Add to My Recipes
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

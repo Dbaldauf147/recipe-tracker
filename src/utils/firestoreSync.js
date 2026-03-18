@@ -317,16 +317,51 @@ export async function removeFriend(uid, friendUid) {
 export async function loadFriends(uid) {
   const userSnap = await getDoc(doc(db, 'users', uid));
   if (!userSnap.exists()) return [];
-  const friendUids = userSnap.data().friends || [];
+  const userData = userSnap.data();
+  const friendUids = userData.friends || [];
+  const mySharedAccess = userData.sharedAccess || [];
   const friends = [];
   for (const fid of friendUids) {
     const fSnap = await getDoc(doc(db, 'users', fid));
     if (fSnap.exists()) {
       const data = fSnap.data();
-      friends.push({ uid: fid, username: data.username || '', displayName: data.displayName || '', email: data.email || '' });
+      friends.push({
+        uid: fid,
+        username: data.username || '',
+        displayName: data.displayName || '',
+        email: data.email || '',
+        hasGrantedAccess: (data.sharedAccess || []).includes(uid), // they shared with me
+        iGrantedAccess: mySharedAccess.includes(fid), // I shared with them
+      });
     }
   }
   return friends;
+}
+
+/**
+ * Toggle sharing all recipes with a friend.
+ * When enabled, the friend can browse all your recipes.
+ */
+export async function toggleRecipeAccess(uid, friendUid, grant) {
+  const ref = doc(db, 'users', uid);
+  if (grant) {
+    await updateDoc(ref, { sharedAccess: arrayUnion(friendUid) });
+  } else {
+    await updateDoc(ref, { sharedAccess: arrayRemove(friendUid) });
+  }
+}
+
+/**
+ * Load recipes from a friend who has granted access.
+ */
+export async function loadFriendRecipes(friendUid) {
+  const snap = await getDoc(doc(db, 'users', friendUid));
+  if (!snap.exists()) return { recipes: [], username: '' };
+  const data = snap.data();
+  return {
+    recipes: data.recipes || [],
+    username: data.username || data.displayName || '',
+  };
 }
 
 /**
