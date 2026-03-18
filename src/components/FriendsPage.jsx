@@ -119,22 +119,30 @@ export function FriendsPage({ onClose, addRecipe }) {
       const msg = requestMessage.trim();
       await sendFriendRequest(uid, toUid, myUsername, msg || undefined);
 
-      // Send email notification (fire-and-forget)
+      // Send email notification and track result
       const toEmail = searchResult?.email;
+      let emailStatus = '';
       if (toEmail) {
-        fetch('/api/notify-friend-request', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            toEmail,
-            toName: searchResult.username || '',
-            fromUsername: myUsername,
-            message: msg || undefined,
-          }),
-        }).catch(() => {});
+        try {
+          const emailRes = await fetch('/api/notify-friend-request', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              toEmail,
+              toName: searchResult.username || '',
+              fromUsername: myUsername,
+              message: msg || undefined,
+            }),
+          });
+          emailStatus = emailRes.ok ? ' Email notification sent.' : ' Email notification failed.';
+        } catch {
+          emailStatus = ' Email notification failed.';
+        }
+      } else {
+        emailStatus = ' No email on file — notification not sent.';
       }
 
-      setSearchStatus({ type: 'success', msg: 'Friend request sent!' });
+      setSearchStatus({ type: 'success', msg: `Friend request sent!${emailStatus}` });
       setSearchResult(null);
       setRequestMessage('');
       // Refresh sent requests list
