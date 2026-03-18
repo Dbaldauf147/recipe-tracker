@@ -169,6 +169,24 @@
   padding: 0.3rem 0;
 }
 
+.goalSectionTitle {
+  margin: 0 0 0.4rem;
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--color-success, #16a34a);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.goalSectionTitleMuted {
+  margin: 1rem 0 0.4rem;
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
 .goalNotTracked {
   font-size: 0.78rem;
   font-style: italic;

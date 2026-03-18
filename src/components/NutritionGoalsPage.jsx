@@ -452,95 +452,126 @@ export function NutritionGoalsPage({ onComplete, onBack, onSkip, initialSelected
           <p className={styles.subtitle}>Enter your info to get personalized targets, or set them manually.</p>
           <div className={styles.goalsAndInfo}>
             <div className={styles.goalsCol}>
-              <h4 className={styles.groupTitle}>Goals</h4>
-              <table className={styles.goalsTable}>
-                <tbody>
-                  <tr>
-                    <td className={styles.goalsTableLabel}>Weight Goal</td>
-                    <td className={styles.goalsTableBtns}>
-                      {[{ key: 'lose', label: 'Lose Weight' }, { key: 'maintain', label: 'Maintain' }, { key: 'gain', label: 'Gain Weight' }].map(g => (
-                        <button key={g.key} type="button" className={weightGoals.has(g.key) ? styles.goalBtnActive : styles.goalBtn} onClick={() => { if (weightGoals.has(g.key)) { setWeightGoals(prev => { const next = new Set(prev); next.delete(g.key); return next; }); } else { setWeightGoals(new Set([g.key])); } }}>{g.label}</button>
-                      ))}
-                      {!['lose', 'maintain', 'gain'].some(k => weightGoals.has(k)) && (
-                        <span className={styles.goalNotTracked}>Weight not tracked</span>
-                      )}
-                      {['lose', 'maintain', 'gain'].some(k => weightGoals.has(k)) && (() => {
-                        const trend = getWeightTrend();
-                        if (!trend) return null;
-                        const goal = weightGoals.has('lose') ? 'lose' : (weightGoals.has('gain') || weightGoals.has('muscle')) ? 'gain' : 'maintain';
-                        const onTrack = (goal === 'lose' && trend.direction === 'down')
-                          || (goal === 'gain' && trend.direction === 'up')
-                          || (goal === 'maintain' && trend.direction === 'stable');
-                        const offTrack = (goal === 'lose' && trend.direction === 'up')
-                          || (goal === 'gain' && trend.direction === 'down');
-                        const arrow = trend.direction === 'up' ? '↑' : trend.direction === 'down' ? '↓' : '→';
-                        const sign = trend.change > 0 ? '+' : '';
-                        const directionText = trend.direction === 'up' ? 'Gaining weight' : trend.direction === 'down' ? 'Losing weight' : 'Weight stable';
-                        return (
-                          <span className={onTrack ? styles.trendOnTrack : offTrack ? styles.trendOffTrack : styles.trendNeutral}>
-                            {arrow} {sign}{trend.change} lbs — {directionText} {onTrack ? '(on track)' : offTrack ? '(off track)' : ''}
-                          </span>
-                        );
-                      })()}
-                    </td>
-                  </tr>
-                  <tr>
-                    <td className={styles.goalsTableLabel}>Looking to Gain Muscle</td>
-                    <td className={styles.goalsTableBtns}>
-                      {[{ key: 'muscle', label: 'Yes' }, { key: 'no-muscle', label: 'No' }].map(g => (
-                        <button key={g.key} type="button" className={weightGoals.has(g.key) ? styles.goalBtnActive : styles.goalBtn} onClick={() => { setWeightGoals(prev => { const next = new Set(prev); if (next.has(g.key)) { next.delete(g.key); } else { next.delete('muscle'); next.delete('no-muscle'); next.add(g.key); } return next; }); }}>{g.label}</button>
-                      ))}
-                      {!weightGoals.has('muscle') && !weightGoals.has('no-muscle') && (
-                        <span className={styles.goalNotTracked}>Muscle goal not set</span>
-                      )}
-                    </td>
-                  </tr>
-                  <tr>
-                    <td className={styles.goalsTableLabel}>Weigh Your Food</td>
-                    <td className={styles.goalsTableBtns}>
-                      {[{ key: 'weighFood', label: 'Yes' }, { key: 'noWeighFood', label: 'No' }].map(g => (
-                        <button key={g.key} type="button" className={mealTrackingGoals.has(g.key) ? styles.goalBtnActive : styles.goalBtn} onClick={() => { setMealTrackingGoals(prev => { const next = new Set(prev); if (next.has(g.key)) { next.delete(g.key); } else { next.delete('weighFood'); next.delete('noWeighFood'); next.add(g.key); } return next; }); }}>{g.label}</button>
-                      ))}
-                      {!mealTrackingGoals.has('weighFood') && !mealTrackingGoals.has('noWeighFood') && (
-                        <span className={styles.goalNotTracked}>Food weigh tracking not enabled</span>
-                      )}
-                    </td>
-                  </tr>
-                  <tr>
-                    <td className={styles.goalsTableLabel}>Track Your Meals</td>
-                    <td className={styles.goalsTableBtns}>
-                      {[{ key: 'trackDaily', label: '3 Meals a Day' }, { key: 'trackWeekly', label: 'Per Grocery Shop' }].map(g => (
-                        <button key={g.key} type="button" className={mealTrackingGoals.has(g.key) ? styles.goalBtnActive : styles.goalBtn} onClick={() => { setMealTrackingGoals(prev => { const next = new Set(prev); if (next.has(g.key)) { next.delete(g.key); } else { next.delete('trackDaily'); next.delete('trackWeekly'); next.add(g.key); } return next; }); }}>{g.label}</button>
-                      ))}
-                      {!mealTrackingGoals.has('trackDaily') && !mealTrackingGoals.has('trackWeekly') && (
-                        <span className={styles.goalNotTracked}>Meal tracking not enabled</span>
-                      )}
-                    </td>
-                  </tr>
-                  <tr>
-                    <td className={styles.goalsTableLabel}>Weigh Yourself</td>
-                    <td className={styles.goalsTableBtns}>
-                      {[{ key: 'weighDaily', label: 'Daily' }, { key: 'weighWeekly', label: 'Weekly' }, { key: 'weighMonthly', label: 'Monthly' }].map(g => (
-                        <button key={g.key} type="button" className={mealTrackingGoals.has(g.key) ? styles.goalBtnActive : styles.goalBtn} onClick={() => { setMealTrackingGoals(prev => { const next = new Set(prev); if (next.has(g.key)) { next.delete(g.key); } else { next.delete('weighDaily'); next.delete('weighWeekly'); next.delete('weighMonthly'); next.add(g.key); } return next; }); }}>{g.label}</button>
-                      ))}
-                      {!mealTrackingGoals.has('weighDaily') && !mealTrackingGoals.has('weighWeekly') && !mealTrackingGoals.has('weighMonthly') && (
-                        <span className={styles.goalNotTracked}>Weight tracking not enabled</span>
-                      )}
-                    </td>
-                  </tr>
-                  <tr>
-                    <td className={styles.goalsTableLabel}>Track Vitamins & Minerals</td>
-                    <td className={styles.goalsTableBtns}>
-                      {[{ key: 'trackMinerals', label: 'Minerals' }, { key: 'trackVitamins', label: 'Vitamins' }, { key: 'trackAminos', label: 'Amino Acids/Fatty Acids' }].map(g => (
-                        <button key={g.key} type="button" className={mealTrackingGoals.has(g.key) ? styles.goalBtnActive : styles.goalBtn} onClick={() => { setMealTrackingGoals(prev => { const next = new Set(prev); if (next.has(g.key)) next.delete(g.key); else next.add(g.key); return next; }); }}>{g.label}</button>
-                      ))}
-                      {!mealTrackingGoals.has('trackMinerals') && !mealTrackingGoals.has('trackVitamins') && !mealTrackingGoals.has('trackAminos') && (
-                        <span className={styles.goalNotTracked}>Vitamin & mineral tracking not enabled</span>
-                      )}
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
+              {(() => {
+                // Define all goal rows with their enabled check
+                const goalRows = [
+                  {
+                    id: 'weight', label: 'Weight Goal',
+                    enabled: ['lose', 'maintain', 'gain'].some(k => weightGoals.has(k)),
+                    render: () => (
+                      <td className={styles.goalsTableBtns}>
+                        {[{ key: 'lose', label: 'Lose Weight' }, { key: 'maintain', label: 'Maintain' }, { key: 'gain', label: 'Gain Weight' }].map(g => (
+                          <button key={g.key} type="button" className={weightGoals.has(g.key) ? styles.goalBtnActive : styles.goalBtn} onClick={() => { if (weightGoals.has(g.key)) { setWeightGoals(prev => { const next = new Set(prev); next.delete(g.key); return next; }); } else { setWeightGoals(new Set([g.key])); } }}>{g.label}</button>
+                        ))}
+                        {['lose', 'maintain', 'gain'].some(k => weightGoals.has(k)) && (() => {
+                          const trend = getWeightTrend();
+                          if (!trend) return null;
+                          const goal = weightGoals.has('lose') ? 'lose' : (weightGoals.has('gain') || weightGoals.has('muscle')) ? 'gain' : 'maintain';
+                          const onTrack = (goal === 'lose' && trend.direction === 'down') || (goal === 'gain' && trend.direction === 'up') || (goal === 'maintain' && trend.direction === 'stable');
+                          const offTrack = (goal === 'lose' && trend.direction === 'up') || (goal === 'gain' && trend.direction === 'down');
+                          const arrow = trend.direction === 'up' ? '↑' : trend.direction === 'down' ? '↓' : '→';
+                          const sign = trend.change > 0 ? '+' : '';
+                          const directionText = trend.direction === 'up' ? 'Gaining weight' : trend.direction === 'down' ? 'Losing weight' : 'Weight stable';
+                          return <span className={onTrack ? styles.trendOnTrack : offTrack ? styles.trendOffTrack : styles.trendNeutral}>{arrow} {sign}{trend.change} lbs — {directionText} {onTrack ? '(on track)' : offTrack ? '(off track)' : ''}</span>;
+                        })()}
+                      </td>
+                    ),
+                  },
+                  {
+                    id: 'muscle', label: 'Looking to Gain Muscle',
+                    enabled: weightGoals.has('muscle') || weightGoals.has('no-muscle'),
+                    render: () => (
+                      <td className={styles.goalsTableBtns}>
+                        {[{ key: 'muscle', label: 'Yes' }, { key: 'no-muscle', label: 'No' }].map(g => (
+                          <button key={g.key} type="button" className={weightGoals.has(g.key) ? styles.goalBtnActive : styles.goalBtn} onClick={() => { setWeightGoals(prev => { const next = new Set(prev); if (next.has(g.key)) { next.delete(g.key); } else { next.delete('muscle'); next.delete('no-muscle'); next.add(g.key); } return next; }); }}>{g.label}</button>
+                        ))}
+                      </td>
+                    ),
+                  },
+                  {
+                    id: 'weighFood', label: 'Weigh Your Food',
+                    enabled: mealTrackingGoals.has('weighFood') || mealTrackingGoals.has('noWeighFood'),
+                    render: () => (
+                      <td className={styles.goalsTableBtns}>
+                        {[{ key: 'weighFood', label: 'Yes' }, { key: 'noWeighFood', label: 'No' }].map(g => (
+                          <button key={g.key} type="button" className={mealTrackingGoals.has(g.key) ? styles.goalBtnActive : styles.goalBtn} onClick={() => { setMealTrackingGoals(prev => { const next = new Set(prev); if (next.has(g.key)) { next.delete(g.key); } else { next.delete('weighFood'); next.delete('noWeighFood'); next.add(g.key); } return next; }); }}>{g.label}</button>
+                        ))}
+                      </td>
+                    ),
+                  },
+                  {
+                    id: 'trackMeals', label: 'Track Your Meals',
+                    enabled: mealTrackingGoals.has('trackDaily') || mealTrackingGoals.has('trackWeekly'),
+                    render: () => (
+                      <td className={styles.goalsTableBtns}>
+                        {[{ key: 'trackDaily', label: '3 Meals a Day' }, { key: 'trackWeekly', label: 'Per Grocery Shop' }].map(g => (
+                          <button key={g.key} type="button" className={mealTrackingGoals.has(g.key) ? styles.goalBtnActive : styles.goalBtn} onClick={() => { setMealTrackingGoals(prev => { const next = new Set(prev); if (next.has(g.key)) { next.delete(g.key); } else { next.delete('trackDaily'); next.delete('trackWeekly'); next.add(g.key); } return next; }); }}>{g.label}</button>
+                        ))}
+                      </td>
+                    ),
+                  },
+                  {
+                    id: 'weighSelf', label: 'Weigh Yourself',
+                    enabled: mealTrackingGoals.has('weighDaily') || mealTrackingGoals.has('weighWeekly') || mealTrackingGoals.has('weighMonthly'),
+                    render: () => (
+                      <td className={styles.goalsTableBtns}>
+                        {[{ key: 'weighDaily', label: 'Daily' }, { key: 'weighWeekly', label: 'Weekly' }, { key: 'weighMonthly', label: 'Monthly' }].map(g => (
+                          <button key={g.key} type="button" className={mealTrackingGoals.has(g.key) ? styles.goalBtnActive : styles.goalBtn} onClick={() => { setMealTrackingGoals(prev => { const next = new Set(prev); if (next.has(g.key)) { next.delete(g.key); } else { next.delete('weighDaily'); next.delete('weighWeekly'); next.delete('weighMonthly'); next.add(g.key); } return next; }); }}>{g.label}</button>
+                        ))}
+                      </td>
+                    ),
+                  },
+                  {
+                    id: 'vitamins', label: 'Track Vitamins & Minerals',
+                    enabled: mealTrackingGoals.has('trackMinerals') || mealTrackingGoals.has('trackVitamins') || mealTrackingGoals.has('trackAminos'),
+                    render: () => (
+                      <td className={styles.goalsTableBtns}>
+                        {[{ key: 'trackMinerals', label: 'Minerals' }, { key: 'trackVitamins', label: 'Vitamins' }, { key: 'trackAminos', label: 'Amino Acids/Fatty Acids' }].map(g => (
+                          <button key={g.key} type="button" className={mealTrackingGoals.has(g.key) ? styles.goalBtnActive : styles.goalBtn} onClick={() => { setMealTrackingGoals(prev => { const next = new Set(prev); if (next.has(g.key)) next.delete(g.key); else next.add(g.key); return next; }); }}>{g.label}</button>
+                        ))}
+                      </td>
+                    ),
+                  },
+                ];
+
+                const enabled = goalRows.filter(r => r.enabled);
+                const notEnabled = goalRows.filter(r => !r.enabled);
+
+                return (
+                  <>
+                    {enabled.length > 0 && (
+                      <>
+                        <h4 className={styles.goalSectionTitle}>Enabled</h4>
+                        <table className={styles.goalsTable}>
+                          <tbody>
+                            {enabled.map(r => (
+                              <tr key={r.id}>
+                                <td className={styles.goalsTableLabel}>{r.label}</td>
+                                {r.render()}
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </>
+                    )}
+                    {notEnabled.length > 0 && (
+                      <>
+                        <h4 className={styles.goalSectionTitleMuted}>Not Tracking</h4>
+                        <table className={styles.goalsTable}>
+                          <tbody>
+                            {notEnabled.map(r => (
+                              <tr key={r.id}>
+                                <td className={styles.goalsTableLabel}>{r.label}</td>
+                                {r.render()}
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </>
+                    )}
+                  </>
+                );
+              })()}
 
             </div>
             {macroApproach === 'manual' && (
