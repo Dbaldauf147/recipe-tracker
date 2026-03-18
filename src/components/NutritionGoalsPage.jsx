@@ -219,9 +219,9 @@ function getWeightTrend() {
   try {
     const log = JSON.parse(localStorage.getItem(WEIGHT_KEY) || '[]');
     if (log.length < 2) return null;
-    // Look at last 4 weeks
+    // Look at last 8 weeks
     const cutoff = new Date();
-    cutoff.setDate(cutoff.getDate() - 28);
+    cutoff.setDate(cutoff.getDate() - 56);
     const cutoffStr = `${cutoff.getFullYear()}-${String(cutoff.getMonth() + 1).padStart(2, '0')}-${String(cutoff.getDate()).padStart(2, '0')}`;
     const recent = log.filter(e => e.date >= cutoffStr);
     if (recent.length < 2) {
