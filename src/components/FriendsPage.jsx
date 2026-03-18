@@ -99,6 +99,9 @@ export function FriendsPage({ onClose, addRecipe }) {
       }
       if (!result) {
         setSearchResult('none');
+        if (val.includes('@')) {
+          setSearchStatus({ type: 'error', msg: 'User not found. They may need to log in to the site first so their account is searchable.' });
+        }
       } else if (result.uid === uid) {
         setSearchResult('none');
         setSearchStatus({ type: 'error', msg: "That's you!" });
