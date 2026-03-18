@@ -1160,31 +1160,45 @@ export function RecipeList({
         </div>
         {discoverOpen && (
           <div className={styles.discoverContent}>
-            {friendsWithAccess.length > 0 && (
-              <div className={styles.friendRecipesSection}>
-                <div className={styles.friendRecipesHeader}>
-                  <span className={styles.friendRecipesLabel}>Friend's Recipes</span>
-                  <select
-                    className={styles.friendSelect}
-                    value={selectedFriend}
-                    onChange={e => setSelectedFriend(e.target.value)}
-                  >
-                    <option value="">Select a friend...</option>
-                    {friendsWithAccess.map(f => (
-                      <option key={f.uid} value={f.uid}>
-                        @{f.username || f.displayName}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                {selectedFriend && (
-                  <div className={styles.importList}>
-                    {friendRecipesLoading ? (
-                      <p className={styles.importEmpty}>Loading...</p>
-                    ) : friendRecipes.length === 0 ? (
-                      <p className={styles.importEmpty}>No recipes shared.</p>
+            <div className={styles.addRecipeBox}>
+              <div className={styles.discoverSourceRow}>
+                <select
+                  className={styles.discoverSourceSelect}
+                  value={selectedFriend || 'prepday'}
+                  onChange={e => {
+                    const val = e.target.value;
+                    setSelectedFriend(val === 'prepday' ? '' : val);
+                    setImportSearch('');
+                  }}
+                >
+                  <option value="prepday">Prep Day Recipes</option>
+                  {friendsWithAccess.map(f => (
+                    <option key={f.uid} value={f.uid}>
+                      @{f.username || f.displayName}'s Recipes
+                    </option>
+                  ))}
+                </select>
+                <input
+                  className={styles.addRecipeInput}
+                  type="text"
+                  placeholder="Search..."
+                  value={importSearch}
+                  onChange={e => setImportSearch(e.target.value)}
+                />
+              </div>
+              <div className={styles.importList}>
+                {selectedFriend ? (
+                  // Friend's recipes
+                  friendRecipesLoading ? (
+                    <p className={styles.importEmpty}>Loading...</p>
+                  ) : (() => {
+                    const filtered = importSearch.trim()
+                      ? friendRecipes.filter(r => r.title.toLowerCase().includes(importSearch.toLowerCase()))
+                      : friendRecipes;
+                    return filtered.length === 0 ? (
+                      <p className={styles.importEmpty}>{importSearch.trim() ? 'No matches' : 'No recipes shared.'}</p>
                     ) : (
-                      friendRecipes.map((recipe, i) => (
+                      filtered.slice(0, 15).map((recipe, i) => (
                         <div key={recipe.id || i} className={styles.importItem}>
                           <div className={styles.importInfo}>
                             <span className={styles.importName}>{recipe.title}</span>
@@ -1207,41 +1221,34 @@ export function RecipeList({
                           </button>
                         </div>
                       ))
+                    );
+                  })()
+                ) : (
+                  // Prep Day recipes
+                  <>
+                    {importableRecipes.slice(0, 10).map(recipe => (
+                      <div key={recipe.id} className={styles.importItem}>
+                        <div className={styles.importInfo}>
+                          <span className={styles.importName}>{recipe.title}</span>
+                        </div>
+                        <button
+                          className={styles.importAddBtn}
+                          onClick={() => handleAddDiscover(recipe)}
+                          aria-label={`Add ${recipe.title} to My Recipes`}
+                        >
+                          +
+                        </button>
+                      </div>
+                    ))}
+                    {adminRecipes && importableRecipes.length === 0 && (
+                      <p className={styles.importEmpty}>
+                        {importSearch.trim() ? 'No matches' : 'All imported'}
+                      </p>
                     )}
-                  </div>
-                )}
-              </div>
-            )}
-            <div className={styles.addRecipeBox}>
-              <input
-                className={styles.addRecipeInput}
-                type="text"
-                placeholder="Search recipes..."
-                value={importSearch}
-                onChange={e => setImportSearch(e.target.value)}
-              />
-              <div className={styles.importList}>
-                {importableRecipes.slice(0, 10).map(recipe => (
-                  <div key={recipe.id} className={styles.importItem}>
-                    <div className={styles.importInfo}>
-                      <span className={styles.importName}>{recipe.title}</span>
-                    </div>
-                    <button
-                      className={styles.importAddBtn}
-                      onClick={() => handleAddDiscover(recipe)}
-                      aria-label={`Add ${recipe.title} to My Recipes`}
-                    >
-                      +
-                    </button>
-                  </div>
-                ))}
-                {adminRecipes && importableRecipes.length === 0 && (
-                  <p className={styles.importEmpty}>
-                    {importSearch.trim() ? 'No matches' : 'All imported'}
-                  </p>
-                )}
-                {!adminRecipes && (
-                  <p className={styles.importEmpty}>Loading...</p>
+                    {!adminRecipes && (
+                      <p className={styles.importEmpty}>Loading...</p>
+                    )}
+                  </>
                 )}
               </div>
             </div>

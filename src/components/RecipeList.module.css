@@ -1032,42 +1032,25 @@
   to { opacity: 1; max-height: 500px; }
 }
 
-.friendRecipesSection {
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  padding: var(--space-4);
-  margin-bottom: var(--space-3);
-}
-
-.friendRecipesHeader {
+.discoverSourceRow {
   display: flex;
-  align-items: center;
-  gap: var(--space-3);
+  gap: var(--space-2);
   margin-bottom: var(--space-2);
 }
 
-.friendRecipesLabel {
-  font-size: var(--font-size-sm);
-  font-weight: 700;
-  color: #e67e22;
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
-  white-space: nowrap;
-}
-
-.friendSelect {
-  flex: 1;
-  padding: 0.35rem 0.5rem;
+.discoverSourceSelect {
+  padding: 0.4rem 0.5rem;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-sm, 6px);
   font-size: var(--font-size-sm);
   font-family: inherit;
-  color: var(--color-text);
+  font-weight: 600;
+  color: var(--color-accent);
   background: var(--color-surface);
+  min-width: 160px;
 }
 
-.friendSelect:focus {
+.discoverSourceSelect:focus {
   outline: none;
   border-color: var(--color-accent);
 }
