@@ -1631,7 +1631,7 @@ function EntryRow({ entry, onDelete, goalKeys, onEdit }) {
     : `${entry.quantity} ${entry.measurement}`;
   const n = entry.nutrition || {};
   const keys = goalKeys && goalKeys.length > 0 ? goalKeys : DEFAULT_ENTRY_KEYS;
-  const isEditable = entry.type === 'custom_meal' && (entry.estimated || entry.ingredientData);
+  const isEditable = entry.type === 'custom_meal';
 
   return (
     <div className={styles.entryRow}>
@@ -2106,7 +2106,7 @@ function WeeklyView({ dailyLog, date, recipes, onDayClick, onMoveEntry, onAddToS
       const entry = entries[ei];
       const slot = entry.mealSlot && MEAL_SLOTS.includes(entry.mealSlot) ? entry.mealSlot : 'snack';
       const name = entry.type === 'custom_meal' ? entry.recipeName : entry.type === 'recipe' ? entry.recipeName : entry.ingredientName;
-      bySlot[slot].push({ id: entry.id, entryIndex: ei, name: name || 'Unknown', sourceDate: dateStr, recipeId: entry.recipeId || null, type: entry.type, estimated: entry.estimated || !!entry.ingredientData });
+      bySlot[slot].push({ id: entry.id, entryIndex: ei, name: name || 'Unknown', sourceDate: dateStr, recipeId: entry.recipeId || null, type: entry.type, editable: entry.type === 'custom_meal' });
     }
 
     // Compute totals for macros
@@ -2277,7 +2277,7 @@ function WeeklyView({ dailyLog, date, recipes, onDayClick, onMoveEntry, onAddToS
                         ) : day.bySlot[slot].length > 0 ? day.bySlot[slot].map((item) => (
                           <span
                             key={item.id}
-                            className={`${styles.weeklyColMeal} ${item.recipeId ? styles.weeklyColMealClickable : ''}`}
+                            className={`${styles.weeklyColMeal} ${(item.recipeId || item.editable) ? styles.weeklyColMealClickable : ''}`}
                             draggable
                             onDragStart={e => {
                               e.dataTransfer.setData('text/plain', JSON.stringify({ sourceDate: item.sourceDate, entryId: item.id }));
@@ -2285,7 +2285,7 @@ function WeeklyView({ dailyLog, date, recipes, onDayClick, onMoveEntry, onAddToS
                             }}
                             onClick={e => {
                               e.stopPropagation();
-                              if (item.estimated && onEditEntry) {
+                              if (item.editable && onEditEntry) {
                                 onEditEntry(item.id, item.sourceDate);
                               } else if (item.recipeId && onViewRecipe) {
                                 onViewRecipe(item.recipeId);
