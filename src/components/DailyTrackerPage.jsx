@@ -1275,8 +1275,12 @@ For each ingredient, include a "nutrition" object with estimated calories, prote
               </table>
             </div>
           )}
-          <div className={styles.formRow}>
+          <p className={styles.aiEstimateHint}>Not right? Edit your description above and re-estimate.</p>
+          <div className={styles.formRow} style={{ gap: '0.5rem' }}>
             <button className={styles.addBtn} onClick={handleAdd}>Add to Meal Log</button>
+            <button className={styles.addBtnSecondary} onClick={handleEstimate} disabled={loading || !description.trim()}>
+              {loading ? 'Estimating...' : 'Re-estimate'}
+            </button>
           </div>
         </div>
       )}
