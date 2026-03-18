@@ -5,7 +5,7 @@ import { getUserKeyIngredients, normalize, recipeHasIngredient } from '../utils/
 import { exportToCSV, importFromCSV } from '../utils/exportData';
 import { locationToRegion, getSeasonalIngredients, getRecipeSeasonalIngredients } from '../utils/seasonal';
 import { useAuth } from '../contexts/AuthContext';
-import { loadUserData, saveField } from '../utils/firestoreSync';
+import { loadUserData, saveField, loadFriends, loadFriendRecipes } from '../utils/firestoreSync';
 import { copyMealImage } from '../utils/generateMealImage';
 import { ALL_TAGS, TAG_CATEGORIES, recipeMatchesTags } from '../utils/ingredientTags';
 import styles from './RecipeList.module.css';
@@ -113,6 +113,10 @@ export function RecipeList({
   const [searchQuery, setSearchQuery] = useState('');
   const [discoverOpen, setDiscoverOpen] = useState(true);
   const [showDiscoverTip, setShowDiscoverTip] = useState(false);
+  const [friendsWithAccess, setFriendsWithAccess] = useState([]);
+  const [selectedFriend, setSelectedFriend] = useState('');
+  const [friendRecipes, setFriendRecipes] = useState([]);
+  const [friendRecipesLoading, setFriendRecipesLoading] = useState(false);
   const [weekMenuOpen, setWeekMenuOpen] = useState(true);
   const [suggestOpen, setSuggestOpen] = useState(true);
   const [myRecipesOpen, setMyRecipesOpen] = useState(true);
@@ -134,6 +138,29 @@ export function RecipeList({
   function getPlannedServings(recipe) {
     return weeklyServings[recipe.id] ?? (parseInt(recipe.servings) || 1);
   }
+
+  // Load friends who have shared recipe access with you
+  useEffect(() => {
+    if (!user) return;
+    loadFriends(user.uid).then(friends => {
+      setFriendsWithAccess(friends.filter(f => f.hasGrantedAccess));
+    }).catch(() => {});
+  }, [user?.uid]);
+
+  // Load selected friend's recipes
+  useEffect(() => {
+    if (!selectedFriend) { setFriendRecipes([]); return; }
+    setFriendRecipesLoading(true);
+    loadFriendRecipes(selectedFriend).then(data => {
+      const existing = new Set(recipes.map(r => (r.title || '').toLowerCase()));
+      setFriendRecipes(
+        (data.recipes || [])
+          .filter(r => r.title && (r.frequency || 'common') !== 'retired')
+          .map(r => ({ ...r, alreadyHave: existing.has(r.title.toLowerCase()) }))
+          .sort((a, b) => (a.title || '').localeCompare(b.title || ''))
+      );
+    }).catch(() => setFriendRecipes([])).finally(() => setFriendRecipesLoading(false));
+  }, [selectedFriend, recipes]);
 
   const importFileRef = useRef(null);
   const scrolledRef = useRef(false);
@@ -1133,6 +1160,58 @@ export function RecipeList({
         </div>
         {discoverOpen && (
           <div className={styles.discoverContent}>
+            {friendsWithAccess.length > 0 && (
+              <div className={styles.friendRecipesSection}>
+                <div className={styles.friendRecipesHeader}>
+                  <span className={styles.friendRecipesLabel}>Friend's Recipes</span>
+                  <select
+                    className={styles.friendSelect}
+                    value={selectedFriend}
+                    onChange={e => setSelectedFriend(e.target.value)}
+                  >
+                    <option value="">Select a friend...</option>
+                    {friendsWithAccess.map(f => (
+                      <option key={f.uid} value={f.uid}>
+                        @{f.username || f.displayName}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                {selectedFriend && (
+                  <div className={styles.importList}>
+                    {friendRecipesLoading ? (
+                      <p className={styles.importEmpty}>Loading...</p>
+                    ) : friendRecipes.length === 0 ? (
+                      <p className={styles.importEmpty}>No recipes shared.</p>
+                    ) : (
+                      friendRecipes.map((recipe, i) => (
+                        <div key={recipe.id || i} className={styles.importItem}>
+                          <div className={styles.importInfo}>
+                            <span className={styles.importName}>{recipe.title}</span>
+                            <span className={styles.importMeta}>
+                              {recipe.category === 'breakfast' ? 'Breakfast' : 'Lunch/Dinner'}
+                            </span>
+                          </div>
+                          <button
+                            className={recipe.alreadyHave ? styles.importAddBtnDisabled : styles.importAddBtn}
+                            disabled={recipe.alreadyHave}
+                            onClick={() => {
+                              if (onAddRecipe) {
+                                const { id, alreadyHave, ...rest } = recipe;
+                                onAddRecipe({ ...rest, source: 'shared' });
+                                setFriendRecipes(prev => prev.map(r => r === recipe ? { ...r, alreadyHave: true } : r));
+                              }
+                            }}
+                          >
+                            {recipe.alreadyHave ? '✓' : '+'}
+                          </button>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
             <div className={styles.addRecipeBox}>
               <input
                 className={styles.addRecipeInput}

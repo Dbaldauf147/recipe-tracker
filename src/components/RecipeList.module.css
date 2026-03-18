@@ -1032,6 +1032,66 @@
   to { opacity: 1; max-height: 500px; }
 }
 
+.friendRecipesSection {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-4);
+  margin-bottom: var(--space-3);
+}
+
+.friendRecipesHeader {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-bottom: var(--space-2);
+}
+
+.friendRecipesLabel {
+  font-size: var(--font-size-sm);
+  font-weight: 700;
+  color: #e67e22;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+}
+
+.friendSelect {
+  flex: 1;
+  padding: 0.35rem 0.5rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm, 6px);
+  font-size: var(--font-size-sm);
+  font-family: inherit;
+  color: var(--color-text);
+  background: var(--color-surface);
+}
+
+.friendSelect:focus {
+  outline: none;
+  border-color: var(--color-accent);
+}
+
+.importMeta {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
+
+.importAddBtnDisabled {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: none;
+  background: var(--color-surface-alt);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-md);
+  cursor: default;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
 .addRecipeBox {
   background: var(--color-surface);
   border: 1px solid var(--color-border);
