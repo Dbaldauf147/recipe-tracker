@@ -1204,9 +1204,16 @@ For each ingredient, include a "nutrition" object with estimated calories, prote
       type: 'custom_meal',
       recipeName: result.title || description.trim(),
       ingredients: (result.ingredients || []).map(i => `${i.quantity} ${i.measurement} ${i.ingredient}`),
+      ingredientData: (result.ingredients || []).map(i => ({
+        quantity: i.quantity || '',
+        measurement: i.measurement || '',
+        ingredient: i.ingredient || '',
+        nutrition: i.nutrition || {},
+      })),
       mealSlot: 'lunch',
       timestamp: new Date().toISOString(),
       nutrition,
+      estimated: true,
     });
   }
 
@@ -1615,7 +1622,7 @@ function MealScoreBadge({ nutrition }) {
   );
 }
 
-function EntryRow({ entry, onDelete, goalKeys }) {
+function EntryRow({ entry, onDelete, goalKeys, onEdit }) {
   const name = entry.type === 'custom_meal' ? entry.recipeName : entry.type === 'recipe' ? entry.recipeName : entry.ingredientName;
   const portion = entry.type === 'recipe'
     ? (entry.customWeight ? `${entry.customWeight}g` : `${entry.servings} serving${entry.servings !== 1 ? 's' : ''}`)
@@ -1624,11 +1631,18 @@ function EntryRow({ entry, onDelete, goalKeys }) {
     : `${entry.quantity} ${entry.measurement}`;
   const n = entry.nutrition || {};
   const keys = goalKeys && goalKeys.length > 0 ? goalKeys : DEFAULT_ENTRY_KEYS;
+  const isEditable = entry.type === 'custom_meal' && (entry.estimated || entry.ingredientData);
 
   return (
     <div className={styles.entryRow}>
       <MealScoreBadge nutrition={n} />
-      <span className={styles.entryName}>{name}</span>
+      {isEditable ? (
+        <button className={styles.entryNameBtn} onClick={() => onEdit && onEdit(entry)}>
+          {name} <span className={styles.editHint}>edit</span>
+        </button>
+      ) : (
+        <span className={styles.entryName}>{name}</span>
+      )}
       <span className={styles.entryPortion}>{portion}</span>
       <div className={styles.entryMacros}>
         {keys.map(key => (
@@ -1644,7 +1658,7 @@ function EntryRow({ entry, onDelete, goalKeys }) {
 }
 
 /* ── Meal Log ── */
-function MealLog({ entries, onDelete, goalKeys, skippedMeals, daySkipped }) {
+function MealLog({ entries, onDelete, onEdit, goalKeys, skippedMeals, daySkipped }) {
   const grouped = {};
   for (const slot of MEAL_SLOTS) grouped[slot] = [];
   for (const entry of entries) {
@@ -1681,7 +1695,7 @@ function MealLog({ entries, onDelete, goalKeys, skippedMeals, daySkipped }) {
               <div className={styles.skippedNote}>Meal skipped</div>
             ) : (
               items.map(entry => (
-                <EntryRow key={entry.id} entry={entry} onDelete={onDelete} goalKeys={goalKeys} />
+                <EntryRow key={entry.id} entry={entry} onDelete={onDelete} onEdit={onEdit} goalKeys={goalKeys} />
               ))
             )}
           </div>
@@ -2067,7 +2081,7 @@ function ServingsTooltip({ active, payload, label }) {
 
 /* ── Main Page ── */
 /* ── Weekly View ── */
-function WeeklyView({ dailyLog, date, recipes, onDayClick, onMoveEntry, onAddToSlot, onViewRecipe, onRemoveLastEntry }) {
+function WeeklyView({ dailyLog, date, recipes, onDayClick, onMoveEntry, onAddToSlot, onViewRecipe, onRemoveLastEntry, onEditEntry }) {
   const goals = loadGoals();
   const macroKeys = ['calories', 'protein', 'carbs', 'fat'];
   const [dragOver, setDragOver] = useState(null); // { dateStr, slot }
@@ -2092,7 +2106,7 @@ function WeeklyView({ dailyLog, date, recipes, onDayClick, onMoveEntry, onAddToS
       const entry = entries[ei];
       const slot = entry.mealSlot && MEAL_SLOTS.includes(entry.mealSlot) ? entry.mealSlot : 'snack';
       const name = entry.type === 'custom_meal' ? entry.recipeName : entry.type === 'recipe' ? entry.recipeName : entry.ingredientName;
-      bySlot[slot].push({ id: entry.id, entryIndex: ei, name: name || 'Unknown', sourceDate: dateStr, recipeId: entry.recipeId || null, type: entry.type });
+      bySlot[slot].push({ id: entry.id, entryIndex: ei, name: name || 'Unknown', sourceDate: dateStr, recipeId: entry.recipeId || null, type: entry.type, estimated: entry.estimated || !!entry.ingredientData });
     }
 
     // Compute totals for macros
@@ -2270,8 +2284,10 @@ function WeeklyView({ dailyLog, date, recipes, onDayClick, onMoveEntry, onAddToS
                               e.stopPropagation();
                             }}
                             onClick={e => {
-                              if (item.recipeId && onViewRecipe) {
-                                e.stopPropagation();
+                              e.stopPropagation();
+                              if (item.estimated && onEditEntry) {
+                                onEditEntry(item.id, item.sourceDate);
+                              } else if (item.recipeId && onViewRecipe) {
                                 onViewRecipe(item.recipeId);
                               }
                             }}
@@ -2338,6 +2354,97 @@ function WeeklyView({ dailyLog, date, recipes, onDayClick, onMoveEntry, onAddToS
 
 /* ── KPI Alerts (merged with recommendations) ── */
 const WEEKLY_PLAN_KEY = 'sunday-weekly-plan';
+
+/* ── Edit Estimated Meal Modal ── */
+function EditEstimateModal({ entry, onSave, onClose }) {
+  const [items, setItems] = useState(() => {
+    if (entry.ingredientData && entry.ingredientData.length > 0) {
+      return entry.ingredientData.map(i => ({ ...i }));
+    }
+    // Parse from string ingredients
+    return (entry.ingredients || []).map(str => {
+      const parts = str.match(/^([\d./]+)?\s*(\w+)?\s+(.+)$/);
+      return parts
+        ? { quantity: parts[1] || '1', measurement: parts[2] || '', ingredient: parts[3] || str, nutrition: {} }
+        : { quantity: '1', measurement: '', ingredient: str, nutrition: {} };
+    });
+  });
+  const [loading, setLoading] = useState(false);
+
+  function updateItem(index, field, value) {
+    setItems(prev => prev.map((item, i) => i === index ? { ...item, [field]: value } : item));
+  }
+
+  function removeItem(index) {
+    setItems(prev => prev.filter((_, i) => i !== index));
+  }
+
+  function addItem() {
+    setItems(prev => [...prev, { quantity: '1', measurement: 'g', ingredient: '', nutrition: {} }]);
+  }
+
+  async function handleSave() {
+    setLoading(true);
+    try {
+      // Re-fetch nutrition for updated ingredients
+      const result = await fetchNutritionForRecipe(items.filter(i => i.ingredient.trim()));
+      const totalNutrition = {};
+      for (const n of NUTRIENTS) totalNutrition[n.key] = result.totals[n.key] || 0;
+      const updatedIngredientData = items.filter(i => i.ingredient.trim()).map((item, idx) => ({
+        ...item,
+        nutrition: result.items[idx]?.nutrients || {},
+      }));
+      onSave({
+        ingredients: updatedIngredientData.map(i => `${i.quantity} ${i.measurement} ${i.ingredient}`),
+        ingredientData: updatedIngredientData,
+        nutrition: totalNutrition,
+      });
+    } catch {
+      // Fallback: save without re-fetching
+      onSave({
+        ingredients: items.filter(i => i.ingredient.trim()).map(i => `${i.quantity} ${i.measurement} ${i.ingredient}`),
+        ingredientData: items.filter(i => i.ingredient.trim()),
+      });
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div className={styles.modalOverlay} onClick={onClose}>
+      <div className={styles.modalContent} onClick={e => e.stopPropagation()}>
+        <div className={styles.modalHeader}>
+          <h3 className={styles.modalTitle}>Edit: {entry.recipeName}</h3>
+          <button className={styles.modalClose} onClick={onClose}>&times;</button>
+        </div>
+        <table className={styles.editEstimateTable}>
+          <thead>
+            <tr>
+              <th>Qty</th>
+              <th>Unit</th>
+              <th>Ingredient</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {items.map((item, i) => (
+              <tr key={i}>
+                <td><input className={styles.editEstimateInput} type="text" value={item.quantity} onChange={e => updateItem(i, 'quantity', e.target.value)} style={{ width: '50px' }} /></td>
+                <td><input className={styles.editEstimateInput} type="text" value={item.measurement} onChange={e => updateItem(i, 'measurement', e.target.value)} style={{ width: '60px' }} /></td>
+                <td><input className={styles.editEstimateInput} type="text" value={item.ingredient} onChange={e => updateItem(i, 'ingredient', e.target.value)} style={{ width: '100%' }} /></td>
+                <td><button className={styles.deleteBtn} onClick={() => removeItem(i)}>&times;</button></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        <button className={styles.addEstimateRowBtn} onClick={addItem}>+ Add Ingredient</button>
+        <div className={styles.editEstimateActions}>
+          <button className={styles.addBtn} onClick={handleSave} disabled={loading}>{loading ? 'Recalculating...' : 'Save & Recalculate'}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 const ADMIN_UID = import.meta.env.VITE_ADMIN_UID;
 
@@ -2698,6 +2805,21 @@ export function DailyTrackerPage({ recipes, getRecipe, onClose, user, weeklyPlan
     });
   }
 
+  const [editModal, setEditModal] = useState(null); // { entryId, dateStr } or null
+
+  function updateEntry(entryId, dateStr, updatedEntry) {
+    setDailyLog(prev => {
+      const next = { ...prev };
+      if (!next[dateStr]) return prev;
+      next[dateStr] = {
+        ...next[dateStr],
+        entries: next[dateStr].entries.map(e => e.id === entryId ? { ...e, ...updatedEntry } : e),
+      };
+      saveDailyLog(next, user);
+      return next;
+    });
+  }
+
   function deleteEntry(entryId) {
     setDailyLog(prev => {
       const next = { ...prev };
@@ -2776,7 +2898,7 @@ export function DailyTrackerPage({ recipes, getRecipe, onClose, user, weeklyPlan
       </div>
       <div className={styles.weeklyWithCal}>
         <div className={styles.weeklyWithCalLeft}>
-          <WeeklyView dailyLog={dailyLog} date={date} recipes={recipes} onDayClick={(d) => setDate(d)} onMoveEntry={moveEntry} onAddToSlot={handleAddToSlot} onViewRecipe={(id) => setViewRecipeId(id)} onRemoveLastEntry={removeLastEntry} />
+          <WeeklyView dailyLog={dailyLog} date={date} recipes={recipes} onDayClick={(d) => setDate(d)} onMoveEntry={moveEntry} onAddToSlot={handleAddToSlot} onViewRecipe={(id) => setViewRecipeId(id)} onRemoveLastEntry={removeLastEntry} onEditEntry={(entryId, dateStr) => setEditModal({ entryId, dateStr })} />
         </div>
         <div className={styles.weeklyWithCalRight}>
           <MiniCalendar date={date} setDate={setDate} dailyLog={dailyLog} />
@@ -2788,6 +2910,21 @@ export function DailyTrackerPage({ recipes, getRecipe, onClose, user, weeklyPlan
         <ServingsChart dailyLog={dailyLog} />
       </div>
       <KpiAlerts dailyLog={dailyLog} recipes={recipes} onImportRecipe={onImportRecipe} cacheVersion={cacheVersion} onViewRecipe={(id) => setViewRecipeId(id)} selectedDate={date} user={user} />
+      {editModal && (() => {
+        const dayData = dailyLog[editModal.dateStr];
+        const entry = dayData?.entries?.find(e => e.id === editModal.entryId);
+        if (!entry) return null;
+        return (
+          <EditEstimateModal
+            entry={entry}
+            onSave={(updates) => {
+              updateEntry(editModal.entryId, editModal.dateStr, updates);
+              setEditModal(null);
+            }}
+            onClose={() => setEditModal(null)}
+          />
+        );
+      })()}
       {addModal && (
         <div className={styles.modalOverlay} onClick={() => setAddModal(null)}>
           <div className={`${styles.modalContent}${addModal.mode === 'ai-estimate' ? ` ${styles.modalContentWide}` : ''}`} onClick={e => e.stopPropagation()}>

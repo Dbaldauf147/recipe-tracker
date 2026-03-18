@@ -1470,6 +1470,79 @@
   flex-shrink: 0;
 }
 
+.entryNameBtn {
+  background: none;
+  border: none;
+  padding: 0;
+  font-weight: 500;
+  font-size: inherit;
+  font-family: inherit;
+  color: var(--color-accent);
+  cursor: pointer;
+  flex-shrink: 0;
+  text-decoration: underline;
+  text-decoration-style: dotted;
+}
+
+.editHint {
+  font-size: 0.65rem;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  margin-left: 0.3rem;
+  text-decoration: none;
+}
+
+.editEstimateTable {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 0.75rem;
+}
+
+.editEstimateTable th {
+  text-align: left;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  padding: 0.3rem 0.4rem;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.editEstimateTable td {
+  padding: 0.3rem 0.4rem;
+}
+
+.editEstimateInput {
+  padding: 0.3rem 0.4rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm, 4px);
+  font-size: 0.85rem;
+  font-family: inherit;
+  color: var(--color-text);
+  background: var(--color-surface);
+}
+
+.editEstimateInput:focus {
+  outline: none;
+  border-color: var(--color-accent);
+}
+
+.addEstimateRowBtn {
+  background: none;
+  border: none;
+  color: var(--color-accent);
+  font-size: 0.8rem;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  padding: 0;
+  margin-bottom: 1rem;
+}
+
+.editEstimateActions {
+  display: flex;
+  gap: 0.5rem;
+}
+
 .entryPortion {
   font-size: 0.75rem;
   color: var(--color-text-muted);
