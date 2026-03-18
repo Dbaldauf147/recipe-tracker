@@ -1,5 +1,22 @@
 .container {
-  max-width: 600px;
+  max-width: 900px;
+}
+
+.friendsGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1.5rem;
+  align-items: start;
+}
+
+.friendsGridCol {
+  min-width: 0;
+}
+
+@media (max-width: 700px) {
+  .friendsGrid {
+    grid-template-columns: 1fr;
+  }
 }
 
 .header {

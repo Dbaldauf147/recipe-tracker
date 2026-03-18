@@ -313,77 +313,9 @@ export function FriendsPage({ onClose, addRecipe }) {
         </div>
       )}
 
-      {/* ── Pending Requests ── */}
-      <div className={styles.section}>
-        <h3 className={styles.sectionTitle}>Pending Requests</h3>
-        {requests.length === 0 ? (
-          <p className={styles.emptyText}>No pending requests.</p>
-        ) : (
-          requests.map(req => (
-            <div key={req.id} className={styles.requestRow}>
-              <div className={styles.friendInfo}>
-                <span className={styles.friendUsername}>@{req.fromUsername}</span>
-                {req.message && <span className={styles.requestMsg}>"{req.message}"</span>}
-              </div>
-              <div className={styles.requestActions}>
-                <button className={styles.actionBtn} onClick={() => handleAccept(req)}>Accept</button>
-                <button className={styles.dangerBtn} onClick={() => handleDecline(req)}>Decline</button>
-              </div>
-            </div>
-          ))
-        )}
-      </div>
-
-      {/* ── Sent Requests ── */}
-      {sentRequests.length > 0 && (
-        <div className={styles.section}>
-          <h3 className={styles.sectionTitle}>Sent Requests</h3>
-          {sentRequests.map(req => (
-            <div key={req.id} className={styles.requestRow}>
-              <div className={styles.friendInfo}>
-                <span className={styles.friendUsername}>
-                  {req.toUsername ? `@${req.toUsername}` : req.toDisplayName || 'Unknown user'}
-                </span>
-                <span className={styles.sentLabel}>Pending</span>
-              </div>
-              <button className={styles.dangerBtn} onClick={() => handleCancelRequest(req.id)}>
-                Cancel
-              </button>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* ── Shared Recipes ── */}
-      <div className={styles.section}>
-        <h3 className={styles.sectionTitle}>Shared Recipes</h3>
-        {sharedRecipes.length === 0 ? (
-          <p className={styles.emptyText}>No shared recipes.</p>
-        ) : (
-          sharedRecipes.map(share => (
-            <div key={share.id} className={styles.requestRow}>
-              <div className={styles.friendInfo}>
-                <span className={styles.friendUsername}>
-                  {share.recipe?.title || 'Untitled'}
-                </span>
-                <span className={styles.friendDisplayName}>
-                  from @{share.fromUsername}
-                </span>
-              </div>
-              <div className={styles.requestActions}>
-                <button className={styles.actionBtn} onClick={() => handleAcceptRecipe(share)}>
-                  Accept
-                </button>
-                <button className={styles.dangerBtn} onClick={() => handleDeclineRecipe(share)}>
-                  Decline
-                </button>
-              </div>
-            </div>
-          ))
-        )}
-      </div>
-
-      {/* ── Your Friends ── */}
+      <div className={styles.friendsGrid}>
+        {/* ── Left: Your Friends ── */}
+        <div className={styles.friendsGridCol}>
       <div className={styles.section}>
         <h3 className={styles.sectionTitle}>Your Friends</h3>
         {friends.length === 0 ? (
@@ -469,6 +401,74 @@ export function FriendsPage({ onClose, addRecipe }) {
           )}
         </div>
       )}
+        </div>
+
+        {/* ── Right: Pending Requests ── */}
+        <div className={styles.friendsGridCol}>
+          <div className={styles.section}>
+            <h3 className={styles.sectionTitle}>Pending Requests</h3>
+            {requests.length === 0 ? (
+              <p className={styles.emptyText}>No pending requests.</p>
+            ) : (
+              requests.map(req => (
+                <div key={req.id} className={styles.requestRow}>
+                  <div className={styles.friendInfo}>
+                    <span className={styles.friendUsername}>@{req.fromUsername}</span>
+                    {req.message && <span className={styles.requestMsg}>"{req.message}"</span>}
+                  </div>
+                  <div className={styles.requestActions}>
+                    <button className={styles.actionBtn} onClick={() => handleAccept(req)}>Accept</button>
+                    <button className={styles.dangerBtn} onClick={() => handleDecline(req)}>Decline</button>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+
+          {sentRequests.length > 0 && (
+            <div className={styles.section}>
+              <h3 className={styles.sectionTitle}>Sent Requests</h3>
+              {sentRequests.map(req => (
+                <div key={req.id} className={styles.requestRow}>
+                  <div className={styles.friendInfo}>
+                    <span className={styles.friendUsername}>
+                      {req.toUsername ? `@${req.toUsername}` : req.toDisplayName || 'Unknown user'}
+                    </span>
+                    <span className={styles.sentLabel}>Pending</span>
+                  </div>
+                  <button className={styles.dangerBtn} onClick={() => handleCancelRequest(req.id)}>
+                    Cancel
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <div className={styles.section}>
+            <h3 className={styles.sectionTitle}>Shared Recipes</h3>
+            {sharedRecipes.length === 0 ? (
+              <p className={styles.emptyText}>No shared recipes.</p>
+            ) : (
+              sharedRecipes.map(share => (
+                <div key={share.id} className={styles.requestRow}>
+                  <div className={styles.friendInfo}>
+                    <span className={styles.friendUsername}>
+                      {share.recipe?.title || 'Untitled'}
+                    </span>
+                    <span className={styles.friendDisplayName}>
+                      from @{share.fromUsername}
+                    </span>
+                  </div>
+                  <div className={styles.requestActions}>
+                    <button className={styles.actionBtn} onClick={() => handleAcceptRecipe(share)}>Accept</button>
+                    <button className={styles.dangerBtn} onClick={() => handleDeclineRecipe(share)}>Decline</button>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
