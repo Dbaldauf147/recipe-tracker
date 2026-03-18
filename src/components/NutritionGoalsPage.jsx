@@ -467,7 +467,7 @@ export function NutritionGoalsPage({ onComplete, onBack, onSkip, initialSelected
                       {['lose', 'maintain', 'gain'].some(k => weightGoals.has(k)) && (() => {
                         const trend = getWeightTrend();
                         if (!trend) return null;
-                        const goal = weightGoals.has('lose') ? 'lose' : weightGoals.has('gain') ? 'gain' : 'maintain';
+                        const goal = weightGoals.has('lose') ? 'lose' : (weightGoals.has('gain') || weightGoals.has('muscle')) ? 'gain' : 'maintain';
                         const onTrack = (goal === 'lose' && trend.direction === 'down')
                           || (goal === 'gain' && trend.direction === 'up')
                           || (goal === 'maintain' && trend.direction === 'stable');
@@ -475,9 +475,10 @@ export function NutritionGoalsPage({ onComplete, onBack, onSkip, initialSelected
                           || (goal === 'gain' && trend.direction === 'down');
                         const arrow = trend.direction === 'up' ? '↑' : trend.direction === 'down' ? '↓' : '→';
                         const sign = trend.change > 0 ? '+' : '';
+                        const directionText = trend.direction === 'up' ? 'Gaining weight' : trend.direction === 'down' ? 'Losing weight' : 'Weight stable';
                         return (
                           <span className={onTrack ? styles.trendOnTrack : offTrack ? styles.trendOffTrack : styles.trendNeutral}>
-                            {arrow} {sign}{trend.change} lbs {onTrack ? 'On track' : offTrack ? 'Off track' : 'Holding steady'}
+                            {arrow} {sign}{trend.change} lbs — {directionText} {onTrack ? '(on track)' : offTrack ? '(off track)' : ''}
                           </span>
                         );
                       })()}
