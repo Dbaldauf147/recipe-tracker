@@ -11,7 +11,7 @@ const GOALS_KEY = 'sunday-nutrition-goals';
 const NUTRITION_CACHE_KEY = 'sunday-nutrition-cache';
 
 const MEAL_SLOTS = ['breakfast', 'lunch', 'dinner', 'snack'];
-const MEAL_LABELS = { breakfast: 'Breakfast', lunch: 'Lunch', dinner: 'Dinner', snack: 'Snacks' };
+const MEAL_LABELS = { breakfast: 'Breakfast', lunch: 'Lunch', dinner: 'Dinner', snack: 'Snacks & Drinks' };
 
 const UNDER_IS_GOOD = new Set(['calories', 'carbs', 'fat', 'saturatedFat', 'sugar', 'addedSugar', 'fiber', 'sodium', 'potassium']);
 
