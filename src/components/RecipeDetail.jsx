@@ -915,6 +915,9 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
           &larr; Back to recipes
         </button>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+          <button className={styles.headerPrintBtn} onClick={() => window.print()}>
+            Print
+          </button>
           {user && (
             <>
               <div className={styles.shareWrapper} ref={shareRef}>

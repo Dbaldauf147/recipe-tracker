@@ -26,6 +26,25 @@
   color: var(--color-accent);
 }
 
+.headerPrintBtn {
+  background: none;
+  color: var(--color-text-muted);
+  border: 1px solid var(--color-border);
+  padding: 0.4rem 0.85rem;
+  border-radius: 6px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: border-color 0.15s ease, color 0.15s ease;
+  white-space: nowrap;
+}
+
+.headerPrintBtn:hover {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+
 .headerShareBtn {
   background: var(--color-accent);
   color: #fff;
@@ -1921,4 +1940,59 @@
   color: #ef4444;
   font-size: 0.82rem;
   margin-top: 0.5rem;
+}
+
+/* ── Print Styles ── */
+@media print {
+  .headerRow,
+  .headerPrintBtn,
+  .headerShareBtn,
+  .shareWrapper,
+  .backBtn,
+  .editToggleBtn,
+  .addRowBtn,
+  .removeBtn,
+  .dragHandle,
+  .servingBtn,
+  .servingReset,
+  .servingSave,
+  .containerAddBtn,
+  .weighResetBtn,
+  .stepSectionAddBtn,
+  .stepSectionRemove {
+    display: none !important;
+  }
+
+  .container {
+    max-width: 100% !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+
+  .ingredientTable,
+  .stepRow,
+  .cookModeStepGroup,
+  .notesInput,
+  .weightDetails,
+  .group {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  .ingredientsCol,
+  .stepsSection {
+    break-before: avoid;
+  }
+
+  details {
+    display: block !important;
+  }
+
+  details summary {
+    display: none !important;
+  }
+
+  details > *:not(summary) {
+    display: block !important;
+  }
 }
