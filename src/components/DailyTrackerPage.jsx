@@ -2913,14 +2913,15 @@ export function DailyTrackerPage({ recipes, getRecipe, onClose, user, weeklyPlan
       <div className={styles.topBar}>
         <button className={styles.backBtn} onClick={onClose}>&larr; Back</button>
       </div>
-      <div className={styles.calendarRow}>
-        <div className={styles.calendarRowSpacer} />
-        <div className={styles.calendarRowRight}>
-          <button className={styles.todayBtn} onClick={() => setDate(todayStr())} disabled={date === todayStr()}>Today</button>
+      <div className={styles.weeklyWithCal}>
+        <div className={styles.weeklyWithCalLeft}>
+          <WeeklyView dailyLog={dailyLog} date={date} recipes={recipes} onDayClick={(d) => setDate(d)} onMoveEntry={moveEntry} onAddToSlot={handleAddToSlot} onViewRecipe={(id) => setViewRecipeId(id)} onRemoveLastEntry={removeLastEntry} onEditEntry={(entryId, dateStr) => setEditModal({ entryId, dateStr })} />
+        </div>
+        <div className={styles.weeklyWithCalRight}>
           <MiniCalendar date={date} setDate={setDate} dailyLog={dailyLog} />
+          <button className={styles.todayBtn} onClick={() => setDate(todayStr())} disabled={date === todayStr()}>Today</button>
         </div>
       </div>
-      <WeeklyView dailyLog={dailyLog} date={date} recipes={recipes} onDayClick={(d) => setDate(d)} onMoveEntry={moveEntry} onAddToSlot={handleAddToSlot} onViewRecipe={(id) => setViewRecipeId(id)} onRemoveLastEntry={removeLastEntry} onEditEntry={(entryId, dateStr) => setEditModal({ entryId, dateStr })} />
       <div className={styles.twoColRow}>
         <HistoryChart dailyLog={dailyLog} />
         <ServingsChart dailyLog={dailyLog} />
