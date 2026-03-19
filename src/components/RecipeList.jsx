@@ -5,7 +5,7 @@ import { getUserKeyIngredients, normalize, recipeHasIngredient } from '../utils/
 import { exportToCSV, importFromCSV } from '../utils/exportData';
 import { locationToRegion, getSeasonalIngredients, getRecipeSeasonalIngredients } from '../utils/seasonal';
 import { useAuth } from '../contexts/AuthContext';
-import { loadUserData, saveField, loadFriends, loadFriendRecipes } from '../utils/firestoreSync';
+import { loadUserData, saveField, loadFriends, loadFriendRecipes, getPendingSharedRecipes } from '../utils/firestoreSync';
 import { copyMealImage } from '../utils/generateMealImage';
 import { ALL_TAGS, TAG_CATEGORIES, recipeMatchesTags } from '../utils/ingredientTags';
 import styles from './RecipeList.module.css';
@@ -117,6 +117,7 @@ export function RecipeList({
   const [selectedFriend, setSelectedFriend] = useState('');
   const [friendRecipes, setFriendRecipes] = useState([]);
   const [friendRecipesLoading, setFriendRecipesLoading] = useState(false);
+  const [pendingShares, setPendingShares] = useState([]);
   const [weekMenuOpen, setWeekMenuOpen] = useState(true);
   const [suggestOpen, setSuggestOpen] = useState(true);
   const [myRecipesOpen, setMyRecipesOpen] = useState(true);
@@ -144,6 +145,9 @@ export function RecipeList({
     if (!user) return;
     loadFriends(user.uid).then(friends => {
       setFriendsWithAccess(friends.filter(f => f.hasGrantedAccess));
+    }).catch(() => {});
+    getPendingSharedRecipes(user.uid).then(shares => {
+      setPendingShares(shares);
     }).catch(() => {});
   }, [user?.uid]);
 
@@ -1172,6 +1176,9 @@ export function RecipeList({
                   }}
                 >
                   <option value="prepday">Prep Day Recipes</option>
+                  {pendingShares.length > 0 && (
+                    <option value="shared">Shared with Me ({pendingShares.length})</option>
+                  )}
                   {friendsWithAccess.map(f => (
                     <option key={f.uid} value={f.uid}>
                       @{f.username || f.displayName}'s Recipes
@@ -1187,7 +1194,45 @@ export function RecipeList({
                 />
               </div>
               <div className={styles.importList}>
-                {selectedFriend ? (
+                {selectedFriend === 'shared' ? (
+                  // Shared with me
+                  pendingShares.length === 0 ? (
+                    <p className={styles.importEmpty}>No shared recipes.</p>
+                  ) : (
+                    pendingShares.map(share => (
+                      <div key={share.id} className={styles.importItem}>
+                        <div className={styles.importInfo}>
+                          <span className={styles.importName}>{share.recipe?.title || 'Untitled'}</span>
+                          <span className={styles.importMeta}>from @{share.fromUsername}</span>
+                        </div>
+                        <div style={{ display: 'flex', gap: '0.3rem' }}>
+                          <button
+                            className={styles.importAddBtn}
+                            onClick={async () => {
+                              if (onAddRecipe && share.recipe) {
+                                const { id, ...rest } = share.recipe;
+                                onAddRecipe({ ...rest, source: 'shared' });
+                              }
+                              const { acceptSharedRecipe } = await import('../utils/firestoreSync');
+                              await acceptSharedRecipe(share.id);
+                              setPendingShares(prev => prev.filter(s => s.id !== share.id));
+                            }}
+                            title="Accept"
+                          >+</button>
+                          <button
+                            className={styles.importAddBtnDisabled}
+                            onClick={async () => {
+                              const { declineSharedRecipe } = await import('../utils/firestoreSync');
+                              await declineSharedRecipe(share.id);
+                              setPendingShares(prev => prev.filter(s => s.id !== share.id));
+                            }}
+                            title="Decline"
+                          >&times;</button>
+                        </div>
+                      </div>
+                    ))
+                  )
+                ) : selectedFriend ? (
                   // Friend's recipes
                   friendRecipesLoading ? (
                     <p className={styles.importEmpty}>Loading...</p>
