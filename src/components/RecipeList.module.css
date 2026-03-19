@@ -1060,6 +1060,19 @@
   color: var(--color-text-muted);
 }
 
+.importSectionLabel {
+  font-size: var(--font-size-xs);
+  font-weight: 700;
+  color: #e67e22;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  margin: var(--space-2) 0 var(--space-1);
+}
+
+.importSectionLabel:first-child {
+  margin-top: 0;
+}
+
 .importAddBtnDisabled {
   width: 28px;
   height: 28px;

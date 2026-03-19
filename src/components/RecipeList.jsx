@@ -1176,9 +1176,7 @@ export function RecipeList({
                   }}
                 >
                   <option value="prepday">Prep Day Recipes</option>
-                  {pendingShares.length > 0 && (
-                    <option value="shared">Shared with Me ({pendingShares.length})</option>
-                  )}
+                  <option value="shared">Shared with Me{pendingShares.length > 0 ? ` (${pendingShares.length} new)` : ''}</option>
                   {friendsWithAccess.map(f => (
                     <option key={f.uid} value={f.uid}>
                       @{f.username || f.displayName}'s Recipes
@@ -1195,43 +1193,77 @@ export function RecipeList({
               </div>
               <div className={styles.importList}>
                 {selectedFriend === 'shared' ? (
-                  // Shared with me
-                  pendingShares.length === 0 ? (
-                    <p className={styles.importEmpty}>No shared recipes.</p>
-                  ) : (
-                    pendingShares.map(share => (
-                      <div key={share.id} className={styles.importItem}>
-                        <div className={styles.importInfo}>
-                          <span className={styles.importName}>{share.recipe?.title || 'Untitled'}</span>
-                          <span className={styles.importMeta}>from @{share.fromUsername}</span>
-                        </div>
-                        <div style={{ display: 'flex', gap: '0.3rem' }}>
-                          <button
-                            className={styles.importAddBtn}
-                            onClick={async () => {
-                              if (onAddRecipe && share.recipe) {
-                                const { id, ...rest } = share.recipe;
-                                onAddRecipe({ ...rest, source: 'shared' });
-                              }
-                              const { acceptSharedRecipe } = await import('../utils/firestoreSync');
-                              await acceptSharedRecipe(share.id);
-                              setPendingShares(prev => prev.filter(s => s.id !== share.id));
-                            }}
-                            title="Accept"
-                          >+</button>
-                          <button
-                            className={styles.importAddBtnDisabled}
-                            onClick={async () => {
-                              const { declineSharedRecipe } = await import('../utils/firestoreSync');
-                              await declineSharedRecipe(share.id);
-                              setPendingShares(prev => prev.filter(s => s.id !== share.id));
-                            }}
-                            title="Decline"
-                          >&times;</button>
-                        </div>
-                      </div>
-                    ))
-                  )
+                  // Shared with me: pending + already accepted
+                  (() => {
+                    const acceptedShared = recipes.filter(r => r.source === 'shared');
+                    const filteredAccepted = importSearch.trim()
+                      ? acceptedShared.filter(r => r.title.toLowerCase().includes(importSearch.toLowerCase()))
+                      : acceptedShared;
+                    const filteredPending = importSearch.trim()
+                      ? pendingShares.filter(s => (s.recipe?.title || '').toLowerCase().includes(importSearch.toLowerCase()))
+                      : pendingShares;
+                    const hasAnything = filteredPending.length > 0 || filteredAccepted.length > 0;
+
+                    return !hasAnything ? (
+                      <p className={styles.importEmpty}>No shared recipes.</p>
+                    ) : (
+                      <>
+                        {filteredPending.length > 0 && (
+                          <>
+                            <p className={styles.importSectionLabel}>New</p>
+                            {filteredPending.map(share => (
+                              <div key={share.id} className={styles.importItem}>
+                                <div className={styles.importInfo}>
+                                  <span className={styles.importName}>{share.recipe?.title || 'Untitled'}</span>
+                                  <span className={styles.importMeta}>from @{share.fromUsername}</span>
+                                </div>
+                                <div style={{ display: 'flex', gap: '0.3rem' }}>
+                                  <button
+                                    className={styles.importAddBtn}
+                                    onClick={async () => {
+                                      if (onAddRecipe && share.recipe) {
+                                        const { id, ...rest } = share.recipe;
+                                        onAddRecipe({ ...rest, source: 'shared' });
+                                      }
+                                      const { acceptSharedRecipe } = await import('../utils/firestoreSync');
+                                      await acceptSharedRecipe(share.id);
+                                      setPendingShares(prev => prev.filter(s => s.id !== share.id));
+                                    }}
+                                    title="Accept"
+                                  >+</button>
+                                  <button
+                                    className={styles.importAddBtnDisabled}
+                                    onClick={async () => {
+                                      const { declineSharedRecipe } = await import('../utils/firestoreSync');
+                                      await declineSharedRecipe(share.id);
+                                      setPendingShares(prev => prev.filter(s => s.id !== share.id));
+                                    }}
+                                    title="Decline"
+                                  >&times;</button>
+                                </div>
+                              </div>
+                            ))}
+                          </>
+                        )}
+                        {filteredAccepted.length > 0 && (
+                          <>
+                            {filteredPending.length > 0 && <p className={styles.importSectionLabel}>Added</p>}
+                            {filteredAccepted.map(r => (
+                              <div key={r.id} className={styles.importItem}>
+                                <div className={styles.importInfo}>
+                                  <span className={styles.importName}>{r.title}</span>
+                                  <span className={styles.importMeta}>
+                                    {r.category === 'breakfast' ? 'Breakfast' : 'Lunch/Dinner'}
+                                  </span>
+                                </div>
+                                <span className={styles.importAddBtnDisabled}>✓</span>
+                              </div>
+                            ))}
+                          </>
+                        )}
+                      </>
+                    );
+                  })()
                 ) : selectedFriend ? (
                   // Friend's recipes
                   friendRecipesLoading ? (
