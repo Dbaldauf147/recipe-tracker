@@ -974,6 +974,9 @@ function SnackTrackerInline({ onAdd, onClose }) {
   const [ingredientName, setIngredientName] = useState('');
   const [quantity, setQuantity] = useState('');
   const [measurement, setMeasurement] = useState('g');
+  const [gramsMode, setGramsMode] = useState(false);
+  const [gramsInput, setGramsInput] = useState('');
+  const [selectedDbItem, setSelectedDbItem] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -983,6 +986,31 @@ function SnackTrackerInline({ onAdd, onClose }) {
     setLoading(true);
     setError('');
     try {
+      // Grams mode: scale from ingredient database
+      if (gramsMode && selectedDbItem && gramsInput) {
+        const dbGrams = parseFloat(selectedDbItem.grams) || 100;
+        const myGrams = parseFloat(gramsInput) || 0;
+        if (myGrams <= 0) { setError('Enter a weight in grams.'); setLoading(false); return; }
+        const factor = myGrams / dbGrams;
+        const nutrition = {};
+        for (const n of NUTRIENTS) {
+          const val = parseFloat(selectedDbItem[n.key]) || 0;
+          nutrition[n.key] = Math.round(val * factor * 10) / 10;
+        }
+        setItems(prev => [...prev, {
+          id: uuid(),
+          ingredientName: ingredientName.trim(),
+          quantity: myGrams,
+          measurement: 'g',
+          nutrition,
+        }]);
+        setIngredientName('');
+        setGramsInput('');
+        setSelectedDbItem(null);
+        setLoading(false);
+        return;
+      }
+
       const result = await fetchNutritionForIngredient({
         ingredient: ingredientName.trim(),
         quantity: quantity || '1',
@@ -1039,6 +1067,7 @@ function SnackTrackerInline({ onAdd, onClose }) {
             onChange={setIngredientName}
             onSelect={(item) => {
               setIngredientName(item.ingredient);
+              setSelectedDbItem(item);
               if (item.measurement) {
                 const m = item.measurement.toLowerCase().replace(/\(s\)/g, '').replace(/_.*$/, '').trim();
                 setMeasurement(m || 'g');
@@ -1046,20 +1075,44 @@ function SnackTrackerInline({ onAdd, onClose }) {
             }}
           />
         </div>
-        <div className={styles.formFieldSmall}>
-          <span className={styles.formLabel}>Qty</span>
-          <input className={styles.formInput} type="number" value={quantity} onChange={e => setQuantity(e.target.value)} placeholder="1" min="0.1" step="0.1" />
-        </div>
-        <div className={styles.formFieldSmall}>
-          <span className={styles.formLabel}>Unit</span>
-          <input className={styles.formInput} type="text" list="snack-unit-opts" value={measurement} onChange={e => setMeasurement(e.target.value)} placeholder="g" />
-          <datalist id="snack-unit-opts">
-            {MEASUREMENT_OPTIONS.map(m => <option key={m} value={m} />)}
-          </datalist>
-        </div>
+        {gramsMode ? (
+          <div className={styles.formFieldSmall}>
+            <span className={styles.formLabel}>Grams</span>
+            <input className={styles.formInput} type="number" value={gramsInput} onChange={e => setGramsInput(e.target.value)} placeholder="g" min="1" step="1" />
+            {selectedDbItem && gramsInput && (() => {
+              const dbGrams = parseFloat(selectedDbItem.grams) || 100;
+              const myGrams = parseFloat(gramsInput) || 0;
+              const factor = myGrams / dbGrams;
+              const cal = Math.round((parseFloat(selectedDbItem.calories) || 0) * factor);
+              return cal > 0 ? <span className={styles.gramsPreview}>{cal} cal</span> : null;
+            })()}
+          </div>
+        ) : (
+          <>
+            <div className={styles.formFieldSmall}>
+              <span className={styles.formLabel}>Qty</span>
+              <input className={styles.formInput} type="number" value={quantity} onChange={e => setQuantity(e.target.value)} placeholder="1" min="0.1" step="0.1" />
+            </div>
+            <div className={styles.formFieldSmall}>
+              <span className={styles.formLabel}>Unit</span>
+              <input className={styles.formInput} type="text" list="snack-unit-opts" value={measurement} onChange={e => setMeasurement(e.target.value)} placeholder="g" />
+              <datalist id="snack-unit-opts">
+                {MEASUREMENT_OPTIONS.map(m => <option key={m} value={m} />)}
+              </datalist>
+            </div>
+          </>
+        )}
         <button className={styles.mealIngAddBtn} onClick={handleAddItem} disabled={loading || !ingredientName.trim()}>
           {loading ? '...' : '+'}
         </button>
+      </div>
+      <div className={styles.gramsModeRow}>
+        <button className={gramsMode ? styles.gramsModeActive : styles.gramsModeBtn} onClick={() => setGramsMode(prev => !prev)}>
+          {gramsMode ? 'Switch to Qty/Unit' : 'Enter by grams'}
+        </button>
+        {gramsMode && selectedDbItem && (
+          <span className={styles.gramsNote}>Based on {selectedDbItem.grams || 100}g serving</span>
+        )}
       </div>
       {error && <p className={styles.addError}>{error}</p>}
 

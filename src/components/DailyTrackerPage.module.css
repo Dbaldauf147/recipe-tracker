@@ -932,6 +932,45 @@
   accent-color: var(--color-accent);
 }
 
+.gramsModeRow {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.3rem;
+  margin-bottom: 0.5rem;
+}
+
+.gramsModeBtn,
+.gramsModeActive {
+  background: none;
+  border: none;
+  font-size: 0.72rem;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  color: var(--color-accent);
+  padding: 0;
+  text-decoration: underline;
+  text-decoration-style: dotted;
+}
+
+.gramsModeActive {
+  color: var(--color-text);
+}
+
+.gramsNote {
+  font-size: 0.72rem;
+  color: var(--color-text-muted);
+}
+
+.gramsPreview {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--color-accent);
+  display: block;
+  margin-top: 0.15rem;
+}
+
 /* ── Snack Tracker ── */
 .snackList {
   margin-top: 0.75rem;
