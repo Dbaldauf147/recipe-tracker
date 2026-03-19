@@ -1943,6 +1943,11 @@
 }
 
 /* ── Print Styles ── */
+@page {
+  size: letter;
+  margin: 0.5in;
+}
+
 @media print {
   .headerRow,
   .headerPrintBtn,
@@ -1959,14 +1964,31 @@
   .containerAddBtn,
   .weighResetBtn,
   .stepSectionAddBtn,
-  .stepSectionRemove {
+  .stepSectionRemove,
+  .cookModeToggle {
     display: none !important;
   }
 
   .container {
-    max-width: 100% !important;
+    max-width: 7.5in !important;
+    width: 7.5in !important;
     padding: 0 !important;
     margin: 0 !important;
+    overflow: visible !important;
+    font-size: 11pt !important;
+  }
+
+  .ingredientTable {
+    width: 100% !important;
+    font-size: 10pt !important;
+    table-layout: auto !important;
+  }
+
+  .ingredientTable th,
+  .ingredientTable td {
+    padding: 3px 6px !important;
+    white-space: normal !important;
+    word-wrap: break-word !important;
   }
 
   .ingredientTable,
@@ -1982,6 +2004,18 @@
   .ingredientsCol,
   .stepsSection {
     break-before: avoid;
+    width: 100% !important;
+    max-width: 100% !important;
+    overflow: visible !important;
+  }
+
+  .stepsList,
+  .stepsListReadonly {
+    padding-left: 1.2em !important;
+  }
+
+  .metaRow {
+    font-size: 10pt !important;
   }
 
   details {

@@ -504,3 +504,23 @@
   text-align: center;
   padding: 0.5rem 0;
 }
+
+/* ── Print: hide app shell ── */
+@media print {
+  .header,
+  .nav,
+  .settingsMenu,
+  .settingsOverlay {
+    display: none !important;
+  }
+
+  .app {
+    background: #fff !important;
+  }
+
+  .main {
+    padding: 0 !important;
+    margin: 0 !important;
+    max-width: 100% !important;
+  }
+}
