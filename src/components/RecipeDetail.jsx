@@ -915,6 +915,12 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
           &larr; Back to recipes
         </button>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+          {user?.uid === ADMIN_UID && (
+            <label style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', cursor: 'pointer', fontSize: '0.8rem', color: 'var(--color-text-muted)', whiteSpace: 'nowrap' }}>
+              <input type="checkbox" checked={fields.starterRecipe} onChange={e => setField('starterRecipe', e.target.checked)} />
+              Starter
+            </label>
+          )}
           <button className={styles.headerPrintBtn} onClick={() => window.print()}>
             Print
           </button>
@@ -1235,12 +1241,6 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
             />
             {imageError && <p className={styles.imageError}>{imageError}</p>}
           </div>
-          {user?.uid === ADMIN_UID && (
-            <label style={{ position: 'absolute', right: '-180px', top: '0', display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', fontSize: '0.82rem', color: 'var(--color-text-muted)', whiteSpace: 'nowrap' }}>
-              <input type="checkbox" checked={fields.starterRecipe} onChange={e => setField('starterRecipe', e.target.checked)} />
-              Starter recipe
-            </label>
-          )}
       </div>
 
 
