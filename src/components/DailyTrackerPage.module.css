@@ -1926,34 +1926,26 @@
 }
 
 /* ── Weekly + Calendar Side-by-Side ── */
-.weeklyWithCal {
+.calendarRow {
   display: flex;
-  gap: 1.25rem;
   align-items: flex-start;
-  margin-bottom: 1.5rem;
+  margin-bottom: 1rem;
 }
 
-.weeklyWithCalLeft {
+.calendarRowSpacer {
   flex: 1;
-  min-width: 0;
 }
 
-.weeklyWithCalRight {
+.calendarRowRight {
   display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 0.5rem;
+  align-items: flex-start;
+  gap: 0.75rem;
   flex-shrink: 0;
-  width: 220px;
 }
 
 @media (max-width: 900px) {
-  .weeklyWithCal {
-    flex-direction: column;
-  }
-  .weeklyWithCalRight {
-    align-items: stretch;
-    width: 100%;
+  .calendarRow {
+    justify-content: flex-end;
   }
 }
 
