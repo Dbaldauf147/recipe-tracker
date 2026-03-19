@@ -505,12 +505,13 @@
   padding: 0.5rem 0;
 }
 
-/* ── Print: hide app shell ── */
+/* ── Print: hide app shell, flatten modal ── */
 @media print {
   .header,
   .nav,
   .settingsMenu,
-  .settingsOverlay {
+  .settingsOverlay,
+  .importModalClose {
     display: none !important;
   }
 
@@ -522,5 +523,26 @@
     padding: 0 !important;
     margin: 0 !important;
     max-width: 100% !important;
+  }
+
+  .importModalOverlay {
+    position: static !important;
+    background: none !important;
+    backdrop-filter: none !important;
+    padding: 0 !important;
+    display: block !important;
+  }
+
+  .importModalContent {
+    position: static !important;
+    max-width: 100% !important;
+    width: 100% !important;
+    min-width: 0 !important;
+    max-height: none !important;
+    overflow: visible !important;
+    box-shadow: none !important;
+    border-radius: 0 !important;
+    padding: 0 !important;
+    animation: none !important;
   }
 }
