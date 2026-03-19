@@ -2361,6 +2361,17 @@
 }
 
 /* ── Two-column layout ── */
+.belowFoodLog {
+  /* Match the food log table width: full width minus calendar (220px) and gap (1.25rem) */
+  max-width: calc(100% - 220px - 1.25rem);
+}
+
+@media (max-width: 900px) {
+  .belowFoodLog {
+    max-width: 100%;
+  }
+}
+
 .twoColRow {
   display: grid;
   grid-template-columns: 1fr 1fr;

@@ -2922,11 +2922,13 @@ export function DailyTrackerPage({ recipes, getRecipe, onClose, user, weeklyPlan
           <button className={styles.todayBtn} onClick={() => setDate(todayStr())} disabled={date === todayStr()}>Today</button>
         </div>
       </div>
-      <div className={styles.twoColRow}>
-        <HistoryChart dailyLog={dailyLog} />
-        <ServingsChart dailyLog={dailyLog} />
+      <div className={styles.belowFoodLog}>
+        <div className={styles.twoColRow}>
+          <HistoryChart dailyLog={dailyLog} />
+          <ServingsChart dailyLog={dailyLog} />
+        </div>
+        <KpiAlerts dailyLog={dailyLog} recipes={recipes} onImportRecipe={onImportRecipe} cacheVersion={cacheVersion} onViewRecipe={(id) => setViewRecipeId(id)} selectedDate={date} user={user} />
       </div>
-      <KpiAlerts dailyLog={dailyLog} recipes={recipes} onImportRecipe={onImportRecipe} cacheVersion={cacheVersion} onViewRecipe={(id) => setViewRecipeId(id)} selectedDate={date} user={user} />
       {editModal && (() => {
         const dayData = dailyLog[editModal.dateStr];
         const entry = dayData?.entries?.find(e => e.id === editModal.entryId);
