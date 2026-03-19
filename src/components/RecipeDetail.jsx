@@ -682,6 +682,8 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
       }
       return { ...prev, steps: newSteps, stepIngredients: newMap, stepSections: newSections };
     });
+    // Force contentEditable re-render so remaining steps show correct text
+    setStepVersion(v => v + 1);
   }
 
   const [stepVersion, setStepVersion] = useState(0);
