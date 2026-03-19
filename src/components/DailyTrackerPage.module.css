@@ -2,7 +2,8 @@
   max-width: 100%;
   margin: 0;
   padding: 1rem 1.5rem 1rem 1rem;
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: visible;
 }
 
 /* ── Week Calendar ── */
@@ -1930,7 +1931,6 @@
   gap: 1.25rem;
   align-items: flex-start;
   margin-bottom: 1.5rem;
-  margin-right: -240px;
 }
 
 .weeklyWithCalLeft {
@@ -1947,16 +1947,9 @@
   width: 220px;
 }
 
-@media (max-width: 1200px) {
-  .weeklyWithCal {
-    margin-right: 0;
-  }
-}
-
 @media (max-width: 900px) {
   .weeklyWithCal {
     flex-direction: column;
-    margin-right: 0;
   }
   .weeklyWithCalRight {
     align-items: stretch;
