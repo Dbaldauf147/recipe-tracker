@@ -448,3 +448,9 @@
 .sourcesLink:hover {
   color: var(--color-accent-hover);
 }
+
+@media print {
+  .disclaimer {
+    display: none !important;
+  }
+}

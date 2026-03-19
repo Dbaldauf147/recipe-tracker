@@ -1965,7 +1965,9 @@
   .weighResetBtn,
   .stepSectionAddBtn,
   .stepSectionRemove,
-  .cookModeToggle {
+  .cookModeToggle,
+  .actions,
+  .deleteBtn {
     display: none !important;
   }
 
