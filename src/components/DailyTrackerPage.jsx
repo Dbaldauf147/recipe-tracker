@@ -1942,7 +1942,7 @@ function HistoryChart({ dailyLog }) {
               <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: '0.78rem', paddingTop: '0.5rem', textAlign: 'left' }} align="left" />
               <ReferenceLine y={100} stroke="#d1d5db" strokeDasharray="6 3" strokeWidth={1.5} label={{ value: '100%', position: 'right', fontSize: 10, fill: '#9ca3af' }} />
               {selectedNutrients.filter(k => goals[k] > 0).map((key, i) => (
-                <Area key={`area-${key}`} type="monotone" dataKey={key} fill={`url(#grad-${key})`} stroke="none" name={NUTRIENTS.find(n => n.key === key)?.label || key} legendType="none" />
+                <Area key={`area-${key}`} type="monotone" dataKey={key} fill={`url(#grad-${key})`} stroke="none" name={NUTRIENTS.find(n => n.key === key)?.label || key} legendType="none" tooltipType="none" />
               ))}
               {selectedNutrients.filter(k => goals[k] > 0).map((key, i) => (
                 <Line key={key} type="monotone" dataKey={key} stroke={CHART_COLORS[i % CHART_COLORS.length]} strokeWidth={2.5} dot={{ r: 3, fill: '#fff', stroke: CHART_COLORS[i % CHART_COLORS.length], strokeWidth: 2 }} activeDot={{ r: 5, fill: CHART_COLORS[i % CHART_COLORS.length], stroke: '#fff', strokeWidth: 2 }} name={NUTRIENTS.find(n => n.key === key)?.label || key} />
@@ -2049,8 +2049,8 @@ function ServingsChart({ dailyLog }) {
               <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: '0.78rem', paddingTop: '0.5rem', textAlign: 'left' }} align="left" />
               <ReferenceLine y={vegTarget} stroke="#22c55e" strokeDasharray="6 3" strokeWidth={1.5} label={{ value: `Veg ${vegTarget}`, position: 'right', fontSize: 10, fill: '#22c55e' }} />
               <ReferenceLine y={fruitTarget} stroke="#f59e0b" strokeDasharray="6 3" strokeWidth={1.5} label={{ value: `Fruit ${fruitTarget}`, position: 'right', fontSize: 10, fill: '#f59e0b' }} />
-              <Area type="monotone" dataKey="veg" fill="url(#grad-veg)" stroke="none" name="Vegetables" legendType="none" />
-              <Area type="monotone" dataKey="fruit" fill="url(#grad-fruit)" stroke="none" name="Fruit" legendType="none" />
+              <Area type="monotone" dataKey="veg" fill="url(#grad-veg)" stroke="none" name="Vegetables" legendType="none" tooltipType="none" />
+              <Area type="monotone" dataKey="fruit" fill="url(#grad-fruit)" stroke="none" name="Fruit" legendType="none" tooltipType="none" />
               <Line type="monotone" dataKey="veg" stroke="#22c55e" strokeWidth={2.5} dot={{ r: 3, fill: '#fff', stroke: '#22c55e', strokeWidth: 2 }} activeDot={{ r: 5, fill: '#22c55e', stroke: '#fff', strokeWidth: 2 }} name="Vegetables" />
               <Line type="monotone" dataKey="fruit" stroke="#f59e0b" strokeWidth={2.5} dot={{ r: 3, fill: '#fff', stroke: '#f59e0b', strokeWidth: 2 }} activeDot={{ r: 5, fill: '#f59e0b', stroke: '#fff', strokeWidth: 2 }} name="Fruit" />
             </ComposedChart>
