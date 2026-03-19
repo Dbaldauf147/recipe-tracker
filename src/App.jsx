@@ -546,12 +546,6 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
               >
                 Key Ingredients
               </button>
-              <button
-                className={styles.settingsMenuItem}
-                onClick={() => { navigateTo('nutrition-goals'); setSettingsOpen(false); }}
-              >
-                Nutrition Goals
-              </button>
               {user?.uid === ADMIN_UID && (
                 <>
                   <button
