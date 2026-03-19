@@ -2297,7 +2297,7 @@ function WeeklyView({ dailyLog, date, recipes, onDayClick, onMoveEntry, onAddToS
                               }
                             }}
                           >{item.name}</span>
-                        )) : day.isPast ? (
+                        )) : (day.isPast && slot !== 'dessert' && slot !== 'snack') ? (
                           <span className={styles.weeklyColNotTracked}>Not Tracked</span>
                         ) : (
                           <span className={styles.weeklyColEmpty}></span>
