@@ -932,45 +932,61 @@
   accent-color: var(--color-accent);
 }
 
-.gramsModeRow {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  margin-top: 0.3rem;
+.ingredientStandardMacros {
+  background: var(--color-surface-alt, #faf9f7);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md, 8px);
+  padding: 0.5rem 0.75rem;
   margin-bottom: 0.5rem;
 }
 
-.gramsModeBtn,
-.gramsModeActive {
-  background: none;
-  border: none;
+.ingredientStandardLabel {
   font-size: 0.72rem;
-  font-weight: 600;
-  font-family: inherit;
-  cursor: pointer;
-  color: var(--color-accent);
-  padding: 0;
-  text-decoration: underline;
-  text-decoration-style: dotted;
+  color: var(--color-text-muted);
+  display: block;
+  margin-bottom: 0.2rem;
 }
 
-.gramsModeActive {
+.ingredientMacroRow {
+  display: flex;
+  gap: 0.75rem;
+  font-size: 0.82rem;
+  font-weight: 600;
   color: var(--color-text);
 }
 
-.gramsNote {
-  font-size: 0.72rem;
-  color: var(--color-text-muted);
+.gramsSection {
+  background: var(--color-surface);
+  border: 1px solid var(--color-accent);
+  border-radius: var(--radius-md, 8px);
+  padding: 0.5rem 0.75rem;
+  margin-bottom: 0.5rem;
 }
 
-.gramsPreview {
+.gramsInputRow {
   display: flex;
+  align-items: center;
   gap: 0.5rem;
-  font-size: 0.72rem;
+}
+
+.gramsScaledMacros {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.35rem;
+  flex-wrap: wrap;
+}
+
+.gramsScaledLabel {
+  font-size: 0.75rem;
   font-weight: 600;
   color: var(--color-accent);
-  margin-top: 0.15rem;
-  flex-wrap: wrap;
+}
+
+.gramsScaledValue {
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--color-accent);
 }
 
 /* ── Snack Tracker ── */

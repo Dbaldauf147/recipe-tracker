@@ -1084,30 +1084,7 @@ function SnackTrackerInline({ onAdd, onClose }) {
             }}
           />
         </div>
-        {gramsMode ? (
-          <div className={styles.formFieldSmall}>
-            <span className={styles.formLabel}>Grams</span>
-            <input className={styles.formInput} type="number" value={gramsInput} onChange={e => setGramsInput(e.target.value)} placeholder="g" min="1" step="1" />
-            {selectedDbItem && gramsInput && (() => {
-              const dbGrams = parseFloat(selectedDbItem.grams) || 100;
-              const myGrams = parseFloat(gramsInput) || 0;
-              if (myGrams <= 0) return null;
-              const factor = myGrams / dbGrams;
-              const cal = Math.round((parseFloat(selectedDbItem.calories) || 0) * factor);
-              const pro = Math.round((parseFloat(selectedDbItem.protein) || 0) * factor * 10) / 10;
-              const carb = Math.round((parseFloat(selectedDbItem.carbs) || 0) * factor * 10) / 10;
-              const fat = Math.round((parseFloat(selectedDbItem.fat) || 0) * factor * 10) / 10;
-              return (
-                <div className={styles.gramsPreview}>
-                  <span>{cal} cal</span>
-                  <span>{pro}g P</span>
-                  <span>{carb}g C</span>
-                  <span>{fat}g F</span>
-                </div>
-              );
-            })()}
-          </div>
-        ) : (
+        {!gramsMode && (
           <>
             <div className={styles.formFieldSmall}>
               <span className={styles.formLabel}>Qty</span>
@@ -1122,18 +1099,59 @@ function SnackTrackerInline({ onAdd, onClose }) {
             </div>
           </>
         )}
-        <button className={styles.mealIngAddBtn} onClick={handleAddItem} disabled={loading || !ingredientName.trim()}>
-          {loading ? '...' : '+'}
-        </button>
-      </div>
-      <div className={styles.gramsModeRow}>
-        <button className={gramsMode ? styles.gramsModeActive : styles.gramsModeBtn} onClick={() => setGramsMode(prev => !prev)}>
-          {gramsMode ? 'Switch to Qty/Unit' : 'Enter by grams'}
-        </button>
-        {gramsMode && selectedDbItem && (
-          <span className={styles.gramsNote}>Based on {selectedDbItem.grams || 100}g serving</span>
+        {!gramsMode && (
+          <button className={styles.mealIngAddBtn} onClick={handleAddItem} disabled={loading || !ingredientName.trim()}>
+            {loading ? '...' : '+'}
+          </button>
         )}
       </div>
+
+      {/* Standard macros for selected ingredient */}
+      {selectedDbItem && (
+        <div className={styles.ingredientStandardMacros}>
+          <span className={styles.ingredientStandardLabel}>
+            Per serving ({selectedDbItem.grams || 100}g{selectedDbItem.measurement && selectedDbItem.measurement !== 'g' ? `, ${selectedDbItem.measurement}` : ''}):
+          </span>
+          <div className={styles.ingredientMacroRow}>
+            <span>{selectedDbItem.calories || 0} cal</span>
+            <span>{selectedDbItem.protein || 0}g P</span>
+            <span>{selectedDbItem.carbs || 0}g C</span>
+            <span>{selectedDbItem.fat || 0}g F</span>
+          </div>
+        </div>
+      )}
+
+      {/* Grams input with scaled macros */}
+      {selectedDbItem && (
+        <div className={styles.gramsSection}>
+          <div className={styles.gramsInputRow}>
+            <span className={styles.formLabel}>My portion (grams)</span>
+            <input className={styles.formInput} type="number" value={gramsInput} onChange={e => setGramsInput(e.target.value)} placeholder="g" min="1" step="1" style={{ width: '80px' }} />
+            <button className={styles.mealIngAddBtn} onClick={() => { setGramsMode(true); handleAddItem(); }} disabled={loading || !gramsInput}>
+              {loading ? '...' : '+'}
+            </button>
+          </div>
+          {gramsInput && (() => {
+            const dbGrams = parseFloat(selectedDbItem.grams) || 100;
+            const myGrams = parseFloat(gramsInput) || 0;
+            if (myGrams <= 0) return null;
+            const factor = myGrams / dbGrams;
+            const cal = Math.round((parseFloat(selectedDbItem.calories) || 0) * factor);
+            const pro = Math.round((parseFloat(selectedDbItem.protein) || 0) * factor * 10) / 10;
+            const carb = Math.round((parseFloat(selectedDbItem.carbs) || 0) * factor * 10) / 10;
+            const fat = Math.round((parseFloat(selectedDbItem.fat) || 0) * factor * 10) / 10;
+            return (
+              <div className={styles.gramsScaledMacros}>
+                <span className={styles.gramsScaledLabel}>For {myGrams}g:</span>
+                <span className={styles.gramsScaledValue}>{cal} cal</span>
+                <span className={styles.gramsScaledValue}>{pro}g P</span>
+                <span className={styles.gramsScaledValue}>{carb}g C</span>
+                <span className={styles.gramsScaledValue}>{fat}g F</span>
+              </div>
+            );
+          })()}
+        </div>
+      )}
       {error && <p className={styles.addError}>{error}</p>}
 
       {items.length > 0 && (
