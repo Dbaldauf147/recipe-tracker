@@ -331,9 +331,11 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
   const NAV_ITEMS = [
     { label: 'Shopping List', action: 'shopping' },
     { label: 'Recipes', id: 'weekly-menu' },
-    { label: 'Track Meals', action: 'daily-tracker' },
-    { label: 'Nutrition Goals', action: 'nutrition-goals' },
-    ...(showWeightTab ? [{ label: 'Weight', action: 'weight-tracker' }] : []),
+    { label: 'Nutrition Tracking', submenu: [
+      { label: 'Goals', action: 'nutrition-goals' },
+      { label: 'Track Meals', action: 'daily-tracker' },
+      ...(showWeightTab ? [{ label: 'Weight', action: 'weight-tracker' }] : []),
+    ] },
   ];
 
   function handleNavClick(item) {
@@ -462,6 +464,27 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
             </button>
           )}
           {NAV_ITEMS.map(item => {
+            if (item.submenu) {
+              const isActive = item.submenu.some(s => s.action === view);
+              return (
+                <div key={item.label} className={styles.navDropdownWrap}>
+                  <button className={`${styles.navItem}${isActive ? ` ${styles.navItemActive}` : ''}`}>
+                    {item.label} <span className={styles.navDropdownArrow}>▾</span>
+                  </button>
+                  <div className={styles.navDropdown}>
+                    {item.submenu.map(sub => (
+                      <button
+                        key={sub.action}
+                        className={`${styles.navDropdownItem}${view === sub.action ? ` ${styles.navDropdownItemActive}` : ''}`}
+                        onClick={() => handleNavClick(sub)}
+                      >
+                        {sub.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              );
+            }
             const isActive = item.action
               ? view === item.action
               : item.id && view === 'list';

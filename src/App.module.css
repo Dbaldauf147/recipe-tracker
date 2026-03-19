@@ -61,6 +61,60 @@
   background: rgba(255, 255, 255, 0.15);
 }
 
+.navDropdownWrap {
+  position: relative;
+  display: inline-flex;
+}
+
+.navDropdownArrow {
+  font-size: 0.65em;
+  margin-left: 0.2rem;
+  opacity: 0.7;
+}
+
+.navDropdown {
+  display: none;
+  position: absolute;
+  top: 100%;
+  left: 0;
+  background: var(--color-header-bg, #2C2520);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: var(--radius-md);
+  padding: 0.3rem 0;
+  min-width: 150px;
+  z-index: 100;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.navDropdownWrap:hover .navDropdown {
+  display: block;
+}
+
+.navDropdownItem {
+  display: block;
+  width: 100%;
+  background: none;
+  border: none;
+  font-size: var(--font-size-sm);
+  font-family: inherit;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.65);
+  cursor: pointer;
+  padding: 0.5rem 1rem;
+  text-align: left;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.navDropdownItem:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #ffffff;
+}
+
+.navDropdownItemActive {
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.15);
+}
+
 .main {
   padding: 0 var(--space-3) var(--space-12);
 }
