@@ -964,11 +964,13 @@
 }
 
 .gramsPreview {
+  display: flex;
+  gap: 0.5rem;
   font-size: 0.72rem;
   font-weight: 600;
   color: var(--color-accent);
-  display: block;
   margin-top: 0.15rem;
+  flex-wrap: wrap;
 }
 
 /* ── Snack Tracker ── */

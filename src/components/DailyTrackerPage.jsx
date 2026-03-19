@@ -981,6 +981,15 @@ function SnackTrackerInline({ onAdd, onClose }) {
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
+  // Auto-match ingredient name to DB when typing (not just on select)
+  useEffect(() => {
+    if (!ingredientName.trim()) { setSelectedDbItem(null); return; }
+    const db = loadIngredients() || [];
+    const lower = ingredientName.trim().toLowerCase();
+    const match = db.find(i => (i.ingredient || '').toLowerCase() === lower);
+    if (match) setSelectedDbItem(match);
+  }, [ingredientName]);
+
   async function handleAddItem() {
     if (!ingredientName.trim()) return;
     setLoading(true);
@@ -1082,9 +1091,20 @@ function SnackTrackerInline({ onAdd, onClose }) {
             {selectedDbItem && gramsInput && (() => {
               const dbGrams = parseFloat(selectedDbItem.grams) || 100;
               const myGrams = parseFloat(gramsInput) || 0;
+              if (myGrams <= 0) return null;
               const factor = myGrams / dbGrams;
               const cal = Math.round((parseFloat(selectedDbItem.calories) || 0) * factor);
-              return cal > 0 ? <span className={styles.gramsPreview}>{cal} cal</span> : null;
+              const pro = Math.round((parseFloat(selectedDbItem.protein) || 0) * factor * 10) / 10;
+              const carb = Math.round((parseFloat(selectedDbItem.carbs) || 0) * factor * 10) / 10;
+              const fat = Math.round((parseFloat(selectedDbItem.fat) || 0) * factor * 10) / 10;
+              return (
+                <div className={styles.gramsPreview}>
+                  <span>{cal} cal</span>
+                  <span>{pro}g P</span>
+                  <span>{carb}g C</span>
+                  <span>{fat}g F</span>
+                </div>
+              );
             })()}
           </div>
         ) : (
