@@ -237,16 +237,17 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
   // One-time migration: expand size variants for ingredients
   useEffect(() => {
     if (!user || user.uid !== ADMIN_UID) return;
-    if (localStorage.getItem('migration-size-variants-v1')) return;
+    if (localStorage.getItem('migration-size-variants-v2')) return;
     import('./utils/ingredientsStore').then(({ loadIngredients, expandSizeVariants, saveIngredientsToFirestore }) => {
       const db = loadIngredients();
       if (db && db.length > 0) {
         const expanded = expandSizeVariants(db);
+        console.log(`Size variant migration: ${db.length} → ${expanded.length} ingredients (${expanded.length - db.length} added)`);
         if (expanded.length > db.length) {
           saveIngredientsToFirestore(expanded);
         }
       }
-      localStorage.setItem('migration-size-variants-v1', 'done');
+      localStorage.setItem('migration-size-variants-v2', 'done');
     });
   }, [user]);
 

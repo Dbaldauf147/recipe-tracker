@@ -287,12 +287,20 @@ export function expandSizeVariants(ingredients) {
   const toAdd = [];
 
   for (const [baseName, sizes] of Object.entries(SIZE_DATA)) {
-    // Find the base ingredient in the database (try exact match, then partial)
+    // Find the base ingredient in the database — flexible matching
     const baseItem = ingredients.find(i => {
       const name = (i.ingredient || '').toLowerCase().trim();
-      return name === baseName || name === baseName + 's' || name === baseName + '(s)' || name.startsWith(baseName);
+      const normalized = name.replace(/\(s\)/g, '').replace(/_/g, ' ').trim();
+      return name === baseName || normalized === baseName
+        || name === baseName + 's' || normalized === baseName + 's'
+        || name === baseName + '(s)' || normalized.startsWith(baseName + ' ')
+        || name.startsWith(baseName + '(') || name.startsWith(baseName + '_');
     });
-    if (!baseItem) continue;
+    if (!baseItem) {
+      console.log('Size variants: no match for', baseName);
+      continue;
+    }
+    console.log('Size variants: matched', baseName, '→', baseItem.ingredient, `(${baseItem.grams}g)`);
 
     const baseGrams = parseFloat(baseItem.grams) || 100;
 
