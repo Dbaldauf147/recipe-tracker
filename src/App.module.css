@@ -545,4 +545,22 @@
     padding: 0 !important;
     animation: none !important;
   }
+
+  /* Hide everything behind the recipe modal */
+  .homeLayout,
+  .importModalOverlay:not(.printableRecipe) {
+    display: none !important;
+  }
+
+  main {
+    display: none !important;
+  }
+
+  .printableRecipe {
+    display: block !important;
+  }
+
+  .printableRecipe .importModalContent {
+    display: block !important;
+  }
 }

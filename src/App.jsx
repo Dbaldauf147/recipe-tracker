@@ -736,7 +736,7 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
         const recipe = getRecipe(viewRecipeId);
         if (!recipe) { setViewRecipeId(null); return null; }
         return (
-          <div className={styles.importModalOverlay} onClick={() => setViewRecipeId(null)}>
+          <div className={`${styles.importModalOverlay} ${styles.printableRecipe}`} onClick={() => setViewRecipeId(null)}>
             <div className={styles.importModalContent} onClick={e => e.stopPropagation()}>
               <button className={styles.importModalClose} onClick={() => setViewRecipeId(null)}>&times;</button>
               <RecipeDetail
