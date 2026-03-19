@@ -234,6 +234,22 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
     localStorage.setItem('migration-key-ingredients-v1', 'done');
   }, [user]);
 
+  // One-time migration: expand size variants for ingredients
+  useEffect(() => {
+    if (!user || user.uid !== ADMIN_UID) return;
+    if (localStorage.getItem('migration-size-variants-v1')) return;
+    import('./utils/ingredientsStore').then(({ loadIngredients, expandSizeVariants, saveIngredientsToFirestore }) => {
+      const db = loadIngredients();
+      if (db && db.length > 0) {
+        const expanded = expandSizeVariants(db);
+        if (expanded.length > db.length) {
+          saveIngredientsToFirestore(expanded);
+        }
+      }
+      localStorage.setItem('migration-size-variants-v1', 'done');
+    });
+  }, [user]);
+
   useEffect(() => {
     if (!user) return;
     let cancelled = false;
