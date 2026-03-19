@@ -1178,7 +1178,9 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
                 <span className={styles.metaValue} style={{ textTransform: 'capitalize' }}>{recipe.cuisine || 'No cuisine'}</span>
               </div>
               <div className={styles.metaRow}>
-                {fields.sourceUrl.trim() ? (
+                {recipe.source === 'ai' && !fields.sourceUrl.trim() ? (
+                  <span className={styles.aiSourceLabel}>AI Generated</span>
+                ) : fields.sourceUrl.trim() ? (
                   <a
                     href={fields.sourceUrl.trim().startsWith('http') ? fields.sourceUrl.trim() : `https://${fields.sourceUrl.trim()}`}
                     target="_blank"
