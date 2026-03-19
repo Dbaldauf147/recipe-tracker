@@ -468,7 +468,7 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
               const isActive = item.submenu.some(s => s.action === view);
               return (
                 <div key={item.label} className={styles.navDropdownWrap}>
-                  <button className={`${styles.navItem}${isActive ? ` ${styles.navItemActive}` : ''}`}>
+                  <button className={styles.navItem}>
                     {item.label} <span className={styles.navDropdownArrow}>▾</span>
                   </button>
                   <div className={styles.navDropdown}>
