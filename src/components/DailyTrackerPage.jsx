@@ -69,6 +69,13 @@ function ChartTooltip({ active, payload, label }) {
   );
 }
 
+const DAY_ABBR = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+function chartDateLabel(dateStr) {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  const dt = new Date(y, m - 1, d);
+  return `${DAY_ABBR[dt.getDay()]} ${m}/${d}`;
+}
+
 function todayStr() {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -1834,7 +1841,7 @@ function HistoryChart({ dailyLog }) {
       // Skip this day in calculations if the whole day is skipped
       if (daySkipped) {
         const [, m, d] = dateStr.split('-');
-        const row = { date: `${parseInt(m)}/${parseInt(d)}` };
+        const row = { date: chartDateLabel(dateStr) };
         for (const n of NUTRIENTS) row[n.key] = null; // null = skipped
         data.push(row);
         continue;
@@ -1859,7 +1866,7 @@ function HistoryChart({ dailyLog }) {
         }
       }
       const [, m, d] = dateStr.split('-');
-      const row = { date: `${parseInt(m)}/${parseInt(d)}` };
+      const row = { date: chartDateLabel(dateStr) };
       if (activeEntries.length === 0) {
         for (const n of NUTRIENTS) row[n.key] = null;
       } else {
@@ -1979,7 +1986,7 @@ function ServingsChart({ dailyLog }) {
       const skippedMeals = dayData.skippedMeals || [];
 
       const [, m, d] = dateStr.split('-');
-      const row = { date: `${parseInt(m)}/${parseInt(d)}` };
+      const row = { date: chartDateLabel(dateStr) };
 
       if (daySkipped) {
         row.veg = null;
