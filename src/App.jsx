@@ -332,6 +332,7 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
     { label: 'Shopping List', action: 'shopping' },
     { label: 'Recipes', id: 'weekly-menu' },
     { label: 'Track Meals', action: 'daily-tracker' },
+    { label: 'Nutrition Goals', action: 'nutrition-goals' },
     ...(showWeightTab ? [{ label: 'Weight', action: 'weight-tracker' }] : []),
   ];
 
