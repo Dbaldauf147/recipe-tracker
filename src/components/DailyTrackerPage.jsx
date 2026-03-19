@@ -41,6 +41,13 @@ function fmtNutrient(value, nutrientKey) {
 
 function ChartTooltip({ active, payload, label }) {
   if (!active || !payload?.length) return null;
+  // Deduplicate: Area and Line both emit entries for the same dataKey
+  const seen = new Set();
+  const unique = payload.filter(p => {
+    if (seen.has(p.dataKey)) return false;
+    seen.add(p.dataKey);
+    return true;
+  });
   return (
     <div style={{
       background: 'rgba(255,255,255,0.95)',
@@ -51,7 +58,7 @@ function ChartTooltip({ active, payload, label }) {
       fontSize: '0.8rem',
     }}>
       <div style={{ fontWeight: 600, marginBottom: '0.25rem', color: '#374151' }}>{label}</div>
-      {payload.map(p => (
+      {unique.map(p => (
         <div key={p.dataKey} style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', padding: '1px 0' }}>
           <span style={{ width: 8, height: 8, borderRadius: '50%', background: p.color, display: 'inline-block' }} />
           <span style={{ color: '#6b7280' }}>{p.name}:</span>
@@ -2062,6 +2069,12 @@ function ServingsChart({ dailyLog }) {
 
 function ServingsTooltip({ active, payload, label }) {
   if (!active || !payload?.length) return null;
+  const seen = new Set();
+  const unique = payload.filter(p => {
+    if (seen.has(p.dataKey)) return false;
+    seen.add(p.dataKey);
+    return true;
+  });
   return (
     <div style={{
       background: 'rgba(255,255,255,0.95)',
@@ -2072,7 +2085,7 @@ function ServingsTooltip({ active, payload, label }) {
       fontSize: '0.8rem',
     }}>
       <div style={{ fontWeight: 600, marginBottom: '0.25rem', color: '#374151' }}>{label}</div>
-      {payload.map(p => (
+      {unique.map(p => (
         <div key={p.dataKey} style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', padding: '1px 0' }}>
           <span style={{ width: 8, height: 8, borderRadius: '50%', background: p.color, display: 'inline-block' }} />
           <span style={{ color: '#6b7280' }}>{p.name}:</span>
