@@ -508,6 +508,25 @@ export function RecipeList({
     return available.filter(r => r.title.toLowerCase().includes(q));
   }, [adminRecipes, recipes, addedIds, importSearch, showRare, showRetired, checkedTypes, checkedCategories, checkedCuisines]);
 
+  const [discoverSelected, setDiscoverSelected] = useState(new Set());
+
+  function toggleDiscoverSelect(recipeTitle) {
+    setDiscoverSelected(prev => {
+      const next = new Set(prev);
+      if (next.has(recipeTitle)) next.delete(recipeTitle);
+      else next.add(recipeTitle);
+      return next;
+    });
+  }
+
+  function handleAddDiscoverSelected() {
+    const toAdd = importableRecipes.filter(r => discoverSelected.has(r.title));
+    for (const recipe of toAdd) {
+      handleAddDiscover(recipe);
+    }
+    setDiscoverSelected(new Set());
+  }
+
   function handleAddDiscover(recipe) {
     const { id: adminRecipeId, createdAt, ...rest } = recipe;
     const newRecipe = onAddRecipe({ ...rest, source: 'discover' });
@@ -1303,9 +1322,23 @@ export function RecipeList({
                 ) : (
                   // Prep Day recipes
                   <>
-                    {importableRecipes.slice(0, 10).map(recipe => (
-                      <div key={recipe.id} className={styles.importItem}>
-                        <div className={styles.importInfo}>
+                    {discoverSelected.size > 0 && (
+                      <div className={styles.discoverBulkRow}>
+                        <span className={styles.discoverBulkCount}>{discoverSelected.size} selected</span>
+                        <button className={styles.discoverBulkBtn} onClick={handleAddDiscoverSelected}>
+                          Add {discoverSelected.size} Recipe{discoverSelected.size > 1 ? 's' : ''}
+                        </button>
+                      </div>
+                    )}
+                    {importableRecipes.slice(0, 20).map(recipe => (
+                      <div key={recipe.id} className={`${styles.importItem} ${discoverSelected.has(recipe.title) ? styles.importItemSelected : ''}`}>
+                        <input
+                          type="checkbox"
+                          checked={discoverSelected.has(recipe.title)}
+                          onChange={() => toggleDiscoverSelect(recipe.title)}
+                          className={styles.discoverCheck}
+                        />
+                        <div className={styles.importInfo} onClick={() => toggleDiscoverSelect(recipe.title)} style={{ cursor: 'pointer' }}>
                           <span className={styles.importName}>{recipe.title}</span>
                         </div>
                         <button
