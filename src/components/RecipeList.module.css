@@ -1215,6 +1215,20 @@
   background: var(--color-accent-light);
 }
 
+.importItemOwned {
+  opacity: 0.5;
+}
+
+.importOwnedLabel {
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+  padding: 0.2rem 0.5rem;
+  border-radius: 50px;
+  background: var(--color-surface-alt);
+}
+
 .discoverCheck {
   width: 18px;
   height: 18px;

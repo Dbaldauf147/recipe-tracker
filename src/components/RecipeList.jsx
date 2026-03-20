@@ -483,8 +483,10 @@ export function RecipeList({
   const importableRecipes = useMemo(() => {
     if (!adminRecipes) return [];
     const existingTitles = new Set(recipes.map(r => r.title.toLowerCase()));
-    let available = adminRecipes
-      .filter(r => !existingTitles.has(r.title.toLowerCase()) && !addedIds.has(r.title.toLowerCase()));
+    let available = adminRecipes.map(r => ({
+      ...r,
+      alreadyOwned: existingTitles.has(r.title.toLowerCase()) || addedIds.has(r.title.toLowerCase()),
+    }));
     // Apply frequency filter
     available = available.filter(r => {
       const freq = r.frequency || 'common';
@@ -502,7 +504,10 @@ export function RecipeList({
     if (checkedCuisines.size > 0) {
       available = available.filter(r => checkedCuisines.has(r.cuisine || ''));
     }
-    available.sort((a, b) => a.title.localeCompare(b.title));
+    available.sort((a, b) => {
+      if (a.alreadyOwned !== b.alreadyOwned) return a.alreadyOwned ? 1 : -1;
+      return a.title.localeCompare(b.title);
+    });
     if (!importSearch.trim()) return available;
     const q = importSearch.trim().toLowerCase();
     return available.filter(r => r.title.toLowerCase().includes(q));
@@ -1331,23 +1336,29 @@ export function RecipeList({
                       </div>
                     )}
                     {importableRecipes.slice(0, 20).map(recipe => (
-                      <div key={recipe.id} className={`${styles.importItem} ${discoverSelected.has(recipe.title) ? styles.importItemSelected : ''}`}>
-                        <input
-                          type="checkbox"
-                          checked={discoverSelected.has(recipe.title)}
-                          onChange={() => toggleDiscoverSelect(recipe.title)}
-                          className={styles.discoverCheck}
-                        />
-                        <div className={styles.importInfo} onClick={() => toggleDiscoverSelect(recipe.title)} style={{ cursor: 'pointer' }}>
+                      <div key={recipe.id} className={`${styles.importItem} ${recipe.alreadyOwned ? styles.importItemOwned : ''} ${discoverSelected.has(recipe.title) ? styles.importItemSelected : ''}`}>
+                        {!recipe.alreadyOwned && (
+                          <input
+                            type="checkbox"
+                            checked={discoverSelected.has(recipe.title)}
+                            onChange={() => toggleDiscoverSelect(recipe.title)}
+                            className={styles.discoverCheck}
+                          />
+                        )}
+                        <div className={styles.importInfo} onClick={() => !recipe.alreadyOwned && toggleDiscoverSelect(recipe.title)} style={{ cursor: recipe.alreadyOwned ? 'default' : 'pointer' }}>
                           <span className={styles.importName}>{recipe.title}</span>
                         </div>
-                        <button
-                          className={styles.importAddBtn}
-                          onClick={() => handleAddDiscover(recipe)}
-                          aria-label={`Add ${recipe.title} to My Recipes`}
-                        >
-                          +
-                        </button>
+                        {recipe.alreadyOwned ? (
+                          <span className={styles.importOwnedLabel}>Added</span>
+                        ) : (
+                          <button
+                            className={styles.importAddBtn}
+                            onClick={() => handleAddDiscover(recipe)}
+                            aria-label={`Add ${recipe.title} to My Recipes`}
+                          >
+                            +
+                          </button>
+                        )}
                       </div>
                     ))}
                     {adminRecipes && importableRecipes.length === 0 && (
