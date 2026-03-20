@@ -325,6 +325,8 @@ export function NutritionGoalsPage({ onComplete, onBack, onSkip, initialSelected
     if (macroApproach) stats.macroApproach = macroApproach;
     stats.trackPlate = trackPlate;
     onComplete(result, Object.keys(stats).length > 0 ? stats : null);
+    // Notify nav to update immediately
+    window.dispatchEvent(new Event('goals-updated'));
     setSaved(true);
     setDirty(false);
     clearTimeout(savedTimerRef.current);
@@ -462,17 +464,6 @@ export function NutritionGoalsPage({ onComplete, onBack, onSkip, initialSelected
                         {[{ key: 'lose', label: 'Lose Weight' }, { key: 'maintain', label: 'Maintain' }, { key: 'gain', label: 'Gain Weight' }].map(g => (
                           <button key={g.key} type="button" className={weightGoals.has(g.key) ? styles.goalBtnActive : styles.goalBtn} onClick={() => { if (weightGoals.has(g.key)) { setWeightGoals(prev => { const next = new Set(prev); next.delete(g.key); return next; }); } else { setWeightGoals(new Set([g.key])); } }}>{g.label}</button>
                         ))}
-                        {['lose', 'maintain', 'gain'].some(k => weightGoals.has(k)) && (() => {
-                          const trend = getWeightTrend();
-                          if (!trend) return null;
-                          const goal = weightGoals.has('lose') ? 'lose' : (weightGoals.has('gain') || weightGoals.has('muscle')) ? 'gain' : 'maintain';
-                          const onTrack = (goal === 'lose' && trend.direction === 'down') || (goal === 'gain' && trend.direction === 'up') || (goal === 'maintain' && trend.direction === 'stable');
-                          const offTrack = (goal === 'lose' && trend.direction === 'up') || (goal === 'gain' && trend.direction === 'down');
-                          const arrow = trend.direction === 'up' ? '↑' : trend.direction === 'down' ? '↓' : '→';
-                          const sign = trend.change > 0 ? '+' : '';
-                          const directionText = trend.direction === 'up' ? 'Gaining weight' : trend.direction === 'down' ? 'Losing weight' : 'Weight stable';
-                          return <span className={onTrack ? styles.trendOnTrack : offTrack ? styles.trendOffTrack : styles.trendNeutral}>{arrow} {sign}{trend.change} lbs — {directionText} {onTrack ? '(on track)' : offTrack ? '(off track)' : ''}</span>;
-                        })()}
                         {['lose', 'maintain', 'gain'].some(k => weightGoals.has(k)) && (
                           <div className={styles.weighFreqRow}>
                             <span className={styles.weighFreqLabel}>Weigh yourself:</span>

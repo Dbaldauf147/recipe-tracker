@@ -415,7 +415,9 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
     });
   }
 
-  const { showTrackMeals, showWeightTab } = (() => {
+  const [navVersion, setNavVersion] = useState(0);
+
+  const { showTrackMeals, showWeightTab } = useMemo(() => {
     try {
       const stats = JSON.parse(localStorage.getItem('sunday-body-stats') || '{}');
       const goals = stats.mealTrackingGoals || [];
@@ -424,7 +426,24 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
         showWeightTab: goals.includes('weighDaily') || goals.includes('weighWeekly') || goals.includes('weighBiweekly') || goals.includes('weighMonthly') || goals.includes('weighYearly'),
       };
     } catch { return { showTrackMeals: false, showWeightTab: false }; }
-  })();
+  }, [navVersion]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Listen for goal changes to update nav immediately
+  useEffect(() => {
+    function handleStorage(e) {
+      if (e.key === 'sunday-body-stats' || e.key === 'sunday-nutrition-goals') {
+        setNavVersion(v => v + 1);
+      }
+    }
+    window.addEventListener('storage', handleStorage);
+    // Also listen for custom event from auto-save
+    function handleGoalUpdate() { setNavVersion(v => v + 1); }
+    window.addEventListener('goals-updated', handleGoalUpdate);
+    return () => {
+      window.removeEventListener('storage', handleStorage);
+      window.removeEventListener('goals-updated', handleGoalUpdate);
+    };
+  }, []);
 
   const NAV_ITEMS = [
     { label: 'Shopping List', action: 'shopping' },
