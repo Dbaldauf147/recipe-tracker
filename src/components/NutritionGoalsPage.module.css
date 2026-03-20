@@ -171,16 +171,16 @@
 
 .goalSectionTitle {
   margin: 0 0 0.4rem;
-  font-size: 0.82rem;
+  font-size: var(--font-size-md);
   font-weight: 700;
-  color: #e67e22;
+  color: var(--color-accent);
   text-transform: uppercase;
-  letter-spacing: 0.03em;
+  letter-spacing: 0.04em;
 }
 
 .goalSectionTitleMuted {
   margin: 1rem 0 0.4rem;
-  font-size: 0.82rem;
+  font-size: var(--font-size-md);
   font-weight: 700;
   color: var(--color-text-muted);
   text-transform: uppercase;
