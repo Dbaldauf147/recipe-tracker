@@ -419,6 +419,52 @@
   border-radius: var(--radius-sm);
 }
 
+/* ── Sign Up Modal ── */
+
+.signUpModal {
+  background: #fff;
+  border-radius: 16px;
+  padding: 2rem;
+  max-width: 420px;
+  width: 90%;
+  position: relative;
+  animation: modalSlideIn 0.2s ease;
+}
+
+@keyframes modalSlideIn {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.signUpModalClose {
+  position: absolute;
+  top: 1rem;
+  right: 1rem;
+  background: none;
+  border: none;
+  font-size: 1.5rem;
+  color: #6b7280;
+  cursor: pointer;
+  line-height: 1;
+}
+
+.signUpModalClose:hover {
+  color: #1a1a1a;
+}
+
+.signUpModalTitle {
+  font-size: 1.3rem;
+  font-weight: 600;
+  color: #1a1a1a;
+  margin-bottom: 0.25rem;
+}
+
+.signUpModalSubtitle {
+  font-size: 0.9rem;
+  color: #6b7280;
+  margin-bottom: 1.25rem;
+}
+
 /* ── Guest warning modal ── */
 
 .overlay {

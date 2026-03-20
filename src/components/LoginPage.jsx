@@ -12,6 +12,7 @@ const FEATURES = [
 export function LoginPage() {
   const { signInWithGoogle, signInWithFacebook, signInWithApple, signUpWithEmail, signInWithEmail, resetPassword, continueAsGuest, authError } = useAuth();
   const [isSignUp, setIsSignUp] = useState(false);
+  const [showSignUpModal, setShowSignUpModal] = useState(false);
   const [showForgot, setShowForgot] = useState(false);
   const [resetSent, setResetSent] = useState(false);
   const [email, setEmail] = useState('');
@@ -27,11 +28,7 @@ export function LoginPage() {
       if (ok) setResetSent(true);
       return;
     }
-    if (isSignUp) {
-      await signUpWithEmail(email, password, name);
-    } else {
-      await signInWithEmail(email, password);
-    }
+    await signInWithEmail(email, password);
   }
 
   return (
@@ -66,21 +63,11 @@ export function LoginPage() {
       <div className={styles.formSide}>
         <div className={styles.card}>
           <h2 className={styles.cardTitle}>
-            {showForgot ? 'Reset Password' : isSignUp ? 'Create an account' : 'Sign in'}
+            {showForgot ? 'Reset Password' : 'Sign in'}
           </h2>
-          {authError && <p className={styles.error}>{authError}</p>}
+          {authError && !showSignUpModal && <p className={styles.error}>{authError}</p>}
           {resetSent && <p className={styles.success}>Password reset email sent! Check your inbox.</p>}
           <form className={styles.form} onSubmit={handleSubmit}>
-            {isSignUp && !showForgot && (
-              <input
-                className={styles.input}
-                type="text"
-                placeholder="Name"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                autoComplete="name"
-              />
-            )}
             <input
               className={styles.input}
               type="email"
@@ -101,7 +88,7 @@ export function LoginPage() {
                   onChange={(e) => setPassword(e.target.value)}
                   required
                   minLength={6}
-                  autoComplete={isSignUp ? 'new-password' : 'current-password'}
+                  autoComplete="current-password"
                   name="password"
                 />
                 <button
@@ -115,7 +102,7 @@ export function LoginPage() {
               </div>
             )}
             <button className={styles.submitBtn} type="submit">
-              {showForgot ? 'Send Reset Email' : isSignUp ? 'Sign up' : 'Sign in'}
+              {showForgot ? 'Send Reset Email' : 'Sign in'}
             </button>
           </form>
           {!showForgot && !isSignUp && (
@@ -132,9 +119,9 @@ export function LoginPage() {
               </a>
             ) : (
               <>
-                {isSignUp ? 'Already have an account?' : "Don't have an account?"}{' '}
-                <a href="#" onClick={(e) => { e.preventDefault(); setIsSignUp(!isSignUp); }}>
-                  {isSignUp ? 'Sign in' : 'Sign up'}
+                {"Don't have an account?"}{' '}
+                <a href="#" onClick={(e) => { e.preventDefault(); setShowSignUpModal(true); }}>
+                  Sign up
                 </a>
               </>
             )}
@@ -168,6 +155,58 @@ export function LoginPage() {
           </button>
         </div>
       </div>
+
+      {showSignUpModal && (
+        <div className={styles.overlay} onClick={() => setShowSignUpModal(false)}>
+          <div className={styles.signUpModal} onClick={(e) => e.stopPropagation()}>
+            <button className={styles.signUpModalClose} onClick={() => setShowSignUpModal(false)}>&times;</button>
+            <h2 className={styles.signUpModalTitle}>Create an account</h2>
+            <p className={styles.signUpModalSubtitle}>Start planning meals and tracking nutrition</p>
+            {authError && <p className={styles.error}>{authError}</p>}
+            <form className={styles.form} onSubmit={async (e) => {
+              e.preventDefault();
+              await signUpWithEmail(email, password, name);
+            }}>
+              <input
+                className={styles.input}
+                type="text"
+                placeholder="Name"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                autoComplete="name"
+              />
+              <input
+                className={styles.input}
+                type="email"
+                placeholder="Email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                required
+                autoComplete="email"
+              />
+              <input
+                className={styles.input}
+                type="password"
+                placeholder="Password (min 6 characters)"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+                minLength={6}
+                autoComplete="new-password"
+              />
+              <button className={styles.submitBtn} type="submit">
+                Create Account
+              </button>
+            </form>
+            <p className={styles.toggleLink}>
+              Already have an account?{' '}
+              <a href="#" onClick={(e) => { e.preventDefault(); setShowSignUpModal(false); }}>
+                Sign in
+              </a>
+            </p>
+          </div>
+        </div>
+      )}
 
       {showGuestWarning && (
         <div className={styles.overlay} onClick={() => setShowGuestWarning(false)}>
