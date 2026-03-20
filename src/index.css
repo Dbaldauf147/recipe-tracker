@@ -18,10 +18,10 @@
   --color-success-light: #ECFAF0;
   --color-header-bg: #1B4D5C;
 
-  /* Typography */
+  /* Typography – minimum 0.82rem across the site */
   --font-family: 'Inter', system-ui, -apple-system, sans-serif;
-  --font-size-xs: 0.694rem;
-  --font-size-sm: 0.833rem;
+  --font-size-xs: 0.82rem;
+  --font-size-sm: 0.9rem;
   --font-size-base: 1rem;
   --font-size-md: 1.1rem;
   --font-size-lg: 1.25rem;
