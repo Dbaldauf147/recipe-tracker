@@ -732,6 +732,11 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
                   saveField(user.uid, 'nutritionGoals', goals);
                   if (stats) saveField(user.uid, 'bodyStats', stats);
                 }
+                // After first-time setup, go to import recipes
+                if (!savedSelected) {
+                  setShowImportModal(true);
+                  setView('list');
+                }
               }}
               onBack={goBack}
             />

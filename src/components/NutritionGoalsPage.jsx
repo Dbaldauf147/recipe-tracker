@@ -434,7 +434,6 @@ export function NutritionGoalsPage({ onComplete, onBack, onSkip, initialSelected
               <button
                 className={styles.continueBtn}
                 onClick={handleContinue}
-                disabled={selected.size === 0}
               >
                 Continue
               </button>
