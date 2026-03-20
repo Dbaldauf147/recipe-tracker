@@ -211,6 +211,12 @@ const ADMIN_UID_WT = import.meta.env.VITE_ADMIN_UID;
 export function WeightTracker({ onClose, user }) {
   const [log, setLog] = useState(() => {
     const existing = loadWeightLog();
+    // Clear seed data from non-admin users (fix for pre-fix contamination)
+    if (user?.uid !== ADMIN_UID_WT && existing.length > 0 && existing.some(e => e.date === '2022-09-25')) {
+      const cleaned = existing.filter(e => !SEED_DATA.some(s => s.date === e.date && s.weight === e.weight));
+      saveWeightLog(cleaned, user);
+      return cleaned;
+    }
     // Only merge seed data for admin user
     if (user?.uid === ADMIN_UID_WT) {
       const dateSet = new Set(existing.map(e => e.date));
