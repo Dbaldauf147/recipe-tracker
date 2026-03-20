@@ -1,22 +1,22 @@
 :root {
-  /* Colors – warm, welcoming palette */
-  --color-bg: #F7F3EE;
-  --color-surface: #FFFCF9;
-  --color-surface-alt: #F0EBE4;
-  --color-border: #E0D6CC;
-  --color-border-light: #EDE7DF;
-  --color-text: #2D2824;
-  --color-text-secondary: #6B5F56;
-  --color-text-muted: #9A8E85;
-  --color-accent: #C96442;
-  --color-accent-hover: #B5573A;
-  --color-accent-light: #FDF5F2;
-  --color-accent-subtle: #F0DDD6;
+  /* Colors – deep teal, energizing & health-focused */
+  --color-bg: #F5F8F7;
+  --color-surface: #FDFFFE;
+  --color-surface-alt: #EDF3F1;
+  --color-border: #D4DED9;
+  --color-border-light: #E4EEEA;
+  --color-text: #1C2B28;
+  --color-text-secondary: #4A6259;
+  --color-text-muted: #7E9A90;
+  --color-accent: #2A8C7A;
+  --color-accent-hover: #1F7566;
+  --color-accent-light: #EFF9F6;
+  --color-accent-subtle: #D4EDE7;
   --color-danger: #c0392b;
   --color-danger-light: #fde8e6;
   --color-success: #27ae60;
   --color-success-light: #ECFAF0;
-  --color-header-bg: #3D3330;
+  --color-header-bg: #1B4D5C;
 
   /* Typography */
   --font-family: 'Inter', system-ui, -apple-system, sans-serif;
@@ -55,7 +55,7 @@
   --shadow-header: 0 2px 8px rgba(44, 37, 32, 0.12);
 
   /* Focus & Transitions */
-  --focus-ring: 0 0 0 3px rgba(201, 100, 66, 0.18);
+  --focus-ring: 0 0 0 3px rgba(42, 140, 122, 0.18);
   --transition-fast: 0.1s ease;
   --transition-normal: 0.15s ease;
   --transition-slow: 0.25s ease;
