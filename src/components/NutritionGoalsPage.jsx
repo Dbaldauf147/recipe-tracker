@@ -473,6 +473,14 @@ export function NutritionGoalsPage({ onComplete, onBack, onSkip, initialSelected
                           const directionText = trend.direction === 'up' ? 'Gaining weight' : trend.direction === 'down' ? 'Losing weight' : 'Weight stable';
                           return <span className={onTrack ? styles.trendOnTrack : offTrack ? styles.trendOffTrack : styles.trendNeutral}>{arrow} {sign}{trend.change} lbs — {directionText} {onTrack ? '(on track)' : offTrack ? '(off track)' : ''}</span>;
                         })()}
+                        {['lose', 'maintain', 'gain'].some(k => weightGoals.has(k)) && (
+                          <div className={styles.weighFreqRow}>
+                            <span className={styles.weighFreqLabel}>Weigh yourself:</span>
+                            {[{ key: 'weighDaily', label: 'Daily' }, { key: 'weighWeekly', label: 'Weekly' }, { key: 'weighMonthly', label: 'Monthly' }, { key: 'weighYearly', label: 'Yearly' }].map(g => (
+                              <button key={g.key} type="button" className={mealTrackingGoals.has(g.key) ? styles.goalBtnSmActive : styles.goalBtnSm} onClick={() => { setMealTrackingGoals(prev => { const next = new Set(prev); if (next.has(g.key)) { next.delete(g.key); } else { next.delete('weighDaily'); next.delete('weighWeekly'); next.delete('weighMonthly'); next.delete('weighYearly'); next.add(g.key); } return next; }); }}>{g.label}</button>
+                            ))}
+                          </div>
+                        )}
                       </td>
                     ),
                   },
@@ -505,17 +513,6 @@ export function NutritionGoalsPage({ onComplete, onBack, onSkip, initialSelected
                       <td className={styles.goalsTableBtns}>
                         {[{ key: 'trackDaily', label: '3 Meals a Day' }, { key: 'trackWeekly', label: 'Per Grocery Shop' }].map(g => (
                           <button key={g.key} type="button" className={mealTrackingGoals.has(g.key) ? styles.goalBtnActive : styles.goalBtn} onClick={() => { setMealTrackingGoals(prev => { const next = new Set(prev); if (next.has(g.key)) { next.delete(g.key); } else { next.delete('trackDaily'); next.delete('trackWeekly'); next.add(g.key); } return next; }); }}>{g.label}</button>
-                        ))}
-                      </td>
-                    ),
-                  },
-                  {
-                    id: 'weighSelf', label: 'Weigh Yourself',
-                    enabled: mealTrackingGoals.has('weighDaily') || mealTrackingGoals.has('weighWeekly') || mealTrackingGoals.has('weighMonthly') || mealTrackingGoals.has('weighYearly'),
-                    render: () => (
-                      <td className={styles.goalsTableBtns}>
-                        {[{ key: 'weighDaily', label: 'Daily' }, { key: 'weighWeekly', label: 'Weekly' }, { key: 'weighMonthly', label: 'Monthly' }, { key: 'weighYearly', label: 'Yearly' }].map(g => (
-                          <button key={g.key} type="button" className={mealTrackingGoals.has(g.key) ? styles.goalBtnActive : styles.goalBtn} onClick={() => { setMealTrackingGoals(prev => { const next = new Set(prev); if (next.has(g.key)) { next.delete(g.key); } else { next.delete('weighDaily'); next.delete('weighWeekly'); next.delete('weighMonthly'); next.delete('weighYearly'); next.add(g.key); } return next; }); }}>{g.label}</button>
                         ))}
                       </td>
                     ),

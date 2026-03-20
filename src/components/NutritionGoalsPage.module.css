@@ -156,6 +156,48 @@
   border: 1px solid var(--color-accent, #2A8C7A);
 }
 
+.weighFreqRow {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-top: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.weighFreqLabel {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  margin-right: 0.25rem;
+}
+
+.goalBtnSm, .goalBtnSmActive {
+  padding: 0.3rem 0.7rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  font-family: inherit;
+  border-radius: var(--radius-full, 50px);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.goalBtnSm {
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+  border: 1px solid var(--color-border);
+}
+
+.goalBtnSm:hover {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+
+.goalBtnSmActive {
+  background: var(--color-accent);
+  color: #fff;
+  border: 1px solid var(--color-accent);
+}
+
 .trendOnTrack {
   font-size: 0.78rem;
   font-weight: 600;
