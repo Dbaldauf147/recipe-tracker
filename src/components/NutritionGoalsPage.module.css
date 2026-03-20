@@ -231,14 +231,19 @@
 /* Goals + Info side by side */
 .goalsAndInfo {
   display: grid;
-  grid-template-columns: 3fr 2fr;
+  grid-template-columns: 2fr 3fr;
   gap: 2rem;
   text-align: left;
 }
 
-.goalsCol,
+.goalsCol {
+  min-width: 0;
+  order: 2;
+}
+
 .infoCol {
   min-width: 0;
+  order: 1;
 }
 
 .goalsTable {
