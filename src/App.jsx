@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { useRecipes } from './hooks/useRecipes';
 import { useAuth } from './contexts/AuthContext';
 import { saveField, getPendingRequests, getPendingSharedRecipes } from './utils/firestoreSync';
