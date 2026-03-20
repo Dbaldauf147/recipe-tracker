@@ -844,6 +844,7 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
             <button className={styles.importModalClose} onClick={() => setShowImportModal(false)}>&times;</button>
             <ImportRecipePage
               onSave={(data) => { addRecipe(data); setShowImportModal(false); }}
+              onAddWithoutClose={(data) => { addRecipe(data); }}
               onCancel={() => setShowImportModal(false)}
             />
           </div>
@@ -945,7 +946,7 @@ function App() {
   }
 
   if (currentOnboardingStep === 'recipe-setup') {
-    return <ImportRecipePage onSave={(data) => { addRecipe(data); completeRecipeSetup(); }} onCancel={completeRecipeSetup} />;
+    return <ImportRecipePage onSave={(data) => { addRecipe(data); completeRecipeSetup(); }} onAddWithoutClose={(data) => { addRecipe(data); }} onCancel={completeRecipeSetup} />;
   }
 
   // key={user?.uid} forces full remount when the user changes,

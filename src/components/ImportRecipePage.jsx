@@ -123,7 +123,7 @@ function DiscoverMealsPanel({ onSave }) {
   );
 }
 
-export function ImportRecipePage({ onSave, onCancel }) {
+export function ImportRecipePage({ onSave, onAddWithoutClose, onCancel }) {
   const [phase, setPhase] = useState('paste'); // 'paste' | 'review' | 'ai-results'
   const [importMode, setImportMode] = useState(''); // '' | 'url' | 'tiktok' | 'instagram' | 'pinterest' | 'paste' | 'manual' | 'restaurant' | 'ai'
   const [rawText, setRawText] = useState('');
@@ -779,7 +779,7 @@ export function ImportRecipePage({ onSave, onCancel }) {
       </button>
       <div className={styles.card}>
         {importMode === 'discover' && (
-          <DiscoverMealsPanel onSave={onSave} />
+          <DiscoverMealsPanel onSave={onAddWithoutClose || onSave} />
         )}
 
         {importMode === 'ai' && (
