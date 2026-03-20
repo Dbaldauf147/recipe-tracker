@@ -415,12 +415,15 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
     });
   }
 
-  const showWeightTab = (() => {
+  const { showTrackMeals, showWeightTab } = (() => {
     try {
       const stats = JSON.parse(localStorage.getItem('sunday-body-stats') || '{}');
       const goals = stats.mealTrackingGoals || [];
-      return goals.includes('weighDaily') || goals.includes('weighWeekly') || goals.includes('weighBiweekly') || goals.includes('weighMonthly');
-    } catch { return false; }
+      return {
+        showTrackMeals: goals.includes('trackDaily') || goals.includes('trackWeekly'),
+        showWeightTab: goals.includes('weighDaily') || goals.includes('weighWeekly') || goals.includes('weighBiweekly') || goals.includes('weighMonthly') || goals.includes('weighYearly'),
+      };
+    } catch { return { showTrackMeals: false, showWeightTab: false }; }
   })();
 
   const NAV_ITEMS = [
@@ -428,7 +431,7 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
     { label: 'Recipes', id: 'weekly-menu' },
     { label: 'Nutrition Tracking', submenu: [
       { label: 'Goals', action: 'nutrition-goals' },
-      { label: 'Track Meals', action: 'daily-tracker' },
+      ...(showTrackMeals ? [{ label: 'Track Meals', action: 'daily-tracker' }] : []),
       ...(showWeightTab ? [{ label: 'Weight', action: 'weight-tracker' }] : []),
     ] },
   ];
