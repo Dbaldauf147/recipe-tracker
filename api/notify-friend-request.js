@@ -1,11 +1,49 @@
-// Vercel serverless function: sends email notifications (friend requests + shared recipes)
+// Vercel serverless function: sends email/SMS notifications
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
     return res.status(405).send('Method not allowed');
   }
 
-  const { toEmail, toName, fromUsername, message, type, recipeName } = req.body || {};
+  const { toEmail, toName, fromUsername, message, type, recipeName, toPhone, smsBody } = req.body || {};
+
+  // SMS reminder
+  if (type === 'sms-reminder' && toPhone) {
+    const twilioSid = process.env.TWILIO_ACCOUNT_SID;
+    const twilioAuth = process.env.TWILIO_AUTH_TOKEN;
+    const twilioFrom = process.env.TWILIO_PHONE_NUMBER;
+    if (!twilioSid || !twilioAuth || !twilioFrom) {
+      // Fall back to email if Twilio not configured
+      if (toEmail) {
+        const emailRes = await fetch('https://api.resend.com/emails', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.RESEND_API_KEY}` },
+          body: JSON.stringify({
+            from: 'Prep Day <onboarding@resend.dev>',
+            to: toEmail,
+            subject: 'Prep Day Reminder',
+            text: smsBody || 'Time to log your meals on Prep Day! https://prep-day.com',
+          }),
+        });
+        return res.status(emailRes.ok ? 200 : 500).send(emailRes.ok ? 'Email reminder sent' : 'Failed');
+      }
+      return res.status(400).send('Twilio not configured and no email provided');
+    }
+    try {
+      const twilioRes = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${twilioSid}/Messages.json`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          Authorization: 'Basic ' + Buffer.from(`${twilioSid}:${twilioAuth}`).toString('base64'),
+        },
+        body: new URLSearchParams({ To: toPhone, From: twilioFrom, Body: smsBody || 'Time to log your meals on Prep Day! https://prep-day.com' }),
+      });
+      return res.status(twilioRes.ok ? 200 : 500).send(twilioRes.ok ? 'SMS sent' : 'SMS failed');
+    } catch (err) {
+      return res.status(500).send('SMS error: ' + err.message);
+    }
+  }
+
   if (!toEmail) {
     return res.status(400).send('Missing recipient email');
   }

@@ -1,11 +1,64 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
+import { saveField } from '../utils/firestoreSync';
 import styles from './AccountSettings.module.css';
+
+const REMINDER_KEY = 'sunday-reminder-settings';
+
+function loadReminderSettings() {
+  try { return JSON.parse(localStorage.getItem(REMINDER_KEY) || '{}'); } catch { return {}; }
+}
 
 export function AccountSettings({ user, onClose }) {
   const { deleteAccount } = useAuth();
   const [deleting, setDeleting] = useState(false);
   const [showDelete, setShowDelete] = useState(false);
+  const [phone, setPhone] = useState('');
+  const [foodLogReminder, setFoodLogReminder] = useState(false);
+  const [foodLogTime, setFoodLogTime] = useState('20:00');
+  const [weightReminder, setWeightReminder] = useState(false);
+  const [weightTime, setWeightTime] = useState('08:00');
+  const [reminderSaved, setReminderSaved] = useState(false);
+  const [testSending, setTestSending] = useState(false);
+
+  useEffect(() => {
+    const s = loadReminderSettings();
+    if (s.phone) setPhone(s.phone);
+    if (s.foodLogReminder) setFoodLogReminder(s.foodLogReminder);
+    if (s.foodLogTime) setFoodLogTime(s.foodLogTime);
+    if (s.weightReminder) setWeightReminder(s.weightReminder);
+    if (s.weightTime) setWeightTime(s.weightTime);
+  }, []);
+
+  function saveReminders() {
+    const settings = { phone, foodLogReminder, foodLogTime, weightReminder, weightTime };
+    localStorage.setItem(REMINDER_KEY, JSON.stringify(settings));
+    if (user) saveField(user.uid, 'reminderSettings', settings);
+    setReminderSaved(true);
+    setTimeout(() => setReminderSaved(false), 2000);
+  }
+
+  async function sendTestReminder() {
+    if (!phone && !user?.email) { alert('Enter a phone number or have an email on file.'); return; }
+    setTestSending(true);
+    try {
+      const res = await fetch('/api/notify-friend-request', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type: 'sms-reminder',
+          toPhone: phone || '',
+          toEmail: user?.email || '',
+          smsBody: 'This is a test reminder from Prep Day! Your notifications are working.',
+        }),
+      });
+      alert(res.ok ? 'Test reminder sent!' : 'Failed to send. Check your phone number.');
+    } catch {
+      alert('Failed to send test reminder.');
+    } finally {
+      setTestSending(false);
+    }
+  }
 
   async function handleDelete() {
     if (!confirm('Are you sure you want to delete your account? This will permanently delete all your data and cannot be undone.')) return;
@@ -62,6 +115,62 @@ export function AccountSettings({ user, onClose }) {
           <span className={styles.infoValue}>
             {user?.metadata?.lastSignInTime ? new Date(user.metadata.lastSignInTime).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) : 'Unknown'}
           </span>
+        </div>
+      </div>
+
+      <div className={styles.section}>
+        <h3 className={styles.sectionTitle}>Reminders</h3>
+        <div className={styles.infoRow}>
+          <span className={styles.infoLabel}>Phone number:</span>
+          <input
+            type="tel"
+            className={styles.reminderInput}
+            value={phone}
+            onChange={e => setPhone(e.target.value)}
+            placeholder="+1 (555) 123-4567"
+          />
+        </div>
+        <p className={styles.reminderHint}>
+          {phone ? 'SMS reminders will be sent to this number.' : 'Add your phone number for SMS reminders, or leave blank for email reminders.'}
+        </p>
+
+        <div className={styles.reminderRow}>
+          <label className={styles.reminderToggle}>
+            <input type="checkbox" checked={foodLogReminder} onChange={e => setFoodLogReminder(e.target.checked)} />
+            Food Log Reminder
+          </label>
+          {foodLogReminder && (
+            <input type="time" className={styles.reminderTimeInput} value={foodLogTime} onChange={e => setFoodLogTime(e.target.value)} />
+          )}
+        </div>
+        {foodLogReminder && (
+          <p className={styles.reminderHint}>
+            You'll get a reminder if your food log is incomplete by {foodLogTime}.
+          </p>
+        )}
+
+        <div className={styles.reminderRow}>
+          <label className={styles.reminderToggle}>
+            <input type="checkbox" checked={weightReminder} onChange={e => setWeightReminder(e.target.checked)} />
+            Weight Tracking Reminder
+          </label>
+          {weightReminder && (
+            <input type="time" className={styles.reminderTimeInput} value={weightTime} onChange={e => setWeightTime(e.target.value)} />
+          )}
+        </div>
+        {weightReminder && (
+          <p className={styles.reminderHint}>
+            You'll get a reminder if you haven't logged your weight by {weightTime}.
+          </p>
+        )}
+
+        <div className={styles.reminderActions}>
+          <button className={styles.reminderSaveBtn} onClick={saveReminders}>
+            {reminderSaved ? 'Saved!' : 'Save Reminder Settings'}
+          </button>
+          <button className={styles.reminderTestBtn} onClick={sendTestReminder} disabled={testSending}>
+            {testSending ? 'Sending...' : 'Send Test'}
+          </button>
         </div>
       </div>
 

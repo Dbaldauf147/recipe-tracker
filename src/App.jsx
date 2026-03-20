@@ -251,6 +251,55 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
     });
   }, [user]);
 
+  // Check for reminder notifications on page load
+  useEffect(() => {
+    if (!user) return;
+    try {
+      const settings = JSON.parse(localStorage.getItem('sunday-reminder-settings') || '{}');
+      if (!settings.foodLogReminder && !settings.weightReminder) return;
+
+      const now = new Date();
+      const lastCheck = localStorage.getItem('sunday-reminder-last-check');
+      const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+      if (lastCheck === todayStr) return; // Only check once per day
+
+      const currentTime = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+      const messages = [];
+
+      if (settings.foodLogReminder && currentTime >= settings.foodLogTime) {
+        const dailyLog = JSON.parse(localStorage.getItem('sunday-daily-log') || '{}');
+        const dayData = dailyLog[todayStr] || {};
+        const entries = dayData.entries || [];
+        const mainMeals = entries.filter(e => ['breakfast', 'lunch', 'dinner'].includes(e.mealSlot)).length;
+        if (mainMeals < 3 && !dayData.daySkipped) {
+          messages.push(`You have ${3 - mainMeals} meal${3 - mainMeals > 1 ? 's' : ''} left to log today.`);
+        }
+      }
+
+      if (settings.weightReminder && currentTime >= settings.weightTime) {
+        const weightLog = JSON.parse(localStorage.getItem('sunday-weight-log') || '[]');
+        const hasToday = weightLog.some(e => e.date === todayStr);
+        if (!hasToday) {
+          messages.push("Don't forget to log your weight today!");
+        }
+      }
+
+      if (messages.length > 0) {
+        localStorage.setItem('sunday-reminder-last-check', todayStr);
+        fetch('/api/notify-friend-request', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            type: 'sms-reminder',
+            toPhone: settings.phone || '',
+            toEmail: user.email || '',
+            smsBody: `Prep Day Reminder: ${messages.join(' ')} https://prep-day.com`,
+          }),
+        }).catch(() => {});
+      }
+    } catch {}
+  }, [user]);
+
   useEffect(() => {
     if (!user) return;
     let cancelled = false;
