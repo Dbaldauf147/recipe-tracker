@@ -39,7 +39,7 @@ export function AccountSettings({ user, onClose }) {
   }
 
   async function sendTestReminder() {
-    if (!phone && !user?.email) { alert('Enter a phone number or have an email on file.'); return; }
+    if (!user?.email) { alert('No email on file.'); return; }
     setTestSending(true);
     try {
       const res = await fetch('/api/notify-friend-request', {
@@ -47,14 +47,13 @@ export function AccountSettings({ user, onClose }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           type: 'sms-reminder',
-          toPhone: phone || '',
-          toEmail: user?.email || '',
-          smsBody: 'This is a test reminder from Prep Day! Your notifications are working.',
+          toEmail: user.email,
+          smsBody: 'This is a test reminder from Prep Day! Your email notifications are working.',
         }),
       });
-      alert(res.ok ? 'Test reminder sent!' : 'Failed to send. Check your phone number.');
+      alert(res.ok ? 'Test email sent! Check your inbox.' : 'Failed to send.');
     } catch {
-      alert('Failed to send test reminder.');
+      alert('Failed to send test email.');
     } finally {
       setTestSending(false);
     }
@@ -119,25 +118,15 @@ export function AccountSettings({ user, onClose }) {
       </div>
 
       <div className={styles.section}>
-        <h3 className={styles.sectionTitle}>Reminders</h3>
-        <div className={styles.infoRow}>
-          <span className={styles.infoLabel}>Phone number:</span>
-          <input
-            type="tel"
-            className={styles.reminderInput}
-            value={phone}
-            onChange={e => setPhone(e.target.value)}
-            placeholder="+1 (555) 123-4567"
-          />
-        </div>
-        <p className={styles.reminderHint}>
-          {phone ? 'SMS reminders will be sent to this number.' : 'Add your phone number for SMS reminders, or leave blank for email reminders.'}
+        <h3 className={styles.sectionTitle}>Email Reminders</h3>
+        <p className={styles.reminderHint} style={{ marginBottom: '0.75rem' }}>
+          Get email reminders when you forget to log meals or weigh yourself. Emails go to {user?.email || 'your account email'}.
         </p>
 
         <div className={styles.reminderRow}>
           <label className={styles.reminderToggle}>
-            <input type="checkbox" checked={foodLogReminder} onChange={e => setFoodLogReminder(e.target.checked)} />
-            Food Log Reminder
+            <input type="checkbox" checked={foodLogReminder} onChange={e => { setFoodLogReminder(e.target.checked); }} />
+            Meal Tracking Reminder
           </label>
           {foodLogReminder && (
             <input type="time" className={styles.reminderTimeInput} value={foodLogTime} onChange={e => setFoodLogTime(e.target.value)} />
@@ -145,13 +134,13 @@ export function AccountSettings({ user, onClose }) {
         </div>
         {foodLogReminder && (
           <p className={styles.reminderHint}>
-            You'll get a reminder if your food log is incomplete by {foodLogTime}.
+            If your food log has fewer than 3 meals by {new Date(`2000-01-01T${foodLogTime}`).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}, you'll get a reminder email.
           </p>
         )}
 
         <div className={styles.reminderRow}>
           <label className={styles.reminderToggle}>
-            <input type="checkbox" checked={weightReminder} onChange={e => setWeightReminder(e.target.checked)} />
+            <input type="checkbox" checked={weightReminder} onChange={e => { setWeightReminder(e.target.checked); }} />
             Weight Tracking Reminder
           </label>
           {weightReminder && (
@@ -160,16 +149,16 @@ export function AccountSettings({ user, onClose }) {
         </div>
         {weightReminder && (
           <p className={styles.reminderHint}>
-            You'll get a reminder if you haven't logged your weight by {weightTime}.
+            If you haven't logged your weight on a scheduled weigh-in day by {new Date(`2000-01-01T${weightTime}`).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}, you'll get a reminder.
           </p>
         )}
 
         <div className={styles.reminderActions}>
           <button className={styles.reminderSaveBtn} onClick={saveReminders}>
-            {reminderSaved ? 'Saved!' : 'Save Reminder Settings'}
+            {reminderSaved ? 'Saved!' : 'Save Settings'}
           </button>
           <button className={styles.reminderTestBtn} onClick={sendTestReminder} disabled={testSending}>
-            {testSending ? 'Sending...' : 'Send Test'}
+            {testSending ? 'Sending...' : 'Send Test Email'}
           </button>
         </div>
       </div>

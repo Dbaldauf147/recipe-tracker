@@ -251,49 +251,69 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
     });
   }, [user]);
 
-  // Check for reminder notifications on page load
+  // Check for email reminder notifications on page load
   useEffect(() => {
     if (!user) return;
     try {
       const settings = JSON.parse(localStorage.getItem('sunday-reminder-settings') || '{}');
       if (!settings.foodLogReminder && !settings.weightReminder) return;
+      if (!user.email) return;
 
       const now = new Date();
-      const lastCheck = localStorage.getItem('sunday-reminder-last-check');
-      const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-      if (lastCheck === todayStr) return; // Only check once per day
-
+      const todayDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
       const currentTime = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+
+      // Use separate last-check keys for each reminder type so they trigger independently
       const messages = [];
 
+      // Food log check
       if (settings.foodLogReminder && currentTime >= settings.foodLogTime) {
-        const dailyLog = JSON.parse(localStorage.getItem('sunday-daily-log') || '{}');
-        const dayData = dailyLog[todayStr] || {};
-        const entries = dayData.entries || [];
-        const mainMeals = entries.filter(e => ['breakfast', 'lunch', 'dinner'].includes(e.mealSlot)).length;
-        if (mainMeals < 3 && !dayData.daySkipped) {
-          messages.push(`You have ${3 - mainMeals} meal${3 - mainMeals > 1 ? 's' : ''} left to log today.`);
+        const lastFoodCheck = localStorage.getItem('sunday-reminder-food-last');
+        if (lastFoodCheck !== todayDate) {
+          const dailyLog = JSON.parse(localStorage.getItem('sunday-daily-log') || '{}');
+          const dayData = dailyLog[todayDate] || {};
+          const entries = dayData.entries || [];
+          const mainMeals = entries.filter(e => ['breakfast', 'lunch', 'dinner'].includes(e.mealSlot)).length;
+          const skipped = (dayData.skippedMeals || []).length;
+          if (mainMeals + skipped < 3 && !dayData.daySkipped) {
+            const remaining = 3 - mainMeals - skipped;
+            messages.push(`You have ${remaining} meal${remaining > 1 ? 's' : ''} left to log today.`);
+            localStorage.setItem('sunday-reminder-food-last', todayDate);
+          }
         }
       }
 
+      // Weight check — only on scheduled weigh days
       if (settings.weightReminder && currentTime >= settings.weightTime) {
-        const weightLog = JSON.parse(localStorage.getItem('sunday-weight-log') || '[]');
-        const hasToday = weightLog.some(e => e.date === todayStr);
-        if (!hasToday) {
-          messages.push("Don't forget to log your weight today!");
+        const lastWeightCheck = localStorage.getItem('sunday-reminder-weight-last');
+        if (lastWeightCheck !== todayDate) {
+          try {
+            const bodyStats = JSON.parse(localStorage.getItem('sunday-body-stats') || '{}');
+            const goals = bodyStats.mealTrackingGoals || [];
+            const shouldWeigh = goals.includes('weighDaily') ||
+              (goals.includes('weighWeekly') && [0, 1].includes(now.getDay())) ||
+              (goals.includes('weighMonthly') && now.getDate() === 1);
+
+            if (shouldWeigh || bodyStats.weighRepeatUnit) {
+              const weightLog = JSON.parse(localStorage.getItem('sunday-weight-log') || '[]');
+              const hasToday = weightLog.some(e => e.date === todayDate);
+              if (!hasToday) {
+                messages.push("Don't forget to log your weight today!");
+                localStorage.setItem('sunday-reminder-weight-last', todayDate);
+              }
+            }
+          } catch {}
         }
       }
 
       if (messages.length > 0) {
-        localStorage.setItem('sunday-reminder-last-check', todayStr);
         fetch('/api/notify-friend-request', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             type: 'sms-reminder',
-            toPhone: settings.phone || '',
-            toEmail: user.email || '',
-            smsBody: `Prep Day Reminder: ${messages.join(' ')} https://prep-day.com`,
+            toEmail: user.email,
+            smsBody: `Prep Day Reminder: ${messages.join(' ')} Log now at https://prep-day.com`,
           }),
         }).catch(() => {});
       }
