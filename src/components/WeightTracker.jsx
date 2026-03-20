@@ -257,27 +257,30 @@ export function WeightTracker({ onClose, user }) {
   }
 
   const [showSetup, setShowSetup] = useState(() => {
+    // One-time cleanup: clear inherited weigh settings for all non-admin users
+    if (user?.uid !== ADMIN_UID_WT && !localStorage.getItem('sunday-weight-cleanup-v2')) {
+      try {
+        const stats = JSON.parse(localStorage.getItem('sunday-body-stats') || '{}');
+        delete stats.weighRepeatUnit;
+        delete stats.weighRepeatEvery;
+        delete stats.weighWeekDays;
+        delete stats.weighMonthOption;
+        delete stats.weighMonthDay;
+        delete stats.weighMonthWeek;
+        delete stats.weighMonthWeekday;
+        delete stats.goalWeight;
+        stats.mealTrackingGoals = (stats.mealTrackingGoals || []).filter(g => !g.startsWith('weigh'));
+        localStorage.setItem('sunday-body-stats', JSON.stringify(stats));
+        localStorage.removeItem('sunday-weight-setup-done');
+        if (user) saveField(user.uid, 'bodyStats', stats);
+      } catch {}
+      localStorage.setItem('sunday-weight-cleanup-v2', 'done');
+    }
+
     // Show setup if user has no weight entries and hasn't dismissed setup before
     if (log.length > 0) return false;
     try {
       if (localStorage.getItem('sunday-weight-setup-done')) return false;
-      // Clear any inherited weigh settings for new users
-      if (user?.uid !== ADMIN_UID_WT) {
-        const stats = JSON.parse(localStorage.getItem('sunday-body-stats') || '{}');
-        const hadWeighSettings = stats.weighRepeatUnit || stats.weighWeekDays || stats.weighMonthDay;
-        if (hadWeighSettings) {
-          delete stats.weighRepeatUnit;
-          delete stats.weighRepeatEvery;
-          delete stats.weighWeekDays;
-          delete stats.weighMonthOption;
-          delete stats.weighMonthDay;
-          delete stats.weighMonthWeek;
-          delete stats.weighMonthWeekday;
-          delete stats.goalWeight;
-          stats.mealTrackingGoals = (stats.mealTrackingGoals || []).filter(g => !g.startsWith('weigh'));
-          localStorage.setItem('sunday-body-stats', JSON.stringify(stats));
-        }
-      }
     } catch {}
     return true;
   });
