@@ -267,7 +267,7 @@ export function NutritionGoalsPage({ onComplete, onBack, onSkip, initialSelected
   const [fruitVegGoals, setFruitVegGoals] = useState(() => {
     return new Set(initialStats?.fruitVegGoals || []);
   });
-  const [macroApproach, setMacroApproach] = useState(() => initialStats?.macroApproach || '');
+  const [macroApproach, setMacroApproach] = useState(() => initialStats?.macroApproach || 'calculate');
   const [trackPlate, setTrackPlate] = useState(() => initialStats?.trackPlate || false);
   const [saved, setSaved] = useState(false);
   const [dirty, setDirty] = useState(!isSettings); // new setup is always "dirty"
