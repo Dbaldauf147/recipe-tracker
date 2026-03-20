@@ -247,7 +247,7 @@
 
 .forgotLink {
   margin: 0.5rem 0 0;
-  font-size: 0.82rem;
+  font-size: 0.95rem;
 }
 
 .forgotLink a {
@@ -263,7 +263,7 @@
 
 .toggleLink {
   margin: 1rem 0 0;
-  font-size: 0.85rem;
+  font-size: 0.95rem;
   color: var(--color-text-muted);
 }
 
@@ -381,7 +381,7 @@
   margin-top: 1.25rem;
   padding: 0.5rem 1rem;
   width: 100%;
-  font-size: 0.85rem;
+  font-size: 0.95rem;
   font-family: inherit;
   font-weight: 500;
   border: none;
