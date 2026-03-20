@@ -61,7 +61,7 @@ const DIET_TYPES = [
 const FOCUS_OPTIONS = [
   {
     key: 'nutrition',
-    title: 'Dig into my nutrition data',
+    title: 'Track Nutrition',
     description: 'Track nutrients, set daily targets, and see how your meals stack up',
   },
   {
