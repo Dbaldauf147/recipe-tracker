@@ -943,6 +943,35 @@
   color: var(--color-accent);
 }
 
+.stepLabelInput {
+  font-size: 0.78rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-accent);
+  background: transparent;
+  border: none;
+  border-bottom: 1px dashed transparent;
+  outline: none;
+  padding: 0.1rem 0;
+  width: 120px;
+  font-family: inherit;
+}
+
+.stepLabelInput:focus {
+  border-bottom-color: var(--color-accent);
+}
+
+.stepLabelInput::placeholder {
+  color: var(--color-accent);
+  opacity: 0.7;
+}
+
+.stepReadonlyTitle {
+  font-weight: 700;
+  color: var(--color-accent);
+}
+
 /* ── Step Section Titles ── */
 .stepSectionRow {
   display: flex;

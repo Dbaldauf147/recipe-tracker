@@ -260,6 +260,7 @@ function initFields(recipe) {
     })(),
     stepIngredients: recipe.stepIngredients || {},
     stepSections: recipe.stepSections || {},
+    stepTitles: recipe.stepTitles || {},
   };
 }
 
@@ -665,11 +666,12 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
   function removeStep(index) {
     setFields(prev => {
       const newSteps = prev.steps.filter((_, i) => i !== index);
-      // Rebuild stepIngredients and stepSections with shifted indices
       const oldMap = prev.stepIngredients || {};
       const oldSections = prev.stepSections || {};
+      const oldTitles = prev.stepTitles || {};
       const newMap = {};
       const newSections = {};
+      const newTitles = {};
       for (const [key, val] of Object.entries(oldMap)) {
         const k = parseInt(key);
         if (k < index) newMap[k] = val;
@@ -680,7 +682,12 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
         if (k < index) newSections[k] = val;
         else if (k > index) newSections[k - 1] = val;
       }
-      return { ...prev, steps: newSteps, stepIngredients: newMap, stepSections: newSections };
+      for (const [key, val] of Object.entries(oldTitles)) {
+        const k = parseInt(key);
+        if (k < index) newTitles[k] = val;
+        else if (k > index) newTitles[k - 1] = val;
+      }
+      return { ...prev, steps: newSteps, stepIngredients: newMap, stepSections: newSections, stepTitles: newTitles };
     });
     // Force contentEditable re-render so remaining steps show correct text
     setStepVersion(v => v + 1);
@@ -694,19 +701,22 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
       // Build an array of [step, ingredients] pairs in original order
       const oldMap = prev.stepIngredients || {};
       const oldSections = prev.stepSections || {};
-      const pairs = prev.steps.map((step, i) => ({ step, ings: oldMap[i] || [], section: oldSections[i] || '' }));
+      const oldTitles = prev.stepTitles || {};
+      const pairs = prev.steps.map((step, i) => ({ step, ings: oldMap[i] || [], section: oldSections[i] || '', title: oldTitles[i] || '' }));
       // Move the pair
       const [moved] = pairs.splice(from, 1);
       pairs.splice(to, 0, moved);
-      // Rebuild steps, stepIngredients, and stepSections from the reordered pairs
+      // Rebuild steps, stepIngredients, stepSections, and stepTitles from the reordered pairs
       const newSteps = pairs.map(p => p.step);
       const newMap = {};
       const newSections = {};
+      const newTitles = {};
       pairs.forEach((p, i) => {
         if (p.ings.length > 0) newMap[i] = p.ings;
         if (p.section) newSections[i] = p.section;
+        if (p.title) newTitles[i] = p.title;
       });
-      return { ...prev, steps: newSteps, stepIngredients: newMap, stepSections: newSections };
+      return { ...prev, steps: newSteps, stepIngredients: newMap, stepSections: newSections, stepTitles: newTitles };
     });
     setStepVersion(v => v + 1);
   }
@@ -779,6 +789,7 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
       stepsArray: fields.steps,
       stepIngredients: fields.stepIngredients || {},
       stepSections: fields.stepSections || {},
+      stepTitles: fields.stepTitles || {},
     });
   }
 
@@ -1875,7 +1886,7 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
                         <td className={styles.cookModeStep} rowSpan={Math.max(1, assignedIngs.length)}>
                           <div className={styles.cookModeStepHeader}>
                             {editing && <span className={styles.cookModeDragHandle} draggable onDragStart={e => handleStepDragStart(e, si)} title="Drag to reorder">&#x2630;</span>}
-                            <span className={styles.cookModeStepNum}>Step {si + 1}</span>
+                            <span className={styles.cookModeStepNum}>{(fields.stepTitles || {})[si] || `Step ${si + 1}`}</span>
                             {editing && fields.steps.filter(s => s.trim()).length > 1 && (
                               <button className={styles.cookModeStepDelete} onClick={() => {
                                 const realIdx = fields.steps.indexOf(step);
@@ -2131,7 +2142,16 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
                   )}
                   <div className={styles.stepHeader}>
                     <span className={styles.dragHandle} title="Drag to reorder">≡</span>
-                    <span className={styles.stepLabel}>Step {i + 1}</span>
+                    <input
+                      className={styles.stepLabelInput}
+                      type="text"
+                      value={(fields.stepTitles || {})[i] || ''}
+                      onChange={e => {
+                        const val = e.target.value;
+                        setFields(prev => ({ ...prev, stepTitles: { ...prev.stepTitles, [i]: val } }));
+                      }}
+                      placeholder={`Step ${i + 1}`}
+                    />
                     {(fields.stepSections || {})[i] === undefined && (
                       <button
                         className={styles.stepSectionAddBtn}
@@ -2197,7 +2217,12 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
                 {(fields.stepSections || {})[origIdx] && (
                   <li className={styles.stepSectionTitle}>{fields.stepSections[origIdx]}</li>
                 )}
-                <li className={styles.stepReadonly}>{renderFormattedText(step)}</li>
+                <li className={styles.stepReadonly}>
+                  {(fields.stepTitles || {})[origIdx] && (
+                    <span className={styles.stepReadonlyTitle}>{fields.stepTitles[origIdx]}: </span>
+                  )}
+                  {renderFormattedText(step)}
+                </li>
               </React.Fragment>
             ))}
             {fields.steps.filter(s => s.trim()).length === 0 && (
