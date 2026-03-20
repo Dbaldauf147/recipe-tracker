@@ -202,15 +202,17 @@ export function ShoppingListPage({ weeklyRecipes, weeklyServings = {}, onClose, 
         <button className={styles.backBtn} onClick={onClose}>
           &larr; Back
         </button>
-        <h2 className={styles.title}>Shopping List</h2>
+        <div className={styles.titleRow}>
+          <h2 className={styles.title}>Shopping List</h2>
+          {weeklyRecipes.length > 0 && (
+            <div className={styles.mealBubbles}>
+              {weeklyRecipes.map(r => (
+                <span key={r.id} className={styles.mealBubble}>{r.title}</span>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
-
-      {weeklyRecipes.length > 0 && (
-        <p className={styles.mealsLine}>
-          <span className={styles.mealsLabel}>Meals: </span>
-          {weeklyRecipes.map(r => r.title).join(', ')}
-        </p>
-      )}
 
       {weeklyRecipes.length > 0 && onSaveToHistory && (
         <div className={styles.completedRow}>
