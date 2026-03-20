@@ -490,11 +490,11 @@ export function NutritionGoalsPage({ onComplete, onBack, onSkip, initialSelected
                   },
                   {
                     id: 'weighFood', label: 'Weigh Your Food',
-                    enabled: mealTrackingGoals.has('weighFood') || mealTrackingGoals.has('noWeighFood'),
+                    enabled: mealTrackingGoals.has('weighFood'),
                     render: () => (
                       <td className={styles.goalsTableBtns}>
-                        {[{ key: 'weighFood', label: 'Yes' }, { key: 'noWeighFood', label: 'No' }].map(g => (
-                          <button key={g.key} type="button" className={mealTrackingGoals.has(g.key) ? styles.goalBtnActive : styles.goalBtn} onClick={() => { setMealTrackingGoals(prev => { const next = new Set(prev); if (next.has(g.key)) { next.delete(g.key); } else { next.delete('weighFood'); next.delete('noWeighFood'); next.add(g.key); } return next; }); }}>{g.label}</button>
+                        {[{ key: 'weighFood', label: 'Yes' }].map(g => (
+                          <button key={g.key} type="button" className={mealTrackingGoals.has(g.key) ? styles.goalBtnActive : styles.goalBtn} onClick={() => { setMealTrackingGoals(prev => { const next = new Set(prev); if (next.has(g.key)) { next.delete(g.key); } else { next.add(g.key); } return next; }); }}>{g.label}</button>
                         ))}
                       </td>
                     ),
@@ -512,11 +512,11 @@ export function NutritionGoalsPage({ onComplete, onBack, onSkip, initialSelected
                   },
                   {
                     id: 'weighSelf', label: 'Weigh Yourself',
-                    enabled: mealTrackingGoals.has('weighDaily') || mealTrackingGoals.has('weighWeekly') || mealTrackingGoals.has('weighMonthly'),
+                    enabled: mealTrackingGoals.has('weighDaily') || mealTrackingGoals.has('weighWeekly') || mealTrackingGoals.has('weighMonthly') || mealTrackingGoals.has('weighYearly'),
                     render: () => (
                       <td className={styles.goalsTableBtns}>
-                        {[{ key: 'weighDaily', label: 'Daily' }, { key: 'weighWeekly', label: 'Weekly' }, { key: 'weighMonthly', label: 'Monthly' }].map(g => (
-                          <button key={g.key} type="button" className={mealTrackingGoals.has(g.key) ? styles.goalBtnActive : styles.goalBtn} onClick={() => { setMealTrackingGoals(prev => { const next = new Set(prev); if (next.has(g.key)) { next.delete(g.key); } else { next.delete('weighDaily'); next.delete('weighWeekly'); next.delete('weighMonthly'); next.add(g.key); } return next; }); }}>{g.label}</button>
+                        {[{ key: 'weighDaily', label: 'Daily' }, { key: 'weighWeekly', label: 'Weekly' }, { key: 'weighMonthly', label: 'Monthly' }, { key: 'weighYearly', label: 'Yearly' }].map(g => (
+                          <button key={g.key} type="button" className={mealTrackingGoals.has(g.key) ? styles.goalBtnActive : styles.goalBtn} onClick={() => { setMealTrackingGoals(prev => { const next = new Set(prev); if (next.has(g.key)) { next.delete(g.key); } else { next.delete('weighDaily'); next.delete('weighWeekly'); next.delete('weighMonthly'); next.delete('weighYearly'); next.add(g.key); } return next; }); }}>{g.label}</button>
                         ))}
                       </td>
                     ),

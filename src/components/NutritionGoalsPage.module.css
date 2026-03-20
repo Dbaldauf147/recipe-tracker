@@ -407,6 +407,16 @@
   border-color: var(--color-accent);
 }
 
+.statsInput::-webkit-inner-spin-button,
+.statsInput::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.statsInput[type="number"] {
+  -moz-appearance: textfield;
+}
+
 .heightInputs {
   display: flex;
   gap: 0.5rem;
