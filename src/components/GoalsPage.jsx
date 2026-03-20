@@ -178,7 +178,9 @@ export function GoalsPage({ onComplete, onSkip, onBack, asModal }) {
               className={styles.startBtn}
               disabled={focus.size === 0}
               onClick={() => {
-                localStorage.setItem('sunday-user-focus', JSON.stringify([...focus]));
+                const focusArr = [...focus];
+                localStorage.setItem('sunday-user-focus', JSON.stringify(focusArr));
+                localStorage.setItem('sunday-post-onboarding', focus.has('nutrition') ? 'nutrition-goals' : '');
                 onComplete([]);
               }}
             >

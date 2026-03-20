@@ -84,7 +84,7 @@ const DEFAULT_TARGETS = {
   plateFat: 25,
 };
 
-const DEFAULT_SELECTED = new Set(['calories', 'protein', 'carbs', 'fat']);
+const DEFAULT_SELECTED = new Set();
 
 const WEIGHT_GOALS = [
   { key: 'lose',       label: 'Lose Weight',    calOffset: -500, proteinMult: 1.1, carbPct: 0.40, fatPct: 0.35 },
@@ -257,12 +257,12 @@ export function NutritionGoalsPage({ onComplete, onBack, onSkip, initialSelected
     if (initialStats?.weightGoals) return new Set(initialStats.weightGoals);
     if (initialStats?.bodyGoals) return new Set(initialStats.bodyGoals);
     if (initialStats?.bodyGoal) return new Set([initialStats.bodyGoal]);
-    return new Set(['maintain']);
+    return new Set();
   });
   const [mealTrackingGoals, setMealTrackingGoals] = useState(() => {
     if (initialStats?.mealTrackingGoals) return new Set(initialStats.mealTrackingGoals);
     if (initialStats?.trackingMode) return new Set([initialStats.trackingMode === 'weekly' ? 'trackWeekly' : 'trackDaily']);
-    return new Set(['trackDaily']);
+    return new Set();
   });
   const [fruitVegGoals, setFruitVegGoals] = useState(() => {
     return new Set(initialStats?.fruitVegGoals || []);

@@ -204,6 +204,15 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
   const [ingredientsVersion, setIngredientsVersion] = useState(0);
   const settingsRef = useRef(null);
 
+  // Post-onboarding redirect (e.g., to Nutrition Goals if user selected Track Nutrition)
+  useEffect(() => {
+    const postOnboarding = localStorage.getItem('sunday-post-onboarding');
+    if (postOnboarding) {
+      localStorage.removeItem('sunday-post-onboarding');
+      setView(postOnboarding);
+    }
+  }, []);
+
   // Re-read localStorage when remote Firestore data is synced
   useEffect(() => {
     function handleSync() {
