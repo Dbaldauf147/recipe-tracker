@@ -667,7 +667,8 @@ export function ShoppingList({ weeklyRecipes, weeklyServings = {}, extraItems = 
                           const conversions = getConversions(item.quantity, item.measurement);
                           const hasConversions = conversions.length > 0;
                           let displayQty = item.quantity;
-                          let displayUnit = item.measurement;
+                          const UNIT_ABBR = { tablespoon: 'tbsp', tablespoons: 'tbsp', teaspoon: 'tsp', teaspoons: 'tsp', ounce: 'oz', ounces: 'oz', pound: 'lb', pounds: 'lb', gram: 'g', grams: 'g', kilogram: 'kg', kilograms: 'kg', milliliter: 'ml', milliliters: 'ml', liter: 'l', liters: 'l', 'fluid ounce': 'fl oz', 'fluid ounces': 'fl oz' };
+                          let displayUnit = UNIT_ABBR[(item.measurement || '').toLowerCase()] || item.measurement;
 
                           if (override && override.unit) {
                             displayQty = override.qty;
