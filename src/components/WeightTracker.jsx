@@ -206,23 +206,28 @@ export function checkWeighReminder() {
   return shouldWeighToday(log) && !log.some(e => e.date === todayStr());
 }
 
+const ADMIN_UID_WT = import.meta.env.VITE_ADMIN_UID;
+
 export function WeightTracker({ onClose, user }) {
   const [log, setLog] = useState(() => {
     const existing = loadWeightLog();
-    // Merge seed data with existing — seed fills in any missing dates
-    const dateSet = new Set(existing.map(e => e.date));
-    const merged = [...existing];
-    for (const entry of SEED_DATA) {
-      if (!dateSet.has(entry.date)) {
-        merged.push(entry);
-        dateSet.add(entry.date);
+    // Only merge seed data for admin user
+    if (user?.uid === ADMIN_UID_WT) {
+      const dateSet = new Set(existing.map(e => e.date));
+      const merged = [...existing];
+      for (const entry of SEED_DATA) {
+        if (!dateSet.has(entry.date)) {
+          merged.push(entry);
+          dateSet.add(entry.date);
+        }
       }
+      merged.sort((a, b) => a.date.localeCompare(b.date));
+      if (merged.length !== existing.length) {
+        saveWeightLog(merged, null);
+      }
+      return merged;
     }
-    merged.sort((a, b) => a.date.localeCompare(b.date));
-    if (merged.length !== existing.length) {
-      saveWeightLog(merged, null);
-    }
-    return merged;
+    return existing;
   });
   // Get user's weight goal for color-coding
   const weightGoal = useMemo(() => {
