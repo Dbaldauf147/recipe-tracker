@@ -713,72 +713,11 @@ export function NutritionGoalsPage({ onComplete, onBack, onSkip, initialSelected
             )}
           </div>
 
-          {macroApproach === 'calculate' && mathBreakdown && (
-            <details className={styles.mathSection}>
-              <summary className={styles.mathSummary}>How we calculated your targets</summary>
-              <div className={styles.mathCardLayout}>
-                <div className={styles.mathCard}>
-                  <div className={styles.mathStep}>
-                    <span className={styles.mathLabel}>Step 1: Convert units</span>
-                    <span className={styles.mathFormula}>
-                      {weight} lbs = {mathBreakdown.kg} kg &nbsp;&bull;&nbsp; {heightFt}'{heightIn}" = {mathBreakdown.cm} cm
-                    </span>
-                  </div>
-                  <div className={styles.mathStep}>
-                    <span className={styles.mathLabel}>Step 2: BMR (Mifflin-St Jeor)</span>
-                    <span className={styles.mathFormula}>
-                      (10 &times; {mathBreakdown.kg}) + (6.25 &times; {mathBreakdown.cm}) - (5 &times; {age}) {mathBreakdown.gender === 'male' ? '+ 5' : '- 161'}
-                    </span>
-                    <span className={styles.mathResult}>= {mathBreakdown.bmr} cal/day</span>
-                  </div>
-                  <div className={styles.mathStep}>
-                    <span className={styles.mathLabel}>Step 3: TDEE</span>
-                    <span className={styles.mathFormula}>
-                      {mathBreakdown.bmr} &times; {mathBreakdown.activityMultiplier} ({mathBreakdown.activityLabel})
-                    </span>
-                    <span className={styles.mathResult}>= {mathBreakdown.tdeeBase} cal/day</span>
-                  </div>
-                  {mathBreakdown.calOffset !== 0 && (
-                    <div className={styles.mathStep}>
-                      <span className={styles.mathLabel}>Step 4: {mathBreakdown.goalLabel}</span>
-                      <span className={styles.mathFormula}>
-                        {mathBreakdown.tdeeBase} {mathBreakdown.calOffset > 0 ? '+' : ''} {mathBreakdown.calOffset}
-                      </span>
-                      <span className={styles.mathResult}>= {mathBreakdown.tdee} cal/day</span>
-                    </div>
-                  )}
-                </div>
-                <div className={styles.mathMacros}>
-                  <div className={styles.mathMacroItem}>
-                    <span className={styles.mathMacroLabel}>Protein ({Math.round((mathBreakdown.proteinG * 4 / mathBreakdown.tdee) * 100)}%)</span>
-                    <span className={styles.mathFormula}>
-                      {weight} lbs &times; {mathBreakdown.proteinPerLb} g/lb{mathBreakdown.proteinMult !== 1 ? ` \u00d7 ${mathBreakdown.proteinMult}` : ''}
-                    </span>
-                    <span className={styles.mathMacroResult}>{mathBreakdown.proteinG}g</span>
-                  </div>
-                  <div className={styles.mathMacroItem}>
-                    <span className={styles.mathMacroLabel}>Carbs ({Math.round(mathBreakdown.carbPct * 100)}%)</span>
-                    <span className={styles.mathFormula}>
-                      {mathBreakdown.tdee} &times; {mathBreakdown.carbPct} &divide; 4
-                    </span>
-                    <span className={styles.mathMacroResult}>{mathBreakdown.carbsG}g</span>
-                  </div>
-                  <div className={styles.mathMacroItem}>
-                    <span className={styles.mathMacroLabel}>Fat ({Math.round(mathBreakdown.fatPct * 100)}%)</span>
-                    <span className={styles.mathFormula}>
-                      {mathBreakdown.tdee} &times; {mathBreakdown.fatPct} &divide; 9
-                    </span>
-                    <span className={styles.mathMacroResult}>{mathBreakdown.fatG}g</span>
-                  </div>
-                </div>
-              </div>
-            </details>
-          )}
         </div>
 
         <div className={styles.card}>
           <div className={styles.subtitleRow}>
-            <p className={styles.subtitle}>Select the type of nutrition data you would like to set goals around.</p>
+            <p className={styles.subtitleLg}>Select the type of nutrition data you would like to set goals around.</p>
             <button
               type="button"
               className={styles.deselectBtn}
@@ -920,6 +859,54 @@ export function NutritionGoalsPage({ onComplete, onBack, onSkip, initialSelected
             })}
           </div>
           </div>
+
+          {macroApproach === 'calculate' && mathBreakdown && (
+            <details className={styles.mathSection}>
+              <summary className={styles.mathSummary}>How we calculated your targets</summary>
+              <div className={styles.mathCardLayout}>
+                <div className={styles.mathCard}>
+                  <div className={styles.mathStep}>
+                    <span className={styles.mathLabel}>Step 1: Convert units</span>
+                    <span className={styles.mathFormula}>{weight} lbs = {mathBreakdown.kg} kg &bull; {heightFt}&apos;{heightIn}&quot; = {mathBreakdown.cm} cm</span>
+                  </div>
+                  <div className={styles.mathStep}>
+                    <span className={styles.mathLabel}>Step 2: BMR (Mifflin-St Jeor)</span>
+                    <span className={styles.mathFormula}>(10 &times; {mathBreakdown.kg}) + (6.25 &times; {mathBreakdown.cm}) - (5 &times; {age}) {mathBreakdown.gender === 'male' ? '+ 5' : '- 161'}</span>
+                    <span className={styles.mathResult}>= {mathBreakdown.bmr} cal/day</span>
+                  </div>
+                  <div className={styles.mathStep}>
+                    <span className={styles.mathLabel}>Step 3: TDEE</span>
+                    <span className={styles.mathFormula}>{mathBreakdown.bmr} &times; {mathBreakdown.activityMultiplier} ({mathBreakdown.activityLabel})</span>
+                    <span className={styles.mathResult}>= {mathBreakdown.tdeeBase} cal/day</span>
+                  </div>
+                  {mathBreakdown.calOffset !== 0 && (
+                    <div className={styles.mathStep}>
+                      <span className={styles.mathLabel}>Step 4: {mathBreakdown.goalLabel}</span>
+                      <span className={styles.mathFormula}>{mathBreakdown.tdeeBase} {mathBreakdown.calOffset > 0 ? '+' : ''} {mathBreakdown.calOffset}</span>
+                      <span className={styles.mathResult}>= {mathBreakdown.tdee} cal/day</span>
+                    </div>
+                  )}
+                </div>
+                <div className={styles.mathMacros}>
+                  <div className={styles.mathMacroItem}>
+                    <span className={styles.mathMacroLabel}>Protein ({Math.round((mathBreakdown.proteinG * 4 / mathBreakdown.tdee) * 100)}%)</span>
+                    <span className={styles.mathFormula}>{weight} lbs &times; {mathBreakdown.proteinPerLb} g/lb{mathBreakdown.proteinMult !== 1 ? ` \u00d7 ${mathBreakdown.proteinMult}` : ''}</span>
+                    <span className={styles.mathMacroResult}>{mathBreakdown.proteinG}g</span>
+                  </div>
+                  <div className={styles.mathMacroItem}>
+                    <span className={styles.mathMacroLabel}>Carbs ({Math.round(mathBreakdown.carbPct * 100)}%)</span>
+                    <span className={styles.mathFormula}>{mathBreakdown.tdee} &times; {mathBreakdown.carbPct} &divide; 4</span>
+                    <span className={styles.mathMacroResult}>{mathBreakdown.carbsG}g</span>
+                  </div>
+                  <div className={styles.mathMacroItem}>
+                    <span className={styles.mathMacroLabel}>Fat ({Math.round(mathBreakdown.fatPct * 100)}%)</span>
+                    <span className={styles.mathFormula}>{mathBreakdown.tdee} &times; {mathBreakdown.fatPct} &divide; 9</span>
+                    <span className={styles.mathMacroResult}>{mathBreakdown.fatG}g</span>
+                  </div>
+                </div>
+              </div>
+            </details>
+          )}
 
           <p className={styles.disclaimer}>
             Recommended values are based on guidelines from the USDA Dietary Guidelines for Americans (2020–2025),

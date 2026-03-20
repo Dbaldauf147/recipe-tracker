@@ -108,6 +108,14 @@
   text-align: left;
 }
 
+.subtitleLg {
+  margin: 0 0 1.25rem;
+  font-size: 1.1rem;
+  font-weight: 500;
+  color: var(--color-text);
+  text-align: left;
+}
+
 .goalHint {
   font-size: 0.78rem;
   color: var(--color-text-muted);
