@@ -1431,10 +1431,7 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
                   <th></th>
                   <th className={styles.colQty}>Qty</th>
                   <th className={styles.colMeasure}>Unit</th>
-                  <th>Type</th>
                   <th>Ingredient</th>
-                  <th className={styles.colGrams}>Grams</th>
-                  <th></th>
                   <th></th>
                 </tr>
               </thead>
@@ -1696,15 +1693,6 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
                         )}
                       </React.Fragment>
                     ))}
-                    <td className={styles.gramsCell}>
-                      {dbGrams > 0 ? dbGrams : <span className={styles.gramsEmpty}>—</span>}
-                    </td>
-                    <td className={styles.tagCell}>
-                      {getIngredientTags(row.ingredient).filter(t => !['vegan', 'gluten-free', 'dairy-free', 'high-carb', 'high-protein'].includes(t)).slice(0, 3).map(tagKey => {
-                        const info = getTagInfo(tagKey);
-                        return <span key={tagKey} className={styles.ingTag} style={{ color: info.color, borderColor: info.color }}>{info.label}</span>;
-                      })}
-                    </td>
                     <td>
                       <button
                         className={styles.toggleSectionBtn}
@@ -1730,7 +1718,7 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
                   return (
                     <>
                       {mainIdxRows.map(renderRow)}
-                      <tr className={styles.sectionDivider}><td colSpan={8}>Per Meal</td></tr>
+                      <tr className={styles.sectionDivider}><td colSpan={5}>Per Meal</td></tr>
                       {toppingIdxRows.map(renderRow)}
                     </>
                   );
@@ -1764,7 +1752,6 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
               <tr>
                 <th>Amount</th>
                 <th>Ingredient</th>
-                <th></th>
               </tr>
             </thead>
             <tbody>
@@ -1788,18 +1775,21 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
                       </td>
                       <td>
                         {row.ingredient}
-                        {!isInDb(row.ingredient) && (
-                          <span className={styles.dbWarning} title="Not found in ingredient database"> ⚠</span>
-                        )}
+                        {!isInDb(row.ingredient) && (row.ingredient || '').trim() && (() => {
+                          // Find closest match in DB
+                          const q = (row.ingredient || '').trim().toLowerCase();
+                          const match = dbNamesList.find(n => n.toLowerCase().includes(q) || q.includes(n.toLowerCase()));
+                          return match ? (
+                            <span className={styles.aiSuggestion} title={`Did you mean "${match}"?`}>
+                              {' '}— did you mean <button className={styles.aiSuggestionBtn} onClick={() => updateIngredient(origIdx, 'ingredient', match)}>{match}</button>?
+                            </span>
+                          ) : (
+                            <span className={styles.dbWarning} title="Not found in ingredient database"> ⚠</span>
+                          );
+                        })()}
                         {noWeight && (
                           <span className={styles.noWeightWarning} title="No weight conversion available — add grams to ingredient database"> ⚖</span>
                         )}
-                      </td>
-                      <td className={styles.tagCell}>
-                        {getIngredientTags(row.ingredient).slice(0, 3).map(tagKey => {
-                          const info = getTagInfo(tagKey);
-                          return <span key={tagKey} className={styles.ingTag} style={{ color: info.color, borderColor: info.color }}>{info.label}</span>;
-                        })}
                       </td>
                     </tr>
                   );
@@ -1809,7 +1799,7 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
                     {mainRows.map(renderViewRow)}
                     {toppingRows.length > 0 && (
                       <>
-                        <tr className={styles.sectionDivider}><td colSpan={3}>Per Meal</td></tr>
+                        <tr className={styles.sectionDivider}><td colSpan={2}>Per Meal</td></tr>
                         {toppingRows.map(renderViewRow)}
                       </>
                     )}
@@ -1855,7 +1845,34 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
       <div className={styles.section}>
         <div className={styles.instructionHeader}>
           <h3>Instructions</h3>
-          <button className={cookMode ? styles.cookModeBtnActive : styles.cookModeBtn} onClick={() => setCookMode(prev => { const next = !prev; localStorage.setItem('sunday-cook-mode', String(next)); return next; })}>
+          <button className={cookMode ? styles.cookModeBtnActive : styles.cookModeBtn} onClick={() => {
+            setCookMode(prev => {
+              const next = !prev;
+              localStorage.setItem('sunday-cook-mode', String(next));
+              // Auto-populate stepIngredients if entering cook mode and none assigned
+              if (next && Object.keys(fields.stepIngredients || {}).length === 0) {
+                const newMap = {};
+                fields.steps.forEach((stepText, si) => {
+                  const stepLower = (stepText || '').replace(/<[^>]*>/g, '').toLowerCase();
+                  const matched = [];
+                  fields.ingredients.forEach((ing, ii) => {
+                    const name = (ing.ingredient || '').trim().toLowerCase();
+                    if (!name) return;
+                    // Match ingredient name or first word in step text
+                    const words = name.split(/\s+/);
+                    if (stepLower.includes(name) || words.some(w => w.length > 3 && stepLower.includes(w))) {
+                      matched.push(ii);
+                    }
+                  });
+                  if (matched.length > 0) newMap[si] = matched;
+                });
+                if (Object.keys(newMap).length > 0) {
+                  setFields(prev => ({ ...prev, stepIngredients: newMap }));
+                }
+              }
+              return next;
+            });
+          }}>
             {cookMode ? 'Standard View' : 'Cook Mode'}
           </button>
         </div>

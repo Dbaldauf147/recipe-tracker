@@ -1458,6 +1458,28 @@
   cursor: help;
 }
 
+.aiSuggestion {
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+  font-style: italic;
+}
+
+.aiSuggestionBtn {
+  background: none;
+  border: none;
+  color: var(--color-accent);
+  font-size: 0.75rem;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  text-decoration: underline;
+  padding: 0;
+}
+
+.aiSuggestionBtn:hover {
+  color: var(--color-accent-hover);
+}
+
 .noWeightWarning {
   color: #6366f1;
   font-size: 0.8rem;
