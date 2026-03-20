@@ -261,6 +261,23 @@ export function WeightTracker({ onClose, user }) {
     if (log.length > 0) return false;
     try {
       if (localStorage.getItem('sunday-weight-setup-done')) return false;
+      // Clear any inherited weigh settings for new users
+      if (user?.uid !== ADMIN_UID_WT) {
+        const stats = JSON.parse(localStorage.getItem('sunday-body-stats') || '{}');
+        const hadWeighSettings = stats.weighRepeatUnit || stats.weighWeekDays || stats.weighMonthDay;
+        if (hadWeighSettings) {
+          delete stats.weighRepeatUnit;
+          delete stats.weighRepeatEvery;
+          delete stats.weighWeekDays;
+          delete stats.weighMonthOption;
+          delete stats.weighMonthDay;
+          delete stats.weighMonthWeek;
+          delete stats.weighMonthWeekday;
+          delete stats.goalWeight;
+          stats.mealTrackingGoals = (stats.mealTrackingGoals || []).filter(g => !g.startsWith('weigh'));
+          localStorage.setItem('sunday-body-stats', JSON.stringify(stats));
+        }
+      }
     } catch {}
     return true;
   });
