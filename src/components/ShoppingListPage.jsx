@@ -6,41 +6,8 @@ import { useAuth } from '../contexts/AuthContext';
 import { saveField } from '../utils/firestoreSync';
 import styles from './ShoppingListPage.module.css';
 
-const DEFAULT_SPICES = [
-  'Parsley Flakes',
-  'Garam Masala',
-  'Turmeric',
-  'Himalayan Salt',
-  'Fenugreek Leaves',
-  'Cayenne Powder',
-  'Bay Leaves',
-  'Paprika',
-  'Everything But the Bagel Seasoning',
-  'Italian Seasoning',
-  'Ground Black Pepper',
-  'Coriander',
-  'Garlic Powder',
-  'Curry Powder',
-  'Red Pepper Flakes',
-  'Tajin Seasoning',
-  'Cardamom',
-  'Thyme (Dried)',
-  'Oregano (Dried)',
-  'Old Bay Seasoning',
-  'Harissa Powder',
-].map(name => ({ ingredient: name }));
-
-const DEFAULT_SAUCES = [
-  'Balsamic Vinegar',
-  'Olive Oil',
-  'Dijon Mustard',
-  'Sesame Oil',
-  'Vegetable Oil',
-  'Teriyaki Sauce',
-  "Frank's RedHot",
-  'Brown Mustard',
-  'Honey',
-].map(name => ({ ingredient: name }));
+const DEFAULT_SPICES = [];
+const DEFAULT_SAUCES = [];
 
 const EXTRAS_KEY = 'sunday-shop-extras';
 const DISMISSED_KEY = 'sunday-shop-dismissed';
@@ -320,9 +287,7 @@ export function ShoppingListPage({ weeklyRecipes, weeklyServings = {}, onClose, 
               </ul>
             </div>
           )}
-          {user?.email === 'baldaufdan@gmail.com' && (
-            <GroceryStaples key={resetKey} onMoveToShop={handleMoveToShop} highlightNames={shopIngredientNames} />
-          )}
+          <GroceryStaples key={resetKey} onMoveToShop={handleMoveToShop} highlightNames={shopIngredientNames} />
         </div>
         <div className={styles.cell}>
           <PantryList
