@@ -351,8 +351,8 @@
 }
 
 .reminderBtnActive {
-  background: var(--color-accent, #C96442);
-  border-color: var(--color-accent, #C96442);
+  background: var(--color-accent, #2A8C7A);
+  border-color: var(--color-accent, #2A8C7A);
   color: #fff;
 }
 
@@ -420,7 +420,7 @@
 .targetLabel {
   font-size: 1rem;
   font-weight: 700;
-  color: var(--color-accent, #C96442);
+  color: var(--color-accent, #2A8C7A);
   white-space: nowrap;
 }
 

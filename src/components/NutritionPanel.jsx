@@ -43,7 +43,7 @@ export function PlateChart({ protein, carbs, fat }) {
   // Warm earth-tone palette matching the site
   const cx = 120, cy = 120, r = 85;
   const slices = [
-    { pct: pPct, color: '#C96442', colorDark: '#A85035', label: 'Protein', grams: protein },
+    { pct: pPct, color: '#2A8C7A', colorDark: '#A85035', label: 'Protein', grams: protein },
     { pct: cPct, color: '#D4A574', colorDark: '#BF8F5E', label: 'Carbs', grams: carbs },
     { pct: fPct, color: '#8B9A6B', colorDark: '#738159', label: 'Fat', grams: fat },
   ];
@@ -211,7 +211,7 @@ export function MealScore({ totals, servings = 1 }) {
   // Color based on score
   let color, label;
   if (avg >= 85) { color = 'var(--color-success, #16a34a)'; label = 'Great'; }
-  else if (avg >= 65) { color = 'var(--color-accent, #C96442)'; label = 'Good'; }
+  else if (avg >= 65) { color = 'var(--color-accent, #2A8C7A)'; label = 'Good'; }
   else if (avg >= 45) { color = '#D4A574'; label = 'Fair'; }
   else { color = 'var(--color-danger, #dc2626)'; label = 'Poor'; }
 

@@ -1720,7 +1720,7 @@ function MealScoreBadge({ nutrition }) {
 
   let color;
   if (score >= 85) color = 'var(--color-success, #16a34a)';
-  else if (score >= 65) color = 'var(--color-accent, #C96442)';
+  else if (score >= 65) color = 'var(--color-accent, #2A8C7A)';
   else if (score >= 45) color = '#D4A574';
   else color = 'var(--color-danger, #dc2626)';
 

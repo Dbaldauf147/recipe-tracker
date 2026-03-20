@@ -328,7 +328,7 @@
   padding: 0.3rem 0.75rem;
   border: none;
   border-radius: 50px;
-  background: var(--color-accent, #C96442);
+  background: var(--color-accent, #2A8C7A);
   color: #fff;
   font-size: 0.78rem;
   font-weight: 700;
@@ -479,7 +479,7 @@
 }
 
 .helpBtn:hover {
-  background: var(--color-accent, #C96442);
+  background: var(--color-accent, #2A8C7A);
   transform: scale(1.05);
 }
 
@@ -522,7 +522,7 @@
 }
 
 .helpTextarea:focus {
-  outline: 2px solid var(--color-accent, #C96442);
+  outline: 2px solid var(--color-accent, #2A8C7A);
   border-color: transparent;
 }
 
@@ -532,7 +532,7 @@
   padding: 0.5rem;
   border: none;
   border-radius: 8px;
-  background: var(--color-accent, #C96442);
+  background: var(--color-accent, #2A8C7A);
   color: #fff;
   font-size: 0.82rem;
   font-weight: 600;

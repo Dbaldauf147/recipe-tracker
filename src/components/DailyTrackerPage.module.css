@@ -791,7 +791,7 @@
   display: block;
   font-size: 0.78rem;
   font-weight: 700;
-  color: #e67e22;
+  color: var(--color-accent, #2A8C7A);
   text-transform: uppercase;
   letter-spacing: 0.03em;
   margin-bottom: 0.4rem;
@@ -2669,7 +2669,7 @@
   height: 26px;
   border-radius: 50%;
   border: none;
-  background: var(--color-accent, #C96442);
+  background: var(--color-accent, #2A8C7A);
   font-size: 1.1rem;
   font-weight: 700;
   color: #fff;

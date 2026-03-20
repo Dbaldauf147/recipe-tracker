@@ -650,12 +650,12 @@ export function WeightTracker({ onClose, user }) {
                 {goalWeight && (
                   <ReferenceLine y={goalWeight} stroke="#22c55e" strokeDasharray="6 3" strokeWidth={1.5} label={{ value: `Goal: ${goalWeight}`, position: 'right', fontSize: 10, fill: '#22c55e' }} />
                 )}
-                <Line type="monotone" dataKey="gapWeight" stroke="var(--color-accent, #C96442)" strokeWidth={1.5} strokeDasharray="6 4" strokeOpacity={0.4} dot={(props) => {
+                <Line type="monotone" dataKey="gapWeight" stroke="var(--color-accent, #2A8C7A)" strokeWidth={1.5} strokeDasharray="6 4" strokeOpacity={0.4} dot={(props) => {
                   const { cx, cy, payload } = props;
                   if (cx == null || cy == null || !payload.estimated) return null;
-                  return <circle key={`est-${payload.rawDate}`} cx={cx} cy={cy} r={3} fill="none" stroke="#C96442" strokeWidth={1.5} strokeDasharray="2 2" opacity={0.5} />;
+                  return <circle key={`est-${payload.rawDate}`} cx={cx} cy={cy} r={3} fill="none" stroke="#2A8C7A" strokeWidth={1.5} strokeDasharray="2 2" opacity={0.5} />;
                 }} activeDot={false} connectNulls />
-                <Line type="monotone" dataKey="solidWeight" stroke="var(--color-accent, #C96442)" strokeWidth={2.5} connectNulls={false} dot={(props) => {
+                <Line type="monotone" dataKey="solidWeight" stroke="var(--color-accent, #2A8C7A)" strokeWidth={2.5} connectNulls={false} dot={(props) => {
                   const { cx, cy, payload } = props;
                   if (cx == null || cy == null) return null;
                   const alert = analysis?.alerts?.find(a => a.rawDate === payload.rawDate);
@@ -667,13 +667,13 @@ export function WeightTracker({ onClose, user }) {
                       </g>
                     );
                   }
-                  return <circle key={payload.rawDate} cx={cx} cy={cy} r={3} fill="#fff" stroke="#C96442" strokeWidth={2} />;
+                  return <circle key={payload.rawDate} cx={cx} cy={cy} r={3} fill="#fff" stroke="#2A8C7A" strokeWidth={2} />;
                 }} activeDot={{ r: 6 }} />
                 {/* Dots for real data points at gap boundaries */}
                 <Line type="monotone" dataKey="weight" stroke="none" strokeWidth={0} dot={(props) => {
                   const { cx, cy, payload } = props;
                   if (cx == null || cy == null || payload.estimated || payload.solidWeight !== null) return null;
-                  return <circle key={`gap-${payload.rawDate}`} cx={cx} cy={cy} r={3} fill="#fff" stroke="#C96442" strokeWidth={2} />;
+                  return <circle key={`gap-${payload.rawDate}`} cx={cx} cy={cy} r={3} fill="#fff" stroke="#2A8C7A" strokeWidth={2} />;
                 }} activeDot={false} />
               </LineChart>
             </ResponsiveContainer>

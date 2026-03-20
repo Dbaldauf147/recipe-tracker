@@ -35,3 +35,4 @@ recipe-images/*.png
 
 # OneDrive sync artifacts
 OneDrive/
+.env*.local
