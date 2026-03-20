@@ -1,22 +1,22 @@
 :root {
-  /* Colors – warm, health-oriented palette */
-  --color-bg: #FAF8F5;
-  --color-surface: #ffffff;
-  --color-surface-alt: #F5F1EC;
-  --color-border: #E8E0D8;
-  --color-border-light: #F0EBE4;
-  --color-text: #1A1A1A;
-  --color-text-secondary: #5C5650;
-  --color-text-muted: #9C9490;
+  /* Colors – warm, welcoming palette */
+  --color-bg: #F7F3EE;
+  --color-surface: #FFFCF9;
+  --color-surface-alt: #F0EBE4;
+  --color-border: #E0D6CC;
+  --color-border-light: #EDE7DF;
+  --color-text: #2D2824;
+  --color-text-secondary: #6B5F56;
+  --color-text-muted: #9A8E85;
   --color-accent: #C96442;
   --color-accent-hover: #B5573A;
   --color-accent-light: #FDF5F2;
   --color-accent-subtle: #F0DDD6;
-  --color-danger: #dc2626;
-  --color-danger-light: #fee2e2;
-  --color-success: #16a34a;
+  --color-danger: #c0392b;
+  --color-danger-light: #fde8e6;
+  --color-success: #27ae60;
   --color-success-light: #ECFAF0;
-  --color-header-bg: #2C2520;
+  --color-header-bg: #3D3330;
 
   /* Typography */
   --font-family: 'Inter', system-ui, -apple-system, sans-serif;
@@ -40,19 +40,19 @@
   --space-12: 3rem;
   --space-16: 4rem;
 
-  /* Radii */
-  --radius-sm: 6px;
-  --radius-md: 10px;
-  --radius-lg: 14px;
-  --radius-xl: 18px;
+  /* Radii – generous, friendly rounding */
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 20px;
   --radius-full: 9999px;
 
-  /* Shadows – warm tones */
-  --shadow-sm: 0 1px 2px rgba(44, 37, 32, 0.05);
-  --shadow-md: 0 2px 8px rgba(44, 37, 32, 0.07);
-  --shadow-lg: 0 4px 16px rgba(44, 37, 32, 0.09);
-  --shadow-lift: 0 6px 20px rgba(44, 37, 32, 0.11);
-  --shadow-header: 0 1px 3px rgba(44, 37, 32, 0.15);
+  /* Shadows – soft, warm */
+  --shadow-sm: 0 1px 3px rgba(44, 37, 32, 0.04), 0 1px 2px rgba(44, 37, 32, 0.03);
+  --shadow-md: 0 3px 10px rgba(44, 37, 32, 0.06);
+  --shadow-lg: 0 6px 20px rgba(44, 37, 32, 0.08);
+  --shadow-lift: 0 8px 28px rgba(44, 37, 32, 0.10);
+  --shadow-header: 0 2px 8px rgba(44, 37, 32, 0.12);
 
   /* Focus & Transitions */
   --focus-ring: 0 0 0 3px rgba(201, 100, 66, 0.18);
