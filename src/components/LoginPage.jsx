@@ -78,6 +78,7 @@ export function LoginPage() {
                 placeholder="Name"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
+                autoComplete="name"
               />
             )}
             <input
@@ -87,6 +88,8 @@ export function LoginPage() {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               required
+              autoComplete="email"
+              name="email"
             />
             {!showForgot && (
               <div className={styles.passwordWrap}>
@@ -98,6 +101,8 @@ export function LoginPage() {
                   onChange={(e) => setPassword(e.target.value)}
                   required
                   minLength={6}
+                  autoComplete={isSignUp ? 'new-password' : 'current-password'}
+                  name="password"
                 />
                 <button
                   type="button"
