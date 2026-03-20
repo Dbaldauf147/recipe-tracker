@@ -173,7 +173,7 @@
   margin: 0 0 0.4rem;
   font-size: 0.82rem;
   font-weight: 700;
-  color: var(--color-success, #16a34a);
+  color: #e67e22;
   text-transform: uppercase;
   letter-spacing: 0.03em;
 }

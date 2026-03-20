@@ -541,7 +541,7 @@ export function NutritionGoalsPage({ onComplete, onBack, onSkip, initialSelected
                   <>
                     {enabled.length > 0 && (
                       <>
-                        <h4 className={styles.goalSectionTitle}>Enabled</h4>
+                        <h4 className={styles.goalSectionTitle}>Goals Being Tracked</h4>
                         <table className={styles.goalsTable}>
                           <tbody>
                             {enabled.map(r => (
@@ -556,7 +556,7 @@ export function NutritionGoalsPage({ onComplete, onBack, onSkip, initialSelected
                     )}
                     {notEnabled.length > 0 && (
                       <>
-                        <h4 className={styles.goalSectionTitleMuted}>Not Tracking</h4>
+                        <h4 className={styles.goalSectionTitleMuted}>Goals Not Tracked</h4>
                         <table className={styles.goalsTable}>
                           <tbody>
                             {notEnabled.map(r => (
