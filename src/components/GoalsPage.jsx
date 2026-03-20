@@ -75,7 +75,7 @@ export function GoalsPage({ onComplete, onSkip, onBack, asModal }) {
   const [focus, setFocus] = useState(() => {
     try {
       const saved = JSON.parse(localStorage.getItem('sunday-user-focus'));
-      return saved ? new Set(saved) : new Set();
+      return saved && saved.length > 0 ? new Set(saved) : new Set();
     } catch { return new Set(); }
   });
   const [focusChosen, setFocusChosen] = useState(() => {
@@ -130,10 +130,11 @@ export function GoalsPage({ onComplete, onSkip, onBack, asModal }) {
   // Always show the 2-option focus screen
   if (true) {
     return (
-      <div className={asModal ? styles.overlay : styles.page} onClick={asModal && onSkip ? (e) => { if (e.target === e.currentTarget) onSkip(); } : undefined}>
+      <div className={asModal ? styles.overlay : styles.page}>
         <div className={styles.card}>
           <img className={styles.logo} src="/prep-day-logo.png" alt="Prep Day" />
           <h2 className={styles.title}>How would you like to use Prep Day?</h2>
+          <p className={styles.subtitle}>Choose all that apply</p>
 
           <div className={styles.goalList}>
             {FOCUS_OPTIONS.map(opt => (

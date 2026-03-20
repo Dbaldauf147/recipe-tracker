@@ -52,8 +52,8 @@
 }
 
 .title {
-  margin: 0 0 1rem;
-  font-size: 1.15rem;
+  margin: 0 0 0.5rem;
+  font-size: 1.35rem;
   font-weight: 600;
   color: var(--color-text);
   line-height: 1.4;
@@ -61,8 +61,8 @@
 
 .subtitle {
   margin: 0 0 1.5rem;
-  font-size: 0.85rem;
-  color: var(--color-text-muted);
+  font-size: 0.95rem;
+  color: #6b7280;
 }
 
 .goalList {
@@ -112,15 +112,15 @@
 }
 
 .goalTitle {
-  font-size: 0.95rem;
+  font-size: 1.1rem;
   font-weight: 600;
   color: var(--color-text);
 }
 
 .goalDesc {
-  font-size: 0.82rem;
-  color: var(--color-text-muted);
-  line-height: 1.35;
+  font-size: 0.95rem;
+  color: #6b7280;
+  line-height: 1.4;
 }
 
 .bottomActions {
