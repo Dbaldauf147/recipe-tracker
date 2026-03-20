@@ -846,6 +846,7 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
               onSave={(data) => { addRecipe(data); setShowImportModal(false); }}
               onAddWithoutClose={(data) => { addRecipe(data); }}
               onCancel={() => setShowImportModal(false)}
+              userRecipes={recipes}
             />
           </div>
         </div>
@@ -946,7 +947,7 @@ function App() {
   }
 
   if (currentOnboardingStep === 'recipe-setup') {
-    return <ImportRecipePage onSave={(data) => { addRecipe(data); completeRecipeSetup(); }} onAddWithoutClose={(data) => { addRecipe(data); }} onCancel={completeRecipeSetup} />;
+    return <ImportRecipePage onSave={(data) => { addRecipe(data); completeRecipeSetup(); }} onAddWithoutClose={(data) => { addRecipe(data); }} onCancel={completeRecipeSetup} userRecipes={recipes} />;
   }
 
   // key={user?.uid} forces full remount when the user changes,

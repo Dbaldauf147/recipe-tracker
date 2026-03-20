@@ -16,12 +16,21 @@ const DISCOVER_CATEGORIES = [
   { key: 'drinks', label: 'Drinks' },
 ];
 
-function DiscoverMealsPanel({ onSave }) {
+function DiscoverMealsPanel({ onSave, userRecipes }) {
   const [recipes, setRecipes] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [activeCategory, setActiveCategory] = useState('all');
-  const [addedSet, setAddedSet] = useState(new Set());
+  const [addedSet, setAddedSet] = useState(() => {
+    // Pre-populate with user's existing recipe titles
+    const set = new Set();
+    if (userRecipes) {
+      for (const r of userRecipes) {
+        if (r.title) set.add(r.title.toLowerCase());
+      }
+    }
+    return set;
+  });
 
   useEffect(() => {
     loadStarterRecipes().then(r => { setRecipes(r); setLoading(false); }).catch(() => setLoading(false));
@@ -123,7 +132,7 @@ function DiscoverMealsPanel({ onSave }) {
   );
 }
 
-export function ImportRecipePage({ onSave, onAddWithoutClose, onCancel }) {
+export function ImportRecipePage({ onSave, onAddWithoutClose, onCancel, userRecipes }) {
   const [phase, setPhase] = useState('paste'); // 'paste' | 'review' | 'ai-results'
   const [importMode, setImportMode] = useState(''); // '' | 'url' | 'tiktok' | 'instagram' | 'pinterest' | 'paste' | 'manual' | 'restaurant' | 'ai'
   const [rawText, setRawText] = useState('');
@@ -779,7 +788,7 @@ export function ImportRecipePage({ onSave, onAddWithoutClose, onCancel }) {
       </button>
       <div className={styles.card}>
         {importMode === 'discover' && (
-          <DiscoverMealsPanel onSave={onAddWithoutClose || onSave} />
+          <DiscoverMealsPanel onSave={onAddWithoutClose || onSave} userRecipes={userRecipes} />
         )}
 
         {importMode === 'ai' && (
