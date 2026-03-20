@@ -256,6 +256,36 @@ export function WeightTracker({ onClose, user }) {
     return Math.abs(change) > 1 ? 'var(--color-accent)' : 'var(--color-text)';
   }
 
+  const [showSetup, setShowSetup] = useState(() => {
+    // Show setup if user has no weight entries and hasn't dismissed setup before
+    if (log.length > 0) return false;
+    try {
+      if (localStorage.getItem('sunday-weight-setup-done')) return false;
+    } catch {}
+    return true;
+  });
+  const [setupGoalWeight, setSetupGoalWeight] = useState('');
+  const [setupFreq, setSetupFreq] = useState('');
+
+  function handleSetupComplete() {
+    try {
+      const stats = JSON.parse(localStorage.getItem('sunday-body-stats') || '{}');
+      if (setupGoalWeight) stats.goalWeight = parseFloat(setupGoalWeight);
+      if (setupFreq) {
+        const goals = (stats.mealTrackingGoals || []).filter(g => !g.startsWith('weigh'));
+        goals.push(setupFreq);
+        stats.mealTrackingGoals = goals;
+        stats.weighRepeatUnit = setupFreq === 'weighDaily' ? 'day' : setupFreq === 'weighWeekly' ? 'week' : setupFreq === 'weighMonthly' ? 'month' : 'year';
+        stats.weighRepeatEvery = 1;
+      }
+      localStorage.setItem('sunday-body-stats', JSON.stringify(stats));
+      if (user) saveField(user.uid, 'bodyStats', stats);
+      window.dispatchEvent(new Event('goals-updated'));
+    } catch {}
+    localStorage.setItem('sunday-weight-setup-done', 'true');
+    setShowSetup(false);
+  }
+
   const [weight, setWeight] = useState('');
   const [rangeMode, setRangeMode] = useState('weeks'); // 'weeks' | 'years' | 'custom'
   const [rangeCount, setRangeCount] = useState(8);
@@ -566,6 +596,56 @@ export function WeightTracker({ onClose, user }) {
 
   return (
     <div className={styles.container}>
+      {showSetup && (
+        <div className={styles.setupOverlay}>
+          <div className={styles.setupModal}>
+            <h2 className={styles.setupTitle}>Set Up Weight Tracking</h2>
+            <p className={styles.setupDesc}>Let's get your weight tracking started.</p>
+
+            <div className={styles.setupField}>
+              <label className={styles.setupLabel}>Target Weight (lbs)</label>
+              <input
+                className={styles.setupInput}
+                type="number"
+                value={setupGoalWeight}
+                onChange={e => setSetupGoalWeight(e.target.value)}
+                placeholder="e.g. 165"
+                min="50"
+                max="500"
+                step="0.1"
+              />
+            </div>
+
+            <div className={styles.setupField}>
+              <label className={styles.setupLabel}>How often do you want to weigh yourself?</label>
+              <div className={styles.setupFreqBtns}>
+                {[
+                  { key: 'weighDaily', label: 'Daily' },
+                  { key: 'weighWeekly', label: 'Weekly' },
+                  { key: 'weighMonthly', label: 'Monthly' },
+                  { key: 'weighYearly', label: 'Yearly' },
+                ].map(g => (
+                  <button
+                    key={g.key}
+                    className={setupFreq === g.key ? styles.setupFreqBtnActive : styles.setupFreqBtn}
+                    onClick={() => setSetupFreq(g.key)}
+                  >{g.label}</button>
+                ))}
+              </div>
+            </div>
+
+            <div className={styles.setupActions}>
+              <button className={styles.setupStartBtn} onClick={handleSetupComplete}>
+                Start Tracking
+              </button>
+              <button className={styles.setupSkipBtn} onClick={() => { localStorage.setItem('sunday-weight-setup-done', 'true'); setShowSetup(false); }}>
+                Skip for now
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className={styles.header}>
         <button className={styles.backBtn} onClick={onClose}>&larr; Back</button>
         <h2 className={styles.title}>Weight Tracker</h2>
