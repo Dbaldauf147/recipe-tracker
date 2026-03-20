@@ -91,14 +91,14 @@
 }
 
 .menuItemLabel {
-  font-size: 0.92rem;
+  font-size: 1.1rem;
   font-weight: 600;
   color: var(--color-text);
   white-space: nowrap;
 }
 
 .menuItemDesc {
-  font-size: 0.8rem;
+  font-size: 0.95rem;
   color: var(--color-text-muted);
 }
 
@@ -134,10 +134,10 @@
 
 .menuInlineInput {
   flex: 1;
-  padding: 0.4rem 0.7rem;
+  padding: 0.5rem 0.85rem;
   border: 1px solid var(--color-border);
   border-radius: 50px;
-  font-size: 0.82rem;
+  font-size: 0.95rem;
   font-family: inherit;
   color: var(--color-text);
   background: var(--color-bg, #fff);
@@ -150,11 +150,12 @@
 }
 
 .menuGoBtn {
-  padding: 0.4rem 0.9rem;
+  padding: 0.5rem 1rem;
   background: var(--color-accent);
   color: #fff;
   border: none;
   border-radius: 50px;
+  font-size: 0.95rem;
   font-size: 0.82rem;
   font-weight: 600;
   font-family: inherit;
