@@ -91,7 +91,7 @@ function DiscoverMealsPanel({ onSave, userRecipes }) {
             <div key={r.id || r.title} className={styles.discoverCard}>
               <span className={styles.discoverCardTitle}>{r.title}</span>
               {r.description && <span className={styles.discoverCardDesc}>{r.description}</span>}
-              <span className={styles.discoverCardMeta}>{(r.ingredients || []).length} ingredients{r.servings ? ` · ${r.servings} servings` : ''}</span>
+              {r.servings && <span className={styles.discoverCardMeta}>{r.servings} servings</span>}
               {addedSet.has(r.title.toLowerCase()) ? (
                 <span className={styles.discoverCardAdded}>Added to Shopping List</span>
               ) : (
@@ -112,7 +112,6 @@ function DiscoverMealsPanel({ onSave, userRecipes }) {
                 {items.slice(0, 6).map(r => (
                   <div key={r.id || r.title} className={styles.discoverCard}>
                     <span className={styles.discoverCardTitle}>{r.title}</span>
-                    <span className={styles.discoverCardMeta}>{(r.ingredients || []).length} ingredients</span>
                     {addedSet.has(r.title.toLowerCase()) ? (
                       <span className={styles.discoverCardAdded}>Added to Shopping List</span>
                     ) : (
