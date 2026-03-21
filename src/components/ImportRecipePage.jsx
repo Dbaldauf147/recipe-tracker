@@ -657,13 +657,13 @@ export function ImportRecipePage({ onSave, onAddWithoutClose, onCancel, userReci
 
       {!importMode && (
         <div className={styles.menuList}>
-          {/* Discover Meals */}
+          {/* Add Prep Day Recipes */}
           <button
             className={styles.menuItemBtn}
             onClick={() => { setImportMode('discover'); setPhase('paste'); }}
           >
             <div className={styles.menuItemTop}>
-              <span className={styles.menuItemLabel}>Discover Meals</span>
+              <span className={styles.menuItemLabel}>Add Prep Day Recipes</span>
               <span className={styles.menuItemDesc}>Browse our curated meal collection</span>
             </div>
             <span className={styles.menuItemArrow}>&rsaquo;</span>
