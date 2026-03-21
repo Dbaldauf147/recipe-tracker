@@ -1,11 +1,11 @@
 .container {
-  max-width: calc(100% - 2in);
+  max-width: 860px;
   margin: 0 auto;
-  padding: 0 1in;
+  padding: 0 2rem;
 }
 
 .container:has(.aiGrid) {
-  max-width: calc(100% - 2in);
+  max-width: 960px;
 }
 
 .header {
@@ -35,6 +35,7 @@
   font-size: 1.6rem;
   font-weight: 700;
   letter-spacing: -0.02em;
+  color: var(--color-accent);
 }
 
 /* ── Menu list ── */
@@ -58,15 +59,16 @@
   flex-direction: column;
   gap: 0.75rem;
   padding: 1.5rem;
-  border: 1px solid var(--color-border);
+  border: 2px solid var(--color-accent-subtle, #D4EDE7);
   border-radius: var(--radius-xl, 16px);
-  background: var(--color-surface);
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  background: linear-gradient(135deg, var(--color-surface) 0%, var(--color-accent-light, #EFF9F6) 100%);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
 }
 
 .menuItem:hover {
   border-color: var(--color-accent);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  box-shadow: 0 6px 20px rgba(42, 140, 122, 0.12);
+  transform: translateY(-2px);
 }
 
 .menuItemBtn {
@@ -74,18 +76,19 @@
   align-items: center;
   gap: 1rem;
   padding: 1.5rem;
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
+  background: linear-gradient(135deg, var(--color-surface) 0%, var(--color-accent-light, #EFF9F6) 100%);
+  border: 2px solid var(--color-accent-subtle, #D4EDE7);
   border-radius: var(--radius-xl, 16px);
   cursor: pointer;
   text-align: left;
   font-family: inherit;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
 }
 
 .menuItemBtn:hover {
   border-color: var(--color-accent);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  box-shadow: 0 6px 20px rgba(42, 140, 122, 0.12);
+  transform: translateY(-2px);
 }
 
 .menuItemTop {
@@ -846,16 +849,16 @@
 }
 
 .discoverTabActive {
-  background: var(--color-text, #1a1a1a);
+  background: var(--color-accent);
   color: #fff;
-  border-color: var(--color-text, #1a1a1a);
+  border-color: var(--color-accent);
 }
 
 .discoverSectionTitle {
   margin: 0 0 0.5rem;
   font-size: 0.95rem;
   font-weight: 700;
-  color: var(--color-text);
+  color: var(--color-accent);
 }
 
 .discoverGrid {
@@ -865,17 +868,20 @@
 }
 
 .discoverCard {
-  background: var(--color-surface-alt, #f9f7f4);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  padding: 0.75rem;
+  background: linear-gradient(145deg, var(--color-surface) 0%, var(--color-accent-light, #EFF9F6) 100%);
+  border: 1px solid var(--color-accent-subtle, #D4EDE7);
+  border-radius: var(--radius-lg, 12px);
+  padding: 0.85rem;
   display: flex;
   flex-direction: column;
-  gap: 0.25rem;
+  gap: 0.3rem;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
 }
 
 .discoverCard:hover {
   border-color: var(--color-accent);
+  box-shadow: 0 4px 12px rgba(42, 140, 122, 0.1);
+  transform: translateY(-1px);
 }
 
 .discoverCardTitle {
