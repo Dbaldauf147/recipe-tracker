@@ -177,21 +177,47 @@
   cursor: not-allowed;
 }
 
-.backToMenu {
-  background: none;
-  border: none;
-  color: var(--color-text-muted);
-  font-size: 0.85rem;
-  font-weight: 500;
-  font-family: inherit;
-  cursor: pointer;
-  padding: 0;
-  margin-bottom: 1rem;
-  transition: color 0.15s ease;
+.navBtnRow {
+  display: flex;
+  gap: 1rem;
+  margin-bottom: 1.25rem;
 }
 
-.backToMenu:hover {
+.addMoreBtn {
+  flex: 1;
+  padding: 0.75rem 1.25rem;
+  background: var(--color-accent);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius-lg, 12px);
+  font-size: 1rem;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: opacity 0.15s ease;
+}
+
+.addMoreBtn:hover {
+  opacity: 0.9;
+}
+
+.continueHomeBtn {
+  flex: 1;
+  padding: 0.75rem 1.25rem;
+  background: none;
   color: var(--color-accent);
+  border: 2px solid var(--color-accent);
+  border-radius: var(--radius-lg, 12px);
+  font-size: 1rem;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.continueHomeBtn:hover {
+  background: var(--color-accent);
+  color: #fff;
 }
 
 .card {

@@ -653,9 +653,6 @@ export function ImportRecipePage({ onSave, onAddWithoutClose, onCancel, userReci
   return (
     <div className={styles.container}>
       <div className={styles.header}>
-        <button className={styles.backBtn} onClick={onCancel}>
-          &larr; Back
-        </button>
         <h2 className={styles.title}>Import Recipe</h2>
       </div>
 
@@ -783,9 +780,14 @@ export function ImportRecipePage({ onSave, onAddWithoutClose, onCancel, userReci
       )}
 
       {importMode && <>
-      <button className={styles.backToMenu} onClick={() => { setImportMode(''); setFetchError(''); setRawText(''); }}>
-        &larr; Back to options
-      </button>
+      <div className={styles.navBtnRow}>
+        <button className={styles.addMoreBtn} onClick={() => { setImportMode(''); setFetchError(''); setRawText(''); }}>
+          + Add More Recipes
+        </button>
+        <button className={styles.continueHomeBtn} onClick={onCancel}>
+          Continue to Homepage
+        </button>
+      </div>
       <div className={styles.card}>
         {importMode === 'discover' && (
           <DiscoverMealsPanel onSave={onAddWithoutClose || onSave} userRecipes={userRecipes} />
