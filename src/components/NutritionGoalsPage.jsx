@@ -492,7 +492,17 @@ export function NutritionGoalsPage({ onComplete, onBack, onSkip, initialSelected
                     render: () => (
                       <td className={styles.goalsTableBtns}>
                         {[{ key: 'trackDaily', label: 'Daily' }, { key: 'trackWeekly', label: 'Weekly' }].map(g => (
-                          <button key={g.key} type="button" className={mealTrackingGoals.has(g.key) ? styles.goalBtnActive : styles.goalBtn} onClick={() => { setMealTrackingGoals(prev => { const next = new Set(prev); if (next.has(g.key)) { next.delete(g.key); } else { next.delete('trackDaily'); next.delete('trackWeekly'); next.add(g.key); } return next; }); }}>{g.label}</button>
+                          <button key={g.key} type="button" className={mealTrackingGoals.has(g.key) ? styles.goalBtnActive : styles.goalBtn} onClick={() => {
+                            setMealTrackingGoals(prev => { const next = new Set(prev); if (next.has(g.key)) { next.delete(g.key); } else { next.delete('trackDaily'); next.delete('trackWeekly'); next.add(g.key); } return next; });
+                            // Auto-select core macros when enabling meal tracking
+                            if (!mealTrackingGoals.has(g.key)) {
+                              setSelected(prev => {
+                                const next = new Set(prev);
+                                ['calories', 'protein', 'carbs', 'fat', 'fiber', 'sugar', 'sodium'].forEach(k => next.add(k));
+                                return next;
+                              });
+                            }
+                          }}>{g.label}</button>
                         ))}
                       </td>
                     ),
