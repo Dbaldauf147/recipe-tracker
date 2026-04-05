@@ -463,6 +463,16 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
   const [imageLoading, setImageLoading] = useState(false);
   const imageInputRef = useRef(null);
 
+  // Ingredient column toggles (persisted)
+  const [showGHG, setShowGHG] = useState(() => {
+    try { return localStorage.getItem('sunday-show-ghg') !== 'false'; } catch { return true; }
+  });
+  const [showShelfLife, setShowShelfLife] = useState(() => {
+    try { return localStorage.getItem('sunday-show-shelf') !== 'false'; } catch { return true; }
+  });
+  const [ingGearOpen, setIngGearOpen] = useState(false);
+  const ingGearRef = useRef(null);
+
   async function handleImageFile(file) {
     if (!file || !file.type.startsWith('image/')) return;
     setImageError(null);
@@ -1067,6 +1077,18 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [showAddMenu]);
+
+  // Close ingredient gear dropdown on outside click
+  useEffect(() => {
+    if (!ingGearOpen) return;
+    function handleClickOutside(e) {
+      if (ingGearRef.current && !ingGearRef.current.contains(e.target)) {
+        setIngGearOpen(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [ingGearOpen]);
 
   function handleAddToWeekClick() {
     if (!isInWeek && onAddToWeek) {
@@ -1675,7 +1697,31 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
       />
       <div className={styles.ingredientsCol}>
         <div className={styles.ingredientsHeader}>
-          <h3>Ingredients</h3>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', position: 'relative' }}>
+            <h3>Ingredients</h3>
+            <div ref={ingGearRef} style={{ position: 'relative' }}>
+              <button
+                type="button"
+                className={styles.ingGearBtn}
+                onClick={() => setIngGearOpen(p => !p)}
+                title="Column settings"
+              >
+                &#9881;
+              </button>
+              {ingGearOpen && (
+                <div className={styles.ingGearDropdown}>
+                  <label className={styles.ingGearItem}>
+                    <input type="checkbox" checked={showGHG} onChange={e => { setShowGHG(e.target.checked); localStorage.setItem('sunday-show-ghg', e.target.checked); }} />
+                    GHG Emissions
+                  </label>
+                  <label className={styles.ingGearItem}>
+                    <input type="checkbox" checked={showShelfLife} onChange={e => { setShowShelfLife(e.target.checked); localStorage.setItem('sunday-show-shelf', e.target.checked); }} />
+                    Storage / Shelf Life
+                  </label>
+                </div>
+              )}
+            </div>
+          </div>
           <div className={styles.ingredientsActions}>
             <div className={styles.servingAdjuster}>
               <button
@@ -1739,8 +1785,8 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
                   <th className={styles.colQty} style={{ textAlign: 'center' }}>Qty</th>
                   <th className={styles.colMeasure} style={{ textAlign: 'left' }}>Unit</th>
                   <th style={{ textAlign: 'left' }}>Ingredient</th>
-                  <th style={{ textAlign: 'center', fontSize: '0.72rem', fontWeight: 600, color: 'var(--color-text-muted)', minWidth: '50px' }}>GHG</th>
-                  <th style={{ textAlign: 'left', fontSize: '0.72rem', fontWeight: 600, color: 'var(--color-text-muted)', minWidth: '130px' }}>Storage / Shelf Life</th>
+                  {showGHG && <th style={{ textAlign: 'center', fontSize: '0.72rem', fontWeight: 600, color: 'var(--color-text-muted)', minWidth: '50px' }}>GHG</th>}
+                  {showShelfLife && <th style={{ textAlign: 'left', fontSize: '0.72rem', fontWeight: 600, color: 'var(--color-text-muted)', minWidth: '130px' }}>Storage / Shelf Life</th>}
                   <th style={{ width: '50px' }}></th>
                 </tr>
               </thead>
@@ -2002,6 +2048,7 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
                         )}
                       </React.Fragment>
                     ))}
+                    {showGHG && (
                     <td style={{ fontSize: '0.72rem', textAlign: 'center' }}>
                       {(() => {
                         const ghg = getGHGEmissions(row.ingredient);
@@ -2014,9 +2061,12 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
                         );
                       })()}
                     </td>
+                    )}
+                    {showShelfLife && (
                     <td style={{ fontSize: '0.72rem' }}>
                       <StorageShelfCell ingredient={row.ingredient} getDbShelfLife={getDbShelfLife} />
                     </td>
+                    )}
                     <td>
                       <button
                         className={styles.toggleSectionBtn}
@@ -2042,7 +2092,7 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
                   return (
                     <>
                       {mainIdxRows.map(renderRow)}
-                      <tr className={styles.sectionDivider}><td colSpan={6}>Per Meal</td></tr>
+                      <tr className={styles.sectionDivider}><td colSpan={4 + (showGHG ? 1 : 0) + (showShelfLife ? 1 : 0) + 1}>Per Meal</td></tr>
                       {toppingIdxRows.map(renderRow)}
                     </>
                   );
@@ -2076,7 +2126,7 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
               <tr>
                 <th>Amount</th>
                 <th>Ingredient</th>
-                <th style={{ textAlign: 'center', fontSize: '0.72rem', fontWeight: 600, color: 'var(--color-text-muted)', width: '50px' }}>GHG</th>
+                {showGHG && <th style={{ textAlign: 'center', fontSize: '0.72rem', fontWeight: 600, color: 'var(--color-text-muted)', width: '50px' }}>GHG</th>}
               </tr>
             </thead>
             <tbody>
@@ -2116,6 +2166,7 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
                           <span className={styles.noWeightWarning} title="No weight conversion available — add grams to ingredient database"> ⚖</span>
                         )}
                       </td>
+                      {showGHG && (
                       <td style={{ fontSize: '0.72rem', textAlign: 'center' }}>
                         {(() => {
                           const ghg = getGHGEmissions(row.ingredient);
@@ -2128,6 +2179,7 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
                           );
                         })()}
                       </td>
+                      )}
                     </tr>
                   );
                 };
@@ -2136,7 +2188,7 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
                     {mainRows.map(renderViewRow)}
                     {toppingRows.length > 0 && (
                       <>
-                        <tr className={styles.sectionDivider}><td colSpan={3}>Per Meal</td></tr>
+                        <tr className={styles.sectionDivider}><td colSpan={2 + (showGHG ? 1 : 0)}>Per Meal</td></tr>
                         {toppingRows.map(renderViewRow)}
                       </>
                     )}
