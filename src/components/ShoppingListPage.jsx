@@ -2,17 +2,9 @@ import { useState, useCallback, useMemo } from 'react';
 import { ShoppingList } from './ShoppingList';
 import { GroceryStaples } from './GroceryStaples';
 import { PantryList } from './PantryList';
-import { WidgetLayout } from './WidgetLayout';
 import { useAuth } from '../contexts/AuthContext';
 import { saveField } from '../utils/firestoreSync';
 import styles from './ShoppingListPage.module.css';
-
-const SHOP_WIDGET_DEFS = {
-  shoppingList: { label: 'Shopping List', locked: true },
-  staples: { label: 'Hidden / Pantry / Staples' },
-  spices: { label: 'Spices' },
-  sauces: { label: 'Sauces' },
-};
 
 const DEFAULT_SPICES = [];
 const DEFAULT_SAUCES = [];
@@ -241,8 +233,8 @@ export function ShoppingListPage({ weeklyRecipes, weeklyServings = {}, onClose, 
         </div>
       )}
 
-      <WidgetLayout userId={user?.uid} widgetDefs={SHOP_WIDGET_DEFS} storagePrefix="sunday-shop">
-        <div data-widget="shoppingList">
+      <div className={styles.grid}>
+        <div className={styles.cell}>
           <ShoppingList
             weeklyRecipes={weeklyRecipes}
             weeklyServings={weeklyServings}
@@ -255,7 +247,7 @@ export function ShoppingListPage({ weeklyRecipes, weeklyServings = {}, onClose, 
             user={user}
           />
         </div>
-        <div data-widget="staples">
+        <div className={styles.cell}>
           {hiddenItems.length > 0 && (
             <div className={styles.hiddenBox}>
               <h3 className={styles.hiddenHeading}>Hidden from Shopping List</h3>
@@ -302,7 +294,7 @@ export function ShoppingListPage({ weeklyRecipes, weeklyServings = {}, onClose, 
           )}
           <GroceryStaples key={resetKey} onMoveToShop={handleMoveToShop} highlightNames={shopIngredientNames} />
         </div>
-        <div data-widget="spices">
+        <div className={styles.cell}>
           <PantryList
             key={`spices-${resetKey}`}
             title="Spices"
@@ -314,7 +306,7 @@ export function ShoppingListPage({ weeklyRecipes, weeklyServings = {}, onClose, 
             highlightNames={pantryMatchedItems.names}
           />
         </div>
-        <div data-widget="sauces">
+        <div className={styles.cell}>
           <PantryList
             key={`sauces-${resetKey}`}
             title="Sauces"
@@ -326,7 +318,7 @@ export function ShoppingListPage({ weeklyRecipes, weeklyServings = {}, onClose, 
             highlightNames={pantryMatchedItems.names}
           />
         </div>
-      </WidgetLayout>
+      </div>
 
     </div>
   );

@@ -1,7 +1,7 @@
 import { useState, useCallback, useMemo } from 'react';
 import styles from './WidgetLayout.module.css';
 
-const DEFAULT_WIDGET_DEFS = {
+const WIDGET_DEFS = {
   weeklyMeals: { label: "This Week's Meals", locked: true },
   suggestedMeals: { label: 'Suggested Meals', locked: true },
   myRecipes: { label: 'My Recipes', locked: true },
@@ -12,18 +12,17 @@ const DEFAULT_WIDGET_DEFS = {
   drinks: { label: 'Drinks' },
 };
 
-function getKeys(userId, prefix = 'sunday') {
+function getKeys(userId) {
   const suffix = userId ? `-${userId}` : '';
   return {
-    ORDER_KEY: `${prefix}-widget-order${suffix}`,
-    HIDDEN_KEY: `${prefix}-hidden-widgets${suffix}`,
-    CUSTOM_KEY: `${prefix}-custom-widgets${suffix}`,
+    ORDER_KEY: `sunday-widget-order${suffix}`,
+    HIDDEN_KEY: `sunday-hidden-widgets${suffix}`,
+    CUSTOM_KEY: `sunday-custom-widgets${suffix}`,
   };
 }
 
-export function WidgetLayout({ children, onRequestAddWidget, userId, widgetDefs, storagePrefix = 'sunday' }) {
-  const WIDGET_DEFS = widgetDefs || DEFAULT_WIDGET_DEFS;
-  const { ORDER_KEY, HIDDEN_KEY, CUSTOM_KEY } = getKeys(userId, storagePrefix);
+export function WidgetLayout({ children, onRequestAddWidget, userId }) {
+  const { ORDER_KEY, HIDDEN_KEY, CUSTOM_KEY } = getKeys(userId);
 
   function loadOrder() {
     try { return JSON.parse(localStorage.getItem(ORDER_KEY)); } catch { return null; }
@@ -239,7 +238,6 @@ export function WidgetLayout({ children, onRequestAddWidget, userId, widgetDefs,
           })())}
         </div>
       ))}
-      {addWidgetUI}
       {/* Bottom drop zone */}
       <div
         className={`${styles.bottomDrop} ${dragIdx !== null ? styles.bottomDropActive : ''}`}
