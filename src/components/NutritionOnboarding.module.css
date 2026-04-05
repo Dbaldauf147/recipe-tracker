@@ -1,0 +1,54 @@
+.overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 200; padding: 1rem; }
+.modal { background: var(--color-surface); border-radius: 16px; max-width: 680px; width: 100%; max-height: 92vh; overflow-y: auto; box-shadow: 0 8px 32px rgba(0,0,0,0.2); }
+
+.progress { display: flex; align-items: center; padding: 1.25rem 1.5rem 0; gap: 0.75rem; position: relative; }
+.progressDot { width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 0.75rem; font-weight: 700; background: var(--color-surface-alt); color: var(--color-text-muted); z-index: 1; transition: all 0.2s; }
+.progressDotActive { background: var(--color-accent); color: #fff; }
+.progressLine { position: absolute; left: 42px; right: 42px; top: calc(1.25rem + 13px); height: 3px; background: var(--color-border-light); border-radius: 2px; }
+.progressFill { height: 100%; background: var(--color-accent); border-radius: 2px; transition: width 0.3s; }
+
+.stepContent { padding: 1.5rem; }
+.stepTitle { font-size: 1.4rem; font-weight: 700; color: var(--color-text); margin: 0 0 0.25rem; }
+.stepDesc { font-size: 0.88rem; color: var(--color-text-muted); margin: 0 0 1.25rem; }
+
+.field { margin-bottom: 1rem; }
+.fieldRow { display: flex; gap: 0.75rem; margin-bottom: 1.25rem; }
+.fieldRow .field { flex: 1; margin-bottom: 0; }
+.label { display: block; font-size: 0.78rem; font-weight: 600; color: var(--color-text-secondary); text-transform: uppercase; letter-spacing: 0.03em; margin-bottom: 0.4rem; }
+.input { width: 100%; padding: 0.6rem 0.75rem; border: 1px solid var(--color-border); border-radius: 8px; font-size: 1rem; font-family: inherit; color: var(--color-text); background: var(--color-surface); }
+.input:focus { outline: none; border-color: var(--color-accent); }
+
+.btnRow { display: flex; gap: 0.4rem; flex-wrap: wrap; }
+.optionBtn { padding: 0.5rem 1rem; border: 1px solid var(--color-border); border-radius: 8px; background: var(--color-surface); font-size: 0.88rem; font-weight: 500; font-family: inherit; color: var(--color-text); cursor: pointer; transition: all 0.15s; flex: 1; text-align: center; }
+.optionBtn:hover { border-color: var(--color-accent); }
+.optionBtnActive { background: var(--color-accent); border-color: var(--color-accent); color: #fff; }
+
+.activityGrid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; }
+.activityBtn { padding: 0.6rem 0.75rem; border: 1px solid var(--color-border); border-radius: 8px; background: var(--color-surface); cursor: pointer; text-align: left; transition: all 0.15s; }
+.activityBtn:hover { border-color: var(--color-accent); }
+.activityBtnActive { background: var(--color-accent-light); border-color: var(--color-accent); }
+.activityLabel { display: block; font-size: 0.85rem; font-weight: 600; color: var(--color-text); }
+.activityDesc { display: block; font-size: 0.72rem; color: var(--color-text-muted); margin-top: 2px; }
+
+.toggleList { display: flex; flex-direction: column; gap: 0.35rem; }
+.toggleItem { display: flex; align-items: flex-start; gap: 0.6rem; padding: 0.4rem 0.75rem; border: 1px solid var(--color-border-light); border-radius: 8px; cursor: pointer; font-size: 0.85rem; color: var(--color-text); transition: background 0.1s; }
+.toggleItem:hover { background: var(--color-surface-alt); }
+.toggleItem input { margin-top: 3px; accent-color: var(--color-accent); }
+.toggleDesc { display: block; font-size: 0.72rem; color: var(--color-text-muted); }
+
+.targetGrid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; margin-bottom: 1rem; }
+.targetCard { background: var(--color-surface-alt); border-radius: 10px; padding: 0.75rem; display: flex; flex-direction: column; gap: 0.25rem; }
+.targetLabel { font-size: 0.72rem; font-weight: 600; color: var(--color-text-secondary); text-transform: uppercase; letter-spacing: 0.03em; }
+.targetInput { width: 100%; padding: 0.5rem; border: 1px solid var(--color-border); border-radius: 6px; font-size: 1.1rem; font-weight: 600; font-family: inherit; color: var(--color-text); text-align: center; }
+.targetInput:focus { outline: none; border-color: var(--color-accent); }
+.targetUnit { font-size: 0.7rem; color: var(--color-text-muted); text-align: center; }
+.targetNote { font-size: 0.78rem; color: var(--color-text-muted); text-align: center; margin-bottom: 1rem; }
+
+.actions { display: flex; gap: 0.75rem; justify-content: flex-end; padding-top: 0.5rem; border-top: 1px solid var(--color-border-light); }
+.backBtn { padding: 0.6rem 1.25rem; border: 1px solid var(--color-border); border-radius: 8px; background: var(--color-surface); font-size: 0.9rem; font-weight: 500; font-family: inherit; color: var(--color-text-secondary); cursor: pointer; }
+.backBtn:hover { background: var(--color-surface-alt); }
+.nextBtn { padding: 0.6rem 1.5rem; border: none; border-radius: 8px; background: var(--color-accent); font-size: 0.9rem; font-weight: 600; font-family: inherit; color: #fff; cursor: pointer; }
+.nextBtn:hover { opacity: 0.9; }
+.nextBtn:disabled { opacity: 0.4; cursor: not-allowed; }
+.completeBtn { padding: 0.6rem 1.5rem; border: none; border-radius: 8px; background: var(--color-success); font-size: 0.9rem; font-weight: 600; font-family: inherit; color: #fff; cursor: pointer; }
+.completeBtn:hover { opacity: 0.9; }

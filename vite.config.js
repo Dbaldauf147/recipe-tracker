@@ -254,7 +254,7 @@ export default defineConfig({
     tiktokCaptionProxy(),
     restaurantSearchProxy(),
     VitePWA({
-      registerType: 'prompt',
+      registerType: 'autoUpdate',
       manifest: {
         name: 'Prep Day',
         short_name: 'Prep Day',
@@ -282,7 +282,18 @@ export default defineConfig({
         ],
       },
       workbox: {
-        globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
+        globPatterns: ['**/*.{ico,png,svg,woff2}'],
+        maximumFileSizeToCacheInBytes: 4 * 1024 * 1024,
+        skipWaiting: true,
+        clientsClaim: true,
+        navigateFallback: null,
+        runtimeCaching: [
+          {
+            urlPattern: /\.(?:js|css)$/,
+            handler: 'NetworkFirst',
+            options: { cacheName: 'assets', expiration: { maxEntries: 50, maxAgeSeconds: 3600 } },
+          },
+        ],
       },
     }),
   ],

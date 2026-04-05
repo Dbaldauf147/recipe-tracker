@@ -76,13 +76,20 @@ export function KeyIngredientsPage({ recipes, getRecipe, onClose, onSetup }) {
       (a, b) => new Date(b.timestamp) - new Date(a.timestamp)
     );
 
+    // Also load daily tracker log
+    let dailyLog = {};
+    try {
+      const raw = localStorage.getItem('sunday-daily-log');
+      dailyLog = raw ? JSON.parse(raw) : {};
+    } catch {}
+
     const dateMap = {};
     const meals = {};
     for (const keyIng of userIngredients) {
       const normKey = normalize(keyIng);
       dateMap[keyIng] = null;
 
-      // Find last-eaten date from history
+      // Find last-eaten date from plan history
       for (const entry of byRecent) {
         if (dateMap[keyIng]) break;
         for (const recipeId of entry.recipeIds) {
@@ -90,6 +97,20 @@ export function KeyIngredientsPage({ recipes, getRecipe, onClose, onSetup }) {
           const recipe = getRecipe(recipeId);
           if (recipeHasIngredient(recipe, normKey)) {
             dateMap[keyIng] = entry.date;
+          }
+        }
+      }
+
+      // Also check daily tracker entries for more recent dates
+      for (const [dateStr, dayData] of Object.entries(dailyLog)) {
+        for (const entry of (dayData.entries || [])) {
+          if (entry.type === 'recipe' && entry.recipeId) {
+            const recipe = getRecipe(entry.recipeId);
+            if (recipe && recipeHasIngredient(recipe, normKey)) {
+              if (!dateMap[keyIng] || dateStr > dateMap[keyIng]) {
+                dateMap[keyIng] = dateStr;
+              }
+            }
           }
         }
       }
@@ -179,12 +200,12 @@ export function KeyIngredientsPage({ recipes, getRecipe, onClose, onSetup }) {
         <button className={styles.backBtn} onClick={onClose}>
           &larr; Back
         </button>
-        <h2 className={styles.title}>Key Ingredients</h2>
+        <h2 className={styles.title}>Healthy Foods</h2>
         <span className={styles.count}>
           {neverCount} of {userIngredients.length} never eaten
         </span>
         <button className={styles.setupBtn} onClick={onSetup}>
-          Edit Key Ingredients
+          Edit Healthy Foods
         </button>
       </div>
 

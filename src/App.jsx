@@ -25,6 +25,10 @@ import { NutritionGoalsPage } from './components/NutritionGoalsPage';
 import { DailyTrackerPage } from './components/DailyTrackerPage';
 import { BarcodeScannerPage } from './components/BarcodeScannerPage';
 import { RecipeSetupPage } from './components/RecipeSetupPage';
+import { ProfilePage } from './components/ProfilePage';
+import { WorkoutPage } from './components/WorkoutPage';
+import { FeaturesPage } from './components/FeaturesPage';
+import { NutritionOnboarding } from './components/NutritionOnboarding';
 import React from 'react';
 import styles from './App.module.css';
 
@@ -198,8 +202,22 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
   const [viewRecipeId, setViewRecipeId] = useState(null);
-  const [weighBannerDismissed, setWeighBannerDismissed] = useState(false);
-  const showWeighBanner = !weighBannerDismissed && checkWeighReminder();
+  const [weighNeedsLog, setWeighNeedsLog] = useState(() => checkWeighReminder());
+  // Re-check when navigating back from weight tracker or when localStorage changes
+  useEffect(() => {
+    const recheck = () => setWeighNeedsLog(checkWeighReminder());
+    window.addEventListener('storage', recheck);
+    window.addEventListener('weight-logged', recheck);
+    return () => { window.removeEventListener('storage', recheck); window.removeEventListener('weight-logged', recheck); };
+  }, []);
+  // Also recheck when view changes (e.g., navigating away from weight tracker)
+  useEffect(() => { setWeighNeedsLog(checkWeighReminder()); }, [view]);
+  const showWeighBanner = weighNeedsLog && (() => {
+    try {
+      const stats = JSON.parse(localStorage.getItem('sunday-body-stats') || '{}');
+      return ['lose', 'maintain', 'gain'].some(k => (stats.weightGoals || []).includes(k));
+    } catch { return false; }
+  })();
   const [pendingCount, setPendingCount] = useState(0);
   const [ingredientsVersion, setIngredientsVersion] = useState(0);
   const settingsRef = useRef(null);
@@ -399,12 +417,12 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
   }, []);
   function saveWeek(plan) {
     try { localStorage.setItem(WEEKLY_KEY, JSON.stringify(plan)); } catch {}
-    if (user) saveField(user.uid, 'weeklyPlan', plan);
+    if (user) saveField(user.uid, 'weeklyPlan', plan).catch(() => {});
   }
 
   function saveWeeklyServings(servings) {
     try { localStorage.setItem(WEEKLY_SERVINGS_KEY, JSON.stringify(servings)); } catch {}
-    if (user) saveField(user.uid, 'weeklyServings', servings);
+    if (user) saveField(user.uid, 'weeklyServings', servings).catch(() => {});
   }
 
   function handleUpdateWeeklyServings(recipeId, newServings) {
@@ -417,21 +435,27 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
 
   const [navVersion, setNavVersion] = useState(0);
 
-  const { showTrackMeals, showWeightTab } = useMemo(() => {
+  const { showNutrition, showTrackMeals, showWeightTab, showRotateHealthy } = useMemo(() => {
     try {
+      const focus = JSON.parse(localStorage.getItem('sunday-user-focus') || '[]');
+      const nutritionEnabled = !Array.isArray(focus) || focus.length === 0 || focus.includes('nutrition');
       const stats = JSON.parse(localStorage.getItem('sunday-body-stats') || '{}');
       const goals = stats.mealTrackingGoals || [];
       return {
+        showNutrition: nutritionEnabled,
         showTrackMeals: goals.includes('trackDaily') || goals.includes('trackWeekly'),
         showWeightTab: goals.includes('weighDaily') || goals.includes('weighWeekly') || goals.includes('weighBiweekly') || goals.includes('weighMonthly') || goals.includes('weighYearly'),
+        showRotateHealthy: goals.includes('rotateHealthy'),
       };
-    } catch { return { showTrackMeals: false, showWeightTab: false }; }
+    } catch { return { showNutrition: true, showTrackMeals: false, showWeightTab: false, showRotateHealthy: false }; }
   }, [navVersion]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const needsHealthyFoods = showNutrition && showRotateHealthy && JSON.parse(localStorage.getItem('sunday-key-ingredients') || '[]').length === 0;
 
   // Listen for goal changes to update nav immediately
   useEffect(() => {
     function handleStorage(e) {
-      if (e.key === 'sunday-body-stats' || e.key === 'sunday-nutrition-goals') {
+      if (e.key === 'sunday-body-stats' || e.key === 'sunday-nutrition-goals' || e.key === 'sunday-user-focus') {
         setNavVersion(v => v + 1);
       }
     }
@@ -446,22 +470,34 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
   }, []);
 
   const NAV_ITEMS = [
-    { label: 'Shopping List', action: 'shopping' },
-    { label: 'Recipes', id: 'weekly-menu' },
-    { label: 'Nutrition Tracking', submenu: [
+    ...(showNutrition ? [{ label: 'Nutrition Tracking', submenu: [
       { label: 'Goals', action: 'nutrition-goals' },
       ...(showTrackMeals ? [{ label: 'Track Meals', action: 'daily-tracker' }] : []),
       ...(showWeightTab ? [{ label: 'Weight', action: 'weight-tracker' }] : []),
-    ] },
+      ...(showRotateHealthy ? [{ label: 'Healthy Foods', action: 'key-ingredients' }] : []),
+    ] }] : []),
+    { label: 'Recipes', id: 'weekly-menu' },
+    { label: 'Shopping List', action: 'shopping' },
+    ...(user?.email === 'baldaufdan@gmail.com' ? [{ label: 'Workout', action: 'workout' }] : []),
   ];
 
   function handleNavClick(item) {
-    if (item.action === 'shopping') {
+    if (item.action === 'features') {
+      navigateTo('features');
+    } else if (item.action === 'workout') {
+      navigateTo('workout');
+    } else if (item.action === 'shopping') {
       navigateTo('shopping');
     } else if (item.action === 'history') {
       navigateTo('history');
     } else if (item.action === 'key-ingredients') {
-      navigateTo('key-ingredients');
+      // If user has no healthy foods set up yet, go straight to setup
+      const existing = JSON.parse(localStorage.getItem('sunday-key-ingredients') || '[]');
+      if (existing.length === 0) {
+        navigateTo('setup');
+      } else {
+        navigateTo('key-ingredients');
+      }
     } else if (item.action === 'import') {
       navigateTo('import');
     } else if (item.action === 'nutrition-goals') {
@@ -572,14 +608,6 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
           Prep Day
         </span>
         <nav className={styles.nav}>
-          {showWeighBanner && (
-            <button
-              className={styles.weighAlert}
-              onClick={() => { navigateTo('weight-tracker'); setWeighBannerDismissed(true); }}
-            >
-              Log Weight
-            </button>
-          )}
           {NAV_ITEMS.map(item => {
             if (item.submenu) {
               const isActive = item.submenu.some(s => s.action === view);
@@ -643,6 +671,12 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
               </div>
               <button
                 className={styles.settingsMenuItem}
+                onClick={() => { navigateTo('profile'); setSettingsOpen(false); }}
+              >
+                My Profile
+              </button>
+              <button
+                className={styles.settingsMenuItem}
                 onClick={() => { navigateTo('account-settings'); setSettingsOpen(false); }}
               >
                 Account Settings
@@ -657,12 +691,6 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
                 )}
               </button>
               <div className={styles.settingsDivider} />
-              <button
-                className={styles.settingsMenuItem}
-                onClick={() => { navigateTo('key-ingredients'); setSettingsOpen(false); }}
-              >
-                Key Ingredients
-              </button>
               {user?.uid === ADMIN_UID && (
                 <>
                   <button
@@ -692,6 +720,12 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
               >
                 Sources
               </button>
+              <button
+                className={styles.settingsMenuItem}
+                onClick={() => { navigateTo('features'); setSettingsOpen(false); }}
+              >
+                Features
+              </button>
               <div className={styles.settingsDivider} />
               <button
                 className={styles.settingsMenuItem}
@@ -716,6 +750,25 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
           )}
         </div>
       </header>
+
+      {(() => {
+        const items = [];
+        if (showWeighBanner) items.push({ label: "Enter this week's weight", action: () => navigateTo('weight-tracker') });
+        if (needsHealthyFoods) items.push({ label: 'Select Healthy Foods to Prioritize', action: () => navigateTo('setup') });
+        if (items.length === 0) return null;
+        return (
+          <div className={styles.actionBanner}>
+            <span className={styles.actionBannerTitle}>Action Required</span>
+            <div className={styles.actionBannerItems}>
+              {items.map((item, i) => (
+                <button key={i} className={styles.actionBannerItem} onClick={item.action}>
+                  {item.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        );
+      })()}
 
       <main className={styles.main}>
         {view === 'barcode-scanner' ? (
@@ -763,7 +816,18 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
               onBack={goBack}
             />
           );
-        })() : view === 'admin' ? (
+        })() : view === 'workout' ? (
+          <WorkoutPage onBack={goBack} user={user} />
+        ) : view === 'profile' ? (
+          <ProfilePage
+            recipes={recipes}
+            dailyLog={JSON.parse(localStorage.getItem('sunday-daily-log') || '{}')}
+            planHistory={JSON.parse(localStorage.getItem('sunday-plan-history') || '[]')}
+            onBack={goBack}
+          />
+        ) : view === 'features' ? (
+          <FeaturesPage onClose={goBack} />
+        ) : view === 'admin' ? (
           <AdminDashboard onClose={goBack} />
         ) : view === 'import' ? (
           <ImportRecipePage
@@ -852,6 +916,7 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
               onSaveToHistory={handleSaveToHistory}
               onAddRecipe={addRecipe}
               onDelete={handleDelete}
+              onUpdateRecipe={updateRecipe}
               isNewUser={isNewUser}
             />
           </div>
@@ -961,7 +1026,11 @@ function App() {
   }
 
   if (currentOnboardingStep === 'nutrition-goals') {
-    return <NutritionGoalsPage onComplete={completeNutritionGoals} onBack={goBackOnboarding} onSkip={advanceOnboarding} recipes={[]} />;
+    return <NutritionOnboarding onComplete={completeNutritionGoals} onBack={goBackOnboarding} />;
+  }
+
+  if (currentOnboardingStep === 'weight-setup') {
+    return <WeightTracker onClose={advanceOnboarding} user={user} isOnboarding />;
   }
 
   if (currentOnboardingStep === 'key-ingredients') {
@@ -969,7 +1038,16 @@ function App() {
   }
 
   if (currentOnboardingStep === 'recipe-setup') {
-    return <ImportRecipePage onSave={(data) => { addRecipe(data); completeRecipeSetup(); }} onAddWithoutClose={(data) => { addRecipe(data); }} onCancel={completeRecipeSetup} userRecipes={recipes} />;
+    const onboardingAddRecipe = (data) => {
+      const newRecipe = { ...data, id: crypto.randomUUID(), createdAt: new Date().toISOString() };
+      try {
+        const existing = JSON.parse(localStorage.getItem('recipe-tracker-recipes') || '[]');
+        const next = [newRecipe, ...existing];
+        localStorage.setItem('recipe-tracker-recipes', JSON.stringify(next));
+        if (user) saveField(user.uid, 'recipes', next);
+      } catch {}
+    };
+    return <ImportRecipePage onSave={(data) => { onboardingAddRecipe(data); completeRecipeSetup(); }} onAddWithoutClose={(data) => { onboardingAddRecipe(data); }} onCancel={completeRecipeSetup} userRecipes={[]} isOnboarding />;
   }
 
   // key={user?.uid} forces full remount when the user changes,

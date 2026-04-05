@@ -107,6 +107,50 @@
   border: 1px solid var(--color-accent);
 }
 
+.setupEmailLabel {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.95rem;
+  color: var(--color-text);
+  cursor: pointer;
+}
+
+.setupEmailLabel input[type="checkbox"] {
+  accent-color: var(--color-accent);
+  width: 1.1rem;
+  height: 1.1rem;
+}
+
+.setupTimeRow {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin-top: 0.35rem;
+  flex-wrap: wrap;
+}
+
+.setupTimeLabel {
+  font-size: 0.88rem;
+  color: var(--color-text-secondary);
+  font-weight: 500;
+}
+
+.setupTimeInput {
+  padding: 0.35rem 0.5rem;
+  font-size: 0.9rem;
+  font-family: inherit;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+
+.setupEmailHint {
+  font-size: 0.8rem;
+  color: var(--color-text-muted);
+}
+
 .setupActions {
   display: flex;
   flex-direction: column;
@@ -492,8 +536,8 @@
 }
 
 .reminderBtnActive {
-  background: var(--color-accent, #2A8C7A);
-  border-color: var(--color-accent, #2A8C7A);
+  background: var(--color-accent, #3B6B9C);
+  border-color: var(--color-accent, #3B6B9C);
   color: #fff;
 }
 
@@ -548,9 +592,16 @@
 
 .targetSection {
   display: flex;
-  flex-direction: column;
-  gap: 0.3rem;
+  align-items: center;
+  gap: 1rem;
   margin-bottom: 1rem;
+  flex-wrap: wrap;
+}
+
+.targetLeft {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
 }
 
 .inputSep {
@@ -561,8 +612,40 @@
 .targetLabel {
   font-size: 1rem;
   font-weight: 700;
-  color: var(--color-accent, #2A8C7A);
+  color: var(--color-accent, #3B6B9C);
   white-space: nowrap;
+}
+
+.targetInputInline {
+  width: 60px;
+  padding: 0.3rem 0.4rem;
+  border: none;
+  border-bottom: 2px solid var(--color-border);
+  border-radius: 0;
+  font-size: 1.1rem;
+  font-weight: 700;
+  font-family: inherit;
+  color: var(--color-text);
+  background: transparent;
+  text-align: center;
+  -moz-appearance: textfield;
+}
+
+.targetInputInline::-webkit-outer-spin-button,
+.targetInputInline::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.targetInputInline:focus {
+  outline: none;
+  border-bottom-color: var(--color-accent);
+}
+
+.targetUnit {
+  font-size: 0.88rem;
+  color: var(--color-text-muted);
+  font-weight: 500;
 }
 
 .targetInput {
@@ -746,8 +829,54 @@
   padding: 1.25rem;
 }
 
+.logHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.75rem;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.logActions {
+  display: flex;
+  gap: 0.4rem;
+}
+
+.csvBtn {
+  padding: 0.3rem 0.65rem;
+  font-size: 0.78rem;
+  font-family: inherit;
+  font-weight: 500;
+  border: 1px solid var(--color-border);
+  border-radius: 50px;
+  background: var(--color-surface);
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  transition: border-color 0.15s ease, color 0.15s ease;
+}
+
+.csvBtn:hover {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+
+.csvBtn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.uploadResult {
+  margin: 0 0 0.5rem;
+  padding: 0.4rem 0.6rem;
+  font-size: 0.82rem;
+  color: var(--color-success);
+  background: var(--color-success-light);
+  border-radius: var(--radius-sm);
+}
+
 .logTitle {
-  margin: 0 0 0.75rem;
+  margin: 0;
   font-size: 1rem;
   font-weight: 700;
 }
@@ -958,7 +1087,17 @@
 }
 
 .upcomingRowReady td {
-  background: var(--color-accent-light, rgba(201, 100, 66, 0.08));
+  background: var(--color-accent-light, rgba(201, 100, 66, 0.10));
+  border-top: 2px solid var(--color-accent);
+  border-bottom: 2px solid var(--color-accent);
+  font-weight: 600;
+  font-size: 0.95rem;
+  padding-top: 0.75rem !important;
+  padding-bottom: 0.75rem !important;
+}
+
+.upcomingRowReady td:first-child {
+  border-left: 3px solid var(--color-accent);
 }
 
 .missedRow td {

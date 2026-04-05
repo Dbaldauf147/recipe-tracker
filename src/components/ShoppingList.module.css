@@ -45,18 +45,19 @@
 /* Grocery store sections — single table */
 .table {
   width: 100%;
-  table-layout: fixed;
+  table-layout: auto;
   border-collapse: collapse;
   font-size: 0.85rem;
 }
 
-/* Fixed column widths via <colgroup> */
+/* Column widths via <colgroup> */
 .colCheck  { width: 2rem; }
 .colQty    { width: 3rem; }
-.colMeas   { width: 4.5rem; }
-.colLink   { width: 2rem; }
+.colMeas   { width: 7rem; }
+.colLink   { width: 2.5rem; }
 .colSection { width: 5.5rem; }
 .colDismiss { width: 1.5rem; }
+.colMeals  { width: 10rem; }
 
 .sectionHeaderRow {
   cursor: default;
@@ -174,6 +175,13 @@
 .convertOptionActive {
   font-weight: 700;
   color: var(--color-accent);
+}
+
+.convertNoAvail {
+  padding: 0.5rem 0.75rem;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  font-style: italic;
 }
 
 .linkCol {
@@ -469,8 +477,6 @@
   border-color: var(--color-accent);
   color: var(--color-accent);
 }
-
-.colMeals { width: auto; }
 
 .mealsCell {
   font-size: 0.72rem;

@@ -30,13 +30,31 @@ export default async function handler(req, res) {
 
     const html = await response.text();
 
-    // Extract caption from the embed HTML
-    const captionMatch = html.match(/class="Caption"[^>]*>(.*?)<\/div>/s);
+    // Extract caption from the embed HTML — try multiple patterns
+    let captionMatch = html.match(/class="Caption"[^>]*>(.*?)<\/div>/s);
+    if (!captionMatch) captionMatch = html.match(/class="CaptionComments"[^>]*>.*?class="CaptionUsername"[^>]*>.*?<\/a>(.*?)<\/div>/s);
+    if (!captionMatch) captionMatch = html.match(/"caption":\s*\{[^}]*"text":"((?:[^"\\]|\\.)*)"/);
+    if (!captionMatch) captionMatch = html.match(/"edge_media_to_caption".*?"text":"((?:[^"\\]|\\.)*)"/);
     if (!captionMatch) {
-      return res.status(404).json({ error: 'No caption found for this Instagram post' });
+      // Try oEmbed API as fallback
+      try {
+        const oembedRes = await fetch(`https://www.instagram.com/api/v1/oembed/?url=https://www.instagram.com/reel/${shortcode}/`);
+        if (oembedRes.ok) {
+          const oembed = await oembedRes.json();
+          if (oembed.status === 'fail' && oembed.gating_type) {
+            return res.status(403).json({ error: 'This Instagram post is restricted or geo-blocked. Try opening it in your browser and copying the recipe text manually.' });
+          }
+          if (oembed.title) {
+            return res.status(200).json({ caption: oembed.title });
+          }
+        }
+      } catch {}
+      return res.status(404).json({ error: 'No caption found for this Instagram post. The post may be private, restricted, or have no text. Try copying the recipe text manually.' });
     }
 
     let caption = captionMatch[1];
+    // Unescape JSON-encoded strings if matched from JSON pattern
+    try { caption = JSON.parse(`"${caption}"`); } catch {}
     // Replace <br> tags with newlines
     caption = caption.replace(/<br\s*\/?>/gi, '\n');
     // Strip remaining HTML tags

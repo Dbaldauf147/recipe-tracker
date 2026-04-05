@@ -2,9 +2,17 @@ import { useState, useCallback, useMemo } from 'react';
 import { ShoppingList } from './ShoppingList';
 import { GroceryStaples } from './GroceryStaples';
 import { PantryList } from './PantryList';
+import { WidgetLayout } from './WidgetLayout';
 import { useAuth } from '../contexts/AuthContext';
 import { saveField } from '../utils/firestoreSync';
 import styles from './ShoppingListPage.module.css';
+
+const SHOP_WIDGET_DEFS = {
+  shoppingList: { label: 'Shopping List', locked: true },
+  staples: { label: 'Hidden / Pantry / Staples' },
+  spices: { label: 'Spices' },
+  sauces: { label: 'Sauces' },
+};
 
 const DEFAULT_SPICES = [];
 const DEFAULT_SAUCES = [];
@@ -199,9 +207,6 @@ export function ShoppingListPage({ weeklyRecipes, weeklyServings = {}, onClose, 
   return (
     <div className={styles.container}>
       <div className={styles.header}>
-        <button className={styles.backBtn} onClick={onClose}>
-          &larr; Back
-        </button>
         <div className={styles.titleRow}>
           <h2 className={styles.title}>Shopping List</h2>
           {weeklyRecipes.length > 0 && (
@@ -220,18 +225,24 @@ export function ShoppingListPage({ weeklyRecipes, weeklyServings = {}, onClose, 
             className={styles.completedBtn}
             onClick={() => {
               onSaveToHistory();
+              // Send grocery staples back to their boxes
+              handleClearExtras();
+              // Clear checked items
+              localStorage.removeItem('sunday-shopping-checked');
+              if (user) saveField(user.uid, 'shoppingChecked', []);
+              window.dispatchEvent(new Event('firestore-sync'));
               setSaved(true);
               setTimeout(() => setSaved(false), 3000);
             }}
           >
-            Completed Shopping
+            Reset Shopping List
           </button>
           {saved && <span className={styles.savedToast}>Saved to history!</span>}
         </div>
       )}
 
-      <div className={styles.grid}>
-        <div className={styles.cell}>
+      <WidgetLayout userId={user?.uid} widgetDefs={SHOP_WIDGET_DEFS} storagePrefix="sunday-shop">
+        <div data-widget="shoppingList">
           <ShoppingList
             weeklyRecipes={weeklyRecipes}
             weeklyServings={weeklyServings}
@@ -244,7 +255,7 @@ export function ShoppingListPage({ weeklyRecipes, weeklyServings = {}, onClose, 
             user={user}
           />
         </div>
-        <div className={styles.cell}>
+        <div data-widget="staples">
           {hiddenItems.length > 0 && (
             <div className={styles.hiddenBox}>
               <h3 className={styles.hiddenHeading}>Hidden from Shopping List</h3>
@@ -291,7 +302,7 @@ export function ShoppingListPage({ weeklyRecipes, weeklyServings = {}, onClose, 
           )}
           <GroceryStaples key={resetKey} onMoveToShop={handleMoveToShop} highlightNames={shopIngredientNames} />
         </div>
-        <div className={styles.cell}>
+        <div data-widget="spices">
           <PantryList
             key={`spices-${resetKey}`}
             title="Spices"
@@ -303,7 +314,7 @@ export function ShoppingListPage({ weeklyRecipes, weeklyServings = {}, onClose, 
             highlightNames={pantryMatchedItems.names}
           />
         </div>
-        <div className={styles.cell}>
+        <div data-widget="sauces">
           <PantryList
             key={`sauces-${resetKey}`}
             title="Sauces"
@@ -315,7 +326,7 @@ export function ShoppingListPage({ weeklyRecipes, weeklyServings = {}, onClose, 
             highlightNames={pantryMatchedItems.names}
           />
         </div>
-      </div>
+      </WidgetLayout>
 
     </div>
   );

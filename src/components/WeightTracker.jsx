@@ -1,7 +1,46 @@
-import { useState, useEffect, useMemo, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, ReferenceLine } from 'recharts';
 import { saveField } from '../utils/firestoreSync';
 import styles from './WeightTracker.module.css';
+
+function downloadWeightCSV(log) {
+  const header = 'Date,Weight (lbs)\n';
+  const rows = [...log].sort((a, b) => a.date.localeCompare(b.date))
+    .map(e => `${e.date},${e.weight}`).join('\n');
+  const blob = new Blob([header + rows], { type: 'text/csv' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `weight-log-${todayStr()}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function parseWeightCSV(text) {
+  const lines = text.trim().split('\n');
+  const entries = [];
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim();
+    if (!line) continue;
+    // Skip header rows
+    if (/date/i.test(line) && /weight/i.test(line)) continue;
+    const parts = line.split(',');
+    if (parts.length < 2) continue;
+    const dateStr = parts[0].trim();
+    const weight = parseFloat(parts[1].trim());
+    if (!weight || isNaN(weight)) continue;
+    // Accept YYYY-MM-DD or MM/DD/YYYY formats
+    let normalized = dateStr;
+    const slashMatch = dateStr.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+    if (slashMatch) {
+      normalized = `${slashMatch[3]}-${slashMatch[1].padStart(2, '0')}-${slashMatch[2].padStart(2, '0')}`;
+    }
+    if (/^\d{4}-\d{2}-\d{2}$/.test(normalized)) {
+      entries.push({ date: normalized, weight });
+    }
+  }
+  return entries;
+}
 
 const WEIGHT_KEY = 'sunday-weight-log';
 
@@ -14,6 +53,7 @@ function loadWeightLog() {
 function saveWeightLog(log, user) {
   localStorage.setItem(WEIGHT_KEY, JSON.stringify(log));
   if (user) saveField(user.uid, 'weightLog', log);
+  window.dispatchEvent(new Event('weight-logged'));
 }
 
 function todayStr() {
@@ -208,15 +248,48 @@ export function checkWeighReminder() {
 
 const ADMIN_UID_WT = import.meta.env.VITE_ADMIN_UID;
 
-export function WeightTracker({ onClose, user }) {
+export function WeightTracker({ onClose, user, isOnboarding = false }) {
+  const [onboardingDone, setOnboardingDone] = useState(false);
   const [log, setLog] = useState(() => {
     const existing = loadWeightLog();
-    // Clear seed data from non-admin users (fix for pre-fix contamination)
-    if (user?.uid !== ADMIN_UID_WT && existing.length > 0 && existing.some(e => e.date === '2022-09-25')) {
-      const cleaned = existing.filter(e => !SEED_DATA.some(s => s.date === e.date && s.weight === e.weight));
-      saveWeightLog(cleaned, user);
-      return cleaned;
+
+    // For non-admin users: aggressively clear contaminated weight data
+    if (user?.uid !== ADMIN_UID_WT && existing.length > 0) {
+      const seedSet = new Set(SEED_DATA.map(s => `${s.date}|${s.weight}`));
+      const hasSeedData = existing.some(e => seedSet.has(`${e.date}|${e.weight}`));
+
+      if (hasSeedData) {
+        // Has seed data contamination — clear everything and reset settings
+        saveWeightLog([], user);
+        try {
+          const stats = JSON.parse(localStorage.getItem('sunday-body-stats') || '{}');
+          delete stats.goalWeight;
+          delete stats.weighRepeatUnit;
+          delete stats.weighRepeatEvery;
+          delete stats.weighWeekDays;
+          delete stats.weighMonthOption;
+          delete stats.weighMonthDay;
+          delete stats.weighMonthWeek;
+          delete stats.weighMonthWeekday;
+          stats.mealTrackingGoals = (stats.mealTrackingGoals || []).filter(g => !g.startsWith('weigh'));
+          localStorage.setItem('sunday-body-stats', JSON.stringify(stats));
+          if (user) saveField(user.uid, 'bodyStats', stats);
+        } catch {}
+        return [];
+      }
+
+      // No seed data but user never set up weight tracking — entries are orphaned
+      let hasConfigured = false;
+      try {
+        const stats = JSON.parse(localStorage.getItem('sunday-body-stats') || '{}');
+        hasConfigured = !!stats.goalWeight;
+      } catch {}
+      if (!hasConfigured) {
+        saveWeightLog([], user);
+        return [];
+      }
     }
+
     // Only merge seed data for admin user
     if (user?.uid === ADMIN_UID_WT) {
       const dateSet = new Set(existing.map(e => e.date));
@@ -257,35 +330,27 @@ export function WeightTracker({ onClose, user }) {
   }
 
   const [showSetup, setShowSetup] = useState(() => {
-    // One-time cleanup: clear inherited weigh settings for all non-admin users
-    if (user?.uid !== ADMIN_UID_WT && !localStorage.getItem('sunday-weight-cleanup-v2')) {
-      try {
-        const stats = JSON.parse(localStorage.getItem('sunday-body-stats') || '{}');
-        delete stats.weighRepeatUnit;
-        delete stats.weighRepeatEvery;
-        delete stats.weighWeekDays;
-        delete stats.weighMonthOption;
-        delete stats.weighMonthDay;
-        delete stats.weighMonthWeek;
-        delete stats.weighMonthWeekday;
-        delete stats.goalWeight;
-        stats.mealTrackingGoals = (stats.mealTrackingGoals || []).filter(g => !g.startsWith('weigh'));
-        localStorage.setItem('sunday-body-stats', JSON.stringify(stats));
-        localStorage.removeItem('sunday-weight-setup-done');
-        if (user) saveField(user.uid, 'bodyStats', stats);
-      } catch {}
-      localStorage.setItem('sunday-weight-cleanup-v2', 'done');
-    }
-
-    // Show setup if user has no weight entries and hasn't dismissed setup before
+    // Show setup popup when: no weight entries AND no goal weight configured
+    // The log initializer above already cleared contaminated data, so if log
+    // is empty here, the user genuinely has no weight data.
+    if (user?.uid === ADMIN_UID_WT) return false;
     if (log.length > 0) return false;
     try {
-      if (localStorage.getItem('sunday-weight-setup-done')) return false;
+      const stats = JSON.parse(localStorage.getItem('sunday-body-stats') || '{}');
+      if (stats.goalWeight) return false;
     } catch {}
     return true;
   });
   const [setupGoalWeight, setSetupGoalWeight] = useState('');
   const [setupFreq, setSetupFreq] = useState('');
+  const [setupWeekDays, setSetupWeekDays] = useState(['monday']);
+  const [setupMonthDay, setSetupMonthDay] = useState(1);
+  const [setupRepeatEvery, setSetupRepeatEvery] = useState(1);
+  const [setupMonthOption, setSetupMonthOption] = useState('day'); // 'day' | 'weekday'
+  const [setupMonthWeek, setSetupMonthWeek] = useState('1st');
+  const [setupMonthWeekday, setSetupMonthWeekday] = useState('monday');
+  const [setupEmailReminder, setSetupEmailReminder] = useState(false);
+  const [setupReminderTime, setSetupReminderTime] = useState('08:00');
 
   function handleSetupComplete() {
     try {
@@ -296,15 +361,58 @@ export function WeightTracker({ onClose, user }) {
         goals.push(setupFreq);
         stats.mealTrackingGoals = goals;
         stats.weighRepeatUnit = setupFreq === 'weighDaily' ? 'day' : setupFreq === 'weighWeekly' ? 'week' : setupFreq === 'weighMonthly' ? 'month' : 'year';
-        stats.weighRepeatEvery = 1;
+        stats.weighRepeatEvery = setupRepeatEvery;
+        if (setupFreq === 'weighWeekly') stats.weighWeekDays = setupWeekDays;
+        if (setupFreq === 'weighMonthly') { stats.weighMonthOption = setupMonthOption; stats.weighMonthDay = setupMonthDay; stats.weighMonthWeek = setupMonthWeek; stats.weighMonthWeekday = setupMonthWeekday; }
       }
       localStorage.setItem('sunday-body-stats', JSON.stringify(stats));
       if (user) saveField(user.uid, 'bodyStats', stats);
       window.dispatchEvent(new Event('goals-updated'));
     } catch {}
+    // Save email reminder preference
+    if (setupEmailReminder) {
+      try {
+        const reminderSettings = JSON.parse(localStorage.getItem('sunday-reminder-settings') || '{}');
+        reminderSettings.weightReminder = true;
+        reminderSettings.weightTime = setupReminderTime || '08:00';
+        localStorage.setItem('sunday-reminder-settings', JSON.stringify(reminderSettings));
+        if (user) saveField(user.uid, 'reminderSettings', reminderSettings);
+      } catch {}
+    }
+    // Update the goalWeight state so it shows immediately on the page
+    if (setupGoalWeight) setGoalWeight(setupGoalWeight);
+    // Update weigh settings state
+    if (setupFreq) setWeighSettings(getWeighSettings());
     localStorage.setItem('sunday-weight-setup-done', 'true');
     setShowSetup(false);
   }
+
+  const uploadRef = useRef(null);
+  const [uploadResult, setUploadResult] = useState(null);
+
+  const handleUploadCSV = useCallback((e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const entries = parseWeightCSV(ev.target.result);
+      if (entries.length === 0) {
+        setUploadResult('No valid entries found. Use format: Date, Weight (e.g. 2026-03-15, 175.2)');
+        return;
+      }
+      setLog(prev => {
+        const dateSet = new Set(prev.map(e => e.date));
+        const newEntries = entries.filter(e => !dateSet.has(e.date));
+        const merged = [...prev, ...newEntries].sort((a, b) => a.date.localeCompare(b.date));
+        saveWeightLog(merged, user);
+        return merged;
+      });
+      setUploadResult(`Imported ${entries.length} entries.`);
+      setTimeout(() => setUploadResult(null), 3000);
+    };
+    reader.readAsText(file);
+    e.target.value = '';
+  }, [user]);
 
   const [weight, setWeight] = useState('');
   const [rangeMode, setRangeMode] = useState('weeks'); // 'weeks' | 'years' | 'custom'
@@ -512,13 +620,18 @@ export function WeightTracker({ onClose, user }) {
   const stats = useMemo(() => {
     if (log.length < 2) return null;
     const current = log[log.length - 1].weight;
-    const first = log[0].weight;
-    const change = current - first;
+    // This Week: change over the past 7 days
     const weekAgo = new Date();
     weekAgo.setDate(weekAgo.getDate() - 7);
     const weekStr = `${weekAgo.getFullYear()}-${String(weekAgo.getMonth() + 1).padStart(2, '0')}-${String(weekAgo.getDate()).padStart(2, '0')}`;
     const weekEntries = log.filter(e => e.date >= weekStr);
     const weekChange = weekEntries.length >= 2 ? weekEntries[weekEntries.length - 1].weight - weekEntries[0].weight : null;
+    // This Month: change over the past 30 days
+    const monthAgo = new Date();
+    monthAgo.setDate(monthAgo.getDate() - 30);
+    const monthStr = `${monthAgo.getFullYear()}-${String(monthAgo.getMonth() + 1).padStart(2, '0')}-${String(monthAgo.getDate()).padStart(2, '0')}`;
+    const monthEntries = log.filter(e => e.date >= monthStr);
+    const change = monthEntries.length >= 2 ? monthEntries[monthEntries.length - 1].weight - monthEntries[0].weight : null;
     return { current, change, weekChange };
   }, [log]);
 
@@ -614,8 +727,31 @@ export function WeightTracker({ onClose, user }) {
     } catch {}
   }
 
+  // Skip the onboarding weight entry spotlight — weight is already captured in Your Info
+  const showOnboardingSpotlight = false;
+  const [onboardingWeight, setOnboardingWeight] = useState('');
+
+  function handleOnboardingLog() {
+    const w = parseFloat(onboardingWeight);
+    if (!w) return;
+    const today = new Date().toISOString().slice(0, 10);
+    const newLog = [...log.filter(e => e.date !== today), { date: today, weight: w }].sort((a, b) => a.date.localeCompare(b.date));
+    setLog(newLog);
+    saveWeightLog(newLog, user);
+    // Also save current weight to body stats
+    try {
+      const stats = JSON.parse(localStorage.getItem('sunday-body-stats') || '{}');
+      stats.currentWeight = w;
+      localStorage.setItem('sunday-body-stats', JSON.stringify(stats));
+      if (user) saveField(user.uid, 'bodyStats', stats);
+    } catch {}
+    setOnboardingDone(true);
+    setTimeout(() => onClose(), 100); // small delay to ensure save completes
+  }
+
   return (
-    <div className={styles.container}>
+    <>
+    <div className={styles.container} style={showOnboardingSpotlight ? { filter: 'blur(3px)', pointerEvents: 'none' } : undefined}>
       {showSetup && (
         <div className={styles.setupOverlay}>
           <div className={styles.setupModal}>
@@ -652,13 +788,117 @@ export function WeightTracker({ onClose, user }) {
                   >{g.label}</button>
                 ))}
               </div>
+
+              {/* Repeat every N */}
+              {setupFreq && (
+                <div style={{ marginTop: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <label style={{ fontSize: '0.82rem', fontWeight: 500, color: 'var(--color-text)' }}>Repeat every</label>
+                  <input
+                    type="number"
+                    value={setupRepeatEvery}
+                    onChange={e => setSetupRepeatEvery(Math.max(1, Number(e.target.value) || 1))}
+                    min="1"
+                    max="365"
+                    style={{ width: '50px', padding: '0.35rem', border: '1px solid var(--color-border)', borderRadius: '6px', fontSize: '0.85rem', textAlign: 'center', fontFamily: 'inherit' }}
+                  />
+                  <span style={{ fontSize: '0.82rem', color: 'var(--color-text-muted)' }}>
+                    {setupFreq === 'weighDaily' ? (setupRepeatEvery > 1 ? 'days' : 'day') :
+                     setupFreq === 'weighWeekly' ? (setupRepeatEvery > 1 ? 'weeks' : 'week') :
+                     setupFreq === 'weighMonthly' ? (setupRepeatEvery > 1 ? 'months' : 'month') :
+                     (setupRepeatEvery > 1 ? 'years' : 'year')}
+                  </span>
+                </div>
+              )}
+
+              {/* Weekly: day picker */}
+              {setupFreq === 'weighWeekly' && (
+                <div style={{ marginTop: '0.75rem' }}>
+                  <label className={styles.setupLabel} style={{ marginBottom: '0.35rem' }}>Repeat on</label>
+                  <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap' }}>
+                    {['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'].map(day => (
+                      <button
+                        key={day}
+                        onClick={() => setSetupWeekDays([day])}
+                        style={{ width: '38px', height: '38px', borderRadius: '50%', border: '1px solid ' + (setupWeekDays.includes(day) ? 'var(--color-accent)' : 'var(--color-border)'), background: setupWeekDays.includes(day) ? 'var(--color-accent)' : 'var(--color-surface)', color: setupWeekDays.includes(day) ? '#fff' : 'var(--color-text)', fontSize: '0.72rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                      >{day.charAt(0).toUpperCase()}</button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Monthly: day of month or weekday */}
+              {setupFreq === 'weighMonthly' && (
+                <div style={{ marginTop: '0.75rem' }}>
+                  <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.5rem' }}>
+                    <button
+                      onClick={() => setSetupMonthOption('day')}
+                      style={{ flex: 1, padding: '0.4rem 0.6rem', borderRadius: '6px', border: '1px solid ' + (setupMonthOption === 'day' ? 'var(--color-accent)' : 'var(--color-border)'), background: setupMonthOption === 'day' ? 'var(--color-accent)' : 'var(--color-surface)', color: setupMonthOption === 'day' ? '#fff' : 'var(--color-text)', fontSize: '0.78rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}
+                    >On day {setupMonthDay}</button>
+                    <button
+                      onClick={() => setSetupMonthOption('weekday')}
+                      style={{ flex: 1, padding: '0.4rem 0.6rem', borderRadius: '6px', border: '1px solid ' + (setupMonthOption === 'weekday' ? 'var(--color-accent)' : 'var(--color-border)'), background: setupMonthOption === 'weekday' ? 'var(--color-accent)' : 'var(--color-surface)', color: setupMonthOption === 'weekday' ? '#fff' : 'var(--color-text)', fontSize: '0.78rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}
+                    >On the {setupMonthWeek} {setupMonthWeekday.charAt(0).toUpperCase() + setupMonthWeekday.slice(1)}</button>
+                  </div>
+                  {setupMonthOption === 'weekday' && (
+                    <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.5rem' }}>
+                      <select value={setupMonthWeek} onChange={e => setSetupMonthWeek(e.target.value)} style={{ flex: 1, padding: '0.4rem', border: '1px solid var(--color-border)', borderRadius: '6px', fontSize: '0.85rem', fontFamily: 'inherit', color: 'var(--color-text)' }}>
+                        {['1st', '2nd', '3rd', '4th', 'last'].map(w => <option key={w} value={w}>{w}</option>)}
+                      </select>
+                      <select value={setupMonthWeekday} onChange={e => setSetupMonthWeekday(e.target.value)} style={{ flex: 1, padding: '0.4rem', border: '1px solid var(--color-border)', borderRadius: '6px', fontSize: '0.85rem', fontFamily: 'inherit', color: 'var(--color-text)' }}>
+                        {['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'].map(d => <option key={d} value={d}>{d.charAt(0).toUpperCase() + d.slice(1)}</option>)}
+                      </select>
+                    </div>
+                  )}
+                  {setupMonthOption === 'day' && (
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '0.2rem' }}>
+                      {Array.from({ length: 31 }, (_, i) => i + 1).map(day => (
+                        <button
+                          key={day}
+                          onClick={() => setSetupMonthDay(day)}
+                          style={{ padding: '0.3rem', borderRadius: '50%', width: '34px', height: '34px', border: setupMonthDay === day ? '2px solid var(--color-accent)' : '1px solid var(--color-border-light)', background: setupMonthDay === day ? 'var(--color-accent)' : 'var(--color-surface)', color: setupMonthDay === day ? '#fff' : 'var(--color-text)', fontSize: '0.72rem', fontWeight: setupMonthDay === day ? 700 : 400, cursor: 'pointer', fontFamily: 'inherit', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                        >{day}</button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            <div className={styles.setupField}>
+              <label className={styles.setupEmailLabel}>
+                <input
+                  type="checkbox"
+                  checked={setupEmailReminder}
+                  onChange={e => setSetupEmailReminder(e.target.checked)}
+                />
+                Email me reminders when it's time to weigh in
+              </label>
+              {setupEmailReminder && (
+                <div className={styles.setupTimeRow}>
+                  <label className={styles.setupTimeLabel}>Reminder time</label>
+                  <input
+                    className={styles.setupTimeInput}
+                    type="time"
+                    value={setupReminderTime}
+                    onChange={e => setSetupReminderTime(e.target.value)}
+                  />
+                  {user?.email && (
+                    <span className={styles.setupEmailHint}>Sent to {user.email}</span>
+                  )}
+                </div>
+              )}
             </div>
 
             <div className={styles.setupActions}>
+              {isOnboarding && onClose && (
+                <button className={styles.setupSkipBtn} onClick={onClose} style={{ marginRight: 'auto' }}>
+                  ← Back
+                </button>
+              )}
               <button className={styles.setupStartBtn} onClick={handleSetupComplete}>
                 Start Tracking
               </button>
-              <button className={styles.setupSkipBtn} onClick={() => { localStorage.setItem('sunday-weight-setup-done', 'true'); setShowSetup(false); }}>
+              <button className={styles.setupSkipBtn} onClick={() => { localStorage.setItem('sunday-weight-setup-done', 'true'); setShowSetup(false); if (isOnboarding) onClose(); }}>
                 Skip for now
               </button>
             </div>
@@ -667,41 +907,64 @@ export function WeightTracker({ onClose, user }) {
       )}
 
       <div className={styles.header}>
-        <button className={styles.backBtn} onClick={onClose}>&larr; Back</button>
         <h2 className={styles.title}>Weight Tracker</h2>
       </div>
 
       <div className={styles.targetSection}>
-        <span className={styles.targetLabel}>Target Weight</span>
-        <input
-          className={styles.targetInput}
-          type="number"
-          value={goalWeight}
-          onChange={e => saveGoalWeight(e.target.value)}
-          placeholder="Target lbs"
-          min="50"
-          max="500"
-          step="0.1"
-        />
+        <div className={styles.targetLeft}>
+          <span className={styles.targetLabel}>Target Weight</span>
+          <input
+            className={styles.targetInputInline}
+            type="text"
+            inputMode="decimal"
+            value={goalWeight}
+            onChange={e => {
+              const val = e.target.value.replace(/[^0-9.]/g, '');
+              saveGoalWeight(val);
+            }}
+            placeholder="—"
+          />
+          <span className={styles.targetUnit}>lbs</span>
+        </div>
+        {stats && stats.weekChange !== null && (
+          <div className={styles.statCard}>
+            <span className={styles.statValue} style={{ color: changeColor(stats.weekChange) }}>
+              {stats.weekChange > 0 ? '+' : ''}{stats.weekChange.toFixed(1)} lbs
+            </span>
+            <span className={styles.statLabel}>Past 7 days</span>
+          </div>
+        )}
+        {stats && stats.change !== null && (
+          <div className={styles.statCard}>
+            <span className={styles.statValue} style={{ color: changeColor(stats.change) }}>
+              {stats.change > 0 ? '+' : ''}{stats.change.toFixed(1)} lbs
+            </span>
+            <span className={styles.statLabel}>Past 30 days</span>
+          </div>
+        )}
+        {analysis && (
+          <div className={styles.statCard}>
+            <span className={styles.statValue} style={{ color: changeColor(analysis.trendChange) }}>
+              {analysis.trendChange > 0 ? '+' : ''}{analysis.trendChange} lbs
+            </span>
+            <span className={styles.statLabel}>
+              {rangeMode === 'custom' ? 'Selected range' : `Past ${rangeCount} ${rangeMode === 'weeks' ? (rangeCount === 1 ? 'week' : 'weeks') : rangeMode === 'months' ? (rangeCount === 1 ? 'month' : 'months') : (rangeCount === 1 ? 'year' : 'years')}`}
+            </span>
+          </div>
+        )}
+        {analysis && Math.abs(analysis.weeklyRate) >= 0.01 && (
+          <div className={styles.statCard}>
+            <span className={styles.statValue} style={{ color: changeColor(analysis.weeklyRate) }}>
+              {analysis.weeklyRate > 0 ? '+' : ''}{analysis.weeklyRate} lbs/wk
+            </span>
+            <span className={styles.statLabel}>Avg weekly rate</span>
+          </div>
+        )}
       </div>
 
       {needsWeighing && !todayEntry && (
         <div className={styles.reminder}>
           Time to weigh in! ({frequency} tracking)
-        </div>
-      )}
-
-
-      {stats && (
-        <div className={styles.statsRow}>
-          {stats.weekChange !== null && (
-            <div className={styles.statCard}>
-              <span className={styles.statValue} style={{ color: changeColor(stats.weekChange) }}>
-                {stats.weekChange > 0 ? '+' : ''}{stats.weekChange.toFixed(1)}
-              </span>
-              <span className={styles.statLabel}>This Week</span>
-            </div>
-          )}
         </div>
       )}
 
@@ -713,7 +976,7 @@ export function WeightTracker({ onClose, user }) {
             <h3 className={styles.chartTitle}>Your Weight</h3>
             {analysis && Math.abs(analysis.trendChange) >= 0.5 && (
               <span className={styles.trendArrow} style={{ color: changeColor(analysis.trendChange) }}>
-                {analysis.trendChange > 0 ? '↗' : '↘'} {analysis.trendLabel} ({analysis.trendChange > 0 ? '+' : ''}{analysis.trendChange} lbs)
+                {analysis.trendChange > 0 ? '↗' : '↘'} {analysis.trendLabel} ({analysis.trendChange > 0 ? '+' : ''}{analysis.trendChange} lbs over {rangeMode === 'custom' ? 'range' : `${rangeCount} ${rangeMode === 'weeks' ? (rangeCount === 1 ? 'wk' : 'wks') : rangeMode === 'months' ? (rangeCount === 1 ? 'mo' : 'mos') : (rangeCount === 1 ? 'yr' : 'yrs')}`})
               </span>
             )}
           </div>
@@ -761,12 +1024,12 @@ export function WeightTracker({ onClose, user }) {
                 {goalWeight && (
                   <ReferenceLine y={goalWeight} stroke="#22c55e" strokeDasharray="6 3" strokeWidth={1.5} label={{ value: `Goal: ${goalWeight}`, position: 'right', fontSize: 10, fill: '#22c55e' }} />
                 )}
-                <Line type="monotone" dataKey="gapWeight" stroke="var(--color-accent, #2A8C7A)" strokeWidth={1.5} strokeDasharray="6 4" strokeOpacity={0.4} dot={(props) => {
+                <Line type="monotone" dataKey="gapWeight" stroke="var(--color-accent, #3B6B9C)" strokeWidth={1.5} strokeDasharray="6 4" strokeOpacity={0.4} dot={(props) => {
                   const { cx, cy, payload } = props;
                   if (cx == null || cy == null || !payload.estimated) return null;
-                  return <circle key={`est-${payload.rawDate}`} cx={cx} cy={cy} r={3} fill="none" stroke="#2A8C7A" strokeWidth={1.5} strokeDasharray="2 2" opacity={0.5} />;
+                  return <circle key={`est-${payload.rawDate}`} cx={cx} cy={cy} r={3} fill="none" stroke="#3B6B9C" strokeWidth={1.5} strokeDasharray="2 2" opacity={0.5} />;
                 }} activeDot={false} connectNulls />
-                <Line type="monotone" dataKey="solidWeight" stroke="var(--color-accent, #2A8C7A)" strokeWidth={2.5} connectNulls={false} dot={(props) => {
+                <Line type="monotone" dataKey="solidWeight" stroke="var(--color-accent, #3B6B9C)" strokeWidth={2.5} connectNulls={false} dot={(props) => {
                   const { cx, cy, payload } = props;
                   if (cx == null || cy == null) return null;
                   const alert = analysis?.alerts?.find(a => a.rawDate === payload.rawDate);
@@ -778,13 +1041,13 @@ export function WeightTracker({ onClose, user }) {
                       </g>
                     );
                   }
-                  return <circle key={payload.rawDate} cx={cx} cy={cy} r={3} fill="#fff" stroke="#2A8C7A" strokeWidth={2} />;
+                  return <circle key={payload.rawDate} cx={cx} cy={cy} r={3} fill="#fff" stroke="#3B6B9C" strokeWidth={2} />;
                 }} activeDot={{ r: 6 }} />
                 {/* Dots for real data points at gap boundaries */}
                 <Line type="monotone" dataKey="weight" stroke="none" strokeWidth={0} dot={(props) => {
                   const { cx, cy, payload } = props;
                   if (cx == null || cy == null || payload.estimated || payload.solidWeight !== null) return null;
-                  return <circle key={`gap-${payload.rawDate}`} cx={cx} cy={cy} r={3} fill="#fff" stroke="#2A8C7A" strokeWidth={2} />;
+                  return <circle key={`gap-${payload.rawDate}`} cx={cx} cy={cy} r={3} fill="#fff" stroke="#3B6B9C" strokeWidth={2} />;
                 }} activeDot={false} />
               </LineChart>
             </ResponsiveContainer>
@@ -799,7 +1062,38 @@ export function WeightTracker({ onClose, user }) {
         </div>
       )}
       <div className={styles.logSection}>
-        <h3 className={styles.logTitle}>Weight Log</h3>
+        <div className={styles.logHeader}>
+          <h3 className={styles.logTitle}>Weight Log</h3>
+          <div className={styles.logActions}>
+            <button className={styles.csvBtn} onClick={() => downloadWeightCSV(log)} disabled={log.length === 0}>
+              ↓ Export CSV
+            </button>
+            <button className={styles.csvBtn} onClick={() => uploadRef.current?.click()}>
+              ↑ Import CSV
+            </button>
+            <button className={styles.csvBtn} onClick={() => {
+              const ws = getWeighSettings();
+              const today = new Date(); today.setHours(0, 0, 0, 0);
+              const header = 'Date,Weight (lbs)\n';
+              const rows = [];
+              for (let i = 0; i < 365 && rows.length < 52; i++) {
+                const d = new Date(today); d.setDate(d.getDate() + i);
+                if (!isWeighDay(d, ws)) continue;
+                const ds = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+                rows.push(`${ds},`);
+              }
+              const blob = new Blob([header + rows.join('\n')], { type: 'text/csv' });
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement('a');
+              a.href = url; a.download = 'weight-template.csv'; a.click();
+              URL.revokeObjectURL(url);
+            }}>
+              ↓ Template
+            </button>
+            <input ref={uploadRef} type="file" accept=".csv,.txt" style={{ display: 'none' }} onChange={handleUploadCSV} />
+          </div>
+        </div>
+        {uploadResult && <p className={styles.uploadResult}>{uploadResult}</p>}
         <button className={styles.addRowBtn} onClick={() => {
           setLog(prev => {
             const next = [{ date: todayStr(), weight: '' }, ...prev];
@@ -840,30 +1134,26 @@ export function WeightTracker({ onClose, user }) {
 
               return (
                 <tr className={isToday ? styles.upcomingRowReady : styles.upcomingRowFuture}>
-                  <td>{nextDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</td>
+                  <td>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.1rem' }}>
+                      {isToday && <span style={{ fontSize: '0.68rem', fontWeight: 700, color: 'var(--color-accent)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Log today</span>}
+                      {!isToday && <span style={{ fontSize: '0.68rem', fontWeight: 600, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Next weigh-in</span>}
+                      {nextDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                    </div>
+                  </td>
                   <td className={styles.weekCol}>{wk}</td>
                   <td>
-                    {isToday ? (
-                      <input
-                        className={styles.logInput}
-                        type="number"
-                        placeholder="Enter weight"
-                        step="0.1"
-                        min="50"
-                        max="500"
-                        onKeyDown={e => {
-                          if (e.key === 'Enter') {
-                            const w = parseFloat(e.target.value);
-                            if (!w) return;
-                            setLog(prev => {
-                              const next = [...prev, { date: nextDs, weight: w }].sort((a, b) => a.date.localeCompare(b.date));
-                              saveWeightLog(next, user);
-                              return next;
-                            });
-                            e.target.value = '';
-                          }
-                        }}
-                        onBlur={e => {
+                    <input
+                      className={styles.logInput}
+                      type="number"
+                      placeholder={isToday ? 'Enter weight' : '—'}
+                      step="0.1"
+                      min="50"
+                      max="500"
+                      autoFocus={isToday}
+                      style={isToday ? { borderColor: 'var(--color-accent)', background: 'var(--color-surface)', fontWeight: 600 } : {}}
+                      onKeyDown={e => {
+                        if (e.key === 'Enter') {
                           const w = parseFloat(e.target.value);
                           if (!w) return;
                           setLog(prev => {
@@ -872,11 +1162,19 @@ export function WeightTracker({ onClose, user }) {
                             return next;
                           });
                           e.target.value = '';
-                        }}
-                      />
-                    ) : (
-                      <span className={styles.upcomingPlaceholder}>—</span>
-                    )}
+                        }
+                      }}
+                      onBlur={e => {
+                        const w = parseFloat(e.target.value);
+                        if (!w) return;
+                        setLog(prev => {
+                          const next = [...prev, { date: nextDs, weight: w }].sort((a, b) => a.date.localeCompare(b.date));
+                          saveWeightLog(next, user);
+                          return next;
+                        });
+                        e.target.value = '';
+                      }}
+                    />
                   </td>
                   <td></td>
                 </tr>
@@ -950,11 +1248,43 @@ export function WeightTracker({ onClose, user }) {
                   const start = new Date(d.getFullYear(), 0, 1);
                   const diff = (d - start + ((start.getDay() + 6) % 7) * 86400000);
                   const wk = Math.ceil(diff / 604800000);
+                  const missedDs = item.date;
                   return (
                     <tr key={`missed-${item.date}`} className={styles.missedRow}>
                       <td>{d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</td>
                       <td className={styles.weekCol}>{wk}</td>
-                      <td className={styles.missedLabel}>Missing</td>
+                      <td>
+                        <input
+                          className={styles.logInput}
+                          type="number"
+                          placeholder="Missing — enter weight"
+                          step="0.1"
+                          min="50"
+                          max="500"
+                          style={{ color: 'var(--color-danger)', fontStyle: 'italic' }}
+                          onFocus={e => { e.target.style.color = 'var(--color-text)'; e.target.style.fontStyle = 'normal'; }}
+                          onKeyDown={e => {
+                            if (e.key === 'Enter') {
+                              const w = parseFloat(e.target.value);
+                              if (!w) return;
+                              setLog(prev => {
+                                const next = [...prev, { date: missedDs, weight: w }].sort((a, b) => a.date.localeCompare(b.date));
+                                saveWeightLog(next, user);
+                                return next;
+                              });
+                            }
+                          }}
+                          onBlur={e => {
+                            const w = parseFloat(e.target.value);
+                            if (!w) { e.target.style.color = 'var(--color-danger)'; e.target.style.fontStyle = 'italic'; return; }
+                            setLog(prev => {
+                              const next = [...prev, { date: missedDs, weight: w }].sort((a, b) => a.date.localeCompare(b.date));
+                              saveWeightLog(next, user);
+                              return next;
+                            });
+                          }}
+                        />
+                      </td>
                       <td></td>
                     </tr>
                   );
@@ -1053,13 +1383,12 @@ export function WeightTracker({ onClose, user }) {
             })()}
           </tbody>
         </table>
-        {log.length === 0 && <p className={styles.emptyLog}>No entries yet. Log your first weight above.</p>}
       </div>
       </div>
       <div className={styles.mainRight}>
         <WeightCalendar log={log} />
         <button className={styles.setReminderBtn} onClick={() => setShowReminderPopup(true)}>
-          Set Reminder Schedule
+          Change Weigh-In Schedule
         </button>
         {showReminderPopup && (
           <div className={styles.reminderPopupOverlay} onClick={() => setShowReminderPopup(false)}>
@@ -1146,5 +1475,45 @@ export function WeightTracker({ onClose, user }) {
       </div>
       {showSaved && <div className={styles.savedToast}>Saved!</div>}
     </div>
+    {showOnboardingSpotlight && (
+      <div style={{ position: 'fixed', inset: 0, zIndex: 300, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.4)' }}>
+        <div style={{ background: 'var(--color-surface)', borderRadius: '16px', padding: '2rem', maxWidth: '380px', width: '90%', boxShadow: '0 8px 32px rgba(0,0,0,0.3)', textAlign: 'center' }}>
+          <div style={{ fontSize: '2.5rem', marginBottom: '0.5rem' }}>⚖️</div>
+          <h2 style={{ fontSize: '1.3rem', fontWeight: 700, color: 'var(--color-text)', margin: '0 0 0.35rem' }}>What's your current weight?</h2>
+          <p style={{ fontSize: '0.85rem', color: 'var(--color-text-muted)', margin: '0 0 1.25rem' }}>Enter today's weight to start tracking your progress.</p>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem', marginBottom: '1.5rem' }}>
+            <input
+              type="number"
+              value={onboardingWeight}
+              onChange={e => setOnboardingWeight(e.target.value)}
+              placeholder="e.g. 165"
+              min="50"
+              max="500"
+              step="0.1"
+              autoFocus
+              onKeyDown={e => { if (e.key === 'Enter') handleOnboardingLog(); }}
+              style={{ padding: '0.75rem 1rem', border: '2px solid var(--color-accent)', borderRadius: '10px', fontSize: '1.4rem', fontWeight: 700, fontFamily: 'inherit', width: '140px', textAlign: 'center', color: 'var(--color-text)' }}
+            />
+            <span style={{ fontSize: '1rem', fontWeight: 600, color: 'var(--color-text-muted)' }}>lbs</span>
+          </div>
+          <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'center' }}>
+            <button
+              onClick={() => { setOnboardingDone(true); onClose(); }}
+              style={{ padding: '0.6rem 1.25rem', border: '1px solid var(--color-border)', borderRadius: '8px', background: 'var(--color-surface)', fontSize: '0.9rem', fontWeight: 500, fontFamily: 'inherit', color: 'var(--color-text-secondary)', cursor: 'pointer' }}
+            >
+              Skip for now
+            </button>
+            <button
+              onClick={handleOnboardingLog}
+              disabled={!onboardingWeight || parseFloat(onboardingWeight) <= 0}
+              style={{ padding: '0.6rem 1.5rem', border: 'none', borderRadius: '8px', background: 'var(--color-accent)', fontSize: '0.9rem', fontWeight: 600, fontFamily: 'inherit', color: '#fff', cursor: 'pointer', opacity: (!onboardingWeight || parseFloat(onboardingWeight) <= 0) ? 0.4 : 1 }}
+            >
+              Log Weight
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
+    </>
   );
 }

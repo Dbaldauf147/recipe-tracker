@@ -35,6 +35,9 @@ const INLINE_HEADING_INSTRUCTIONS = /^(?:instructions|directions|steps|method|pr
 // Lines that look like social media commentary, not recipe titles
 const COMMENTARY_PATTERN = /^(this|you|i |my |omg|best|wow|try|make|save|tag|share|follow|link|comment|dm|wait|stop|hear|trust)/i;
 
+// Promo / spam / social media CTA lines to strip entirely
+const PROMO_PATTERN = /\b(comment\s+["'"].+["'"]|i['']ll\s+dm\s+you|dm\s+(me|you)|link\s+in\s+(bio|my\s+bio|profile|description)|follow\s+(me|for\s+more|@)|subscribe|cookbook\s+with\s+\d+|save\s+this\s+(post|recipe|reel|video)|tag\s+(a\s+friend|someone)|share\s+this|turn\s+on\s+(post\s+)?notifications|check\s+out\s+my|swipe\s+(left|right|up)|tap\s+the\s+link|join\s+my|sign\s+up|free\s+(ebook|guide|download|pdf)|grab\s+(my|the|your)\s+(free|ebook|guide|cookbook)|double\s+tap|drop\s+a|leave\s+a\s+comment|limited\s+time|discount\s+code|use\s+code|promo\s+code|affiliate|sponsored|paid\s+partnership|#ad\b|click\s+the\s+link|get\s+the\s+full\s+recipe\s+in\s+my|full\s+recipe\s+on\s+my|recipes?\s+just\s+like\s+this)\b/i;
+
 const QTY_PATTERN = /^(\d+\s*\/\s*\d+|\d+(?:\.\d+)?(?:\s*[-–]\s*\d+(?:\.\d+)?)?(?:\s+\d+\s*\/\s*\d+)?)\s*/;
 const MEAS_PATTERN = new RegExp(`^(${MEASUREMENTS.join('|')})\\b\\.?\\s*`, 'i');
 
@@ -119,35 +122,118 @@ function looksLikeInstruction(line) {
   return false;
 }
 
+// Words/phrases in parentheses that are cooking instructions (not ingredient descriptors)
+const INSTRUCTION_PARENS = /\b(drained|rinsed|diced|chopped|minced|sliced|cubed|crushed|grated|shredded|mashed|melted|softened|thawed|halved|quartered|julienned|peeled|seeded|deveined|trimmed|divided|packed|sifted|beaten|whisked|room temperature|at room temp|to taste|for garnish|for serving|for topping|optional|or more|or less|plus more|if desired|see note|adjusted|as needed|patted dry|cut into|torn into|broken into|squeezed|zested|juiced)\b/i;
+
+// Embedded measurement pattern: finds "N unit" inside ingredient name (e.g., "4 ounce chicken breast")
+const EMBEDDED_MEAS = new RegExp(
+  `(\\d+(?:\\.\\d+)?(?:\\s*-\\s*\\d+(?:\\.\\d+)?)?)\\s*[-–]?\\s*(${MEASUREMENTS.join('|')})\\b\\.?\\s+`,
+  'i'
+);
+
 export function parseIngredientLine(line) {
   let text = line.trim();
 
-  // Strip leading bullet/dash/emoji
+  // Strip leading bullet/dash/emoji and hashtags
   text = text.replace(/^[-•*▪▸►🔸🔹]\s*/, '');
+  text = text.replace(/#\w+/g, '').trim();
+  // Skip lines that are only symbols, hashtags, or emojis
+  if (!text || /^[^a-zA-Z0-9]*$/.test(text)) return null;
 
   let quantity = '';
   let measurement = '';
+  const tips = [];
 
+  // Extract parenthetical content
+  const parenParts = [];
+  text = text.replace(/\(([^)]+)\)/g, (match, inner) => {
+    const trimmedInner = inner.trim();
+    // Check if the content contains cooking instructions
+    if (INSTRUCTION_PARENS.test(trimmedInner)) {
+      tips.push(trimmedInner);
+      return '';
+    }
+    // Check if it contains a measurement amount (e.g., "(4 ounce)")
+    const measInParen = trimmedInner.match(EMBEDDED_MEAS);
+    if (measInParen) {
+      // If we don't have a quantity yet, use this as the measurement
+      if (!quantity) {
+        quantity = measInParen[1].trim();
+        measurement = measInParen[2].replace(/\.$/, '').trim();
+      }
+      // Remaining text after the measurement in the paren
+      const remainder = trimmedInner.slice(measInParen[0].length).trim();
+      if (remainder) tips.push(remainder);
+      return '';
+    }
+    // Check if it's just a number + unit (e.g., "(15 oz)")
+    const simpleQtyMeas = trimmedInner.match(new RegExp(`^(\\d+(?:\\.\\d+)?)\\s*(${MEASUREMENTS.join('|')})\\b\\.?\\s*$`, 'i'));
+    if (simpleQtyMeas) {
+      if (!quantity) {
+        quantity = simpleQtyMeas[1].trim();
+        measurement = simpleQtyMeas[2].replace(/\.$/, '').trim();
+      }
+      return '';
+    }
+    // Keep other parenthetical content (ingredient descriptors like "(red)" or "(boneless)")
+    return match;
+  });
+
+  text = text.replace(/\s{2,}/g, ' ').trim();
+
+  // Now parse leading quantity
   const qtyMatch = text.match(QTY_PATTERN);
   if (qtyMatch) {
-    quantity = qtyMatch[1].trim();
+    // Only override if we didn't already get quantity from parens
+    if (!quantity) {
+      quantity = qtyMatch[1].trim();
+    }
     text = text.slice(qtyMatch[0].length);
   }
 
   const measMatch = text.match(MEAS_PATTERN);
   if (measMatch) {
-    measurement = measMatch[1].replace(/\.$/, '').trim();
+    if (!measurement) {
+      measurement = measMatch[1].replace(/\.$/, '').trim();
+    }
     text = text.slice(measMatch[0].length);
   }
 
   // Strip leading "of " after measurement
   text = text.replace(/^of\s+/i, '');
 
-  return {
+  // Check for embedded measurements still in the ingredient name
+  // e.g., "chicken breast 4 ounce" or "4 ounce chicken breast" (when qty already extracted)
+  if (!measurement) {
+    const embeddedMatch = text.match(EMBEDDED_MEAS);
+    if (embeddedMatch) {
+      if (!quantity) quantity = embeddedMatch[1].trim();
+      measurement = embeddedMatch[2].replace(/\.$/, '').trim();
+      text = text.replace(EMBEDDED_MEAS, ' ').trim();
+    }
+  }
+
+  // Clean up comma-separated instructions at end (e.g., "chicken breast, diced and seasoned")
+  const commaInstr = text.match(/,\s*(.+)$/);
+  if (commaInstr) {
+    const afterComma = commaInstr[1].trim();
+    if (INSTRUCTION_PARENS.test(afterComma) && afterComma.split(/\s+/).length <= 6) {
+      tips.push(afterComma);
+      text = text.slice(0, commaInstr.index).trim();
+    }
+  }
+
+  const result = {
     quantity,
     measurement,
     ingredient: text.trim(),
   };
+
+  if (tips.length > 0) {
+    result.notes = tips.join('; ');
+  }
+
+  return result;
 }
 
 export function titleCase(str) {
@@ -161,12 +247,25 @@ export function parseRecipeText(rawText) {
   }
 
   const normalized = normalizeFractions(rawText);
-  const lines = normalized
+
+  // Pre-process: split inline bullet/emoji items into separate lines
+  // e.g. "▪️2 Eggs▪️Salt & Pepper▪️Avocado" → one per line
+  // Also split numbered emoji steps: "1️⃣ Step one 2️⃣ Step two" → one per line
+  let preprocessed = normalized
     .replace(/\r\n/g, '\n')
-    .replace(/\r/g, '\n')
+    .replace(/\r/g, '\n');
+  // Split on bullet emojis (▪ with optional variation selector ️) followed by text
+  preprocessed = preprocessed.replace(/([^\n])\s*[▪▸►🔸🔹][\uFE0E\uFE0F]?\s*/g, '$1\n');
+  preprocessed = preprocessed.replace(/^[▪▸►🔸🔹][\uFE0E\uFE0F]?\s*/gm, '');
+  // Split on numbered emoji steps (1️⃣, 2️⃣, etc.) that are inline
+  preprocessed = preprocessed.replace(/([^\n])\s*([1-9]\uFE0F?\u20E3)/g, '$1\n$2');
+
+  const lines = preprocessed
     .split('\n')
     .map(l => l.trimEnd())
-    .filter(l => !DECORATIVE_LINE.test(l));
+    .filter(l => l.trim() !== '')  // Remove blank lines
+    .filter(l => !DECORATIVE_LINE.test(l))
+    .filter(l => !PROMO_PATTERN.test(l));  // Remove promo/spam lines
 
   // Detect section headings
   let ingredientsStart = -1;
@@ -265,7 +364,8 @@ export function parseRecipeText(rawText) {
         const trimmed = lines[i].trim();
         if (!trimmed || HASHTAG_LINE.test(trimmed) || URL_LINE.test(trimmed)) continue;
         if (HEADING_ANY.test(trimmed)) break;
-        ingredients.push(parseIngredientLine(trimmed));
+        const parsed = parseIngredientLine(trimmed);
+        if (parsed) ingredients.push(parsed);
       }
     }
 
@@ -403,7 +503,8 @@ export function parseRecipeText(rawText) {
     for (const item of classified) {
       if (item.i === titleIndex) continue;
       if (item.type === 'ingredient') {
-        ingredients.push(parseIngredientLine(item.line));
+        const parsed = parseIngredientLine(item.line);
+        if (parsed) ingredients.push(parsed);
       } else if (item.type === 'instruction') {
         instrLines.push(item.line);
       }
@@ -411,8 +512,10 @@ export function parseRecipeText(rawText) {
     instructions = instrLines.join('\n').trim();
   }
 
-  // Clean up instruction step numbering for consistency
+  // Split inline numbered steps and clean up numbering for consistency
   if (instructions) {
+    // Split "... sentence. 2. Next step..." into separate lines
+    instructions = instructions.replace(/\.\s+(\d+[\.\):])\s+/g, '.\n$1 ');
     instructions = instructions
       .split('\n')
       .map(l => l.replace(/^(?:step\s*)?\d+[\.\):\-]\s*/i, '').trimStart() || l)
