@@ -294,11 +294,42 @@ function applyFormat(command) {
   document.execCommand(command, false, null);
 }
 
+// SVG icon components for storage types (no emojis in UI)
+const StorageIcon = ({ type, size = 14 }) => {
+  const props = { width: size, height: size, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2, strokeLinecap: 'round', strokeLinejoin: 'round' };
+  switch (type) {
+    case 'Fridge': return <svg {...props}><rect x="4" y="2" width="16" height="20" rx="2" /><line x1="4" y1="10" x2="20" y2="10" /><line x1="12" y1="6" x2="12" y2="6.01" /><line x1="12" y1="14" x2="12" y2="14.01" /></svg>;
+    case 'Freezer': return <svg {...props}><line x1="12" y1="2" x2="12" y2="22" /><line x1="2" y1="12" x2="22" y2="12" /><line x1="4.93" y1="4.93" x2="19.07" y2="19.07" /><line x1="19.07" y1="4.93" x2="4.93" y2="19.07" /></svg>;
+    case 'Pantry': return <svg {...props}><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" /><polyline points="9 22 9 12 15 12 15 22" /></svg>;
+    case 'Counter': return <svg {...props}><rect x="2" y="7" width="20" height="14" rx="2" /><line x1="2" y1="11" x2="22" y2="11" /></svg>;
+    default: return null;
+  }
+};
+
+const GearIcon = ({ size = 16 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+    <circle cx="12" cy="12" r="3" />
+    <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+  </svg>
+);
+
+const WarningIcon = ({ size = 12 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" style={{ verticalAlign: 'middle' }}>
+    <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" /><line x1="12" y1="9" x2="12" y2="13" /><line x1="12" y1="17" x2="12" y2="17.01" />
+  </svg>
+);
+
+const ScaleIcon = ({ size = 12 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" style={{ verticalAlign: 'middle' }}>
+    <path d="M12 3v17" /><path d="M5 8l7-5 7 5" /><path d="M3 13l2 5h4l2-5" /><path d="M13 13l2 5h4l2-5" />
+  </svg>
+);
+
 const STORAGE_OPTIONS = [
-  { key: 'Fridge', icon: '🧊', shelfDays: { min: 3, max: 7 } },
-  { key: 'Freezer', icon: '❄️', shelfDays: { min: 30, max: 90 } },
-  { key: 'Pantry', icon: '🏠', shelfDays: { min: 30, max: 365 } },
-  { key: 'Counter', icon: '🍌', shelfDays: { min: 2, max: 5 } },
+  { key: 'Fridge', shelfDays: { min: 3, max: 7 } },
+  { key: 'Freezer', shelfDays: { min: 30, max: 90 } },
+  { key: 'Pantry', shelfDays: { min: 30, max: 365 } },
+  { key: 'Counter', shelfDays: { min: 2, max: 5 } },
 ];
 
 function StorageShelfCell({ ingredient, getDbShelfLife }) {
@@ -337,22 +368,19 @@ function StorageShelfCell({ ingredient, getDbShelfLife }) {
   }
 
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+    <div className={styles.storageCell}>
       <select
         value={selected}
         onChange={e => setSelected(e.target.value)}
-        style={{
-          padding: '0.15rem 0.3rem', border: '1px solid var(--color-border-light)', borderRadius: '4px',
-          fontSize: '0.7rem', fontFamily: 'inherit', background: 'var(--color-surface)',
-          color: 'var(--color-text-secondary)', cursor: 'pointer', maxWidth: '85px',
-        }}
+        className={styles.storageSelect}
       >
         <option value="">—</option>
         {STORAGE_OPTIONS.map(o => (
-          <option key={o.key} value={o.key}>{o.icon} {o.key}</option>
+          <option key={o.key} value={o.key}>{o.key}</option>
         ))}
       </select>
-      {days && <span style={{ color: 'var(--color-accent)', fontWeight: 600, fontSize: '0.68rem' }}>{days}</span>}
+      {current && <StorageIcon type={current.key} size={13} />}
+      {days && <span className={styles.shelfDays}>{days}</span>}
     </div>
   );
 }
@@ -1697,16 +1725,17 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
       />
       <div className={styles.ingredientsCol}>
         <div className={styles.ingredientsHeader}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', position: 'relative' }}>
+          <div className={styles.ingredientsTitleRow}>
             <h3>Ingredients</h3>
-            <div ref={ingGearRef} style={{ position: 'relative' }}>
+            <div ref={ingGearRef} className={styles.ingGearWrap}>
               <button
                 type="button"
                 className={styles.ingGearBtn}
                 onClick={() => setIngGearOpen(p => !p)}
                 title="Column settings"
+                aria-label="Ingredient column settings"
               >
-                &#9881;
+                <GearIcon size={14} />
               </button>
               {ingGearOpen && (
                 <div className={styles.ingGearDropdown}>
@@ -1728,6 +1757,7 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
                 className={styles.servingBtn}
                 type="button"
                 onClick={() => setAdjustedServings(Math.max(1, currentServings - 1))}
+                aria-label="Decrease servings"
               >
                 &minus;
               </button>
@@ -1738,6 +1768,7 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
                 className={styles.servingBtn}
                 type="button"
                 onClick={() => setAdjustedServings(currentServings + 1)}
+                aria-label="Increase servings"
               >
                 +
               </button>
@@ -1785,8 +1816,8 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
                   <th className={styles.colQty} style={{ textAlign: 'center' }}>Qty</th>
                   <th className={styles.colMeasure} style={{ textAlign: 'left' }}>Unit</th>
                   <th style={{ textAlign: 'left' }}>Ingredient</th>
-                  {showGHG && <th style={{ textAlign: 'center', fontSize: '0.72rem', fontWeight: 600, color: 'var(--color-text-muted)', minWidth: '50px' }}>GHG</th>}
-                  {showShelfLife && <th style={{ textAlign: 'left', fontSize: '0.72rem', fontWeight: 600, color: 'var(--color-text-muted)', minWidth: '130px' }}>Storage / Shelf Life</th>}
+                  {showGHG && <th className={styles.colGhg}>GHG</th>}
+                  {showShelfLife && <th className={styles.colShelf}>Storage / Shelf Life</th>}
                   <th style={{ width: '50px' }}></th>
                 </tr>
               </thead>
@@ -1867,10 +1898,10 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
                               />
                             )}
                             {field === 'ingredient' && (row.ingredient || '').trim() && !isInDb(row.ingredient) && (
-                              <span className={styles.dbWarning} title="Not found in ingredient database">⚠</span>
+                              <span className={styles.dbWarning} title="Not found in ingredient database"><WarningIcon /></span>
                             )}
                             {field === 'ingredient' && (row.ingredient || '').trim() && isInDb(row.ingredient) && unitType === 'volume' && !dbGrams && (
-                              <span className={styles.noWeightWarning} title="No weight conversion available — add grams to ingredient database">⚖</span>
+                              <span className={styles.noWeightWarning} title="No weight conversion available — add grams to ingredient database"><ScaleIcon /></span>
                             )}
                           </div>
                         </td>
@@ -2159,11 +2190,11 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
                               {' '}— did you mean <button className={styles.aiSuggestionBtn} onClick={() => updateIngredient(origIdx, 'ingredient', match)}>{match}</button>?
                             </span>
                           ) : (
-                            <span className={styles.dbWarning} title="Not found in ingredient database"> ⚠</span>
+                            <span className={styles.dbWarning} title="Not found in ingredient database"> <WarningIcon /></span>
                           );
                         })()}
                         {noWeight && (
-                          <span className={styles.noWeightWarning} title="No weight conversion available — add grams to ingredient database"> ⚖</span>
+                          <span className={styles.noWeightWarning} title="No weight conversion available — add grams to ingredient database"> <ScaleIcon /></span>
                         )}
                       </td>
                       {showGHG && (
