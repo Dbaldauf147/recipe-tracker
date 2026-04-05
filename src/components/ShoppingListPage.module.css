@@ -31,22 +31,39 @@
   letter-spacing: -0.02em;
 }
 
-/* Fixed top row: Shopping List + Grocery Staples */
-.fixedRow {
+/* Main page layout: fixed left columns + resizable right widgets */
+.pageLayout {
   display: grid;
-  grid-template-columns: 1.2fr 1fr;
+  grid-template-columns: 2fr 1.5fr 2fr;
   gap: 1.5rem;
   align-items: start;
-  margin-bottom: 1.5rem;
 }
 
-@media (max-width: 900px) {
-  .fixedRow {
+@media (max-width: 1200px) {
+  .pageLayout {
+    grid-template-columns: 1fr 1fr;
+  }
+  .widgetRight {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 600px) {
+  .pageLayout {
     grid-template-columns: 1fr;
   }
 }
 
-.fixedCell {
+.fixedLeft {
+  display: contents;
+}
+
+.fixedCol {
+  min-width: 0;
+}
+
+/* Right side: resizable widget area */
+.widgetRight {
   min-width: 0;
 }
 
