@@ -31,22 +31,271 @@
   letter-spacing: -0.02em;
 }
 
-.grid {
+/* Fixed top row: Shopping List + Grocery Staples */
+.fixedRow {
   display: grid;
-  grid-template-columns: 2fr 1.5fr 1fr 1fr;
+  grid-template-columns: 1.2fr 1fr;
   gap: 1.5rem;
   align-items: start;
+  margin-bottom: 1.5rem;
 }
 
-@media (max-width: 1200px) {
-  .grid {
-    grid-template-columns: 1fr 1fr;
+@media (max-width: 900px) {
+  .fixedRow {
+    grid-template-columns: 1fr;
   }
 }
 
-@media (max-width: 600px) {
-  .grid {
-    grid-template-columns: 1fr;
+.fixedCell {
+  min-width: 0;
+}
+
+/* Resizable grid container for spices/sauces/custom widgets */
+.gridContainer {
+  margin-top: 0;
+}
+
+.widgetGrid {
+  position: relative;
+}
+
+.widgetBox {
+  border: 2px dashed var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  padding: var(--space-3);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  position: relative;
+}
+
+.widgetBody {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.gridContainer :global(.react-grid-item.react-grid-placeholder) {
+  background: var(--color-accent) !important;
+  opacity: 0.15 !important;
+  border-radius: var(--radius-md);
+  border: 2px dashed var(--color-accent);
+}
+
+.widgetHeadingRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-2);
+  cursor: grab;
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--color-surface);
+  padding-bottom: var(--space-1);
+}
+
+.widgetHeadingRow:active {
+  cursor: grabbing;
+}
+
+.widgetHeading {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text-muted);
+  padding-bottom: var(--space-1);
+  border-bottom: 1px solid var(--color-border);
+  cursor: default;
+}
+
+.widgetControls {
+  display: flex;
+  align-items: center;
+  gap: 0.2rem;
+  flex-shrink: 0;
+}
+
+.widgetDragIcon {
+  font-size: 0.75rem;
+  color: var(--color-border);
+  letter-spacing: 2px;
+  user-select: none;
+  transition: color 0.15s ease;
+}
+
+.widgetBox:hover .widgetDragIcon {
+  color: var(--color-text-muted);
+}
+
+.widgetEditBtn {
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  color: var(--color-border);
+  font-size: 0.75rem;
+  cursor: pointer;
+  padding: 0.15rem 0.3rem;
+  line-height: 1;
+  transition: color 0.15s ease, border-color 0.15s ease;
+}
+
+.widgetBox:hover .widgetEditBtn {
+  color: var(--color-text-muted);
+}
+
+.widgetEditBtn:hover {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+
+.widgetDeleteBtn {
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  color: var(--color-border);
+  font-size: 0.7rem;
+  cursor: pointer;
+  padding: 0.15rem 0.3rem;
+  line-height: 1;
+  transition: color 0.15s ease, border-color 0.15s ease;
+}
+
+.widgetBox:hover .widgetDeleteBtn {
+  color: var(--color-text-muted);
+}
+
+.widgetDeleteBtn:hover {
+  border-color: var(--color-danger);
+  color: var(--color-danger);
+}
+
+.widgetRenameInput {
+  padding: 0.2rem 0.4rem;
+  border: 1px solid var(--color-accent);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  font-family: inherit;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text);
+  background: var(--color-surface);
+  width: 100%;
+}
+
+.widgetRenameInput:focus {
+  outline: none;
+}
+
+/* Custom widget editable content */
+.customWidgetContent {
+  min-height: 2rem;
+  padding: 0.4rem 0.5rem;
+  font-size: var(--font-size-sm);
+  color: var(--color-text);
+  line-height: 1.5;
+  outline: none;
+  cursor: text;
+  overflow-y: auto;
+}
+
+.customWidgetContent:empty::before {
+  content: attr(data-placeholder);
+  color: var(--color-text-muted);
+  font-style: italic;
+}
+
+.customWidgetContent:focus {
+  background: var(--color-accent-light);
+  border-radius: var(--radius-sm);
+}
+
+/* Add Widget button */
+.addWidgetRow {
+  margin-top: var(--space-3);
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.addWidgetBtn {
+  background: none;
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius-sm);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+  font-family: inherit;
+  font-weight: 600;
+  padding: 0.4rem 0.75rem;
+  cursor: pointer;
+  transition: color 0.15s ease, border-color 0.15s ease;
+}
+
+.addWidgetBtn:hover {
+  color: var(--color-accent);
+  border-color: var(--color-accent);
+}
+
+.addWidgetForm {
+  display: flex;
+  gap: 0.4rem;
+  align-items: center;
+}
+
+.addWidgetInput {
+  padding: 0.35rem 0.5rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-sm);
+  font-family: inherit;
+  color: var(--color-text);
+  background: var(--color-surface);
+  width: 160px;
+}
+
+.addWidgetInput:focus {
+  outline: none;
+  border-color: var(--color-accent);
+}
+
+.addWidgetSave {
+  background: var(--color-accent);
+  color: white;
+  border: none;
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  font-family: inherit;
+  padding: 0.35rem 0.6rem;
+  cursor: pointer;
+}
+
+.addWidgetCancel {
+  background: none;
+  border: none;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+  font-family: inherit;
+  cursor: pointer;
+  padding: 0.35rem 0.4rem;
+}
+
+@media (max-width: 768px) {
+  .gridContainer :global(.react-grid-layout) {
+    height: auto !important;
+  }
+  .gridContainer :global(.react-grid-item) {
+    position: relative !important;
+    transform: none !important;
+    width: 100% !important;
+    left: 0 !important;
+    top: auto !important;
+    margin-bottom: 0.5rem;
   }
 }
 

@@ -9,7 +9,7 @@ const STORAGE_TO_FIELD = {
   'sunday-pantry-sauces': 'pantrySauces',
 };
 
-export function PantryList({ title, subtitle, storageKey, initialItems, onMoveToShop, source, highlightNames }) {
+export function PantryList({ title, subtitle, storageKey, initialItems, onMoveToShop, source, highlightNames, hideHeader }) {
   const [items, setItems] = useState([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
 
@@ -73,7 +73,7 @@ export function PantryList({ title, subtitle, storageKey, initialItems, onMoveTo
 
   return (
     <div className={styles.panel}>
-      <h2 className={styles.heading}>{title} {subtitle && <span className={styles.subtitle}>{subtitle}</span>}</h2>
+      {!hideHeader && <h2 className={styles.heading}>{title} {subtitle && <span className={styles.subtitle}>{subtitle}</span>}</h2>}
       {!addingNew ? (
         <button className={styles.addBtn} onClick={addItem}>+ Add item</button>
       ) : (

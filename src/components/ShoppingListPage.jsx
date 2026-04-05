@@ -1,10 +1,14 @@
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo, useRef } from 'react';
 import { ShoppingList } from './ShoppingList';
 import { GroceryStaples } from './GroceryStaples';
 import { PantryList } from './PantryList';
 import { useAuth } from '../contexts/AuthContext';
 import { saveField } from '../utils/firestoreSync';
+import GridLayoutLib, { WidthProvider } from 'react-grid-layout';
+import 'react-grid-layout/css/styles.css';
 import styles from './ShoppingListPage.module.css';
+
+const GridLayout = WidthProvider(GridLayoutLib);
 
 const DEFAULT_SPICES = [];
 const DEFAULT_SAUCES = [];
@@ -46,6 +50,98 @@ export function ShoppingListPage({ weeklyRecipes, weeklyServings = {}, onClose, 
   const [dismissed, setDismissed] = useState(loadDismissed);
   const [resetKey, setResetKey] = useState(0);
   const [saved, setSaved] = useState(false);
+
+  // --- Resizable grid for spices/sauces/custom widgets ---
+  const GRID_LAYOUT_KEY = user ? `sunday-shop-grid-layout-${user.uid}` : 'sunday-shop-grid-layout';
+  const CUSTOM_WIDGETS_KEY = user ? `sunday-shop-custom-widgets-${user.uid}` : 'sunday-shop-custom-widgets';
+
+  const FALLBACK_LAYOUT = [
+    { i: 'spices', x: 0, y: 0, w: 6, h: 20 },
+    { i: 'sauces', x: 6, y: 0, w: 6, h: 20 },
+  ];
+
+  const [gridLayout, setGridLayout] = useState(() => {
+    try { return JSON.parse(localStorage.getItem(user ? `sunday-shop-grid-layout-${user?.uid}` : 'sunday-shop-grid-layout')) || FALLBACK_LAYOUT; } catch { return FALLBACK_LAYOUT; }
+  });
+
+  const [customWidgets, setCustomWidgets] = useState(() => {
+    try { return JSON.parse(localStorage.getItem(user ? `sunday-shop-custom-widgets-${user?.uid}` : 'sunday-shop-custom-widgets')) || []; } catch { return []; }
+  });
+
+  const [addingWidget, setAddingWidget] = useState(false);
+  const [newWidgetName, setNewWidgetName] = useState('');
+  const [renamingWidgetId, setRenamingWidgetId] = useState(null);
+  const [renameValue, setRenameValue] = useState('');
+  const gridRef = useRef(null);
+
+  const allGridKeys = ['spices', 'sauces', ...customWidgets.map(w => w.id)];
+  const customWidgetIds = new Set(customWidgets.map(w => w.id));
+
+  const visibleLayout = useMemo(() => {
+    const existing = gridLayout.filter(l => allGridKeys.includes(l.i));
+    const existingIds = new Set(existing.map(l => l.i));
+    let maxY = existing.reduce((m, l) => Math.max(m, l.y + l.h), 0);
+    for (const cw of customWidgets) {
+      if (!existingIds.has(cw.id)) {
+        existing.push({ i: cw.id, x: 0, y: maxY, w: 6, h: 16 });
+        maxY += 16;
+      }
+    }
+    return existing;
+  }, [gridLayout, customWidgets]);
+
+  function saveGridLayout(layout) {
+    const clean = layout
+      .filter(item => allGridKeys.includes(item.i))
+      .map(({ i, x, y, w, h }) => ({ i, x, y, w, h }));
+    setGridLayout(clean);
+    localStorage.setItem(GRID_LAYOUT_KEY, JSON.stringify(clean));
+    if (user) saveField(user.uid, 'shopGridLayout', clean);
+  }
+
+  function saveCustomWidgets(widgets) {
+    localStorage.setItem(CUSTOM_WIDGETS_KEY, JSON.stringify(widgets));
+    if (user) saveField(user.uid, 'shopCustomWidgets', widgets);
+  }
+
+  function addWidget() {
+    const name = newWidgetName.trim();
+    if (!name) return;
+    const id = 'cw_' + Date.now();
+    const widget = { id, label: name, content: '' };
+    const next = [...customWidgets, widget];
+    setCustomWidgets(next);
+    saveCustomWidgets(next);
+    const maxY = gridLayout.reduce((m, l) => Math.max(m, l.y + l.h), 0);
+    const nextLayout = [...gridLayout, { i: id, x: 0, y: maxY, w: 6, h: 16 }];
+    setGridLayout(nextLayout);
+    localStorage.setItem(GRID_LAYOUT_KEY, JSON.stringify(nextLayout));
+    if (user) saveField(user.uid, 'shopGridLayout', nextLayout);
+    setNewWidgetName('');
+    setAddingWidget(false);
+  }
+
+  function updateWidgetContent(id, content) {
+    const next = customWidgets.map(w => w.id === id ? { ...w, content } : w);
+    setCustomWidgets(next);
+    saveCustomWidgets(next);
+  }
+
+  function renameWidget(id, newLabel) {
+    const next = customWidgets.map(w => w.id === id ? { ...w, label: newLabel } : w);
+    setCustomWidgets(next);
+    saveCustomWidgets(next);
+  }
+
+  function removeWidget(id) {
+    const nextWidgets = customWidgets.filter(w => w.id !== id);
+    setCustomWidgets(nextWidgets);
+    saveCustomWidgets(nextWidgets);
+    const nextLayout = gridLayout.filter(l => l.i !== id);
+    setGridLayout(nextLayout);
+    localStorage.setItem(GRID_LAYOUT_KEY, JSON.stringify(nextLayout));
+    if (user) saveField(user.uid, 'shopGridLayout', nextLayout);
+  }
 
   function saveExtras(list) {
     saveExtrasToStorage(list);
@@ -233,8 +329,9 @@ export function ShoppingListPage({ weeklyRecipes, weeklyServings = {}, onClose, 
         </div>
       )}
 
-      <div className={styles.grid}>
-        <div className={styles.cell}>
+      {/* Fixed top row: Shopping List + Grocery Staples */}
+      <div className={styles.fixedRow}>
+        <div className={styles.fixedCell}>
           <ShoppingList
             weeklyRecipes={weeklyRecipes}
             weeklyServings={weeklyServings}
@@ -247,7 +344,7 @@ export function ShoppingListPage({ weeklyRecipes, weeklyServings = {}, onClose, 
             user={user}
           />
         </div>
-        <div className={styles.cell}>
+        <div className={styles.fixedCell}>
           {hiddenItems.length > 0 && (
             <div className={styles.hiddenBox}>
               <h3 className={styles.hiddenHeading}>Hidden from Shopping List</h3>
@@ -294,30 +391,121 @@ export function ShoppingListPage({ weeklyRecipes, weeklyServings = {}, onClose, 
           )}
           <GroceryStaples key={resetKey} onMoveToShop={handleMoveToShop} highlightNames={shopIngredientNames} />
         </div>
-        <div className={styles.cell}>
-          <PantryList
-            key={`spices-${resetKey}`}
-            title="Spices"
-            subtitle="(that you have already)"
-            storageKey="sunday-pantry-spices"
-            initialItems={DEFAULT_SPICES}
-            onMoveToShop={handleMoveToShop}
-            source="spices"
-            highlightNames={pantryMatchedItems.names}
-          />
-        </div>
-        <div className={styles.cell}>
-          <PantryList
-            key={`sauces-${resetKey}`}
-            title="Sauces"
-            subtitle="(that you have already)"
-            storageKey="sunday-pantry-sauces"
-            initialItems={DEFAULT_SAUCES}
-            onMoveToShop={handleMoveToShop}
-            source="sauces"
-            highlightNames={pantryMatchedItems.names}
-          />
-        </div>
+      </div>
+
+      {/* Resizable grid: Spices, Sauces, Custom Widgets */}
+      <div ref={gridRef} className={styles.gridContainer}>
+        <GridLayout
+          className={styles.widgetGrid}
+          layout={visibleLayout}
+          cols={12}
+          rowHeight={10}
+          isDraggable
+          isResizable
+          resizeHandles={['se', 'e', 'w', 's', 'n']}
+          onLayoutChange={saveGridLayout}
+          draggableHandle={`.${styles.widgetHeadingRow}`}
+          compactType="vertical"
+          margin={[8, 8]}
+        >
+          <div key="spices" className={styles.widgetBox}>
+            <div className={styles.widgetHeadingRow}>
+              <h3 className={styles.widgetHeading}>Spices</h3>
+              <div className={styles.widgetControls}>
+                <span className={styles.widgetDragIcon}>&#8942;&#8942;</span>
+              </div>
+            </div>
+            <div className={styles.widgetBody}>
+              <PantryList
+                key={`spices-${resetKey}`}
+                title=""
+                subtitle=""
+                storageKey="sunday-pantry-spices"
+                initialItems={DEFAULT_SPICES}
+                onMoveToShop={handleMoveToShop}
+                source="spices"
+                highlightNames={pantryMatchedItems.names}
+                hideHeader
+              />
+            </div>
+          </div>
+          <div key="sauces" className={styles.widgetBox}>
+            <div className={styles.widgetHeadingRow}>
+              <h3 className={styles.widgetHeading}>Sauces</h3>
+              <div className={styles.widgetControls}>
+                <span className={styles.widgetDragIcon}>&#8942;&#8942;</span>
+              </div>
+            </div>
+            <div className={styles.widgetBody}>
+              <PantryList
+                key={`sauces-${resetKey}`}
+                title=""
+                subtitle=""
+                storageKey="sunday-pantry-sauces"
+                initialItems={DEFAULT_SAUCES}
+                onMoveToShop={handleMoveToShop}
+                source="sauces"
+                highlightNames={pantryMatchedItems.names}
+                hideHeader
+              />
+            </div>
+          </div>
+          {customWidgets.map(cw => (
+            <div key={cw.id} className={styles.widgetBox}>
+              <div className={styles.widgetHeadingRow}>
+                {renamingWidgetId === cw.id ? (
+                  <input
+                    className={styles.widgetRenameInput}
+                    value={renameValue}
+                    onChange={e => setRenameValue(e.target.value)}
+                    onBlur={() => { if (renameValue.trim()) renameWidget(cw.id, renameValue.trim()); setRenamingWidgetId(null); }}
+                    onKeyDown={e => { if (e.key === 'Enter') { if (renameValue.trim()) renameWidget(cw.id, renameValue.trim()); setRenamingWidgetId(null); } if (e.key === 'Escape') setRenamingWidgetId(null); }}
+                    onMouseDown={e => e.stopPropagation()}
+                    autoFocus
+                  />
+                ) : (
+                  <h3 className={styles.widgetHeading} onDoubleClick={e => { e.stopPropagation(); setRenamingWidgetId(cw.id); setRenameValue(cw.label); }}>{cw.label}</h3>
+                )}
+                <div className={styles.widgetControls}>
+                  <button className={styles.widgetEditBtn} onMouseDown={e => e.stopPropagation()} onClick={e => { e.stopPropagation(); setRenamingWidgetId(cw.id); setRenameValue(cw.label); }} title="Rename">&#9998;</button>
+                  <span className={styles.widgetDragIcon}>&#8942;&#8942;</span>
+                  <button className={styles.widgetDeleteBtn} onMouseDown={e => e.stopPropagation()} onClick={e => { e.stopPropagation(); if (confirm(`Delete "${cw.label}"?`)) removeWidget(cw.id); }} title={`Delete ${cw.label}`}>&#10005;</button>
+                </div>
+              </div>
+              <div className={styles.widgetBody}>
+                <div
+                  className={styles.customWidgetContent}
+                  contentEditable
+                  suppressContentEditableWarning
+                  ref={el => { if (el && !el.dataset.init) { el.innerHTML = cw.content || ''; el.dataset.init = '1'; } }}
+                  onBlur={e => updateWidgetContent(cw.id, e.currentTarget.innerHTML)}
+                  data-placeholder="Type notes, links, or anything here..."
+                />
+              </div>
+            </div>
+          ))}
+        </GridLayout>
+      </div>
+
+      {/* Add Widget button */}
+      <div className={styles.addWidgetRow}>
+        {!addingWidget ? (
+          <button className={styles.addWidgetBtn} onClick={() => setAddingWidget(true)}>+ Add Widget</button>
+        ) : (
+          <div className={styles.addWidgetForm}>
+            <input
+              className={styles.addWidgetInput}
+              type="text"
+              placeholder="Widget name..."
+              value={newWidgetName}
+              onChange={e => setNewWidgetName(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') addWidget(); if (e.key === 'Escape') { setAddingWidget(false); setNewWidgetName(''); } }}
+              autoFocus
+            />
+            <button className={styles.addWidgetSave} onClick={addWidget}>Add</button>
+            <button className={styles.addWidgetCancel} onClick={() => { setAddingWidget(false); setNewWidgetName(''); }}>Cancel</button>
+          </div>
+        )}
       </div>
 
     </div>
