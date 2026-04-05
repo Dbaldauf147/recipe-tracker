@@ -791,7 +791,7 @@
   display: block;
   font-size: 0.78rem;
   font-weight: 700;
-  color: var(--color-accent, #3B6B9C);
+  color: var(--color-accent, #2A8C7A);
   text-transform: uppercase;
   letter-spacing: 0.03em;
   margin-bottom: 0.4rem;
@@ -1601,111 +1601,6 @@
   gap: 0.5rem;
 }
 
-/* ── Nutrition display in Edit modal ── */
-.editNutritionSummary {
-  margin-bottom: 0.75rem;
-  padding: 0.6rem 0.75rem;
-  background: var(--color-accent-light);
-  border-radius: var(--radius-sm);
-}
-
-.editNutritionTitle {
-  display: block;
-  font-size: 0.72rem;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--color-text-muted);
-  margin-bottom: 0.35rem;
-}
-
-.editNutritionChips {
-  display: flex;
-  gap: 1rem;
-}
-
-.editNutritionChip {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-}
-
-.editNutritionChipVal {
-  font-size: 1rem;
-  font-weight: 700;
-  color: var(--color-text);
-}
-
-.editNutritionChipLabel {
-  font-size: 0.65rem;
-  text-transform: uppercase;
-  color: var(--color-text-muted);
-  letter-spacing: 0.03em;
-}
-
-.editIngBreakdown {
-  margin-bottom: 0.75rem;
-  padding: 0.5rem 0.75rem;
-  background: var(--color-surface-alt);
-  border-radius: var(--radius-sm);
-}
-
-.editIngBreakdownTitle {
-  display: block;
-  font-size: 0.72rem;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--color-text-muted);
-  margin-bottom: 0.35rem;
-}
-
-.editIngBreakdownHeader {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  margin-bottom: 0.15rem;
-}
-
-.editIngBreakdownHeaderLabel {
-  font-size: 0.62rem;
-  text-transform: uppercase;
-  color: var(--color-text-muted);
-  letter-spacing: 0.03em;
-  min-width: 3rem;
-  text-align: right;
-}
-
-.editIngBreakdownRow {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.15rem 0;
-  font-size: var(--font-size-xs);
-}
-
-.editIngBreakdownName {
-  flex: 1;
-  min-width: 0;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  color: var(--color-text-secondary);
-}
-
-.editIngBreakdownMacros {
-  display: flex;
-  gap: 0.4rem;
-}
-
-.editIngBreakdownMacro {
-  font-size: 0.75rem;
-  font-weight: 600;
-  color: var(--color-text-muted);
-  min-width: 3rem;
-  text-align: right;
-}
-
 .entryPortion {
   font-size: 0.75rem;
   color: var(--color-text-muted);
@@ -1753,53 +1648,6 @@
 
 .deleteBtn:hover {
   color: var(--color-danger);
-}
-
-.expandBtn {
-  background: none;
-  border: none;
-  color: var(--color-accent);
-  font-size: var(--font-size-xs);
-  font-family: inherit;
-  cursor: pointer;
-  padding: 0;
-  text-decoration: underline;
-  text-decoration-style: dotted;
-}
-
-.ingBreakdown {
-  padding: 0.25rem 0 0.5rem 2.5rem;
-  border-bottom: 1px solid var(--color-border-light, #f0f0f0);
-}
-
-.ingBreakdownRow {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.2rem 0;
-  font-size: var(--font-size-xs);
-  color: var(--color-text-secondary);
-}
-
-.ingBreakdownName {
-  flex: 1;
-  min-width: 0;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.ingBreakdownMacros {
-  display: flex;
-  gap: 0.6rem;
-}
-
-.ingBreakdownMacro {
-  font-size: 0.72rem;
-  font-weight: 600;
-  color: var(--color-text-muted);
-  min-width: 2.5rem;
-  text-align: right;
 }
 
 
@@ -2459,9 +2307,10 @@
   outline-offset: -2px;
 }
 
-.weeklyColMealWrap {
-  display: flex;
-  flex-direction: column;
+.weeklyColMeal {
+  font-size: 0.85rem;
+  color: var(--color-text);
+  line-height: 1.35;
   padding: 0.3rem 0.45rem;
   background: var(--color-surface);
   border-radius: 4px;
@@ -2470,23 +2319,10 @@
   transition: box-shadow 0.15s ease, transform 0.1s ease;
 }
 
-.weeklyColMealWrap:active {
+.weeklyColMeal:active {
   cursor: grabbing;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
   transform: scale(1.02);
-}
-
-.weeklyColMeal {
-  font-size: 0.85rem;
-  color: var(--color-text);
-  line-height: 1.35;
-}
-
-.weeklyColMealNutrition {
-  font-size: 0.68rem;
-  color: var(--color-text-muted);
-  line-height: 1.2;
-  margin-top: 1px;
 }
 
 .weeklyColMealClickable {
@@ -2833,7 +2669,7 @@
   height: 26px;
   border-radius: 50%;
   border: none;
-  background: var(--color-accent, #3B6B9C);
+  background: var(--color-accent, #2A8C7A);
   font-size: 1.1rem;
   font-weight: 700;
   color: #fff;

@@ -1,7 +1,7 @@
 import { createContext, useContext, useState, useEffect, useRef } from 'react';
 import { onAuthStateChanged, signInWithPopup, signOut, createUserWithEmailAndPassword, signInWithEmailAndPassword, updateProfile, sendPasswordResetEmail, deleteUser as firebaseDeleteUser } from 'firebase/auth';
 import { auth, googleProvider, facebookProvider, appleProvider } from '../firebase';
-import { loadUserData, migrateToFirestore, hydrateLocalStorage, saveField, recordLogin, subscribeToUserData, loadPendingSetup } from '../utils/firestoreSync';
+import { loadUserData, migrateToFirestore, hydrateLocalStorage, saveField, recordLogin, subscribeToUserData } from '../utils/firestoreSync';
 import { syncMealImages, clearImageCache } from '../utils/generateMealImage';
 
 const AuthContext = createContext(null);
@@ -27,14 +27,6 @@ const APP_STORAGE_KEYS = [
   'sunday-body-stats',
   'sunday-weekly-servings',
   'sunday-daily-log',
-  'sunday-weight-log',
-  'sunday-weight-setup-done',
-  'sunday-weight-cleanup-v2',
-  'sunday-weight-cleanup-v3',
-  'sunday-reminder-settings',
-  'sunday-shopping-checked',
-  'sunday-cat-layout',
-  'sunday-hidden-categories',
 ];
 
 function clearAppStorage() {
@@ -50,7 +42,6 @@ function clearAppStorage() {
 function buildStepsFromGoals(goals) {
   const steps = [];
   if (goals.includes('daily_nutrition_goals')) steps.push('nutrition-goals');
-  // weight-setup is inserted dynamically after nutrition-goals if user selected weight goal
   if (goals.includes('ingredient_variety')) steps.push('key-ingredients');
   steps.push('recipe-setup');
   return steps;
@@ -80,13 +71,9 @@ export function AuthProvider({ children }) {
       }
 
       if (firebaseUser) {
-        // Only clear storage when switching to a different user, not on token refresh
-        const prevUid = localStorage.getItem('sunday-current-uid');
-        if (prevUid && prevUid !== firebaseUser.uid) {
-          clearAppStorage();
-          clearImageCache();
-        }
-        localStorage.setItem('sunday-current-uid', firebaseUser.uid);
+        // Clear stale data from any previous user before loading
+        clearAppStorage();
+        clearImageCache();
         setDataReady(false);
 
         // User signed in — load or migrate data
@@ -120,28 +107,10 @@ export function AuthProvider({ children }) {
 
         if (userData) {
           // Existing Firestore data → hydrate localStorage
-          hydrateLocalStorage(userData, firebaseUser.uid);
+          hydrateLocalStorage(userData);
         } else {
           // First sign-in → push localStorage up to Firestore
           await migrateToFirestore(firebaseUser.uid);
-
-          // Check for admin-prepared recipes for this email
-          if (firebaseUser.email) {
-            try {
-              const pendingRecipes = await loadPendingSetup(firebaseUser.email);
-              if (pendingRecipes && pendingRecipes.length > 0) {
-                // Add IDs and save to user's account
-                const withIds = pendingRecipes.map(r => ({
-                  ...r,
-                  id: r.id || crypto.randomUUID(),
-                  createdAt: r.createdAt || new Date().toISOString(),
-                }));
-                localStorage.setItem('recipe-tracker-recipes', JSON.stringify(withIds));
-                saveField(firebaseUser.uid, 'recipes', withIds);
-              }
-            } catch {}
-          }
-
           // Notify about new signup (fire-and-forget)
           fetch('/api/notify-signup', {
             method: 'POST',
@@ -200,7 +169,7 @@ export function AuthProvider({ children }) {
 
         // Start real-time sync — re-hydrate localStorage when another device writes
         firestoreUnsubRef.current = subscribeToUserData(firebaseUser.uid, (data) => {
-          hydrateLocalStorage(data, firebaseUser.uid);
+          hydrateLocalStorage(data);
           setSyncVersion(v => v + 1);
           // Notify hooks that localStorage was updated from remote
           window.dispatchEvent(new Event('firestore-sync'));
@@ -290,21 +259,14 @@ export function AuthProvider({ children }) {
       } catch {}
     }
 
-    // Build remaining onboarding steps based on selected goals
-    const nextSteps = buildStepsFromGoals(goals);
-    if (nextSteps.length > 0) {
-      setOnboardingSteps(nextSteps);
-      setCompletedSteps(prev => [...prev, 'goals']);
-    } else {
-      // No additional steps — complete onboarding
-      if (user) {
-        await saveField(user.uid, 'onboardingComplete', true);
-      }
-      setHasCompletedOnboarding(true);
-      setOnboardingSteps([]);
-      setCompletedSteps(prev => [...prev, 'goals']);
-      setJustOnboarded(true);
+    // Skip all remaining onboarding — go straight to the main page
+    if (user) {
+      await saveField(user.uid, 'onboardingComplete', true);
     }
+    setHasCompletedOnboarding(true);
+    setOnboardingSteps([]);
+    setCompletedSteps(prev => [...prev, 'goals']);
+    setJustOnboarded(true);
   }
 
   function skipGoals() {
@@ -313,17 +275,11 @@ export function AuthProvider({ children }) {
 
   async function completeNutritionGoals(targets, stats) {
     localStorage.setItem('sunday-nutrition-goals', JSON.stringify(targets));
-    if (stats) {
-      // Merge with existing body stats (don't overwrite goalWeight, weight log data)
-      const existing = JSON.parse(localStorage.getItem('sunday-body-stats') || '{}');
-      const merged = { ...existing, ...stats };
-      localStorage.setItem('sunday-body-stats', JSON.stringify(merged));
-      if (user) await saveField(user.uid, 'bodyStats', merged);
-    }
+    if (stats) localStorage.setItem('sunday-body-stats', JSON.stringify(stats));
     if (user) {
       await saveField(user.uid, 'nutritionGoals', targets);
+      if (stats) await saveField(user.uid, 'bodyStats', stats);
     }
-    // Skip weight-setup — weight is captured in Your Info, go straight to next step
     advanceOnboarding();
   }
 
@@ -349,19 +305,12 @@ export function AuthProvider({ children }) {
     setCompletedSteps([]);
   }
 
-  async function signUpWithEmail(email, password, name, username) {
+  async function signUpWithEmail(email, password, name) {
     try {
       setAuthError(null);
       const { user: newUser } = await createUserWithEmailAndPassword(auth, email, password);
       if (name) {
         await updateProfile(newUser, { displayName: name });
-      }
-      // Save username if provided
-      if (username && username.trim()) {
-        try {
-          const { setUsername } = await import('../utils/firestoreSync');
-          await setUsername(newUser.uid, username.trim().toLowerCase());
-        } catch {}
       }
       // onAuthStateChanged will handle migration, notify, and onboarding
     } catch (err) {

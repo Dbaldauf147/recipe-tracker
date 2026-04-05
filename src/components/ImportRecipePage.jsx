@@ -1,12 +1,10 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { parseRecipeText, parseIngredientLine } from '../utils/parseRecipeText';
-import { fetchRecipeFromUrl, fetchAllRecipesFromUrl } from '../utils/fetchRecipeFromUrl';
+import { fetchRecipeFromUrl } from '../utils/fetchRecipeFromUrl';
 import { fetchInstagramCaption } from '../utils/fetchInstagramCaption';
 import { fetchTikTokRecipe, fetchTikTokCaption } from '../utils/fetchTikTokRecipe';
 import { classifyMealType } from '../utils/classifyMealType';
 import { loadStarterRecipes } from '../utils/starterRecipes';
-import { getPendingSharedRecipes, acceptSharedRecipe, declineSharedRecipe, loadFriends, removeFriend, searchByUsername, searchByEmail, searchByName, sendFriendRequest, getUsername } from '../utils/firestoreSync';
-import { useAuth } from '../contexts/AuthContext';
 import { RecipeForm } from './RecipeForm';
 import styles from './ImportRecipePage.module.css';
 
@@ -133,48 +131,10 @@ function DiscoverMealsPanel({ onSave, userRecipes }) {
   );
 }
 
-const RECIPE_SOURCE_OPTIONS = [
-  { key: 'online', icon: '🌐', label: 'Online', desc: 'Websites, social media, blogs' },
-  { key: 'docs', icon: '📄', label: 'Written down', desc: 'Word docs, notes app, PDFs' },
-  { key: 'head', icon: '🧠', label: 'In my head', desc: "I know my recipes by heart" },
-  { key: 'none', icon: '🆕', label: "Don't have any yet", desc: "We'll help you discover or create recipes" },
-];
-
-export function ImportRecipePage({ onSave, onAddWithoutClose, onCancel, userRecipes, isOnboarding = false }) {
-  const { user } = useAuth();
-  const [showSourcePicker, setShowSourcePicker] = useState(() => {
-    if (isOnboarding) return true; // Always show during onboarding
-    if (userRecipes && userRecipes.length > 0) return false;
-    try { return !localStorage.getItem('sunday-recipe-source-seen'); } catch { return true; }
-  });
-  const [selectedSources, setSelectedSources] = useState(new Set());
-  const [cameFromSourcePicker, setCameFromSourcePicker] = useState(false);
-  const [showUrlPopup, setShowUrlPopup] = useState(false);
-  const [urlLinks, setUrlLinks] = useState(['']);
+export function ImportRecipePage({ onSave, onAddWithoutClose, onCancel, userRecipes }) {
   const [phase, setPhase] = useState('paste'); // 'paste' | 'review' | 'ai-results'
-  const [importMode, setImportMode] = useState(''); // '' | 'url' | 'tiktok' | 'instagram' | 'pinterest' | 'paste' | 'manual' | 'restaurant' | 'ai' | 'shared'
-  const [pendingShares, setPendingShares] = useState([]);
-  const [sharedSearch, setSharedSearch] = useState('');
-  const [sharedFriends, setSharedFriends] = useState([]);
-  const [friendSearch, setFriendSearch] = useState('');
-  const [friendSearchResult, setFriendSearchResult] = useState(null);
-  const [friendStatus, setFriendStatus] = useState('');
-
-  // Load pending shared recipes and friends
-  useEffect(() => {
-    if (!user) return;
-    getPendingSharedRecipes(user.uid).then(setPendingShares).catch(() => {});
-    loadFriends(user.uid).then(setSharedFriends).catch(() => {});
-  }, [user]);
-  const [bulkRecipes, setBulkRecipes] = useState([]);
-  const [bulkPreview, setBulkPreview] = useState(null); // index of recipe to preview
-  const [urlRecipes, setUrlRecipes] = useState([]); // multiple recipes from a single URL
-  const [urlRecipePreview, setUrlRecipePreview] = useState(null);
-  const [bulkProcessing, setBulkProcessing] = useState(false);
-  const [bulkAdded, setBulkAdded] = useState(new Set());
-  const bulkFileRef = useRef(null);
+  const [importMode, setImportMode] = useState(''); // '' | 'url' | 'tiktok' | 'instagram' | 'pinterest' | 'paste' | 'manual' | 'restaurant' | 'ai'
   const [rawText, setRawText] = useState('');
-  const [rawText2, setRawText2] = useState('');
   const [pasteFormat, setPasteFormat] = useState('text'); // 'text' | 'table'
   const [restaurantQuery, setRestaurantQuery] = useState('');
   const [restaurantResults, setRestaurantResults] = useState([]);
@@ -187,186 +147,18 @@ export function ImportRecipePage({ onSave, onAddWithoutClose, onCancel, userReci
   const [recipeTitle, setRecipeTitle] = useState('');
   const [sourceUrl, setSourceUrl] = useState('');
   const [linkUrl, setLinkUrl] = useState('');
-  const [multiUrls, setMultiUrls] = useState(['', '']);
-  const [multiImporting, setMultiImporting] = useState(false);
-  const [multiResults, setMultiResults] = useState([]);
   const [instagramUrl, setInstagramUrl] = useState('');
   const [tiktokUrl, setTiktokUrl] = useState('');
   const [pinterestUrl, setPinterestUrl] = useState('');
   const [parsedRecipe, setParsedRecipe] = useState(null);
   const [fetching, setFetching] = useState(false);
   const [fetchError, setFetchError] = useState('');
-  const [urlImportError, setUrlImportError] = useState('');
-  const [urlImporting, setUrlImporting] = useState(false);
 
   // AI generate state
   const [aiPrompt, setAiPrompt] = useState('');
   const [aiCount, setAiCount] = useState(2);
   const [aiRecipes, setAiRecipes] = useState([]);
   const [aiEditing, setAiEditing] = useState(null);
-
-  async function extractDocxText(file) {
-    // .docx is a zip file; document.xml contains the text
-    const { default: JSZip } = await import('jszip');
-    const zip = await JSZip.loadAsync(file);
-    const docXml = await zip.file('word/document.xml')?.async('string');
-    if (!docXml) return { text: '', title: '' };
-
-    // Extract title from heading/title styled paragraphs
-    let docTitle = '';
-    const titleMatch = docXml.match(/<w:pStyle w:val="(?:Title|Heading1|Heading 1)"[^/]*\/>[^]*?<w:t[^>]*>([^<]+)<\/w:t>/i);
-    if (titleMatch) {
-      docTitle = titleMatch[1].trim();
-    }
-    // Also try core.xml for document title
-    if (!docTitle) {
-      try {
-        const coreXml = await zip.file('docProps/core.xml')?.async('string');
-        if (coreXml) {
-          const coreTitleMatch = coreXml.match(/<dc:title>([^<]+)<\/dc:title>/);
-          if (coreTitleMatch && coreTitleMatch[1].trim()) {
-            docTitle = coreTitleMatch[1].trim();
-          }
-        }
-      } catch {}
-    }
-
-    // Also extract title by finding the first paragraph with heading style
-    if (!docTitle) {
-      // Look for any heading-styled paragraph
-      const headingRegex = /<w:p [^>]*>(?:[^]*?<w:pStyle w:val="(?:Title|Heading\d?|Heading \d)"[^/]*\/>)?[^]*?<w:t[^>]*>([^<]+)<\/w:t>[^]*?<\/w:p>/gi;
-      const firstPara = headingRegex.exec(docXml);
-      if (firstPara) {
-        // Check if this paragraph has a heading style
-        const paraBlock = firstPara[0];
-        if (/w:pStyle w:val="(?:Title|Heading)/i.test(paraBlock)) {
-          docTitle = firstPara[1].trim();
-        }
-      }
-    }
-
-    // Strip XML tags, keep text content
-    const text = docXml
-      .replace(/<w:br[^>]*\/>/gi, '\n')
-      .replace(/<w:p[^>]*>/gi, '\n')
-      .replace(/<[^>]+>/g, '')
-      .replace(/&amp;/g, '&')
-      .replace(/&lt;/g, '<')
-      .replace(/&gt;/g, '>')
-      .replace(/&quot;/g, '"')
-      .replace(/&apos;/g, "'")
-      .replace(/\n{3,}/g, '\n\n')
-      .trim();
-
-    return { text, title: docTitle };
-  }
-
-  async function handleBulkUpload(e) {
-    const files = Array.from(e.target.files || []);
-    if (files.length === 0) return;
-    setBulkProcessing(true);
-    setBulkRecipes([]);
-    setBulkAdded(new Set());
-
-    const allRecipes = [];
-
-    for (const file of files) {
-      let text = '';
-      let docTitle = '';
-      const name = file.name.toLowerCase();
-      // Derive title from filename (strip extension)
-      const fileTitle = file.name.replace(/\.[^.]+$/, '').replace(/[_-]/g, ' ').trim();
-
-      if (name.endsWith('.docx')) {
-        const result = await extractDocxText(file);
-        text = result.text;
-        docTitle = result.title;
-      } else if (name.endsWith('.txt') || name.endsWith('.md') || name.endsWith('.rtf')) {
-        text = await file.text();
-      } else if (name.endsWith('.doc')) {
-        text = await file.text();
-      } else {
-        text = await file.text();
-      }
-
-      if (!text.trim()) continue;
-
-      // Split by common recipe separators (--- or === or multiple blank lines)
-      const sections = text.split(/(?:\n\s*[-=]{3,}\s*\n)|(?:\n{3,})/).filter(s => s.trim());
-
-      if (sections.length > 1) {
-        // Multiple recipes in one file
-        for (const section of sections) {
-          const parsed = parseRecipeText(section);
-          if (parsed.title || parsed.ingredients.length > 0) {
-            allRecipes.push({
-              ...parsed,
-              title: parsed.title || docTitle || fileTitle,
-              category: 'lunch-dinner',
-              frequency: 'common',
-              servings: '1',
-              mealType: parsed.ingredients.length > 0 ? classifyMealType(parsed.ingredients) : '',
-              sourceFile: file.name,
-            });
-          }
-        }
-      } else {
-        // Single recipe per file — use doc title or filename as fallback
-        const parsed = parseRecipeText(text);
-        const title = parsed.title || docTitle || fileTitle;
-        if (title || parsed.ingredients.length > 0) {
-          allRecipes.push({
-            ...parsed,
-            title,
-            category: 'lunch-dinner',
-            frequency: 'common',
-            servings: '1',
-            mealType: parsed.ingredients.length > 0 ? classifyMealType(parsed.ingredients) : '',
-            sourceFile: file.name,
-          });
-        }
-      }
-    }
-
-    setBulkRecipes(allRecipes);
-    setBulkProcessing(false);
-    e.target.value = '';
-  }
-
-  function handleBulkAdd(index) {
-    const recipe = bulkRecipes[index];
-    if (!recipe) return;
-    const save = onAddWithoutClose || onSave;
-    save({
-      title: recipe.title,
-      category: recipe.category,
-      frequency: recipe.frequency,
-      servings: recipe.servings,
-      mealType: recipe.mealType,
-      ingredients: recipe.ingredients,
-      instructions: recipe.instructions,
-      source: 'bulk',
-    });
-    setBulkAdded(prev => new Set(prev).add(index));
-  }
-
-  function handleBulkAddAll() {
-    const save = onAddWithoutClose || onSave;
-    bulkRecipes.forEach((recipe, i) => {
-      if (bulkAdded.has(i)) return;
-      save({
-        title: recipe.title,
-        category: recipe.category,
-        frequency: recipe.frequency,
-        servings: recipe.servings,
-        mealType: recipe.mealType,
-        ingredients: recipe.ingredients,
-        instructions: recipe.instructions,
-        source: 'bulk',
-      });
-    });
-    setBulkAdded(new Set(bulkRecipes.map((_, i) => i)));
-  }
 
   function updateTableRow(index, field, value) {
     setTableRows(prev => {
@@ -517,13 +309,6 @@ export function ImportRecipePage({ onSave, onAddWithoutClose, onCancel, userReci
     }
   }
 
-  function titleCase(str) {
-    if (!str) return '';
-    // Strip emojis and special symbols, then capitalize
-    const textOnly = str.replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE00}-\u{FE0F}\u{200D}\u{20E3}\u{E0020}-\u{E007F}✨⭐️🔥💯🥗🍽️⏱️▪️●•►▸🔸🔹]/gu, '').replace(/\s+/g, ' ').trim();
-    return textOnly.replace(/\b\w/g, c => c.toUpperCase());
-  }
-
   function detectUrlType(url) {
     const u = url.toLowerCase();
     if (u.includes('tiktok.com')) return 'tiktok';
@@ -537,55 +322,29 @@ export function ImportRecipePage({ onSave, onAddWithoutClose, onCancel, userReci
     if (!url) return;
     const type = detectUrlType(url);
     setImportMode(type);
-    if (type === 'tiktok' || type === 'instagram') {
-      if (type === 'tiktok') setTiktokUrl(url);
-      else setInstagramUrl(url);
+    if (type === 'tiktok') {
+      setTiktokUrl(url);
       setFetching(true);
       setFetchError('');
       try {
-        // Step 1: Try to get caption text
-        let captionText = '';
-        try {
-          if (type === 'tiktok') {
-            const recipe = await fetchTikTokRecipe(url);
-            if (recipe?.title) {
-              setParsedRecipe({ ...recipe, title: titleCase(recipe.title), mealType: recipe.mealType || classifyMealType(recipe.ingredients || []) });
-              setPhase('review');
-              setFetching(false);
-              return;
-            }
-          } else {
-            captionText = await fetchInstagramCaption(url) || '';
-          }
-        } catch {}
-
-        // Step 2: Also transcribe the video audio
-        setFetchError(captionText ? 'Got caption. Also transcribing audio for more details...' : 'Transcribing video audio...');
-        let audioText = '';
-        try {
-          const transRes = await fetch(`/api/transcribe-video?url=${encodeURIComponent(url)}`);
-          const transData = await transRes.json();
-          if (transData.text) audioText = transData.text;
-        } catch {}
-
-        // Step 3: Combine caption + audio transcript
-        const combined = [captionText, audioText].filter(Boolean).join('\n\n');
-        if (combined.trim()) {
-          const parsed = parseRecipeText(combined);
-          if (parsed?.title || parsed?.ingredients?.length > 0) {
-            setParsedRecipe({ ...parsed, title: titleCase(parsed.title || ''), sourceUrl: url, mealType: classifyMealType(parsed.ingredients || []) });
-            setPhase('review');
-            setFetchError('');
-          } else {
-            setRawText(combined);
-            setPhase('paste');
-            setFetchError('');
-          }
-        } else {
-          setFetchError('Could not extract recipe from caption or audio. The post may be private or restricted.');
-        }
+        const recipe = await fetchTikTokRecipe(url);
+        setParsedRecipe({ ...recipe, mealType: recipe.mealType || classifyMealType(recipe.ingredients || []) });
+        setPhase('review');
       } catch (err) {
-        setFetchError(err.message || `Failed to fetch recipe from ${type === 'tiktok' ? 'TikTok' : 'Instagram'}.`);
+        setFetchError(err.message || 'Failed to fetch recipe from TikTok.');
+      } finally {
+        setFetching(false);
+      }
+    } else if (type === 'instagram') {
+      setInstagramUrl(url);
+      setFetching(true);
+      setFetchError('');
+      try {
+        const caption = await fetchInstagramCaption(url);
+        setRawText(caption);
+        setPhase('paste');
+      } catch (err) {
+        setFetchError(err.message || 'Failed to fetch Instagram caption.');
       } finally {
         setFetching(false);
       }
@@ -612,19 +371,10 @@ export function ImportRecipePage({ onSave, onAddWithoutClose, onCancel, userReci
       setSourceUrl(url);
       setFetching(true);
       setFetchError('');
-      setUrlRecipes([]);
       try {
-        const allRecipes = await fetchAllRecipesFromUrl(url);
-        if (allRecipes.length > 1) {
-          // Multiple recipes found — let user choose
-          setUrlRecipes(allRecipes.map(r => ({ ...r, mealType: r.mealType || classifyMealType(r.ingredients || []) })));
-          setPhase('paste'); // stay on page to show selection
-        } else if (allRecipes.length === 1) {
-          setParsedRecipe({ ...allRecipes[0], mealType: allRecipes[0].mealType || classifyMealType(allRecipes[0].ingredients || []) });
-          setPhase('review');
-        } else {
-          setFetchError('No recipe found on this page.');
-        }
+        const recipe = await fetchRecipeFromUrl(url);
+        setParsedRecipe({ ...recipe, mealType: recipe.mealType || classifyMealType(recipe.ingredients || []) });
+        setPhase('review');
       } catch (err) {
         setFetchError(err.message || 'Failed to fetch recipe from URL.');
       } finally {
@@ -812,7 +562,7 @@ export function ImportRecipePage({ onSave, onAddWithoutClose, onCancel, userReci
   }
 
   function handleSave(data) {
-    onSave({ ...data, title: titleCase(data.title || ''), source: importMode });
+    onSave({ ...data, source: importMode });
   }
 
   function handleBackToPaste() {
@@ -878,57 +628,17 @@ export function ImportRecipePage({ onSave, onAddWithoutClose, onCancel, userReci
   }
 
   if (phase === 'review' && parsedRecipe) {
-    if (importMode === 'manual') {
-      return (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200, padding: '1rem' }}>
-          <div style={{ background: 'var(--color-surface)', borderRadius: '16px', maxWidth: '680px', width: '100%', maxHeight: '92vh', overflowY: 'auto', boxShadow: '0 8px 32px rgba(0,0,0,0.2)', padding: '1.5rem' }}>
-            {parsedRecipe.estimated && (
-              <div style={{ padding: '0.75rem 1rem', background: '#FEF3C7', border: '1px solid #FDE68A', borderRadius: '8px', marginBottom: '1rem', display: 'flex', alignItems: 'flex-start', gap: '0.5rem' }}>
-                <span style={{ fontSize: '1.1rem', lineHeight: 1 }}>⚠️</span>
-                <div>
-                  <div style={{ fontSize: '0.88rem', fontWeight: 700, color: '#92400E', marginBottom: '0.2rem' }}>AI-Estimated Ingredients</div>
-                  <div style={{ fontSize: '0.82rem', color: '#A16207', lineHeight: 1.4 }}>
-                    The original video didn't list specific ingredients. These were estimated by AI based on the dish name. Please review and adjust.
-                  </div>
-                </div>
-              </div>
-            )}
-            <RecipeForm
-              recipe={parsedRecipe}
-              onSave={handleSave}
-              onCancel={onCancel}
-              titleOverride="Add Recipe Manually"
-              headerAction={
-                <button
-                  onClick={() => {
-                    setParsedRecipe(null); setPhase('paste'); setImportMode('');
-                    if (cameFromSourcePicker || isOnboarding) { setShowSourcePicker(true); setSelectedSources(new Set()); setCameFromSourcePicker(false); }
-                  }}
-                  style={{ background: 'none', border: 'none', color: 'var(--color-accent)', fontSize: '0.9rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', padding: '0.25rem 0.5rem' }}
-                >
-                  ← Back
-                </button>
-              }
-            />
-          </div>
-        </div>
-      );
-    }
     return (
       <div className={styles.container}>
-        <button className={styles.backToPaste} onClick={handleBackToPaste}>
-          &larr; Back to import
-        </button>
-        {parsedRecipe.estimated && (
-          <div style={{ padding: '0.75rem 1rem', background: '#FEF3C7', border: '1px solid #FDE68A', borderRadius: '8px', marginBottom: '1rem', display: 'flex', alignItems: 'flex-start', gap: '0.5rem' }}>
-            <span style={{ fontSize: '1.1rem', lineHeight: 1 }}>⚠️</span>
-            <div>
-              <div style={{ fontSize: '0.88rem', fontWeight: 700, color: '#92400E', marginBottom: '0.2rem' }}>AI-Estimated Ingredients</div>
-              <div style={{ fontSize: '0.82rem', color: '#A16207', lineHeight: 1.4 }}>
-                The original video caption didn't list specific ingredients. These ingredients and instructions were estimated by AI based on the dish name. Please review and adjust as needed.
-              </div>
-            </div>
-          </div>
+        {importMode !== 'manual' && (
+          <button className={styles.backToPaste} onClick={handleBackToPaste}>
+            &larr; Back to import
+          </button>
+        )}
+        {importMode === 'manual' && (
+          <button className={styles.backToPaste} onClick={onCancel}>
+            &larr; Back
+          </button>
         )}
         <RecipeForm
           recipe={parsedRecipe}
@@ -939,267 +649,11 @@ export function ImportRecipePage({ onSave, onAddWithoutClose, onCancel, userReci
     );
   }
 
-  // Multi-import derived state (computed outside JSX to avoid IIFE render issues)
-  const multiPending = multiResults.filter(r => r._status === 'success');
-  const multiFailed = multiResults.filter(r => r._status === 'failed');
-  const multiAdded = multiResults.filter(r => r._status === 'added');
-  const multiFront = multiPending[0] || null;
-  const multiTotal = multiResults.filter(r => r._status !== 'failed').length;
-  const multiBehind = multiPending.length - 1;
-  const showMultiModal = multiResults.length > 0 && (multiPending.length > 0 || (multiPending.length === 0 && multiAdded.length > 0));
-
-  function handleSourceContinue() {
-    localStorage.setItem('sunday-recipe-source-seen', 'true');
-    // Route to the first selected option in priority order
-    const sources = selectedSources;
-    if (sources.has('online')) {
-      setShowUrlPopup(true);
-      setUrlLinks(['', '']);
-      return;
-    }
-    setShowSourcePicker(false);
-    setCameFromSourcePicker(true);
-    if (sources.has('docs')) {
-      setImportMode('bulk');
-      setPhase('paste');
-    } else if (sources.has('head')) {
-      handleStartManual();
-    } else if (sources.has('none')) {
-      setImportMode('discover');
-      setPhase('paste');
-    }
-  }
-
-  if (showSourcePicker) {
-    return (
-      <div>
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: showUrlPopup ? 'none' : 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200, padding: '1rem' }}>
-          <div style={{ background: 'var(--color-surface)', borderRadius: '16px', padding: '2rem', maxWidth: '480px', width: '100%', boxShadow: '0 8px 32px rgba(0,0,0,0.2)' }}>
-            <h2 style={{ fontSize: '1.3rem', fontWeight: 700, color: 'var(--color-text)', margin: '0 0 0.25rem', textAlign: 'center' }}>Where are your recipes now?</h2>
-            <p style={{ fontSize: '0.85rem', color: 'var(--color-text-muted)', margin: '0 0 1.25rem', textAlign: 'center' }}>Select all that apply — we'll help you get them into Prep Day.</p>
-
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginBottom: '1.5rem' }}>
-              {RECIPE_SOURCE_OPTIONS.map(opt => (
-                <button
-                  key={opt.key}
-                  onClick={() => setSelectedSources(prev => {
-                    const next = new Set(prev);
-                    if (next.has(opt.key)) next.delete(opt.key); else next.add(opt.key);
-                    return next;
-                  })}
-                  style={{
-                    display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.75rem 1rem',
-                    border: selectedSources.has(opt.key) ? '2px solid var(--color-accent)' : '1px solid var(--color-border)',
-                    borderRadius: '10px', background: selectedSources.has(opt.key) ? 'var(--color-accent-light)' : 'var(--color-surface)',
-                    cursor: 'pointer', textAlign: 'left', fontFamily: 'inherit', transition: 'all 0.15s',
-                  }}
-                >
-                  <span style={{ fontSize: '1.5rem', flexShrink: 0 }}>{opt.icon}</span>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: '0.95rem', fontWeight: 600, color: 'var(--color-text)' }}>{opt.label}</div>
-                    <div style={{ fontSize: '0.78rem', color: 'var(--color-text-muted)' }}>{opt.desc}</div>
-                  </div>
-                  <div style={{ width: '20px', height: '20px', borderRadius: '4px', border: selectedSources.has(opt.key) ? '2px solid var(--color-accent)' : '2px solid var(--color-border)', background: selectedSources.has(opt.key) ? 'var(--color-accent)' : '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                    {selectedSources.has(opt.key) && <span style={{ color: '#fff', fontSize: '0.75rem', fontWeight: 700 }}>✓</span>}
-                  </div>
-                </button>
-              ))}
-            </div>
-
-            <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'center' }}>
-              {isOnboarding && onCancel && (
-                <button
-                  onClick={onCancel}
-                  style={{ padding: '0.6rem 1.25rem', border: '1px solid var(--color-border)', borderRadius: '8px', background: 'var(--color-surface)', fontSize: '0.9rem', fontWeight: 500, fontFamily: 'inherit', color: 'var(--color-text-secondary)', cursor: 'pointer' }}
-                >
-                  ← Back
-                </button>
-              )}
-              <button
-                onClick={handleSourceContinue}
-                disabled={selectedSources.size === 0}
-                style={{ padding: '0.6rem 1.5rem', border: 'none', borderRadius: '8px', background: 'var(--color-accent)', fontSize: '0.9rem', fontWeight: 600, fontFamily: 'inherit', color: '#fff', cursor: 'pointer', opacity: selectedSources.size === 0 ? 0.4 : 1 }}
-              >
-                Continue
-              </button>
-            </div>
-          </div>
-        </div>
-
-        {/* Dedicated Online Import Popup */}
-        {showUrlPopup && (
-          <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 300, padding: '1rem' }}>
-            <div style={{ background: 'var(--color-surface)', borderRadius: '16px', padding: '2rem', maxWidth: '600px', width: '100%', maxHeight: '85vh', overflowY: 'auto', boxShadow: '0 8px 32px rgba(0,0,0,0.25)' }}>
-              <h2 style={{ fontSize: '1.3rem', fontWeight: 700, color: 'var(--color-text)', margin: '0 0 0.25rem' }}>Import Recipes from the Web</h2>
-              <p style={{ fontSize: '0.85rem', color: 'var(--color-text-muted)', margin: '0 0 1.25rem' }}>Paste links from any recipe website or social media platform and we'll extract the recipe for you.</p>
-
-              {/* Supported platforms */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1.25rem', padding: '0.6rem 0.75rem', background: 'var(--color-surface-alt)', borderRadius: '10px' }}>
-                <span style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--color-text-secondary)', textTransform: 'uppercase', letterSpacing: '0.03em', whiteSpace: 'nowrap' }}>Supported</span>
-                <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
-                  {['TikTok', 'Instagram', 'Pinterest', 'AllRecipes', 'Any recipe website'].map(name => (
-                    <span key={name} style={{ fontSize: '0.8rem', color: 'var(--color-text)', background: 'var(--color-surface)', padding: '0.2rem 0.55rem', borderRadius: '6px', border: '1px solid var(--color-border-light)' }}>{name}</span>
-                  ))}
-                </div>
-              </div>
-
-              {/* URL input fields */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginBottom: '0.75rem' }}>
-                {urlLinks.map((link, i) => {
-                  const type = link.trim() ? detectUrlType(link.trim()) : null;
-                  const typeLabel = type === 'tiktok' ? 'TikTok' : type === 'instagram' ? 'Instagram' : type === 'pinterest' ? 'Pinterest' : type === 'url' && link.trim() ? 'Website' : null;
-                  return (
-                    <div key={i} style={{ display: 'flex', gap: '0.4rem', alignItems: 'center' }}>
-                      <div style={{ position: 'relative', flex: 1 }}>
-                        <input
-                          type="url"
-                          value={link}
-                          onChange={e => {
-                            const val = e.target.value;
-                            setUrlLinks(prev => {
-                              const next = prev.map((l, j) => j === i ? val : l);
-                              // Auto-add a new row when all rows have content
-                              if (val.trim() && next.every(l => l.trim())) next.push('');
-                              return next;
-                            });
-                          }}
-                          placeholder={i === 0 ? 'https://www.allrecipes.com/recipe/...' : i === 1 ? 'https://www.tiktok.com/@user/video/...' : 'Paste another recipe URL...'}
-                          autoFocus={i === 0}
-                          onKeyDown={e => {
-                            if (e.key === 'Enter' && link.trim()) {
-                              if (i === urlLinks.length - 1) setUrlLinks(prev => [...prev, '']);
-                            }
-                          }}
-                          style={{ width: '100%', padding: '0.65rem 0.75rem', paddingRight: typeLabel ? '5.5rem' : '0.75rem', border: '1px solid var(--color-border)', borderRadius: '8px', fontSize: '0.9rem', fontFamily: 'inherit', color: 'var(--color-text)' }}
-                        />
-                        {typeLabel && (
-                          <span style={{ position: 'absolute', right: '0.5rem', top: '50%', transform: 'translateY(-50%)', fontSize: '0.7rem', fontWeight: 600, color: 'var(--color-accent)', background: 'var(--color-accent-light)', padding: '0.15rem 0.45rem', borderRadius: '4px' }}>{typeLabel}</span>
-                        )}
-                      </div>
-                      {urlLinks.length > 1 && (
-                        <button onClick={() => setUrlLinks(prev => prev.filter((_, j) => j !== i))} style={{ width: '28px', height: '28px', borderRadius: '50%', border: '1px solid var(--color-border)', background: 'none', color: 'var(--color-text-muted)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.9rem', flexShrink: 0 }}>×</button>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-
-              <button
-                onClick={() => setUrlLinks(prev => [...prev, ''])}
-                style={{ background: 'none', border: 'none', color: 'var(--color-accent)', fontSize: '0.85rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', padding: '0.25rem 0', marginBottom: '1.25rem' }}
-              >
-                + Add another URL
-              </button>
-
-              {urlImportError && <div style={{ fontSize: '0.85rem', color: 'var(--color-danger)', marginBottom: '0.75rem' }}>{urlImportError}</div>}
-
-              <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'space-between', alignItems: 'center' }}>
-                <button
-                  onClick={() => { setShowUrlPopup(false); setUrlImportError(''); setSelectedSources(new Set()); }}
-                  style={{ padding: '0.6rem 1.25rem', border: '1px solid var(--color-border)', borderRadius: '8px', background: 'var(--color-surface)', fontSize: '0.9rem', fontWeight: 500, fontFamily: 'inherit', color: 'var(--color-text-secondary)', cursor: 'pointer' }}
-                >
-                  ← Back
-                </button>
-                <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-                  <span style={{ fontSize: '0.78rem', color: 'var(--color-text-muted)' }}>
-                    {urlLinks.filter(l => l.trim()).length} URL{urlLinks.filter(l => l.trim()).length !== 1 ? 's' : ''}
-                  </span>
-                  <button
-                    onClick={async () => {
-                      const validLinks = urlLinks.filter(l => l.trim());
-                      if (validLinks.length === 0) return;
-                      setUrlImportError('');
-                      localStorage.setItem('sunday-recipe-source-seen', 'true');
-                      setShowUrlPopup(false);
-                      setShowSourcePicker(false);
-                      // Use multi-import flow
-                      setMultiUrls(validLinks);
-                      setMultiImporting(true);
-                      setMultiResults([]);
-                      const results = [];
-                      for (const url of validLinks) {
-                        try {
-                          const type = detectUrlType(url);
-                          if (type === 'tiktok' || type === 'instagram') {
-                            let captionText = '';
-                            try {
-                              if (type === 'tiktok') {
-                                const recipe = await fetchTikTokRecipe(url);
-                                if (recipe?.title) { results.push({ ...recipe, title: titleCase(recipe.title), sourceUrl: url, mealType: recipe.mealType || classifyMealType(recipe.ingredients || []), _status: 'success' }); continue; }
-                              } else {
-                                captionText = await fetchInstagramCaption(url) || '';
-                              }
-                            } catch {}
-                            let audioText = '';
-                            try {
-                              const tr = await fetch(`/api/transcribe-video?url=${encodeURIComponent(url)}`).then(r => r.json());
-                              if (tr.text) audioText = tr.text;
-                            } catch {}
-                            const combined = [captionText, audioText].filter(Boolean).join('\n\n');
-                            if (combined.trim()) {
-                              const parsed = parseRecipeText(combined);
-                              if (parsed?.title || parsed?.ingredients?.length > 0) {
-                                results.push({ ...parsed, title: titleCase(parsed.title || ''), sourceUrl: url, mealType: classifyMealType(parsed.ingredients || []), _status: 'success' });
-                              } else {
-                                results.push({ title: url, _status: 'failed', sourceUrl: url, _error: 'Could not parse a recipe from this post' });
-                              }
-                            } else {
-                              results.push({ title: url, _status: 'failed', sourceUrl: url, _error: 'Could not extract content. Post may be private.' });
-                            }
-                          } else if (type === 'pinterest') {
-                            const extractRes = await fetch(`/api/fetch-url?url=${encodeURIComponent(url)}&pinterest=true`);
-                            if (extractRes.ok) {
-                              const { sourceUrl: recipeUrl } = await extractRes.json();
-                              const recipe = await fetchRecipeFromUrl(recipeUrl);
-                              if (recipe?.title) results.push({ ...recipe, sourceUrl: recipeUrl, mealType: recipe.mealType || classifyMealType(recipe.ingredients || []), _status: 'success' });
-                              else results.push({ title: url, _status: 'failed', sourceUrl: url, _error: 'Could not find recipe on linked page' });
-                            } else results.push({ title: url, _status: 'failed', sourceUrl: url, _error: 'Could not extract source URL from Pinterest' });
-                          } else {
-                            const data = await fetchAllRecipesFromUrl(url);
-                            if (data && data.length > 0) {
-                              for (const r of data) results.push({ ...r, title: titleCase(r.title || ''), sourceUrl: url, mealType: r.mealType || classifyMealType(r.ingredients || []), _status: 'success' });
-                            } else {
-                              results.push({ title: url, _status: 'failed', sourceUrl: url, _error: 'Could not find recipe data on this page' });
-                            }
-                          }
-                        } catch (err) {
-                          results.push({ title: url, _status: 'failed', sourceUrl: url, _error: err.message });
-                        }
-                      }
-                      setMultiResults(results);
-                      setMultiImporting(false);
-                    }}
-                    disabled={!urlLinks.some(l => l.trim()) || urlImporting}
-                    style={{ padding: '0.6rem 1.5rem', border: 'none', borderRadius: '8px', background: 'var(--color-accent)', fontSize: '0.9rem', fontWeight: 600, fontFamily: 'inherit', color: '#fff', cursor: 'pointer', opacity: urlLinks.some(l => l.trim()) ? 1 : 0.4 }}
-                  >
-                    {urlImporting ? 'Importing...' : `Import ${urlLinks.filter(l => l.trim()).length || ''} Recipe${urlLinks.filter(l => l.trim()).length !== 1 ? 's' : ''}`}
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
-    );
-  }
-
   return (
-    <>
-    <div className={styles.container} style={showMultiModal || multiImporting ? { visibility: 'hidden' } : undefined}>
+    <div className={styles.container}>
       <div className={styles.header}>
-        {!importMode && onCancel && (
-          <button className={styles.backBtn} onClick={onCancel} title="Back">
-            &#8592; Back
-          </button>
-        )}
-        <h2 className={styles.title}>Import Recipes</h2>
-        {onCancel && (
-          <button className={styles.skipBtn} onClick={onCancel} style={{ marginLeft: 'auto' }}>
-            {importMode ? 'Continue to Homepage' : 'Skip for Now'}
-          </button>
-        )}
+        <h2 className={styles.title}>Import Recipe</h2>
       </div>
-      {!importMode && <p className={styles.importDesc}>Add recipes to your profile from websites, social media, AI, or type them in manually.</p>}
 
       {!importMode && (
         <div className={styles.menuList}>
@@ -1211,165 +665,6 @@ export function ImportRecipePage({ onSave, onAddWithoutClose, onCancel, userReci
             <div className={styles.menuItemTop}>
               <span className={styles.menuItemLabel}>Add Prep Day Recipes</span>
               <span className={styles.menuItemDesc}>Browse our curated meal collection</span>
-            </div>
-            <span className={styles.menuItemArrow}>&rsaquo;</span>
-          </button>
-
-          {/* Import from Link */}
-          <div className={styles.menuItem}>
-            <div className={styles.menuItemTop}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
-                <span className={styles.menuItemLabel}>Import from a Website</span>
-                <div className={styles.platformIcons} style={{ margin: 0, gap: '0.3rem' }}>
-              <a href="https://www.tiktok.com/search?q=healthy%20recipes" target="_blank" rel="noopener noreferrer" className={styles.platformLink} title="Browse TikTok Recipes">
-                <svg className={styles.platformIcon} viewBox="0 0 48 48"><path fill="#25F4EE" d="M33.3 8.4h-4.1v21.9a5.4 5.4 0 0 1-5.4 5.1 5.4 5.4 0 0 1-2.5-.6 5.4 5.4 0 0 0 7.9-4.8V8.4h4.1z"/><path fill="#25F4EE" d="M34.8 15.2v4.2a13.5 13.5 0 0 1-7.9-2.5v11.4a10 10 0 0 1-10 10 9.9 9.9 0 0 1-5.8-1.9 10 10 0 0 0 17.3-6.8V18.2a13.5 13.5 0 0 0 7.9 2.5v-4.2a9.4 9.4 0 0 1-1.5-1.3z"/><path fill="#FE2C55" d="M26.9 16.9v11.4a10 10 0 0 1-10 10 9.9 9.9 0 0 1-5.8-1.9A10 10 0 0 0 19 40a10 10 0 0 0 10-10V18.6a13.5 13.5 0 0 0 7.9 2.5v-4.2a9.4 9.4 0 0 1-5.9-5.5h-4.1v21.9a5.4 5.4 0 0 1-7.9 4.8 5.4 5.4 0 0 0 8-4.8V16.9z"/></svg>
-              </a>
-              <a href="https://www.instagram.com/explore/tags/healthyrecipes/" target="_blank" rel="noopener noreferrer" className={styles.platformLink} title="Browse Instagram Recipes">
-                <svg className={styles.platformIcon} viewBox="0 0 24 24"><defs><linearGradient id="igGrad" x1="0%" y1="100%" x2="100%" y2="0%"><stop offset="0%" stopColor="#FFDC80"/><stop offset="25%" stopColor="#F77737"/><stop offset="50%" stopColor="#E1306C"/><stop offset="75%" stopColor="#C13584"/><stop offset="100%" stopColor="#833AB4"/></linearGradient></defs><path fill="url(#igGrad)" d="M7.8 2h8.4C19.4 2 22 4.6 22 7.8v8.4a5.8 5.8 0 0 1-5.8 5.8H7.8C4.6 22 2 19.4 2 16.2V7.8A5.8 5.8 0 0 1 7.8 2m-.2 2A3.6 3.6 0 0 0 4 7.6v8.8C4 18.39 5.61 20 7.6 20h8.8a3.6 3.6 0 0 0 3.6-3.6V7.6C20 5.61 18.39 4 16.4 4H7.6m9.65 1.5a1.25 1.25 0 1 1 0 2.5 1.25 1.25 0 0 1 0-2.5M12 7a5 5 0 1 1 0 10 5 5 0 0 1 0-10m0 2a3 3 0 1 0 0 6 3 3 0 0 0 0-6z"/></svg>
-              </a>
-              <a href="https://www.pinterest.com/search/pins/?q=healthy%20meal%20prep%20recipes" target="_blank" rel="noopener noreferrer" className={styles.platformLink} title="Browse Pinterest Recipes">
-                <svg className={styles.platformIcon} viewBox="0 0 24 24"><path fill="#E60023" d="M12 2C6.48 2 2 6.48 2 12c0 4.24 2.65 7.86 6.39 9.29-.09-.78-.17-1.98.04-2.83.19-.78 1.22-5.17 1.22-5.17s-.31-.62-.31-1.54c0-1.45.84-2.53 1.88-2.53.89 0 1.32.67 1.32 1.47 0 .89-.57 2.23-.86 3.47-.25 1.04.52 1.88 1.54 1.88 1.84 0 3.26-1.94 3.26-4.75 0-2.48-1.79-4.22-4.33-4.22-2.95 0-4.68 2.21-4.68 4.5 0 .89.34 1.85.77 2.37.08.1.1.19.07.3-.08.31-.25 1.04-.29 1.18-.05.19-.15.23-.35.14-1.31-.61-2.13-2.53-2.13-4.07 0-3.31 2.41-6.36 6.95-6.36 3.64 0 6.48 2.6 6.48 6.07 0 3.62-2.28 6.53-5.45 6.53-1.06 0-2.07-.55-2.41-1.21l-.66 2.5c-.24.91-.88 2.05-1.32 2.75.99.31 2.04.47 3.13.47 5.52 0 10-4.48 10-10S17.52 2 12 2z"/></svg>
-              </a>
-              <a href="https://www.allrecipes.com/" target="_blank" rel="noopener noreferrer" className={styles.platformLink} title="Browse AllRecipes">
-                <svg className={styles.platformIcon} viewBox="0 0 24 24" style={{color: '#555'}}><path fill="currentColor" d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/></svg>
-              </a>
-                </div>
-              </div>
-              <span className={styles.menuItemDesc}>Paste a URL or browse recipe sites</span>
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
-              {multiUrls.map((url, i) => (
-                <div key={i} className={styles.menuItemInput} style={{ display: 'flex', gap: '0.35rem', alignItems: 'center' }}>
-                  <input
-                    className={styles.menuInlineInput}
-                    type="url"
-                    value={url}
-                    onChange={e => setMultiUrls(prev => prev.map((u, j) => j === i ? e.target.value : u))}
-                    placeholder={i === 0 ? 'Paste a URL from any supported site...' : 'Paste another URL...'}
-                    onKeyDown={e => {
-                      if (e.key === 'Enter' && url.trim()) {
-                        // If this is the last filled row, add a new empty row
-                        if (i === multiUrls.length - 1) setMultiUrls(prev => [...prev, '']);
-                        // If only one URL, import it directly
-                        const filled = multiUrls.filter(u => u.trim());
-                        if (filled.length <= 1) { setLinkUrl(url.trim()); setTimeout(() => handleSmartImport(), 0); }
-                      }
-                    }}
-                    onBlur={() => {
-                      // Auto-add a new row when the last row has content
-                      if (url.trim() && i === multiUrls.length - 1) setMultiUrls(prev => [...prev, '']);
-                    }}
-                    disabled={fetching || multiImporting}
-                  />
-                  {multiUrls.length > 2 && !url.trim() && i > 1 && (
-                    <button onClick={() => setMultiUrls(prev => prev.filter((_, j) => j !== i))} style={{ background: 'none', border: '1px solid var(--color-border)', borderRadius: '50%', width: '24px', height: '24px', color: 'var(--color-text-muted)', cursor: 'pointer', fontSize: '0.8rem', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>×</button>
-                  )}
-                </div>
-              ))}
-              <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', marginTop: '0.25rem' }}>
-                <button
-                  className={styles.menuGoBtn}
-                  disabled={!multiUrls.some(u => u.trim()) || fetching || multiImporting}
-                  onClick={async () => {
-                    const filled = multiUrls.filter(u => u.trim());
-                    if (filled.length === 0) return;
-                    if (filled.length === 1) {
-                      setLinkUrl(filled[0]);
-                      handleSmartImport();
-                      return;
-                    }
-                    // Multi-import with smart URL detection
-                    setMultiImporting(true);
-                    setMultiResults([]);
-                    const results = [];
-                    for (const url of filled) {
-                      try {
-                        const type = detectUrlType(url);
-                        if (type === 'tiktok' || type === 'instagram') {
-                          // Get caption text
-                          let captionText = '';
-                          try {
-                            if (type === 'tiktok') {
-                              const recipe = await fetchTikTokRecipe(url);
-                              if (recipe?.title) { results.push({ ...recipe, title: titleCase(recipe.title), sourceUrl: url, mealType: recipe.mealType || classifyMealType(recipe.ingredients || []), _status: 'success' }); continue; }
-                            } else {
-                              captionText = await fetchInstagramCaption(url) || '';
-                            }
-                          } catch {}
-                          // Also transcribe audio
-                          let audioText = '';
-                          try {
-                            const tr = await fetch(`/api/transcribe-video?url=${encodeURIComponent(url)}`).then(r => r.json());
-                            if (tr.text) audioText = tr.text;
-                          } catch {}
-                          // Combine and parse
-                          const combined = [captionText, audioText].filter(Boolean).join('\n\n');
-                          if (combined.trim()) {
-                            const parsed = parseRecipeText(combined);
-                            if (parsed?.title || parsed?.ingredients?.length > 0) {
-                              results.push({ ...parsed, title: titleCase(parsed.title || ''), sourceUrl: url, mealType: classifyMealType(parsed.ingredients || []), _status: 'success' });
-                            } else {
-                              results.push({ title: url, _status: 'failed', sourceUrl: url, _error: `${type === 'tiktok' ? 'TikTok' : 'Instagram'}: Got text but could not parse a recipe` });
-                            }
-                          } else {
-                            results.push({ title: url, _status: 'failed', sourceUrl: url, _error: `${type === 'tiktok' ? 'TikTok' : 'Instagram'}: Could not extract caption or audio. Post may be private.` });
-                          }
-                        } else if (type === 'pinterest') {
-                          const extractRes = await fetch(`/api/fetch-url?url=${encodeURIComponent(url)}&pinterest=true`);
-                          if (extractRes.ok) {
-                            const { sourceUrl: recipeUrl } = await extractRes.json();
-                            const recipe = await fetchRecipeFromUrl(recipeUrl);
-                            if (recipe?.title) results.push({ ...recipe, sourceUrl: recipeUrl, mealType: recipe.mealType || classifyMealType(recipe.ingredients || []), _status: 'success' });
-                            else results.push({ title: url, _status: 'failed', sourceUrl: url, _error: 'Pinterest: Could not find recipe on linked page' });
-                          } else results.push({ title: url, _status: 'failed', sourceUrl: url, _error: 'Pinterest: Could not extract source URL' });
-                        } else {
-                          const data = await fetchAllRecipesFromUrl(url);
-                          if (data && data.length > 0) {
-                            for (const r of data) results.push({ ...r, title: titleCase(r.title || ''), sourceUrl: url, mealType: r.mealType || classifyMealType(r.ingredients || []), _status: 'success' });
-                          } else {
-                            results.push({ title: url, _status: 'failed', sourceUrl: url, _error: 'Could not find recipe data on this page' });
-                          }
-                        }
-                      } catch (err) {
-                        results.push({ title: url, _status: 'failed', sourceUrl: url, _error: err.message });
-                      }
-                    }
-                    setMultiResults(results);
-                    setMultiImporting(false);
-                  }}
-                  style={{ flex: 'none', minWidth: '120px' }}
-                >
-                  {multiImporting ? 'Importing...' : fetching ? '...' : `Import ${multiUrls.filter(u => u.trim()).length || ''} Recipe${multiUrls.filter(u => u.trim()).length !== 1 ? 's' : ''}`}
-                </button>
-                <span style={{ fontSize: '0.72rem', color: 'var(--color-text-muted)' }}>
-                  {multiUrls.filter(u => u.trim()).length} URL{multiUrls.filter(u => u.trim()).length !== 1 ? 's' : ''} added
-                </span>
-              </div>
-            </div>
-
-            {fetchError && !importMode && <div className={styles.fetchError}>{fetchError}</div>}
-          </div>
-
-          {/* Manual */}
-          <button
-            className={styles.menuItemBtn}
-            onClick={handleStartManual}
-          >
-            <div className={styles.menuItemTop}>
-              <span className={styles.menuItemLabel}>Manual Entry</span>
-              <span className={styles.menuItemDesc}>Type in the recipe yourself</span>
-            </div>
-            <span className={styles.menuItemArrow}>&rsaquo;</span>
-          </button>
-
-          {/* Bulk Upload & Paste */}
-          <button
-            className={styles.menuItemBtn}
-            onClick={() => { setImportMode('bulk'); setPhase('paste'); setBulkRecipes([]); setBulkAdded(new Set()); }}
-          >
-            <div className={styles.menuItemTop}>
-              <span className={styles.menuItemLabel}>Paste or Upload Recipes</span>
-              <span className={styles.menuItemDesc}>Paste recipe text or upload Word docs and text files</span>
             </div>
             <span className={styles.menuItemArrow}>&rsaquo;</span>
           </button>
@@ -1399,17 +694,84 @@ export function ImportRecipePage({ onSave, onAddWithoutClose, onCancel, userReci
             </div>
           </div>
 
-          {/* Shared with Me */}
+          {/* Import from Link */}
+          <div className={styles.menuItem}>
+            <div className={styles.menuItemTop}>
+              <span className={styles.menuItemLabel}>Import from Link</span>
+              <span className={styles.menuItemDesc}>Websites, Instagram, TikTok, etc.</span>
+            </div>
+            <div className={styles.platformIcons}>
+              <svg className={styles.platformIcon} viewBox="0 0 24 24" title="Website" style={{color: '#555'}}><path fill="currentColor" d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/></svg>
+              <svg className={styles.platformIcon} viewBox="0 0 48 48" title="TikTok"><path fill="#25F4EE" d="M33.3 8.4h-4.1v21.9a5.4 5.4 0 0 1-5.4 5.1 5.4 5.4 0 0 1-2.5-.6 5.4 5.4 0 0 0 7.9-4.8V8.4h4.1z"/><path fill="#25F4EE" d="M34.8 15.2v4.2a13.5 13.5 0 0 1-7.9-2.5v11.4a10 10 0 0 1-10 10 9.9 9.9 0 0 1-5.8-1.9 10 10 0 0 0 17.3-6.8V18.2a13.5 13.5 0 0 0 7.9 2.5v-4.2a9.4 9.4 0 0 1-1.5-1.3z"/><path fill="#FE2C55" d="M26.9 16.9v11.4a10 10 0 0 1-10 10 9.9 9.9 0 0 1-5.8-1.9A10 10 0 0 0 19 40a10 10 0 0 0 10-10V18.6a13.5 13.5 0 0 0 7.9 2.5v-4.2a9.4 9.4 0 0 1-5.9-5.5h-4.1v21.9a5.4 5.4 0 0 1-7.9 4.8 5.4 5.4 0 0 0 8-4.8V16.9z"/><path fill="#010101" d="M26.9 16.9v11.4a10 10 0 0 1-15.8 8.1A10 10 0 0 0 27 28.3V16.9a13.5 13.5 0 0 0 7.9 2.5v-4.2a9.4 9.4 0 0 1-5.9-5.5h-4.1v21.5a5.4 5.4 0 0 1-5.4 5.4 5.4 5.4 0 0 1-5.1-3.5 5.4 5.4 0 0 0 8-4.8V16.9h-1.5z" opacity="0"/></svg>
+              <svg className={styles.platformIcon} viewBox="0 0 24 24" title="Instagram"><defs><linearGradient id="igGrad" x1="0%" y1="100%" x2="100%" y2="0%"><stop offset="0%" stopColor="#FFDC80"/><stop offset="25%" stopColor="#F77737"/><stop offset="50%" stopColor="#E1306C"/><stop offset="75%" stopColor="#C13584"/><stop offset="100%" stopColor="#833AB4"/></linearGradient></defs><path fill="url(#igGrad)" d="M7.8 2h8.4C19.4 2 22 4.6 22 7.8v8.4a5.8 5.8 0 0 1-5.8 5.8H7.8C4.6 22 2 19.4 2 16.2V7.8A5.8 5.8 0 0 1 7.8 2m-.2 2A3.6 3.6 0 0 0 4 7.6v8.8C4 18.39 5.61 20 7.6 20h8.8a3.6 3.6 0 0 0 3.6-3.6V7.6C20 5.61 18.39 4 16.4 4H7.6m9.65 1.5a1.25 1.25 0 1 1 0 2.5 1.25 1.25 0 0 1 0-2.5M12 7a5 5 0 1 1 0 10 5 5 0 0 1 0-10m0 2a3 3 0 1 0 0 6 3 3 0 0 0 0-6z"/></svg>
+              <svg className={styles.platformIcon} viewBox="0 0 24 24" title="Pinterest"><path fill="#E60023" d="M12 2C6.48 2 2 6.48 2 12c0 4.24 2.65 7.86 6.39 9.29-.09-.78-.17-1.98.04-2.83.19-.78 1.22-5.17 1.22-5.17s-.31-.62-.31-1.54c0-1.45.84-2.53 1.88-2.53.89 0 1.32.67 1.32 1.47 0 .89-.57 2.23-.86 3.47-.25 1.04.52 1.88 1.54 1.88 1.84 0 3.26-1.94 3.26-4.75 0-2.48-1.79-4.22-4.33-4.22-2.95 0-4.68 2.21-4.68 4.5 0 .89.34 1.85.77 2.37.08.1.1.19.07.3-.08.31-.25 1.04-.29 1.18-.05.19-.15.23-.35.14-1.31-.61-2.13-2.53-2.13-4.07 0-3.31 2.41-6.36 6.95-6.36 3.64 0 6.48 2.6 6.48 6.07 0 3.62-2.28 6.53-5.45 6.53-1.06 0-2.07-.55-2.41-1.21l-.66 2.5c-.24.91-.88 2.05-1.32 2.75.99.31 2.04.47 3.13.47 5.52 0 10-4.48 10-10S17.52 2 12 2z"/></svg>
+            </div>
+            <div className={styles.menuItemInput}>
+              <input
+                className={styles.menuInlineInput}
+                type="url"
+                value={linkUrl}
+                onChange={e => setLinkUrl(e.target.value)}
+                placeholder="Paste a URL from any supported site..."
+                onKeyDown={e => { if (e.key === 'Enter' && linkUrl.trim()) handleSmartImport(); }}
+                disabled={fetching}
+              />
+              <button
+                className={styles.menuGoBtn}
+                disabled={!linkUrl.trim() || fetching}
+                onClick={handleSmartImport}
+              >
+                {fetching ? '...' : 'Go'}
+              </button>
+            </div>
+            {fetchError && !importMode && <div className={styles.fetchError}>{fetchError}</div>}
+          </div>
+
+          {/* Restaurant */}
+          <div className={styles.menuItem}>
+            <div className={styles.menuItemTop}>
+              <span className={styles.menuItemLabel}>Restaurant</span>
+              <span className={styles.menuItemDesc}>Search restaurant menu items</span>
+            </div>
+            <div className={styles.menuItemInput}>
+              <input
+                className={styles.menuInlineInput}
+                type="text"
+                value={restaurantQuery}
+                onChange={e => setRestaurantQuery(e.target.value)}
+                placeholder="e.g. Chipotle chicken burrito bowl"
+                onKeyDown={e => { if (e.key === 'Enter' && restaurantQuery.trim()) { setImportMode('restaurant'); setPhase('paste'); } }}
+              />
+              <button
+                className={styles.menuGoBtn}
+                disabled={!restaurantQuery.trim()}
+                onClick={() => { setImportMode('restaurant'); setPhase('paste'); }}
+              >
+                Go
+              </button>
+            </div>
+          </div>
+
+          {/* Paste */}
           <button
             className={styles.menuItemBtn}
-            onClick={() => { setImportMode('shared'); setPhase('paste'); }}
+            onClick={() => { setImportMode('paste'); setPhase('paste'); }}
           >
             <div className={styles.menuItemTop}>
-              <span className={styles.menuItemLabel}>
-                Shared with Me
-                {pendingShares.length > 0 && <span className={styles.sharedBadge}>{pendingShares.length}</span>}
-              </span>
-              <span className={styles.menuItemDesc}>Recipes friends have sent you</span>
+              <span className={styles.menuItemLabel}>Paste Text</span>
+              <span className={styles.menuItemDesc}>Paste recipe text or a table</span>
+            </div>
+            <span className={styles.menuItemArrow}>&rsaquo;</span>
+          </button>
+
+          {/* Manual */}
+          <button
+            className={styles.menuItemBtn}
+            onClick={handleStartManual}
+          >
+            <div className={styles.menuItemTop}>
+              <span className={styles.menuItemLabel}>Manual Entry</span>
+              <span className={styles.menuItemDesc}>Type in the recipe yourself</span>
             </div>
             <span className={styles.menuItemArrow}>&rsaquo;</span>
           </button>
@@ -1418,374 +780,16 @@ export function ImportRecipePage({ onSave, onAddWithoutClose, onCancel, userReci
 
       {importMode && <>
       <div className={styles.navBtnRow}>
-        <button className={styles.backBtn} onClick={() => {
-          setImportMode(''); setFetchError(''); setRawText(''); setRawText2('');
-          if (cameFromSourcePicker || isOnboarding) { setShowSourcePicker(true); setSelectedSources(new Set()); setCameFromSourcePicker(false); }
-        }}>
-          &larr; Back
+        <button className={styles.addMoreBtn} onClick={() => { setImportMode(''); setFetchError(''); setRawText(''); }}>
+          + Add More Recipes
+        </button>
+        <button className={styles.continueHomeBtn} onClick={onCancel}>
+          Continue to Homepage
         </button>
       </div>
-      {importMode === 'discover' && <p className={styles.subpageDesc}>Browse and add meals from our curated recipe collection.</p>}
-      {importMode === 'url' && <p className={styles.subpageDesc}>Paste a URL from a recipe website, blog, or social media post to automatically import the recipe.</p>}
-      {importMode === 'restaurant' && <p className={styles.subpageDesc}>Search for restaurant menu items to get nutrition data and add them to your recipes.</p>}
-      {importMode === 'paste' && <p className={styles.subpageDesc}>Copy and paste recipe text from any source — we'll parse the title, ingredients, and instructions automatically.</p>}
-      {importMode === 'manual' && <p className={styles.subpageDesc}>Enter a recipe from scratch by typing in the title, ingredients, and instructions.</p>}
-      {importMode === 'bulk' && <p className={styles.subpageDesc}>Paste recipe text below or upload Word docs and text files to import recipes.</p>}
-      {importMode === 'ai' && <p className={styles.subpageDesc}>Describe a meal and let AI generate the full recipe with ingredients and instructions.</p>}
-      {importMode === 'shared' && <p className={styles.subpageDesc}>View and accept recipes that friends have shared with you.</p>}
       <div className={styles.card}>
         {importMode === 'discover' && (
           <DiscoverMealsPanel onSave={onAddWithoutClose || onSave} userRecipes={userRecipes} />
-        )}
-
-        {importMode === 'bulk' && (
-          <div>
-            <h3 className={styles.cardTitle}>Import Your Written Recipes</h3>
-
-            {/* Drag & drop — compact bar at top */}
-            <input
-              ref={bulkFileRef}
-              type="file"
-              accept=".docx,.doc,.txt,.md,.rtf"
-              multiple
-              style={{ display: 'none' }}
-              onChange={handleBulkUpload}
-            />
-            <div
-              style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem', padding: '0.5rem 1rem', border: '1.5px dashed var(--color-border)', borderRadius: '8px', cursor: 'pointer', marginBottom: '0.75rem', background: 'var(--color-surface-alt)', transition: 'border-color 0.15s' }}
-              onClick={() => !bulkProcessing && bulkFileRef.current?.click()}
-              onDragOver={e => { e.preventDefault(); e.currentTarget.style.borderColor = 'var(--color-accent)'; }}
-              onDragLeave={e => { e.currentTarget.style.borderColor = ''; }}
-              onDrop={e => {
-                e.preventDefault();
-                e.currentTarget.style.borderColor = '';
-                if (bulkProcessing) return;
-                const files = e.dataTransfer.files;
-                if (files.length > 0) {
-                  handleBulkUpload({ target: { files }, preventDefault: () => {} });
-                }
-              }}
-            >
-              {bulkProcessing ? (
-                <span style={{ fontSize: '0.82rem', color: 'var(--color-text-muted)' }}>Processing...</span>
-              ) : (
-                <>
-                  <span style={{ fontSize: '1rem' }}>📄</span>
-                  <span style={{ fontSize: '0.82rem', color: 'var(--color-text-secondary)', fontWeight: 500 }}>Drag & drop files here or click to browse</span>
-                  <span style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>.docx, .txt, .md</span>
-                </>
-              )}
-            </div>
-
-            {/* Two side-by-side paste areas */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem', marginBottom: '0.75rem' }}>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
-                <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--color-text-secondary)', textTransform: 'uppercase', letterSpacing: '0.03em' }}>Recipe 1</span>
-                <textarea
-                  className={styles.textarea}
-                  rows={14}
-                  value={rawText}
-                  onChange={e => setRawText(e.target.value)}
-                  placeholder={"Paste recipe text here...\n\nRecipe Title\n\nIngredients:\n2 cups flour\n1 tsp salt\n\nInstructions:\nMix together.\nBake at 350°F."}
-                  style={{ resize: 'vertical', minHeight: '200px' }}
-                />
-              </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
-                <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--color-text-secondary)', textTransform: 'uppercase', letterSpacing: '0.03em' }}>Recipe 2</span>
-                <textarea
-                  className={styles.textarea}
-                  rows={14}
-                  value={rawText2}
-                  onChange={e => setRawText2(e.target.value)}
-                  placeholder={"Paste another recipe here...\n\nRecipe Title\n\nIngredients:\n1 lb chicken\n2 tbsp olive oil\n\nInstructions:\nSeason and cook."}
-                  style={{ resize: 'vertical', minHeight: '200px' }}
-                />
-              </div>
-            </div>
-
-            {(rawText.trim() || rawText2.trim()) && (
-              <button className={styles.menuGoBtn} style={{ marginBottom: '1rem' }} onClick={() => {
-                [rawText, rawText2].forEach((text, idx) => {
-                  if (!text.trim()) return;
-                  const parsed = parseRecipeText(text);
-                  if (parsed.title || parsed.ingredients.length > 0) {
-                    setBulkRecipes(prev => [...prev, {
-                      ...parsed,
-                      category: 'lunch-dinner',
-                      frequency: 'common',
-                      servings: '1',
-                      mealType: parsed.ingredients.length > 0 ? classifyMealType(parsed.ingredients) : '',
-                      sourceFile: 'Pasted text',
-                    }]);
-                  }
-                });
-                setRawText('');
-                setRawText2('');
-              }}>Parse Recipe{rawText.trim() && rawText2.trim() ? 's' : ''}</button>
-            )}
-
-            {bulkRecipes.length > 0 && (
-              <>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
-                  <span style={{ fontWeight: 600 }}>{bulkRecipes.length} recipe{bulkRecipes.length !== 1 ? 's' : ''} found</span>
-                  {bulkAdded.size < bulkRecipes.length && (
-                    <button className={styles.menuGoBtn} onClick={handleBulkAddAll}>
-                      Add All ({bulkRecipes.length - bulkAdded.size})
-                    </button>
-                  )}
-                </div>
-                {bulkRecipes.map((recipe, i) => (
-                  <div key={i}>
-                    <div className={styles.sharedItem}>
-                      <div className={styles.sharedInfo}>
-                        <button
-                          className={styles.bulkPreviewName}
-                          onClick={() => setBulkPreview(bulkPreview === i ? null : i)}
-                        >
-                          {recipe.title || 'Untitled Recipe'}
-                        </button>
-                        <span className={styles.sharedMeta}>
-                          {recipe.ingredients.length} ingredient{recipe.ingredients.length !== 1 ? 's' : ''}
-                          {recipe.sourceFile && ` · ${recipe.sourceFile}`}
-                        </span>
-                      </div>
-                      {bulkAdded.has(i) ? (
-                        <span className={styles.sharedAddedLabel}>Added</span>
-                      ) : (
-                        <button className={styles.sharedAcceptBtn} onClick={() => handleBulkAdd(i)}>+ Add</button>
-                      )}
-                    </div>
-                    {bulkPreview === i && (
-                      <div className={styles.bulkPreviewCard}>
-                        <h4 className={styles.bulkPreviewTitle}>{recipe.title || 'Untitled'}</h4>
-                        {recipe.ingredients.length > 0 && (
-                          <>
-                            <h5 className={styles.bulkPreviewSection}>Ingredients</h5>
-                            <ul className={styles.bulkPreviewList}>
-                              {recipe.ingredients.map((ing, j) => (
-                                <li key={j}>
-                                  {ing.quantity && `${ing.quantity} `}{ing.measurement && `${ing.measurement} `}{ing.ingredient}
-                                  {ing.notes && <span className={styles.bulkPreviewNote}> — {ing.notes}</span>}
-                                </li>
-                              ))}
-                            </ul>
-                          </>
-                        )}
-                        {recipe.instructions && (
-                          <>
-                            <h5 className={styles.bulkPreviewSection}>Instructions</h5>
-                            <ol className={styles.bulkPreviewSteps}>
-                              {recipe.instructions.split('\n').filter(s => s.trim()).map((step, j) => (
-                                <li key={j}>{step}</li>
-                              ))}
-                            </ol>
-                          </>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </>
-            )}
-
-            {bulkRecipes.length > 0 && bulkAdded.size === bulkRecipes.length && (
-              <div style={{ textAlign: 'center', padding: '1.5rem 0 0.5rem', borderTop: '1px solid var(--color-border-light)', marginTop: '1rem' }}>
-                <div style={{ fontSize: '2rem', marginBottom: '0.35rem' }}>🎉</div>
-                <div style={{ fontSize: '1.1rem', fontWeight: 700, color: '#166534' }}>All done!</div>
-                <div style={{ fontSize: '0.88rem', color: '#4B7A5B', marginBottom: '1rem' }}>{bulkAdded.size} recipe{bulkAdded.size !== 1 ? 's' : ''} saved to your collection</div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', alignItems: 'center' }}>
-                  {(() => {
-                    const remaining = [];
-                    if (selectedSources.has('online')) remaining.push({ key: 'online', icon: '🌐', label: 'Online', desc: 'Websites, social media, blogs', action: () => { setShowSourcePicker(true); setShowUrlPopup(true); setUrlLinks(['', '']); setBulkRecipes([]); setBulkAdded(new Set()); setImportMode(''); } });
-                    if (selectedSources.has('head')) remaining.push({ key: 'head', icon: '🧠', label: 'In my head', desc: 'I know my recipes by heart', action: () => { setBulkRecipes([]); setBulkAdded(new Set()); setShowSourcePicker(false); setCameFromSourcePicker(true); handleStartManual(); } });
-                    if (selectedSources.has('none')) remaining.push({ key: 'none', icon: '🆕', label: "Don't have any yet", desc: "We'll help you discover or create recipes", action: () => { setBulkRecipes([]); setBulkAdded(new Set()); setShowSourcePicker(false); setCameFromSourcePicker(true); setImportMode('discover'); setPhase('paste'); } });
-                    if (remaining.length === 0) return null;
-                    return (
-                      <>
-                        <div style={{ fontSize: '0.82rem', color: 'var(--color-text-muted)', fontWeight: 500, marginBottom: '0.25rem' }}>Continue importing from:</div>
-                        {remaining.map(r => (
-                          <button key={r.key} onClick={r.action} style={{
-                            display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.65rem 1rem',
-                            border: '1px solid var(--color-border)', borderRadius: '10px', background: 'var(--color-surface)',
-                            cursor: 'pointer', textAlign: 'left', fontFamily: 'inherit', width: '100%', maxWidth: '340px', transition: 'all 0.15s',
-                          }}>
-                            <span style={{ fontSize: '1.3rem', flexShrink: 0 }}>{r.icon}</span>
-                            <div style={{ flex: 1 }}>
-                              <div style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--color-text)' }}>{r.label}</div>
-                              <div style={{ fontSize: '0.72rem', color: 'var(--color-text-muted)' }}>{r.desc}</div>
-                            </div>
-                            <span style={{ color: 'var(--color-accent)', fontWeight: 600, fontSize: '1.1rem' }}>→</span>
-                          </button>
-                        ))}
-                      </>
-                    );
-                  })()}
-                  <button onClick={() => { window.location.hash = '#list'; }} style={{ padding: '0.6rem 2rem', border: 'none', borderRadius: '8px', background: 'var(--color-accent)', color: '#fff', fontSize: '0.95rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', marginTop: '0.5rem' }}>Go to My Recipes</button>
-                </div>
-              </div>
-            )}
-
-            {bulkRecipes.length === 0 && !bulkProcessing && (
-              <p className={styles.emptyState}>Select files to upload recipes.</p>
-            )}
-          </div>
-        )}
-
-        {importMode === 'shared' && (
-          <div>
-            {/* Friends section */}
-            <h3 className={styles.cardTitle}>Your Friends</h3>
-            <div style={{ display: 'flex', gap: '0.4rem', marginBottom: '0.75rem' }}>
-              <input
-                className={styles.menuInlineInput}
-                type="text"
-                placeholder="Search by name, username, or email..."
-                value={friendSearch}
-                onChange={e => setFriendSearch(e.target.value)}
-                onKeyDown={async e => {
-                  if (e.key !== 'Enter' || !friendSearch.trim()) return;
-                  setFriendSearchResult(null);
-                  setFriendStatus('Searching...');
-                  const val = friendSearch.trim().toLowerCase();
-                  let result = await searchByUsername(val);
-                  if (!result && val.includes('@')) result = await searchByEmail(val);
-                  if (!result) result = await searchByName(val);
-                  if (!result) { setFriendStatus('User not found'); setFriendSearchResult('none'); }
-                  else if (result.uid === user?.uid) { setFriendStatus("That's you!"); setFriendSearchResult('none'); }
-                  else { setFriendSearchResult(result); setFriendStatus(''); }
-                }}
-                style={{ flex: 1 }}
-              />
-              <button className={styles.menuGoBtn} onClick={async () => {
-                if (!friendSearch.trim()) return;
-                setFriendSearchResult(null);
-                setFriendStatus('Searching...');
-                const val = friendSearch.trim().toLowerCase();
-                let result = await searchByUsername(val);
-                if (!result && val.includes('@')) result = await searchByEmail(val);
-                if (!result) result = await searchByName(val);
-                if (!result) { setFriendStatus('User not found'); setFriendSearchResult('none'); }
-                else if (result.uid === user?.uid) { setFriendStatus("That's you!"); setFriendSearchResult('none'); }
-                else { setFriendSearchResult(result); setFriendStatus(''); }
-              }}>Search</button>
-            </div>
-            {friendStatus && <p style={{ fontSize: '0.82rem', color: 'var(--color-text-muted)', margin: '0 0 0.5rem' }}>{friendStatus}</p>}
-            {friendSearchResult && friendSearchResult !== 'none' && (
-              <div className={styles.sharedItem} style={{ marginBottom: '0.75rem', background: 'var(--color-accent-light)', padding: '0.5rem 0.75rem', borderRadius: 'var(--radius-md)' }}>
-                <div className={styles.sharedInfo}>
-                  <span className={styles.sharedName}>{friendSearchResult.displayName || friendSearchResult.username || friendSearchResult.email}</span>
-                  {friendSearchResult.username && <span className={styles.sharedMeta}>@{friendSearchResult.username}</span>}
-                </div>
-                {sharedFriends.some(f => f.uid === friendSearchResult.uid) ? (
-                  <span style={{ fontSize: '0.82rem', color: 'var(--color-text-muted)' }}>Already friends</span>
-                ) : (
-                  <button className={styles.sharedAcceptBtn} onClick={async () => {
-                    try {
-                      const myUsername = await getUsername(user.uid);
-                      await sendFriendRequest(user.uid, friendSearchResult.uid, myUsername || user.displayName, '');
-                      setFriendStatus('Friend request sent! When they accept and share their recipes, you can import them here.');
-                      setFriendSearchResult(null);
-                      setFriendSearch('');
-                      setTimeout(() => setFriendStatus(''), 8000);
-                    } catch (err) { setFriendStatus(err.message || 'Failed'); }
-                  }}>+ Add Friend</button>
-                )}
-              </div>
-            )}
-
-            {sharedFriends.length > 0 && (
-              <>
-                <p className={styles.sharedSectionLabel}>Friends ({sharedFriends.length})</p>
-                {sharedFriends.map(f => (
-                  <div key={f.uid} className={styles.sharedItem}>
-                    <div className={styles.sharedInfo}>
-                      <span className={styles.sharedName}>{f.displayName || f.username || 'Friend'}</span>
-                      {f.username && <span className={styles.sharedMeta}>@{f.username}</span>}
-                    </div>
-                    <button className={styles.sharedDeclineBtn} title="Remove friend" onClick={async () => {
-                      if (!confirm(`Remove ${f.displayName || f.username || 'this friend'}?`)) return;
-                      await removeFriend(user.uid, f.uid);
-                      setSharedFriends(prev => prev.filter(x => x.uid !== f.uid));
-                    }}>&times;</button>
-                  </div>
-                ))}
-              </>
-            )}
-
-            {/* Shared recipes section */}
-            <h3 className={styles.cardTitle} style={{ marginTop: '1.5rem' }}>Shared Recipes</h3>
-            <input
-              className={styles.menuInlineInput}
-              type="text"
-              placeholder="Search shared recipes..."
-              value={sharedSearch}
-              onChange={e => setSharedSearch(e.target.value)}
-              style={{ marginBottom: '0.75rem', width: '100%' }}
-            />
-            {(() => {
-              const acceptedShared = (userRecipes || []).filter(r => r.source === 'shared');
-              const sq = sharedSearch.trim().toLowerCase();
-              const filteredPending = sq
-                ? pendingShares.filter(s => (s.recipe?.title || '').toLowerCase().includes(sq))
-                : pendingShares;
-              const filteredAccepted = sq
-                ? acceptedShared.filter(r => r.title.toLowerCase().includes(sq))
-                : acceptedShared;
-              const hasAnything = filteredPending.length > 0 || filteredAccepted.length > 0;
-
-              if (!hasAnything) return <p className={styles.emptyState}>No shared recipes yet. Add friends and ask them to share recipes!</p>;
-
-              return <>
-                {filteredPending.length > 0 && (
-                  <>
-                    <p className={styles.sharedSectionLabel}>New</p>
-                    {filteredPending.map(share => (
-                      <div key={share.id} className={styles.sharedItem}>
-                        <div className={styles.sharedInfo}>
-                          <span className={styles.sharedName}>{share.recipe?.title || 'Untitled'}</span>
-                          <span className={styles.sharedMeta}>from @{share.fromUsername}</span>
-                        </div>
-                        <div style={{ display: 'flex', gap: '0.3rem' }}>
-                          <button
-                            className={styles.sharedAcceptBtn}
-                            onClick={async () => {
-                              if (share.recipe) {
-                                const { id, ...rest } = share.recipe;
-                                (onAddWithoutClose || onSave)({ ...rest, source: 'shared' });
-                              }
-                              await acceptSharedRecipe(share.id);
-                              setPendingShares(prev => prev.filter(s => s.id !== share.id));
-                            }}
-                          >+ Accept</button>
-                          <button
-                            className={styles.sharedDeclineBtn}
-                            onClick={async () => {
-                              await declineSharedRecipe(share.id);
-                              setPendingShares(prev => prev.filter(s => s.id !== share.id));
-                            }}
-                          >&times;</button>
-                        </div>
-                      </div>
-                    ))}
-                  </>
-                )}
-                {filteredAccepted.length > 0 && (
-                  <>
-                    {filteredPending.length > 0 && <p className={styles.sharedSectionLabel}>Added</p>}
-                    {filteredAccepted.map(r => (
-                      <div key={r.id} className={styles.sharedItem}>
-                        <div className={styles.sharedInfo}>
-                          <span className={styles.sharedName}>{r.title}</span>
-                          <span className={styles.sharedMeta}>{r.category === 'breakfast' ? 'Breakfast' : 'Lunch/Dinner'}</span>
-                        </div>
-                        <span className={styles.sharedAddedLabel}>Added</span>
-                      </div>
-                    ))}
-                  </>
-                )}
-              </>;
-            })()}
-          </div>
         )}
 
         {importMode === 'ai' && (
@@ -1864,7 +868,6 @@ export function ImportRecipePage({ onSave, onAddWithoutClose, onCancel, userReci
             {fetchError && (
               <div className={styles.fetchError}>{fetchError}</div>
             )}
-
           </>
         )}
 
@@ -2213,221 +1216,6 @@ export function ImportRecipePage({ onSave, onAddWithoutClose, onCancel, userReci
         )}
       </div>
       </>}
-
-      {/* Multi-recipe selection modal */}
-      {urlRecipes.length > 1 && (
-        <div className={styles.overlay} onClick={() => setUrlRecipes([])}>
-          <div className={styles.multiRecipeModal} onClick={e => e.stopPropagation()}>
-            <div className={styles.multiRecipeHeader}>
-              <h3 className={styles.multiRecipeTitle}>{urlRecipes.length} Recipes Found</h3>
-              <button className={styles.multiRecipeClose} onClick={() => setUrlRecipes([])}>&times;</button>
-            </div>
-            <p className={styles.multiRecipeDesc}>Select which recipes you'd like to import:</p>
-            <div className={styles.multiRecipeList}>
-              {urlRecipes.map((recipe, i) => (
-                <div key={i}>
-                  <div className={styles.multiRecipeItem}>
-                    <button
-                      className={styles.bulkPreviewName}
-                      onClick={() => setUrlRecipePreview(urlRecipePreview === i ? null : i)}
-                    >
-                      {recipe.title || 'Untitled Recipe'}
-                    </button>
-                    <span className={styles.sharedMeta}>
-                      {recipe.ingredients.length} ingredient{recipe.ingredients.length !== 1 ? 's' : ''}
-                    </span>
-                    <button className={styles.sharedAcceptBtn} onClick={() => {
-                      const save = onAddWithoutClose || onSave;
-                      save({ ...recipe, source: importMode || 'url' });
-                      setUrlRecipes(prev => {
-                        const next = prev.filter((_, j) => j !== i);
-                        return next;
-                      });
-                    }}>+ Import</button>
-                  </div>
-                  {urlRecipePreview === i && (
-                    <div className={styles.bulkPreviewCard}>
-                      <h4 className={styles.bulkPreviewTitle}>{recipe.title || 'Untitled'}</h4>
-                      {recipe.ingredients.length > 0 && (
-                        <>
-                          <h5 className={styles.bulkPreviewSection}>Ingredients</h5>
-                          <ul className={styles.bulkPreviewList}>
-                            {recipe.ingredients.map((ing, j) => (
-                              <li key={j}>{ing.quantity && `${ing.quantity} `}{ing.measurement && `${ing.measurement} `}{ing.ingredient}</li>
-                            ))}
-                          </ul>
-                        </>
-                      )}
-                      {recipe.instructions && (
-                        <>
-                          <h5 className={styles.bulkPreviewSection}>Instructions</h5>
-                          <ol className={styles.bulkPreviewSteps}>
-                            {recipe.instructions.split('\n').filter(s => s.trim()).map((step, j) => (
-                              <li key={j}>{step}</li>
-                            ))}
-                          </ol>
-                        </>
-                      )}
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
     </div>
-
-    {/* Multi-import pinwheel modal — rendered at top level outside all containers */}
-    {showMultiModal && (
-      <div key={`multi-modal-${multiAdded.length}`} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 250, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '1rem', overflowY: 'auto' }}>
-        <div style={{ maxWidth: '1400px', width: '100%', position: 'relative', marginTop: '1rem', marginBottom: '2rem' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.75rem', background: 'var(--color-surface)', borderRadius: '10px', padding: '0.6rem 1rem', boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }}>
-            <span style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--color-text)' }}>
-              Recipe {Math.min(multiAdded.length + 1, multiTotal)} of {multiTotal}
-            </span>
-            <div style={{ flex: 1, height: '4px', background: 'var(--color-border-light)', borderRadius: '2px', overflow: 'hidden' }}>
-              <div style={{ height: '100%', background: 'var(--color-accent)', borderRadius: '2px', width: `${multiTotal > 0 ? (multiAdded.length / multiTotal) * 100 : 0}%`, transition: 'width 0.3s' }} />
-            </div>
-            <span style={{ fontSize: '0.78rem', color: 'var(--color-text-muted)' }}>{multiAdded.length} saved</span>
-            {multiBehind > 0 && <span style={{ fontSize: '0.72rem', fontWeight: 600, color: '#7C3AED', background: '#EDE9FE', padding: '2px 8px', borderRadius: '999px' }}>+{multiBehind} more</span>}
-            {multiFailed.length > 0 && <span style={{ fontSize: '0.72rem', color: 'var(--color-danger)' }}>{multiFailed.length} failed</span>}
-          </div>
-
-          {multiFront && (
-            <div style={{ display: 'flex', gap: '1.5rem', alignItems: 'flex-start' }}>
-              {/* Current recipe — full form, same width as recipe detail page */}
-              <div style={{ flex: '1 1 0', maxWidth: '1100px', minWidth: 0, position: 'relative' }}>
-                <div style={{ background: 'var(--color-surface)', borderRadius: '12px', boxShadow: '0 8px 32px rgba(0,0,0,0.12)', overflow: 'hidden' }}>
-                  <RecipeForm
-                    key={multiFront.title + multiAdded.length}
-                    recipe={multiFront}
-                    titleOverride={(() => {
-                      let source = '';
-                      try {
-                        const url = multiFront.sourceUrl || '';
-                        const host = new URL(url).hostname.replace(/^www\./, '');
-                        if (host.includes('tiktok')) source = 'TikTok';
-                        else if (host.includes('instagram')) source = 'Instagram';
-                        else if (host.includes('pinterest')) source = 'Pinterest';
-                        else if (host.includes('allrecipes')) source = 'AllRecipes';
-                        else source = host.split('.')[0].charAt(0).toUpperCase() + host.split('.')[0].slice(1);
-                      } catch { source = 'URL'; }
-                      return `Import recipe from ${source} — Recipe ${Math.min(multiAdded.length + 1, multiTotal)} of ${multiTotal}`;
-                    })()}
-                    onSave={(data) => {
-                      if (onAddWithoutClose) onAddWithoutClose(data);
-                      else if (onSave) onSave(data);
-                      setMultiResults(prev => prev.map(r => r === multiFront ? { ...r, _status: 'added' } : r));
-                    }}
-                    onCancel={() => setMultiResults(prev => prev.map(r => r === multiFront ? { ...r, _status: 'failed' } : r))}
-                    saveLabel="Save & Next"
-                    cancelLabel="Skip"
-                  />
-                </div>
-              </div>
-
-              {/* Next recipe peek — shown to the right */}
-              {multiBehind > 0 && (() => {
-                const next = multiPending[1];
-                return (
-                  <div style={{ flex: '0 0 240px', position: 'relative', opacity: 0.6, transform: 'scale(0.92) rotate(2deg)', transformOrigin: 'top left', pointerEvents: 'none', marginTop: '0.5rem' }}>
-                    {multiBehind >= 2 && (
-                      <div style={{ position: 'absolute', top: '4px', left: '4px', right: '-4px', bottom: '-4px', background: 'var(--color-surface-alt)', borderRadius: '12px', border: '1px solid var(--color-border-light)', transform: 'rotate(1deg)', zIndex: 0 }} />
-                    )}
-                    <div style={{ position: 'relative', zIndex: 1, background: 'var(--color-surface)', borderRadius: '12px', border: '1px solid var(--color-border)', boxShadow: '0 4px 16px rgba(0,0,0,0.06)', padding: '1rem', maxHeight: '500px', overflow: 'hidden', WebkitMaskImage: 'linear-gradient(180deg, black 70%, transparent 100%)' }}>
-                      <div style={{ fontSize: '0.68rem', fontWeight: 600, color: '#7C3AED', background: '#EDE9FE', padding: '2px 8px', borderRadius: '999px', display: 'inline-block', marginBottom: '0.5rem' }}>Up Next</div>
-                      <h3 style={{ margin: '0 0 0.35rem', fontSize: '1rem', fontWeight: 700, color: 'var(--color-text)' }}>{next?.title || 'Next Recipe'}</h3>
-                      {next?.servings && <div style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', marginBottom: '0.5rem' }}>🍽 {next.servings} servings {next.prepTime ? `· ⏱ ${next.prepTime}` : ''}</div>}
-                      {(next?.ingredients || []).length > 0 && (
-                        <div style={{ marginBottom: '0.5rem' }}>
-                          <div style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--color-text-secondary)', marginBottom: '0.2rem' }}>Ingredients</div>
-                          {next.ingredients.slice(0, 5).map((ing, i) => (
-                            <div key={i} style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', padding: '0.1rem 0' }}>
-                              {ing.quantity} {ing.measurement} {ing.ingredient}
-                            </div>
-                          ))}
-                          {next.ingredients.length > 5 && <div style={{ fontSize: '0.7rem', color: 'var(--color-text-muted)' }}>+{next.ingredients.length - 5} more...</div>}
-                        </div>
-                      )}
-                      {next?.instructions && (
-                        <div>
-                          <div style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--color-text-secondary)', marginBottom: '0.2rem' }}>Instructions</div>
-                          <div style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', lineHeight: 1.4 }}>
-                            {next.instructions.split('\n').filter(s => s.trim()).slice(0, 3).map((s, i) => (
-                              <div key={i} style={{ marginBottom: '0.15rem' }}>{i + 1}. {s.replace(/^[\d]+[.)]\s*/, '').replace(/^[1-9]\uFE0F?\u20E3\s*/, '').trim()}</div>
-                            ))}
-                            {next.instructions.split('\n').filter(s => s.trim()).length > 3 && <div>...</div>}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                );
-              })()}
-            </div>
-          )}
-
-          {multiPending.length === 0 && (
-            <div style={{ background: 'var(--color-surface)', borderRadius: '14px', boxShadow: '0 8px 32px rgba(0,0,0,0.12)', overflow: 'hidden' }}>
-              <div style={{ textAlign: 'center', padding: '2rem 1rem 1rem' }}>
-                <div style={{ fontSize: '3rem', marginBottom: '0.5rem' }}>🎉</div>
-                <div style={{ fontSize: '1.3rem', fontWeight: 700, color: '#166534' }}>All done!</div>
-                <div style={{ fontSize: '0.95rem', color: '#4B7A5B', marginTop: '0.25rem' }}>{multiAdded.length} recipe{multiAdded.length !== 1 ? 's' : ''} saved to your collection</div>
-              </div>
-              {multiFailed.length > 0 && (
-                <div style={{ padding: '0.75rem 1.25rem', borderTop: '1px solid var(--color-border-light)' }}>
-                  <div style={{ fontSize: '0.82rem', fontWeight: 600, color: 'var(--color-danger)', marginBottom: '0.4rem' }}>{multiFailed.length} failed to import:</div>
-                  {multiFailed.map((r, i) => (
-                    <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.35rem 0', borderBottom: '1px solid var(--color-border-light)', fontSize: '0.82rem' }}>
-                      <span style={{ color: 'var(--color-danger)', fontWeight: 600 }}>✗</span>
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ color: 'var(--color-text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.sourceUrl}</div>
-                        {r._error && <div style={{ fontSize: '0.72rem', color: 'var(--color-text-muted)' }}>{r._error}</div>}
-                      </div>
-                      <button onClick={() => {
-                        setMultiResults([]);
-                        setMultiUrls([r.sourceUrl, '']);
-                      }} style={{ padding: '0.25rem 0.5rem', border: '1px solid var(--color-border)', borderRadius: '6px', background: 'none', fontSize: '0.72rem', fontWeight: 600, color: 'var(--color-accent)', cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap' }}>Retry</button>
-                    </div>
-                  ))}
-                </div>
-              )}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', alignItems: 'center', padding: '1rem' }}>
-                {(() => {
-                  // Check if there are remaining import sources to route to
-                  const remaining = [];
-                  if (selectedSources.has('docs')) remaining.push({ key: 'docs', icon: '📄', label: 'Written down', desc: 'Word docs, notes app, PDFs', action: () => { setMultiResults([]); setShowSourcePicker(false); setCameFromSourcePicker(true); setImportMode('bulk'); setPhase('paste'); } });
-                  if (selectedSources.has('head')) remaining.push({ key: 'head', icon: '🧠', label: 'In my head', desc: 'I know my recipes by heart', action: () => { setMultiResults([]); setShowSourcePicker(false); setCameFromSourcePicker(true); handleStartManual(); } });
-                  if (selectedSources.has('none')) remaining.push({ key: 'none', icon: '🆕', label: "Don't have any yet", desc: "We'll help you discover or create recipes", action: () => { setMultiResults([]); setShowSourcePicker(false); setCameFromSourcePicker(true); setImportMode('discover'); setPhase('paste'); } });
-                  if (remaining.length === 0) return null;
-                  return (
-                    <>
-                      <div style={{ fontSize: '0.82rem', color: 'var(--color-text-muted)', fontWeight: 500, marginBottom: '0.25rem' }}>Continue importing from:</div>
-                      {remaining.map(r => (
-                        <button key={r.key} onClick={r.action} style={{
-                          display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.65rem 1rem',
-                          border: '1px solid var(--color-border)', borderRadius: '10px', background: 'var(--color-surface)',
-                          cursor: 'pointer', textAlign: 'left', fontFamily: 'inherit', width: '100%', maxWidth: '340px', transition: 'all 0.15s',
-                        }}>
-                          <span style={{ fontSize: '1.3rem', flexShrink: 0 }}>{r.icon}</span>
-                          <div style={{ flex: 1 }}>
-                            <div style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--color-text)' }}>{r.label}</div>
-                            <div style={{ fontSize: '0.72rem', color: 'var(--color-text-muted)' }}>{r.desc}</div>
-                          </div>
-                          <span style={{ color: 'var(--color-accent)', fontWeight: 600, fontSize: '1.1rem' }}>→</span>
-                        </button>
-                      ))}
-                    </>
-                  );
-                })()}
-                <button onClick={() => { setMultiResults([]); window.location.hash = '#list'; }} style={{ padding: '0.6rem 2rem', border: 'none', borderRadius: '8px', background: 'var(--color-accent)', color: '#fff', fontSize: '1rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>Go to My Recipes</button>
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
-    )}
-    </>
   );
 }

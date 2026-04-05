@@ -1,11 +1,9 @@
 import { getCachedMealImage } from '../utils/generateMealImage';
 import { getRecipeTags, getTagInfo } from '../utils/ingredientTags';
-import { detectCuisine } from '../utils/detectCuisine';
 import styles from './RecipeCard.module.css';
 
 export function RecipeCard({ recipe, onClick, draggable = false, onAdd, editMode, onDelete, macroScore, showTags = true }) {
   const mealImage = getCachedMealImage(recipe.id);
-  const cuisine = recipe.cuisine || detectCuisine(recipe.title, recipe.ingredients);
   const recipeTags = showTags ? getRecipeTags(recipe).slice(0, 4) : [];
   function handleDragStart(e) {
     e.dataTransfer.setData('text/plain', recipe.id);

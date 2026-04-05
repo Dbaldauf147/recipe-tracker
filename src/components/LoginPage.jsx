@@ -17,10 +17,7 @@ export function LoginPage() {
   const [resetSent, setResetSent] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [firstName, setFirstName] = useState('');
-  const [lastName, setLastName] = useState('');
-  const [signUpUsername, setSignUpUsername] = useState('');
-  const name = `${firstName} ${lastName}`.trim();
+  const [name, setName] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [showGuestWarning, setShowGuestWarning] = useState(false);
 
@@ -38,26 +35,31 @@ export function LoginPage() {
     <div className={styles.page}>
       <div className={styles.logoBadge}>Prep Day</div>
 
-      {/* Full-screen video background */}
-      <video className={styles.bgVideo} autoPlay muted loop playsInline >
-        <source src="/login-bg.mp4" type="video/mp4" />
-      </video>
-      <div className={styles.bgOverlay} />
-
-      {/* Centered content over video */}
-      <div className={styles.centerContent}>
-        <h1 className={styles.heroTitle}>
-          Your meals, <span className={styles.heroTitleAccent}>planned.</span>
-        </h1>
-        <p className={styles.heroTagline}>Plan. Track. Shop. All in one place.</p>
-        <div className={styles.featurePills}>
-          {FEATURES.map((f, i) => (
-            <span key={i} className={styles.pill}>{f.icon} {f.title}</span>
-          ))}
+      {/* Left: branding + features */}
+      <div className={styles.hero}>
+        <div className={styles.heroContent}>
+          <h1 className={styles.heroTitle}>
+            Your meals,{' '}
+            <span className={styles.heroTitleAccent}>planned.</span>
+          </h1>
+          <p className={styles.heroTagline}>
+            Prep Day helps you plan meals, track nutrition, and shop smarter — all in one place.
+          </p>
+          <ul className={styles.featureList}>
+            {FEATURES.map((f, i) => (
+              <li key={i} className={styles.featureItem}>
+                <span className={styles.featureIcon}>{f.icon}</span>
+                <div className={styles.featureContent}>
+                  <span className={styles.featureTitle}>{f.title}</span>
+                  <span className={styles.featureText}>{f.text}</span>
+                </div>
+              </li>
+            ))}
+          </ul>
         </div>
       </div>
 
-      {/* Sign-in card pinned right */}
+      {/* Right: sign-in card */}
       <div className={styles.formSide}>
         <div className={styles.card}>
           <h2 className={styles.cardTitle}>
@@ -141,6 +143,12 @@ export function LoginPage() {
               </svg>
               Sign in with Apple
             </button>
+            <button className={styles.facebookBtn} onClick={signInWithFacebook}>
+              <svg className={styles.socialIcon} viewBox="0 0 24 24" width="20" height="20">
+                <path d="M24 12.073c0-6.627-5.373-12-12-12S0 5.446 0 12.073c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z" fill="#fff"/>
+              </svg>
+              Sign in with Facebook
+            </button>
           </div>
           <button className={styles.guestBtn} onClick={() => setShowGuestWarning(true)}>
             Continue without signing in
@@ -157,35 +165,15 @@ export function LoginPage() {
             {authError && <p className={styles.error}>{authError}</p>}
             <form className={styles.form} onSubmit={async (e) => {
               e.preventDefault();
-              await signUpWithEmail(email, password, name, signUpUsername);
+              await signUpWithEmail(email, password, name);
             }}>
-              <div className={styles.nameRow}>
-                <input
-                  className={styles.input}
-                  type="text"
-                  placeholder="First Name"
-                  value={firstName}
-                  onChange={(e) => setFirstName(e.target.value)}
-                  autoComplete="given-name"
-                  required
-                />
-                <input
-                  className={styles.input}
-                  type="text"
-                  placeholder="Last Name"
-                  value={lastName}
-                  onChange={(e) => setLastName(e.target.value)}
-                  autoComplete="family-name"
-                  required
-                />
-              </div>
               <input
                 className={styles.input}
                 type="text"
-                placeholder="Username"
-                value={signUpUsername}
-                onChange={(e) => setSignUpUsername(e.target.value.replace(/[^a-zA-Z0-9_]/g, '').toLowerCase())}
-                autoComplete="username"
+                placeholder="Name"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                autoComplete="name"
               />
               <input
                 className={styles.input}

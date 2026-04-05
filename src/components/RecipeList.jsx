@@ -5,15 +5,9 @@ import { getUserKeyIngredients, normalize, recipeHasIngredient } from '../utils/
 import { exportToCSV, importFromCSV } from '../utils/exportData';
 import { locationToRegion, getSeasonalIngredients, getRecipeSeasonalIngredients } from '../utils/seasonal';
 import { useAuth } from '../contexts/AuthContext';
-import { loadUserData, saveField, loadFriends, loadFriendRecipes, getPendingSharedRecipes, shareRecipe, getUsername } from '../utils/firestoreSync';
-import { copyMealImage, loadAdminMealImages, generateMealImage, getCachedMealImage } from '../utils/generateMealImage';
+import { loadUserData, saveField, loadFriends, loadFriendRecipes, getPendingSharedRecipes } from '../utils/firestoreSync';
+import { copyMealImage } from '../utils/generateMealImage';
 import { ALL_TAGS, TAG_CATEGORIES, recipeMatchesTags } from '../utils/ingredientTags';
-import { detectCuisine } from '../utils/detectCuisine';
-import { WidgetLayout } from './WidgetLayout';
-import GridLayoutLib, { WidthProvider } from 'react-grid-layout';
-import 'react-grid-layout/css/styles.css';
-import 'react-resizable/css/styles.css';
-const GridLayout = WidthProvider(GridLayoutLib);
 import styles from './RecipeList.module.css';
 
 const ADMIN_UID = import.meta.env.VITE_ADMIN_UID;
@@ -81,137 +75,6 @@ function ShopPreview({ shopItems, onClear }) {
   );
 }
 
-function getSeason() {
-  const m = new Date().getMonth();
-  if (m >= 2 && m <= 4) return 'spring';
-  if (m >= 5 && m <= 7) return 'summer';
-  if (m >= 8 && m <= 10) return 'fall';
-  return 'winter';
-}
-
-const SEASON_THEME = {
-  spring: { bg: '#f0fdf4', border: '#86efac', title: '#166534', text: '#15803d', chipBg: '#dcfce7', chipText: '#166534', emoji: '🌱', label: 'Spring Produce' },
-  summer: { bg: '#fefce8', border: '#fde047', title: '#854d0e', text: '#a16207', chipBg: '#fef9c3', chipText: '#854d0e', emoji: '☀️', label: 'Summer Produce' },
-  fall:   { bg: '#fff7ed', border: '#fdba74', title: '#9a3412', text: '#c2410c', chipBg: '#ffedd5', chipText: '#9a3412', emoji: '🍂', label: 'Fall Harvest' },
-  winter: { bg: '#eff6ff', border: '#93c5fd', title: '#1e3a5f', text: '#2563eb', chipBg: '#dbeafe', chipText: '#1e3a5f', emoji: '❄️', label: 'Winter Produce' },
-};
-
-const SEASON_FALLBACK = {
-  spring: ['Asparagus', 'Peas', 'Artichokes', 'Radishes', 'Strawberries', 'Rhubarb', 'Spinach', 'Fava Beans', 'Arugula', 'Green Onions', 'Mint', 'Leeks'],
-  summer: ['Tomatoes', 'Corn', 'Peaches', 'Zucchini', 'Blueberries', 'Watermelon', 'Basil', 'Bell Peppers', 'Cucumbers', 'Cherries', 'Eggplant', 'Mangoes'],
-  fall:   ['Pumpkin', 'Butternut Squash', 'Apples', 'Sweet Potatoes', 'Cranberries', 'Pears', 'Brussels Sprouts', 'Figs', 'Pomegranate', 'Sage', 'Parsnips', 'Beets'],
-  winter: ['Citrus', 'Kale', 'Cauliflower', 'Turnips', 'Clementines', 'Persimmons', 'Rutabaga', 'Collard Greens', 'Grapefruit', 'Blood Oranges', 'Cabbage', 'Leeks'],
-};
-
-const REGION_OPTIONS = [
-  { key: 'northeast', label: 'Northeast' },
-  { key: 'southeast', label: 'Southeast' },
-  { key: 'midwest', label: 'Midwest' },
-  { key: 'southwest', label: 'Southwest' },
-  { key: 'west_coast', label: 'West Coast' },
-  { key: 'pacific_northwest', label: 'Pacific Northwest' },
-];
-
-function SeasonalSidebar() {
-  const season = getSeason();
-  const theme = SEASON_THEME[season];
-  const [selectedRegion, setSelectedRegion] = useState(() => {
-    const loc = localStorage.getItem('sunday-user-location');
-    return locationToRegion(loc) || 'northeast';
-  });
-  const [dropdownOpen, setDropdownOpen] = useState(false);
-  const dropdownRef = useRef(null);
-
-  useEffect(() => {
-    function handleClick(e) {
-      if (dropdownRef.current && !dropdownRef.current.contains(e.target)) setDropdownOpen(false);
-    }
-    if (dropdownOpen) document.addEventListener('mousedown', handleClick);
-    return () => document.removeEventListener('mousedown', handleClick);
-  }, [dropdownOpen]);
-
-  function changeRegion(key) {
-    setSelectedRegion(key);
-    localStorage.setItem('sunday-user-location', key);
-    setDropdownOpen(false);
-  }
-
-  const month = new Date().getMonth() + 1;
-  const seasonalSet = getSeasonalIngredients(selectedRegion, month);
-  let items = [...seasonalSet].slice(0, 14).map(s => s.charAt(0).toUpperCase() + s.slice(1));
-  if (items.length === 0) items = SEASON_FALLBACK[season];
-  const regionLabel = REGION_OPTIONS.find(r => r.key === selectedRegion)?.label || 'Northeast';
-
-  // Use JS scroll listener to manually position — immune to all CSS containing block issues
-  const sidebarRef = useRef(null);
-  useEffect(() => {
-    function position() {
-      if (!sidebarRef.current) return;
-      sidebarRef.current.style.top = (window.scrollY + 75) + 'px';
-    }
-    position();
-    window.addEventListener('scroll', position, { passive: true });
-    return () => window.removeEventListener('scroll', position);
-  }, []);
-
-  return (
-    <div ref={sidebarRef} style={{ position: 'absolute', right: '16px', top: '75px', width: '230px', zIndex: 5 }}>
-      <div ref={dropdownRef} style={{ position: 'relative', marginBottom: '0.4rem' }}>
-        <button
-          onClick={() => setDropdownOpen(p => !p)}
-          style={{
-            width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-            padding: '0.35rem 0.65rem', background: 'rgba(232, 213, 176, 0.6)', border: '1px solid rgba(200, 176, 128, 0.4)',
-            borderRadius: '8px', cursor: 'pointer', fontFamily: 'inherit', fontSize: '0.75rem', fontWeight: 700, color: '#5C3D1A',
-          }}
-        >
-          <span>📍 {regionLabel}</span>
-          <span style={{ fontSize: '0.6rem', marginLeft: '0.3rem' }}>{dropdownOpen ? '▲' : '▼'}</span>
-        </button>
-        {dropdownOpen && (
-          <div style={{
-            position: 'absolute', top: '100%', left: 0, right: 0, marginTop: '2px',
-            background: '#fff', border: '1px solid #CEDAE5', borderRadius: '8px',
-            boxShadow: '0 4px 12px rgba(0,0,0,0.1)', zIndex: 10, overflow: 'hidden',
-          }}>
-            {REGION_OPTIONS.map(r => (
-              <button
-                key={r.key}
-                onClick={() => changeRegion(r.key)}
-                style={{
-                  display: 'block', width: '100%', padding: '0.4rem 0.65rem', border: 'none',
-                  background: r.key === selectedRegion ? '#EBF2F9' : '#fff', textAlign: 'left',
-                  fontSize: '0.75rem', fontWeight: r.key === selectedRegion ? 700 : 500,
-                  color: r.key === selectedRegion ? '#3B6B9C' : '#4A5B6E',
-                  cursor: 'pointer', fontFamily: 'inherit',
-                }}
-                onMouseEnter={e => { if (r.key !== selectedRegion) e.target.style.background = '#F8FAFC'; }}
-                onMouseLeave={e => { if (r.key !== selectedRegion) e.target.style.background = '#fff'; }}
-              >
-                {r.label}
-              </button>
-            ))}
-          </div>
-        )}
-      </div>
-      <div className={styles.seasonalSidebar}>
-        <div className={styles.seasonalHeader}>
-          {theme.emoji} {theme.label}
-        </div>
-        <div className={styles.seasonalSub}>What's fresh right now</div>
-        <div className={styles.seasonalDivider} />
-        <div className={styles.seasonalChips}>
-          {items.map(item => (
-            <span key={item} className={styles.seasonalChip}>
-              {item}
-            </span>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-}
-
 export function RecipeList({
   recipes,
   onSelect,
@@ -228,181 +91,18 @@ export function RecipeList({
   onSaveToHistory,
   onAddRecipe,
   onDelete,
-  onUpdateRecipe,
   isNewUser,
 }) {
   const { user } = useAuth();
   const [importing, setImporting] = useState(false);
   const [importResult, setImportResult] = useState(null);
   const [dragOverTarget, setDragOverTarget] = useState(null);
-  const [showCommon, setShowCommon] = useState(true);
   const [showRare, setShowRare] = useState(false);
-  const [showToTry, setShowToTry] = useState(false);
   const [showRetired, setShowRetired] = useState(false);
-  const [filterSearchQuery, setFilterSearchQuery] = useState('');
-  const [hiddenCategories, setHiddenCategories] = useState(() => {
-    try { return new Set(JSON.parse(localStorage.getItem('sunday-hidden-categories') || '[]')); } catch { return new Set(); }
-  });
-  const ALL_CAT_KEYS = ['breakfast', 'lunch-dinner', 'snacks', 'desserts', 'drinks'];
-  const columnsRef = useRef(null);
-
-  // Custom widgets inside the grid — per-user
-  const CUSTOM_WIDGETS_KEY = user ? `sunday-custom-grid-widgets-${user.uid}` : 'sunday-custom-grid-widgets';
-  const [customGridWidgets, setCustomGridWidgets] = useState(() => {
-    try { return JSON.parse(localStorage.getItem(user ? `sunday-custom-grid-widgets-${user.uid}` : 'sunday-custom-grid-widgets')) || []; } catch { return []; }
-  });
-  const [addingGridWidget, setAddingGridWidget] = useState(false);
-  const [newGridWidgetName, setNewGridWidgetName] = useState('');
-
-  const FALLBACK_CAT_LAYOUT = [
-    { i: 'breakfast', x: 0, y: 0, w: 4, h: 20 },
-    { i: 'lunch-dinner', x: 4, y: 0, w: 8, h: 20 },
-    { i: 'snacks', x: 0, y: 20, w: 4, h: 16 },
-    { i: 'desserts', x: 4, y: 20, w: 4, h: 16 },
-    { i: 'drinks', x: 8, y: 20, w: 4, h: 16 },
-  ];
-
-  const [adminDefaultLayout, setAdminDefaultLayout] = useState(null);
-
-  // Load admin's default layout from Firestore
-  useEffect(() => {
-    loadUserData(ADMIN_UID).then(data => {
-      if (data?.defaultCatLayout) setAdminDefaultLayout(data.defaultCatLayout);
-    }).catch(() => {});
-  }, []);
-
-  const DEFAULT_CAT_LAYOUT = adminDefaultLayout || FALLBACK_CAT_LAYOUT;
-
-  const [catLayout, setCatLayout] = useState(() => {
-    try { return JSON.parse(localStorage.getItem('sunday-cat-layout')) || FALLBACK_CAT_LAYOUT; } catch { return FALLBACK_CAT_LAYOUT; }
-  });
-
-  // Load user's saved layout from Firestore on mount
-  useEffect(() => {
-    if (!user) return;
-    loadUserData(user.uid).then(data => {
-      if (data?.catLayout) {
-        setCatLayout(data.catLayout);
-        localStorage.setItem('sunday-cat-layout', JSON.stringify(data.catLayout));
-      } else if (adminDefaultLayout && !localStorage.getItem('sunday-cat-layout')) {
-        setCatLayout(adminDefaultLayout);
-      }
-    }).catch(() => {});
-  }, [user, adminDefaultLayout]);
-
-  // Sync layout and custom widgets from Firestore when another device changes it
-  useEffect(() => {
-    const handleSync = () => {
-      try {
-        const saved = localStorage.getItem('sunday-cat-layout');
-        if (saved) setCatLayout(JSON.parse(saved));
-      } catch {}
-      try {
-        const saved = localStorage.getItem(CUSTOM_WIDGETS_KEY);
-        if (saved) setCustomGridWidgets(JSON.parse(saved));
-      } catch {}
-    };
-    window.addEventListener('firestore-sync', handleSync);
-    return () => window.removeEventListener('firestore-sync', handleSync);
-  }, []);
-
-
-  const handleCatLayoutChange = (newLayout) => {
-    const clean = newLayout
-      .filter(item => ALL_CAT_KEYS.includes(item.i) || customWidgetIds.has(item.i))
-      .map(({ i, x, y, w, h }) => ({ i, x, y, w, h }));
-    setCatLayout(clean);
-    localStorage.setItem('sunday-cat-layout', JSON.stringify(clean));
-    if (user) {
-      saveField(user.uid, 'catLayout', clean);
-    }
-    if (user?.uid === ADMIN_UID) {
-      saveField(user.uid, 'defaultCatLayout', clean);
-    }
-  };
-
-  const visibleCats = ALL_CAT_KEYS.filter(k => !hiddenCategories.has(k));
-  const allGridKeys = [...visibleCats, ...customGridWidgets.map(w => w.id)];
-  const visibleLayout = (() => {
-    const existing = catLayout.filter(l => allGridKeys.includes(l.i));
-    const existingIds = new Set(existing.map(l => l.i));
-    // Add default layout entries for custom widgets not yet in catLayout
-    const maxY = existing.reduce((m, l) => Math.max(m, l.y + l.h), 0);
-    let extraY = maxY;
-    for (const cw of customGridWidgets) {
-      if (!existingIds.has(cw.id)) {
-        existing.push({ i: cw.id, x: 0, y: extraY, w: 4, h: 16 });
-        extraY += 16;
-      }
-    }
-    return existing;
-  })();
-  const toggleCategory = (key) => {
-    setHiddenCategories(prev => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key); else next.add(key);
-      const arr = [...next];
-      localStorage.setItem('sunday-hidden-categories', JSON.stringify(arr));
-      if (user) saveField(user.uid, 'hiddenCategories', arr);
-      return next;
-    });
-  };
-  function saveCustomGridWidgets(widgets) {
-    localStorage.setItem(CUSTOM_WIDGETS_KEY, JSON.stringify(widgets));
-    if (user) saveField(user.uid, 'customGridWidgets', widgets);
-  }
-
-  function addGridWidget() {
-    const name = newGridWidgetName.trim();
-    if (!name) return;
-    const id = 'cw_' + Date.now();
-    const widget = { id, label: name, content: '' };
-    const nextWidgets = [...customGridWidgets, widget];
-    setCustomGridWidgets(nextWidgets);
-    saveCustomGridWidgets(nextWidgets);
-    // Add layout entry for the new widget — place below existing items
-    const maxY = catLayout.reduce((m, l) => Math.max(m, l.y + l.h), 0);
-    const newLayoutEntry = { i: id, x: 0, y: maxY, w: 4, h: 16 };
-    const nextLayout = [...catLayout, newLayoutEntry];
-    setCatLayout(nextLayout);
-    localStorage.setItem('sunday-cat-layout', JSON.stringify(nextLayout));
-    if (user) saveField(user.uid, 'catLayout', nextLayout);
-    setNewGridWidgetName('');
-    setAddingGridWidget(false);
-  }
-
-  function updateGridWidgetContent(id, content) {
-    const next = customGridWidgets.map(w => w.id === id ? { ...w, content } : w);
-    setCustomGridWidgets(next);
-    saveCustomGridWidgets(next);
-  }
-
-  function renameGridWidget(id, newLabel) {
-    const next = customGridWidgets.map(w => w.id === id ? { ...w, label: newLabel } : w);
-    setCustomGridWidgets(next);
-    saveCustomGridWidgets(next);
-  }
-
-  const [renamingWidgetId, setRenamingWidgetId] = useState(null);
-  const [renameValue, setRenameValue] = useState('');
-
-  function removeGridWidget(id) {
-    const nextWidgets = customGridWidgets.filter(w => w.id !== id);
-    setCustomGridWidgets(nextWidgets);
-    saveCustomGridWidgets(nextWidgets);
-    const nextLayout = catLayout.filter(l => l.i !== id);
-    setCatLayout(nextLayout);
-    localStorage.setItem('sunday-cat-layout', JSON.stringify(nextLayout));
-    if (user) saveField(user.uid, 'catLayout', nextLayout);
-  }
-
-  const customWidgetIds = new Set(customGridWidgets.map(w => w.id));
-
   const [checkedTypes, setCheckedTypes] = useState(new Set());
   const [checkedCategories, setCheckedCategories] = useState(new Set());
   const [checkedCuisines, setCheckedCuisines] = useState(new Set());
   const [checkedTags, setCheckedTags] = useState(new Set());
-  const [checkedSources, setCheckedSources] = useState(new Set());
   const [mealFilterOpen, setMealFilterOpen] = useState(false);
   const mealFilterRef = useRef(null);
   const [showSaved, setShowSaved] = useState(false);
@@ -410,16 +110,6 @@ export function RecipeList({
   const [quickCategory, setQuickCategory] = useState('lunch-dinner');
   const [importSearch, setImportSearch] = useState('');
   const [editMode, setEditMode] = useState(false);
-  const [manageMode, setManageMode] = useState(false);
-  const [manageSelected, setManageSelected] = useState(new Set());
-  const [manageFriends, setManageFriends] = useState(null);
-  const [manageStatus, setManageStatus] = useState('');
-  const [cookbookName, setCookbookName] = useState('');
-  const [showCookbookInput, setShowCookbookInput] = useState(false);
-  // Legacy compat
-  const shareMode = manageMode;
-  const shareSelected = manageSelected;
-  const setShareSelected = setManageSelected;
   const [searchQuery, setSearchQuery] = useState('');
   const [discoverOpen, setDiscoverOpen] = useState(true);
   const [showDiscoverTip, setShowDiscoverTip] = useState(false);
@@ -430,51 +120,6 @@ export function RecipeList({
   const [pendingShares, setPendingShares] = useState([]);
   const [weekMenuOpen, setWeekMenuOpen] = useState(true);
   const [suggestOpen, setSuggestOpen] = useState(true);
-  const [aiEnabled, setAiEnabled] = useState(() => localStorage.getItem('sunday-ai-meals-enabled') !== 'false');
-  const [aiMeals, setAiMeals] = useState([]);
-  const [aiPreview, setAiPreview] = useState(null);
-  const [aiSkipping, setAiSkipping] = useState(null); // null or category string being loaded
-  const skippedTitlesRef = useRef([]);
-
-  function skipAiMeal(mealToSkip) {
-    skippedTitlesRef.current.push(mealToSkip.title);
-    setAiMeals(prev => prev.filter(p => p.title !== mealToSkip.title));
-    // Fetch a replacement
-    const skipCategory = mealToSkip.category || mealToSkip._category || 'lunch-dinner';
-    setAiSkipping(skipCategory);
-    const cuisineCounts = {};
-    for (const r of recipes) {
-      const c = r.cuisine || detectCuisine(r.title, r.ingredients);
-      cuisineCounts[c] = (cuisineCounts[c] || 0) + 1;
-    }
-    const topCuisines = Object.entries(cuisineCounts).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([c]) => c);
-    const ingCounts = {};
-    for (const r of recipes) for (const ing of r.ingredients || []) {
-      const k = (ing.ingredient || '').toLowerCase();
-      if (k) ingCounts[k] = (ingCounts[k] || 0) + 1;
-    }
-    const topIngredients = Object.entries(ingCounts).sort((a, b) => b[1] - a[1]).slice(0, 10).map(([i]) => i);
-    const recentRecipes = [...recipes.slice(0, 10).map(r => r.title), ...skippedTitlesRef.current];
-    fetch('/api/recommend-meals', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ topCuisines, topIngredients, recentRecipes }),
-    }).then(r => r.json()).then(data => {
-      if (data.recipes) {
-        // Find a replacement that isn't already shown or skipped
-        const existingTitles = new Set([...aiMeals.map(m => m.title), ...skippedTitlesRef.current]);
-        const targetCat = mealToSkip.category || mealToSkip._category;
-        const replacement = data.recipes.find(m => !existingTitles.has(m.title) && (m.category === targetCat || (!targetCat && m.category !== 'breakfast')));
-        if (replacement) {
-          if (!replacement.category) replacement.category = targetCat || 'lunch-dinner';
-          setAiMeals(prev => [...prev, replacement]);
-        }
-      }
-    }).catch(() => {}).finally(() => setAiSkipping(null));
-  }
-  const [aiMealsLoading, setAiMealsLoading] = useState(false);
-  const aiMealsFetched = useRef(false);
-  const [suggestColsOpen, setSuggestColsOpen] = useState(false);
-  const [suggestCols, setSuggestCols] = useState({ overdue: true, seasonal: true });
   const [myRecipesOpen, setMyRecipesOpen] = useState(true);
   const [lastAdded, setLastAdded] = useState(null);
   const [weeklyGoals, setWeeklyGoals] = useState(() => {
@@ -484,9 +129,6 @@ export function RecipeList({
     } catch { return { breakfast: 7, lunchDinner: 7 }; }
   });
   const [editingGoals, setEditingGoals] = useState(false);
-  const [showTargets, setShowTargets] = useState(() => {
-    try { return localStorage.getItem('sunday-show-targets') === 'true'; } catch { return false; }
-  });
   const [shopSelection, setShopSelection] = useState(() => {
     try {
       const data = localStorage.getItem(SHOP_KEY);
@@ -637,9 +279,7 @@ export function RecipeList({
     const freq = r.frequency || 'common';
     if (freq === 'retired') return showRetired;
     if (freq === 'rare') return showRare;
-    if (freq === 'toTry') return showToTry;
-    if (freq === 'common') return showCommon;
-    return showCommon;
+    return true; // common always shown
   });
   if (checkedTypes.size > 0) {
     visible = visible.filter(r => checkedTypes.has(r.mealType || ''));
@@ -651,18 +291,7 @@ export function RecipeList({
     visible = visible.filter(r => checkedCuisines.has(r.cuisine || ''));
   }
   if (checkedTags.size > 0) {
-    visible = visible.filter(r => {
-      // Check ingredient-based tags
-      if (recipeMatchesTags(r, checkedTags)) return true;
-      // Check custom tags
-      if (r.customTags?.length > 0) {
-        return r.customTags.some(t => checkedTags.has('custom:' + t));
-      }
-      return false;
-    });
-  }
-  if (checkedSources.size > 0) {
-    visible = visible.filter(r => checkedSources.has(r.source || 'unknown'));
+    visible = visible.filter(r => recipeMatchesTags(r, checkedTags));
   }
   if (searchQuery.trim()) {
     const q = searchQuery.trim().toLowerCase();
@@ -816,7 +445,6 @@ export function RecipeList({
 
   // Discover recipes: admin recipes matching key ingredients not yet in user's collection
   const [adminRecipes, setAdminRecipes] = useState(null);
-  const [adminImages, setAdminImages] = useState({});
   const [addedIds, setAddedIds] = useState(() => new Set());
 
   useEffect(() => {
@@ -825,9 +453,6 @@ export function RecipeList({
       try {
         const data = await loadUserData(ADMIN_UID);
         if (!cancelled) setAdminRecipes(data?.recipes || []);
-        // Load admin meal images for discover thumbnails
-        const images = await loadAdminMealImages(ADMIN_UID);
-        if (!cancelled) setAdminImages(images);
       } catch (err) {
         console.error('Failed to load admin recipes:', err);
         if (!cancelled) setAdminRecipes([]);
@@ -867,8 +492,7 @@ export function RecipeList({
       const freq = r.frequency || 'common';
       if (freq === 'retired') return showRetired;
       if (freq === 'rare') return showRare;
-      if (freq === 'common') return showCommon;
-      return showCommon;
+      return true;
     });
     // Apply meal type filter
     if (checkedTypes.size > 0) {
@@ -887,7 +511,7 @@ export function RecipeList({
     if (!importSearch.trim()) return available;
     const q = importSearch.trim().toLowerCase();
     return available.filter(r => r.title.toLowerCase().includes(q));
-  }, [adminRecipes, recipes, addedIds, importSearch, showRare, showToTry, showRetired, checkedTypes, checkedCategories, checkedCuisines]);
+  }, [adminRecipes, recipes, addedIds, importSearch, showRare, showRetired, checkedTypes, checkedCategories, checkedCuisines]);
 
   const [discoverSelected, setDiscoverSelected] = useState(new Set());
 
@@ -963,38 +587,6 @@ export function RecipeList({
     return map;
   }, [recipes]);
 
-  // Fetch AI meal suggestions (once, on first open)
-  useEffect(() => {
-    if (!suggestOpen || !aiEnabled || aiMealsFetched.current || recipes.length < 1) return;
-    aiMealsFetched.current = true;
-    setAiMealsLoading(true);
-    const cuisineCounts = {};
-    for (const r of recipes) {
-      const c = r.cuisine || detectCuisine(r.title, r.ingredients);
-      cuisineCounts[c] = (cuisineCounts[c] || 0) + 1;
-    }
-    const topCuisines = Object.entries(cuisineCounts).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([c]) => c);
-    const ingCounts = {};
-    for (const r of recipes) for (const ing of r.ingredients || []) {
-      const k = (ing.ingredient || '').toLowerCase();
-      if (k) ingCounts[k] = (ingCounts[k] || 0) + 1;
-    }
-    const topIngredients = Object.entries(ingCounts).sort((a, b) => b[1] - a[1]).slice(0, 10).map(([i]) => i);
-    const recentRecipes = recipes.slice(0, 10).map(r => r.title);
-    fetch('/api/recommend-meals', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ topCuisines, topIngredients, recentRecipes }),
-    }).then(r => r.json()).then(data => {
-      if (data.recipes && data.recipes.length > 0) {
-        // Ensure at least one goes to breakfast, rest to lunch-dinner
-        const meals = data.recipes.slice(0, 3);
-        const hasBreakfast = meals.some(m => m.category === 'breakfast');
-        if (!hasBreakfast && meals.length > 1) meals[0].category = 'breakfast';
-        setAiMeals(meals);
-      }
-    }).catch((err) => { console.error('AI meals error:', err); }).finally(() => setAiMealsLoading(false));
-  }, [suggestOpen, aiEnabled, recipes]);
-
   // Suggested meals: score recipes by staleness + neglected key ingredients
   const suggestions = useMemo(() => {
     let history;
@@ -1019,8 +611,7 @@ export function RecipeList({
       const freq = r.frequency || 'common';
       if (freq === 'retired') return showRetired;
       if (freq === 'rare') return showRare;
-      if (freq === 'common') return showCommon;
-      return showCommon; // default to common behavior
+      return true;
     });
     if (checkedTypes.size > 0) {
       filtered = filtered.filter(r => checkedTypes.has(r.mealType || ''));
@@ -1030,16 +621,6 @@ export function RecipeList({
     }
     if (checkedCuisines.size > 0) {
       filtered = filtered.filter(r => checkedCuisines.has(r.cuisine || ''));
-    }
-    if (checkedTags.size > 0) {
-      filtered = filtered.filter(r => {
-        if (recipeMatchesTags(r, checkedTags)) return true;
-        if (r.customTags?.length > 0) return r.customTags.some(t => checkedTags.has('custom:' + t));
-        return false;
-      });
-    }
-    if (checkedSources.size > 0) {
-      filtered = filtered.filter(r => checkedSources.has(r.source || 'unknown'));
     }
     const candidates = filtered.filter(r => !weekSet.has(r.id));
     if (candidates.length === 0) return { breakfasts: [], lunches: [] };
@@ -1177,15 +758,13 @@ export function RecipeList({
 
     scored.sort((a, b) => b.totalScore - a.totalScore);
 
-    const breakfasts = scored.filter(s => s.recipe.category === 'breakfast').slice(0, 10);
-    const lunches = scored.filter(s => s.recipe.category === 'lunch-dinner').slice(0, 10);
+    const breakfasts = scored.filter(s => s.recipe.category === 'breakfast').slice(0, 3);
+    const lunches = scored.filter(s => s.recipe.category === 'lunch-dinner').slice(0, 3);
     return { breakfasts, lunches };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [recipes, weeklyPlan, showCommon, showRare, showToTry, showRetired, checkedTypes, checkedCategories, checkedCuisines, checkedTags, checkedSources]);
+  }, [recipes, weeklyPlan, showRare, showRetired, checkedTypes, checkedCategories]);
 
   return (
-    <>
-    <SeasonalSidebar />
     <div className={styles.container}>
       {/* Hidden file input for CSV import */}
       <input
@@ -1197,189 +776,129 @@ export function RecipeList({
       />
 
 
-      {/* Page header */}
-      <div style={{ marginBottom: '0.75rem' }}>
-        <h1 style={{ fontSize: '1.6rem', fontWeight: 700, color: 'var(--color-text)', margin: '0 0 0.25rem', letterSpacing: '-0.02em' }}>My Recipes</h1>
-        <p style={{ fontSize: '0.88rem', color: 'var(--color-text-muted)', margin: 0, lineHeight: 1.45 }}>Your personal recipe collection. Add, organize, and plan meals from all your favorite sources.</p>
-      </div>
-
       {/* Global meal filter dropdown */}
       <div className={styles.topFilterRow}>
-        <button className={`${styles.addBtn} ${showAddTip ? styles.addBtnHighlight : ''}`} onClick={() => { onAdd(); setShowAddTip(false); }}>
-          + Recipes
-        </button>
-        <button
-          className={`${styles.importBtn}${manageMode ? ` ${styles.editBtnActive}` : ''}`}
-          onClick={async () => {
-            if (manageMode) {
-              setManageMode(false);
-              setManageSelected(new Set());
-              setManageFriends(null);
-              setManageStatus('');
-              setShowCookbookInput(false);
-            } else {
-              setManageMode(true);
-              setEditMode(false);
-              setManageSelected(new Set());
-              if (user) {
-                loadFriends(user.uid).then(setManageFriends).catch(() => setManageFriends([]));
-              }
-            }
-          }}
-        >
-          {manageMode ? 'Done' : 'Manage Recipes'}
-        </button>
-        <input
-          className={styles.topSearchInput}
-          type="text"
-          placeholder="Search recipes..."
-          value={searchQuery}
-          onChange={e => setSearchQuery(e.target.value)}
-        />
         <div className={styles.mealFilterWrap} ref={mealFilterRef}>
           <button
-            className={`${styles.filterBtn} ${(checkedTypes.size > 0 || checkedCategories.size > 0 || checkedCuisines.size > 0 || checkedTags.size > 0 || checkedSources.size > 0 || showToTry || showRare || showRetired || !showCommon) ? styles.filterBtnActive : ''}`}
+            className={`${styles.filterBtn} ${(checkedTypes.size > 0 || checkedCategories.size > 0 || checkedCuisines.size > 0 || checkedTags.size > 0 || showRare || showRetired) ? styles.filterBtnActive : ''}`}
             onClick={() => setMealFilterOpen(p => !p)}
           >
             {(() => {
-              const count = checkedTypes.size + checkedCategories.size + checkedCuisines.size + checkedTags.size + checkedSources.size + (showToTry ? 1 : 0) + (showRare ? 1 : 0) + (showRetired ? 1 : 0);
-              return `Filter Recipes${count > 0 ? ` (${count})` : ''}`;
+              const count = checkedTypes.size + checkedCategories.size + checkedCuisines.size + checkedTags.size + (showRare ? 1 : 0) + (showRetired ? 1 : 0);
+              return `Filters${count > 0 ? ` (${count})` : ''}`;
             })()}
             <span className={styles.dropdownCaret}>&#9662;</span>
           </button>
           {mealFilterOpen && (
             <div className={styles.mealFilterDropdown}>
-              <input
-                className={styles.filterSearch}
-                type="text"
-                placeholder="Search filters..."
-                value={filterSearchQuery || ''}
-                onChange={e => setFilterSearchQuery(e.target.value)}
-                autoFocus
-              />
-              {(() => {
-                const fq = (filterSearchQuery || '').toLowerCase();
-                const match = label => !fq || label.toLowerCase().includes(fq);
-                const catOpts = [
+              <div className={styles.mealFilterGroup}>
+                <span className={styles.mealFilterLabel}>Category</span>
+                {[
                   { key: 'breakfast', label: 'Breakfast' },
                   { key: 'lunch-dinner', label: 'Lunch & Dinner' },
                   { key: 'snacks', label: 'Snacks' },
                   { key: 'desserts', label: 'Desserts' },
                   { key: 'drinks', label: 'Drinks' },
-                ].filter(o => match(o.label));
-                const filteredTypes = mealTypes.filter(t => match(t));
-                const freqOpts = [
-                  { label: 'Common', checked: showCommon, toggle: () => setShowCommon(p => !p) },
-                  { label: 'To Try', checked: showToTry, toggle: () => setShowToTry(p => !p) },
-                  { label: 'Rare', checked: showRare, toggle: () => setShowRare(p => !p) },
-                  { label: 'Retired', checked: showRetired, toggle: () => setShowRetired(p => !p) },
-                ].filter(o => match(o.label));
-                return <>
-                  {catOpts.length > 0 && <div className={styles.mealFilterGroup}>
-                    <span className={styles.mealFilterLabel}>Category</span>
-                    {catOpts.map(opt => (
-                      <label key={opt.key} className={styles.mealFilterOption}>
-                        <input type="checkbox" checked={checkedCategories.has(opt.key)} onChange={() => {
-                          setCheckedCategories(prev => { const next = new Set(prev); if (next.has(opt.key)) next.delete(opt.key); else next.add(opt.key); return next; });
-                        }} />
-                        {opt.label}
-                      </label>
-                    ))}
-                  </div>}
-                  {filteredTypes.length > 0 && <div className={styles.mealFilterGroup}>
-                    <span className={styles.mealFilterLabel}>Meal Type</span>
-                    {filteredTypes.map(type => (
-                      <label key={type} className={styles.mealFilterOption}>
-                        <input type="checkbox" checked={checkedTypes.has(type)} onChange={() => {
-                          setCheckedTypes(prev => { const next = new Set(prev); if (next.has(type)) next.delete(type); else next.add(type); return next; });
-                        }} />
-                        {type.charAt(0).toUpperCase() + type.slice(1)}
-                      </label>
-                    ))}
-                  </div>}
-                  {freqOpts.length > 0 && <div className={styles.mealFilterGroup}>
-                    <span className={styles.mealFilterLabel}>Frequency</span>
-                    {freqOpts.map(o => (
-                      <label key={o.label} className={styles.mealFilterOption}>
-                        <input type="checkbox" checked={o.checked} onChange={o.toggle} />
-                        {o.label}
-                      </label>
-                    ))}
-                  </div>}
-                </>;
-              })()}
-              {(() => {
-                const fq = (filterSearchQuery || '').toLowerCase();
-                const match = label => !fq || label.toLowerCase().includes(fq);
-                const filteredCuisines = cuisineList.filter(c => match(c));
-                const filteredIngTags = ALL_TAGS.filter(t => match(t.label));
-                const allCustomTags = [...new Set(recipes.flatMap(r => r.customTags || []))].sort().filter(t => match(t));
-                return <>
-                  {filteredCuisines.length > 0 && <div className={styles.mealFilterGroup}>
-                    <span className={styles.mealFilterLabel}>Cuisine</span>
-                    {filteredCuisines.map(c => (
-                      <label key={c} className={styles.mealFilterOption}>
-                        <input type="checkbox" checked={checkedCuisines.has(c)} onChange={() => {
-                          setCheckedCuisines(prev => { const next = new Set(prev); if (next.has(c)) next.delete(c); else next.add(c); return next; });
-                        }} />
-                        {c.charAt(0).toUpperCase() + c.slice(1)}
-                      </label>
-                    ))}
-                  </div>}
-                  {filteredIngTags.length > 0 && <div className={styles.mealFilterGroup}>
-                    <span className={styles.mealFilterLabel}>Ingredient Tags</span>
-                    {filteredIngTags.map(tag => {
-                      const cat = TAG_CATEGORIES[tag.category];
-                      return (
-                        <label key={tag.key} className={styles.mealFilterOption}>
-                          <input type="checkbox" checked={checkedTags.has(tag.key)} onChange={() => {
-                            setCheckedTags(prev => { const next = new Set(prev); if (next.has(tag.key)) next.delete(tag.key); else next.add(tag.key); return next; });
-                          }} />
-                          <span style={{ color: cat.color, fontWeight: 600 }}>{tag.label}</span>
-                        </label>
-                      );
-                    })}
-                  </div>}
-                  {allCustomTags.length > 0 && <div className={styles.mealFilterGroup}>
-                    <span className={styles.mealFilterLabel}>Custom Tags</span>
-                    {allCustomTags.map(tag => (
-                      <label key={tag} className={styles.mealFilterOption}>
-                        <input type="checkbox" checked={checkedTags.has('custom:' + tag)} onChange={() => {
-                          setCheckedTags(prev => { const next = new Set(prev); const key = 'custom:' + tag; if (next.has(key)) next.delete(key); else next.add(key); return next; });
-                        }} />
-                        {tag}
-                      </label>
-                    ))}
-                  </div>}
-                  {(() => {
-                    const sourceLabels = {
-                      ai: 'AI Generated', discover: 'Prep Day Recipes', starter: 'Prep Day Recipes',
-                      shared: 'Shared by Friend', bulk: 'Bulk Upload', url: 'Imported from URL',
-                      tiktok: 'TikTok', instagram: 'Instagram', pinterest: 'Pinterest',
-                      paste: 'Pasted Text', manual: 'Manual Entry', restaurant: 'Restaurant',
-                      'admin-setup': 'Admin Setup',
-                    };
-                    const allSources = [...new Set(recipes.map(r => r.source || 'unknown'))].filter(s => s !== 'unknown').sort();
-                    const filteredSources = allSources.filter(s => match(sourceLabels[s] || s));
-                    if (filteredSources.length === 0) return null;
-                    return <div className={styles.mealFilterGroup}>
-                      <span className={styles.mealFilterLabel}>Source</span>
-                      {filteredSources.map(src => (
-                        <label key={src} className={styles.mealFilterOption}>
-                          <input type="checkbox" checked={checkedSources.has(src)} onChange={() => {
-                            setCheckedSources(prev => { const next = new Set(prev); if (next.has(src)) next.delete(src); else next.add(src); return next; });
-                          }} />
-                          {sourceLabels[src] || src}
-                        </label>
-                      ))}
-                    </div>;
-                  })()}
-                </>;
-              })()}
-              {(checkedTypes.size > 0 || checkedCategories.size > 0 || checkedCuisines.size > 0 || checkedTags.size > 0 || checkedSources.size > 0 || showToTry || showRare || showRetired) && (
+                ].map(opt => (
+                  <label key={opt.key} className={styles.mealFilterOption}>
+                    <input
+                      type="checkbox"
+                      checked={checkedCategories.has(opt.key)}
+                      onChange={() => {
+                        setCheckedCategories(prev => {
+                          const next = new Set(prev);
+                          if (next.has(opt.key)) next.delete(opt.key);
+                          else next.add(opt.key);
+                          return next;
+                        });
+                      }}
+                    />
+                    {opt.label}
+                  </label>
+                ))}
+              </div>
+              {mealTypes.length > 0 && (
+                <div className={styles.mealFilterGroup}>
+                  <span className={styles.mealFilterLabel}>Meal Type</span>
+                  {mealTypes.map(type => (
+                    <label key={type} className={styles.mealFilterOption}>
+                      <input
+                        type="checkbox"
+                        checked={checkedTypes.has(type)}
+                        onChange={() => {
+                          setCheckedTypes(prev => {
+                            const next = new Set(prev);
+                            if (next.has(type)) next.delete(type);
+                            else next.add(type);
+                            return next;
+                          });
+                        }}
+                      />
+                      {type.charAt(0).toUpperCase() + type.slice(1)}
+                    </label>
+                  ))}
+                </div>
+              )}
+              <div className={styles.mealFilterGroup}>
+                <span className={styles.mealFilterLabel}>Frequency</span>
+                <label className={styles.mealFilterOption}>
+                  <input type="checkbox" checked={showRare} onChange={() => setShowRare(p => !p)} />
+                  Rare
+                </label>
+                <label className={styles.mealFilterOption}>
+                  <input type="checkbox" checked={showRetired} onChange={() => setShowRetired(p => !p)} />
+                  Retired
+                </label>
+              </div>
+              {cuisineList.length > 0 && (
+                <div className={styles.mealFilterGroup}>
+                  <span className={styles.mealFilterLabel}>Cuisine</span>
+                  {cuisineList.map(c => (
+                    <label key={c} className={styles.mealFilterOption}>
+                      <input
+                        type="checkbox"
+                        checked={checkedCuisines.has(c)}
+                        onChange={() => {
+                          setCheckedCuisines(prev => {
+                            const next = new Set(prev);
+                            if (next.has(c)) next.delete(c);
+                            else next.add(c);
+                            return next;
+                          });
+                        }}
+                      />
+                      {c.charAt(0).toUpperCase() + c.slice(1)}
+                    </label>
+                  ))}
+                </div>
+              )}
+              <div className={styles.mealFilterGroup}>
+                <span className={styles.mealFilterLabel}>Ingredient Tags</span>
+                {Object.entries(TAG_CATEGORIES).map(([catKey, cat]) => {
+                  const catTags = ALL_TAGS.filter(t => t.category === catKey);
+                  return catTags.map(tag => (
+                    <label key={tag.key} className={styles.mealFilterOption}>
+                      <input
+                        type="checkbox"
+                        checked={checkedTags.has(tag.key)}
+                        onChange={() => {
+                          setCheckedTags(prev => {
+                            const next = new Set(prev);
+                            if (next.has(tag.key)) next.delete(tag.key);
+                            else next.add(tag.key);
+                            return next;
+                          });
+                        }}
+                      />
+                      <span style={{ color: cat.color, fontWeight: 600 }}>{tag.label}</span>
+                    </label>
+                  ));
+                })}
+              </div>
+              {(checkedTypes.size > 0 || checkedCategories.size > 0 || checkedCuisines.size > 0 || checkedTags.size > 0 || showRare || showRetired) && (
                 <button
                   className={styles.mealFilterClear}
-                  onClick={() => { setCheckedTypes(new Set()); setCheckedCategories(new Set()); setCheckedCuisines(new Set()); setCheckedTags(new Set()); setCheckedSources(new Set()); setShowCommon(true); setShowToTry(false); setShowRare(false); setShowRetired(false); }}
+                  onClick={() => { setCheckedTypes(new Set()); setCheckedCategories(new Set()); setCheckedCuisines(new Set()); setCheckedTags(new Set()); setShowRare(false); setShowRetired(false); }}
                 >
                   Clear all
                 </button>
@@ -1389,13 +908,11 @@ export function RecipeList({
         </div>
       </div>
 
-      <WidgetLayout userId={user?.uid}>
       {/* 1. This Week's Menu — full-width, dominant */}
-      <div data-widget="weeklyMeals">
       <div className={styles.weekHeader}>
         <button className={styles.collapseToggle} onClick={() => setWeekMenuOpen(p => !p)}>
           <span className={`${styles.collapseArrow}${weekMenuOpen ? ` ${styles.collapseArrowOpen}` : ''}`}>&#9660;</span>
-          <h3 className={styles.weekHeading}>This Week's Meals</h3>
+          <h3 className={styles.weekHeading}>This Week's Menu</h3>
         </button>
         {weeklyRecipes.length > 0 && (
           <div className={styles.weekActions}>
@@ -1419,7 +936,7 @@ export function RecipeList({
         onDragEnter={() => handleDragEnter('weekly')}
         onDragLeave={e => handleDragLeave(e, 'weekly')}
         role="region"
-        aria-label="This Week's Meals"
+        aria-label="This Week's Menu"
       >
         {weekMenuOpen && (
         <div className={styles.weekContent}>
@@ -1427,7 +944,8 @@ export function RecipeList({
             {filteredWeeklyRecipes.length === 0 ? (
               <div className={styles.weekEmpty}>
                 <span className={styles.weekEmptyIcon}>🍽</span>
-                <span className={styles.weekEmptyTitle}>Click the + next to recipes below to add them to your shopping list</span>
+                <span>Drag recipes here to plan your week</span>
+                <span className={styles.weekEmptyHint}>or click the + button on any recipe below</span>
               </div>
             ) : (
               <div className={styles.weekList}>
@@ -1478,289 +996,390 @@ export function RecipeList({
           </div>
           <div className={styles.weekServings}>
             {(() => {
-              const bRecipes = filteredWeeklyRecipes.filter(r => r.category === 'breakfast');
-              const ldRecipes = filteredWeeklyRecipes.filter(r => r.category === 'lunch-dinner');
-              const bRecipeCount = bRecipes.length;
-              const bServings = bRecipes.reduce((sum, r) => sum + getPlannedServings(r), 0);
-              const ldRecipeCount = ldRecipes.length;
-              const ldServings = ldRecipes.reduce((sum, r) => sum + getPlannedServings(r), 0);
-              return (<>
+              const bCount = filteredWeeklyRecipes.filter(r => r.category === 'breakfast').reduce((sum, r) => sum + getPlannedServings(r), 0);
+              const ldCount = filteredWeeklyRecipes.filter(r => r.category === 'lunch-dinner').reduce((sum, r) => sum + getPlannedServings(r), 0);
+              return (
                 <table className={styles.mealsTable}>
                   <thead>
                     <tr>
                       <th></th>
-                      <th className={styles.mealsColHeader}>Recipes</th>
                       <th className={styles.mealsColHeader}>Meals</th>
-                      {showTargets && <th className={styles.mealsColHeader}>Target</th>}
+                      <th className={styles.mealsColHeader}>Target</th>
                     </tr>
                   </thead>
                   <tbody>
                     <tr>
                       <td className={styles.servingLabel}>Breakfast</td>
-                      <td className={styles.servingCount}>{bRecipeCount}</td>
-                      <td className={`${styles.servingCount} ${showTargets && bServings >= weeklyGoals.breakfast ? styles.servingMet : showTargets && bServings < weeklyGoals.breakfast ? styles.servingUnder : ''}`}>
-                        {bServings}
+                      <td className={`${styles.servingCount} ${bCount >= weeklyGoals.breakfast ? styles.servingMet : styles.servingUnder}`}>
+                        {bCount}
                       </td>
-                      {showTargets && (
-                        <td>
-                          <input
-                            className={styles.goalInput}
-                            type="number"
-                            min="0"
-                            value={weeklyGoals.breakfast}
-                            onChange={e => updateWeeklyGoal('breakfast', e.target.value)}
-                          />
-                        </td>
-                      )}
+                      <td>
+                        <input
+                          className={styles.goalInput}
+                          type="number"
+                          min="0"
+                          value={weeklyGoals.breakfast}
+                          onChange={e => updateWeeklyGoal('breakfast', e.target.value)}
+                        />
+                      </td>
                     </tr>
                     <tr>
                       <td className={styles.servingLabel}>Lunch & Dinner</td>
-                      <td className={styles.servingCount}>{ldRecipeCount}</td>
-                      <td className={`${styles.servingCount} ${showTargets && ldServings >= weeklyGoals.lunchDinner ? styles.servingMet : showTargets && ldServings < weeklyGoals.lunchDinner ? styles.servingUnder : ''}`}>
-                        {ldServings}
+                      <td className={`${styles.servingCount} ${ldCount >= weeklyGoals.lunchDinner ? styles.servingMet : styles.servingUnder}`}>
+                        {ldCount}
                       </td>
-                      {showTargets && (
-                        <td>
-                          <input
-                            className={styles.goalInput}
-                            type="number"
-                            min="0"
-                            value={weeklyGoals.lunchDinner}
-                            onChange={e => updateWeeklyGoal('lunchDinner', e.target.value)}
-                          />
-                        </td>
-                      )}
+                      <td>
+                        <input
+                          className={styles.goalInput}
+                          type="number"
+                          min="0"
+                          value={weeklyGoals.lunchDinner}
+                          onChange={e => updateWeeklyGoal('lunchDinner', e.target.value)}
+                        />
+                      </td>
                     </tr>
                   </tbody>
                 </table>
-                <button
-                  onClick={() => {
-                    const next = !showTargets;
-                    setShowTargets(next);
-                    localStorage.setItem('sunday-show-targets', String(next));
-                  }}
-                  style={{ background: 'none', border: 'none', fontSize: '0.72rem', color: 'var(--color-text-muted)', cursor: 'pointer', fontFamily: 'inherit', padding: '0.2rem 0', marginTop: '0.25rem' }}
-                >
-                  {showTargets ? 'Hide targets' : 'Show targets'}
-                </button>
-              </>);
+              );
             })()}
           </div>
         </div>
         )}
       </div>
 
-      </div>
       {/* 2. Suggested Meals + Discover Recipes row */}
-      <div data-widget="suggestedMeals"><div className={styles.suggestDiscoverRow}>
+      <div className={styles.suggestDiscoverRow}>
+      {(suggestions.breakfasts.length > 0 || suggestions.lunches.length > 0) && (
         <div className={styles.suggestBox} role="region" aria-label="Suggested Meals">
-          <div className={styles.suggestHeadingRow}>
-            <button className={styles.collapseToggle} onClick={() => setSuggestOpen(p => !p)}>
-              <span className={`${styles.collapseArrow}${suggestOpen ? ` ${styles.collapseArrowOpen}` : ''}`}>&#9660;</span>
-              <h3 className={styles.suggestHeading}>Suggested Meals</h3>
-              {aiMealsLoading && <span style={{ fontSize: '0.72rem', color: '#7C3AED', marginLeft: '0.5rem' }}>✨ Loading AI picks...</span>}
-              {aiMeals.length > 0 && <span style={{ fontSize: '0.68rem', color: '#7C3AED', marginLeft: '0.5rem', fontWeight: 600 }}>✨ {aiMeals.length} AI picks</span>}
-            </button>
-            <div className={styles.suggestGearWrap}>
-              <button
-                className={styles.suggestGearBtn}
-                onClick={() => setSuggestColsOpen(p => !p)}
-                aria-label="Column settings"
-                title="Column settings"
-              >⚙</button>
-              {suggestColsOpen && (
-                <div className={styles.suggestGearPopup}>
-                  <label className={styles.suggestGearLabel}>
-                    <input
-                      type="checkbox"
-                      checked={aiEnabled}
-                      onChange={() => {
-                        const next = !aiEnabled;
-                        setAiEnabled(next);
-                        localStorage.setItem('sunday-ai-meals-enabled', String(next));
-                        if (!next) { setAiMeals([]); aiMealsFetched.current = false; }
-                      }}
-                    />
-                    ✨ AI Suggested Meals
-                  </label>
-                  <label className={styles.suggestGearLabel}>
-                    <input
-                      type="checkbox"
-                      checked={suggestCols.overdue}
-                      onChange={() => setSuggestCols(p => ({ ...p, overdue: !p.overdue }))}
-                    />
-                    Overdue Ingredients
-                  </label>
-                  <label className={styles.suggestGearLabel}>
-                    <input
-                      type="checkbox"
-                      checked={suggestCols.seasonal}
-                      onChange={() => setSuggestCols(p => ({ ...p, seasonal: !p.seasonal }))}
-                    />
-                    Seasonal
-                  </label>
-                </div>
-              )}
-            </div>
-          </div>
+          <button className={styles.collapseToggle} onClick={() => setSuggestOpen(p => !p)}>
+            <span className={`${styles.collapseArrow}${suggestOpen ? ` ${styles.collapseArrowOpen}` : ''}`}>&#9660;</span>
+            <h3 className={styles.suggestHeading}>Suggested Meals</h3>
+          </button>
           {suggestOpen && <div className={styles.suggestColumns}>
+            {suggestions.breakfasts.length > 0 && (
               <div className={styles.suggestColumn}>
                 <span className={styles.suggestCategoryLabel}>Breakfast</span>
-                {suggestions.breakfasts.length > 0 ? (
                 <table className={styles.suggestTable}>
                   <thead>
                     <tr>
                       <th>Meal</th>
                       <th>Days Since</th>
-                      {suggestCols.overdue && <th>Overdue Ingredients</th>}
-                      {suggestCols.seasonal && <th>Seasonal</th>}
+                      <th>Overdue Ingredients</th>
+                      <th>Seasonal</th>
                       <th></th>
                     </tr>
                   </thead>
                   <tbody>
-                    {(() => {
-                      const regular = suggestions.breakfasts.map(s => ({ ...s, _type: 'regular' }));
-                      const ai = aiMeals.filter(m => m.category === 'breakfast').map((m, i) => ({ _type: 'ai', _ai: m, _aiIdx: i }));
-                      // Insert AI meals at stable evenly-spaced positions
-                      const merged = [...regular];
-                      for (let i = 0; i < ai.length; i++) {
-                        const pos = Math.min(merged.length, Math.round((i + 1) * (regular.length + 1) / (ai.length + 1)));
-                        merged.splice(pos + i, 0, ai[i]);
-                      }
-                      return merged.map((item, idx) => {
-                        if (item._type === 'ai') {
-                          const m = item._ai;
-                          return (
-                            <tr key={`ai-b-${item._aiIdx}`} className={styles.aiSuggestRow}>
-                              <td>
-                                <button className={styles.suggestName} style={{ color: '#7C3AED' }} onClick={() => setAiPreview({ ...m, _category: 'breakfast' })}>
-                                  ✨ {m.title}
-                                </button>
-                              </td>
-                              <td className={styles.suggestDays} style={{ color: '#7C3AED' }}>AI</td>
-                              {suggestCols.overdue && <td>—</td>}
-                              {suggestCols.seasonal && <td>—</td>}
-                              <td style={{ display: 'flex', gap: '0.25rem', alignItems: 'center' }}>
-                                <button className={styles.aiSuggestAddBtn} onClick={() => {
-                                  const id = crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36);
-                                  onAddRecipe({ id, title: m.title, category: 'breakfast', frequency: 'common', mealType: '', servings: m.servings || 2, prepTime: m.prepTime || '', cookTime: m.cookTime || '', sourceUrl: '', ingredients: m.ingredients || [], instructions: m.instructions || '', createdAt: new Date().toISOString(), source: 'discover', cuisine: m.cuisine || '' });
-                                  handleAddToWeekWithPulse(id);
-                                  setAiMeals(prev => prev.filter(p => p.title !== m.title));
-                                }}>+</button>
-                                <button className={styles.aiSkipBtn} onClick={() => skipAiMeal(m)} disabled={!!aiSkipping} title="Skip this suggestion">×</button>
-                              </td>
-                            </tr>
-                          );
-                        }
-                        const { recipe, recipeDays, neglectedIngredients, seasonalMatches } = item;
-                        return (
-                          <tr key={recipe.id} className={seasonalMatches.length > 0 ? styles.seasonalRow : ''} draggable onDragStart={e => e.dataTransfer.setData('text/plain', recipe.id)} style={{ cursor: 'grab' }}>
-                            <td><button className={styles.suggestName} onClick={() => onSelect(recipe.id)}>{recipe.title}</button></td>
-                            <td className={styles.suggestDays}>{recipeDays === 9999 ? 'Never' : recipeDays}</td>
-                            {suggestCols.overdue && <td className={styles.suggestOverdue}>{neglectedIngredients.length > 0 ? neglectedIngredients.slice(0, 3).join(', ') : '—'}</td>}
-                            {suggestCols.seasonal && <td className={styles.suggestSeasonal}>{seasonalMatches.length > 0 ? seasonalMatches.slice(0, 3).join(', ') : '—'}</td>}
-                            <td><button className={styles.suggestAddBtn} onClick={() => handleAddToWeekWithPulse(recipe.id)} aria-label={`Add ${recipe.title} to this week`}>+</button></td>
-                          </tr>
-                        );
-                      });
-                    })()}
-                    {aiSkipping === 'breakfast' && (
-                      <tr className={styles.aiSuggestRow}>
-                        <td colSpan={2 + (suggestCols.overdue ? 1 : 0) + (suggestCols.seasonal ? 1 : 0) + 1}>
-                          <span style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.25rem 0', color: '#7C3AED', fontSize: 'var(--font-size-sm)', fontWeight: 500 }}>
-                            <span className={styles.aiLoadingDot}>●</span> Finding another suggestion...
-                          </span>
+                    {suggestions.breakfasts.map(({ recipe, recipeDays, neglectedIngredients, seasonalMatches }) => (
+                      <tr
+                        key={recipe.id}
+                        draggable
+                        onDragStart={e => e.dataTransfer.setData('text/plain', recipe.id)}
+                        style={{ cursor: 'grab' }}
+                      >
+                        <td>
+                          <button
+                            className={styles.suggestName}
+                            onClick={() => onSelect(recipe.id)}
+                          >
+                            {recipe.title}
+                          </button>
+                        </td>
+                        <td className={styles.suggestDays}>
+                          {recipeDays === 9999 ? 'Never' : recipeDays}
+                        </td>
+                        <td className={styles.suggestOverdue}>
+                          {neglectedIngredients.length > 0
+                            ? neglectedIngredients.slice(0, 3).join(', ')
+                            : '—'}
+                        </td>
+                        <td className={styles.suggestSeasonal}>
+                          {seasonalMatches.length > 0
+                            ? seasonalMatches.slice(0, 3).join(', ')
+                            : '—'}
+                        </td>
+                        <td>
+                          <button
+                            className={styles.suggestAddBtn}
+                            onClick={() => handleAddToWeekWithPulse(recipe.id)}
+                            aria-label={`Add ${recipe.title} to this week`}
+                          >
+                            +
+                          </button>
                         </td>
                       </tr>
-                    )}
+                    ))}
                   </tbody>
                 </table>
-                ) : (
-                  <p className={styles.suggestEmpty}>Add breakfast recipes to see suggestions here.</p>
-                )}
               </div>
+            )}
+            {suggestions.lunches.length > 0 && (
               <div className={styles.suggestColumn}>
                 <span className={styles.suggestCategoryLabel}>Lunch & Dinner</span>
-                {suggestions.lunches.length > 0 ? (
                 <table className={styles.suggestTable}>
                   <thead>
                     <tr>
                       <th>Meal</th>
                       <th>Days Since</th>
-                      {suggestCols.overdue && <th>Overdue Ingredients</th>}
-                      {suggestCols.seasonal && <th>Seasonal</th>}
+                      <th>Overdue Ingredients</th>
+                      <th>Seasonal</th>
                       <th></th>
                     </tr>
                   </thead>
                   <tbody>
-                    {(() => {
-                      const regular = suggestions.lunches.map(s => ({ ...s, _type: 'regular' }));
-                      const ai = aiMeals.filter(m => m.category !== 'breakfast').map((m, i) => ({ _type: 'ai', _ai: m, _aiIdx: i }));
-                      const merged = [...regular];
-                      for (const a of ai) {
-                        const pos = Math.floor(Math.random() * (merged.length + 1));
-                        merged.splice(pos, 0, a);
-                      }
-                      return merged.map((item, idx) => {
-                        if (item._type === 'ai') {
-                          const m = item._ai;
-                          return (
-                            <tr key={`ai-l-${item._aiIdx}`} className={styles.aiSuggestRow}>
-                              <td>
-                                <button className={styles.suggestName} style={{ color: '#7C3AED' }} onClick={() => setAiPreview({ ...m, _category: m.category || 'lunch-dinner' })}>
-                                  ✨ {m.title}
-                                </button>
-                              </td>
-                              <td className={styles.suggestDays} style={{ color: '#7C3AED' }}>AI</td>
-                              {suggestCols.overdue && <td>—</td>}
-                              {suggestCols.seasonal && <td>—</td>}
-                              <td style={{ display: 'flex', gap: '0.25rem', alignItems: 'center' }}>
-                                <button className={styles.aiSuggestAddBtn} onClick={() => {
-                                  const id = crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36);
-                                  onAddRecipe({ id, title: m.title, category: m.category || 'lunch-dinner', frequency: 'common', mealType: '', servings: m.servings || 2, prepTime: m.prepTime || '', cookTime: m.cookTime || '', sourceUrl: '', ingredients: m.ingredients || [], instructions: m.instructions || '', createdAt: new Date().toISOString(), source: 'discover', cuisine: m.cuisine || '' });
-                                  handleAddToWeekWithPulse(id);
-                                  setAiMeals(prev => prev.filter(p => p.title !== m.title));
-                                }}>+</button>
-                                <button className={styles.aiSkipBtn} onClick={() => skipAiMeal(m)} disabled={!!aiSkipping} title="Skip this suggestion">×</button>
-                              </td>
-                            </tr>
-                          );
-                        }
-                        const { recipe, recipeDays, neglectedIngredients, seasonalMatches } = item;
-                        return (
-                          <tr key={recipe.id} className={seasonalMatches.length > 0 ? styles.seasonalRow : ''} draggable onDragStart={e => e.dataTransfer.setData('text/plain', recipe.id)} style={{ cursor: 'grab' }}>
-                            <td><button className={styles.suggestName} onClick={() => onSelect(recipe.id)}>{recipe.title}</button></td>
-                            <td className={styles.suggestDays}>{recipeDays === 9999 ? 'Never' : recipeDays}</td>
-                            {suggestCols.overdue && <td className={styles.suggestOverdue}>{neglectedIngredients.length > 0 ? neglectedIngredients.slice(0, 3).join(', ') : '—'}</td>}
-                            {suggestCols.seasonal && <td className={styles.suggestSeasonal}>{seasonalMatches.length > 0 ? seasonalMatches.slice(0, 3).join(', ') : '—'}</td>}
-                            <td><button className={styles.suggestAddBtn} onClick={() => handleAddToWeekWithPulse(recipe.id)} aria-label={`Add ${recipe.title} to this week`}>+</button></td>
-                          </tr>
-                        );
-                      });
-                    })()}
-                    {aiSkipping && aiSkipping !== 'breakfast' && (
-                      <tr className={styles.aiSuggestRow}>
-                        <td colSpan={2 + (suggestCols.overdue ? 1 : 0) + (suggestCols.seasonal ? 1 : 0) + 1}>
-                          <span style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.25rem 0', color: '#7C3AED', fontSize: 'var(--font-size-sm)', fontWeight: 500 }}>
-                            <span className={styles.aiLoadingDot}>●</span> Finding another suggestion...
-                          </span>
+                    {suggestions.lunches.map(({ recipe, recipeDays, neglectedIngredients, seasonalMatches }) => (
+                      <tr
+                        key={recipe.id}
+                        draggable
+                        onDragStart={e => e.dataTransfer.setData('text/plain', recipe.id)}
+                        style={{ cursor: 'grab' }}
+                      >
+                        <td>
+                          <button
+                            className={styles.suggestName}
+                            onClick={() => onSelect(recipe.id)}
+                          >
+                            {recipe.title}
+                          </button>
+                        </td>
+                        <td className={styles.suggestDays}>
+                          {recipeDays === 9999 ? 'Never' : recipeDays}
+                        </td>
+                        <td className={styles.suggestOverdue}>
+                          {neglectedIngredients.length > 0
+                            ? neglectedIngredients.slice(0, 3).join(', ')
+                            : '—'}
+                        </td>
+                        <td className={styles.suggestSeasonal}>
+                          {seasonalMatches.length > 0
+                            ? seasonalMatches.slice(0, 3).join(', ')
+                            : '—'}
+                        </td>
+                        <td>
+                          <button
+                            className={styles.suggestAddBtn}
+                            onClick={() => handleAddToWeekWithPulse(recipe.id)}
+                            aria-label={`Add ${recipe.title} to this week`}
+                          >
+                            +
+                          </button>
                         </td>
                       </tr>
-                    )}
+                    ))}
                   </tbody>
                 </table>
-                ) : (
-                  <p className={styles.suggestEmpty}>Add lunch & dinner recipes to see suggestions here.</p>
-                )}
               </div>
+            )}
           </div>}
         </div>
+      )}
 
+      {/* Discover Recipes — collapsible panel */}
+      <div className={styles.discoverPanel}>
+        <div className={styles.discoverToggleWrap}>
+          <button
+            className={styles.discoverToggle}
+            onClick={() => setDiscoverOpen(prev => !prev)}
+            aria-expanded={discoverOpen}
+          >
+            <span className={`${styles.discoverArrow}${discoverOpen ? ` ${styles.discoverArrowOpen}` : ''}`}>▼</span>
+            Discover Meals
+          </button>
+        </div>
+        {discoverOpen && (
+          <div className={styles.discoverContent}>
+            <div className={styles.addRecipeBox}>
+              <div className={styles.discoverSourceRow}>
+                <select
+                  className={styles.discoverSourceSelect}
+                  value={selectedFriend || 'prepday'}
+                  onChange={e => {
+                    const val = e.target.value;
+                    setSelectedFriend(val === 'prepday' ? '' : val);
+                    setImportSearch('');
+                  }}
+                >
+                  <option value="prepday">Prep Day Recipes</option>
+                  <option value="shared">Shared with Me{pendingShares.length > 0 ? ` (${pendingShares.length} new)` : ''}</option>
+                  {friendsWithAccess.map(f => (
+                    <option key={f.uid} value={f.uid}>
+                      @{f.username || f.displayName}'s Recipes
+                    </option>
+                  ))}
+                </select>
+                <input
+                  className={styles.addRecipeInput}
+                  type="text"
+                  placeholder="Search..."
+                  value={importSearch}
+                  onChange={e => setImportSearch(e.target.value)}
+                />
+              </div>
+              <div className={styles.importList}>
+                {selectedFriend === 'shared' ? (
+                  // Shared with me: pending + already accepted
+                  (() => {
+                    const acceptedShared = recipes.filter(r => r.source === 'shared');
+                    const filteredAccepted = importSearch.trim()
+                      ? acceptedShared.filter(r => r.title.toLowerCase().includes(importSearch.toLowerCase()))
+                      : acceptedShared;
+                    const filteredPending = importSearch.trim()
+                      ? pendingShares.filter(s => (s.recipe?.title || '').toLowerCase().includes(importSearch.toLowerCase()))
+                      : pendingShares;
+                    const hasAnything = filteredPending.length > 0 || filteredAccepted.length > 0;
+
+                    return !hasAnything ? (
+                      <p className={styles.importEmpty}>No shared recipes.</p>
+                    ) : (
+                      <>
+                        {filteredPending.length > 0 && (
+                          <>
+                            <p className={styles.importSectionLabel}>New</p>
+                            {filteredPending.map(share => (
+                              <div key={share.id} className={styles.importItem}>
+                                <div className={styles.importInfo}>
+                                  <span className={styles.importName}>{share.recipe?.title || 'Untitled'}</span>
+                                  <span className={styles.importMeta}>from @{share.fromUsername}</span>
+                                </div>
+                                <div style={{ display: 'flex', gap: '0.3rem' }}>
+                                  <button
+                                    className={styles.importAddBtn}
+                                    onClick={async () => {
+                                      if (onAddRecipe && share.recipe) {
+                                        const { id, ...rest } = share.recipe;
+                                        onAddRecipe({ ...rest, source: 'shared' });
+                                      }
+                                      const { acceptSharedRecipe } = await import('../utils/firestoreSync');
+                                      await acceptSharedRecipe(share.id);
+                                      setPendingShares(prev => prev.filter(s => s.id !== share.id));
+                                    }}
+                                    title="Accept"
+                                  >+</button>
+                                  <button
+                                    className={styles.importAddBtnDisabled}
+                                    onClick={async () => {
+                                      const { declineSharedRecipe } = await import('../utils/firestoreSync');
+                                      await declineSharedRecipe(share.id);
+                                      setPendingShares(prev => prev.filter(s => s.id !== share.id));
+                                    }}
+                                    title="Decline"
+                                  >&times;</button>
+                                </div>
+                              </div>
+                            ))}
+                          </>
+                        )}
+                        {filteredAccepted.length > 0 && (
+                          <>
+                            {filteredPending.length > 0 && <p className={styles.importSectionLabel}>Added</p>}
+                            {filteredAccepted.map(r => (
+                              <div key={r.id} className={styles.importItem}>
+                                <div className={styles.importInfo}>
+                                  <span className={styles.importName}>{r.title}</span>
+                                  <span className={styles.importMeta}>
+                                    {r.category === 'breakfast' ? 'Breakfast' : 'Lunch/Dinner'}
+                                  </span>
+                                </div>
+                                <span className={styles.importAddBtnDisabled}>✓</span>
+                              </div>
+                            ))}
+                          </>
+                        )}
+                      </>
+                    );
+                  })()
+                ) : selectedFriend ? (
+                  // Friend's recipes
+                  friendRecipesLoading ? (
+                    <p className={styles.importEmpty}>Loading...</p>
+                  ) : (() => {
+                    const filtered = importSearch.trim()
+                      ? friendRecipes.filter(r => r.title.toLowerCase().includes(importSearch.toLowerCase()))
+                      : friendRecipes;
+                    return filtered.length === 0 ? (
+                      <p className={styles.importEmpty}>{importSearch.trim() ? 'No matches' : 'No recipes shared.'}</p>
+                    ) : (
+                      filtered.slice(0, 15).map((recipe, i) => (
+                        <div key={recipe.id || i} className={styles.importItem}>
+                          <div className={styles.importInfo}>
+                            <span className={styles.importName}>{recipe.title}</span>
+                            <span className={styles.importMeta}>
+                              {recipe.category === 'breakfast' ? 'Breakfast' : 'Lunch/Dinner'}
+                            </span>
+                          </div>
+                          <button
+                            className={recipe.alreadyHave ? styles.importAddBtnDisabled : styles.importAddBtn}
+                            disabled={recipe.alreadyHave}
+                            onClick={() => {
+                              if (onAddRecipe) {
+                                const { id, alreadyHave, ...rest } = recipe;
+                                onAddRecipe({ ...rest, source: 'shared' });
+                                setFriendRecipes(prev => prev.map(r => r === recipe ? { ...r, alreadyHave: true } : r));
+                              }
+                            }}
+                          >
+                            {recipe.alreadyHave ? '✓' : '+'}
+                          </button>
+                        </div>
+                      ))
+                    );
+                  })()
+                ) : (
+                  // Prep Day recipes
+                  <>
+                    {discoverSelected.size > 0 && (
+                      <div className={styles.discoverBulkRow}>
+                        <span className={styles.discoverBulkCount}>{discoverSelected.size} selected</span>
+                        <button className={styles.discoverBulkBtn} onClick={handleAddDiscoverSelected}>
+                          Add {discoverSelected.size} Recipe{discoverSelected.size > 1 ? 's' : ''}
+                        </button>
+                      </div>
+                    )}
+                    {importableRecipes.slice(0, 20).map(recipe => (
+                      <div key={recipe.id} className={`${styles.importItem} ${recipe.alreadyOwned ? styles.importItemOwned : ''} ${discoverSelected.has(recipe.title) ? styles.importItemSelected : ''}`}>
+                        {!recipe.alreadyOwned && (
+                          <input
+                            type="checkbox"
+                            checked={discoverSelected.has(recipe.title)}
+                            onChange={() => toggleDiscoverSelect(recipe.title)}
+                            className={styles.discoverCheck}
+                          />
+                        )}
+                        <div className={styles.importInfo} onClick={() => !recipe.alreadyOwned && toggleDiscoverSelect(recipe.title)} style={{ cursor: recipe.alreadyOwned ? 'default' : 'pointer' }}>
+                          <span className={styles.importName}>{recipe.title}</span>
+                        </div>
+                        {recipe.alreadyOwned ? (
+                          <span className={styles.importOwnedLabel}>Added</span>
+                        ) : (
+                          <button
+                            className={styles.importAddBtn}
+                            onClick={() => handleAddDiscover(recipe)}
+                            aria-label={`Add ${recipe.title} to My Recipes`}
+                          >
+                            +
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                    {adminRecipes && importableRecipes.length === 0 && (
+                      <p className={styles.importEmpty}>
+                        {importSearch.trim() ? 'No matches' : 'All imported'}
+                      </p>
+                    )}
+                    {!adminRecipes && (
+                      <p className={styles.importEmpty}>Loading...</p>
+                    )}
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
       </div>
 
-      </div>
       {/* 4. My Recipes heading + Search + Filter Row */}
-      <div data-widget="myRecipes" className={styles.myRecipesWidget}><div className={styles.sectionHeader}>
+      <div className={styles.sectionHeader}>
         <button className={styles.collapseToggle} onClick={() => setMyRecipesOpen(p => !p)}>
           <span className={`${styles.collapseArrow}${myRecipesOpen ? ` ${styles.collapseArrowOpen}` : ''}`}>&#9660;</span>
           <h3 className={styles.sectionHeading}>My Recipes</h3>
@@ -1770,6 +1389,15 @@ export function RecipeList({
         <p className={styles.importResult}>{importResult}</p>
       )}
       {myRecipesOpen && <>
+      <div className={styles.searchRow}>
+        <input
+          className={styles.searchInput}
+          type="text"
+          placeholder="Search recipes..."
+          value={searchQuery}
+          onChange={e => setSearchQuery(e.target.value)}
+        />
+      </div>
       {/* Shopping List (from + selections) */}
       {shopItems.length > 0 && (
         <ShopPreview
@@ -1782,240 +1410,128 @@ export function RecipeList({
         />
       )}
 
-      {/* Hidden categories bar */}
-      {hiddenCategories.size > 0 && (
-        <div className={styles.hiddenCatBar}>
-          {[...hiddenCategories].map(key => {
-            const label = CATEGORIES.find(c => c.key === key)?.label || key;
-            return <button key={key} className={styles.showCatBtn} onClick={() => toggleCategory(key)}>+ Show {label}</button>;
-          })}
-        </div>
-      )}
-
-      {/* 5. Recipe Category Columns — unified draggable */}
-      {manageMode && manageSelected.size > 0 && (
-        <div className={styles.shareBulkBar}>
-          <span className={styles.shareBulkCount}>{manageSelected.size} recipe{manageSelected.size !== 1 ? 's' : ''} selected</span>
-          <div className={styles.manageActions}>
-            <button className={styles.manageActionBtn} style={{ borderColor: 'var(--color-danger)', color: 'var(--color-danger)' }} onClick={() => { if (!confirm(`Delete ${manageSelected.size} recipe${manageSelected.size !== 1 ? 's' : ''}?`)) return; for (const id of manageSelected) onDelete(id); setManageSelected(new Set()); setManageStatus(`Deleted`); setTimeout(() => setManageStatus(''), 3000); }}>Delete</button>
-            {manageFriends && manageFriends.length > 0 && (
-              <div className={styles.shareBulkFriends}>
-                <span style={{ fontSize: '0.82rem', fontWeight: 600 }}>Share with:</span>
-                {manageFriends.map(f => (
-                  <button key={f.uid} className={styles.shareBulkFriendBtn} onClick={async () => { setManageStatus('Sharing...'); try { const myUsername = await getUsername(user.uid); for (const recipeId of manageSelected) { const recipe = recipes.find(r => r.id === recipeId); if (recipe) { const { id, createdAt, ...rest } = recipe; await shareRecipe(user.uid, f.uid, myUsername || user.displayName, rest); } } setManageStatus(`Shared!`); setTimeout(() => setManageStatus(''), 3000); } catch { setManageStatus('Failed'); setTimeout(() => setManageStatus(''), 3000); } }}>@{f.username || f.displayName}</button>
+      {/* 5. Recipe Category Columns */}
+      <div className={styles.columns}>
+        {MAIN_CATS.map(cat => (
+          <div
+            key={cat.key}
+            id={`cat-${cat.key}`}
+            className={`${styles.column} ${dragOverTarget === cat.key ? styles.columnDragOver : ''}`}
+            onDragOver={handleColumnDragOver}
+            onDrop={e => handleColumnDrop(e, cat.key)}
+            onDragEnter={() => handleDragEnter(cat.key)}
+            onDragLeave={e => handleDragLeave(e, cat.key)}
+            role="region"
+            aria-label={cat.label}
+          >
+            <h3 className={styles.columnHeading}>{cat.label}</h3>
+            {grouped[cat.key].length === 0 ? (
+              <p className={styles.columnEmpty}>Drop recipes here</p>
+            ) : (
+              <div className={styles.list}>
+                {grouped[cat.key].map(recipe => (
+                  <RecipeCard
+                    key={recipe.id}
+                    recipe={recipe}
+                    onClick={onSelect}
+                    draggable={!editMode}
+                    onAdd={editMode ? undefined : handleAddToWeekWithPulse}
+                    editMode={editMode}
+                    onDelete={onDelete}
+                    showTags={false}
+                  />
                 ))}
               </div>
             )}
-            {!showCookbookInput ? (
-              <button className={styles.manageActionBtn} onClick={() => setShowCookbookInput(true)}>+ Cookbook</button>
-            ) : (
-              <div style={{ display: 'flex', gap: '0.3rem', alignItems: 'center' }}>
-                <input className={styles.cookbookInput} type="text" value={cookbookName} onChange={e => setCookbookName(e.target.value)} placeholder="Cookbook name" autoFocus onKeyDown={e => { if (e.key === 'Enter' && cookbookName.trim()) { const tag = cookbookName.trim(); for (const id of manageSelected) { const recipe = recipes.find(r => r.id === id); if (recipe) { const existing = recipe.customTags || []; if (!existing.includes(tag)) onUpdateRecipe(recipe.id, { customTags: [...existing, tag] }); } } setManageStatus(`Added to "${tag}"`); setCookbookName(''); setShowCookbookInput(false); setTimeout(() => setManageStatus(''), 3000); } if (e.key === 'Escape') setShowCookbookInput(false); }} />
-                <button className={styles.manageActionBtn} onClick={() => { const tag = cookbookName.trim(); if (!tag) return; for (const id of manageSelected) { const recipe = recipes.find(r => r.id === id); if (recipe) { const existing = recipe.customTags || []; if (!existing.includes(tag)) onUpdateRecipe(recipe.id, { customTags: [...existing, tag] }); } } setManageStatus(`Added to "${tag}"`); setCookbookName(''); setShowCookbookInput(false); setTimeout(() => setManageStatus(''), 3000); }}>Add</button>
+          </div>
+        ))}
+        <div
+          id="cat-lunch-dinner"
+          className={`${styles.column} ${styles.wideColumn} ${dragOverTarget === 'lunch-dinner' ? styles.columnDragOver : ''}`}
+          onDragOver={handleColumnDragOver}
+          onDrop={e => handleColumnDrop(e, 'lunch-dinner')}
+          onDragEnter={() => handleDragEnter('lunch-dinner')}
+          onDragLeave={e => handleDragLeave(e, 'lunch-dinner')}
+          role="region"
+          aria-label="Lunch & Dinner"
+        >
+          <h3 className={styles.columnHeading}>Lunch & Dinner</h3>
+          {grouped['lunch-dinner'].length === 0 ? (
+            <p className={styles.columnEmpty}>Drop recipes here</p>
+          ) : (
+            <div className={styles.list}>
+              {grouped['lunch-dinner'].map(recipe => (
+                <RecipeCard
+                  key={recipe.id}
+                  recipe={recipe}
+                  onClick={onSelect}
+                  draggable={!editMode}
+                  onAdd={editMode ? undefined : handleAddToWeekWithPulse}
+                  editMode={editMode}
+                  onDelete={onDelete}
+                  showTags={false}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+        <div className={styles.rightCol}>
+          <div className={styles.addBtnWrap}>
+            <button className={`${styles.addBtn} ${showAddTip ? styles.addBtnHighlight : ''}`} onClick={() => { onAdd(); setShowAddTip(false); }} style={{ width: '100%' }}>
+              + Recipe
+            </button>
+            {showAddTip && (
+              <div className={styles.addBtnTipPopup}>
+                <button className={styles.addBtnTipClose} onClick={() => setShowAddTip(false)}>&times;</button>
+                <strong>Start here!</strong> Import recipes from websites, social media, or let AI create them for you.
               </div>
             )}
-            <button className={styles.manageActionBtn} onClick={async () => { const toGenerate = [...manageSelected].map(id => recipes.find(r => r.id === id)).filter(r => r && !getCachedMealImage(r.id)); if (toGenerate.length === 0) { setManageStatus('All have images'); setTimeout(() => setManageStatus(''), 3000); return; } setManageStatus(`Generating...`); let done = 0; for (const recipe of toGenerate) { try { await generateMealImage(recipe.id, recipe.title, recipe.ingredients, user?.uid); done++; setManageStatus(`${done}/${toGenerate.length}...`); } catch {} } setManageStatus(`Generated ${done}`); setTimeout(() => setManageStatus(''), 4000); }}>Generate Images</button>
           </div>
-          {manageStatus && <span style={{ fontSize: '0.82rem', fontWeight: 600, color: 'var(--color-success)' }}>{manageStatus}</span>}
-        </div>
-      )}
-      <div ref={columnsRef} className={styles.gridContainer}>
-          <GridLayout
-            className={styles.catGrid}
-            layout={visibleLayout}
-            cols={12}
-            rowHeight={10}
-            isDraggable
-            isResizable
-            resizeHandles={['se', 'e', 'w', 's', 'n']}
-            onLayoutChange={handleCatLayoutChange}
-            draggableHandle={`.${styles.columnHeadingRow}`}
-            compactType="vertical"
-            margin={[8, 8]}
+          <button
+            className={`${styles.importBtn}${editMode ? ` ${styles.editBtnActive}` : ''}`}
+            onClick={() => setEditMode(prev => !prev)}
+            style={{ width: '100%' }}
           >
-            {visibleCats.map(catKey => {
-              const cat = CATEGORIES.find(c => c.key === catKey);
-              if (!cat) return null;
-              return (
-                <div key={catKey} className={styles.column} data-grid-id={catKey}>
-                  <div className={styles.columnHeadingRow}>
-                    <h3 className={styles.columnHeading}>{cat.label}</h3>
-                    <div className={styles.columnControls}>
-                      <span className={styles.columnDragIcon}>⋮⋮</span>
-                      <button className={styles.columnHideBtn} onMouseDown={e => e.stopPropagation()} onClick={e => { e.stopPropagation(); toggleCategory(catKey); }} title={`Hide ${cat.label}`}>✕</button>
-                    </div>
-                  </div>
-                  <div className={styles.columnBody}>
-                    {(grouped[catKey] || []).length === 0 ? (
-                      <p className={styles.columnEmpty}>Drop recipes here</p>
-                    ) : (
-                      <div className={styles.list}>
-                        {(grouped[catKey] || []).map(recipe => (
-                          <div key={recipe.id} className={shareMode ? styles.shareCardWrap : undefined}>
-                            {shareMode && (
-                              <input type="checkbox" className={styles.shareCheck} checked={shareSelected.has(recipe.id)}
-                                onChange={() => setShareSelected(prev => { const next = new Set(prev); if (next.has(recipe.id)) next.delete(recipe.id); else next.add(recipe.id); return next; })} />
-                            )}
-                            <RecipeCard
-                              recipe={recipe}
-                              onClick={shareMode ? () => setShareSelected(prev => { const next = new Set(prev); if (next.has(recipe.id)) next.delete(recipe.id); else next.add(recipe.id); return next; }) : onSelect}
-                              draggable={!editMode && !shareMode}
-                              onAdd={editMode || shareMode ? undefined : handleAddToWeekWithPulse}
-                              editMode={editMode}
-                              onDelete={onDelete}
-                              showTags={false}
-                            />
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
+            {editMode ? 'Done' : 'Remove Recipes'}
+          </button>
+          <div className={styles.stackedCol}>
+          {SIDE_CATS.map(cat => (
+            <div
+              key={cat.key}
+              id={`cat-${cat.key}`}
+              className={`${styles.column} ${dragOverTarget === cat.key ? styles.columnDragOver : ''}`}
+              onDragOver={handleColumnDragOver}
+              onDrop={e => handleColumnDrop(e, cat.key)}
+              onDragEnter={() => handleDragEnter(cat.key)}
+              onDragLeave={e => handleDragLeave(e, cat.key)}
+              role="region"
+              aria-label={cat.label}
+            >
+              <h3 className={styles.columnHeading}>{cat.label}</h3>
+              {grouped[cat.key].length === 0 ? (
+                <p className={styles.columnEmpty}>Drop recipes here</p>
+              ) : (
+                <div className={styles.list}>
+                  {grouped[cat.key].map(recipe => (
+                    <RecipeCard
+                      key={recipe.id}
+                      recipe={recipe}
+                      onClick={onSelect}
+                      draggable={!editMode}
+                      onAdd={editMode ? undefined : handleAddToWeekWithPulse}
+                      editMode={editMode}
+                      onDelete={onDelete}
+                      showTags={false}
+                    />
+                  ))}
                 </div>
-              );
-            })}
-            {customGridWidgets.map(cw => {
-              const tagName = cw.label.toLowerCase();
-              const taggedRecipes = visible.filter(r =>
-                (r.customTags || []).some(t => t.toLowerCase() === tagName)
-              ).sort((a, b) => a.title.localeCompare(b.title));
-              return (
-                <div key={cw.id} className={styles.column}>
-                  <div className={styles.columnHeadingRow}>
-                    {renamingWidgetId === cw.id ? (
-                      <input
-                        className={styles.widgetRenameInput}
-                        value={renameValue}
-                        onChange={e => setRenameValue(e.target.value)}
-                        onBlur={() => { if (renameValue.trim()) renameGridWidget(cw.id, renameValue.trim()); setRenamingWidgetId(null); }}
-                        onKeyDown={e => { if (e.key === 'Enter') { if (renameValue.trim()) renameGridWidget(cw.id, renameValue.trim()); setRenamingWidgetId(null); } if (e.key === 'Escape') setRenamingWidgetId(null); }}
-                        onMouseDown={e => e.stopPropagation()}
-                        autoFocus
-                      />
-                    ) : (
-                      <h3 className={styles.columnHeading} onDoubleClick={e => { e.stopPropagation(); setRenamingWidgetId(cw.id); setRenameValue(cw.label); }}>{cw.label}</h3>
-                    )}
-                    <div className={styles.columnControls}>
-                      <button className={styles.widgetEditBtn} onMouseDown={e => e.stopPropagation()} onClick={e => { e.stopPropagation(); setRenamingWidgetId(cw.id); setRenameValue(cw.label); }} title="Rename">&#9998;</button>
-                      <span className={styles.columnDragIcon}>⋮⋮</span>
-                      <button className={styles.columnHideBtn} onMouseDown={e => e.stopPropagation()} onClick={e => { e.stopPropagation(); if (confirm(`Delete "${cw.label}"?`)) removeGridWidget(cw.id); }} title={`Delete ${cw.label}`}>✕</button>
-                    </div>
-                  </div>
-                  <div className={styles.columnBody}>
-                    {taggedRecipes.length === 0 ? (
-                      <p className={styles.columnEmpty}>Tag recipes with "{cw.label}" to see them here</p>
-                    ) : (
-                      <div className={styles.list}>
-                        {taggedRecipes.map(recipe => (
-                          <div key={recipe.id} className={shareMode ? styles.shareCardWrap : undefined}>
-                            {shareMode && (
-                              <input type="checkbox" className={styles.shareCheck} checked={shareSelected.has(recipe.id)}
-                                onChange={() => setShareSelected(prev => { const next = new Set(prev); if (next.has(recipe.id)) next.delete(recipe.id); else next.add(recipe.id); return next; })} />
-                            )}
-                            <RecipeCard
-                              recipe={recipe}
-                              onClick={shareMode ? () => setShareSelected(prev => { const next = new Set(prev); if (next.has(recipe.id)) next.delete(recipe.id); else next.add(recipe.id); return next; }) : onSelect}
-                              draggable={!editMode && !shareMode}
-                              onAdd={editMode || shareMode ? undefined : handleAddToWeekWithPulse}
-                              editMode={editMode}
-                              onDelete={onDelete}
-                              showTags={false}
-                            />
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-          </GridLayout>
-      </div>
-      <div className={styles.addGridWidgetRow}>
-        {!addingGridWidget ? (
-          <button className={styles.addGridWidgetBtn} onClick={() => setAddingGridWidget(true)}>+ Add Widget</button>
-        ) : (
-          <div className={styles.addGridWidgetForm}>
-            <input
-              className={styles.addGridWidgetInput}
-              type="text"
-              placeholder="Widget name..."
-              value={newGridWidgetName}
-              onChange={e => setNewGridWidgetName(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter') addGridWidget(); if (e.key === 'Escape') setAddingGridWidget(false); }}
-              autoFocus
-            />
-            <button className={styles.addGridWidgetSave} onClick={addGridWidget}>Add</button>
-            <button className={styles.addGridWidgetCancel} onClick={() => { setAddingGridWidget(false); setNewGridWidgetName(''); }}>Cancel</button>
+              )}
+            </div>
+          ))}
           </div>
-        )}
+        </div>
       </div>
       </>}
-      </div>
-      </WidgetLayout>
-
-      {/* AI Recipe Preview Modal */}
-      {aiPreview && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }} onClick={() => setAiPreview(null)}>
-          <div style={{ background: 'var(--color-surface)', borderRadius: '16px', maxWidth: '600px', width: '100%', maxHeight: '85vh', overflowY: 'auto', boxShadow: '0 8px 32px rgba(0,0,0,0.2)', padding: '1.5rem' }} onClick={e => e.stopPropagation()}>
-            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
-              <div>
-                <h2 style={{ margin: 0, fontSize: '1.3rem', fontWeight: 700, color: 'var(--color-text)' }}>✨ {aiPreview.title}</h2>
-                {aiPreview.cuisine && <span style={{ fontSize: '0.78rem', fontWeight: 600, color: '#7C3AED', background: '#EDE9FE', padding: '2px 8px', borderRadius: '999px', marginTop: '0.25rem', display: 'inline-block' }}>{aiPreview.cuisine}</span>}
-              </div>
-              <button onClick={() => setAiPreview(null)} style={{ background: 'none', border: 'none', fontSize: '1.3rem', color: 'var(--color-text-muted)', cursor: 'pointer' }}>×</button>
-            </div>
-
-            {aiPreview.description && <p style={{ fontSize: '0.9rem', color: 'var(--color-text-secondary)', margin: '0.5rem 0 1rem', lineHeight: 1.5 }}>{aiPreview.description}</p>}
-
-            <div style={{ display: 'flex', gap: '1rem', marginBottom: '1rem', fontSize: '0.82rem', color: 'var(--color-text-muted)' }}>
-              {aiPreview.servings && <span>🍽 {aiPreview.servings} servings</span>}
-              {aiPreview.prepTime && <span>⏱ Prep: {aiPreview.prepTime}</span>}
-              {aiPreview.cookTime && <span>🔥 Cook: {aiPreview.cookTime}</span>}
-            </div>
-
-            {(aiPreview.ingredients || []).length > 0 && (
-              <div style={{ marginBottom: '1rem' }}>
-                <h3 style={{ fontSize: '0.95rem', fontWeight: 700, color: 'var(--color-text)', margin: '0 0 0.5rem' }}>Ingredients</h3>
-                {aiPreview.ingredients.map((ing, i) => (
-                  <div key={i} style={{ display: 'flex', gap: '0.3rem', padding: '0.25rem 0', fontSize: '0.88rem', borderBottom: '1px solid var(--color-border-light)' }}>
-                    <span style={{ color: 'var(--color-accent)', fontWeight: 600, minWidth: '60px' }}>{ing.quantity} {ing.measurement}</span>
-                    <span style={{ color: 'var(--color-text)' }}>{ing.ingredient}</span>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {aiPreview.instructions && (
-              <div style={{ marginBottom: '1.25rem' }}>
-                <h3 style={{ fontSize: '0.95rem', fontWeight: 700, color: 'var(--color-text)', margin: '0 0 0.5rem' }}>Instructions</h3>
-                <div style={{ fontSize: '0.88rem', color: 'var(--color-text-secondary)', lineHeight: 1.6, whiteSpace: 'pre-line' }}>{aiPreview.instructions}</div>
-              </div>
-            )}
-
-            <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end', paddingTop: '0.75rem', borderTop: '1px solid var(--color-border-light)' }}>
-              <button
-                onClick={() => { skipAiMeal(aiPreview); setAiPreview(null); }}
-                style={{ padding: '0.5rem 1rem', border: '1px solid var(--color-border)', borderRadius: '8px', background: 'var(--color-surface)', fontSize: '0.85rem', fontWeight: 500, fontFamily: 'inherit', color: 'var(--color-text-secondary)', cursor: 'pointer' }}
-              >
-                Skip
-              </button>
-              <button
-                onClick={() => {
-                  const id = crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36);
-                  onAddRecipe({ id, title: aiPreview.title, category: aiPreview._category || 'lunch-dinner', frequency: 'common', mealType: '', servings: aiPreview.servings || 2, prepTime: aiPreview.prepTime || '', cookTime: aiPreview.cookTime || '', sourceUrl: '', ingredients: aiPreview.ingredients || [], instructions: aiPreview.instructions || '', createdAt: new Date().toISOString(), source: 'discover', cuisine: aiPreview.cuisine || '' });
-                  handleAddToWeekWithPulse(id);
-                  setAiMeals(prev => prev.filter(p => p.title !== aiPreview.title));
-                  setAiPreview(null);
-                }}
-                style={{ padding: '0.5rem 1.25rem', border: 'none', borderRadius: '8px', background: 'var(--color-accent)', fontSize: '0.85rem', fontWeight: 600, fontFamily: 'inherit', color: '#fff', cursor: 'pointer' }}
-              >
-                + Add to My Recipes
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
-    </>
   );
 }

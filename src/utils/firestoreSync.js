@@ -1,106 +1,28 @@
 import { doc, getDoc, setDoc, addDoc, deleteDoc, updateDoc, collection, query, where, getDocs, arrayUnion, arrayRemove, increment, onSnapshot } from 'firebase/firestore';
-import { db, auth } from '../firebase';
+import { db } from '../firebase';
 
 /**
  * Save a single field to the user's Firestore document.
  * Merges so other fields are not overwritten.
  */
-/**
- * Save daily log to a separate Firestore document to avoid 1MB user doc limit.
- */
-export async function saveDailyLogToFirestore(uid, log) {
-  try {
-    const ref = doc(db, 'users', uid, 'data', 'dailyLog');
-    await setDoc(ref, { log }, { merge: false });
-  } catch (err) {
-    console.error('saveDailyLogToFirestore:', err);
-    throw err;
-  }
-}
-
-/**
- * Load daily log from the separate Firestore document.
- */
-export async function loadDailyLogFromFirestore(uid) {
-  try {
-    const ref = doc(db, 'users', uid, 'data', 'dailyLog');
-    const snap = await getDoc(ref);
-    if (snap.exists()) return snap.data().log || {};
-    // Fallback: check main user doc for legacy data
-    const userRef = doc(db, 'users', uid);
-    const userSnap = await getDoc(userRef);
-    if (userSnap.exists() && userSnap.data().dailyLog) {
-      const legacyLog = userSnap.data().dailyLog;
-      // Migrate: save to new location and remove from user doc
-      await setDoc(ref, { log: legacyLog });
-      await setDoc(userRef, { dailyLog: null }, { merge: true });
-      return legacyLog;
-    }
-    return {};
-  } catch (err) {
-    console.error('loadDailyLogFromFirestore:', err);
-    return {};
-  }
-}
-
 export async function saveField(uid, field, value) {
-  // Recipes go to a separate subcollection doc to avoid 1MB user doc limit
-  if (field === 'recipes') {
-    return saveRecipesToFirestore(uid, value);
-  }
-  const ref = doc(db, 'users', uid);
-  await setDoc(ref, { [field]: value }, { merge: true });
-}
-
-/**
- * Save recipes to a separate Firestore document to avoid 1MB user doc limit.
- */
-export async function saveRecipesToFirestore(uid, recipes) {
-  const ref = doc(db, 'users', uid, 'data', 'recipes');
-  await setDoc(ref, { recipes }, { merge: false });
-}
-
-/**
- * Load recipes from the separate subcollection doc, with fallback to main user doc.
- */
-export async function loadRecipesFromFirestore(uid) {
   try {
-    const ref = doc(db, 'users', uid, 'data', 'recipes');
-    const snap = await getDoc(ref);
-    if (snap.exists()) return snap.data().recipes || [];
-    return null; // not migrated yet — caller should check main user doc
+    const ref = doc(db, 'users', uid);
+    await setDoc(ref, { [field]: value }, { merge: true });
   } catch (err) {
-    console.error('loadRecipesFromFirestore:', err);
-    return null;
+    console.error(`Firestore saveField(${field}):`, err);
   }
 }
 
 /**
  * Load the entire user document from Firestore.
- * Recipes are loaded from subcollection if available, with migration from main doc.
+ * Returns null if the document doesn't exist.
  */
 export async function loadUserData(uid) {
   try {
     const ref = doc(db, 'users', uid);
     const snap = await getDoc(ref);
-    if (!snap.exists()) return null;
-    const data = snap.data();
-
-    // Load recipes from subcollection (or migrate from main doc)
-    const subRecipes = await loadRecipesFromFirestore(uid);
-    if (subRecipes !== null) {
-      data.recipes = subRecipes;
-    } else if (data.recipes && data.recipes.length > 0) {
-      // Migrate: move recipes to subcollection and remove from main doc
-      try {
-        await saveRecipesToFirestore(uid, data.recipes);
-        await setDoc(ref, { recipes: [] }, { merge: true });
-      } catch (migErr) {
-        console.error('Recipe migration error:', migErr);
-      }
-    }
-
-    return data;
+    return snap.exists() ? snap.data() : null;
   } catch (err) {
     console.error('Firestore loadUserData:', err);
     return null;
@@ -113,12 +35,9 @@ export async function loadUserData(uid) {
 export async function migrateToFirestore(uid) {
   const data = {};
 
-  // Save recipes to subcollection instead of main doc
   try {
     const recipes = localStorage.getItem('recipe-tracker-recipes');
-    if (recipes) {
-      await saveRecipesToFirestore(uid, JSON.parse(recipes));
-    }
+    if (recipes) data.recipes = JSON.parse(recipes);
   } catch {}
 
   try {
@@ -181,33 +100,6 @@ export async function migrateToFirestore(uid) {
     if (dailyLog) data.dailyLog = JSON.parse(dailyLog);
   } catch {}
 
-  try {
-    const weightLog = localStorage.getItem('sunday-weight-log');
-    if (weightLog) data.weightLog = JSON.parse(weightLog);
-  } catch {}
-
-  try {
-    const reminderSettings = localStorage.getItem('sunday-reminder-settings');
-    if (reminderSettings) data.reminderSettings = JSON.parse(reminderSettings);
-  } catch {}
-
-  try {
-    const shoppingChecked = localStorage.getItem('sunday-shopping-checked');
-    if (shoppingChecked) data.shoppingChecked = JSON.parse(shoppingChecked);
-    const staplesChecked = localStorage.getItem('sunday-staples-checked');
-    if (staplesChecked) data.staplesChecked = JSON.parse(staplesChecked);
-  } catch {}
-
-  try {
-    const catLayout = localStorage.getItem('sunday-cat-layout');
-    if (catLayout) data.catLayout = JSON.parse(catLayout);
-  } catch {}
-
-  try {
-    const customGridWidgets = localStorage.getItem(`sunday-custom-grid-widgets-${uid}`) || localStorage.getItem('sunday-custom-grid-widgets');
-    if (customGridWidgets) data.customGridWidgets = JSON.parse(customGridWidgets);
-  } catch {}
-
   // mealImages are stored in their own collection, not in the user doc
 
   if (Object.keys(data).length === 0) return;
@@ -224,67 +116,10 @@ export async function migrateToFirestore(uid) {
  * Load Firestore data into localStorage so the app can read it normally.
  * Always writes every key (using empty defaults) so stale data is overwritten.
  */
-/**
- * Merge two recipe arrays by ID. For each recipe, keep the version
- * with the newer updatedAt timestamp. Recipes that exist in only
- * one array are included as-is.
- */
-function mergeRecipeArrays(localRecipes, remoteRecipes) {
-  const localMap = new Map();
-  for (const r of localRecipes) if (r.id) localMap.set(r.id, r);
-
-  const remoteMap = new Map();
-  for (const r of remoteRecipes) if (r.id) remoteMap.set(r.id, r);
-
-  const merged = new Map();
-
-  // Process all remote recipes
-  for (const [id, remote] of remoteMap) {
-    const local = localMap.get(id);
-    if (!local) {
-      // New on remote — include it
-      merged.set(id, remote);
-    } else {
-      // Exists on both — keep the newer one
-      const localTime = local.updatedAt || local.createdAt || '';
-      const remoteTime = remote.updatedAt || remote.createdAt || '';
-      merged.set(id, localTime > remoteTime ? local : remote);
-    }
-  }
-
-  // Add recipes that only exist locally (newly added on this device)
-  for (const [id, local] of localMap) {
-    if (!merged.has(id)) {
-      merged.set(id, local);
-    }
-  }
-
-  return Array.from(merged.values());
-}
-
-export function hydrateLocalStorage(userData, uid) {
+export function hydrateLocalStorage(userData) {
   if (!userData) return;
 
-  // Merge recipes by ID instead of overwriting, so edits on different
-  // devices to different recipes don't clobber each other.
-  if (!window.__recipesLocalEdit) {
-    const remoteRecipes = userData.recipes || [];
-    try {
-      const localRecipes = JSON.parse(localStorage.getItem('recipe-tracker-recipes') || '[]');
-      const merged = mergeRecipeArrays(localRecipes, remoteRecipes);
-      localStorage.setItem('recipe-tracker-recipes', JSON.stringify(merged));
-
-      // If merge result differs from remote, push merged version back
-      if (merged.length !== remoteRecipes.length || merged.some((r, i) => r.id !== remoteRecipes[i]?.id || r.updatedAt !== remoteRecipes[i]?.updatedAt)) {
-        const user = auth.currentUser;
-        if (user) {
-          saveRecipesToFirestore(user.uid, merged).catch(() => {});
-        }
-      }
-    } catch {
-      localStorage.setItem('recipe-tracker-recipes', JSON.stringify(remoteRecipes));
-    }
-  }
+  localStorage.setItem('recipe-tracker-recipes', JSON.stringify(userData.recipes || []));
   localStorage.setItem('sunday-weekly-plan', JSON.stringify(userData.weeklyPlan || []));
   localStorage.setItem('sunday-plan-history', JSON.stringify(userData.planHistory || []));
   localStorage.setItem('sunday-grocery-staples', JSON.stringify(userData.groceryStaples || []));
@@ -306,8 +141,10 @@ export function hydrateLocalStorage(userData, uid) {
     localStorage.setItem('sunday-body-stats', JSON.stringify(userData.bodyStats));
   }
 
-  // Daily log is now in a separate subcollection doc — do NOT hydrate from main user doc.
-  // Load from subcollection instead (handled by loadDailyLogFromFirestore).
+  // Only hydrate dailyLog if not currently being edited locally
+  if (userData.dailyLog && !window.__dailyLogLocalEdit) {
+    localStorage.setItem('sunday-daily-log', JSON.stringify(userData.dailyLog));
+  }
 
   if (userData.userGoals) {
     localStorage.setItem('sunday-user-goals', JSON.stringify(userData.userGoals));
@@ -321,35 +158,6 @@ export function hydrateLocalStorage(userData, uid) {
     localStorage.setItem('sunday-user-location', userData.userLocation);
   }
 
-  if (userData.weightLog) {
-    localStorage.setItem('sunday-weight-log', JSON.stringify(userData.weightLog));
-  }
-
-  if (userData.reminderSettings) {
-    localStorage.setItem('sunday-reminder-settings', JSON.stringify(userData.reminderSettings));
-  }
-
-  if (userData.shoppingChecked) {
-    localStorage.setItem('sunday-shopping-checked', JSON.stringify(userData.shoppingChecked));
-  }
-
-  if (userData.staplesChecked) {
-    localStorage.setItem('sunday-staples-checked', JSON.stringify(userData.staplesChecked));
-  }
-
-  if (userData.catLayout) {
-    localStorage.setItem('sunday-cat-layout', JSON.stringify(userData.catLayout));
-  }
-
-  if (userData.hiddenCategories) {
-    localStorage.setItem('sunday-hidden-categories', JSON.stringify(userData.hiddenCategories));
-  }
-
-  if (userData.customGridWidgets) {
-    const cwKey = uid ? `sunday-custom-grid-widgets-${uid}` : 'sunday-custom-grid-widgets';
-    localStorage.setItem(cwKey, JSON.stringify(userData.customGridWidgets));
-  }
-
   // mealImages are stored in separate Firestore docs (mealImages/{uid}/images/{recipeId})
   // and synced via syncMealImages() — not part of the user document anymore.
 }
@@ -360,39 +168,17 @@ export function hydrateLocalStorage(userData, uid) {
  * Returns an unsubscribe function.
  */
 export function subscribeToUserData(uid, onChange) {
-  const userRef = doc(db, 'users', uid);
-  const recipesRef = doc(db, 'users', uid, 'data', 'recipes');
-
-  // Track latest data from both docs
-  let userData = null;
-  let subRecipes = null;
-  let hasSubRecipes = false;
-
-  function emit() {
-    if (!userData) return;
-    const merged = { ...userData };
-    if (hasSubRecipes) merged.recipes = subRecipes || [];
-    onChange(merged);
-  }
-
-  const unsub1 = onSnapshot(userRef, (snap) => {
-    if (snap.exists() && !snap.metadata.hasPendingWrites) {
-      userData = snap.data();
-      emit();
-    }
-  }, (err) => { console.error('Firestore user subscription error:', err); });
-
-  const unsub2 = onSnapshot(recipesRef, (snap) => {
-    if (!snap.metadata.hasPendingWrites) {
-      if (snap.exists()) {
-        subRecipes = snap.data().recipes || [];
-        hasSubRecipes = true;
+  const ref = doc(db, 'users', uid);
+  return onSnapshot(ref, (snap) => {
+    if (snap.exists()) {
+      // Only process server-originated changes
+      if (!snap.metadata.hasPendingWrites) {
+        onChange(snap.data());
       }
-      emit();
     }
-  }, (err) => { console.error('Firestore recipes subscription error:', err); });
-
-  return () => { unsub1(); unsub2(); };
+  }, (err) => {
+    console.error('Firestore subscription error:', err);
+  });
 }
 
 /* ── Friend-related functions ── */
@@ -424,16 +210,11 @@ export async function searchByUsername(username) {
     const userSnap = await getDoc(doc(db, 'users', foundUid));
     if (userSnap.exists()) email = userSnap.data().email || null;
   } catch {}
-  let displayName = null;
-  try {
-    const userSnap2 = await getDoc(doc(db, 'users', foundUid));
-    if (userSnap2.exists()) displayName = userSnap2.data().displayName || null;
-  } catch {}
-  return { uid: foundUid, username: lower, email, displayName };
+  return { uid: foundUid, username: lower, email };
 }
 
 /**
- * Look up a user by email address. Returns { uid, username, email, displayName } or null.
+ * Look up a user by email address. Returns { uid, username, email } or null.
  */
 export async function searchByEmail(email) {
   const lower = email.toLowerCase();
@@ -442,24 +223,7 @@ export async function searchByEmail(email) {
   if (snap.empty) return null;
   const d = snap.docs[0];
   const data = d.data();
-  return { uid: d.id, username: data.username || '', email: lower, displayName: data.displayName || '' };
-}
-
-/**
- * Search for a user by display name (case-insensitive, partial match).
- * Returns first match or null.
- */
-export async function searchByName(name) {
-  const lower = name.toLowerCase().trim();
-  const snap = await getDocs(collection(db, 'users'));
-  for (const d of snap.docs) {
-    const data = d.data();
-    const displayName = (data.displayName || '').toLowerCase();
-    if (displayName && displayName.includes(lower)) {
-      return { uid: d.id, username: data.username || '', email: data.email || '', displayName: data.displayName || '' };
-    }
-  }
-  return null;
+  return { uid: d.id, username: data.username || '', email: lower };
 }
 
 /**
@@ -707,28 +471,4 @@ export async function loadAllUsers() {
  */
 export async function deleteUserDoc(uid) {
   await deleteDoc(doc(db, 'users', uid));
-}
-
-/**
- * Save recipes for a new user setup (admin flow).
- * Stores recipes under pendingSetups/{normalizedEmail}.
- */
-export async function savePendingSetup(email, recipes) {
-  const key = email.toLowerCase().trim();
-  const ref = doc(db, 'pendingSetups', key);
-  await setDoc(ref, { recipes, createdAt: new Date().toISOString() });
-}
-
-/**
- * Load and consume pending setup for a user by email.
- * Returns recipes array or null. Deletes the doc after loading.
- */
-export async function loadPendingSetup(email) {
-  const key = email.toLowerCase().trim();
-  const ref = doc(db, 'pendingSetups', key);
-  const snap = await getDoc(ref);
-  if (!snap.exists()) return null;
-  const data = snap.data();
-  await deleteDoc(ref);
-  return data.recipes || [];
 }

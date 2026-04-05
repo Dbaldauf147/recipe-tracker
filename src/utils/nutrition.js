@@ -226,19 +226,11 @@ const PENALTY_WORDS = [
 ];
 
 function getSearchTerm(ingredientName) {
-  // Clean: strip parenthetical notes, "or" alternatives, and special chars
-  let cleaned = ingredientName.trim()
-    .replace(/\([^)]*\)/g, '')           // remove (anything in parens)
-    .replace(/\b(may substitute|or)\b.*/i, '') // remove "or ..." / "may substitute ..."
-    .replace(/[^\w\s'-]/g, '')           // remove special characters except apostrophe/hyphen
-    .replace(/\s{2,}/g, ' ')            // collapse multiple spaces
-    .trim();
-  if (!cleaned) cleaned = ingredientName.trim().replace(/[^\w\s]/g, '').trim();
-  const lower = cleaned.toLowerCase();
+  const lower = ingredientName.trim().toLowerCase();
   if (ALIASES[lower]) return ALIASES[lower];
   const singular = lower.endsWith('s') ? lower.slice(0, -1) : null;
   if (singular && ALIASES[singular]) return ALIASES[singular];
-  return cleaned;
+  return ingredientName;
 }
 
 function scoreMatch(food, searchTerm) {

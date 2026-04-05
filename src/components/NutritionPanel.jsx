@@ -43,9 +43,9 @@ export function PlateChart({ protein, carbs, fat }) {
   // Warm earth-tone palette matching the site
   const cx = 120, cy = 120, r = 85;
   const slices = [
-    { pct: pPct, color: '#3B6B9C', colorDark: '#2A4F78', label: 'Protein', grams: protein },
+    { pct: pPct, color: '#2A8C7A', colorDark: '#A85035', label: 'Protein', grams: protein },
     { pct: cPct, color: '#D4A574', colorDark: '#BF8F5E', label: 'Carbs', grams: carbs },
-    { pct: fPct, color: '#6B9A8B', colorDark: '#4A7A6B', label: 'Fat', grams: fat },
+    { pct: fPct, color: '#8B9A6B', colorDark: '#738159', label: 'Fat', grams: fat },
   ];
 
   let cumulative = 0;
@@ -211,7 +211,7 @@ export function MealScore({ totals, servings = 1 }) {
   // Color based on score
   let color, label;
   if (avg >= 85) { color = 'var(--color-success, #16a34a)'; label = 'Great'; }
-  else if (avg >= 65) { color = 'var(--color-accent, #3B6B9C)'; label = 'Good'; }
+  else if (avg >= 65) { color = 'var(--color-accent, #2A8C7A)'; label = 'Good'; }
   else if (avg >= 45) { color = '#D4A574'; label = 'Fair'; }
   else { color = 'var(--color-danger, #dc2626)'; label = 'Poor'; }
 
@@ -242,16 +242,11 @@ export function MealScore({ totals, servings = 1 }) {
   );
 }
 
-function NutrientGroup({ title, keys, totals, perServing, showPerServing, selectedGoals }) {
-  // If user has nutrition goals, only show nutrients they've selected
-  const filteredKeys = selectedGoals
-    ? keys.filter(k => selectedGoals.has(k))
-    : keys;
-  if (filteredKeys.length === 0) return null;
+function NutrientGroup({ title, keys, totals, perServing, showPerServing }) {
   return (
     <div className={styles.group}>
       <h4 className={styles.groupTitle}>{title}</h4>
-      {filteredKeys.map(key => {
+      {keys.map(key => {
         const n = NUTRIENTS.find(x => x.key === key);
         return (
           <NutrientRow
@@ -514,26 +509,11 @@ export function NutritionPanel({ recipeId, ingredients, servings = 1, portionLab
       )}
 
       <div className={styles.groups}>
-        {(() => {
-          // Load user's selected nutrition goals to filter displayed nutrients
-          let selectedGoals = null;
-          try {
-            const raw = localStorage.getItem(GOALS_KEY);
-            if (raw) {
-              const parsed = JSON.parse(raw);
-              const keys = Object.keys(parsed);
-              if (keys.length > 0) selectedGoals = new Set(keys);
-            }
-          } catch {}
-          const ps = showPerServing && (servings > 1 || !!portionLabel);
-          return <>
-            <NutrientGroup title="Macros" keys={MACROS} totals={totals} perServing={perServing} showPerServing={ps} selectedGoals={selectedGoals} />
-            <NutrientGroup title="Sugars & Fiber" keys={SUGARS_FIBER} totals={totals} perServing={perServing} showPerServing={ps} selectedGoals={selectedGoals} />
-            <NutrientGroup title="Minerals" keys={MINERALS} totals={totals} perServing={perServing} showPerServing={ps} selectedGoals={selectedGoals} />
-            <NutrientGroup title="Vitamins & Aminos" keys={VITAMINS_AMINOS} totals={totals} perServing={perServing} showPerServing={ps} selectedGoals={selectedGoals} />
-            <NutrientGroup title="Other" keys={OTHER} totals={totals} perServing={perServing} showPerServing={ps} selectedGoals={selectedGoals} />
-          </>;
-        })()}
+        <NutrientGroup title="Macros" keys={MACROS} totals={totals} perServing={perServing} showPerServing={showPerServing && (servings > 1 || !!portionLabel)} />
+        <NutrientGroup title="Sugars & Fiber" keys={SUGARS_FIBER} totals={totals} perServing={perServing} showPerServing={showPerServing && (servings > 1 || !!portionLabel)} />
+        <NutrientGroup title="Minerals" keys={MINERALS} totals={totals} perServing={perServing} showPerServing={showPerServing && (servings > 1 || !!portionLabel)} />
+        <NutrientGroup title="Vitamins & Aminos" keys={VITAMINS_AMINOS} totals={totals} perServing={perServing} showPerServing={showPerServing && (servings > 1 || !!portionLabel)} />
+        <NutrientGroup title="Other" keys={OTHER} totals={totals} perServing={perServing} showPerServing={showPerServing && (servings > 1 || !!portionLabel)} />
       </div>
 
       {weighPortionContent}

@@ -4,7 +4,6 @@ import {
   setUsername,
   searchByUsername,
   searchByEmail,
-  searchByName,
   sendFriendRequest,
   getPendingRequests,
   getSentRequests,
@@ -94,17 +93,16 @@ export function FriendsPage({ onClose, addRecipe }) {
     setSearchStatus(null);
     setSearchResult(null);
     try {
-      // Try username first, then email, then name
+      // Try username first, then email
       let result = await searchByUsername(val);
       if (!result && val.includes('@')) {
         result = await searchByEmail(val);
       }
       if (!result) {
-        result = await searchByName(val);
-      }
-      if (!result) {
         setSearchResult('none');
-        setSearchStatus({ type: 'error', msg: 'User not found. Try their username, email, or full name.' });
+        if (val.includes('@')) {
+          setSearchStatus({ type: 'error', msg: 'User not found. They may need to log in to the site first so their account is searchable.' });
+        }
       } else if (result.uid === uid) {
         setSearchResult('none');
         setSearchStatus({ type: 'error', msg: "That's you!" });
@@ -246,6 +244,7 @@ export function FriendsPage({ onClose, addRecipe }) {
     return (
       <div className={styles.container}>
         <div className={styles.header}>
+          <button className={styles.backBtn} onClick={onClose}>&larr; Back</button>
           <h2 className={styles.title}>Friends</h2>
         </div>
         <p className={styles.emptyText}>Loading...</p>
@@ -258,7 +257,6 @@ export function FriendsPage({ onClose, addRecipe }) {
       <div className={styles.header}>
         <button className={styles.backBtn} onClick={onClose}>&larr; Back</button>
         <h2 className={styles.title}>Friends</h2>
-        {myUsername && <span className={styles.myUsernameBadge}>@{myUsername}</span>}
       </div>
 
       {/* ── Your Username ── */}
@@ -313,7 +311,7 @@ export function FriendsPage({ onClose, addRecipe }) {
           {searchResult && searchResult !== 'none' && (
             <div className={styles.resultCard}>
               <span className={styles.resultName}>
-                {searchResult.displayName || searchResult.username ? `${searchResult.displayName || ''}${searchResult.username ? ` @${searchResult.username}` : ''}`.trim() : searchResult.email}
+                {searchResult.username ? `@${searchResult.username}` : searchResult.email}
               </span>
               {friends.some(f => f.uid === searchResult.uid) ? (
                 <span className={styles.emptyText}>Already friends</span>

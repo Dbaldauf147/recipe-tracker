@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { NUTRIENTS } from '../utils/nutrition';
 import styles from './NutritionGoalsPage.module.css';
 
@@ -260,33 +260,9 @@ export function NutritionGoalsPage({ onComplete, onBack, onSkip, initialSelected
     return new Set();
   });
   const [mealTrackingGoals, setMealTrackingGoals] = useState(() => {
-    const goals = new Set();
-    if (initialStats?.mealTrackingGoals) {
-      for (const g of initialStats.mealTrackingGoals) {
-        if (g !== 'notrack') goals.add(g);
-      }
-    }
-    if (initialStats?.trackingMode) {
-      goals.add(initialStats.trackingMode === 'weekly' ? 'trackWeekly' : 'trackDaily');
-    }
-    // Merge nutrient toggles from onboarding
-    if (initialStats?.nutrientToggles) {
-      for (const t of initialStats.nutrientToggles) goals.add(t);
-    }
-    if (initialStats?.trackMinerals) goals.add('trackMinerals');
-    if (initialStats?.trackVitamins) goals.add('trackVitamins');
-    if (initialStats?.trackAminos) goals.add('trackAminos');
-    // Merge weighFood and rotateHealthy booleans from onboarding
-    if (initialStats?.weighFood) goals.add('weighFood');
-    if (initialStats?.rotateHealthy) goals.add('rotateHealthy');
-    // Merge weigh frequency from onboarding
-    if (initialStats?.weighRepeatUnit) {
-      const unit = initialStats.weighRepeatUnit;
-      if (unit === 'day') goals.add('weighDaily');
-      else if (unit === 'week') goals.add('weighWeekly');
-      else if (unit === 'month') goals.add('weighMonthly');
-    }
-    return goals;
+    if (initialStats?.mealTrackingGoals) return new Set(initialStats.mealTrackingGoals);
+    if (initialStats?.trackingMode) return new Set([initialStats.trackingMode === 'weekly' ? 'trackWeekly' : 'trackDaily']);
+    return new Set();
   });
   const [fruitVegGoals, setFruitVegGoals] = useState(() => {
     return new Set(initialStats?.fruitVegGoals || []);
@@ -316,18 +292,11 @@ export function NutritionGoalsPage({ onComplete, onBack, onSkip, initialSelected
     const a = Number(age);
     if (gender && ft > 0 && inch >= 0 && w > 0 && a > 0) {
       // Use the primary calorie-affecting goal for computation
-      const calorieGoals = ['lose', 'maintain', 'gain'];
+      const calorieGoals = ['lose', 'maintain', 'gain', 'muscle'];
       const primaryGoal = calorieGoals.find(g => weightGoals.has(g)) || 'maintain';
       const { targets: computed, math } = computeTargets(gender, ft, inch, w, a, activityLevel, primaryGoal);
       setTargets(prev => ({ ...prev, ...computed }));
       setMathBreakdown(math);
-      // Auto-enable core macros when user info is complete
-      setSelected(prev => {
-        if (prev.has('calories')) return prev; // already enabled
-        const next = new Set(prev);
-        ['calories', 'protein', 'carbs', 'fat', 'sodium'].forEach(k => next.add(k));
-        return next;
-      });
     } else {
       setMathBreakdown(null);
     }
@@ -459,7 +428,7 @@ export function NutritionGoalsPage({ onComplete, onBack, onSkip, initialSelected
             &larr; Back
           </button>
         )}
-        <h2 className={styles.title}>Set Your Nutrition Goals</h2>
+        <h2 className={styles.title}>Own Your Nutrition</h2>
         <div className={styles.topRight}>
           <div className={styles.saveRow}>
             {saved && <span className={styles.savedMsg}>Saved!</span>}
@@ -495,18 +464,27 @@ export function NutritionGoalsPage({ onComplete, onBack, onSkip, initialSelected
                         {[{ key: 'lose', label: 'Lose Weight' }, { key: 'maintain', label: 'Maintain' }, { key: 'gain', label: 'Gain Weight' }].map(g => (
                           <button key={g.key} type="button" className={weightGoals.has(g.key) ? styles.goalBtnActive : styles.goalBtn} onClick={() => { if (weightGoals.has(g.key)) { setWeightGoals(prev => { const next = new Set(prev); next.delete(g.key); return next; }); } else { setWeightGoals(new Set([g.key])); } }}>{g.label}</button>
                         ))}
+                        {['lose', 'maintain', 'gain'].some(k => weightGoals.has(k)) && (
+                          <div className={styles.weighFreqRow}>
+                            <span className={styles.weighFreqLabel}>Weigh yourself:</span>
+                            {[{ key: 'weighDaily', label: 'Daily' }, { key: 'weighWeekly', label: 'Weekly' }, { key: 'weighMonthly', label: 'Monthly' }, { key: 'weighYearly', label: 'Yearly' }].map(g => (
+                              <button key={g.key} type="button" className={mealTrackingGoals.has(g.key) ? styles.goalBtnSmActive : styles.goalBtnSm} onClick={() => { setMealTrackingGoals(prev => { const next = new Set(prev); if (next.has(g.key)) { next.delete(g.key); } else { next.delete('weighDaily'); next.delete('weighWeekly'); next.delete('weighMonthly'); next.delete('weighYearly'); next.add(g.key); } return next; }); }}>{g.label}</button>
+                            ))}
+                          </div>
+                        )}
                       </td>
                     ),
-                    subRow: ['lose', 'maintain', 'gain'].some(k => weightGoals.has(k)) ? {
-                      label: 'Weigh yourself',
-                      render: () => (
-                        <td className={styles.goalsTableBtns}>
-                          {[{ key: 'weighDaily', label: 'Daily' }, { key: 'weighWeekly', label: 'Weekly' }, { key: 'weighMonthly', label: 'Monthly' }, { key: 'weighYearly', label: 'Yearly' }].map(g => (
-                            <button key={g.key} type="button" className={mealTrackingGoals.has(g.key) ? styles.goalBtnSmActive : styles.goalBtnSm} onClick={() => { setMealTrackingGoals(prev => { const next = new Set(prev); if (next.has(g.key)) { next.delete(g.key); } else { next.delete('weighDaily'); next.delete('weighWeekly'); next.delete('weighMonthly'); next.delete('weighYearly'); next.add(g.key); } return next; }); }}>{g.label}</button>
-                          ))}
-                        </td>
-                      ),
-                    } : null,
+                  },
+                  {
+                    id: 'muscle', label: 'Looking to Gain Muscle',
+                    enabled: weightGoals.has('muscle') || weightGoals.has('no-muscle'),
+                    render: () => (
+                      <td className={styles.goalsTableBtns}>
+                        {[{ key: 'muscle', label: 'Yes' }, { key: 'no-muscle', label: 'No' }].map(g => (
+                          <button key={g.key} type="button" className={weightGoals.has(g.key) ? styles.goalBtnActive : styles.goalBtn} onClick={() => { setWeightGoals(prev => { const next = new Set(prev); if (next.has(g.key)) { next.delete(g.key); } else { next.delete('muscle'); next.delete('no-muscle'); next.add(g.key); } return next; }); }}>{g.label}</button>
+                        ))}
+                      </td>
+                    ),
                   },
                   {
                     id: 'trackMeals', label: 'Track Your Meals',
@@ -520,7 +498,7 @@ export function NutritionGoalsPage({ onComplete, onBack, onSkip, initialSelected
                             if (!mealTrackingGoals.has(g.key)) {
                               setSelected(prev => {
                                 const next = new Set(prev);
-                                ['calories', 'protein', 'carbs', 'fat', 'sodium'].forEach(k => next.add(k));
+                                ['calories', 'protein', 'carbs', 'fat', 'fiber', 'sugar', 'sodium'].forEach(k => next.add(k));
                                 return next;
                               });
                             }
@@ -551,17 +529,6 @@ export function NutritionGoalsPage({ onComplete, onBack, onSkip, initialSelected
                       </td>
                     ),
                   },
-                  {
-                    id: 'rotateHealthy', label: 'Rotate Healthy Foods In Your Diet',
-                    enabled: mealTrackingGoals.has('rotateHealthy'),
-                    render: () => (
-                      <td className={styles.goalsTableBtns}>
-                        {[{ key: 'rotateHealthy', label: 'Yes' }].map(g => (
-                          <button key={g.key} type="button" className={mealTrackingGoals.has(g.key) ? styles.goalBtnActive : styles.goalBtn} onClick={() => { setMealTrackingGoals(prev => { const next = new Set(prev); if (next.has(g.key)) { next.delete(g.key); } else { next.add(g.key); } return next; }); }}>{g.label}</button>
-                        ))}
-                      </td>
-                    ),
-                  },
                 ];
 
                 const enabled = goalRows.filter(r => r.enabled);
@@ -571,22 +538,14 @@ export function NutritionGoalsPage({ onComplete, onBack, onSkip, initialSelected
                   <>
                     {enabled.length > 0 && (
                       <>
-                        <h4 className={styles.goalSectionTitle}>Enabled</h4>
+                        <h4 className={styles.goalSectionTitle}>Goals Being Tracked</h4>
                         <table className={styles.goalsTable}>
                           <tbody>
                             {enabled.map(r => (
-                              <React.Fragment key={r.id}>
-                                <tr>
-                                  <td className={styles.goalsTableLabel}>{r.label}</td>
-                                  {r.render()}
-                                </tr>
-                                {r.subRow && (
-                                  <tr className={styles.subGoalRow}>
-                                    <td className={styles.subGoalLabel}>{r.subRow.label}</td>
-                                    {r.subRow.render()}
-                                  </tr>
-                                )}
-                              </React.Fragment>
+                              <tr key={r.id}>
+                                <td className={styles.goalsTableLabel}>{r.label}</td>
+                                {r.render()}
+                              </tr>
                             ))}
                           </tbody>
                         </table>
@@ -594,22 +553,14 @@ export function NutritionGoalsPage({ onComplete, onBack, onSkip, initialSelected
                     )}
                     {notEnabled.length > 0 && (
                       <>
-                        <h4 className={styles.goalSectionTitleMuted}>Not Enabled {enabled.length === 0 && <span className={styles.goalSectionHint}>(Select goals below to enable)</span>}</h4>
+                        <h4 className={styles.goalSectionTitleMuted}>Goals Not Tracked {enabled.length === 0 && <span className={styles.goalSectionHint}>(Select goals below to begin tracking)</span>}</h4>
                         <table className={styles.goalsTable}>
                           <tbody>
                             {notEnabled.map(r => (
-                              <React.Fragment key={r.id}>
-                                <tr>
-                                  <td className={styles.goalsTableLabel}>{r.label}</td>
-                                  {r.render()}
-                                </tr>
-                                {r.subRow && (
-                                  <tr className={styles.subGoalRow}>
-                                    <td className={styles.subGoalLabel}>{r.subRow.label}</td>
-                                    {r.subRow.render()}
-                                  </tr>
-                                )}
-                              </React.Fragment>
+                              <tr key={r.id}>
+                                <td className={styles.goalsTableLabel}>{r.label}</td>
+                                {r.render()}
+                              </tr>
                             ))}
                           </tbody>
                         </table>
@@ -773,55 +724,6 @@ export function NutritionGoalsPage({ onComplete, onBack, onSkip, initialSelected
               Deselect All
             </button>
           </div>
-
-          {macroApproach === 'calculate' && mathBreakdown && (
-            <details className={styles.mathSection}>
-              <summary className={styles.mathSummary}>How we calculated your targets</summary>
-              <div className={styles.mathCardLayout}>
-                <div className={styles.mathCard}>
-                  <div className={styles.mathStep}>
-                    <span className={styles.mathLabel}>Step 1: Convert units</span>
-                    <span className={styles.mathFormula}>{weight} lbs = {mathBreakdown.kg} kg &bull; {heightFt}&apos;{heightIn}&quot; = {mathBreakdown.cm} cm</span>
-                  </div>
-                  <div className={styles.mathStep}>
-                    <span className={styles.mathLabel}>Step 2: BMR (Mifflin-St Jeor)</span>
-                    <span className={styles.mathFormula}>(10 &times; {mathBreakdown.kg}) + (6.25 &times; {mathBreakdown.cm}) - (5 &times; {age}) {mathBreakdown.gender === 'male' ? '+ 5' : '- 161'}</span>
-                    <span className={styles.mathResult}>= {mathBreakdown.bmr} cal/day</span>
-                  </div>
-                  <div className={styles.mathStep}>
-                    <span className={styles.mathLabel}>Step 3: TDEE</span>
-                    <span className={styles.mathFormula}>{mathBreakdown.bmr} &times; {mathBreakdown.activityMultiplier} ({mathBreakdown.activityLabel})</span>
-                    <span className={styles.mathResult}>= {mathBreakdown.tdeeBase} cal/day</span>
-                  </div>
-                  {mathBreakdown.calOffset !== 0 && (
-                    <div className={styles.mathStep}>
-                      <span className={styles.mathLabel}>Step 4: {mathBreakdown.goalLabel}</span>
-                      <span className={styles.mathFormula}>{mathBreakdown.tdeeBase} {mathBreakdown.calOffset > 0 ? '+' : ''} {mathBreakdown.calOffset}</span>
-                      <span className={styles.mathResult}>= {mathBreakdown.tdee} cal/day</span>
-                    </div>
-                  )}
-                </div>
-                <div className={styles.mathMacros}>
-                  <div className={styles.mathMacroItem}>
-                    <span className={styles.mathMacroLabel}>Protein ({Math.round((mathBreakdown.proteinG * 4 / mathBreakdown.tdee) * 100)}%)</span>
-                    <span className={styles.mathFormula}>{weight} lbs &times; {mathBreakdown.proteinPerLb} g/lb{mathBreakdown.proteinMult !== 1 ? ` \u00d7 ${mathBreakdown.proteinMult}` : ''}</span>
-                    <span className={styles.mathMacroResult}>{mathBreakdown.proteinG}g</span>
-                  </div>
-                  <div className={styles.mathMacroItem}>
-                    <span className={styles.mathMacroLabel}>Carbs ({Math.round(mathBreakdown.carbPct * 100)}%)</span>
-                    <span className={styles.mathFormula}>{mathBreakdown.tdee} &times; {mathBreakdown.carbPct} &divide; 4</span>
-                    <span className={styles.mathMacroResult}>{mathBreakdown.carbsG}g</span>
-                  </div>
-                  <div className={styles.mathMacroItem}>
-                    <span className={styles.mathMacroLabel}>Fat ({Math.round(mathBreakdown.fatPct * 100)}%)</span>
-                    <span className={styles.mathFormula}>{mathBreakdown.tdee} &times; {mathBreakdown.fatPct} &divide; 9</span>
-                    <span className={styles.mathMacroResult}>{mathBreakdown.fatG}g</span>
-                  </div>
-                </div>
-              </div>
-            </details>
-          )}
-
           <div className={styles.nutrientGrid}>
           {GROUPS.filter(group => {
             if (group.title === 'Minerals' && !mealTrackingGoals.has('trackMinerals')) return false;
@@ -954,6 +856,54 @@ export function NutritionGoalsPage({ onComplete, onBack, onSkip, initialSelected
             })}
           </div>
           </div>
+
+          {macroApproach === 'calculate' && mathBreakdown && (
+            <details className={styles.mathSection}>
+              <summary className={styles.mathSummary}>How we calculated your targets</summary>
+              <div className={styles.mathCardLayout}>
+                <div className={styles.mathCard}>
+                  <div className={styles.mathStep}>
+                    <span className={styles.mathLabel}>Step 1: Convert units</span>
+                    <span className={styles.mathFormula}>{weight} lbs = {mathBreakdown.kg} kg &bull; {heightFt}&apos;{heightIn}&quot; = {mathBreakdown.cm} cm</span>
+                  </div>
+                  <div className={styles.mathStep}>
+                    <span className={styles.mathLabel}>Step 2: BMR (Mifflin-St Jeor)</span>
+                    <span className={styles.mathFormula}>(10 &times; {mathBreakdown.kg}) + (6.25 &times; {mathBreakdown.cm}) - (5 &times; {age}) {mathBreakdown.gender === 'male' ? '+ 5' : '- 161'}</span>
+                    <span className={styles.mathResult}>= {mathBreakdown.bmr} cal/day</span>
+                  </div>
+                  <div className={styles.mathStep}>
+                    <span className={styles.mathLabel}>Step 3: TDEE</span>
+                    <span className={styles.mathFormula}>{mathBreakdown.bmr} &times; {mathBreakdown.activityMultiplier} ({mathBreakdown.activityLabel})</span>
+                    <span className={styles.mathResult}>= {mathBreakdown.tdeeBase} cal/day</span>
+                  </div>
+                  {mathBreakdown.calOffset !== 0 && (
+                    <div className={styles.mathStep}>
+                      <span className={styles.mathLabel}>Step 4: {mathBreakdown.goalLabel}</span>
+                      <span className={styles.mathFormula}>{mathBreakdown.tdeeBase} {mathBreakdown.calOffset > 0 ? '+' : ''} {mathBreakdown.calOffset}</span>
+                      <span className={styles.mathResult}>= {mathBreakdown.tdee} cal/day</span>
+                    </div>
+                  )}
+                </div>
+                <div className={styles.mathMacros}>
+                  <div className={styles.mathMacroItem}>
+                    <span className={styles.mathMacroLabel}>Protein ({Math.round((mathBreakdown.proteinG * 4 / mathBreakdown.tdee) * 100)}%)</span>
+                    <span className={styles.mathFormula}>{weight} lbs &times; {mathBreakdown.proteinPerLb} g/lb{mathBreakdown.proteinMult !== 1 ? ` \u00d7 ${mathBreakdown.proteinMult}` : ''}</span>
+                    <span className={styles.mathMacroResult}>{mathBreakdown.proteinG}g</span>
+                  </div>
+                  <div className={styles.mathMacroItem}>
+                    <span className={styles.mathMacroLabel}>Carbs ({Math.round(mathBreakdown.carbPct * 100)}%)</span>
+                    <span className={styles.mathFormula}>{mathBreakdown.tdee} &times; {mathBreakdown.carbPct} &divide; 4</span>
+                    <span className={styles.mathMacroResult}>{mathBreakdown.carbsG}g</span>
+                  </div>
+                  <div className={styles.mathMacroItem}>
+                    <span className={styles.mathMacroLabel}>Fat ({Math.round(mathBreakdown.fatPct * 100)}%)</span>
+                    <span className={styles.mathFormula}>{mathBreakdown.tdee} &times; {mathBreakdown.fatPct} &divide; 9</span>
+                    <span className={styles.mathMacroResult}>{mathBreakdown.fatG}g</span>
+                  </div>
+                </div>
+              </div>
+            </details>
+          )}
 
           <p className={styles.disclaimer}>
             Recommended values are based on guidelines from the USDA Dietary Guidelines for Americans (2020–2025),
