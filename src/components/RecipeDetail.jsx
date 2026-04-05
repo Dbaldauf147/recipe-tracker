@@ -1826,17 +1826,6 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
                             {field === 'ingredient' && (row.ingredient || '').trim() && isInDb(row.ingredient) && unitType === 'volume' && !dbGrams && (
                               <span className={styles.noWeightWarning} title="No weight conversion available — add grams to ingredient database">⚖</span>
                             )}
-                            {field === 'ingredient' && (row.ingredient || '').trim() && (() => {
-                              const shelf = getShelfLife(row.ingredient);
-                              if (!shelf.found) return null;
-                              return (
-                                <span className={styles.shelfBadges}>
-                                  {shelf.fridge && <span className={styles.shelfBadge} title={`Fridge: ${shelf.fridge}${shelf.tip ? ' — ' + shelf.tip : ''}`}>❄ {shelf.fridge}</span>}
-                                  {shelf.freezer && <span className={styles.shelfBadge} style={{ background: '#EFF6FF', color: '#2563EB' }} title={`Freezer: ${shelf.freezer}`}>🧊 {shelf.freezer}</span>}
-                                  {shelf.pantry && <span className={styles.shelfBadge} style={{ background: '#FEF9C3', color: '#92400E' }} title={`Pantry: ${shelf.pantry}`}>🏠 {shelf.pantry}</span>}
-                                </span>
-                              );
-                            })()}
                           </div>
                         </td>
                         {field === 'measurement' && (
@@ -2021,7 +2010,6 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
                         return (
                           <span title={`${ghg.kgCO2e} kg CO₂e/kg (${ghg.rating})`} style={{ cursor: 'default' }}>
                             <span style={{ color: dotColors[ghg.rating], fontSize: '0.9rem' }}>{'\u25CF'}</span>
-                            <span style={{ marginLeft: '3px', color: 'var(--color-text-secondary)' }}>{ghg.kgCO2e}</span>
                           </span>
                         );
                       })()}
@@ -2136,7 +2124,6 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
                           return (
                             <span title={`${ghg.kgCO2e} kg CO\u2082e/kg (${ghg.rating})`} style={{ cursor: 'default' }}>
                               <span style={{ color: dotColors[ghg.rating], fontSize: '0.9rem' }}>{'\u25CF'}</span>
-                              <span style={{ marginLeft: '3px', color: 'var(--color-text-secondary)' }}>{ghg.kgCO2e}</span>
                             </span>
                           );
                         })()}
