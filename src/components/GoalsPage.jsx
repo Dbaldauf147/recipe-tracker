@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { OnboardingTransition } from './OnboardingTransition';
 import styles from './GoalsPage.module.css';
 
 const GOALS = [
@@ -109,6 +110,9 @@ export function GoalsPage({ onComplete, onSkip, onBack, asModal }) {
     catch { return ''; }
   });
 
+  const [showTransition, setShowTransition] = useState(false);
+  const [pendingGoals, setPendingGoals] = useState(null);
+
   function toggle(key) {
     setSelected(prev => {
       const next = new Set(prev);
@@ -125,6 +129,10 @@ export function GoalsPage({ onComplete, onSkip, onBack, asModal }) {
       else next.add(diet);
       return next;
     });
+  }
+
+  if (showTransition) {
+    return <OnboardingTransition focus={focus} onContinue={() => { if (pendingGoals) onComplete(pendingGoals); }} />;
   }
 
   // Always show the 2-option focus screen
@@ -169,29 +177,23 @@ export function GoalsPage({ onComplete, onSkip, onBack, asModal }) {
           </div>
 
           <div className={styles.bottomActions}>
-            {onBack && (
-              <button className={styles.backBtn} onClick={onBack}>
-                &larr; Back
-              </button>
-            )}
             <button
               className={styles.startBtn}
               disabled={focus.size === 0}
               onClick={() => {
                 const focusArr = [...focus];
                 localStorage.setItem('sunday-user-focus', JSON.stringify(focusArr));
-                localStorage.setItem('sunday-post-onboarding', focus.has('nutrition') ? 'nutrition-goals' : '');
-                onComplete([]);
+                window.dispatchEvent(new Event('goals-updated'));
+                const goals = [];
+                if (focus.has('nutrition')) goals.push('daily_nutrition_goals');
+                if (focus.has('meal-planning')) goals.push('import_meals');
+                setPendingGoals(goals);
+                setShowTransition(true);
               }}
             >
               Continue
             </button>
           </div>
-          {onSkip && (
-            <button className={styles.skipBtn} onClick={onSkip}>
-              Skip for now
-            </button>
-          )}
         </div>
       </div>
     );

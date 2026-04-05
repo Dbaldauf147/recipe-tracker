@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { NUTRIENTS, fetchNutritionForIngredient, fetchNutritionForRecipe } from '../utils/nutrition';
 import { loadIngredients } from '../utils/ingredientsStore';
-import { saveField } from '../utils/firestoreSync';
+import { saveField, saveDailyLogToFirestore, loadDailyLogFromFirestore } from '../utils/firestoreSync';
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, ReferenceLine, Legend, CartesianGrid, Area, ComposedChart } from 'recharts';
 import { RecipeDetail } from './RecipeDetail';
 import styles from './DailyTrackerPage.module.css';
@@ -15,7 +15,7 @@ const MEAL_LABELS = { breakfast: 'Breakfast', lunch: 'Lunch', dinner: 'Dinner', 
 
 const UNDER_IS_GOOD = new Set(['calories', 'carbs', 'fat', 'saturatedFat', 'sugar', 'addedSugar', 'fiber', 'sodium', 'potassium']);
 
-const MEASUREMENT_OPTIONS = ['g', 'oz', 'cup', 'tbsp', 'tsp', 'ml', 'piece', 'slice', 'can'];
+const MEASUREMENT_OPTIONS = ['g', 'grams', 'oz', 'ounces', 'cup', 'cups', 'tbsp', 'tsp', 'ml', 'piece', 'pieces', 'slice', 'slices', 'can', 'cans', 'lb', 'lbs'];
 
 const CHART_COLORS = ['#c96442', '#6366f1', '#22c55e', '#f59e0b', '#ec4899', '#06b6d4'];
 
@@ -112,16 +112,42 @@ function loadDailyLog() {
   }
 }
 
+function slimLogForFirestore(log, maxDays) {
+  // Trim to recent N days and strip heavy fields to minimize doc size
+  const keys = Object.keys(log).sort().slice(-maxDays);
+  const slim = {};
+  for (const k of keys) {
+    const day = log[k];
+    if (!day) continue;
+    slim[k] = {
+      ...day,
+      entries: (day.entries || []).map(e => {
+        // Keep essential fields only — strip full nutrition breakdown for Firestore
+        const { nutritionPerIngredient, ...rest } = e;
+        return rest;
+      }),
+    };
+  }
+  return slim;
+}
+
 function saveDailyLog(log, user) {
+  // Always save full log to localStorage (no size limit concern)
   try {
     localStorage.setItem(DAILY_LOG_KEY, JSON.stringify(log));
   } catch {}
   if (user) {
-    // Prevent the real-time listener from overwriting our local edit
     window.__dailyLogLocalEdit = true;
-    saveField(user.uid, 'dailyLog', log).finally(() => {
-      setTimeout(() => { window.__dailyLogLocalEdit = false; }, 2000);
-    });
+    // Save to a SEPARATE document (not the main user doc) to avoid 1MB limit
+    const slim = slimLogForFirestore(log, 90);
+    saveDailyLogToFirestore(user.uid, slim)
+      .then(() => {
+        setTimeout(() => { window.__dailyLogLocalEdit = false; }, 2000);
+      })
+      .catch((err) => {
+        console.error('Failed to save daily log:', err);
+        window.__dailyLogLocalEdit = false;
+      });
   }
 }
 
@@ -209,6 +235,36 @@ function scaleNutrition(nutrition, factor) {
     scaled[n.key] = Math.round((nutrition[n.key] || 0) * factor * 10) / 10;
   }
   return scaled;
+}
+
+/**
+ * Compute per-serving nutrition.
+ * Main/batch ingredients: divide by recipeServings.
+ * Topping/per-meal ingredients (ing.topping === true): keep as-is (already per serving).
+ * Formula: perServing = (mainTotal / servings) + toppingTotal
+ */
+function computePerServing(cacheEntry, recipeIngredients, recipeServings) {
+  const items = getCachedItems(cacheEntry);
+  const totals = getCachedTotals(cacheEntry);
+  if (!totals) return null;
+
+  // If we have per-ingredient data, split main vs topping
+  if (items && recipeIngredients && items.length === recipeIngredients.length) {
+    const perServing = {};
+    for (const n of NUTRIENTS) perServing[n.key] = 0;
+    recipeIngredients.forEach((ing, idx) => {
+      const ingNut = items[idx]?.nutrients || {};
+      // Toppings are per-meal — don't divide. Main ingredients — divide by servings.
+      const divisor = ing.topping ? 1 : (recipeServings || 1);
+      for (const n of NUTRIENTS) perServing[n.key] += (ingNut[n.key] || 0) / divisor;
+    });
+    return perServing;
+  }
+
+  // Fallback: no per-ingredient data, just divide total by servings
+  const perServing = {};
+  for (const n of NUTRIENTS) perServing[n.key] = (totals[n.key] || 0) / (recipeServings || 1);
+  return perServing;
 }
 
 /* ── Recipe Combobox ── */
@@ -487,17 +543,28 @@ function CustomMealModal({ onAdd, onClose }) {
       const totalNutrition = {};
       for (const n of NUTRIENTS) totalNutrition[n.key] = 0;
 
+      const ingredientNutrition = [];
       for (const ing of mealIngredients) {
         const result = await fetchNutritionForIngredient({
           ingredient: ing.ingredient,
           quantity: ing.quantity,
           measurement: ing.measurement,
         });
+        const ingNutrients = {};
         if (result?.nutrients) {
           for (const n of NUTRIENTS) {
             totalNutrition[n.key] += result.nutrients[n.key] || 0;
+            ingNutrients[n.key] = result.nutrients[n.key] || 0;
           }
         }
+        ingredientNutrition.push({
+          name: `${ing.quantity} ${ing.measurement} ${ing.ingredient}`.trim(),
+          ingredient: ing.ingredient,
+          quantity: ing.quantity,
+          measurement: ing.measurement,
+          nutrition: ingNutrients,
+          source: result?.source || 'unknown',
+        });
       }
 
       onAdd({
@@ -505,6 +572,7 @@ function CustomMealModal({ onAdd, onClose }) {
         type: 'custom_meal',
         recipeName: mealName.trim(),
         ingredients: mealIngredients.map(i => `${i.quantity} ${i.measurement} ${i.ingredient}`),
+        ingredientNutrition,
         mealSlot: mealSlotChoice,
         timestamp: new Date().toISOString(),
         nutrition: totalNutrition,
@@ -647,10 +715,11 @@ function AddEntrySection({ recipes, getRecipe, onAdd, weeklyPlan }) {
       }
 
       const recipeServings = recipe.servings || 1;
-      const perServing = {};
-      for (const n of NUTRIENTS) {
-        perServing[n.key] = (totalNutrition[n.key] || 0) / recipeServings;
-      }
+      const perServing = computePerServing(cache[recipeId], recipe.ingredients, recipeServings) || (() => {
+        const ps = {};
+        for (const n of NUTRIENTS) ps[n.key] = (totalNutrition[n.key] || 0) / recipeServings;
+        return ps;
+      })();
 
       let factor;
       const cw = parseFloat(customWeight);
@@ -658,7 +727,19 @@ function AddEntrySection({ recipes, getRecipe, onAdd, weeklyPlan }) {
         const totalGrams = (recipe.ingredients || []).reduce((sum, ing) => {
           const qty = parseFloat(ing.quantity) || 1;
           const unit = (ing.measurement || '').trim().toLowerCase();
-          const MEASUREMENT_TO_GRAMS = { g: 1, oz: 28.35, cup: 140, tbsp: 15, tsp: 5, ml: 1, lb: 453.6, kg: 1000 };
+          const MEASUREMENT_TO_GRAMS = {
+  g: 1, grams: 1, gram: 1, gm: 1,
+  oz: 28.35, ounce: 28.35, ounces: 28.35,
+  cup: 140, cups: 140,
+  tbsp: 15, tablespoon: 15, tablespoons: 15,
+  tsp: 5, teaspoon: 5, teaspoons: 5,
+  ml: 1, milliliter: 1, milliliters: 1, millilitre: 1,
+  lb: 453.6, lbs: 453.6, pound: 453.6, pounds: 453.6,
+  kg: 1000, kilogram: 1000, kilograms: 1000,
+  piece: 100, pieces: 100, whole: 100, medium: 150, large: 200, small: 80,
+  clove: 5, cloves: 5, slice: 30, slices: 30, can: 400, bunch: 50,
+  pinch: 0.5, dash: 0.5, handful: 30,
+};
           const fac = MEASUREMENT_TO_GRAMS[unit] || 100;
           return sum + qty * fac;
         }, 0);
@@ -756,10 +837,11 @@ function AddEntrySection({ recipes, getRecipe, onAdd, weeklyPlan }) {
           } catch {}
         }
         const recipeServings = recipe.servings || 1;
-        const perServing = {};
-        for (const n of NUTRIENTS) {
-          perServing[n.key] = (totalNutrition[n.key] || 0) / recipeServings;
-        }
+        const perServing = computePerServing(cache[rid], recipe.ingredients, recipeServings) || (() => {
+          const ps = {};
+          for (const n of NUTRIENTS) ps[n.key] = (totalNutrition[n.key] || 0) / recipeServings;
+          return ps;
+        })();
         const nutrition = scaleNutrition(perServing, 1);
         const mealSlot = categoryToSlot(recipe.category);
         onAdd({
@@ -907,11 +989,33 @@ function CustomMealInline({ onAdd, onBack }) {
     try {
       const totalNutrition = {};
       for (const n of NUTRIENTS) totalNutrition[n.key] = 0;
+      const ingredientNutrition = [];
+      const ingredientData = [];
       for (const ing of mealIngredients) {
         const result = await fetchNutritionForIngredient({ ingredient: ing.ingredient, quantity: ing.quantity, measurement: ing.measurement });
-        if (result?.nutrients) { for (const n of NUTRIENTS) totalNutrition[n.key] += result.nutrients[n.key] || 0; }
+        const ingNutrients = {};
+        if (result?.nutrients) {
+          for (const n of NUTRIENTS) {
+            totalNutrition[n.key] += result.nutrients[n.key] || 0;
+            ingNutrients[n.key] = result.nutrients[n.key] || 0;
+          }
+        }
+        ingredientNutrition.push({
+          name: `${ing.quantity} ${ing.measurement} ${ing.ingredient}`,
+          ingredient: ing.ingredient,
+          quantity: ing.quantity,
+          measurement: ing.measurement,
+          nutrition: ingNutrients,
+          source: result?.source || 'unknown',
+        });
+        ingredientData.push({
+          quantity: ing.quantity,
+          measurement: ing.measurement,
+          ingredient: ing.ingredient,
+          nutrition: ingNutrients,
+        });
       }
-      onAdd({ id: uuid(), type: 'custom_meal', recipeName: mealName.trim(), ingredients: mealIngredients.map(i => `${i.quantity} ${i.measurement} ${i.ingredient}`), mealSlot: mealSlotChoice, timestamp: new Date().toISOString(), nutrition: totalNutrition });
+      onAdd({ id: uuid(), type: 'custom_meal', recipeName: mealName.trim(), ingredients: mealIngredients.map(i => `${i.quantity} ${i.measurement} ${i.ingredient}`), ingredientData, ingredientNutrition, mealSlot: mealSlotChoice, timestamp: new Date().toISOString(), nutrition: totalNutrition });
     } catch { setError('Failed to look up nutrition for one or more ingredients.'); } finally { setLoading(false); }
   }
 
@@ -1400,6 +1504,10 @@ function AddRecipeQuick({ recipes, getRecipe, onAdd, onBack, weeklyPlan, inline,
   const [error, setError] = useState('');
   const [showWeight, setShowWeight] = useState(false);
   const [mealWeight, setMealWeight] = useState('');
+  const [showIngWeights, setShowIngWeights] = useState(false);
+  const [ingWeights, setIngWeights] = useState({});
+  const [nutCacheVersion, setNutCacheVersion] = useState(0);
+  const [previewTotal, setPreviewTotal] = useState(null); // the green Total row nutrition
   const [previewNutrition, setPreviewNutrition] = useState(null); // { perServing, recipeServings }
   const prevPreviewId = useRef('');
 
@@ -1407,6 +1515,25 @@ function AddRecipeQuick({ recipes, getRecipe, onAdd, onBack, weeklyPlan, inline,
   useEffect(() => {
     if (externalRecipeId) setRecipeId(externalRecipeId);
   }, [externalRecipeId]);
+
+  // Reset per-ingredient weights when recipe changes, and pre-fetch nutrition
+  useEffect(() => {
+    setIngWeights({});
+    setShowIngWeights(false);
+    // Pre-fetch nutrition so the custom portions table has data
+    if (recipeId) {
+      const recipe = getRecipe(recipeId);
+      if (recipe) {
+        const cache = loadNutritionCache();
+        if (!getCachedTotals(cache[recipeId])) {
+          fetchNutritionForRecipe(recipe.ingredients || []).then(result => {
+            try { const c = loadNutritionCache(); c[recipeId] = result; localStorage.setItem(NUTRITION_CACHE_KEY, JSON.stringify(c)); } catch {}
+            setNutCacheVersion(v => v + 1); // trigger re-render
+          }).catch(() => {});
+        }
+      }
+    }
+  }, [recipeId]);
 
   // Fetch nutrition for preview when recipe is selected
   useEffect(() => {
@@ -1419,17 +1546,23 @@ function AddRecipeQuick({ recipes, getRecipe, onAdd, onBack, weeklyPlan, inline,
     const cache = loadNutritionCache();
     if (getCachedTotals(cache[recipeId])) {
       const recipeServings = parseInt(recipe.servings) || 1;
-      const perServing = {};
-      for (const n of NUTRIENTS) perServing[n.key] = (getCachedTotals(cache[recipeId])[n.key] || 0) / recipeServings;
-      setPreviewNutrition({ perServing, recipeServings });
+      const perServing = computePerServing(cache[recipeId], recipe.ingredients, recipeServings);
+      if (perServing) { setPreviewNutrition({ perServing, recipeServings }); return; }
+      const totals = getCachedTotals(cache[recipeId]);
+      const ps = {};
+      for (const n of NUTRIENTS) ps[n.key] = (totals[n.key] || 0) / recipeServings;
+      setPreviewNutrition({ perServing: ps, recipeServings });
       return;
     }
     // Fetch if not cached
     fetchNutritionForRecipe(recipe.ingredients || []).then(result => {
       try { const c = loadNutritionCache(); c[recipeId] = result; localStorage.setItem(NUTRITION_CACHE_KEY, JSON.stringify(c)); } catch {}
       const recipeServings = parseInt(recipe.servings) || 1;
-      const perServing = {};
-      for (const n of NUTRIENTS) perServing[n.key] = (result.totals[n.key] || 0) / recipeServings;
+      const perServing = computePerServing({ items: result.items, totals: result.totals }, recipe.ingredients, recipeServings) || (() => {
+        const ps = {};
+        for (const n of NUTRIENTS) ps[n.key] = (result.totals[n.key] || 0) / recipeServings;
+        return ps;
+      })();
       setPreviewNutrition({ perServing, recipeServings });
     }).catch(() => {});
   }, [recipeId, getRecipe]);
@@ -1459,26 +1592,10 @@ function AddRecipeQuick({ recipes, getRecipe, onAdd, onBack, weeklyPlan, inline,
     const recipe = getRecipe(recipeId);
     if (!recipe) return;
 
-    // If using weight mode, validate
-    if (useWeight) {
-      const totalWeightNum = parseFloat(recipe.totalWeight) || 0;
-      const containerWeightNum = (recipe.containers || []).reduce((sum, c) => sum + (parseFloat(c.weight) || 0), 0) || parseFloat(recipe.containerWeight) || 0;
-      const foodWeight = Math.max(0, totalWeightNum - containerWeightNum);
-      if (foodWeight <= 0) {
-        setError('Weigh meal first — go to the recipe and enter the total weight in "Weigh portion size".');
-        return;
-      }
-      const mw = parseFloat(mealWeight);
-      if (!mw || mw <= 0) {
-        setError('Enter your meal weight in grams.');
-        return;
-      }
-    }
-
     setLoading(true);
     setError('');
     try {
-      const cache = loadNutritionCache();
+      let cache = loadNutritionCache();
       let totalNutrition;
       totalNutrition = getCachedTotals(cache[recipeId]);
       if (!totalNutrition) {
@@ -1486,24 +1603,26 @@ function AddRecipeQuick({ recipes, getRecipe, onAdd, onBack, weeklyPlan, inline,
         totalNutrition = result.totals;
         try { cache[recipeId] = result; localStorage.setItem(NUTRITION_CACHE_KEY, JSON.stringify(cache)); } catch {}
       }
+      // Reload cache to get per-ingredient data from the fetch
+      cache = loadNutritionCache();
       const recipeServings = parseInt(recipe.servings) || 1;
 
-      if (useWeight) {
-        // Weight-based: split main vs topping ingredients, matching NutritionPanel exactly
-        const totalWeightNum = parseFloat(recipe.totalWeight) || 0;
-        const containerWeightNum = (recipe.containers || []).reduce((sum, c) => sum + (parseFloat(c.weight) || 0), 0) || parseFloat(recipe.containerWeight) || 0;
-        const foodWeight = Math.max(0, totalWeightNum - containerWeightNum);
-        const mw = parseFloat(mealWeight);
-        const weightFraction = foodWeight > 0 ? mw / foodWeight : 1;
-        const nutrition = computeWeightNutrition(cache[recipeId], recipe.ingredients, weightFraction)
-          || (() => { const r = {}; for (const n of NUTRIENTS) r[n.key] = Math.round(((totalNutrition[n.key] || 0) * weightFraction) * 10) / 10; return r; })();
-        const servingsCount = parseFloat((weightFraction * recipeServings).toFixed(2));
+      const mw = parseFloat(mealWeight) || 0;
+      const hasIngWeights = Object.values(ingWeights).some(v => parseFloat(v) > 0);
+
+      if (useWeight && previewTotal) {
+        // USE THE EXACT SAME VALUES shown in the preview table Total row
+        const nutrition = {};
+        for (const n of NUTRIENTS) nutrition[n.key] = previewTotal[n.key] || 0;
         const mealSlot = inline ? undefined : categoryToSlot(recipe.category);
-        onAdd({ id: uuid(), type: 'recipe', recipeId, recipeName: recipe.title, servings: servingsCount, customWeight: mw, ...(mealSlot ? { mealSlot } : {}), timestamp: new Date().toISOString(), nutrition });
+        onAdd({ id: uuid(), type: 'recipe', recipeId, recipeName: recipe.title, servings: 1, customWeight: mw > 0 ? mw : null, ingredientWeights: hasIngWeights ? { ...ingWeights } : null, ...(mealSlot ? { mealSlot } : {}), timestamp: new Date().toISOString(), nutrition });
       } else {
-        // Standard: 1 serving
-        const perServing = {};
-        for (const n of NUTRIENTS) perServing[n.key] = (totalNutrition[n.key] || 0) / recipeServings;
+        // Standard: 1 serving, no custom weights
+        const perServing = computePerServing(cache[recipeId], recipe.ingredients, recipeServings) || (() => {
+          const ps = {};
+          for (const n of NUTRIENTS) ps[n.key] = (totalNutrition[n.key] || 0) / recipeServings;
+          return ps;
+        })();
         const nutrition = scaleNutrition(perServing, 1);
         const mealSlot = inline ? undefined : categoryToSlot(recipe.category);
         onAdd({ id: uuid(), type: 'recipe', recipeId, recipeName: recipe.title, servings: 1, customWeight: null, ...(mealSlot ? { mealSlot } : {}), timestamp: new Date().toISOString(), nutrition });
@@ -1533,72 +1652,247 @@ function AddRecipeQuick({ recipes, getRecipe, onAdd, onBack, weeklyPlan, inline,
           <RecipeCombobox recipes={sortedRecipes} value={recipeId} onSelect={setRecipeId} />
         </div>
       </div>
-      {showWeight && (
-        <div className={styles.formRow}>
-          <div className={styles.formField}>
-            <span className={styles.formLabel}>My portion weight (g)</span>
-            <input
-              className={styles.formInput}
-              type="number"
-              min="0"
-              placeholder="grams"
-              value={mealWeight}
-              onChange={e => setMealWeight(e.target.value)}
-            />
-          </div>
-        </div>
-      )}
-      {showWeight && recipeId && mealWeight && (() => {
+      {showWeight && recipeId && (() => {
+        void nutCacheVersion; // ensure re-render when nutrition is fetched
         const recipe = getRecipe(recipeId);
         if (!recipe) return null;
-        const totalWeightNum = parseFloat(recipe.totalWeight) || 0;
-        const containerWeightNum = (recipe.containers || []).reduce((sum, c) => sum + (parseFloat(c.weight) || 0), 0) || parseFloat(recipe.containerWeight) || 0;
-        const foodWeight = Math.max(0, totalWeightNum - containerWeightNum);
-        if (foodWeight <= 0) return <p className={styles.weightPreviewError}>No total weight set on this recipe. Go to the recipe's "Weigh portion size" section first.</p>;
-        const mw = parseFloat(mealWeight);
-        if (!mw || mw <= 0) return null;
+        const perMealIngs = (recipe.ingredients || []).map((ing, idx) => ({ ing, idx })).filter(({ ing }) => ing.topping);
         const recipeServings = parseInt(recipe.servings) || 1;
-        const weightFraction = mw / foodWeight;
-        const servingsDisplay = parseFloat((weightFraction * recipeServings).toFixed(2));
-
-        // Compute nutrition matching NutritionPanel: split main vs topping
         const cache = loadNutritionCache();
         const cached = cache[recipeId];
-        const scaled = computeWeightNutrition(cached, recipe.ingredients, weightFraction);
+        const totalNutrition = getCachedTotals(cached);
+        const hasIngWeightsNow = Object.values(ingWeights).some(v => parseFloat(v) > 0);
+        const mw = parseFloat(mealWeight);
+        const hasMealWeight = showWeight && mw > 0;
 
-        if (!scaled) return (
-          <div className={styles.weightPreview}>
-            <span className={styles.weightPreviewServings}>{servingsDisplay} {servingsDisplay === 1 ? 'serving' : 'servings'}</span>
-            <span className={styles.weightPreviewNote}>({mw}g of {foodWeight}g food weight)</span>
-            <div className={styles.weightPreviewMacros}><span style={{ color: 'var(--color-text-muted)' }}>Loading nutrition...</span></div>
+        // Compute base 1-serving nutrition (main/batch ingredients only)
+        // Cache format: { items: [{ nutrients: { calories, protein, ... } }, ...], totals: { ... } }
+        const perIngItems = cached?.items || null;
+        const ings = recipe.ingredients || [];
+
+        // Split nutrition: main ingredients vs per-meal toppings
+        const mainNut = {};
+        const toppingBaseNut = {};
+        for (const n of NUTRIENTS) { mainNut[n.key] = 0; toppingBaseNut[n.key] = 0; }
+
+        if (perIngItems && perIngItems.length === ings.length) {
+          ings.forEach((ing, idx) => {
+            const target = ing.topping ? toppingBaseNut : mainNut;
+            const ingNut = perIngItems[idx]?.nutrients || {};
+            // Main ingredients: divide by servings (they're part of the batch)
+            // Topping ingredients: use as-is (they're per-meal, added fresh each time)
+            const divisor = ing.topping ? 1 : recipeServings;
+            for (const n of NUTRIENTS) target[n.key] += ((ingNut[n.key] || 0) / divisor);
+          });
+        } else if (totalNutrition) {
+          // Can't split — estimate toppings as proportion of total grams
+          const mainGrams = ings.filter(i => !i.topping).reduce((s, i) => s + estimateIngGrams(i), 0);
+          const topGrams = ings.filter(i => i.topping).reduce((s, i) => s + estimateIngGrams(i), 0);
+          const total = mainGrams + topGrams;
+          for (const n of NUTRIENTS) {
+            const perServ = (totalNutrition[n.key] || 0) / recipeServings;
+            mainNut[n.key] = total > 0 ? perServ * (mainGrams / total) : perServ;
+            toppingBaseNut[n.key] = total > 0 ? perServ * (topGrams / total) : 0;
+          }
+        }
+
+        // Round
+        for (const n of NUTRIENTS) { mainNut[n.key] = Math.round(mainNut[n.key] * 10) / 10; toppingBaseNut[n.key] = Math.round(toppingBaseNut[n.key] * 10) / 10; }
+
+        // Compute adjusted topping nutrition from per-ingredient weights
+        let toppingAdjNut = null;
+        if (hasIngWeightsNow) {
+          toppingAdjNut = {};
+          for (const n of NUTRIENTS) toppingAdjNut[n.key] = 0;
+          perMealIngs.forEach(({ ing, idx }) => {
+            const origGrams = estimateIngGrams(ing);
+            const rawV = ingWeights[idx];
+            const customGrams = parseFloat(rawV);
+            const entered = rawV !== undefined && rawV !== '' && !isNaN(customGrams);
+            const ratio = entered ? (origGrams > 0 ? customGrams / origGrams : 0) : 1;
+            for (const n of NUTRIENTS) toppingAdjNut[n.key] += (toppingBaseNut[n.key] / Math.max(perMealIngs.length, 1)) * ratio;
+          });
+          // If we have per-ingredient nutrition data, be more precise
+          if (perIngItems && perIngItems.length === ings.length) {
+            for (const n of NUTRIENTS) toppingAdjNut[n.key] = 0;
+            perMealIngs.forEach(({ ing, idx }) => {
+              const origGrams = estimateIngGrams(ing);
+              const rawV = ingWeights[idx];
+              const customGrams = parseFloat(rawV);
+              const entered = rawV !== undefined && rawV !== '' && !isNaN(customGrams);
+              const ratio = entered ? (origGrams > 0 ? customGrams / origGrams : 0) : 1;
+              const ingNut = perIngItems[idx]?.nutrients || {};
+              for (const n of NUTRIENTS) toppingAdjNut[n.key] += ((ingNut[n.key] || 0)) * ratio;
+            });
+          }
+          for (const n of NUTRIENTS) toppingAdjNut[n.key] = Math.round(toppingAdjNut[n.key] * 10) / 10;
+        }
+
+        // Meal weight nutrition
+        let mealWeightNut = null;
+        let servingsDisplay = null;
+        if (hasMealWeight) {
+          const totalWeightNum = parseFloat(recipe.totalWeight) || 0;
+          const containerWeightNum = (recipe.containers || []).reduce((sum, c) => sum + (parseFloat(c.weight) || 0), 0) || parseFloat(recipe.containerWeight) || 0;
+          const foodWeight = Math.max(0, totalWeightNum - containerWeightNum);
+          if (foodWeight > 0) {
+            const wf = mw / foodWeight;
+            servingsDisplay = parseFloat((wf * recipeServings).toFixed(2));
+            mealWeightNut = computeWeightNutrition(cached, recipe.ingredients, wf)
+              || (totalNutrition ? (() => { const r = {}; for (const n of NUTRIENTS) r[n.key] = Math.round(((totalNutrition[n.key] || 0) * wf) * 10) / 10; return r; })() : null);
+          }
+        }
+
+        // Total = main portion + adjusted toppings (or base toppings)
+        const totalNut = {};
+        const usedToppingNut = toppingAdjNut || toppingBaseNut;
+        for (const n of NUTRIENTS) totalNut[n.key] = Math.round(((mainNut[n.key] || 0) + (usedToppingNut[n.key] || 0)) * 10) / 10;
+
+        const macroRow = (label, nut, labelStyle) => (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.3rem 0.6rem', background: labelStyle?.bg || 'var(--color-surface)', borderRadius: '6px', flexWrap: 'wrap' }}>
+            <span style={{ fontWeight: 700, fontSize: '0.78rem', color: labelStyle?.color || 'var(--color-text)', minWidth: '130px' }}>{label}</span>
+            <span style={{ fontSize: '0.82rem', color: 'var(--color-text-secondary)' }}>{Math.round(nut.calories || 0)} cal</span>
+            <span style={{ fontSize: '0.82rem', color: 'var(--color-text-secondary)' }}>{Math.round(nut.protein || 0)}g pro</span>
+            <span style={{ fontSize: '0.82rem', color: 'var(--color-text-secondary)' }}>{Math.round(nut.carbs || 0)}g carb</span>
+            <span style={{ fontSize: '0.82rem', color: 'var(--color-text-secondary)' }}>{Math.round(nut.fat || 0)}g fat</span>
           </div>
         );
 
+        // Compute total weight for portion row
+        const totalWeightNum = parseFloat(recipe.totalWeight) || 0;
+        const containerWeightNum = (recipe.containers || []).reduce((sum, c) => sum + (parseFloat(c.weight) || 0), 0) || parseFloat(recipe.containerWeight) || 0;
+        const foodWeight = Math.max(0, totalWeightNum - containerWeightNum);
+        const portionStdGrams = foodWeight > 0 ? Math.round(foodWeight / recipeServings) : '';
+
+        // Per-ingredient standard grams for each topping
+        const toppingIngData = perMealIngs.map(({ ing, idx }) => {
+          const origGrams = Math.round(estimateIngGrams(ing));
+          const rawVal = ingWeights[idx];
+          const customGrams = parseFloat(rawVal);
+          const hasCustom = rawVal !== undefined && rawVal !== '' && !isNaN(customGrams);
+          // Per-ingredient nutrition from cache
+          // Topping ingredients are per-meal (not divided across recipe servings)
+          // so we use the full cached nutrition as-is (it represents the quantity listed)
+          const perIngItems = cached?.items || null;
+          const ingNutBase = (perIngItems && perIngItems[idx]?.nutrients) || {};
+          const ingNutPerServ = {};
+          for (const n of NUTRIENTS) ingNutPerServ[n.key] = ingNutBase[n.key] || 0;
+          const ratio = hasCustom ? (origGrams > 0 ? customGrams / origGrams : 0) : 1;
+          const ingNutAdj = {};
+          for (const n of NUTRIENTS) ingNutAdj[n.key] = Math.round((ingNutPerServ[n.key] || 0) * ratio * 10) / 10;
+          return { ing, idx, origGrams, customGrams: hasCustom ? customGrams : null, ingNutPerServ, ingNutAdj };
+        });
+
+        // Portion nutrition
+        const portionNutAdj = hasMealWeight && mealWeightNut ? mealWeightNut : mainNut;
+
+        // Total = portion + all adjusted toppings
+        const finalTotal = {};
+        for (const n of NUTRIENTS) {
+          let sum = portionNutAdj[n.key] || 0;
+          for (const t of toppingIngData) sum += t.ingNutAdj[n.key] || 0;
+          finalTotal[n.key] = Math.round(sum * 10) / 10;
+        }
+        // Store preview total so save button uses exact same values
+        if (JSON.stringify(finalTotal) !== JSON.stringify(previewTotal)) {
+          setTimeout(() => setPreviewTotal({ ...finalTotal, _mw: mw, _ingWeights: { ...ingWeights } }), 0);
+        }
+
+        const th = { fontWeight: 700, color: 'var(--color-text-muted)', fontSize: '0.68rem', textTransform: 'uppercase', letterSpacing: '0.03em', padding: '0.4rem 0.4rem', textAlign: 'right', whiteSpace: 'nowrap' };
+        const td = { fontSize: '0.82rem', padding: '0.4rem 0.4rem', textAlign: 'right', color: 'var(--color-text-secondary)', borderBottom: '1px solid var(--color-border-light)' };
+        const tdLabel = { fontSize: '0.85rem', fontWeight: 500, color: 'var(--color-text)', padding: '0.4rem 0.4rem', textAlign: 'left', borderBottom: '1px solid var(--color-border-light)', whiteSpace: 'nowrap' };
+        const inputStyle = { padding: '0.3rem 0.35rem', border: '1px solid var(--color-border)', borderRadius: '5px', fontSize: '0.82rem', fontFamily: 'inherit', width: '65px', textAlign: 'center' };
+
         return (
-          <div className={styles.weightPreview}>
-            <span className={styles.weightPreviewServings}>{servingsDisplay} {servingsDisplay === 1 ? 'serving' : 'servings'}</span>
-            <span className={styles.weightPreviewNote}>({mw}g of {foodWeight}g food weight)</span>
-            <div className={styles.weightPreviewMacros}>
-              <span>{Math.round(scaled.calories || 0)} cal</span>
-              <span>{Math.round(scaled.protein || 0)}g protein</span>
-              <span>{Math.round(scaled.carbs || 0)}g carbs</span>
-              <span>{Math.round(scaled.fat || 0)}g fat</span>
+          <div style={{ marginTop: '0.5rem', marginBottom: '0.5rem', background: 'var(--color-surface-alt)', borderRadius: '10px', overflow: 'hidden' }}>
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem' }}>
+                <thead>
+                  <tr style={{ background: 'var(--color-surface-alt)' }}>
+                    <th style={{ ...th, textAlign: 'left', minWidth: '120px' }}></th>
+                    <th style={th}>Standard (g)</th>
+                    <th style={th}>Adjusted (g)</th>
+                    <th style={th}>Cal</th>
+                    <th style={th}>Pro</th>
+                    <th style={th}>Carb</th>
+                    <th style={th}>Fat</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {/* Custom Meal Portion Size */}
+                  <tr style={{ background: hasMealWeight ? '#FEF3E6' : 'var(--color-surface)' }}>
+                    <td style={tdLabel}>Custom Meal Portion Size</td>
+                    <td style={td}>{portionStdGrams || '—'}</td>
+                    <td style={{ ...td, padding: '0.25rem 0.4rem' }}>
+                      <input
+                        type="number"
+                        value={mealWeight}
+                        onChange={e => setMealWeight(e.target.value)}
+                        placeholder={portionStdGrams ? `${portionStdGrams}` : '—'}
+                        min="0"
+                        style={inputStyle}
+                      />
+                    </td>
+                    <td style={td}>{Math.round(portionNutAdj.calories || 0)}</td>
+                    <td style={td}>{Math.round(portionNutAdj.protein || 0)}</td>
+                    <td style={td}>{Math.round(portionNutAdj.carbs || 0)}</td>
+                    <td style={td}>{Math.round(portionNutAdj.fat || 0)}</td>
+                  </tr>
+                  {/* Per-meal ingredients title row */}
+                  {toppingIngData.length > 0 && (
+                    <tr style={{ background: 'var(--color-surface-alt)' }}>
+                      <td colSpan={7} style={{ ...tdLabel, fontWeight: 700, fontSize: '0.78rem', color: '#7C3AED', borderBottom: '2px solid #EDE9FE', padding: '0.5rem 0.4rem 0.25rem' }}>Per-Meal Ingredients</td>
+                    </tr>
+                  )}
+                  {/* Per-meal ingredient rows */}
+                  {toppingIngData.map(t => (
+                    <tr key={t.idx} style={{ background: t.customGrams ? '#F5F3FF' : 'var(--color-surface)' }}>
+                      <td style={{ ...tdLabel, paddingLeft: '1rem' }}>{t.ing.ingredient}</td>
+                      <td style={td}>{t.origGrams}</td>
+                      <td style={{ ...td, padding: '0.25rem 0.4rem' }}>
+                        <input
+                          type="number"
+                          value={ingWeights[t.idx] || ''}
+                          onChange={e => setIngWeights(prev => ({ ...prev, [t.idx]: e.target.value }))}
+                          placeholder={`${t.origGrams}`}
+                          min="0"
+                          style={inputStyle}
+                        />
+                      </td>
+                      <td style={td}>{Math.round(t.ingNutAdj.calories || 0)}</td>
+                      <td style={td}>{Math.round(t.ingNutAdj.protein || 0)}</td>
+                      <td style={td}>{Math.round(t.ingNutAdj.carbs || 0)}</td>
+                      <td style={td}>{Math.round(t.ingNutAdj.fat || 0)}</td>
+                    </tr>
+                  ))}
+                  {/* Total */}
+                  <tr style={{ background: '#DCFCE7' }}>
+                    <td style={{ ...tdLabel, fontWeight: 700, color: '#166534', borderBottom: 'none' }}>Total</td>
+                    <td style={{ ...td, borderBottom: 'none' }}></td>
+                    <td style={{ ...td, borderBottom: 'none' }}></td>
+                    <td style={{ ...td, fontWeight: 700, color: '#166534', borderBottom: 'none' }}>{Math.round(finalTotal.calories || 0)}</td>
+                    <td style={{ ...td, fontWeight: 700, color: '#166534', borderBottom: 'none' }}>{Math.round(finalTotal.protein || 0)}</td>
+                    <td style={{ ...td, fontWeight: 700, color: '#166534', borderBottom: 'none' }}>{Math.round(finalTotal.carbs || 0)}</td>
+                    <td style={{ ...td, fontWeight: 700, color: '#166534', borderBottom: 'none' }}>{Math.round(finalTotal.fat || 0)}</td>
+                  </tr>
+                </tbody>
+              </table>
             </div>
-            {totalWeightNum !== foodWeight && (
-              <div className={styles.weightPreviewDetail}>Scale: {totalWeightNum}g − Container: {containerWeightNum}g = Food: {foodWeight}g</div>
-            )}
           </div>
         );
       })()}
       <div className={styles.formRow} style={{ gap: '0.5rem' }}>
-        <button className={styles.addBtn} onClick={() => handleAdd(!!(showWeight && mealWeight && parseFloat(mealWeight) > 0))} disabled={loading || !recipeId}>{loading ? 'Adding...' : (showWeight && mealWeight && parseFloat(mealWeight) > 0 ? `Add Meal (${mealWeight}g)` : 'Add Meal')}</button>
+        <button className={styles.addBtn} onClick={() => {
+          const hasAnyWeight = showWeight && (parseFloat(mealWeight) > 0 || Object.values(ingWeights).some(v => parseFloat(v) > 0));
+          handleAdd(hasAnyWeight);
+        }} disabled={loading || !recipeId}>{loading ? 'Adding...' : (showWeight && (parseFloat(mealWeight) > 0 || Object.values(ingWeights).some(v => parseFloat(v) > 0)) ? 'Add Meal (weighted)' : 'Add Meal')}</button>
         <button
           className={showWeight ? styles.addBtnSecondaryActive : styles.addBtnSecondary}
           onClick={() => setShowWeight(prev => !prev)}
           disabled={loading || !recipeId}
           type="button"
         >
-          {showWeight ? 'Hide Weight' : 'Meal Weight'}
+          {showWeight ? 'Hide Custom Portions' : 'Custom Meal Portions'}
         </button>
       </div>
       {error && <p className={styles.addError}>{error}</p>}
@@ -1607,10 +1901,34 @@ function AddRecipeQuick({ recipes, getRecipe, onAdd, onBack, weeklyPlan, inline,
 }
 
 /* ── Add Recipe Adjust (custom servings/weight) ── */
+const MEASUREMENT_TO_GRAMS = {
+  g: 1, grams: 1, gram: 1, gm: 1,
+  oz: 28.35, ounce: 28.35, ounces: 28.35,
+  cup: 140, cups: 140,
+  tbsp: 15, tablespoon: 15, tablespoons: 15,
+  tsp: 5, teaspoon: 5, teaspoons: 5,
+  ml: 1, milliliter: 1, milliliters: 1, millilitre: 1,
+  lb: 453.6, lbs: 453.6, pound: 453.6, pounds: 453.6,
+  kg: 1000, kilogram: 1000, kilograms: 1000,
+  piece: 100, pieces: 100, whole: 100, medium: 150, large: 200, small: 80,
+  clove: 5, cloves: 5, slice: 30, slices: 30, can: 400, bunch: 50,
+  pinch: 0.5, dash: 0.5, handful: 30,
+};
+
+function estimateIngGrams(ing) {
+  const qty = parseFloat(ing.quantity) || 1;
+  const unit = (ing.measurement || '').trim().toLowerCase();
+  // If no measurement but quantity looks like grams (>10), treat as grams
+  if (!unit && qty > 10) return qty;
+  return qty * (MEASUREMENT_TO_GRAMS[unit] || (qty > 10 ? 1 : 100));
+}
+
 function AddRecipeAdjust({ recipes, getRecipe, onAdd, onBack, weeklyPlan }) {
   const [recipeId, setRecipeId] = useState('');
   const [servings, setServings] = useState('1');
   const [customWeight, setCustomWeight] = useState('');
+  const [ingWeights, setIngWeights] = useState({});
+  const [showIngredients, setShowIngredients] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -1620,6 +1938,18 @@ function AddRecipeAdjust({ recipes, getRecipe, onAdd, onBack, weeklyPlan }) {
       .sort((a, b) => (a.title || '').localeCompare(b.title || '')),
     [recipes]
   );
+
+  const selectedRecipe = recipeId ? getRecipe(recipeId) : null;
+
+  // Reset ingredient weights when recipe changes
+  useEffect(() => {
+    setIngWeights({});
+    setShowIngredients(false);
+  }, [recipeId]);
+
+  function updateIngWeight(idx, value) {
+    setIngWeights(prev => ({ ...prev, [idx]: value }));
+  }
 
   async function handleAdd() {
     if (!recipeId) return;
@@ -1637,19 +1967,29 @@ function AddRecipeAdjust({ recipes, getRecipe, onAdd, onBack, weeklyPlan }) {
         try { cache[recipeId] = result; localStorage.setItem(NUTRITION_CACHE_KEY, JSON.stringify(cache)); } catch {}
       }
       const recipeServings = recipe.servings || 1;
-      const perServing = {};
-      for (const n of NUTRIENTS) perServing[n.key] = (totalNutrition[n.key] || 0) / recipeServings;
+      const perServing = computePerServing(cache[recipeId], recipe.ingredients, recipeServings) || (() => {
+        const ps = {};
+        for (const n of NUTRIENTS) ps[n.key] = (totalNutrition[n.key] || 0) / recipeServings;
+        return ps;
+      })();
+
+      // Check if any per-ingredient weights were entered
+      const hasIngWeights = Object.values(ingWeights).some(v => parseFloat(v) > 0);
 
       let factor;
       const cw = parseFloat(customWeight);
-      if (cw > 0) {
-        const totalGrams = (recipe.ingredients || []).reduce((sum, ing) => {
-          const qty = parseFloat(ing.quantity) || 1;
-          const unit = (ing.measurement || '').trim().toLowerCase();
-          const MEASUREMENT_TO_GRAMS = { g: 1, oz: 28.35, cup: 140, tbsp: 15, tsp: 5, ml: 1, lb: 453.6, kg: 1000 };
-          const fac = MEASUREMENT_TO_GRAMS[unit] || 100;
-          return sum + qty * fac;
+
+      if (hasIngWeights) {
+        // Calculate factor based on ratio of custom ingredient weights to original
+        const ings = recipe.ingredients || [];
+        const originalTotal = ings.reduce((sum, ing) => sum + estimateIngGrams(ing), 0);
+        const customTotal = ings.reduce((sum, ing, idx) => {
+          const cVal = parseFloat(ingWeights[idx]);
+          return sum + (cVal > 0 ? cVal : estimateIngGrams(ing));
         }, 0);
+        factor = originalTotal > 0 ? (customTotal / originalTotal) * recipeServings : parseFloat(servings) || 1;
+      } else if (cw > 0) {
+        const totalGrams = (recipe.ingredients || []).reduce((sum, ing) => sum + estimateIngGrams(ing), 0);
         factor = totalGrams > 0 ? cw / (totalGrams / recipeServings) : parseFloat(servings) || 1;
       } else {
         factor = parseFloat(servings) || 1;
@@ -1657,7 +1997,10 @@ function AddRecipeAdjust({ recipes, getRecipe, onAdd, onBack, weeklyPlan }) {
 
       const nutrition = scaleNutrition(perServing, factor);
       const mealSlot = categoryToSlot(recipe.category);
-      onAdd({ id: uuid(), type: 'recipe', recipeId, recipeName: recipe.title, servings: parseFloat(servings) || 1, customWeight: cw > 0 ? cw : null, mealSlot, timestamp: new Date().toISOString(), nutrition });
+      const totalCw = hasIngWeights
+        ? (recipe.ingredients || []).reduce((sum, ing, idx) => { const v = parseFloat(ingWeights[idx]); return sum + (v > 0 ? v : estimateIngGrams(ing)); }, 0)
+        : (cw > 0 ? cw : null);
+      onAdd({ id: uuid(), type: 'recipe', recipeId, recipeName: recipe.title, servings: parseFloat(servings) || 1, customWeight: totalCw, ingredientWeights: hasIngWeights ? { ...ingWeights } : null, mealSlot, timestamp: new Date().toISOString(), nutrition });
     } catch {
       setError('Failed to look up nutrition. Try again.');
     } finally {
@@ -1679,11 +2022,56 @@ function AddRecipeAdjust({ recipes, getRecipe, onAdd, onBack, weeklyPlan }) {
           <input className={styles.formInput} type="number" value={servings} onChange={e => setServings(e.target.value)} min="0.25" step="0.25" />
         </div>
         <div className={styles.formFieldSmall}>
-          <span className={styles.formLabel}>Weight (g)</span>
+          <span className={styles.formLabel}>Total Weight (g)</span>
           <input className={styles.formInput} type="number" value={customWeight} onChange={e => setCustomWeight(e.target.value)} placeholder="optional" min="1" />
         </div>
       </div>
-      <div className={styles.formRow}>
+
+      {selectedRecipe && (() => {
+        const perMealIngs = (selectedRecipe.ingredients || []).map((ing, idx) => ({ ing, idx })).filter(({ ing }) => ing.topping);
+        if (perMealIngs.length === 0) return null;
+        return (
+          <div style={{ marginTop: '0.5rem' }}>
+            <button
+              onClick={() => setShowIngredients(p => !p)}
+              style={{ background: 'none', border: 'none', color: 'var(--color-accent)', fontSize: '0.82rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', padding: '0.25rem 0' }}
+            >
+              {showIngredients ? '▾ Hide per-meal ingredients' : '▸ Adjust per-meal ingredients'}
+            </button>
+            {showIngredients && (
+              <div style={{ background: 'var(--color-surface-alt)', borderRadius: '8px', marginTop: '0.35rem', maxHeight: '280px', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 90px 80px', gap: '0 0.75rem', padding: '0.5rem 0.75rem', background: 'var(--color-surface-alt)', borderBottom: '1px solid var(--color-border)', position: 'sticky', top: 0, zIndex: 1 }}>
+                  <span style={{ fontWeight: 700, color: 'var(--color-text-muted)', fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.03em' }}>Per-Meal Ingredient</span>
+                  <span style={{ fontWeight: 700, color: 'var(--color-text-muted)', fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.03em' }}>Recipe Amt</span>
+                  <span style={{ fontWeight: 700, color: 'var(--color-text-muted)', fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.03em' }}>Actual (g)</span>
+                </div>
+                <div style={{ overflowY: 'auto', flex: 1, padding: '0 0.75rem 0.5rem' }}>
+                  {perMealIngs.map(({ ing, idx }) => {
+                    const origGrams = Math.round(estimateIngGrams(ing));
+                    return (
+                      <div key={idx} style={{ display: 'grid', gridTemplateColumns: '1fr 90px 80px', gap: '0 0.75rem', alignItems: 'center', padding: '0.35rem 0', borderBottom: '1px solid var(--color-border-light)' }}>
+                        <span style={{ color: 'var(--color-text)', fontWeight: 500, fontSize: '0.85rem' }}>{ing.ingredient}</span>
+                        <span style={{ color: 'var(--color-text-secondary)', fontSize: '0.8rem' }}>{ing.quantity} {ing.measurement} <span style={{ color: 'var(--color-text-muted)', fontSize: '0.72rem' }}>({origGrams}g)</span></span>
+                        <input
+                          type="number"
+                          value={ingWeights[idx] || ''}
+                          onChange={e => updateIngWeight(idx, e.target.value)}
+                          placeholder={`${origGrams}`}
+                          min="0"
+                          style={{ padding: '0.35rem 0.4rem', border: '1px solid var(--color-border)', borderRadius: '6px', fontSize: '0.85rem', fontFamily: 'inherit', width: '100%', textAlign: 'center' }}
+                        />
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      })()}
+      )}
+
+      <div className={styles.formRow} style={{ marginTop: '0.75rem' }}>
         <button className={styles.addBtn} onClick={handleAdd} disabled={loading || !recipeId}>{loading ? 'Adding...' : 'Add Meal'}</button>
       </div>
       {error && <p className={styles.addError}>{error}</p>}
@@ -1720,7 +2108,7 @@ function MealScoreBadge({ nutrition }) {
 
   let color;
   if (score >= 85) color = 'var(--color-success, #16a34a)';
-  else if (score >= 65) color = 'var(--color-accent, #2A8C7A)';
+  else if (score >= 65) color = 'var(--color-accent, #3B6B9C)';
   else if (score >= 45) color = '#D4A574';
   else color = 'var(--color-danger, #dc2626)';
 
@@ -1731,7 +2119,11 @@ function MealScoreBadge({ nutrition }) {
   );
 }
 
-function EntryRow({ entry, onDelete, goalKeys, onEdit }) {
+function EntryRow({ entry, onDelete, goalKeys, onEdit, onUpdateEntry }) {
+  const [expanded, setExpanded] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [editQty, setEditQty] = useState(null); // null = not editing, { quantity, measurement } = editing
+  const [saving, setSaving] = useState(false);
   const name = entry.type === 'custom_meal' ? entry.recipeName : entry.type === 'recipe' ? entry.recipeName : entry.ingredientName;
   const portion = entry.type === 'recipe'
     ? (entry.customWeight ? `${entry.customWeight}g` : `${entry.servings} serving${entry.servings !== 1 ? 's' : ''}`)
@@ -1740,34 +2132,193 @@ function EntryRow({ entry, onDelete, goalKeys, onEdit }) {
     : `${entry.quantity} ${entry.measurement}`;
   const n = entry.nutrition || {};
   const keys = goalKeys && goalKeys.length > 0 ? goalKeys : DEFAULT_ENTRY_KEYS;
-  const isEditable = entry.type === 'custom_meal';
+  const isEditable = entry.type === 'custom_meal' || entry.type === 'recipe';
+  const hasBreakdown = (entry.type === 'custom_meal' || entry.type === 'recipe') && entry.ingredientNutrition?.length > 0;
+  const canRefresh = (entry.type === 'custom_meal' || entry.type === 'recipe') && !hasBreakdown && (entry.ingredients?.length > 0 || entry.recipeId);
+
+  async function refreshNutrition() {
+    if (!onUpdateEntry || refreshing) return;
+    setRefreshing(true);
+    try {
+      const totalNutrition = {};
+      for (const nutrient of NUTRIENTS) totalNutrition[nutrient.key] = 0;
+      const ingredientNutrition = [];
+
+      for (const ingStr of (entry.ingredients || [])) {
+        // Parse "quantity measurement ingredient" from string
+        const parts = ingStr.trim().match(/^([\d./]+)?\s*(\S+)?\s+(.+)$/);
+        const quantity = parts?.[1] || '1';
+        const measurement = parts?.[2] || '';
+        const ingredient = parts?.[3] || ingStr;
+
+        const result = await fetchNutritionForIngredient({ ingredient, quantity, measurement });
+        const ingNutrients = {};
+        if (result?.nutrients) {
+          for (const nutrient of NUTRIENTS) {
+            totalNutrition[nutrient.key] += result.nutrients[nutrient.key] || 0;
+            ingNutrients[nutrient.key] = result.nutrients[nutrient.key] || 0;
+          }
+        }
+        ingredientNutrition.push({
+          name: ingStr,
+          ingredient,
+          quantity,
+          measurement,
+          nutrition: ingNutrients,
+          source: result?.source || 'unknown',
+        });
+      }
+
+      onUpdateEntry(entry.id, { nutrition: totalNutrition, ingredientNutrition });
+      setExpanded(true);
+    } catch {} finally {
+      setRefreshing(false);
+    }
+  }
 
   return (
-    <div className={styles.entryRow}>
-      <MealScoreBadge nutrition={n} />
-      {isEditable ? (
-        <button className={styles.entryNameBtn} onClick={() => onEdit && onEdit(entry)}>
-          {name} <span className={styles.editHint}>edit</span>
-        </button>
-      ) : (
-        <span className={styles.entryName}>{name}</span>
-      )}
-      <span className={styles.entryPortion}>{portion}</span>
-      <div className={styles.entryMacros}>
-        {keys.map(key => (
-          <span key={key} className={styles.entryMacro}>
-            <span className={styles.macroValue}>{fmtNutrient(n[key], key)}</span>
-            <span className={styles.macroLabel}>{SHORT_LABELS[key] || key}</span>
-          </span>
-        ))}
+    <div>
+      <div className={styles.entryRow}>
+        <MealScoreBadge nutrition={n} />
+        {isEditable ? (
+          <button className={styles.entryNameBtn} onClick={() => onEdit && onEdit(entry)}>
+            {name} <span className={styles.editHint}>edit</span>
+          </button>
+        ) : (
+          <button className={styles.entryNameBtn} onClick={() => setExpanded(p => !p)}>
+            {name} {(entry.customWeight || entry.ingredientWeights) && <span className={styles.editHint}>{entry.customWeight ? `${entry.customWeight}g` : 'custom'}</span>}
+          </button>
+        )}
+        <span className={styles.entryPortion}>
+          {hasBreakdown || canRefresh ? (
+            <button className={styles.expandBtn} onClick={() => {
+              if (canRefresh && !hasBreakdown) refreshNutrition();
+              else setExpanded(p => !p);
+            }}>
+              {refreshing ? 'Loading...' : `${portion} ${expanded ? '▾' : '▸'}`}
+            </button>
+          ) : portion}
+        </span>
+        <div className={styles.entryMacros}>
+          {keys.map(key => (
+            <span key={key} className={styles.entryMacro}>
+              <span className={styles.macroValue}>{fmtNutrient(n[key], key)}</span>
+              <span className={styles.macroLabel}>{SHORT_LABELS[key] || key}</span>
+            </span>
+          ))}
+        </div>
+        <button className={styles.deleteBtn} onClick={() => onDelete(entry.id)} aria-label="Delete">&times;</button>
       </div>
-      <button className={styles.deleteBtn} onClick={() => onDelete(entry.id)} aria-label="Delete">&times;</button>
+      {expanded && hasBreakdown && (
+        <div className={styles.ingBreakdown}>
+          {entry.ingredientNutrition.map((ing, i) => (
+            <div key={i} className={styles.ingBreakdownRow}>
+              <span className={styles.ingBreakdownName}>{ing.name}</span>
+              <div className={styles.ingBreakdownMacros}>
+                {keys.map(key => (
+                  <span key={key} className={styles.ingBreakdownMacro}>
+                    {fmtNutrient(ing.nutrition?.[key], key)}
+                  </span>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+      {expanded && !hasBreakdown && (
+        <div className={styles.ingBreakdown}>
+          {entry.type === 'custom' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', padding: '0.25rem 0' }}>
+              {/* Editable quantity/measurement */}
+              {editQty ? (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: '0.78rem', fontWeight: 600, color: '#1E293B' }}>{entry.ingredientName || name}</span>
+                  <input
+                    type="number"
+                    value={editQty.quantity}
+                    onChange={e => setEditQty(prev => ({ ...prev, quantity: e.target.value }))}
+                    style={{ width: '60px', padding: '0.25rem 0.4rem', border: '1px solid #CBD5E1', borderRadius: '4px', fontSize: '0.78rem', fontFamily: 'inherit' }}
+                    step="any"
+                    min="0"
+                  />
+                  <input
+                    type="text"
+                    value={editQty.measurement}
+                    onChange={e => setEditQty(prev => ({ ...prev, measurement: e.target.value }))}
+                    style={{ width: '70px', padding: '0.25rem 0.4rem', border: '1px solid #CBD5E1', borderRadius: '4px', fontSize: '0.78rem', fontFamily: 'inherit' }}
+                    placeholder="unit"
+                  />
+                  <button
+                    disabled={saving}
+                    onClick={async () => {
+                      if (!onUpdateEntry) return;
+                      setSaving(true);
+                      try {
+                        const newQty = parseFloat(editQty.quantity) || entry.quantity;
+                        const newMeas = editQty.measurement || entry.measurement;
+                        const scale = entry.quantity > 0 ? newQty / entry.quantity : 1;
+                        const newNutrition = {};
+                        for (const nt of NUTRIENTS) newNutrition[nt.key] = Math.round(((n[nt.key] || 0) * scale) * 10) / 10;
+                        onUpdateEntry(entry.id, { quantity: newQty, measurement: newMeas, nutrition: newNutrition });
+                        setEditQty(null);
+                      } finally { setSaving(false); }
+                    }}
+                    style={{ padding: '0.2rem 0.6rem', border: 'none', borderRadius: '4px', background: '#3B7DDD', color: '#fff', fontSize: '0.72rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}
+                  >{saving ? '...' : 'Save'}</button>
+                  <button
+                    onClick={() => setEditQty(null)}
+                    style={{ padding: '0.2rem 0.5rem', border: '1px solid #E2E8F0', borderRadius: '4px', background: '#fff', color: '#64748B', fontSize: '0.72rem', cursor: 'pointer', fontFamily: 'inherit' }}
+                  >Cancel</button>
+                </div>
+              ) : (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <span style={{ fontSize: '0.78rem', fontWeight: 600, color: '#1E293B' }}>{entry.ingredientName || name}</span>
+                  <span style={{ fontSize: '0.78rem', color: 'var(--color-accent)', fontWeight: 600 }}>{entry.quantity} {entry.measurement}</span>
+                  <button
+                    onClick={() => setEditQty({ quantity: entry.quantity, measurement: entry.measurement })}
+                    style={{ padding: '0.15rem 0.5rem', border: '1px solid #CBD5E1', borderRadius: '4px', background: '#F8FAFC', color: '#3B7DDD', fontSize: '0.68rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}
+                  >Adjust</button>
+                  <button
+                    onClick={() => onDelete(entry.id)}
+                    style={{ padding: '0.15rem 0.5rem', border: '1px solid #FCA5A5', borderRadius: '4px', background: '#FEF2F2', color: '#DC2626', fontSize: '0.68rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}
+                  >Delete</button>
+                </div>
+              )}
+
+              {/* Nutrition details */}
+              {n && Object.keys(n).length > 0 && (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', paddingTop: '0.15rem' }}>
+                  {NUTRIENTS.filter(nt => n[nt.key] > 0).map(nt => (
+                    <span key={nt.key} style={{ fontSize: '0.72rem', color: '#64748B' }}>
+                      <span style={{ fontWeight: 600, color: '#1E293B' }}>{fmtNutrient(n[nt.key], nt.key)}</span> {nt.label}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+          {entry.customWeight && (
+            <div className={styles.ingBreakdownRow}>
+              <span className={styles.ingBreakdownName} style={{ fontWeight: 600 }}>Meal portion weight</span>
+              <span style={{ fontSize: '0.78rem', color: 'var(--color-accent)', fontWeight: 600 }}>{entry.customWeight}g</span>
+            </div>
+          )}
+          {entry.ingredientWeights && Object.keys(entry.ingredientWeights).length > 0 && (() => {
+            return Object.entries(entry.ingredientWeights).filter(([, v]) => parseFloat(v) > 0).map(([idx, grams]) => (
+              <div key={idx} className={styles.ingBreakdownRow}>
+                <span className={styles.ingBreakdownName}>Per-meal ingredient #{parseInt(idx) + 1}</span>
+                <span style={{ fontSize: '0.78rem', color: '#7C3AED', fontWeight: 600 }}>{grams}g</span>
+              </div>
+            ));
+          })()}
+        </div>
+      )}
     </div>
   );
 }
 
 /* ── Meal Log ── */
-function MealLog({ entries, onDelete, onEdit, goalKeys, skippedMeals, daySkipped }) {
+function MealLog({ entries, onDelete, onEdit, onUpdateEntry, goalKeys, skippedMeals, daySkipped }) {
   const grouped = {};
   for (const slot of MEAL_SLOTS) grouped[slot] = [];
   for (const entry of entries) {
@@ -1804,7 +2355,7 @@ function MealLog({ entries, onDelete, onEdit, goalKeys, skippedMeals, daySkipped
               <div className={styles.skippedNote}>Meal skipped</div>
             ) : (
               items.map(entry => (
-                <EntryRow key={entry.id} entry={entry} onDelete={onDelete} onEdit={onEdit} goalKeys={goalKeys} />
+                <EntryRow key={entry.id} entry={entry} onDelete={onDelete} onEdit={onEdit} onUpdateEntry={onUpdateEntry} goalKeys={goalKeys} />
               ))
             )}
           </div>
@@ -2196,7 +2747,7 @@ function ServingsTooltip({ active, payload, label }) {
 
 /* ── Main Page ── */
 /* ── Weekly View ── */
-function WeeklyView({ dailyLog, date, recipes, onDayClick, onMoveEntry, onAddToSlot, onViewRecipe, onRemoveLastEntry, onEditEntry }) {
+function WeeklyView({ dailyLog, date, recipes, onDayClick, onMoveEntry, onAddToSlot, onViewRecipe, onRemoveLastEntry, onEditEntry, onSelectDate }) {
   const goals = loadGoals();
   const macroKeys = ['calories', 'protein', 'carbs', 'fat'];
   const [dragOver, setDragOver] = useState(null); // { dateStr, slot }
@@ -2221,7 +2772,7 @@ function WeeklyView({ dailyLog, date, recipes, onDayClick, onMoveEntry, onAddToS
       const entry = entries[ei];
       const slot = entry.mealSlot && MEAL_SLOTS.includes(entry.mealSlot) ? entry.mealSlot : 'snack';
       const name = entry.type === 'custom_meal' ? entry.recipeName : entry.type === 'recipe' ? entry.recipeName : entry.ingredientName;
-      bySlot[slot].push({ id: entry.id, entryIndex: ei, name: name || 'Unknown', sourceDate: dateStr, recipeId: entry.recipeId || null, type: entry.type, editable: entry.type === 'custom_meal' });
+      bySlot[slot].push({ id: entry.id, entryIndex: ei, name: name || 'Unknown', sourceDate: dateStr, recipeId: entry.recipeId || null, type: entry.type, editable: entry.type === 'custom_meal' || entry.type === 'recipe', clickable: true, nutrition: entry.nutrition || null, entry });
     }
 
     // Compute totals for macros
@@ -2390,9 +2941,9 @@ function WeeklyView({ dailyLog, date, recipes, onDayClick, onMoveEntry, onAddToS
                         {day.skippedMeals.includes(slot) ? (
                           <span className={styles.weeklyColSkippedMeal}>Skipped</span>
                         ) : day.bySlot[slot].length > 0 ? day.bySlot[slot].map((item) => (
-                          <span
+                          <div
                             key={item.id}
-                            className={`${styles.weeklyColMeal} ${(item.recipeId || item.editable) ? styles.weeklyColMealClickable : ''}`}
+                            className={`${styles.weeklyColMealWrap}`}
                             draggable
                             onDragStart={e => {
                               e.dataTransfer.setData('text/plain', JSON.stringify({ sourceDate: item.sourceDate, entryId: item.id }));
@@ -2404,9 +2955,19 @@ function WeeklyView({ dailyLog, date, recipes, onDayClick, onMoveEntry, onAddToS
                                 onEditEntry(item.id, item.sourceDate);
                               } else if (item.recipeId && onViewRecipe) {
                                 onViewRecipe(item.recipeId);
+                              } else if (item.entry) {
+                                // For single ingredients — navigate to daily view for that date
+                                onSelectDate && onSelectDate(item.sourceDate);
                               }
                             }}
-                          >{item.name}</span>
+                          >
+                            <span className={`${styles.weeklyColMeal} ${styles.weeklyColMealClickable}`}>{item.name}</span>
+                            {item.nutrition && item.nutrition.calories > 0 && (
+                              <span className={styles.weeklyColMealNutrition}>
+                                {Math.round(item.nutrition.calories)} cal &middot; {Math.round(item.nutrition.protein || 0)}p &middot; {Math.round(item.nutrition.carbs || 0)}c &middot; {Math.round(item.nutrition.fat || 0)}f
+                              </span>
+                            )}
+                          </div>
                         )) : (day.isPast && slot !== 'snack') ? (
                           <span className={styles.weeklyColNotTracked}>Not Tracked</span>
                         ) : (
@@ -2471,10 +3032,24 @@ function WeeklyView({ dailyLog, date, recipes, onDayClick, onMoveEntry, onAddToS
 const WEEKLY_PLAN_KEY = 'sunday-weekly-plan';
 
 /* ── Edit Estimated Meal Modal ── */
-function EditEstimateModal({ entry, onSave, onClose }) {
+function EditEstimateModal({ entry, onSave, onClose, getRecipe }) {
   const [items, setItems] = useState(() => {
     if (entry.ingredientData && entry.ingredientData.length > 0) {
       return entry.ingredientData.map(i => ({ ...i }));
+    }
+    // For recipe entries, load ingredients from the recipe store
+    if (entry.type === 'recipe' && entry.recipeId && getRecipe) {
+      const recipe = getRecipe(entry.recipeId);
+      if (recipe && recipe.ingredients?.length > 0) {
+        return recipe.ingredients.map(i => ({
+          quantity: i.quantity || '1',
+          measurement: i.measurement || '',
+          ingredient: i.ingredient || '',
+          notes: i.notes || '',
+          topping: i.topping || false,
+          nutrition: {},
+        }));
+      }
     }
     // Parse from string ingredients
     return (entry.ingredients || []).map(str => {
@@ -2485,6 +3060,37 @@ function EditEstimateModal({ entry, onSave, onClose }) {
     });
   });
   const [loading, setLoading] = useState(false);
+  const [calcBreakdown, setCalcBreakdown] = useState(null);
+  const [calcNutrition, setCalcNutrition] = useState(null);
+  const [calculating, setCalculating] = useState(false);
+
+  // Nutrition display keys
+  const displayKeys = ['calories', 'protein', 'carbs', 'fat'];
+  const existingNutrition = calcNutrition || entry.nutrition || {};
+  const existingBreakdown = calcBreakdown || entry.ingredientNutrition || entry.ingredientData?.filter(d => d.nutrition && Object.keys(d.nutrition).length > 0) || [];
+  const hasBreakdown = existingBreakdown.length > 0;
+  const canCalculate = !hasBreakdown && items.length > 0;
+
+  async function calculateBreakdown() {
+    setCalculating(true);
+    try {
+      const result = await fetchNutritionForRecipe(items.filter(i => i.ingredient.trim()));
+      const totalNutrition = {};
+      for (const n of NUTRIENTS) totalNutrition[n.key] = result.totals[n.key] || 0;
+      const breakdown = items.filter(i => i.ingredient.trim()).map((item, idx) => ({
+        name: `${item.quantity} ${item.measurement} ${item.ingredient}`,
+        ingredient: item.ingredient,
+        quantity: item.quantity,
+        measurement: item.measurement,
+        nutrition: result.items[idx]?.nutrients || {},
+        source: 'lookup',
+      }));
+      setCalcBreakdown(breakdown);
+      setCalcNutrition(totalNutrition);
+    } catch {} finally {
+      setCalculating(false);
+    }
+  }
 
   function updateItem(index, field, value) {
     setItems(prev => prev.map((item, i) => i === index ? { ...item, [field]: value } : item));
@@ -2509,9 +3115,18 @@ function EditEstimateModal({ entry, onSave, onClose }) {
         ...item,
         nutrition: result.items[idx]?.nutrients || {},
       }));
+      const ingredientNutrition = updatedIngredientData.map(item => ({
+        name: `${item.quantity} ${item.measurement} ${item.ingredient}`,
+        ingredient: item.ingredient,
+        quantity: item.quantity,
+        measurement: item.measurement,
+        nutrition: item.nutrition,
+        source: 'lookup',
+      }));
       onSave({
         ingredients: updatedIngredientData.map(i => `${i.quantity} ${i.measurement} ${i.ingredient}`),
         ingredientData: updatedIngredientData,
+        ingredientNutrition,
         nutrition: totalNutrition,
       });
     } catch {
@@ -2532,6 +3147,74 @@ function EditEstimateModal({ entry, onSave, onClose }) {
           <h3 className={styles.modalTitle}>Edit: {entry.recipeName}</h3>
           <button className={styles.modalClose} onClick={onClose}>&times;</button>
         </div>
+
+        {/* Nutrition totals summary */}
+        {existingNutrition.calories > 0 && (
+          <div className={styles.editNutritionSummary}>
+            <span className={styles.editNutritionTitle}>Nutrition Totals</span>
+            <div className={styles.editNutritionChips}>
+              {displayKeys.map(key => {
+                const n = NUTRIENTS.find(x => x.key === key);
+                const val = existingNutrition[key] || 0;
+                return (
+                  <span key={key} className={styles.editNutritionChip}>
+                    <span className={styles.editNutritionChipVal}>{fmtNutrient(val, key)}</span>
+                    <span className={styles.editNutritionChipLabel}>{SHORT_LABELS[key] || key}</span>
+                  </span>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Calculate breakdown button for old entries */}
+        {canCalculate && (
+          <button className={styles.addEstimateRowBtn} onClick={calculateBreakdown} disabled={calculating} style={{ marginBottom: '0.5rem' }}>
+            {calculating ? 'Calculating...' : 'Show Nutrition Breakdown'}
+          </button>
+        )}
+
+        {/* Per-ingredient nutrition breakdown */}
+        {existingBreakdown.length > 0 && (
+          <div className={styles.editIngBreakdown}>
+            <span className={styles.editIngBreakdownTitle}>Per Ingredient</span>
+            <div className={styles.editIngBreakdownHeader}>
+              <span style={{ flex: 1 }}></span>
+              <div className={styles.editIngBreakdownMacros}>
+                {displayKeys.map(key => (
+                  <span key={key} className={styles.editIngBreakdownHeaderLabel}>{SHORT_LABELS[key]}</span>
+                ))}
+              </div>
+            </div>
+            {existingBreakdown.map((ing, i) => {
+              const ingName = ing.name || `${ing.quantity || ''} ${ing.measurement || ''} ${ing.ingredient || ''}`.trim();
+              const ingN = ing.nutrition || {};
+              return (
+                <div key={i} className={styles.editIngBreakdownRow}>
+                  <span className={styles.editIngBreakdownName}>{ingName}</span>
+                  <div className={styles.editIngBreakdownMacros}>
+                    {displayKeys.map(key => (
+                      <span key={key} className={styles.editIngBreakdownMacro}>
+                        {fmtNutrient(ingN[key], key)}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+            <div className={styles.editIngBreakdownRow} style={{ borderTop: '1px solid var(--color-border)', paddingTop: '0.3rem', marginTop: '0.2rem' }}>
+              <span className={styles.editIngBreakdownName} style={{ fontWeight: 600 }}>Total</span>
+              <div className={styles.editIngBreakdownMacros}>
+                {displayKeys.map(key => (
+                  <span key={key} className={styles.editIngBreakdownMacro} style={{ fontWeight: 700 }}>
+                    {fmtNutrient(existingNutrition[key], key)}
+                  </span>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
         <table className={styles.editEstimateTable}>
           <thead>
             <tr>
@@ -2766,7 +3449,7 @@ function KpiAlerts({ dailyLog, recipes, onImportRecipe, cacheVersion, onViewReci
   return (
     <div className={styles.kpiAlerts}>
       <h3 className={styles.kpiTitle}>Areas to Improve</h3>
-      <p className={styles.kpiSubtitle}>Based on the food log from {dateRangeLabel}</p>
+      <p className={styles.kpiSubtitle}>Based on the food log from {dateRangeLabel}. Meals not tracked will not bring down your score — the tool assumes those meals hit 33% of your daily needs.</p>
       {trackingStats && (
         <div className={styles.trackingQuality}>
           <span className={styles.trackingStat}>
@@ -2837,6 +3520,37 @@ export function DailyTrackerPage({ recipes, getRecipe, onClose, user, weeklyPlan
   const [viewRecipeId, setViewRecipeId] = useState(null);
   const [dailyLog, setDailyLog] = useState(loadDailyLog);
   const [cacheVersion, setCacheVersion] = useState(0);
+
+  // On mount: load daily log from Firestore subcollection and merge with local
+  useEffect(() => {
+    if (!user) return;
+    loadDailyLogFromFirestore(user.uid).then(remote => {
+      if (!remote || Object.keys(remote).length === 0) return;
+      setDailyLog(prev => {
+        const merged = { ...remote };
+        // Keep any local entries that are newer/more complete than remote
+        for (const date of Object.keys(prev)) {
+          const localEntries = prev[date]?.entries || [];
+          const remoteEntries = merged[date]?.entries || [];
+          if (localEntries.length > remoteEntries.length) {
+            merged[date] = prev[date];
+          }
+        }
+        try { localStorage.setItem(DAILY_LOG_KEY, JSON.stringify(merged)); } catch {}
+        return merged;
+      });
+    }).catch(() => {});
+  }, [user]);
+
+  // Re-load daily log when Firestore syncs data from another device
+  // (firestore-sync event is for main user doc — dailyLog is no longer there, so skip overwriting)
+  useEffect(() => {
+    function handleSync() {
+      // Don't overwrite from main doc sync — dailyLog is in subcollection now
+    }
+    window.addEventListener('firestore-sync', handleSync);
+    return () => window.removeEventListener('firestore-sync', handleSync);
+  }, []);
 
   // Pre-compute nutrition for uncached recipes in the background
   useEffect(() => {
@@ -3013,7 +3727,7 @@ export function DailyTrackerPage({ recipes, getRecipe, onClose, user, weeklyPlan
       </div>
       <div className={styles.weeklyWithCal}>
         <div className={styles.weeklyWithCalLeft}>
-          <WeeklyView dailyLog={dailyLog} date={date} recipes={recipes} onDayClick={(d) => setDate(d)} onMoveEntry={moveEntry} onAddToSlot={handleAddToSlot} onViewRecipe={(id) => setViewRecipeId(id)} onRemoveLastEntry={removeLastEntry} onEditEntry={(entryId, dateStr) => setEditModal({ entryId, dateStr })} />
+          <WeeklyView dailyLog={dailyLog} date={date} recipes={recipes} onDayClick={(d) => setDate(d)} onMoveEntry={moveEntry} onAddToSlot={handleAddToSlot} onViewRecipe={(id) => setViewRecipeId(id)} onRemoveLastEntry={removeLastEntry} onEditEntry={(entryId, dateStr) => setEditModal({ entryId, dateStr })} onSelectDate={(d) => setDate(d)} />
         </div>
         <div className={styles.weeklyWithCalRight}>
           <MiniCalendar date={date} setDate={setDate} dailyLog={dailyLog} />
@@ -3034,6 +3748,7 @@ export function DailyTrackerPage({ recipes, getRecipe, onClose, user, weeklyPlan
         return (
           <EditEstimateModal
             entry={entry}
+            getRecipe={getRecipe}
             onSave={(updates) => {
               updateEntry(editModal.entryId, editModal.dateStr, updates);
               setEditModal(null);

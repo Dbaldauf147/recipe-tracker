@@ -7,9 +7,81 @@ import { VOLUME_TO_ML, WEIGHT_TO_G, SIZE_GRAMS, getSizeGrams } from '../utils/un
 import { classifyMealType } from '../utils/classifyMealType';
 import { uploadMealImage, deleteMealImage, getCachedMealImage, generateMealImage } from '../utils/generateMealImage';
 import { getIngredientTags, getTagInfo } from '../utils/ingredientTags';
+import { detectCuisine, ALL_CUISINES, getShelfLife } from '../utils/detectCuisine';
+import { getGHGEmissions, getGHGRating, computeRecipeGHG } from '../data/ghgEmissions';
 import styles from './RecipeDetail.module.css';
 
 const ADMIN_UID = import.meta.env.VITE_ADMIN_UID;
+
+const SOURCE_LABELS = {
+  ai: 'AI Generated',
+  discover: 'Prep Day Recipes',
+  starter: 'Prep Day Recipes',
+  shared: 'Shared by Friend',
+  bulk: 'Bulk Upload',
+  url: 'Imported from URL',
+  tiktok: 'Imported from TikTok',
+  instagram: 'Imported from Instagram',
+  pinterest: 'Imported from Pinterest',
+  paste: 'Pasted Text',
+  manual: 'Manual Entry',
+  restaurant: 'Restaurant Menu',
+};
+
+function VideoEmbed({ url }) {
+  if (!url) return null;
+  const trimmed = url.trim();
+
+  // YouTube
+  const ytMatch = trimmed.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/|youtube\.com\/shorts\/)([a-zA-Z0-9_-]{11})/);
+  if (ytMatch) {
+    return (
+      <div className={styles.videoEmbed}>
+        <iframe
+          src={`https://www.youtube.com/embed/${ytMatch[1]}`}
+          title="Recipe video"
+          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+          allowFullScreen
+          className={styles.videoIframe}
+        />
+      </div>
+    );
+  }
+
+  // TikTok
+  const ttMatch = trimmed.match(/tiktok\.com\/@[^/]+\/video\/(\d+)/);
+  if (ttMatch) {
+    return (
+      <div className={styles.videoEmbed}>
+        <iframe
+          src={`https://www.tiktok.com/embed/v2/${ttMatch[1]}`}
+          title="Recipe video"
+          allowFullScreen
+          className={styles.videoIframe}
+          style={{ maxWidth: 325, height: 580 }}
+        />
+      </div>
+    );
+  }
+
+  // Instagram
+  const igMatch = trimmed.match(/instagram\.com\/(p|reel|reels)\/([a-zA-Z0-9_-]+)/);
+  if (igMatch) {
+    return (
+      <div className={styles.videoEmbed}>
+        <iframe
+          src={`https://www.instagram.com/${igMatch[1]}/${igMatch[2]}/embed`}
+          title="Recipe video"
+          allowFullScreen
+          className={styles.videoIframe}
+          style={{ maxWidth: 400, height: 480 }}
+        />
+      </div>
+    );
+  }
+
+  return null;
+}
 
 function parseFraction(str) {
   if (!str) return 0;
@@ -222,6 +294,95 @@ function applyFormat(command) {
   document.execCommand(command, false, null);
 }
 
+const STORAGE_OPTIONS = [
+  { key: 'Fridge', icon: '🧊', shelfDays: { min: 3, max: 7 } },
+  { key: 'Freezer', icon: '❄️', shelfDays: { min: 30, max: 90 } },
+  { key: 'Pantry', icon: '🏠', shelfDays: { min: 30, max: 365 } },
+  { key: 'Counter', icon: '🍌', shelfDays: { min: 2, max: 5 } },
+];
+
+function StorageShelfCell({ ingredient, getDbShelfLife }) {
+  const shelf = getDbShelfLife(ingredient);
+  const defaultStorage = shelf?.storage || '';
+  const defaultMatch = STORAGE_OPTIONS.find(o => defaultStorage.toLowerCase().includes(o.key.toLowerCase()));
+
+  const [selected, setSelected] = useState(defaultMatch?.key || (defaultStorage ? 'Fridge' : ''));
+
+  // Update when ingredient changes
+  useEffect(() => {
+    const s = getDbShelfLife(ingredient);
+    const match = s?.storage ? STORAGE_OPTIONS.find(o => s.storage.toLowerCase().includes(o.key.toLowerCase())) : null;
+    setSelected(match?.key || '');
+  }, [ingredient]);
+
+  if (!ingredient?.trim()) return <span style={{ color: 'var(--color-border)' }}>—</span>;
+
+  const current = STORAGE_OPTIONS.find(o => o.key === selected);
+
+  // Compute shelf life based on selected storage + DB data
+  let days = '';
+  if (shelf && selected) {
+    if (selected === (STORAGE_OPTIONS.find(o => (shelf.storage || '').toLowerCase().includes(o.key.toLowerCase()))?.key)) {
+      // Using the DB's default storage — show DB shelf life
+      days = shelf.minShelf && shelf.maxShelf ? `${shelf.minShelf}-${shelf.maxShelf}d`
+        : shelf.maxShelf ? `${shelf.maxShelf}d`
+        : shelf.minShelf ? `${shelf.minShelf}d+` : '';
+    }
+    if (!days && current) {
+      // Different storage selected — show that storage type's typical range
+      days = `${current.shelfDays.min}-${current.shelfDays.max}d`;
+    }
+  } else if (current) {
+    days = `~${current.shelfDays.min}-${current.shelfDays.max}d`;
+  }
+
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+      <select
+        value={selected}
+        onChange={e => setSelected(e.target.value)}
+        style={{
+          padding: '0.15rem 0.3rem', border: '1px solid var(--color-border-light)', borderRadius: '4px',
+          fontSize: '0.7rem', fontFamily: 'inherit', background: 'var(--color-surface)',
+          color: 'var(--color-text-secondary)', cursor: 'pointer', maxWidth: '85px',
+        }}
+      >
+        <option value="">—</option>
+        {STORAGE_OPTIONS.map(o => (
+          <option key={o.key} value={o.key}>{o.icon} {o.key}</option>
+        ))}
+      </select>
+      {days && <span style={{ color: 'var(--color-accent)', fontWeight: 600, fontSize: '0.68rem' }}>{days}</span>}
+    </div>
+  );
+}
+
+function SyncStatus() {
+  const [status, setStatus] = useState(window.__recipeSyncStatus || null);
+  useEffect(() => {
+    function update() { setStatus(window.__recipeSyncStatus); }
+    window.addEventListener('recipe-sync-status', update);
+    return () => window.removeEventListener('recipe-sync-status', update);
+  }, []);
+  if (!status) return null;
+  if (status === 'synced') return (
+    <span style={{ fontSize: '0.75rem', fontWeight: 600, color: '#16a34a', background: '#dcfce7', padding: '0.25rem 0.6rem', borderRadius: '6px' }}>
+      ✓ Synced to cloud
+    </span>
+  );
+  const labels = {
+    syncing: { text: '↑ Syncing to cloud...', color: '#6b7280', bg: '#f3f4f6' },
+    retrying: { text: '⚠ Sync failed, retrying...', color: '#d97706', bg: '#fef3c7' },
+    error: { text: `✗ ${window.__recipeSyncError || 'Sync failed — changes saved locally only'}`, color: '#dc2626', bg: '#fee2e2' },
+  };
+  const s = labels[status] || labels.syncing;
+  return (
+    <span style={{ fontSize: '0.75rem', fontWeight: 600, color: s.color, background: s.bg, padding: '0.25rem 0.6rem', borderRadius: '6px' }}>
+      {s.text}
+    </span>
+  );
+}
+
 function initFields(recipe) {
   const type = recipe.mealType || '';
   const presets = ['meat', 'pescatarian', 'vegan', 'vegetarian', 'keto', ''];
@@ -231,7 +392,7 @@ function initFields(recipe) {
     title: recipe.title || '',
     category: recipe.category || 'lunch-dinner',
     frequency: recipe.frequency || 'common',
-    cuisine: isPresetCuisine ? cuisineVal : (cuisineVal ? 'other' : ''),
+    cuisineLegacy: isPresetCuisine ? cuisineVal : (cuisineVal ? 'other' : ''),
     customCuisine: (!isPresetCuisine && cuisineVal) ? cuisineVal : '',
     mealType: presets.includes(type) ? type : 'custom',
     customMealType: presets.includes(type) ? '' : type,
@@ -242,8 +403,12 @@ function initFields(recipe) {
     totalWeight: recipe.totalWeight || '',
     containerWeight: recipe.containerWeight || '',
     containers: recipe.containers || [{ label: '', weight: '' }],
+    containerNotes: recipe.containerNotes || '',
     starterRecipe: recipe.starterRecipe || false,
+    customTags: recipe.customTags || [],
     notes: recipe.notes || '',
+    cuisine: recipe.cuisine || '',
+    cuisineOverride: recipe.cuisineOverride || false,
     ingredients: (recipe.ingredients && recipe.ingredients.length > 0)
       ? recipe.ingredients.map(r => ({ ...r }))
       : [{ ...emptyRow }],
@@ -252,7 +417,11 @@ function initFields(recipe) {
       if (recipe.stepsArray && recipe.stepsArray.length > 0) {
         return recipe.stepsArray;
       }
-      const parsed = (recipe.instructions || '')
+      let text = recipe.instructions || '';
+      // Split inline numbered steps (e.g., "... sentence. 2. Next step...")
+      // Look for ". N." or ". N)" patterns mid-text and split them into lines
+      text = text.replace(/\.\s+(\d+[\.\)])\s+/g, '.\n$1 ');
+      const parsed = text
         .split('\n')
         .map(s => s.replace(/^\d+[\.\)]\s*/, '').trim())
         .filter(Boolean);
@@ -265,6 +434,8 @@ function initFields(recipe) {
 }
 
 export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, weeklyPlan, user, ingredientsVersion, onViewSources }) {
+  const [aiData, setAiData] = useState(null);
+  const [aiLoading, setAiLoading] = useState(false);
   const [fields, setFields] = useState(() => recipe ? initFields(recipe) : null);
   const [showShareDropdown, setShowShareDropdown] = useState(false);
   const [friendsList, setFriendsList] = useState(null);
@@ -274,6 +445,12 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
   const isInWeek = recipe ? (weeklyPlan || []).includes(recipe.id) : false;
   const [adjustedServings, setAdjustedServings] = useState(null);
   const [servingWeight, setServingWeight] = useState('');
+  const showWeighFood = useMemo(() => {
+    try {
+      const stats = JSON.parse(localStorage.getItem('sunday-body-stats') || '{}');
+      return (stats.mealTrackingGoals || []).includes('weighFood');
+    } catch { return false; }
+  }, []);
   const [editing, setEditing] = useState(true);
   const autoSaveRef = useRef(null);
   const [cookMode, setCookMode] = useState(() => {
@@ -467,6 +644,24 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
       if (name.includes(search) || search.includes(name)) return m;
     }
     return '';
+  }
+
+  function getDbShelfLife(ingredientName) {
+    if (!ingredientName) return null;
+    const search = ingredientName.trim().toLowerCase();
+    for (const [name, rows] of dbRowsByName) {
+      if (name === search || name.startsWith(search) || search.startsWith(name) || name.includes(search) || search.includes(name)) {
+        const row = rows[0];
+        if (row.storage || row.minShelf || row.maxShelf) {
+          return {
+            storage: row.storage || '',
+            minShelf: parseInt(row.minShelf) || 0,
+            maxShelf: parseInt(row.maxShelf) || 0,
+          };
+        }
+      }
+    }
+    return null;
   }
 
   // Find all DB rows matching an ingredient name (for size options)
@@ -764,11 +959,22 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
   }
 
   function handleSave() {
+    // Flush any pending contentEditable debounce — read latest step text
+    // directly from the DOM so we never save stale data
+    if (autoSaveRef.current) clearTimeout(autoSaveRef.current);
+    let steps = fields.steps;
+    const stepEls = document.querySelectorAll('[data-placeholder^="Step "]');
+    if (stepEls.length > 0 && stepEls.length === steps.length) {
+      steps = Array.from(stepEls).map(el => el.innerHTML);
+      // Update React state to stay in sync
+      setFields(prev => ({ ...prev, steps }));
+    }
+
     onSave({
       title: fields.title.trim(),
       category: fields.category,
       frequency: fields.frequency,
-      cuisine: fields.cuisine === 'other' ? (fields.customCuisine.trim() || '') : fields.cuisine,
+      cuisineLegacy: fields.cuisine === 'other' ? (fields.customCuisine.trim() || '') : fields.cuisine,
       mealType: (() => {
         const manual = fields.mealType === 'custom' ? fields.customMealType.trim() : fields.mealType;
         if (manual) return manual;
@@ -782,14 +988,18 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
       totalWeight: fields.totalWeight.trim(),
       containerWeight: fields.containerWeight.trim(),
       containers: (fields.containers || []).filter(c => c.weight),
+      containerNotes: fields.containerNotes || '',
       starterRecipe: fields.starterRecipe,
+      customTags: fields.customTags || [],
       ingredients: fields.ingredients.filter(row => row.ingredient.trim() !== ''),
       notes: fields.notes || '',
-      instructions: fields.steps.filter(s => s.trim()).map(s => s.replace(/<br\s*\/?>/gi, ' ').replace(/<[^>]*>/g, '')).join('\n'),
-      stepsArray: fields.steps,
+      instructions: steps.filter(s => s.trim()).map(s => s.replace(/<br\s*\/?>/gi, ' ').replace(/<[^>]*>/g, '')).join('\n'),
+      stepsArray: steps,
       stepIngredients: fields.stepIngredients || {},
       stepSections: fields.stepSections || {},
       stepTitles: fields.stepTitles || {},
+      cuisine: fields.cuisineOverride ? fields.cuisine : detectCuisine(fields.title, fields.ingredients),
+      cuisineOverride: fields.cuisineOverride || false,
     });
   }
 
@@ -993,6 +1203,7 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
             </>
           )}
           {showSaved > 0 && <span key={showSaved} className={styles.savedToast}>Saved!</span>}
+          <SyncStatus />
         </div>
       </div>
 
@@ -1075,7 +1286,8 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
                     value={fields.frequency}
                     onChange={e => setField('frequency', e.target.value)}
                   >
-                    <option value="common">Common</option>
+                    <option value="common">Regular</option>
+                    <option value="toTry">To Try</option>
                     <option value="rare">Rare</option>
                     <option value="retired">Retired</option>
                   </select>
@@ -1110,11 +1322,21 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
                 )}
                 <label className={styles.metaLabel}>
                   Cuisine
+                  <span style={{ fontSize: '0.7rem', color: 'var(--color-text-muted)', fontWeight: 400, marginLeft: 4 }}>
+                    {fields.cuisineOverride ? '(manual)' : `(auto: ${detectCuisine(fields.title, fields.ingredients)})`}
+                  </span>
                   <select
                     className={styles.inlineSelect}
-                    value={fields.cuisine}
+                    value={fields.cuisineOverride ? fields.cuisine : detectCuisine(fields.title, fields.ingredients).toLowerCase()}
                     onChange={e => {
-                      setField('cuisine', e.target.value);
+                      const auto = detectCuisine(fields.title, fields.ingredients).toLowerCase();
+                      if (e.target.value === auto) {
+                        setField('cuisine', auto);
+                        setField('cuisineOverride', false);
+                      } else {
+                        setField('cuisine', e.target.value);
+                        setField('cuisineOverride', true);
+                      }
                       if (e.target.value !== 'other') setField('customCuisine', '');
                     }}
                   >
@@ -1135,6 +1357,46 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
                 )}
               </div>
 
+              <div className={styles.tagsRow}>
+                <span className={styles.tagsLabel}>Tags</span>
+                <div className={styles.tagsList}>
+                  {(fields.customTags || []).map((tag, i) => (
+                    <span key={i} className={styles.tagChip}>
+                      {tag}
+                      <button className={styles.tagRemove} onClick={() => {
+                        setFields(prev => ({
+                          ...prev,
+                          customTags: prev.customTags.filter((_, j) => j !== i),
+                        }));
+                      }}>&times;</button>
+                    </span>
+                  ))}
+                  <input
+                    className={styles.tagInput}
+                    type="text"
+                    placeholder="+ Add tag"
+                    onKeyDown={e => {
+                      if (e.key === 'Enter' && e.target.value.trim()) {
+                        e.preventDefault();
+                        const tag = e.target.value.trim();
+                        if (!(fields.customTags || []).includes(tag)) {
+                          setFields(prev => ({
+                            ...prev,
+                            customTags: [...(prev.customTags || []), tag],
+                          }));
+                        }
+                        e.target.value = '';
+                      }
+                    }}
+                  />
+                </div>
+              </div>
+
+              <div className={styles.metaRow}>
+                <span className={styles.sourceInfo}>
+                  <span className={styles.sourceTag}>Recipe Source: {SOURCE_LABELS[recipe.source] || 'Unknown'}</span>
+                </span>
+              </div>
               <div className={styles.metaRow}>
                 <label className={styles.metaLabel} style={{ flex: 1 }}>
                   Source URL
@@ -1144,7 +1406,7 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
                       type="text"
                       value={fields.sourceUrl}
                       onChange={e => setField('sourceUrl', e.target.value)}
-                      placeholder="Recipe link"
+                      placeholder="Paste a link to the original recipe"
                       style={{ flex: 1 }}
                     />
                     {fields.sourceUrl.trim() && (
@@ -1161,6 +1423,43 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
                 </label>
               </div>
 
+              {/* AI Chef Suggestions */}
+              <div className={styles.aiSection}>
+                <div className={styles.aiHeader}>
+                  <span className={styles.aiIcon}>✨</span>
+                  <span className={styles.aiTitle}>Chef's Suggestions</span>
+                  <button className={styles.aiBtn} onClick={async () => {
+                    setAiLoading(true); setAiData(null);
+                    try {
+                      const res = await fetch('/api/suggest-improvements', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ title: fields.title, ingredients: fields.ingredients.filter(r => r.ingredient.trim()), instructions: fields.steps.filter(Boolean).join('\n'), cuisine: fields.cuisine || detectCuisine(fields.title, fields.ingredients) }) });
+                      const data = await res.json();
+                      setAiData(data.error ? { error: data.error } : data);
+                    } catch { setAiData({ error: 'Failed to load suggestions' }); } finally { setAiLoading(false); }
+                  }} disabled={aiLoading}>{aiLoading ? 'Thinking...' : aiData ? 'Refresh' : 'Get Tips'}</button>
+                </div>
+                {aiData?.error && <div className={styles.aiError}>{aiData.error}</div>}
+                {aiData?.ingredientSwaps?.length > 0 && (
+                  <div className={styles.aiBlock}><div className={styles.aiBlockTitle}>Ingredient Swaps</div>
+                    {aiData.ingredientSwaps.map((s, i) => (
+                      <div key={i} className={styles.aiSwapRow}><span className={styles.aiSwapOld}>{s.current}</span><span className={styles.aiArrow}>→</span><span className={styles.aiSwapNew}>{s.suggestion}</span><span className={styles.aiReason}>{s.reason}</span></div>
+                    ))}
+                  </div>
+                )}
+                {aiData?.additions?.length > 0 && (
+                  <div className={styles.aiBlock}><div className={styles.aiBlockTitle}>Try Adding</div>
+                    {aiData.additions.map((a, i) => (
+                      <div key={i} className={styles.aiAddRow}><span className={styles.aiAddName}>{a.amount} {a.ingredient}</span><span className={styles.aiReason}>{a.reason}</span></div>
+                    ))}
+                  </div>
+                )}
+                {aiData?.tips?.length > 0 && (
+                  <div className={styles.aiBlock}><div className={styles.aiBlockTitle}>Pro Tips</div>
+                    {aiData.tips.map((tip, i) => (<div key={i} className={styles.aiTip}>{tip}</div>))}
+                  </div>
+                )}
+              </div>
+
             </>
           ) : (
             <>
@@ -1174,7 +1473,7 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
               <div className={styles.metaRow}>
                 <span className={styles.metaValue} style={{ textTransform: 'capitalize' }}>{(fields.category || '').replace('-', ' & ')}</span>
                 <span className={styles.metaDot}>&middot;</span>
-                <span className={styles.metaValue} style={{ textTransform: 'capitalize' }}>{fields.frequency || 'common'}</span>
+                <span className={styles.metaValue} style={{ textTransform: 'capitalize' }}>{{ common: 'Regular', toTry: 'To Try', rare: 'Rare', retired: 'Retired' }[fields.frequency] || 'Regular'}</span>
                 {(fields.mealType && fields.mealType !== 'custom') && (
                   <>
                     <span className={styles.metaDot}>&middot;</span>
@@ -1191,23 +1490,22 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
                 <span className={styles.metaValue} style={{ textTransform: 'capitalize' }}>{recipe.cuisine || 'No cuisine'}</span>
               </div>
               <div className={styles.metaRow}>
-                {recipe.source === 'ai' && !fields.sourceUrl.trim() ? (
-                  <span className={styles.aiSourceLabel}>AI Generated</span>
-                ) : fields.sourceUrl.trim() ? (
+                <span className={styles.sourceTag}>{SOURCE_LABELS[recipe.source] || 'Recipe'}</span>
+                {fields.sourceUrl.trim() && (
                   <a
                     href={fields.sourceUrl.trim().startsWith('http') ? fields.sourceUrl.trim() : `https://${fields.sourceUrl.trim()}`}
                     target="_blank"
                     rel="noopener noreferrer"
                     className={styles.sourceLink}
                   >
-                    View source recipe
+                    View source
                   </a>
-                ) : (
-                  <span className={styles.metaValue}>No source URL</span>
                 )}
               </div>
             </>
           )}
+
+          <VideoEmbed url={fields.sourceUrl} />
 
         </div>
           <div
@@ -1262,11 +1560,11 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
       <NutritionPanel
         recipeId={recipe.id}
         ingredients={fields.ingredients}
-        servings={(foodWeight > 0 && servingWeightNum > 0) ? foodWeight / servingWeightNum : (adjustedServings ?? baseServings)}
-        portionLabel={servingWeightNum > 0 && foodWeight > 0 ? `My portion (${servingWeight}g)` : null}
+        servings={(showWeighFood && foodWeight > 0 && servingWeightNum > 0) ? foodWeight / servingWeightNum : (adjustedServings ?? baseServings)}
+        portionLabel={showWeighFood && servingWeightNum > 0 && foodWeight > 0 ? `My portion (${servingWeight}g)` : null}
         onViewSources={onViewSources}
         onNutritionData={(d) => setNutritionTotals(d?.totals || null)}
-        weighPortionContent={
+        weighPortionContent={showWeighFood ?
           <details className={styles.weightDetails}>
             <summary>Weigh portion size</summary>
             <div className={styles.weightAdjuster}>
@@ -1361,11 +1659,20 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
                   </button>
                 )}
               </div>
+              <div className={styles.containerNotesWrap}>
+                <label className={styles.containerNotesLabel}>Notes</label>
+                <textarea
+                  className={styles.containerNotesInput}
+                  rows={2}
+                  placeholder="e.g. Blue pyrex dish, used lid as second container..."
+                  value={fields.containerNotes || ''}
+                  onChange={e => setField('containerNotes', e.target.value)}
+                />
+              </div>
             </div>
           </details>
-        }
+          : null}
       />
-
       <div className={styles.ingredientsCol}>
         <div className={styles.ingredientsHeader}>
           <h3>Ingredients</h3>
@@ -1428,11 +1735,13 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
             <table className={styles.ingredientTable}>
               <thead>
                 <tr>
-                  <th></th>
-                  <th className={styles.colQty}>Qty</th>
-                  <th className={styles.colMeasure}>Unit</th>
-                  <th>Ingredient</th>
-                  <th></th>
+                  <th style={{ width: '24px' }}></th>
+                  <th className={styles.colQty} style={{ textAlign: 'center' }}>Qty</th>
+                  <th className={styles.colMeasure} style={{ textAlign: 'left' }}>Unit</th>
+                  <th style={{ textAlign: 'left' }}>Ingredient</th>
+                  <th style={{ textAlign: 'center', fontSize: '0.72rem', fontWeight: 600, color: 'var(--color-text-muted)', minWidth: '50px' }}>GHG</th>
+                  <th style={{ textAlign: 'left', fontSize: '0.72rem', fontWeight: 600, color: 'var(--color-text-muted)', minWidth: '130px' }}>Storage / Shelf Life</th>
+                  <th style={{ width: '50px' }}></th>
                 </tr>
               </thead>
               <tbody>
@@ -1517,6 +1826,17 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
                             {field === 'ingredient' && (row.ingredient || '').trim() && isInDb(row.ingredient) && unitType === 'volume' && !dbGrams && (
                               <span className={styles.noWeightWarning} title="No weight conversion available — add grams to ingredient database">⚖</span>
                             )}
+                            {field === 'ingredient' && (row.ingredient || '').trim() && (() => {
+                              const shelf = getShelfLife(row.ingredient);
+                              if (!shelf.found) return null;
+                              return (
+                                <span className={styles.shelfBadges}>
+                                  {shelf.fridge && <span className={styles.shelfBadge} title={`Fridge: ${shelf.fridge}${shelf.tip ? ' — ' + shelf.tip : ''}`}>❄ {shelf.fridge}</span>}
+                                  {shelf.freezer && <span className={styles.shelfBadge} style={{ background: '#EFF6FF', color: '#2563EB' }} title={`Freezer: ${shelf.freezer}`}>🧊 {shelf.freezer}</span>}
+                                  {shelf.pantry && <span className={styles.shelfBadge} style={{ background: '#FEF9C3', color: '#92400E' }} title={`Pantry: ${shelf.pantry}`}>🏠 {shelf.pantry}</span>}
+                                </span>
+                              );
+                            })()}
                           </div>
                         </td>
                         {field === 'measurement' && (
@@ -1693,6 +2013,22 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
                         )}
                       </React.Fragment>
                     ))}
+                    <td style={{ fontSize: '0.72rem', textAlign: 'center' }}>
+                      {(() => {
+                        const ghg = getGHGEmissions(row.ingredient);
+                        if (!ghg) return <span style={{ color: 'var(--color-text-muted)' }}>&mdash;</span>;
+                        const dotColors = { low: '#22c55e', medium: '#eab308', high: '#f97316', 'very-high': '#ef4444' };
+                        return (
+                          <span title={`${ghg.kgCO2e} kg CO₂e/kg (${ghg.rating})`} style={{ cursor: 'default' }}>
+                            <span style={{ color: dotColors[ghg.rating], fontSize: '0.9rem' }}>{'\u25CF'}</span>
+                            <span style={{ marginLeft: '3px', color: 'var(--color-text-secondary)' }}>{ghg.kgCO2e}</span>
+                          </span>
+                        );
+                      })()}
+                    </td>
+                    <td style={{ fontSize: '0.72rem' }}>
+                      <StorageShelfCell ingredient={row.ingredient} getDbShelfLife={getDbShelfLife} />
+                    </td>
                     <td>
                       <button
                         className={styles.toggleSectionBtn}
@@ -1718,7 +2054,7 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
                   return (
                     <>
                       {mainIdxRows.map(renderRow)}
-                      <tr className={styles.sectionDivider}><td colSpan={5}>Per Meal</td></tr>
+                      <tr className={styles.sectionDivider}><td colSpan={6}>Per Meal</td></tr>
                       {toppingIdxRows.map(renderRow)}
                     </>
                   );
@@ -1752,6 +2088,7 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
               <tr>
                 <th>Amount</th>
                 <th>Ingredient</th>
+                <th style={{ textAlign: 'center', fontSize: '0.72rem', fontWeight: 600, color: 'var(--color-text-muted)', width: '50px' }}>GHG</th>
               </tr>
             </thead>
             <tbody>
@@ -1791,6 +2128,19 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
                           <span className={styles.noWeightWarning} title="No weight conversion available — add grams to ingredient database"> ⚖</span>
                         )}
                       </td>
+                      <td style={{ fontSize: '0.72rem', textAlign: 'center' }}>
+                        {(() => {
+                          const ghg = getGHGEmissions(row.ingredient);
+                          if (!ghg) return <span style={{ color: 'var(--color-text-muted)' }}>&mdash;</span>;
+                          const dotColors = { low: '#22c55e', medium: '#eab308', high: '#f97316', 'very-high': '#ef4444' };
+                          return (
+                            <span title={`${ghg.kgCO2e} kg CO\u2082e/kg (${ghg.rating})`} style={{ cursor: 'default' }}>
+                              <span style={{ color: dotColors[ghg.rating], fontSize: '0.9rem' }}>{'\u25CF'}</span>
+                              <span style={{ marginLeft: '3px', color: 'var(--color-text-secondary)' }}>{ghg.kgCO2e}</span>
+                            </span>
+                          );
+                        })()}
+                      </td>
                     </tr>
                   );
                 };
@@ -1799,7 +2149,7 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
                     {mainRows.map(renderViewRow)}
                     {toppingRows.length > 0 && (
                       <>
-                        <tr className={styles.sectionDivider}><td colSpan={2}>Per Meal</td></tr>
+                        <tr className={styles.sectionDivider}><td colSpan={3}>Per Meal</td></tr>
                         {toppingRows.map(renderViewRow)}
                       </>
                     )}
@@ -1809,6 +2159,25 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
             </tbody>
           </table>
         )}
+        {/* Recipe-level GHG emissions total */}
+        {(() => {
+          const filledIngredients = fields.ingredients.filter(r => (r.ingredient || '').trim());
+          if (filledIngredients.length === 0) return null;
+          const ghgResult = computeRecipeGHG(filledIngredients);
+          if (ghgResult.matchedCount === 0) return null;
+          const rating = getGHGRating(ghgResult.totalKgCO2e / Math.max(1, ghgResult.matchedCount));
+          const dotColors = { low: '#22c55e', medium: '#eab308', high: '#f97316', 'very-high': '#ef4444' };
+          return (
+            <div style={{ marginTop: '8px', padding: '6px 10px', background: 'var(--color-bg-secondary, #f5f5f5)', borderRadius: '6px', fontSize: '0.78rem', display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+              <span style={{ color: dotColors[rating], fontSize: '0.9rem' }}>{'\u25CF'}</span>
+              <span style={{ fontWeight: 600 }}>Recipe GHG:</span>
+              <span>{ghgResult.totalKgCO2e} kg CO{'\u2082'}e total</span>
+              <span style={{ color: 'var(--color-text-muted)' }}>
+                ({ghgResult.matchedCount}/{filledIngredients.length} ingredients matched)
+              </span>
+            </div>
+          );
+        })()}
       </div>
 
       <div className={styles.section}>
@@ -1845,6 +2214,36 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
       <div className={styles.section}>
         <div className={styles.instructionHeader}>
           <h3>Instructions</h3>
+          {fields.steps.length <= 2 && fields.steps.some(s => /\.\s+\d+[\.\)]\s+/.test(s)) && (
+            <button className={styles.cookModeBtn} onClick={() => {
+              setFields(prev => {
+                const joined = prev.steps.join('\n');
+                const split = joined.replace(/\.\s+(\d+[\.\):])\s+/g, '.\n$1 ')
+                  .split('\n')
+                  .map(s => s.replace(/^\d+[\.\):\-]\s*/, '').trim())
+                  .filter(Boolean);
+                // Re-auto-assign ingredients to steps
+                const stepIngs = {};
+                split.forEach((stepText, si) => {
+                  const stepLower = stepText.toLowerCase();
+                  const matched = [];
+                  prev.ingredients.forEach((ing, ii) => {
+                    const name = (ing.ingredient || '').trim().toLowerCase().replace(/_/g, ' ');
+                    if (!name) return;
+                    const words = name.split(/\s+/);
+                    if (stepLower.includes(name) || words.some(w => w.length > 3 && stepLower.includes(w))) {
+                      matched.push(ii);
+                    }
+                  });
+                  if (matched.length > 0) stepIngs[si] = matched;
+                });
+                return { ...prev, steps: split, stepIngredients: stepIngs, stepSections: {}, stepTitles: {} };
+              });
+              setStepVersion(v => v + 1);
+            }}>
+              Split Steps
+            </button>
+          )}
           <button className={cookMode ? styles.cookModeBtnActive : styles.cookModeBtn} onClick={() => {
             setCookMode(prev => {
               const next = !prev;
@@ -2115,6 +2514,23 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
                 + Add step
               </button>
             )}
+            {(() => {
+              const allAssigned = new Set(Object.values(fields.stepIngredients).flat());
+              const missing = fields.ingredients
+                .map((ing, idx) => ({ ...ing, idx }))
+                .filter(ing => ing.ingredient.trim() && !allAssigned.has(ing.idx));
+              if (missing.length === 0) return null;
+              return (
+                <div className={styles.cookModeMissing}>
+                  <span className={styles.cookModeMissingTitle}>Not in instructions</span>
+                  {missing.map(ing => (
+                    <span key={ing.idx} className={styles.cookModeMissingChip}>
+                      {ing.quantity && `${ing.quantity} `}{ing.measurement && `${ing.measurement} `}{ing.ingredient}
+                    </span>
+                  ))}
+                </div>
+              );
+            })()}
           </div>
         ) : (
         <>

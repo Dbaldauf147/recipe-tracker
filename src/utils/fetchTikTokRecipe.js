@@ -31,10 +31,36 @@ async function fetchCaption(url) {
 
 /**
  * Fetch a TikTok URL and return a recipe object matching the app's shape.
+ * Uses the AI-powered extract-recipe endpoint which fetches caption + transcribes audio.
  */
 export async function fetchTikTokRecipe(url) {
-  const { caption, author } = await fetchCaption(url);
+  // Try the AI-powered extraction first (caption + audio transcription + Claude)
+  try {
+    const res = await fetch(`/api/extract-recipe?url=${encodeURIComponent(url)}`);
+    if (res.ok) {
+      const data = await res.json();
+      if (data.ingredients && data.ingredients.length > 0) {
+        return {
+          title: data.title || '',
+          description: data.description || data.socialCaption || '',
+          category: data.category || 'lunch-dinner',
+          frequency: 'common',
+          mealType: '',
+          servings: data.servings || '1',
+          prepTime: data.prepTime || '',
+          cookTime: data.cookTime || '',
+          sourceUrl: url,
+          videoUrl: url,
+          ingredients: data.ingredients,
+          instructions: data.instructions || '',
+          estimated: data.estimated || false,
+        };
+      }
+    }
+  } catch {}
 
+  // Fallback: caption-only parsing
+  const { caption, author } = await fetchCaption(url);
   const parsed = parseRecipeText(caption);
 
   return {
@@ -47,6 +73,7 @@ export async function fetchTikTokRecipe(url) {
     prepTime: '',
     cookTime: '',
     sourceUrl: url,
+    videoUrl: url,
     ingredients: parsed.ingredients,
     instructions: parsed.instructions,
   };

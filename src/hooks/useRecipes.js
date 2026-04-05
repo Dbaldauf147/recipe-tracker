@@ -103,7 +103,36 @@ function save(recipes) {
     // storage full or unavailable
   }
   const user = auth.currentUser;
-  if (user) saveField(user.uid, 'recipes', recipes);
+  if (!user) {
+    window.__recipeSyncStatus = 'error';
+    window.__recipeSyncError = 'Not signed in — changes saved locally only';
+    window.dispatchEvent(new Event('recipe-sync-status'));
+    return;
+  }
+  window.__recipesLocalEdit = true;
+  window.__recipeSyncStatus = 'syncing';
+  window.dispatchEvent(new Event('recipe-sync-status'));
+  syncToFirestore(user.uid, recipes);
+}
+
+async function syncToFirestore(uid, recipes, retryCount = 0) {
+  try {
+    await saveField(uid, 'recipes', recipes);
+    setTimeout(() => { window.__recipesLocalEdit = false; }, 2000);
+    window.__recipeSyncStatus = 'synced';
+    window.dispatchEvent(new Event('recipe-sync-status'));
+  } catch (err) {
+    if (retryCount < 3) {
+      window.__recipeSyncStatus = 'retrying';
+      window.dispatchEvent(new Event('recipe-sync-status'));
+      setTimeout(() => syncToFirestore(uid, recipes, retryCount + 1), 1000 * Math.pow(2, retryCount));
+    } else {
+      window.__recipeSyncStatus = 'error';
+      window.__recipeSyncError = err?.message || 'Sync failed';
+      window.dispatchEvent(new Event('recipe-sync-status'));
+      console.error('Recipe sync failed after 3 retries:', err);
+    }
+  }
 }
 
 export function useRecipes() {
@@ -118,11 +147,71 @@ export function useRecipes() {
     return () => window.removeEventListener('firestore-sync', handleSync);
   }, []);
 
+  // On mount, fetch latest recipes directly from Firestore to ensure cross-device sync
+  useEffect(() => {
+    const user = auth.currentUser;
+    if (!user) return;
+    import('../utils/firestoreSync').then(({ loadRecipesFromFirestore }) => {
+      loadRecipesFromFirestore(user.uid).then(remoteRecipes => {
+        if (!remoteRecipes || remoteRecipes.length === 0) return;
+        const localRecipes = loadRecipes();
+        // Merge — remote wins for any recipe with a newer updatedAt
+        const localMap = new Map(localRecipes.filter(r => r.id).map(r => [r.id, r]));
+        const merged = new Map();
+        for (const r of remoteRecipes) {
+          if (!r.id) continue;
+          const local = localMap.get(r.id);
+          if (!local) { merged.set(r.id, r); continue; }
+          const lt = local.updatedAt || local.createdAt || '';
+          const rt = r.updatedAt || r.createdAt || '';
+          merged.set(r.id, rt >= lt ? r : local);
+        }
+        for (const [id, local] of localMap) {
+          if (!merged.has(id)) merged.set(id, local);
+        }
+        const result = Array.from(merged.values());
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(result));
+        setRecipes(result);
+      }).catch(() => {});
+    });
+  }, []);
+
   function addRecipe(recipe) {
+    // Auto-assign ingredients to instruction steps based on name matching
+    if (recipe.instructions && recipe.ingredients?.length > 0 && !recipe.stepIngredients) {
+      const steps = (recipe.stepsArray && recipe.stepsArray.length > 0)
+        ? recipe.stepsArray
+        : recipe.instructions.replace(/\.\s+(\d+[.)]\s+)/g, '.\n$1').split('\n').map(s => s.replace(/^\d+[.)]\s*/, '').trim()).filter(Boolean);
+
+      if (steps.length > 0) {
+        const stepIngredients = {};
+        steps.forEach((stepText, si) => {
+          const stepLower = (stepText || '').replace(/<[^>]*>/g, '').toLowerCase();
+          const matched = [];
+          recipe.ingredients.forEach((ing, ii) => {
+            const name = (ing.ingredient || '').trim().toLowerCase()
+              .replace(/_/g, ' ');
+            if (!name) return;
+            // Match full ingredient name or individual words (>3 chars)
+            const words = name.split(/\s+/);
+            if (stepLower.includes(name) || words.some(w => w.length > 3 && stepLower.includes(w))) {
+              matched.push(ii);
+            }
+          });
+          if (matched.length > 0) stepIngredients[si] = matched;
+        });
+        if (Object.keys(stepIngredients).length > 0) {
+          recipe.stepIngredients = stepIngredients;
+        }
+      }
+    }
+
+    const now = new Date().toISOString();
     const newRecipe = {
       ...recipe,
       id: crypto.randomUUID(),
-      createdAt: new Date().toISOString(),
+      createdAt: now,
+      updatedAt: now,
     };
     setRecipes(prev => {
       const next = [newRecipe, ...prev];
@@ -134,7 +223,7 @@ export function useRecipes() {
 
   function updateRecipe(id, updates) {
     setRecipes(prev => {
-      const next = prev.map(r => (r.id === id ? { ...r, ...updates } : r));
+      const next = prev.map(r => (r.id === id ? { ...r, ...updates, updatedAt: new Date().toISOString() } : r));
       save(next);
       return next;
     });
@@ -155,12 +244,14 @@ export function useRecipes() {
   function importRecipes(newRecipes) {
     setRecipes(prev => {
       const existingTitles = new Set(prev.map(r => r.title.toLowerCase()));
+      const now = new Date().toISOString();
       const toAdd = newRecipes
         .filter(r => !existingTitles.has(r.title.toLowerCase()))
         .map(r => ({
           ...r,
           id: crypto.randomUUID(),
-          createdAt: new Date().toISOString(),
+          createdAt: now,
+          updatedAt: now,
         }));
       const next = [...toAdd, ...prev];
       save(next);

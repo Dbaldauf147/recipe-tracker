@@ -239,3 +239,12 @@ export async function copyMealImage(sourceUid, sourceRecipeId, destUid, destReci
 export function getCachedMealImage(recipeId) {
   return memoryCache[recipeId] || null;
 }
+
+/**
+ * Load all meal images from the admin user's Firestore account.
+ * Returns a map of recipeId → dataUrl.
+ */
+export async function loadAdminMealImages(adminUid) {
+  if (!adminUid) return {};
+  return loadImagesFromFirestore(adminUid);
+}
