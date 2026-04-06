@@ -906,12 +906,13 @@
 
 .seasonalTickerScroll {
   display: flex;
-  gap: 8rem;
+  gap: 16rem;
   white-space: nowrap;
-  animation: tickerScroll 45s linear infinite;
+  animation: tickerScroll 60s linear infinite;
   font-size: 0.78rem;
   font-weight: 500;
   color: var(--color-text-muted);
+  letter-spacing: 0.02em;
 }
 
 .seasonalTickerScroll span {

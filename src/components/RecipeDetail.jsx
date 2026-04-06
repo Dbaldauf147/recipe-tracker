@@ -368,20 +368,26 @@ function StorageShelfCell({ ingredient, getDbShelfLife }) {
   }
 
   return (
-    <div className={styles.storageCell}>
-      <select
-        value={selected}
-        onChange={e => setSelected(e.target.value)}
-        className={styles.storageSelect}
-      >
-        <option value="">—</option>
-        {STORAGE_OPTIONS.map(o => (
-          <option key={o.key} value={o.key}>{o.key}</option>
-        ))}
-      </select>
-      {current && <StorageIcon type={current.key} size={13} />}
-      {days && <span className={styles.shelfDays}>{days}</span>}
-    </div>
+    <>
+      <td style={{ fontSize: '0.72rem' }}>
+        <div className={styles.storageCell}>
+          <select
+            value={selected}
+            onChange={e => setSelected(e.target.value)}
+            className={styles.storageSelect}
+          >
+            <option value="">—</option>
+            {STORAGE_OPTIONS.map(o => (
+              <option key={o.key} value={o.key}>{o.key}</option>
+            ))}
+          </select>
+          {current && <StorageIcon type={current.key} size={13} />}
+        </div>
+      </td>
+      <td style={{ fontSize: '0.72rem' }}>
+        <span className={styles.shelfDays}>{days || '—'}</span>
+      </td>
+    </>
   );
 }
 
@@ -1815,11 +1821,13 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
             <table className={styles.ingredientTable}>
               <colgroup>
                 <col style={{ width: '24px' }} />
+                <col style={{ width: '65px' }} />
                 <col style={{ width: '80px' }} />
-                <col style={{ width: '100px' }} />
+                <col style={{ width: '70px' }} />
                 <col />
                 {showGHG && <col style={{ width: '50px' }} />}
-                {showShelfLife && <col style={{ width: '140px' }} />}
+                {showShelfLife && <col style={{ width: '95px' }} />}
+                {showShelfLife && <col style={{ width: '90px' }} />}
                 <col style={{ width: '50px' }} />
               </colgroup>
               <thead>
@@ -1827,9 +1835,11 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
                   <th></th>
                   <th style={{ textAlign: 'center' }}>Qty</th>
                   <th style={{ textAlign: 'left' }}>Unit</th>
+                  <th style={{ textAlign: 'left' }}>Type</th>
                   <th style={{ textAlign: 'left' }}>Ingredient</th>
                   {showGHG && <th className={styles.colGhg}>GHG</th>}
-                  {showShelfLife && <th className={styles.colShelf}>Storage / Shelf Life</th>}
+                  {showShelfLife && <th style={{ textAlign: 'left', fontSize: '0.68rem', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--color-text-muted)' }}>Storage</th>}
+                  {showShelfLife && <th style={{ textAlign: 'left', fontSize: '0.68rem', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--color-text-muted)' }}>Shelf Life</th>}
                   <th></th>
                 </tr>
               </thead>
@@ -2106,9 +2116,7 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
                     </td>
                     )}
                     {showShelfLife && (
-                    <td style={{ fontSize: '0.72rem' }}>
                       <StorageShelfCell ingredient={row.ingredient} getDbShelfLife={getDbShelfLife} />
-                    </td>
                     )}
                     <td>
                       <button
@@ -2135,7 +2143,7 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
                   return (
                     <>
                       {mainIdxRows.map(renderRow)}
-                      <tr className={styles.sectionDivider}><td colSpan={4 + (showGHG ? 1 : 0) + (showShelfLife ? 1 : 0) + 1}>Per Meal</td></tr>
+                      <tr className={styles.sectionDivider}><td colSpan={5 + (showGHG ? 1 : 0) + (showShelfLife ? 2 : 0) + 1}>Per Meal</td></tr>
                       {toppingIdxRows.map(renderRow)}
                     </>
                   );

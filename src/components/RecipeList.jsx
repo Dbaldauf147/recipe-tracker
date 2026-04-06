@@ -130,8 +130,8 @@ function SeasonalTicker() {
 
   if (items.length === 0) return null;
 
-  // Wide spacing so duplicates aren't visible at the same time
-  const separator = '\u00A0\u00A0\u00A0\u00A0·\u00A0\u00A0\u00A0\u00A0';
+  // Very wide spacing so duplicates are never visible at the same time
+  const separator = '\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0·\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0';
   const tickerText = items.join(separator);
   return (
     <div className={styles.seasonalTicker}>
