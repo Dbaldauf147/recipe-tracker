@@ -1240,7 +1240,7 @@ export function RecipeList({
       {/* Global meal filter dropdown */}
       <div className={styles.topFilterRow}>
         <button className={`${styles.addBtn} ${showAddTip ? styles.addBtnHighlight : ''}`} onClick={() => { onAdd(); setShowAddTip(false); }}>
-          + Recipes
+          + Add New
         </button>
         <button
           className={`${styles.importBtn}${manageMode ? ` ${styles.editBtnActive}` : ''}`}
@@ -1261,12 +1261,12 @@ export function RecipeList({
             }
           }}
         >
-          {manageMode ? 'Done' : 'Manage Recipes'}
+          {manageMode ? 'Done' : 'Manage'}
         </button>
         <input
           className={styles.topSearchInput}
           type="text"
-          placeholder="Search recipes..."
+          placeholder="Search..."
           value={searchQuery}
           onChange={e => setSearchQuery(e.target.value)}
         />
@@ -1277,7 +1277,7 @@ export function RecipeList({
           >
             {(() => {
               const count = checkedTypes.size + checkedCategories.size + checkedCuisines.size + checkedTags.size + checkedSources.size + (showToTry ? 1 : 0) + (showRare ? 1 : 0) + (showRetired ? 1 : 0);
-              return `Filter Recipes${count > 0 ? ` (${count})` : ''}`;
+              return `Filter${count > 0 ? ` (${count})` : ''}`;
             })()}
             <span className={styles.dropdownCaret}>&#9662;</span>
           </button>
