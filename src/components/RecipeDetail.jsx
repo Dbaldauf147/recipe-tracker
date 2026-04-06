@@ -2160,7 +2160,7 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
               <tr>
                 <th>Amount</th>
                 <th>Ingredient</th>
-                {showGHG && <th style={{ textAlign: 'center', fontSize: '0.72rem', fontWeight: 600, color: 'var(--color-text-muted)', width: '50px' }}>GHG</th>}
+                {showGHG && <th className={styles.colGhg}>GHG</th>}
               </tr>
             </thead>
             <tbody>

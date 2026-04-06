@@ -2430,9 +2430,11 @@
 .colGhg {
   text-align: center;
   font-size: 0.72rem;
-  font-weight: 600;
-  color: var(--color-text-muted);
+  font-weight: 700;
+  color: var(--color-text-secondary);
   min-width: 50px;
+  vertical-align: bottom;
+  padding-bottom: 0.5rem;
 }
 
 .colShelf {
