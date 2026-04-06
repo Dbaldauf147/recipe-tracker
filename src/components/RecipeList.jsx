@@ -112,6 +112,41 @@ const REGION_OPTIONS = [
   { key: 'pacific_northwest', label: 'Pacific Northwest' },
 ];
 
+function SeasonalTicker() {
+  const season = getSeason();
+  const theme = SEASON_THEME[season];
+  const region = useMemo(() => {
+    try {
+      const stats = JSON.parse(localStorage.getItem('sunday-body-stats') || '{}');
+      return locationToRegion(stats.location) || 'southeast';
+    } catch { return 'southeast'; }
+  }, []);
+  const month = new Date().getMonth();
+  const items = useMemo(() => {
+    const seasonal = getSeasonalIngredients(region, month);
+    if (seasonal.size > 0) return [...seasonal].slice(0, 20);
+    return SEASON_FALLBACK[season] || [];
+  }, [region, month, season]);
+
+  if (items.length === 0) return null;
+
+  const tickerText = items.join('  ·  ');
+  // Double the text for seamless loop
+  return (
+    <div className={styles.seasonalTicker}>
+      <span className={styles.seasonalTickerLabel} style={{ background: theme.chipBg, color: theme.chipText }}>
+        {theme.emoji} In Season
+      </span>
+      <div className={styles.seasonalTickerTrack}>
+        <div className={styles.seasonalTickerScroll}>
+          <span>{tickerText}</span>
+          <span>{tickerText}</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function SeasonalSidebar() {
   const season = getSeason();
   const theme = SEASON_THEME[season];
@@ -1558,9 +1593,8 @@ export function RecipeList({
             <button className={styles.collapseToggle} onClick={() => setSuggestOpen(p => !p)}>
               <span className={`${styles.collapseArrow}${suggestOpen ? ` ${styles.collapseArrowOpen}` : ''}`}>&#9660;</span>
               <h3 className={styles.suggestHeading}>Suggested Meals</h3>
-              {aiMealsLoading && <span style={{ fontSize: '0.72rem', color: '#7C3AED', marginLeft: '0.5rem' }}>✨ Loading AI picks...</span>}
-              {aiMeals.length > 0 && <span style={{ fontSize: '0.68rem', color: '#7C3AED', marginLeft: '0.5rem', fontWeight: 600 }}>✨ {aiMeals.length} AI picks</span>}
             </button>
+            <SeasonalTicker />
             <div className={styles.suggestGearWrap}>
               <button
                 className={styles.suggestGearBtn}
