@@ -14,12 +14,13 @@
   max-width: 1100px;
   width: 100%;
   margin: 0 auto;
-  background: var(--color-bg);
+  background: var(--color-surface);
   border-radius: var(--radius-xl);
   box-shadow: var(--shadow-lift);
   padding: 2rem;
   position: relative;
   animation: slideUp 0.25s ease;
+  align-self: flex-start;
 }
 
 @keyframes slideUp {
