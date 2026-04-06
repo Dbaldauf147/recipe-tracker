@@ -2529,13 +2529,13 @@ function HistoryChart({ dailyLog }) {
       <h3>% of Daily Target</h3>
       <div className={styles.chartControls}>
         <div className={styles.rangeToggle}>
-          {[7, 14, 30].map(r => (
+          {[{ days: 7, label: '7d' }, { days: 14, label: '14d' }, { days: 30, label: '30d' }, { days: 90, label: '3mo' }, { days: 365, label: '1yr' }].map(r => (
             <button
-              key={r}
-              className={range === r ? styles.rangeBtnActive : styles.rangeBtn}
-              onClick={() => setRange(r)}
+              key={r.days}
+              className={range === r.days ? styles.rangeBtnActive : styles.rangeBtn}
+              onClick={() => setRange(r.days)}
             >
-              {r}d
+              {r.label}
             </button>
           ))}
         </div>
@@ -2669,13 +2669,13 @@ function ServingsChart({ dailyLog }) {
       <h3>Fruit & Vegetable Servings Per Day</h3>
       <div className={styles.chartControls}>
         <div className={styles.rangeToggle}>
-          {[7, 14, 30].map(r => (
+          {[{ days: 7, label: '7d' }, { days: 14, label: '14d' }, { days: 30, label: '30d' }, { days: 90, label: '3mo' }, { days: 365, label: '1yr' }].map(r => (
             <button
-              key={r}
-              className={range === r ? styles.rangeBtnActive : styles.rangeBtn}
-              onClick={() => setRange(r)}
+              key={r.days}
+              className={range === r.days ? styles.rangeBtnActive : styles.rangeBtn}
+              onClick={() => setRange(r.days)}
             >
-              {r}d
+              {r.label}
             </button>
           ))}
         </div>
