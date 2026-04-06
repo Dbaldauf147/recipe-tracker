@@ -469,16 +469,18 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
     };
   }, []);
 
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+
   const NAV_ITEMS = [
-    ...(showNutrition ? [{ label: 'Nutrition Tracking', submenu: [
+    { label: 'Recipes', id: 'weekly-menu', icon: 'restaurant_menu' },
+    ...(showNutrition ? [{ label: 'Nutrition', icon: 'clinical_notes', submenu: [
       { label: 'Goals', action: 'nutrition-goals' },
       ...(showTrackMeals ? [{ label: 'Track Meals', action: 'daily-tracker' }] : []),
       ...(showWeightTab ? [{ label: 'Weight', action: 'weight-tracker' }] : []),
       ...(showRotateHealthy ? [{ label: 'Healthy Foods', action: 'key-ingredients' }] : []),
     ] }] : []),
-    { label: 'Recipes', id: 'weekly-menu' },
-    { label: 'Shopping List', action: 'shopping' },
-    ...(user?.email === 'baldaufdan@gmail.com' ? [{ label: 'Workout', action: 'workout' }] : []),
+    { label: 'Shopping List', action: 'shopping', icon: 'shopping_cart' },
+    ...(user?.email === 'baldaufdan@gmail.com' ? [{ label: 'Workout', action: 'workout', icon: 'fitness_center' }] : []),
   ];
 
   function handleNavClick(item) {
@@ -600,28 +602,37 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
 
   return (
     <div className={styles.app}>
-      <header className={styles.header}>
-        <span
-          className={styles.logo}
-          onClick={() => { setView('list'); setSelectedId(null); setViewHistory([]); }}
-        >
-          Prep Day
-        </span>
-        <nav className={styles.nav}>
+      {/* Mobile sidebar toggle */}
+      <button className={styles.sidebarToggle} onClick={() => setSidebarOpen(p => !p)} aria-label="Toggle menu">
+        <span className="material-symbols-outlined">{sidebarOpen ? 'close' : 'menu'}</span>
+      </button>
+
+      {/* Sidebar Navigation */}
+      <aside className={`${styles.sidebar}${sidebarOpen ? ` ${styles.sidebarOpen}` : ''}`}>
+        <div className={styles.sidebarLogo} onClick={() => { setView('list'); setSelectedId(null); setViewHistory([]); setSidebarOpen(false); }}>
+          <div className={styles.sidebarLogoText}>Prep Day</div>
+          <div className={styles.sidebarSubtext}>The Digital Epicurean</div>
+        </div>
+
+        <nav className={styles.sidebarNav}>
           {NAV_ITEMS.map(item => {
             if (item.submenu) {
-              const isActive = item.submenu.some(s => s.action === view);
+              const isAnyActive = item.submenu.some(s => s.action === view);
               return (
-                <div key={item.label} className={styles.navDropdownWrap}>
-                  <button className={styles.navItem}>
-                    {item.label} <span className={styles.navDropdownArrow}>▾</span>
+                <div key={item.label}>
+                  <button
+                    className={`${styles.sidebarItem}${isAnyActive ? ` ${styles.sidebarItemActive}` : ''}`}
+                    onClick={() => handleNavClick(item.submenu[0])}
+                  >
+                    <span className={`material-symbols-outlined ${styles.sidebarIcon}`}>{item.icon}</span>
+                    {item.label}
                   </button>
-                  <div className={styles.navDropdown}>
+                  <div className={styles.sidebarSubmenu}>
                     {item.submenu.map(sub => (
                       <button
                         key={sub.action}
-                        className={`${styles.navDropdownItem}${view === sub.action ? ` ${styles.navDropdownItemActive}` : ''}`}
-                        onClick={() => handleNavClick(sub)}
+                        className={`${styles.sidebarSubItem}${view === sub.action ? ` ${styles.sidebarSubItemActive}` : ''}`}
+                        onClick={() => { handleNavClick(sub); setSidebarOpen(false); }}
                       >
                         {sub.label}
                       </button>
@@ -630,126 +641,77 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
                 </div>
               );
             }
-            const isActive = item.action
-              ? view === item.action
-              : item.id && view === 'list';
+            const isActive = item.action ? view === item.action : item.id && view === 'list';
             return (
               <button
                 key={item.action || item.id}
-                className={`${styles.navItem}${isActive ? ` ${styles.navItemActive}` : ''}`}
-                onClick={() => handleNavClick(item)}
+                className={`${styles.sidebarItem}${isActive ? ` ${styles.sidebarItemActive}` : ''}`}
+                onClick={() => { handleNavClick(item); setSidebarOpen(false); }}
               >
+                <span className={`material-symbols-outlined ${styles.sidebarIcon}`}>{item.icon}</span>
                 {item.label}
               </button>
             );
           })}
         </nav>
-        <div className={styles.settingsWrapper} ref={settingsRef}>
-          <span className={styles.userName}>{user?.displayName || 'Guest'}</span>
-          <button
-            className={styles.settingsBtn}
-            onClick={() => setSettingsOpen(prev => !prev)}
-            aria-label="Settings"
-          >
-            ⚙
-            {pendingCount > 0 && (
-              <span className={styles.badge}>{pendingCount}</span>
-            )}
-          </button>
-          {settingsOpen && (
-            <div className={styles.settingsDropdown}>
-              <div className={styles.settingsUserRow}>
-                {user?.photoURL && (
-                  <img
-                    className={styles.avatar}
-                    src={user.photoURL}
-                    alt=""
-                    referrerPolicy="no-referrer"
-                  />
-                )}
-                <span>{user?.displayName || 'Guest'}</span>
-              </div>
-              <button
-                className={styles.settingsMenuItem}
-                onClick={() => { navigateTo('profile'); setSettingsOpen(false); }}
-              >
-                My Profile
-              </button>
-              <button
-                className={styles.settingsMenuItem}
-                onClick={() => { navigateTo('account-settings'); setSettingsOpen(false); }}
-              >
-                Account Settings
-              </button>
-              <button
-                className={styles.settingsMenuItem}
-                onClick={() => { navigateTo('friends'); setSettingsOpen(false); }}
-              >
-                Friends
-                {pendingCount > 0 && (
-                  <span className={styles.menuBadge}>{pendingCount}</span>
-                )}
-              </button>
-              <div className={styles.settingsDivider} />
-              {user?.uid === ADMIN_UID && (
-                <>
-                  <button
-                    className={styles.settingsMenuItem}
-                    onClick={() => { navigateTo('admin'); setSettingsOpen(false); }}
-                  >
-                    Admin Dashboard
-                  </button>
-                </>
+
+        <div className={styles.sidebarBottom}>
+          <div className={styles.settingsWrapper} ref={settingsRef}>
+            <button
+              className={styles.settingsBtn}
+              onClick={() => setSettingsOpen(prev => !prev)}
+              aria-label="Settings"
+            >
+              <span className={`material-symbols-outlined ${styles.sidebarIcon}`}>settings</span>
+              Settings
+              {pendingCount > 0 && (
+                <span className={styles.badge}>{pendingCount}</span>
               )}
-              <div className={styles.settingsDivider} />
-              <button
-                className={styles.settingsMenuItem}
-                onClick={() => { navigateTo('history'); setSettingsOpen(false); }}
-              >
-                Meal History
-              </button>
-              <button
-                className={styles.settingsMenuItem}
-                onClick={() => { navigateTo('seasonal-guide'); setSettingsOpen(false); }}
-              >
-                Seasonal Guide
-              </button>
-              <button
-                className={styles.settingsMenuItem}
-                onClick={() => { navigateTo('sources'); setSettingsOpen(false); }}
-              >
-                Sources
-              </button>
-              <button
-                className={styles.settingsMenuItem}
-                onClick={() => { navigateTo('features'); setSettingsOpen(false); }}
-              >
-                Features
-              </button>
-              <div className={styles.settingsDivider} />
-              <button
-                className={styles.settingsMenuItem}
-                onClick={() => { navigateTo('ingredients'); setSettingsOpen(false); }}
-              >
-                Ingredients
-              </button>
-              <button
-                className={styles.settingsMenuItem}
-                onClick={() => { restartOnboarding(); setSettingsOpen(false); }}
-              >
-                Setup
-              </button>
-              <div className={styles.settingsDivider} />
-              <button
-                className={styles.settingsMenuItem}
-                onClick={() => { logOut(); setSettingsOpen(false); }}
-              >
-                Sign Out
-              </button>
+            </button>
+            {settingsOpen && (
+              <div className={styles.settingsDropdown}>
+                <div className={styles.settingsUserRow}>
+                  {user?.photoURL && (
+                    <img className={styles.avatar} src={user.photoURL} alt="" referrerPolicy="no-referrer" />
+                  )}
+                  <span>{user?.displayName || 'Guest'}</span>
+                </div>
+                <button className={styles.settingsMenuItem} onClick={() => { navigateTo('profile'); setSettingsOpen(false); }}>My Profile</button>
+                <button className={styles.settingsMenuItem} onClick={() => { navigateTo('account-settings'); setSettingsOpen(false); }}>Account Settings</button>
+                <button className={styles.settingsMenuItem} onClick={() => { navigateTo('friends'); setSettingsOpen(false); }}>
+                  Friends
+                  {pendingCount > 0 && <span className={styles.menuBadge}>{pendingCount}</span>}
+                </button>
+                <div className={styles.settingsDivider} />
+                {user?.uid === ADMIN_UID && (
+                  <button className={styles.settingsMenuItem} onClick={() => { navigateTo('admin'); setSettingsOpen(false); }}>Admin Dashboard</button>
+                )}
+                <button className={styles.settingsMenuItem} onClick={() => { navigateTo('history'); setSettingsOpen(false); }}>Meal History</button>
+                <button className={styles.settingsMenuItem} onClick={() => { navigateTo('seasonal-guide'); setSettingsOpen(false); }}>Seasonal Guide</button>
+                <button className={styles.settingsMenuItem} onClick={() => { navigateTo('sources'); setSettingsOpen(false); }}>Sources</button>
+                <button className={styles.settingsMenuItem} onClick={() => { navigateTo('features'); setSettingsOpen(false); }}>Features</button>
+                <div className={styles.settingsDivider} />
+                <button className={styles.settingsMenuItem} onClick={() => { navigateTo('ingredients'); setSettingsOpen(false); }}>Ingredients</button>
+                <button className={styles.settingsMenuItem} onClick={() => { restartOnboarding(); setSettingsOpen(false); }}>Setup</button>
+                <div className={styles.settingsDivider} />
+                <button className={styles.settingsMenuItem} onClick={() => { logOut(); setSettingsOpen(false); }}>Sign Out</button>
+              </div>
+            )}
+          </div>
+
+          <div className={styles.sidebarUser}>
+            {user?.photoURL ? (
+              <img className={styles.sidebarAvatar} src={user.photoURL} alt="" referrerPolicy="no-referrer" />
+            ) : (
+              <div className={styles.sidebarAvatarPlaceholder}>{(user?.displayName || 'G')[0]}</div>
+            )}
+            <div className={styles.sidebarUserInfo}>
+              <span className={styles.sidebarUserName}>{user?.displayName || 'Guest'}</span>
+              <span className={styles.sidebarUserRole}>Home Chef</span>
             </div>
-          )}
+          </div>
         </div>
-      </header>
+      </aside>
 
       {(() => {
         const items = [];

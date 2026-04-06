@@ -9,27 +9,32 @@ input[type="number"] {
 }
 
 :root {
-  /* Colors – deep navy, professional & premium */
-  --color-bg: #F4F6F9;
-  --color-surface: #FBFCFD;
-  --color-surface-alt: #EBF0F5;
-  --color-border: #CEDAE5;
-  --color-border-light: #DDE6EE;
-  --color-text: #1E2A36;
-  --color-text-secondary: #4A5B6E;
-  --color-text-muted: #7A8FA3;
-  --color-accent: #3B6B9C;
-  --color-accent-hover: #2E5680;
-  --color-accent-light: #EBF2F9;
-  --color-accent-subtle: #CFDFEE;
-  --color-danger: #c0392b;
-  --color-danger-light: #fde8e6;
+  /* Colors – warm, appetizing, premium food aesthetic */
+  --color-bg: #FFF8F7;
+  --color-surface: #FFFFFF;
+  --color-surface-alt: #F7EBEB;
+  --color-border: #E6BDB8;
+  --color-border-light: #EBE0E0;
+  --color-text: #201A1B;
+  --color-text-secondary: #5C403C;
+  --color-text-muted: #916F6B;
+  --color-accent: #B70011;
+  --color-accent-hover: #93000B;
+  --color-accent-light: #FFF0EE;
+  --color-accent-subtle: #FFDAD6;
+  --color-danger: #BA1A1A;
+  --color-danger-light: #FFDAD6;
   --color-success: #2E7D4F;
   --color-success-light: #E8F5ED;
-  --color-header-bg: #1A2F4A;
+  --color-header-bg: #FFFFFF;
+  --color-gold: #CA8A04;
+  --color-gold-light: #FEF9C3;
+  --color-secondary: #805600;
+  --color-secondary-container: #FEB63C;
 
-  /* Typography – minimum 0.82rem across the site */
+  /* Typography */
   --font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  --font-family-serif: 'Noto Serif', Georgia, serif;
   --font-size-xs: 0.82rem;
   --font-size-sm: 0.9rem;
   --font-size-base: 1rem;
@@ -37,6 +42,7 @@ input[type="number"] {
   --font-size-lg: 1.25rem;
   --font-size-xl: 1.5rem;
   --font-size-2xl: 1.8rem;
+  --font-size-3xl: 2.25rem;
 
   /* Spacing (4px base) */
   --space-1: 0.25rem;
@@ -50,25 +56,25 @@ input[type="number"] {
   --space-12: 3rem;
   --space-16: 4rem;
 
-  /* Radii – generous, friendly rounding */
+  /* Radii */
   --radius-sm: 8px;
   --radius-md: 12px;
   --radius-lg: 16px;
-  --radius-xl: 20px;
+  --radius-xl: 24px;
   --radius-full: 9999px;
 
-  /* Shadows – soft, warm */
-  --shadow-sm: 0 1px 3px rgba(44, 37, 32, 0.04), 0 1px 2px rgba(44, 37, 32, 0.03);
-  --shadow-md: 0 3px 10px rgba(44, 37, 32, 0.06);
-  --shadow-lg: 0 6px 20px rgba(44, 37, 32, 0.08);
-  --shadow-lift: 0 8px 28px rgba(44, 37, 32, 0.10);
-  --shadow-header: 0 2px 8px rgba(44, 37, 32, 0.12);
+  /* Shadows – warm tinted */
+  --shadow-sm: 0 1px 3px rgba(32, 26, 27, 0.04), 0 1px 2px rgba(32, 26, 27, 0.03);
+  --shadow-md: 0 4px 12px rgba(32, 26, 27, 0.06);
+  --shadow-lg: 0 8px 24px rgba(32, 26, 27, 0.08);
+  --shadow-lift: 0 12px 32px rgba(32, 26, 27, 0.12);
+  --shadow-header: 0 1px 0 rgba(230, 189, 184, 0.2);
 
   /* Focus & Transitions */
-  --focus-ring: 0 0 0 3px rgba(59, 107, 156, 0.18);
+  --focus-ring: 0 0 0 3px rgba(183, 0, 17, 0.15);
   --transition-fast: 0.1s ease;
-  --transition-normal: 0.15s ease;
-  --transition-slow: 0.25s ease;
+  --transition-normal: 0.2s ease;
+  --transition-slow: 0.3s ease;
 }
 
 *,
@@ -127,7 +133,7 @@ button:active {
   cursor: ew-resize !important;
 }
 .react-grid-item > .react-resizable-handle-e:hover {
-  border-right: 3px solid rgba(59, 107, 156, 0.6) !important;
+  border-right: 3px solid rgba(183, 0, 17, 0.6) !important;
 }
 
 /* Left edge */
@@ -143,7 +149,7 @@ button:active {
   cursor: ew-resize !important;
 }
 .react-grid-item > .react-resizable-handle-w:hover {
-  border-left: 3px solid rgba(59, 107, 156, 0.6) !important;
+  border-left: 3px solid rgba(183, 0, 17, 0.6) !important;
 }
 
 /* Bottom edge */
@@ -159,7 +165,7 @@ button:active {
   cursor: ns-resize !important;
 }
 .react-grid-item > .react-resizable-handle-s:hover {
-  border-bottom: 3px solid rgba(59, 107, 156, 0.6) !important;
+  border-bottom: 3px solid rgba(183, 0, 17, 0.6) !important;
 }
 
 /* Top edge */
@@ -175,7 +181,7 @@ button:active {
   cursor: ns-resize !important;
 }
 .react-grid-item > .react-resizable-handle-n:hover {
-  border-top: 3px solid rgba(59, 107, 156, 0.6) !important;
+  border-top: 3px solid rgba(183, 0, 17, 0.6) !important;
 }
 
 /* SE corner */
@@ -189,10 +195,10 @@ button:active {
   margin: 0 !important;
   transform: none !important;
   cursor: nwse-resize !important;
-  border-right: 3px solid rgba(59, 107, 156, 0.4) !important;
-  border-bottom: 3px solid rgba(59, 107, 156, 0.4) !important;
+  border-right: 3px solid rgba(183, 0, 17, 0.4) !important;
+  border-bottom: 3px solid rgba(183, 0, 17, 0.4) !important;
 }
 .react-grid-item > .react-resizable-handle-se:hover {
-  border-right-color: rgba(59, 107, 156, 0.8) !important;
-  border-bottom-color: rgba(59, 107, 156, 0.8) !important;
+  border-right-color: rgba(183, 0, 17, 0.8) !important;
+  border-bottom-color: rgba(183, 0, 17, 0.8) !important;
 }

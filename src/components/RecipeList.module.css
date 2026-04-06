@@ -2130,11 +2130,11 @@
 
 .columnHeading {
   margin: 0;
-  font-size: var(--font-size-sm);
+  font-family: var(--font-family-serif);
+  font-size: var(--font-size-base);
   font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--color-accent);
+  letter-spacing: -0.01em;
+  color: var(--color-text);
   padding-bottom: var(--space-2);
   border-bottom: 2px solid var(--color-accent-subtle);
   cursor: default;
