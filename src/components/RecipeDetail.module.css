@@ -1313,26 +1313,34 @@
 .ingredientTable {
   width: 100%;
   border-collapse: collapse;
+  table-layout: fixed;
 }
 
 .ingredientTable th {
   text-align: left;
-  font-size: 0.72rem;
-  font-weight: 600;
+  font-size: 0.68rem;
+  font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--color-accent);
-  padding: 0.4rem 0.75rem;
-  border-bottom: 1px solid var(--color-border);
+  letter-spacing: 0.06em;
+  color: var(--color-text-muted);
+  padding: 0.6rem 0.75rem;
+  border-bottom: 2px solid var(--color-border);
+  background: var(--color-surface-alt, #f8fafb);
+  white-space: nowrap;
 }
 
 .ingredientTable td {
   padding: 0.5rem 0.75rem;
   border-bottom: 1px solid var(--color-border-light);
+  vertical-align: middle;
 }
 
 .ingredientTable tbody tr:last-child td {
   border-bottom: none;
+}
+
+.ingredientTable tbody tr:hover {
+  background: var(--color-accent-light);
 }
 
 
@@ -1542,30 +1550,33 @@
   width: 100%;
   border-collapse: collapse;
   font-size: 0.9rem;
+  table-layout: fixed;
 }
 
 .viewTable th:first-child,
 .viewTable td:first-child {
-  width: 1%;
+  width: 120px;
   white-space: nowrap;
-  padding-right: 1.5rem;
 }
 
 .viewTable th {
   text-align: left;
-  font-size: 0.75rem;
-  font-weight: 600;
+  font-size: 0.68rem;
+  font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--color-accent);
-  padding: 0.5rem 0.6rem;
+  letter-spacing: 0.06em;
+  color: var(--color-text-muted);
+  padding: 0.6rem 0.75rem;
   border-bottom: 2px solid var(--color-border);
+  background: var(--color-surface-alt, #f8fafb);
+  white-space: nowrap;
 }
 
 .viewTable td {
-  padding: 0.5rem 0.6rem;
-  border-bottom: 1px solid var(--color-border);
+  padding: 0.6rem 0.75rem;
+  border-bottom: 1px solid var(--color-border-light);
   color: var(--color-text);
+  vertical-align: middle;
 }
 
 .viewTable tbody tr:last-child td {
@@ -1573,7 +1584,7 @@
 }
 
 .viewTable tbody tr:hover {
-  background: var(--color-surface-alt, #f9fafb);
+  background: var(--color-accent-light);
 }
 
 .convertSelect {
