@@ -1233,35 +1233,37 @@ export function RecipeList({
 
       {/* Page header */}
       <div style={{ marginBottom: '0.75rem' }}>
-        <h1 style={{ fontSize: '1.6rem', fontWeight: 700, color: 'var(--color-text)', margin: '0 0 0.25rem', letterSpacing: '-0.02em' }}>My Recipes</h1>
-        <p style={{ fontSize: '0.88rem', color: 'var(--color-text-muted)', margin: 0, lineHeight: 1.45 }}>Your personal recipe collection. Add, organize, and plan meals from all your favorite sources.</p>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+          <h1 style={{ fontSize: '1.6rem', fontWeight: 700, color: 'var(--color-text)', margin: 0, letterSpacing: '-0.02em' }}>My Recipes</h1>
+          <button
+            className={`${styles.importBtn}${manageMode ? ` ${styles.editBtnActive}` : ''}`}
+            onClick={async () => {
+              if (manageMode) {
+                setManageMode(false);
+                setManageSelected(new Set());
+                setManageFriends(null);
+                setManageStatus('');
+                setShowCookbookInput(false);
+              } else {
+                setManageMode(true);
+                setEditMode(false);
+                setManageSelected(new Set());
+                if (user) {
+                  loadFriends(user.uid).then(setManageFriends).catch(() => setManageFriends([]));
+                }
+              }
+            }}
+          >
+            {manageMode ? 'Done' : 'Manage'}
+          </button>
+        </div>
+        <p style={{ fontSize: '0.88rem', color: 'var(--color-text-muted)', margin: '0.25rem 0 0', lineHeight: 1.45 }}>Your personal recipe collection. Add, organize, and plan meals from all your favorite sources.</p>
       </div>
 
       {/* Global meal filter dropdown */}
       <div className={styles.topFilterRow}>
         <button className={`${styles.addBtn} ${showAddTip ? styles.addBtnHighlight : ''}`} onClick={() => { onAdd(); setShowAddTip(false); }}>
           + Add New
-        </button>
-        <button
-          className={`${styles.importBtn}${manageMode ? ` ${styles.editBtnActive}` : ''}`}
-          onClick={async () => {
-            if (manageMode) {
-              setManageMode(false);
-              setManageSelected(new Set());
-              setManageFriends(null);
-              setManageStatus('');
-              setShowCookbookInput(false);
-            } else {
-              setManageMode(true);
-              setEditMode(false);
-              setManageSelected(new Set());
-              if (user) {
-                loadFriends(user.uid).then(setManageFriends).catch(() => setManageFriends([]));
-              }
-            }
-          }}
-        >
-          {manageMode ? 'Done' : 'Manage'}
         </button>
         <input
           className={styles.topSearchInput}
