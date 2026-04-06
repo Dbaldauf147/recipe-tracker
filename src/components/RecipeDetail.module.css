@@ -1313,7 +1313,6 @@
 .ingredientTable {
   width: 100%;
   border-collapse: collapse;
-  table-layout: fixed;
 }
 
 .ingredientTable th {
@@ -1550,13 +1549,12 @@
   width: 100%;
   border-collapse: collapse;
   font-size: 0.9rem;
-  table-layout: fixed;
 }
 
 .viewTable th:first-child,
 .viewTable td:first-child {
-  width: 120px;
   white-space: nowrap;
+  padding-right: 1.5rem;
 }
 
 .viewTable th {

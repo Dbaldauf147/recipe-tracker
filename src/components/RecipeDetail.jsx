@@ -1813,15 +1813,24 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
         {editingIngredients ? (
           <>
             <table className={styles.ingredientTable}>
+              <colgroup>
+                <col style={{ width: '24px' }} />
+                <col style={{ width: '80px' }} />
+                <col style={{ width: '100px' }} />
+                <col />
+                {showGHG && <col style={{ width: '50px' }} />}
+                {showShelfLife && <col style={{ width: '140px' }} />}
+                <col style={{ width: '50px' }} />
+              </colgroup>
               <thead>
                 <tr>
-                  <th style={{ width: '24px' }}></th>
-                  <th className={styles.colQty} style={{ textAlign: 'center' }}>Qty</th>
-                  <th className={styles.colMeasure} style={{ textAlign: 'left' }}>Unit</th>
+                  <th></th>
+                  <th style={{ textAlign: 'center' }}>Qty</th>
+                  <th style={{ textAlign: 'left' }}>Unit</th>
                   <th style={{ textAlign: 'left' }}>Ingredient</th>
                   {showGHG && <th className={styles.colGhg}>GHG</th>}
                   {showShelfLife && <th className={styles.colShelf}>Storage / Shelf Life</th>}
-                  <th style={{ width: '50px' }}></th>
+                  <th></th>
                 </tr>
               </thead>
               <tbody>
