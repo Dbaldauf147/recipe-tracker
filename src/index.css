@@ -9,21 +9,21 @@ input[type="number"] {
 }
 
 :root {
-  /* Colors – warm, appetizing, premium food aesthetic */
-  --color-bg: #FFF8F7;
+  /* Colors – premium food aesthetic with blue accent */
+  --color-bg: #F8FAFB;
   --color-surface: #FFFFFF;
-  --color-surface-alt: #F7EBEB;
-  --color-border: #E6BDB8;
-  --color-border-light: #EBE0E0;
-  --color-text: #201A1B;
-  --color-text-secondary: #5C403C;
-  --color-text-muted: #916F6B;
-  --color-accent: #B70011;
-  --color-accent-hover: #93000B;
-  --color-accent-light: #FFF0EE;
-  --color-accent-subtle: #FFDAD6;
-  --color-danger: #BA1A1A;
-  --color-danger-light: #FFDAD6;
+  --color-surface-alt: #EBF0F5;
+  --color-border: #CEDAE5;
+  --color-border-light: #DDE6EE;
+  --color-text: #1E2A36;
+  --color-text-secondary: #4A5B6E;
+  --color-text-muted: #7A8FA3;
+  --color-accent: #3B6B9C;
+  --color-accent-hover: #2E5680;
+  --color-accent-light: #EBF2F9;
+  --color-accent-subtle: #CFDFEE;
+  --color-danger: #c0392b;
+  --color-danger-light: #fde8e6;
   --color-success: #2E7D4F;
   --color-success-light: #E8F5ED;
   --color-header-bg: #FFFFFF;
@@ -68,10 +68,10 @@ input[type="number"] {
   --shadow-md: 0 4px 12px rgba(32, 26, 27, 0.06);
   --shadow-lg: 0 8px 24px rgba(32, 26, 27, 0.08);
   --shadow-lift: 0 12px 32px rgba(32, 26, 27, 0.12);
-  --shadow-header: 0 1px 0 rgba(230, 189, 184, 0.2);
+  --shadow-header: 0 2px 8px rgba(44, 37, 32, 0.08);
 
   /* Focus & Transitions */
-  --focus-ring: 0 0 0 3px rgba(183, 0, 17, 0.15);
+  --focus-ring: 0 0 0 3px rgba(59, 107, 156, 0.18);
   --transition-fast: 0.1s ease;
   --transition-normal: 0.2s ease;
   --transition-slow: 0.3s ease;
@@ -133,7 +133,7 @@ button:active {
   cursor: ew-resize !important;
 }
 .react-grid-item > .react-resizable-handle-e:hover {
-  border-right: 3px solid rgba(183, 0, 17, 0.6) !important;
+  border-right: 3px solid rgba(59, 107, 156, 0.6) !important;
 }
 
 /* Left edge */
@@ -149,7 +149,7 @@ button:active {
   cursor: ew-resize !important;
 }
 .react-grid-item > .react-resizable-handle-w:hover {
-  border-left: 3px solid rgba(183, 0, 17, 0.6) !important;
+  border-left: 3px solid rgba(59, 107, 156, 0.6) !important;
 }
 
 /* Bottom edge */
@@ -165,7 +165,7 @@ button:active {
   cursor: ns-resize !important;
 }
 .react-grid-item > .react-resizable-handle-s:hover {
-  border-bottom: 3px solid rgba(183, 0, 17, 0.6) !important;
+  border-bottom: 3px solid rgba(59, 107, 156, 0.6) !important;
 }
 
 /* Top edge */
@@ -181,7 +181,7 @@ button:active {
   cursor: ns-resize !important;
 }
 .react-grid-item > .react-resizable-handle-n:hover {
-  border-top: 3px solid rgba(183, 0, 17, 0.6) !important;
+  border-top: 3px solid rgba(59, 107, 156, 0.6) !important;
 }
 
 /* SE corner */
@@ -195,10 +195,10 @@ button:active {
   margin: 0 !important;
   transform: none !important;
   cursor: nwse-resize !important;
-  border-right: 3px solid rgba(183, 0, 17, 0.4) !important;
-  border-bottom: 3px solid rgba(183, 0, 17, 0.4) !important;
+  border-right: 3px solid rgba(59, 107, 156, 0.4) !important;
+  border-bottom: 3px solid rgba(59, 107, 156, 0.4) !important;
 }
 .react-grid-item > .react-resizable-handle-se:hover {
-  border-right-color: rgba(183, 0, 17, 0.8) !important;
-  border-bottom-color: rgba(183, 0, 17, 0.8) !important;
+  border-right-color: rgba(59, 107, 156, 0.8) !important;
+  border-bottom-color: rgba(59, 107, 156, 0.8) !important;
 }
