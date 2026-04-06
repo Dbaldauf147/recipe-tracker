@@ -1172,17 +1172,20 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
 
   if (!recipe) {
     return (
-      <div className={styles.container}>
-        <button className={styles.backBtn} onClick={onBack}>
-          &larr; Back to recipes
-        </button>
-        <p>Recipe not found.</p>
+      <div className={styles.overlay} onClick={onBack}>
+        <div className={styles.container} onClick={e => e.stopPropagation()}>
+          <button className={styles.backBtn} onClick={onBack}>
+            &larr; Back to recipes
+          </button>
+          <p>Recipe not found.</p>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className={styles.container}>
+    <div className={styles.overlay} onClick={onBack}>
+    <div className={styles.container} onClick={e => e.stopPropagation()}>
       <div className={styles.headerRow}>
         <button className={styles.backBtn} onClick={onBack}>
           &larr; Back to recipes
@@ -2756,6 +2759,7 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
           onClose={() => setShowScanner(false)}
         />
       )}
+    </div>
     </div>
   );
 }
