@@ -118,10 +118,10 @@ function SeasonalTicker() {
   const region = useMemo(() => {
     try {
       const stats = JSON.parse(localStorage.getItem('sunday-body-stats') || '{}');
-      return locationToRegion(stats.location) || 'southeast';
-    } catch { return 'southeast'; }
+      return locationToRegion(stats.location) || 'northeast';
+    } catch { return 'northeast'; }
   }, []);
-  const month = new Date().getMonth();
+  const month = new Date().getMonth() + 1; // 1-indexed to match seasonal data
   const items = useMemo(() => {
     const seasonal = getSeasonalIngredients(region, month);
     if (seasonal.size > 0) return [...seasonal].slice(0, 20);
@@ -1220,7 +1220,6 @@ export function RecipeList({
 
   return (
     <>
-    <SeasonalSidebar />
     <div className={styles.container}>
       {/* Hidden file input for CSV import */}
       <input
