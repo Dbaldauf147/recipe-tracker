@@ -97,6 +97,11 @@ body {
   overflow-x: clip;
 }
 
+/* Editorial serif headings globally */
+h1, h2, h3 {
+  font-family: var(--font-family-serif);
+}
+
 /* Global button active feedback */
 button:active {
   transform: scale(0.97);

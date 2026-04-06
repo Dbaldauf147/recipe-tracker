@@ -29,14 +29,14 @@
 .headerPrintBtn {
   background: none;
   color: var(--color-text-muted);
-  border: 1px solid var(--color-border);
-  padding: 0.4rem 0.85rem;
-  border-radius: 6px;
+  border: 1px solid var(--color-border-light);
+  padding: 0.4rem 1rem;
+  border-radius: var(--radius-full);
   font-size: 0.8rem;
   font-weight: 600;
   font-family: inherit;
   cursor: pointer;
-  transition: border-color 0.15s ease, color 0.15s ease;
+  transition: border-color 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
   white-space: nowrap;
 }
 
@@ -49,14 +49,15 @@
   background: var(--color-accent);
   color: #fff;
   border: none;
-  padding: 0.4rem 0.85rem;
-  border-radius: 6px;
+  padding: 0.4rem 1rem;
+  border-radius: var(--radius-full);
   font-size: 0.8rem;
   font-weight: 600;
   font-family: inherit;
   cursor: pointer;
-  transition: background 0.15s ease;
+  transition: background 0.2s ease, box-shadow 0.2s ease;
   white-space: nowrap;
+  box-shadow: var(--shadow-sm);
 }
 
 .headerShareBtn:hover {
@@ -70,15 +71,15 @@
 
 .editToggleBtn {
   background: none;
-  border: 1px solid var(--color-border, #e5e7eb);
-  color: var(--color-text-muted, #6b7280);
+  border: 1px solid var(--color-border-light);
+  color: var(--color-text-muted);
   padding: 0.4rem 1rem;
-  border-radius: 6px;
+  border-radius: var(--radius-full);
   font-size: 0.85rem;
   font-weight: 600;
   font-family: inherit;
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: all 0.2s ease;
 }
 
 .editToggleBtn:hover {
@@ -88,8 +89,9 @@
 
 .titleDisplay {
   margin: 0;
-  font-size: 1.5rem;
-  font-weight: 700;
+  font-family: var(--font-family-serif);
+  font-size: 1.8rem;
+  font-weight: 900;
   color: var(--color-text);
   letter-spacing: -0.02em;
 }
@@ -202,9 +204,14 @@
 .ingredientsCol {
   margin-bottom: 1.5rem;
   background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  padding: 1.25rem;
+  border: 1px solid var(--color-border-light);
+  border-radius: var(--radius-lg);
+  padding: 1.5rem;
+  box-shadow: var(--shadow-sm);
+  transition: box-shadow var(--transition-normal);
+}
+
+.ingredientsCol:hover {
   box-shadow: var(--shadow-md);
 }
 
@@ -217,10 +224,11 @@
 
 .ingredientsHeader h3 {
   margin: 0;
-  font-size: 1rem;
-  font-weight: 600;
+  font-family: var(--font-family-serif);
+  font-size: 1.15rem;
+  font-weight: 700;
   letter-spacing: -0.01em;
-  color: var(--color-accent);
+  color: var(--color-text);
 }
 
 .ingredientsTitleRow {
@@ -1967,16 +1975,20 @@
 }
 
 .saveBtn {
-  padding: 0.55rem 1.25rem;
+  padding: 0.55rem 1.5rem;
   border: none;
-  border-radius: 50px;
+  border-radius: var(--radius-full);
   font-size: 0.9rem;
   font-weight: 600;
   cursor: pointer;
-  transition: background 0.15s ease;
+  transition: background 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
   background: var(--color-accent);
   color: #fff;
-  box-shadow: 0 2px 8px rgba(201, 100, 66, 0.25);
+  box-shadow: var(--shadow-md);
+}
+
+.saveBtn:active {
+  transform: scale(0.97);
 }
 
 .saveBtn:hover {

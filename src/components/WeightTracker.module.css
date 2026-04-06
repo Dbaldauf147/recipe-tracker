@@ -212,8 +212,10 @@
 
 .title {
   margin: 0;
-  font-size: 1.4rem;
-  font-weight: 700;
+  font-family: var(--font-family-serif);
+  font-size: 1.6rem;
+  font-weight: 900;
+  letter-spacing: -0.02em;
 }
 
 .reminder {
