@@ -217,9 +217,11 @@
 /* ── Main Content ── */
 .main {
   margin-left: 240px;
-  flex: 1;
   min-height: 100vh;
   padding: var(--space-6) var(--space-8) var(--space-12);
+  width: calc(100% - 240px);
+  min-width: 0;
+  overflow-x: hidden;
 }
 
 .homeLayout {
