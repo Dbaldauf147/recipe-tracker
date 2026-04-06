@@ -906,9 +906,9 @@
 
 .seasonalTickerScroll {
   display: flex;
-  gap: 3rem;
+  gap: 8rem;
   white-space: nowrap;
-  animation: tickerScroll 30s linear infinite;
+  animation: tickerScroll 45s linear infinite;
   font-size: 0.78rem;
   font-weight: 500;
   color: var(--color-text-muted);

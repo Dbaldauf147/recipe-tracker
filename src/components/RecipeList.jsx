@@ -130,8 +130,9 @@ function SeasonalTicker() {
 
   if (items.length === 0) return null;
 
-  const tickerText = items.join('  ·  ');
-  // Double the text for seamless loop
+  // Wide spacing so duplicates aren't visible at the same time
+  const separator = '\u00A0\u00A0\u00A0\u00A0·\u00A0\u00A0\u00A0\u00A0';
+  const tickerText = items.join(separator);
   return (
     <div className={styles.seasonalTicker}>
       <span className={styles.seasonalTickerLabel} style={{ background: theme.chipBg, color: theme.chipText }}>
