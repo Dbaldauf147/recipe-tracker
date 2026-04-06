@@ -2090,7 +2090,7 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
                         const dotColors = { low: '#22c55e', medium: '#eab308', high: '#f97316', 'very-high': '#ef4444' };
                         return (
                           <span title={`${ghg.kgCO2e} kg CO₂e/kg (${ghg.rating})`} style={{ cursor: 'default' }}>
-                            <span style={{ color: dotColors[ghg.rating], fontSize: '0.9rem' }}>{'\u25CF'}</span>
+                            <span style={{ color: dotColors[ghg.rating], fontSize: '1.4rem' }}>{'\u25CF'}</span>
                           </span>
                         );
                       })()}
@@ -2208,7 +2208,7 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
                           const dotColors = { low: '#22c55e', medium: '#eab308', high: '#f97316', 'very-high': '#ef4444' };
                           return (
                             <span title={`${ghg.kgCO2e} kg CO\u2082e/kg (${ghg.rating})`} style={{ cursor: 'default' }}>
-                              <span style={{ color: dotColors[ghg.rating], fontSize: '0.9rem' }}>{'\u25CF'}</span>
+                              <span style={{ color: dotColors[ghg.rating], fontSize: '1.4rem' }}>{'\u25CF'}</span>
                             </span>
                           );
                         })()}
@@ -2242,7 +2242,7 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
           const dotColors = { low: '#22c55e', medium: '#eab308', high: '#f97316', 'very-high': '#ef4444' };
           return (
             <div style={{ marginTop: '8px', padding: '6px 10px', background: 'var(--color-bg-secondary, #f5f5f5)', borderRadius: '6px', fontSize: '0.78rem', display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-              <span style={{ color: dotColors[rating], fontSize: '0.9rem' }}>{'\u25CF'}</span>
+              <span style={{ color: dotColors[rating], fontSize: '1.4rem' }}>{'\u25CF'}</span>
               <span style={{ fontWeight: 600 }}>Recipe GHG:</span>
               <span>{ghgResult.totalKgCO2e} kg CO{'\u2082'}e total</span>
               <span style={{ color: 'var(--color-text-muted)' }}>
