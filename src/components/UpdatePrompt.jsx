@@ -1,7 +1,9 @@
+import { useState } from 'react';
 import { useRegisterSW } from 'virtual:pwa-register/react';
 import styles from './UpdatePrompt.module.css';
 
 export function UpdatePrompt() {
+  const [dismissed, setDismissed] = useState(false);
   const {
     needRefresh: [needRefresh],
     updateServiceWorker,
@@ -14,22 +16,12 @@ export function UpdatePrompt() {
     },
   });
 
-  if (!needRefresh) return null;
+  if (!needRefresh || dismissed) return null;
 
   async function handleUpdate() {
-    // Tell the waiting SW to activate
-    updateServiceWorker(true);
-    // Immediately clear all caches and hard reload
-    try {
-      const keys = await caches.keys();
-      await Promise.all(keys.map(k => caches.delete(k)));
-    } catch {}
-    // Unregister the current SW so a fresh one loads
-    if ('serviceWorker' in navigator) {
-      const registrations = await navigator.serviceWorker.getRegistrations();
-      await Promise.all(registrations.map(r => r.unregister()));
-    }
-    window.location.reload();
+    await updateServiceWorker(true);
+    // Fallback: if updateServiceWorker doesn't reload, force it
+    setTimeout(() => window.location.reload(), 1000);
   }
 
   return (
@@ -37,6 +29,9 @@ export function UpdatePrompt() {
       <span>A new version is available</span>
       <button className={styles.updateBtn} onClick={handleUpdate}>
         Update
+      </button>
+      <button className={styles.dismissBtn} onClick={() => setDismissed(true)}>
+        &times;
       </button>
     </div>
   );
