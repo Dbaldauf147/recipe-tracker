@@ -197,6 +197,7 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
     return parts[1] || null;
   });
   const [viewHistory, setViewHistory] = useState([]);
+  const [modalView, setModalView] = useState(null);
   const [weeklyPlan, setWeeklyPlan] = useState(loadWeeklyPlan);
   const [weeklyServings, setWeeklyServings] = useState(loadWeeklyServings);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -493,21 +494,15 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
     } else if (item.action === 'history') {
       navigateTo('history');
     } else if (item.action === 'key-ingredients') {
-      // If user has no healthy foods set up yet, go straight to setup
-      const existing = JSON.parse(localStorage.getItem('sunday-key-ingredients') || '[]');
-      if (existing.length === 0) {
-        navigateTo('setup');
-      } else {
-        navigateTo('key-ingredients');
-      }
+      setModalView('setup');
     } else if (item.action === 'import') {
-      navigateTo('import');
+      setModalView('import');
     } else if (item.action === 'nutrition-goals') {
-      navigateTo('nutrition-goals');
+      setModalView('nutrition-goals');
     } else if (item.action === 'daily-tracker') {
       navigateTo('daily-tracker');
     } else if (item.action === 'weight-tracker') {
-      navigateTo('weight-tracker');
+      setModalView('weight-tracker');
     } else if (item.action === 'barcode-scanner') {
       navigateTo('barcode-scanner');
     } else if (item.id) {
@@ -713,26 +708,25 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
         </div>
       </aside>
 
-      {(() => {
-        const items = [];
-        if (showWeighBanner) items.push({ label: "Enter this week's weight", action: () => navigateTo('weight-tracker') });
-        if (needsHealthyFoods) items.push({ label: 'Select Healthy Foods to Prioritize', action: () => navigateTo('setup') });
-        if (items.length === 0) return null;
-        return (
-          <div className={styles.actionBanner}>
-            <span className={styles.actionBannerTitle}>Action Required</span>
-            <div className={styles.actionBannerItems}>
-              {items.map((item, i) => (
-                <button key={i} className={styles.actionBannerItem} onClick={item.action}>
-                  {item.label}
-                </button>
-              ))}
-            </div>
-          </div>
-        );
-      })()}
-
       <main className={styles.main}>
+        {(() => {
+          const items = [];
+          if (showWeighBanner) items.push({ label: "Enter this week's weight", action: () => navigateTo('weight-tracker') });
+          if (needsHealthyFoods) items.push({ label: 'Select Healthy Foods to Prioritize', action: () => navigateTo('setup') });
+          if (items.length === 0) return null;
+          return (
+            <div className={styles.actionBanner}>
+              <span className={styles.actionBannerTitle}>Action Required</span>
+              <div className={styles.actionBannerItems}>
+                {items.map((item, i) => (
+                  <button key={i} className={styles.actionBannerItem} onClick={item.action}>
+                    {item.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          );
+        })()}
         {view === 'barcode-scanner' ? (
           <BarcodeScannerPage onClose={goBack} user={user} />
         ) : view === 'daily-tracker' ? (
@@ -934,6 +928,73 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
         />
       )}
 
+      {modalView && (
+        <div className={styles.importModalOverlay} onClick={() => setModalView(null)}>
+          <div className={modalView === 'nutrition-goals' ? styles.importModalContentWide : styles.importModalContent} onClick={e => e.stopPropagation()}>
+            <button className={styles.importModalClose} onClick={() => setModalView(null)}>&times;</button>
+            {modalView === 'nutrition-goals' ? (() => {
+              let savedGoals = {};
+              let savedSelected = null;
+              let savedStats = null;
+              try {
+                const raw = localStorage.getItem('sunday-nutrition-goals');
+                if (raw) {
+                  savedGoals = JSON.parse(raw);
+                  savedSelected = Object.keys(savedGoals);
+                }
+              } catch {}
+              try {
+                const rawStats = localStorage.getItem('sunday-body-stats');
+                if (rawStats) savedStats = JSON.parse(rawStats);
+              } catch {}
+              return (
+                <NutritionGoalsPage
+                  initialSelected={savedSelected}
+                  initialTargets={savedSelected ? savedGoals : undefined}
+                  initialStats={savedStats}
+                  recipes={recipes}
+                  onComplete={(goals, stats) => {
+                    localStorage.setItem('sunday-nutrition-goals', JSON.stringify(goals));
+                    if (stats) localStorage.setItem('sunday-body-stats', JSON.stringify(stats));
+                    if (user) {
+                      saveField(user.uid, 'nutritionGoals', goals);
+                      if (stats) saveField(user.uid, 'bodyStats', stats);
+                    }
+                  }}
+                  onBack={() => setModalView(null)}
+                />
+              );
+            })() : modalView === 'weight-tracker' ? (
+              <WeightTracker onClose={() => setModalView(null)} user={user} />
+            ) : modalView === 'key-ingredients' ? (
+              <KeyIngredientsPage
+                recipes={recipes}
+                getRecipe={getRecipe}
+                onClose={() => setModalView(null)}
+                onSetup={() => setModalView('setup')}
+              />
+            ) : modalView === 'setup' ? (
+              <OnboardingPage
+                initialIngredients={JSON.parse(localStorage.getItem('sunday-key-ingredients') || '[]')}
+                onComplete={(ingredients) => {
+                  localStorage.setItem('sunday-key-ingredients', JSON.stringify(ingredients));
+                  if (user) saveField(user.uid, 'keyIngredients', ingredients);
+                }}
+                onCancel={() => setModalView(null)}
+                onViewSinceEaten={() => setModalView('key-ingredients')}
+              />
+            ) : modalView === 'import' ? (
+              <ImportRecipePage
+                onSave={(data) => { addRecipe(data); setModalView(null); }}
+                onAddWithoutClose={(data) => { addRecipe(data); }}
+                onCancel={() => setModalView(null)}
+                userRecipes={recipes}
+              />
+            ) : null}
+          </div>
+        </div>
+      )}
+
       <HelpBubble user={user} currentView={view} />
     </div>
   );
@@ -956,7 +1017,12 @@ function App() {
   if (loading || (user && !dataReady)) {
     return (
       <div className={styles.app}>
-        <div className={styles.loadingScreen}>Loading...</div>
+        <div className={styles.loadingScreen}>
+          <div className={styles.loadingAnimation}>
+            <span className={styles.loadingKnife}>🔪</span>
+            <span className={styles.loadingCarrot}>🥕</span>
+          </div>
+        </div>
       </div>
     );
   }

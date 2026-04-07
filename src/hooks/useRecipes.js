@@ -147,33 +147,44 @@ export function useRecipes() {
     return () => window.removeEventListener('firestore-sync', handleSync);
   }, []);
 
-  // On mount, fetch latest recipes directly from Firestore to ensure cross-device sync
+  // Fetch latest recipes from Firestore on mount and when tab becomes visible again
+  // (Safari on iPad suspends background tabs, killing the onSnapshot WebSocket)
   useEffect(() => {
-    const user = auth.currentUser;
-    if (!user) return;
-    import('../utils/firestoreSync').then(({ loadRecipesFromFirestore }) => {
-      loadRecipesFromFirestore(user.uid).then(remoteRecipes => {
-        if (!remoteRecipes || remoteRecipes.length === 0) return;
-        const localRecipes = loadRecipes();
-        // Merge — remote wins for any recipe with a newer updatedAt
-        const localMap = new Map(localRecipes.filter(r => r.id).map(r => [r.id, r]));
-        const merged = new Map();
-        for (const r of remoteRecipes) {
-          if (!r.id) continue;
-          const local = localMap.get(r.id);
-          if (!local) { merged.set(r.id, r); continue; }
-          const lt = local.updatedAt || local.createdAt || '';
-          const rt = r.updatedAt || r.createdAt || '';
-          merged.set(r.id, rt >= lt ? r : local);
-        }
-        for (const [id, local] of localMap) {
-          if (!merged.has(id)) merged.set(id, local);
-        }
-        const result = Array.from(merged.values());
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(result));
-        setRecipes(result);
-      }).catch(() => {});
-    });
+    function fetchAndMerge() {
+      const user = auth.currentUser;
+      if (!user) return;
+      import('../utils/firestoreSync').then(({ loadRecipesFromFirestore }) => {
+        loadRecipesFromFirestore(user.uid).then(remoteRecipes => {
+          if (!remoteRecipes || remoteRecipes.length === 0) return;
+          if (window.__recipesLocalEdit) return; // don't clobber active edits
+          const localRecipes = loadRecipes();
+          const localMap = new Map(localRecipes.filter(r => r.id).map(r => [r.id, r]));
+          const merged = new Map();
+          for (const r of remoteRecipes) {
+            if (!r.id) continue;
+            const local = localMap.get(r.id);
+            if (!local) { merged.set(r.id, r); continue; }
+            const lt = local.updatedAt || local.createdAt || '';
+            const rt = r.updatedAt || r.createdAt || '';
+            merged.set(r.id, rt >= lt ? r : local);
+          }
+          for (const [id, local] of localMap) {
+            if (!merged.has(id)) merged.set(id, local);
+          }
+          const result = Array.from(merged.values());
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(result));
+          setRecipes(result);
+        }).catch(() => {});
+      });
+    }
+
+    fetchAndMerge(); // on mount
+
+    function handleVisibility() {
+      if (document.visibilityState === 'visible') fetchAndMerge();
+    }
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => document.removeEventListener('visibilitychange', handleVisibility);
   }, []);
 
   function addRecipe(recipe) {

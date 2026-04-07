@@ -8,7 +8,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { loadUserData, saveField, loadFriends, loadFriendRecipes, getPendingSharedRecipes, shareRecipe, getUsername } from '../utils/firestoreSync';
 import { copyMealImage, loadAdminMealImages, generateMealImage, getCachedMealImage } from '../utils/generateMealImage';
 import { ALL_TAGS, TAG_CATEGORIES, recipeMatchesTags } from '../utils/ingredientTags';
-import { detectCuisine } from '../utils/detectCuisine';
+import { detectCuisine, getRecipeMinShelfDays } from '../utils/detectCuisine';
 import { WidgetLayout } from './WidgetLayout';
 import GridLayoutLib, { WidthProvider } from 'react-grid-layout';
 import 'react-grid-layout/css/styles.css';
@@ -734,7 +734,7 @@ export function RecipeList({
     if (checkedCategories.size > 0 && !checkedCategories.has(r.category || 'lunch-dinner')) return false;
     if (checkedCuisines.size > 0 && !checkedCuisines.has(r.cuisine || '')) return false;
     return true;
-  });
+  }).sort((a, b) => getRecipeMinShelfDays(a) - getRecipeMinShelfDays(b));
 
   // Build map: recipeId → days since last eaten (from plan history + daily tracker)
   const lastEatenMap = useMemo(() => {
@@ -1055,6 +1055,7 @@ export function RecipeList({
       const freq = r.frequency || 'common';
       if (freq === 'retired') return showRetired;
       if (freq === 'rare') return showRare;
+      if (freq === 'toTry') return showToTry;
       if (freq === 'common') return showCommon;
       return showCommon; // default to common behavior
     });
@@ -1447,6 +1448,7 @@ export function RecipeList({
               <div className={styles.weekList}>
                 {filteredWeeklyRecipes.map(recipe => {
                   const planned = getPlannedServings(recipe);
+                  const shelfDays = getRecipeMinShelfDays(recipe);
                   return (
                     <div
                       key={recipe.id}
@@ -1459,6 +1461,9 @@ export function RecipeList({
                         >
                           {recipe.title}
                         </button>
+                        {shelfDays < Infinity && (
+                          <span className={styles.weekShelfBadge}>{shelfDays}d shelf</span>
+                        )}
                         <span className={styles.weekItemServingsControl}>
                           <button
                             className={styles.weekServingBtn}
@@ -1573,7 +1578,6 @@ export function RecipeList({
               <span className={`${styles.collapseArrow}${suggestOpen ? ` ${styles.collapseArrowOpen}` : ''}`}>&#9660;</span>
               <h3 className={styles.suggestHeading}>Suggested Meals</h3>
             </button>
-            <SeasonalTicker />
             <div className={styles.suggestGearWrap}>
               <button
                 className={styles.suggestGearBtn}
@@ -1615,6 +1619,7 @@ export function RecipeList({
                 </div>
               )}
             </div>
+            <SeasonalTicker />
           </div>
           {suggestOpen && <div className={styles.suggestColumns}>
               <div className={styles.suggestColumn}>
@@ -1633,7 +1638,7 @@ export function RecipeList({
                   <tbody>
                     {(() => {
                       const regular = suggestions.breakfasts.map(s => ({ ...s, _type: 'regular' }));
-                      const ai = aiMeals.filter(m => m.category === 'breakfast').map((m, i) => ({ _type: 'ai', _ai: m, _aiIdx: i }));
+                      const ai = aiMeals.filter(m => m.category === 'breakfast').slice(0, 1).map((m, i) => ({ _type: 'ai', _ai: m, _aiIdx: i }));
                       // Insert AI meals at stable evenly-spaced positions
                       const merged = [...regular];
                       for (let i = 0; i < ai.length; i++) {
@@ -1708,7 +1713,7 @@ export function RecipeList({
                   <tbody>
                     {(() => {
                       const regular = suggestions.lunches.map(s => ({ ...s, _type: 'regular' }));
-                      const ai = aiMeals.filter(m => m.category !== 'breakfast').map((m, i) => ({ _type: 'ai', _ai: m, _aiIdx: i }));
+                      const ai = aiMeals.filter(m => m.category !== 'breakfast').slice(0, 1).map((m, i) => ({ _type: 'ai', _ai: m, _aiIdx: i }));
                       const merged = [...regular];
                       for (const a of ai) {
                         const pos = Math.floor(Math.random() * (merged.length + 1));

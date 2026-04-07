@@ -140,6 +140,7 @@
   cursor: pointer;
   padding: 0;
   font-family: inherit;
+  flex-shrink: 0;
 }
 
 .collapseToggle:hover .collapseArrow {
@@ -773,6 +774,17 @@
   color: var(--color-accent);
 }
 
+.weekShelfBadge {
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  background: var(--color-surface-alt);
+  padding: 0.1rem 0.45rem;
+  border-radius: var(--radius-full);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
 .weekServingCount {
   font-size: 0.75rem;
   font-weight: 600;
@@ -932,21 +944,24 @@
 
 .suggestGearWrap {
   position: relative;
-  margin-bottom: var(--space-3);
+  flex-shrink: 0;
 }
 
 .suggestGearBtn {
-  background: none;
-  border: none;
-  font-size: 1.1rem;
-  color: var(--color-text-muted);
+  background: var(--color-surface-alt);
+  border: 1px solid var(--color-border);
+  font-size: 1.2rem;
+  color: var(--color-text-secondary);
   cursor: pointer;
-  padding: 0.2rem;
+  padding: 0.35rem 0.5rem;
   line-height: 1;
-  transition: color 0.15s ease;
+  border-radius: var(--radius-sm);
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
 }
 
 .suggestGearBtn:hover {
+  background: var(--color-accent-light);
+  border-color: var(--color-accent);
   color: var(--color-accent);
 }
 

@@ -1500,6 +1500,7 @@ For each ingredient, include a "nutrition" object with estimated calories, prote
 /* ── Add Recipe Quick (1 serving) ── */
 function AddRecipeQuick({ recipes, getRecipe, onAdd, onBack, weeklyPlan, inline, targetSlot, externalRecipeId }) {
   const [recipeId, setRecipeId] = useState('');
+  const [servingAmount, setServingAmount] = useState(1);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [showWeight, setShowWeight] = useState(false);
@@ -1610,22 +1611,43 @@ function AddRecipeQuick({ recipes, getRecipe, onAdd, onBack, weeklyPlan, inline,
       const mw = parseFloat(mealWeight) || 0;
       const hasIngWeights = Object.values(ingWeights).some(v => parseFloat(v) > 0);
 
+      const factor = servingAmount || 1;
       if (useWeight && previewTotal) {
-        // USE THE EXACT SAME VALUES shown in the preview table Total row
+        // USE THE EXACT SAME VALUES shown in the preview table Total row, scaled by servingAmount
         const nutrition = {};
-        for (const n of NUTRIENTS) nutrition[n.key] = previewTotal[n.key] || 0;
+        for (const n of NUTRIENTS) nutrition[n.key] = Math.round(((previewTotal[n.key] || 0) * factor) * 10) / 10;
         const mealSlot = inline ? undefined : categoryToSlot(recipe.category);
-        onAdd({ id: uuid(), type: 'recipe', recipeId, recipeName: recipe.title, servings: 1, customWeight: mw > 0 ? mw : null, ingredientWeights: hasIngWeights ? { ...ingWeights } : null, ...(mealSlot ? { mealSlot } : {}), timestamp: new Date().toISOString(), nutrition });
+        onAdd({ id: uuid(), type: 'recipe', recipeId, recipeName: recipe.title, servings: factor, customWeight: mw > 0 ? mw : null, ingredientWeights: hasIngWeights ? { ...ingWeights } : null, ...(mealSlot ? { mealSlot } : {}), timestamp: new Date().toISOString(), nutrition });
       } else {
-        // Standard: 1 serving, no custom weights
+        // Standard: scale by servingAmount
         const perServing = computePerServing(cache[recipeId], recipe.ingredients, recipeServings) || (() => {
           const ps = {};
           for (const n of NUTRIENTS) ps[n.key] = (totalNutrition[n.key] || 0) / recipeServings;
           return ps;
         })();
-        const nutrition = scaleNutrition(perServing, 1);
+        const nutrition = scaleNutrition(perServing, factor);
         const mealSlot = inline ? undefined : categoryToSlot(recipe.category);
-        onAdd({ id: uuid(), type: 'recipe', recipeId, recipeName: recipe.title, servings: 1, customWeight: null, ...(mealSlot ? { mealSlot } : {}), timestamp: new Date().toISOString(), nutrition });
+
+        // Build per-ingredient breakdown for the logged entry
+        const cachedItems = getCachedItems(cache[recipeId]);
+        const ings = recipe.ingredients || [];
+        let ingredientNutrition = null;
+        if (cachedItems && cachedItems.length === ings.length) {
+          ingredientNutrition = ings.map((ing, idx) => {
+            const ingNut = cachedItems[idx]?.nutrients || {};
+            const divisor = ing.topping ? 1 : recipeServings;
+            const scaled = {};
+            for (const nt of NUTRIENTS) scaled[nt.key] = Math.round(((ingNut[nt.key] || 0) / divisor * factor) * 10) / 10;
+            return {
+              name: `${ing.quantity || ''} ${ing.measurement || ''} ${ing.ingredient || ''}`.trim(),
+              ingredient: ing.ingredient || '',
+              nutrition: scaled,
+              topping: !!ing.topping,
+            };
+          });
+        }
+
+        onAdd({ id: uuid(), type: 'recipe', recipeId, recipeName: recipe.title, servings: factor, customWeight: null, ...(ingredientNutrition ? { ingredientNutrition } : {}), ...(mealSlot ? { mealSlot } : {}), timestamp: new Date().toISOString(), nutrition });
       }
     } catch {
       setError('Failed to look up nutrition. Try again.');
@@ -1637,7 +1659,7 @@ function AddRecipeQuick({ recipes, getRecipe, onAdd, onBack, weeklyPlan, inline,
   return (
     <div>
       {!inline && onBack && <button className={styles.trackMenuBack} onClick={onBack}>&larr; Back</button>}
-      {!inline && <h4 className={styles.trackMenuSubtitle}>Add Recipe (1 serving)</h4>}
+      {!inline && <h4 className={styles.trackMenuSubtitle}>Add Recipe</h4>}
       {!inline && weeklyRecipes.length > 0 && (
         <div className={styles.weeklyChips}>
           <span className={styles.weeklyLabel}>This Week's Menu</span>
@@ -1652,6 +1674,36 @@ function AddRecipeQuick({ recipes, getRecipe, onAdd, onBack, weeklyPlan, inline,
           <RecipeCombobox recipes={sortedRecipes} value={recipeId} onSelect={setRecipeId} />
         </div>
       </div>
+      {recipeId && (
+        <div className={styles.formRow} style={{ alignItems: 'center', gap: '0.5rem' }}>
+          <span className={styles.formLabel} style={{ margin: 0 }}>Servings</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+            <button
+              className={styles.weekServingBtn}
+              style={{ width: 28, height: 28, fontSize: '1rem', borderRadius: '50%', border: '1px solid var(--color-border)', background: 'var(--color-surface)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+              onClick={() => setServingAmount(prev => Math.max(0.25, Math.round((prev - 0.25) * 100) / 100))}
+            >&minus;</button>
+            <input
+              type="number"
+              value={servingAmount}
+              onChange={e => setServingAmount(Math.max(0, parseFloat(e.target.value) || 0))}
+              min="0.25"
+              step="0.25"
+              style={{ width: 55, textAlign: 'center', padding: '0.3rem 0.25rem', border: '1px solid var(--color-border)', borderRadius: 6, fontSize: '0.9rem', fontFamily: 'inherit' }}
+            />
+            <button
+              className={styles.weekServingBtn}
+              style={{ width: 28, height: 28, fontSize: '1rem', borderRadius: '50%', border: '1px solid var(--color-border)', background: 'var(--color-surface)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+              onClick={() => setServingAmount(prev => Math.round((prev + 0.25) * 100) / 100)}
+            >+</button>
+          </div>
+          {previewNutrition && (
+            <span style={{ fontSize: '0.78rem', color: 'var(--color-text-muted)', marginLeft: '0.5rem' }}>
+              {Math.round((previewNutrition.perServing.calories || 0) * servingAmount)} cal
+            </span>
+          )}
+        </div>
+      )}
       {showWeight && recipeId && (() => {
         void nutCacheVersion; // ensure re-render when nutrition is fetched
         const recipe = getRecipe(recipeId);
@@ -2119,7 +2171,7 @@ function MealScoreBadge({ nutrition }) {
   );
 }
 
-function EntryRow({ entry, onDelete, goalKeys, onEdit, onUpdateEntry }) {
+function EntryRow({ entry, onDelete, goalKeys, onEdit, onUpdateEntry, getRecipe }) {
   const [expanded, setExpanded] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [editQty, setEditQty] = useState(null); // null = not editing, { quantity, measurement } = editing
@@ -2209,22 +2261,59 @@ function EntryRow({ entry, onDelete, goalKeys, onEdit, onUpdateEntry }) {
         </div>
         <button className={styles.deleteBtn} onClick={() => onDelete(entry.id)} aria-label="Delete">&times;</button>
       </div>
-      {expanded && hasBreakdown && (
-        <div className={styles.ingBreakdown}>
-          {entry.ingredientNutrition.map((ing, i) => (
-            <div key={i} className={styles.ingBreakdownRow}>
-              <span className={styles.ingBreakdownName}>{ing.name}</span>
-              <div className={styles.ingBreakdownMacros}>
-                {keys.map(key => (
-                  <span key={key} className={styles.ingBreakdownMacro}>
-                    {fmtNutrient(ing.nutrition?.[key], key)}
-                  </span>
+      {expanded && hasBreakdown && (() => {
+        // Enrich older entries that don't have topping flags by looking up the recipe
+        let enriched = entry.ingredientNutrition;
+        if (entry.recipeId && getRecipe && !enriched.some(ing => ing.topping)) {
+          const recipe = getRecipe(entry.recipeId);
+          if (recipe?.ingredients) {
+            enriched = enriched.map((ing, idx) => ({
+              ...ing,
+              topping: recipe.ingredients[idx]?.topping || false,
+            }));
+          }
+        }
+        const perMeal = enriched.filter(ing => ing.topping);
+        const batch = enriched.filter(ing => !ing.topping);
+        return (
+          <div className={styles.ingBreakdown}>
+            {batch.length > 0 && (
+              <>
+                {perMeal.length > 0 && <div className={styles.ingBreakdownSection}>Batch (÷ servings)</div>}
+                {batch.map((ing, i) => (
+                  <div key={`b-${i}`} className={styles.ingBreakdownRow}>
+                    <span className={styles.ingBreakdownName}>{ing.name}</span>
+                    <div className={styles.ingBreakdownMacros}>
+                      {keys.map(key => (
+                        <span key={key} className={styles.ingBreakdownMacro}>
+                          {fmtNutrient(ing.nutrition?.[key], key)}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
                 ))}
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
+              </>
+            )}
+            {perMeal.length > 0 && (
+              <>
+                <div className={styles.ingBreakdownSection}>Per Meal</div>
+                {perMeal.map((ing, i) => (
+                  <div key={`pm-${i}`} className={styles.ingBreakdownRow}>
+                    <span className={styles.ingBreakdownName}>{ing.name}</span>
+                    <div className={styles.ingBreakdownMacros}>
+                      {keys.map(key => (
+                        <span key={key} className={styles.ingBreakdownMacro}>
+                          {fmtNutrient(ing.nutrition?.[key], key)}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </>
+            )}
+          </div>
+        );
+      })()}
       {expanded && !hasBreakdown && (
         <div className={styles.ingBreakdown}>
           {entry.type === 'custom' && (
@@ -2318,7 +2407,7 @@ function EntryRow({ entry, onDelete, goalKeys, onEdit, onUpdateEntry }) {
 }
 
 /* ── Meal Log ── */
-function MealLog({ entries, onDelete, onEdit, onUpdateEntry, goalKeys, skippedMeals, daySkipped }) {
+function MealLog({ entries, onDelete, onEdit, onUpdateEntry, goalKeys, skippedMeals, daySkipped, getRecipe }) {
   const grouped = {};
   for (const slot of MEAL_SLOTS) grouped[slot] = [];
   for (const entry of entries) {
@@ -2355,7 +2444,7 @@ function MealLog({ entries, onDelete, onEdit, onUpdateEntry, goalKeys, skippedMe
               <div className={styles.skippedNote}>Meal skipped</div>
             ) : (
               items.map(entry => (
-                <EntryRow key={entry.id} entry={entry} onDelete={onDelete} onEdit={onEdit} onUpdateEntry={onUpdateEntry} goalKeys={goalKeys} />
+                <EntryRow key={entry.id} entry={entry} onDelete={onDelete} onEdit={onEdit} onUpdateEntry={onUpdateEntry} goalKeys={goalKeys} getRecipe={getRecipe} />
               ))
             )}
           </div>
@@ -3174,46 +3263,72 @@ function EditEstimateModal({ entry, onSave, onClose, getRecipe }) {
           </button>
         )}
 
-        {/* Per-ingredient nutrition breakdown */}
-        {existingBreakdown.length > 0 && (
-          <div className={styles.editIngBreakdown}>
-            <span className={styles.editIngBreakdownTitle}>Per Ingredient</span>
-            <div className={styles.editIngBreakdownHeader}>
-              <span style={{ flex: 1 }}></span>
-              <div className={styles.editIngBreakdownMacros}>
-                {displayKeys.map(key => (
-                  <span key={key} className={styles.editIngBreakdownHeaderLabel}>{SHORT_LABELS[key]}</span>
-                ))}
-              </div>
-            </div>
-            {existingBreakdown.map((ing, i) => {
-              const ingName = ing.name || `${ing.quantity || ''} ${ing.measurement || ''} ${ing.ingredient || ''}`.trim();
-              const ingN = ing.nutrition || {};
-              return (
-                <div key={i} className={styles.editIngBreakdownRow}>
-                  <span className={styles.editIngBreakdownName}>{ingName}</span>
-                  <div className={styles.editIngBreakdownMacros}>
-                    {displayKeys.map(key => (
-                      <span key={key} className={styles.editIngBreakdownMacro}>
-                        {fmtNutrient(ingN[key], key)}
-                      </span>
-                    ))}
-                  </div>
+        {/* Per-ingredient nutrition breakdown — grouped by batch vs per-meal */}
+        {existingBreakdown.length > 0 && (() => {
+          // Enrich with topping flags from the recipe if missing
+          let enriched = existingBreakdown;
+          if (entry.recipeId && getRecipe && !enriched.some(ing => ing.topping)) {
+            const recipe = getRecipe(entry.recipeId);
+            if (recipe?.ingredients) {
+              enriched = enriched.map((ing, idx) => ({
+                ...ing,
+                topping: recipe.ingredients[idx]?.topping || false,
+              }));
+            }
+          }
+          const perMeal = enriched.filter(ing => ing.topping);
+          const batch = enriched.filter(ing => !ing.topping);
+          const hasGroups = perMeal.length > 0;
+
+          function renderIngRow(ing, i, keyPrefix) {
+            const ingName = ing.name || `${ing.quantity || ''} ${ing.measurement || ''} ${ing.ingredient || ''}`.trim();
+            const ingN = ing.nutrition || {};
+            return (
+              <div key={`${keyPrefix}-${i}`} className={styles.editIngBreakdownRow}>
+                <span className={styles.editIngBreakdownName}>{ingName}</span>
+                <div className={styles.editIngBreakdownMacros}>
+                  {displayKeys.map(key => (
+                    <span key={key} className={styles.editIngBreakdownMacro}>
+                      {fmtNutrient(ingN[key], key)}
+                    </span>
+                  ))}
                 </div>
-              );
-            })}
-            <div className={styles.editIngBreakdownRow} style={{ borderTop: '1px solid var(--color-border)', paddingTop: '0.3rem', marginTop: '0.2rem' }}>
-              <span className={styles.editIngBreakdownName} style={{ fontWeight: 600 }}>Total</span>
-              <div className={styles.editIngBreakdownMacros}>
-                {displayKeys.map(key => (
-                  <span key={key} className={styles.editIngBreakdownMacro} style={{ fontWeight: 700 }}>
-                    {fmtNutrient(existingNutrition[key], key)}
-                  </span>
-                ))}
+              </div>
+            );
+          }
+
+          return (
+            <div className={styles.editIngBreakdown}>
+              <span className={styles.editIngBreakdownTitle}>Per Ingredient</span>
+              <div className={styles.editIngBreakdownHeader}>
+                <span style={{ flex: 1 }}></span>
+                <div className={styles.editIngBreakdownMacros}>
+                  {displayKeys.map(key => (
+                    <span key={key} className={styles.editIngBreakdownHeaderLabel}>{SHORT_LABELS[key]}</span>
+                  ))}
+                </div>
+              </div>
+              {hasGroups && <div className={styles.ingBreakdownSection}>Batch (÷ servings)</div>}
+              {batch.map((ing, i) => renderIngRow(ing, i, 'b'))}
+              {hasGroups && (
+                <>
+                  <div className={styles.ingBreakdownSection}>Per Meal</div>
+                  {perMeal.map((ing, i) => renderIngRow(ing, i, 'pm'))}
+                </>
+              )}
+              <div className={styles.editIngBreakdownRow} style={{ borderTop: '1px solid var(--color-border)', paddingTop: '0.3rem', marginTop: '0.2rem' }}>
+                <span className={styles.editIngBreakdownName} style={{ fontWeight: 600 }}>Total</span>
+                <div className={styles.editIngBreakdownMacros}>
+                  {displayKeys.map(key => (
+                    <span key={key} className={styles.editIngBreakdownMacro} style={{ fontWeight: 700 }}>
+                      {fmtNutrient(existingNutrition[key], key)}
+                    </span>
+                  ))}
+                </div>
               </div>
             </div>
-          </div>
-        )}
+          );
+        })()}
 
         <table className={styles.editEstimateTable}>
           <thead>
