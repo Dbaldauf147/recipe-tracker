@@ -112,7 +112,7 @@ const REGION_OPTIONS = [
   { key: 'pacific_northwest', label: 'Pacific Northwest' },
 ];
 
-function SeasonalTicker() {
+function SeasonalTicker({ onClick }) {
   const season = getSeason();
   const theme = SEASON_THEME[season];
   const region = useMemo(() => {
@@ -135,9 +135,13 @@ function SeasonalTicker() {
   const tickerText = items.join(separator);
   return (
     <div className={styles.seasonalTicker}>
-      <span className={styles.seasonalTickerLabel} style={{ background: theme.chipBg, color: theme.chipText }}>
+      <button
+        className={styles.seasonalTickerLabel}
+        style={{ background: theme.chipBg, color: theme.chipText, border: 'none', cursor: onClick ? 'pointer' : 'default', fontFamily: 'inherit' }}
+        onClick={onClick}
+      >
         {theme.emoji} In Season
-      </span>
+      </button>
       <div className={styles.seasonalTickerTrack}>
         <div className={styles.seasonalTickerScroll}>
           <span>{tickerText}</span>
@@ -266,6 +270,7 @@ export function RecipeList({
   onDelete,
   onUpdateRecipe,
   isNewUser,
+  onSeasonalGuide,
 }) {
   const { user } = useAuth();
   const [importing, setImporting] = useState(false);
@@ -1619,7 +1624,7 @@ export function RecipeList({
                 </div>
               )}
             </div>
-            <SeasonalTicker />
+            <SeasonalTicker onClick={onSeasonalGuide} />
           </div>
           {suggestOpen && <div className={styles.suggestColumns}>
               <div className={styles.suggestColumn}>
@@ -1803,6 +1808,22 @@ export function RecipeList({
           }}
         >
           {manageMode ? 'Done' : 'Manage'}
+        </button>
+        <button
+          className={styles.importBtn}
+          onClick={() => {
+            const data = JSON.stringify(recipes, null, 2);
+            const blob = new Blob([data], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `prep-day-recipes-${new Date().toISOString().slice(0, 10)}.json`;
+            a.click();
+            URL.revokeObjectURL(url);
+          }}
+          title="Download a backup of all your recipes as a JSON file"
+        >
+          ↓ Backup
         </button>
       </div>
       {importResult && (

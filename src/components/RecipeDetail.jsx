@@ -1146,9 +1146,12 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
 
   async function handleShareWith(friend) {
     try {
+      // Save latest edits first so the shared version is up-to-date
+      handleSave();
       const myUsername = await getUsername(user.uid);
-      // Strip undefined values — Firestore rejects them
-      const cleanRecipe = JSON.parse(JSON.stringify(recipe));
+      // Build shared recipe from current fields (not stale prop)
+      const currentRecipe = { ...recipe, ...fields, ingredients: fields.ingredients.filter(row => row.ingredient.trim() !== '') };
+      const cleanRecipe = JSON.parse(JSON.stringify(currentRecipe));
       await shareRecipe(user.uid, friend.uid, myUsername || user.displayName, cleanRecipe);
 
       // Send email notification (fire-and-forget)
@@ -1231,7 +1234,9 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
                       className={styles.shareLinkBtn}
                       onClick={async () => {
                         try {
-                          const cleanRecipe = JSON.parse(JSON.stringify(recipe));
+                          handleSave();
+                          const currentRecipe = { ...recipe, ...fields, ingredients: fields.ingredients.filter(row => row.ingredient.trim() !== '') };
+                          const cleanRecipe = JSON.parse(JSON.stringify(currentRecipe));
                           const token = await createShareLink(user.uid, cleanRecipe);
                           const slug = recipe.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
                           const url = window.location.origin + '?share=' + token + '&recipe=' + slug;
@@ -2372,7 +2377,7 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
                   const assignedIndices = fields.stepIngredients[si] || [];
                   const assignedIngs = assignedIndices.map(idx => fields.ingredients[idx]).filter(Boolean);
                   const unassigned = fields.ingredients.filter((ing, idx) =>
-                    ing.ingredient.trim() && !Object.values(fields.stepIngredients).flat().includes(idx)
+                    (ing.ingredient || '').trim() && !Object.values(fields.stepIngredients).flat().includes(idx)
                   );
                   return (
                     <div
@@ -2496,7 +2501,7 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
                                     });
                                   }}>
                                     <option value="">+ Add</option>
-                                    {fields.ingredients.map((ig, idx) => ig.ingredient.trim() ? (
+                                    {fields.ingredients.map((ig, idx) => (ig.ingredient || '').trim() ? (
                                       <option key={idx} value={idx}>{ig.quantity} {ig.measurement} {ig.ingredient}</option>
                                     ) : null)}
                                   </select>
@@ -2517,7 +2522,7 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
                                 });
                               }}>
                                 <option value="">+ Assign ingredient...</option>
-                                {fields.ingredients.map((ing, idx) => ing.ingredient.trim() ? (
+                                {fields.ingredients.map((ing, idx) => (ing.ingredient || '').trim() ? (
                                   <option key={idx} value={idx}>{ing.quantity} {ing.measurement} {ing.ingredient}</option>
                                 ) : null)}
                               </select>
@@ -2586,7 +2591,7 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
                                   });
                                 }}>
                                   <option value="">+ Add</option>
-                                  {fields.ingredients.map((ig, idx) => ig.ingredient.trim() ? (
+                                  {fields.ingredients.map((ig, idx) => (ig.ingredient || '').trim() ? (
                                     <option key={idx} value={idx}>{ig.quantity} {ig.measurement} {ig.ingredient}</option>
                                   ) : null)}
                                 </select>
@@ -2608,7 +2613,7 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
               const allAssigned = new Set(Object.values(fields.stepIngredients).flat());
               const missing = fields.ingredients
                 .map((ing, idx) => ({ ...ing, idx }))
-                .filter(ing => ing.ingredient.trim() && !allAssigned.has(ing.idx));
+                .filter(ing => (ing.ingredient || '').trim() && !allAssigned.has(ing.idx));
               if (missing.length === 0) return null;
               return (
                 <div className={styles.cookModeMissing}>

@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { auth } from '../firebase';
-import { saveField } from '../utils/firestoreSync';
+import { saveField, backupRecipes } from '../utils/firestoreSync';
 import { classifyMealType } from '../utils/classifyMealType';
 
 const STORAGE_KEY = 'recipe-tracker-recipes';
@@ -118,7 +118,7 @@ function save(recipes) {
 async function syncToFirestore(uid, recipes, retryCount = 0) {
   try {
     await saveField(uid, 'recipes', recipes);
-    setTimeout(() => { window.__recipesLocalEdit = false; }, 2000);
+    setTimeout(() => { window.__recipesLocalEdit = false; }, 10000);
     window.__recipeSyncStatus = 'synced';
     window.dispatchEvent(new Event('recipe-sync-status'));
   } catch (err) {
@@ -137,6 +137,22 @@ async function syncToFirestore(uid, recipes, retryCount = 0) {
 
 export function useRecipes() {
   const [recipes, setRecipes] = useState(loadRecipes);
+  const backupDone = useRef(false);
+
+  // Auto-backup recipes once per day
+  useEffect(() => {
+    if (backupDone.current || recipes.length === 0) return;
+    const user = auth.currentUser;
+    if (!user) return;
+    const today = new Date().toISOString().slice(0, 10);
+    const lastBackup = localStorage.getItem('sunday-last-recipe-backup');
+    if (lastBackup === today) { backupDone.current = true; return; }
+    backupDone.current = true;
+    backupRecipes(user.uid, recipes).then(() => {
+      localStorage.setItem('sunday-last-recipe-backup', today);
+      console.log(`[Backup] Saved ${recipes.length} recipes for ${today}`);
+    }).catch(err => console.error('[Backup] Failed:', err));
+  }, [recipes]);
 
   // Re-read localStorage when remote Firestore data is synced
   useEffect(() => {
@@ -170,6 +186,25 @@ export function useRecipes() {
           }
           for (const [id, local] of localMap) {
             if (!merged.has(id)) merged.set(id, local);
+          }
+          // Deduplicate by title — keep the one with more data
+          const byTitle = new Map();
+          for (const r of merged.values()) {
+            const key = (r.title || '').toLowerCase().trim();
+            if (!key) continue;
+            if (byTitle.has(key)) {
+              const existing = byTitle.get(key);
+              const es = (existing.ingredients || []).length + (existing.instructions ? 1 : 0);
+              const ns = (r.ingredients || []).length + (r.instructions ? 1 : 0);
+              if (ns > es || (ns === es && (r.updatedAt || '') > (existing.updatedAt || ''))) {
+                merged.delete(existing.id);
+                byTitle.set(key, r);
+              } else {
+                merged.delete(r.id);
+              }
+            } else {
+              byTitle.set(key, r);
+            }
           }
           const result = Array.from(merged.values());
           localStorage.setItem(STORAGE_KEY, JSON.stringify(result));

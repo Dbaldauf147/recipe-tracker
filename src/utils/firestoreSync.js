@@ -61,6 +61,48 @@ export async function saveRecipesToFirestore(uid, recipes) {
 }
 
 /**
+ * Save a timestamped backup of recipes to Firestore.
+ * Keeps one backup per day (overwrites same-day backups).
+ */
+export async function backupRecipes(uid, recipes) {
+  if (!recipes || recipes.length === 0) return;
+  const today = new Date().toISOString().slice(0, 10);
+  const ref = doc(db, 'users', uid, 'backups', `recipes-${today}`);
+  await setDoc(ref, {
+    recipes,
+    date: today,
+    count: recipes.length,
+    timestamp: new Date().toISOString(),
+  }, { merge: false });
+}
+
+/**
+ * List available recipe backups (returns array of { date, count, timestamp }).
+ */
+export async function listRecipeBackups(uid) {
+  const colRef = collection(db, 'users', uid, 'backups');
+  const snap = await getDocs(colRef);
+  const backups = [];
+  snap.forEach(d => {
+    const data = d.data();
+    if (d.id.startsWith('recipes-')) {
+      backups.push({ id: d.id, date: data.date, count: data.count, timestamp: data.timestamp });
+    }
+  });
+  return backups.sort((a, b) => b.date.localeCompare(a.date));
+}
+
+/**
+ * Restore recipes from a specific backup.
+ */
+export async function restoreRecipeBackup(uid, backupId) {
+  const ref = doc(db, 'users', uid, 'backups', backupId);
+  const snap = await getDoc(ref);
+  if (!snap.exists()) throw new Error('Backup not found');
+  return snap.data().recipes || [];
+}
+
+/**
  * Load recipes from the separate subcollection doc, with fallback to main user doc.
  */
 export async function loadRecipesFromFirestore(uid) {
@@ -242,8 +284,11 @@ function mergeRecipeArrays(localRecipes, remoteRecipes) {
   for (const [id, remote] of remoteMap) {
     const local = localMap.get(id);
     if (!local) {
-      // New on remote — include it
-      merged.set(id, remote);
+      // Remote-only: only include if we haven't recently edited locally
+      // (otherwise it's a recipe we just deleted)
+      if (!window.__recipesLocalEdit) {
+        merged.set(id, remote);
+      }
     } else {
       // Exists on both — keep the newer one
       const localTime = local.updatedAt || local.createdAt || '';
@@ -256,6 +301,27 @@ function mergeRecipeArrays(localRecipes, remoteRecipes) {
   for (const [id, local] of localMap) {
     if (!merged.has(id)) {
       merged.set(id, local);
+    }
+  }
+
+  // Deduplicate by title — if two recipes have the same title but different IDs,
+  // keep the one with more data (ingredients/instructions) or newer updatedAt
+  const byTitle = new Map();
+  for (const r of merged.values()) {
+    const key = (r.title || '').toLowerCase().trim();
+    if (!key) continue;
+    if (byTitle.has(key)) {
+      const existing = byTitle.get(key);
+      const existingScore = (existing.ingredients || []).length + (existing.instructions ? 1 : 0);
+      const newScore = (r.ingredients || []).length + (r.instructions ? 1 : 0);
+      if (newScore > existingScore || (newScore === existingScore && (r.updatedAt || '') > (existing.updatedAt || ''))) {
+        merged.delete(existing.id);
+        byTitle.set(key, r);
+      } else {
+        merged.delete(r.id);
+      }
+    } else {
+      byTitle.set(key, r);
     }
   }
 
