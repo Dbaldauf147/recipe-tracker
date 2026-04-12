@@ -46,10 +46,11 @@
       <div class="user-info" id="userInfo"></div>
       <p class="step-label">Step 2: Review & Import</p>
       <p style="font-size:0.85rem; margin-bottom:0.75rem;">
-        <strong id="newCount">0</strong> new recipes will be added.
+        <strong id="newCount">0</strong> new recipes to add.
+        <strong id="updateCount">0</strong> existing recipes to update with ingredients.
         <span id="skipCount"></span>
       </p>
-      <button class="btn btn-primary" id="importBtn" onclick="doImport()">Import Recipes</button>
+      <button class="btn btn-primary" id="importBtn" onclick="doImport()">Import & Update Recipes</button>
       <div class="recipe-list" id="recipeList"></div>
       <p class="summary" id="summary"></p>
     </div>
@@ -78,6 +79,7 @@
 
     let existingRecipes = [];
     let newRecipes = [];
+    let updateRecipes = [];
     let currentUser = null;
 
     function showStatus(msg, type = 'info') {
@@ -107,55 +109,94 @@
         const snap = await getDoc(recipesRef);
         existingRecipes = snap.exists() ? (snap.data().recipes || []) : [];
 
-        // Determine which imported recipes are new
-        const existingTitles = new Set(existingRecipes.map(r => r.title.toLowerCase().trim()));
+        // Build lookup of existing recipes by title
+        const existingByTitle = new Map();
+        for (const r of existingRecipes) {
+          existingByTitle.set(r.title.toLowerCase().trim(), r);
+        }
         const existingIds = new Set(existingRecipes.map(r => r.id));
-        newRecipes = IMPORT_RECIPES.filter(r => {
-          return !existingTitles.has(r.title.toLowerCase().trim()) && !existingIds.has(r.id);
-        });
 
-        const skipCount = IMPORT_RECIPES.length - newRecipes.length;
+        // Classify each imported recipe: new, update (has ingredients to merge), or skip
+        newRecipes = [];
+        updateRecipes = [];
+        for (const imported of IMPORT_RECIPES) {
+          const key = imported.title.toLowerCase().trim();
+          const existing = existingByTitle.get(key);
+          if (!existing && !existingIds.has(imported.id)) {
+            newRecipes.push(imported);
+          } else if (existing && imported.ingredients.length > 0) {
+            // Existing recipe — update if it has fewer ingredients than the spreadsheet
+            const existingIngCount = (existing.ingredients || []).length;
+            if (existingIngCount < imported.ingredients.length) {
+              updateRecipes.push({ existing, imported });
+            }
+          }
+        }
 
         document.getElementById('newCount').textContent = newRecipes.length;
-        document.getElementById('skipCount').textContent = skipCount > 0
-          ? `(${skipCount} already exist and will be skipped)`
-          : '';
+        document.getElementById('updateCount').textContent = updateRecipes.length;
+        document.getElementById('skipCount').textContent = '';
 
         // Render list
         const list = document.getElementById('recipeList');
-        list.innerHTML = newRecipes.map(r =>
-          `<div class="recipe-item"><span>${r.title}</span><span class="recipe-cat">${r.category} · ${r.ingredients.length} ingredients</span></div>`
-        ).join('');
+        const rows = [
+          ...newRecipes.map(r =>
+            `<div class="recipe-item"><span>+ ${r.title}</span><span class="recipe-cat">NEW · ${r.ingredients.length} ingredients</span></div>`
+          ),
+          ...updateRecipes.map(({ existing, imported }) =>
+            `<div class="recipe-item"><span>${imported.title}</span><span class="recipe-cat">UPDATE · ${(existing.ingredients||[]).length} → ${imported.ingredients.length} ingredients</span></div>`
+          ),
+        ];
+        list.innerHTML = rows.join('');
 
         document.getElementById('summary').textContent =
-          `Existing: ${existingRecipes.length} recipes. After import: ${existingRecipes.length + newRecipes.length} recipes.`;
+          `Existing: ${existingRecipes.length} recipes. ${newRecipes.length} new + ${updateRecipes.length} updates.`;
 
         document.getElementById('step2').style.display = 'block';
-        showStatus(`Found ${existingRecipes.length} existing recipes. ${newRecipes.length} new to import.`);
+        showStatus(`Found ${existingRecipes.length} existing recipes. ${newRecipes.length} new, ${updateRecipes.length} to update with ingredients.`);
       } catch (err) {
         showStatus('Sign in failed: ' + err.message, 'error');
       }
     };
 
     window.doImport = async function() {
-      if (newRecipes.length === 0) {
-        showStatus('No new recipes to import!', 'info');
+      if (newRecipes.length === 0 && updateRecipes.length === 0) {
+        showStatus('Nothing to import or update!', 'info');
         return;
       }
       const btn = document.getElementById('importBtn');
       btn.disabled = true;
       btn.textContent = 'Importing...';
       try {
-        showStatus(`Importing ${newRecipes.length} recipes...`);
-        const merged = [...existingRecipes, ...newRecipes];
+        showStatus(`Processing ${newRecipes.length} new + ${updateRecipes.length} updates...`);
+
+        // Apply updates to existing recipes (merge ingredients, category, sourceUrl)
+        const updatedExisting = existingRecipes.map(r => {
+          const update = updateRecipes.find(u => u.existing.id === r.id);
+          if (update) {
+            return {
+              ...r,
+              ingredients: update.imported.ingredients,
+              category: update.imported.category || r.category,
+              sourceUrl: update.imported.sourceUrl || r.sourceUrl,
+              mealType: update.imported.mealType || r.mealType,
+              tags: [...new Set([...(r.tags || []), ...(update.imported.tags || [])])],
+              updatedAt: new Date().toISOString(),
+            };
+          }
+          return r;
+        });
+
+        // Add new recipes
+        const merged = [...updatedExisting, ...newRecipes];
         const recipesRef = doc(db, 'users', currentUser.uid, 'data', 'recipes');
         await setDoc(recipesRef, { recipes: merged }, { merge: false });
-        showStatus(`Done! Imported ${newRecipes.length} recipes. Total: ${merged.length}.`, 'success');
-        btn.textContent = 'Imported!';
+        showStatus(`Done! ${newRecipes.length} added, ${updateRecipes.length} updated with ingredients. Total: ${merged.length}.`, 'success');
+        btn.textContent = 'Done!';
       } catch (err) {
         showStatus('Import failed: ' + err.message, 'error');
         btn.disabled = false;
-        btn.textContent = 'Retry Import';
+        btn.textContent = 'Retry';
       }
     };
   </script>
