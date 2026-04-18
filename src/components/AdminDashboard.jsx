@@ -1,7 +1,9 @@
 import { useState, useEffect, useRef } from 'react';
-import { loadAllUsers, deleteUserDoc, savePendingSetup, saveField } from '../utils/firestoreSync';
+import { loadAllUsers, deleteUserDoc, savePendingSetup, saveField, loadRecipesFromFirestore, saveRecipesToFirestore } from '../utils/firestoreSync';
 import { parseRecipeText } from '../utils/parseRecipeText';
 import { classifyMealType } from '../utils/classifyMealType';
+import { fetchRecipesFromSheet } from '../utils/sheetRecipes';
+import { auth } from '../firebase';
 import styles from './AdminDashboard.module.css';
 
 /**
@@ -82,6 +84,12 @@ export function AdminDashboard({ onClose }) {
   const [setupSaving, setSetupSaving] = useState(false);
   const [setupDone, setSetupDone] = useState(false);
   const setupFileRef = useRef(null);
+
+  const [fillLoading, setFillLoading] = useState(false);
+  const [fillApplying, setFillApplying] = useState(false);
+  const [fillPreview, setFillPreview] = useState(null);
+  const [fillDone, setFillDone] = useState('');
+  const [fillError, setFillError] = useState('');
 
   useEffect(() => {
     loadAllUsers()
@@ -224,6 +232,63 @@ export function AdminDashboard({ onClose }) {
     setSetupSaving(false);
   }
 
+  async function handlePreviewFill() {
+    setFillLoading(true);
+    setFillPreview(null);
+    setFillDone('');
+    setFillError('');
+    try {
+      const uid = auth.currentUser?.uid;
+      if (!uid) throw new Error('Not logged in');
+      const sheetRecipes = await fetchRecipesFromSheet();
+      const existing = (await loadRecipesFromFirestore(uid)) || [];
+      const byTitle = new Map(sheetRecipes.map(r => [r.title.toLowerCase().trim(), r]));
+      const updates = [];
+      const updatedRecipes = existing.map(r => {
+        const sheet = byTitle.get((r.title || '').toLowerCase().trim());
+        if (!sheet) return r;
+        const fields = {};
+        const hasInstructions = (r.instructions || '').trim().length > 0;
+        const hasIngredients = Array.isArray(r.ingredients) && r.ingredients.length > 0;
+        if (!hasInstructions && sheet.instructions) {
+          fields.instructions = sheet.instructions;
+        }
+        if (!hasIngredients && sheet.ingredients.length > 0) {
+          fields.ingredients = sheet.ingredients;
+        }
+        if (Object.keys(fields).length === 0) return r;
+        updates.push({ title: r.title, filledFields: Object.keys(fields) });
+        return { ...r, ...fields };
+      });
+      const matchedTitles = new Set(
+        existing.map(r => (r.title || '').toLowerCase().trim())
+      );
+      const unmatchedSheet = sheetRecipes.filter(
+        r => !matchedTitles.has(r.title.toLowerCase().trim())
+      );
+      setFillPreview({ updates, updatedRecipes, sheetCount: sheetRecipes.length, existingCount: existing.length, unmatchedSheet });
+    } catch (err) {
+      setFillError(err.message || String(err));
+    }
+    setFillLoading(false);
+  }
+
+  async function handleApplyFill() {
+    if (!fillPreview || fillPreview.updates.length === 0) return;
+    setFillApplying(true);
+    setFillError('');
+    try {
+      const uid = auth.currentUser?.uid;
+      if (!uid) throw new Error('Not logged in');
+      await saveRecipesToFirestore(uid, fillPreview.updatedRecipes);
+      setFillDone(`Updated ${fillPreview.updates.length} recipe${fillPreview.updates.length !== 1 ? 's' : ''}`);
+      setFillPreview(null);
+    } catch (err) {
+      setFillError(err.message || String(err));
+    }
+    setFillApplying(false);
+  }
+
   // Engagement stats
   const engagementCounts = users.reduce((acc, u) => {
     const e = getUserEngagement(u);
@@ -359,6 +424,64 @@ export function AdminDashboard({ onClose }) {
           </button>
           {setupDone && <span style={{ color: 'var(--color-success)', fontWeight: 600, fontSize: '0.88rem' }}>Saved! User can now sign up with that email.</span>}
         </div>
+      </div>
+
+      {/* Fill Recipe Gaps from Sheet */}
+      <div className={styles.sourceSection}>
+        <h3 className={styles.sourceHeading}>Fill Recipe Gaps from Sheet</h3>
+        <p style={{ fontSize: '0.82rem', color: 'var(--color-text-muted)', marginBottom: '0.75rem' }}>
+          Scans your recipes and fills empty <code>ingredients</code> or <code>instructions</code> from the master Google Sheet. Matches by title. Existing data is never overwritten. Runs against the currently logged-in account.
+        </p>
+        <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginBottom: '0.75rem' }}>
+          <button className={styles.setupBtn} onClick={handlePreviewFill} disabled={fillLoading || fillApplying}>
+            {fillLoading ? 'Scanning...' : 'Preview Fill'}
+          </button>
+          {fillPreview && fillPreview.updates.length > 0 && (
+            <button
+              className={styles.setupBtn}
+              onClick={handleApplyFill}
+              disabled={fillApplying}
+              style={{ background: 'var(--color-accent, #3B6B9C)', color: 'white' }}
+            >
+              {fillApplying ? 'Applying...' : `Apply Fill (${fillPreview.updates.length})`}
+            </button>
+          )}
+        </div>
+        {fillError && (
+          <p style={{ color: 'var(--color-danger)', fontSize: '0.85rem', marginBottom: '0.5rem' }}>{fillError}</p>
+        )}
+        {fillDone && (
+          <p style={{ color: 'var(--color-success)', fontSize: '0.85rem', fontWeight: 600, marginBottom: '0.5rem' }}>{fillDone}</p>
+        )}
+        {fillPreview && (
+          <div style={{ fontSize: '0.82rem' }}>
+            <p style={{ marginBottom: '0.5rem' }}>
+              Scanned {fillPreview.existingCount} of your recipes against {fillPreview.sheetCount} from the sheet.{' '}
+              <strong>{fillPreview.updates.length}</strong> would be updated.
+            </p>
+            {fillPreview.updates.length > 0 ? (
+              <ul style={{ margin: '0.35rem 0 0.75rem', paddingLeft: '1.2rem', maxHeight: '240px', overflowY: 'auto' }}>
+                {fillPreview.updates.map((u, i) => (
+                  <li key={i}>
+                    <strong>{u.title}</strong> — filling: {u.filledFields.join(', ')}
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p style={{ color: 'var(--color-text-muted)', marginBottom: '0.5rem' }}>Nothing to fill — all matched recipes already have ingredients and instructions.</p>
+            )}
+            {fillPreview.unmatchedSheet.length > 0 && (
+              <details style={{ color: 'var(--color-text-muted)' }}>
+                <summary style={{ cursor: 'pointer' }}>
+                  {fillPreview.unmatchedSheet.length} sheet recipe{fillPreview.unmatchedSheet.length !== 1 ? 's' : ''} not in your account (not added, review only)
+                </summary>
+                <ul style={{ margin: '0.35rem 0', paddingLeft: '1.2rem' }}>
+                  {fillPreview.unmatchedSheet.map((r, i) => <li key={i}>{r.title}</li>)}
+                </ul>
+              </details>
+            )}
+          </div>
+        )}
       </div>
 
       {loading ? (
