@@ -2,6 +2,12 @@ import { useState } from 'react';
 import { useRegisterSW } from 'virtual:pwa-register/react';
 import styles from './UpdatePrompt.module.css';
 
+// Query-param override for design/QA — lets you preview the pill on any page
+// without waiting for a real service-worker update. Append ?updatePill=1.
+const forcePill =
+  typeof window !== 'undefined' &&
+  new URLSearchParams(window.location.search).get('updatePill') === '1';
+
 export function UpdatePrompt() {
   const [dismissed, setDismissed] = useState(false);
   const {
@@ -16,7 +22,7 @@ export function UpdatePrompt() {
     },
   });
 
-  if (!needRefresh || dismissed) return null;
+  if ((!needRefresh && !forcePill) || dismissed) return null;
 
   async function handleUpdate() {
     await updateServiceWorker(true);
