@@ -1025,6 +1025,7 @@
   padding: var(--space-3);
   box-shadow: var(--shadow-sm);
   max-height: 210px;
+  overflow-x: auto;
   overflow-y: auto;
 }
 
@@ -1188,13 +1189,17 @@
 
 .suggestTable {
   width: 100%;
-  table-layout: fixed;
   border-collapse: collapse;
   font-size: var(--font-size-sm);
 }
 
+/* First cell (meal name) can shrink and its content wraps; explicit widths
+   on numeric cells keep the layout predictable. */
 .suggestTable td:first-child {
   word-break: break-word;
+  min-width: 0;
+  max-width: 1px; /* trick: lets other cells keep their natural/fixed width */
+  width: 100%;
 }
 
 .suggestTable th:nth-child(2),
@@ -1210,6 +1215,24 @@
 .suggestTable th:nth-child(4),
 .suggestTable td:nth-child(4) {
   width: 60px;
+}
+
+/* Pin the + button cell to the right edge — even if content overflows the
+   column horizontally, the add button stays reachable. */
+.suggestTable th:last-child,
+.suggestTable td:last-child {
+  position: sticky;
+  right: 0;
+  z-index: 2;
+  background: var(--color-surface);
+  width: 52px;
+  min-width: 52px;
+}
+
+/* Header cell needs its own background so it doesn't bleed with the sticky
+   column when scrolled. */
+.suggestTable thead th:last-child {
+  background: var(--color-surface);
 }
 
 .suggestTable th {
