@@ -1189,20 +1189,19 @@
 
 .suggestTable {
   width: 100%;
-  /* Use separate (with zero spacing) so position: sticky works on <td>;
-     sticky on table cells is broken in many browsers under border-collapse: collapse. */
+  /* Fixed layout keeps the table from growing wider than its container,
+     so the + button column always stays visible on the right edge. */
+  table-layout: fixed;
   border-collapse: separate;
   border-spacing: 0;
   font-size: var(--font-size-sm);
 }
 
-/* First cell (meal name) can shrink and its content wraps; explicit widths
-   on numeric cells keep the layout predictable. */
+/* First cell (meal name) — take remaining auto width and wrap long titles. */
 .suggestTable td:first-child {
   word-break: break-word;
+  overflow-wrap: anywhere;
   min-width: 0;
-  max-width: 1px; /* trick: lets other cells keep their natural/fixed width */
-  width: 100%;
 }
 
 .suggestTable th:nth-child(2),
@@ -1220,22 +1219,11 @@
   width: 60px;
 }
 
-/* Pin the + button cell to the right edge — even if content overflows the
-   column horizontally, the add button stays reachable. */
 .suggestTable th:last-child,
 .suggestTable td:last-child {
-  position: sticky;
-  right: 0;
-  z-index: 2;
+  width: 60px;
   background: var(--color-surface);
-  width: 52px;
-  min-width: 52px;
-}
-
-/* Header cell needs its own background so it doesn't bleed with the sticky
-   column when scrolled. */
-.suggestTable thead th:last-child {
-  background: var(--color-surface);
+  text-align: center;
 }
 
 .suggestTable th {
@@ -1251,7 +1239,7 @@
 }
 
 .suggestTable th:last-child {
-  width: 40px;
+  width: 60px;
 }
 
 .suggestTable td {

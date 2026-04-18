@@ -28,6 +28,7 @@ import { RecipeSetupPage } from './components/RecipeSetupPage';
 import { ProfilePage } from './components/ProfilePage';
 import { WorkoutPage } from './components/WorkoutPage';
 import { FeaturesPage } from './components/FeaturesPage';
+import { UpdatePill } from './components/UpdatePill';
 import { NutritionOnboarding } from './components/NutritionOnboarding';
 import React from 'react';
 import styles from './App.module.css';
@@ -996,6 +997,7 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
       )}
 
       <HelpBubble user={user} currentView={view} />
+      <UpdatePill />
     </div>
   );
 }

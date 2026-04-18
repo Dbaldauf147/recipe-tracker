@@ -5,6 +5,12 @@ import { classifyMealType } from '../utils/classifyMealType';
 
 const STORAGE_KEY = 'recipe-tracker-recipes';
 
+function emitRecipeChange(action, detail) {
+  try {
+    window.dispatchEvent(new CustomEvent('recipe-changed', { detail: { action, detail } }));
+  } catch { /* noop */ }
+}
+
 function loadRecipes() {
   try {
     const data = localStorage.getItem(STORAGE_KEY);
@@ -264,6 +270,7 @@ export function useRecipes() {
       save(next);
       return next;
     });
+    emitRecipeChange('added', newRecipe.title);
     return newRecipe;
   }
 
@@ -273,6 +280,7 @@ export function useRecipes() {
       save(next);
       return next;
     });
+    emitRecipeChange('updated');
   }
 
   function deleteRecipe(id) {
@@ -281,6 +289,7 @@ export function useRecipes() {
       save(next);
       return next;
     });
+    emitRecipeChange('removed');
   }
 
   function getRecipe(id) {
@@ -288,6 +297,7 @@ export function useRecipes() {
   }
 
   function importRecipes(newRecipes) {
+    let addedCount = 0;
     setRecipes(prev => {
       const existingTitles = new Set(prev.map(r => r.title.toLowerCase()));
       const now = new Date().toISOString();
@@ -299,10 +309,12 @@ export function useRecipes() {
           createdAt: now,
           updatedAt: now,
         }));
+      addedCount = toAdd.length;
       const next = [...toAdd, ...prev];
       save(next);
       return next;
     });
+    if (addedCount > 0) emitRecipeChange('imported', `${addedCount} recipe${addedCount === 1 ? '' : 's'}`);
   }
 
   async function importInstructions() {
