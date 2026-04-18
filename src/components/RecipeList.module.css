@@ -1189,75 +1189,94 @@
   font-style: italic;
 }
 
-/* ── Suggested Meals table ── */
+/* ── Suggested Meals table ──
+   Rendered as flex rows (display: block / flex on table elements) so the
+   + button cell stays pinned to the right edge of the column regardless
+   of how wide the overdue/seasonal text wants to be. */
 
-.suggestTable {
+.suggestTable,
+.suggestTable thead,
+.suggestTable tbody {
+  display: block;
   width: 100%;
-  /* Fixed layout keeps the table from growing wider than its container,
-     so the + button column always stays visible on the right edge. */
-  table-layout: fixed;
-  border-collapse: separate;
-  border-spacing: 0;
   font-size: var(--font-size-sm);
 }
 
-/* First cell (meal name) — take remaining auto width and wrap long titles. */
-.suggestTable td:first-child {
-  word-break: break-word;
-  overflow-wrap: anywhere;
+.suggestTable tr {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
   min-width: 0;
-}
-
-.suggestTable th:nth-child(2),
-.suggestTable td:nth-child(2) {
-  width: 72px;
-}
-
-.suggestTable th:nth-child(3),
-.suggestTable td:nth-child(3) {
-  width: 96px;
-}
-
-.suggestTable th:nth-child(4),
-.suggestTable td:nth-child(4) {
-  width: 60px;
-}
-
-.suggestTable th:last-child,
-.suggestTable td:last-child {
-  width: 60px;
-  background: var(--color-surface);
-  text-align: center;
-}
-
-.suggestTable th {
-  text-align: left;
-  font-size: var(--font-size-xs);
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--color-text-muted);
-  padding: var(--space-1) var(--space-2);
-  border-bottom: 1px solid var(--color-border);
-  white-space: nowrap;
-}
-
-.suggestTable th:last-child {
-  width: 60px;
-}
-
-.suggestTable td {
-  padding: var(--space-2);
   border-bottom: 1px solid var(--color-border-light);
-  vertical-align: middle;
 }
 
-.suggestTable tbody tr:last-child td {
+.suggestTable thead tr {
+  border-bottom: 1px solid var(--color-border);
+}
+
+.suggestTable tbody tr:last-child {
   border-bottom: none;
 }
 
 .suggestTable tbody tr:hover {
   background: var(--color-surface-alt);
+}
+
+.suggestTable th,
+.suggestTable td {
+  display: block;
+  padding: var(--space-2) 0;
+  vertical-align: middle;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+.suggestTable th {
+  padding: var(--space-1) 0;
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text-muted);
+  text-align: left;
+  white-space: nowrap;
+}
+
+/* First cell (meal name) — take remaining width and wrap long titles. */
+.suggestTable th:first-child,
+.suggestTable td:first-child {
+  flex: 1 1 0;
+  min-width: 0;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+
+.suggestTable th:nth-child(2),
+.suggestTable td:nth-child(2) {
+  flex: 0 0 64px;
+  width: 64px;
+  text-align: center;
+}
+
+.suggestTable th:nth-child(3),
+.suggestTable td:nth-child(3) {
+  flex: 0 0 90px;
+  width: 90px;
+}
+
+.suggestTable th:nth-child(4),
+.suggestTable td:nth-child(4) {
+  flex: 0 0 70px;
+  width: 70px;
+}
+
+.suggestTable th:last-child,
+.suggestTable td:last-child {
+  flex: 0 0 48px;
+  width: 48px;
+  text-align: center;
+  padding-right: 0;
 }
 
 .seasonalRow {
