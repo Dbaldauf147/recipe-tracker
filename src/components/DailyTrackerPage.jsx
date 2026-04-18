@@ -698,7 +698,11 @@ function AddEntrySection({ recipes, getRecipe, onAdd, weeklyPlan }) {
   async function handleAddRecipe() {
     if (!recipeId) return;
     const recipe = getRecipe(recipeId);
-    if (!recipe) return;
+    if (!recipe) {
+      setRecipeError("That recipe isn't in your collection anymore. Pick another option.");
+      setRecipeId('');
+      return;
+    }
     setRecipeLoading(true);
     setRecipeError('');
     try {
@@ -1591,7 +1595,11 @@ function AddRecipeQuick({ recipes, getRecipe, onAdd, onBack, weeklyPlan, inline,
   async function handleAdd(useWeight) {
     if (!recipeId) return;
     const recipe = getRecipe(recipeId);
-    if (!recipe) return;
+    if (!recipe) {
+      setError("That recipe isn't in your collection anymore. Pick another option.");
+      setRecipeId('');
+      return;
+    }
 
     setLoading(true);
     setError('');
@@ -2006,7 +2014,11 @@ function AddRecipeAdjust({ recipes, getRecipe, onAdd, onBack, weeklyPlan }) {
   async function handleAdd() {
     if (!recipeId) return;
     const recipe = getRecipe(recipeId);
-    if (!recipe) return;
+    if (!recipe) {
+      setError("That recipe isn't in your collection anymore. Pick another option.");
+      setRecipeId('');
+      return;
+    }
     setLoading(true);
     setError('');
     try {
@@ -3921,6 +3933,9 @@ export function DailyTrackerPage({ recipes, getRecipe, onClose, user, weeklyPlan
                       if (recent.length >= 5) break;
                       if (entry.type !== 'recipe' || !entry.recipeId) continue;
                       if (seen.has(entry.recipeId)) continue;
+                      // Skip entries whose recipe no longer exists — clicking them would
+                      // silently fail since getRecipe() returns null.
+                      if (!recipes.some(r => r.id === entry.recipeId)) continue;
                       const entrySlot = entry.mealSlot || 'snack';
                       if (slot === 'snack' && entrySlot !== 'snack') continue;
                       if (slot === 'breakfast' && entrySlot !== 'breakfast') continue;
