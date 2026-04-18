@@ -997,11 +997,11 @@
 }
 
 .suggestColumns {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
   gap: var(--space-4);
-  overflow: hidden;
   max-width: 100%;
+  min-width: 0;
   padding-bottom: var(--space-2);
 }
 
@@ -1020,7 +1020,6 @@
 }
 
 .suggestColumn {
-  flex: 1 1 0;
   min-width: 0;
   max-width: 100%;
   background: var(--color-surface);
@@ -2645,7 +2644,7 @@
   }
 
   .suggestColumns {
-    flex-direction: column;
+    grid-template-columns: 1fr;
   }
 
   .suggestColumn {
