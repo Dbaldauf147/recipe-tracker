@@ -107,8 +107,9 @@ export async function fetchRecipesFromSheet() {
       i++;
       if (i < lines.length) i++; // skip "!F10:H42,Quantity,Measurement,..." row
 
-      // Read ingredient rows
+      // Read ingredient + instruction rows
       const ingredients = [];
+      const instructionSteps = [];
       while (i < lines.length) {
         const row = parseCSVLine(lines[i]);
         // Stop if we hit the next recipe separator or a different recipe name
@@ -117,6 +118,7 @@ export async function fetchRecipesFromSheet() {
         const qty = (row[1] || '').trim();
         const meas = (row[2] || '').trim();
         const ing = (row[3] || '').trim();
+        const step = (row[5] || '').trim();
 
         // Only add rows that have an actual ingredient name
         if (ing && qty !== '0' && qty !== '0.00') {
@@ -126,10 +128,15 @@ export async function fetchRecipesFromSheet() {
             ingredient: ing,
           });
         }
+        // Collect instruction text from any row that has it (ingredient rows
+        // and zero-qty spacer rows both carry steps in col 5)
+        if (step) instructionSteps.push(step);
         i++;
       }
 
-      if (ingredients.length > 0) {
+      const instructions = instructionSteps.join('\n');
+
+      if (ingredients.length > 0 || instructions) {
         const { category, frequency, mealType } = parseTags(description);
         recipes.push({
           title: recipeName,
@@ -140,6 +147,7 @@ export async function fetchRecipesFromSheet() {
           frequency,
           mealType,
           ingredients,
+          instructions,
         });
       }
     } else {

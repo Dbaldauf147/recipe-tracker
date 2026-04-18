@@ -19,9 +19,6 @@ export function RecipeCard({ recipe, onClick, draggable = false, onAdd, editMode
     e.currentTarget.style.transform = '';
   }
 
-  const totalTime = (parseInt(recipe.prepTime) || 0) + (parseInt(recipe.cookTime) || 0);
-  const isQuick = totalTime > 0 && totalTime <= 30;
-
   return (
     <div
       className={styles.card}
@@ -39,11 +36,6 @@ export function RecipeCard({ recipe, onClick, draggable = false, onAdd, editMode
       <div className={styles.cardContent}>
         <span className={styles.name}>{recipe.title}</span>
         <div className={styles.tags}>
-          {isQuick && (
-            <span className={`${styles.signal} ${styles.signalQuick}`}>
-              Quick
-            </span>
-          )}
           {recipeTags.map(tagKey => {
             const info = getTagInfo(tagKey);
             return (

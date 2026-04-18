@@ -100,11 +100,6 @@
   background: #EDE9FE;
 }
 
-.signalQuick {
-  color: var(--color-success);
-  background: var(--color-success-light);
-}
-
 .signalMacroGood {
   color: #15803d;
   background: #dcfce7;
