@@ -315,9 +315,13 @@ export function ShoppingListPage({ weeklyRecipes, weeklyServings = {}, onClose, 
               onSaveToHistory();
               // Send grocery staples back to their boxes
               handleClearExtras();
-              // Clear checked items
+              // Clear checked items for both the shopping list and grocery staples
               localStorage.removeItem('sunday-shopping-checked');
-              if (user) saveField(user.uid, 'shoppingChecked', []);
+              localStorage.removeItem('sunday-staples-checked');
+              if (user) {
+                saveField(user.uid, 'shoppingChecked', []);
+                saveField(user.uid, 'staplesChecked', []);
+              }
               window.dispatchEvent(new Event('firestore-sync'));
               setSaved(true);
               setTimeout(() => setSaved(false), 3000);

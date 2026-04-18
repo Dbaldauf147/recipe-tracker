@@ -38,11 +38,14 @@ export function GroceryStaples({ onMoveToShop, highlightNames }) {
     if (uid) saveField(uid, 'staplesChecked', arr);
   }
 
-  // Sync from Firestore
+  // Sync from Firestore (or a local reset that removed the key)
   useEffect(() => {
     const handleSync = () => {
       if (Date.now() - lastStapleSaveRef.current < 3000) return;
-      try { const raw = localStorage.getItem('sunday-staples-checked'); if (raw) setChecked(new Set(JSON.parse(raw))); } catch {}
+      try {
+        const raw = localStorage.getItem('sunday-staples-checked');
+        setChecked(raw ? new Set(JSON.parse(raw)) : new Set());
+      } catch {}
     };
     window.addEventListener('firestore-sync', handleSync);
     return () => window.removeEventListener('firestore-sync', handleSync);
