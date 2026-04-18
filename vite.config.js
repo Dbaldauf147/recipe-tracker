@@ -254,7 +254,7 @@ export default defineConfig({
     tiktokCaptionProxy(),
     restaurantSearchProxy(),
     VitePWA({
-      registerType: 'autoUpdate',
+      registerType: 'prompt',
       manifest: {
         name: 'Prep Day',
         short_name: 'Prep Day',
@@ -284,7 +284,9 @@ export default defineConfig({
       workbox: {
         globPatterns: ['**/*.{ico,png,svg,woff2}'],
         maximumFileSizeToCacheInBytes: 4 * 1024 * 1024,
-        skipWaiting: true,
+        // skipWaiting intentionally left off so UpdatePrompt can surface the
+        // "new version available" pill (needRefresh only fires while the new
+        // SW is still waiting).
         clientsClaim: true,
         navigateFallback: null,
         runtimeCaching: [
