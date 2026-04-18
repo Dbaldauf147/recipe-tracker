@@ -2535,6 +2535,30 @@
   }
 }
 
+/* Suggested Meals + Discover stack vertically before the phone breakpoint so
+   the two meal columns get the full container width. */
+@media (max-width: 1200px) {
+  .suggestDiscoverRow {
+    flex-direction: column;
+  }
+
+  .discoverPanel {
+    width: 100%;
+  }
+}
+
+/* Below 1024px each meal column is narrow enough that the "Overdue Ingredients"
+   and "Seasonal" columns start crowding out the meal name — hide them here
+   (they mostly hold em-dashes anyway). */
+@media (max-width: 1024px) {
+  .suggestTable th:nth-child(3),
+  .suggestTable td:nth-child(3),
+  .suggestTable th:nth-child(4),
+  .suggestTable td:nth-child(4) {
+    display: none;
+  }
+}
+
 /* ── Responsive ── */
 
 @media (max-width: 768px) {

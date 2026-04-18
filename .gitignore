@@ -36,3 +36,8 @@ recipe-images/*.png
 # OneDrive sync artifacts
 OneDrive/
 .env*.local
+
+# Firebase service account keys — never commit
+*firebase-adminsdk*.json
+*service-account*.json
+firebase-key*.json
