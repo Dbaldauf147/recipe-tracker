@@ -236,38 +236,36 @@ export async function lookupFromSheet(ingredient) {
   const rawQty = parseFloat(quantity);
   const qty = isNaN(rawQty) ? 1 : rawQty;
 
-  // Determine multiplier.
-  // Sheet nutrition values are per 1 serving of the sheet's measurement.
-  // If recipe uses a different measurement, convert via gram equivalents.
+  // Determine multiplier by converting the recipe's qty+measurement into
+  // total grams of ingredient, then dividing by the sheet's per-serving grams.
+  // This avoids the old "UNIT_TO_GRAMS[sheetMeasNorm]" trick, which produced
+  // massively inflated values whenever the sheet was stored in grams (since
+  // UNIT_TO_GRAMS['g'] is 1 but the real per-serving size was match.grams).
   const recipeMeasNorm = normalizeMeasurement(measurement || '');
   const sheetMeasNorm = normalizeMeasurement(match.measurement || '');
 
-  let multiplier = qty;
-
-  // Check for size-based measurement (small/medium/large) with ingredient-specific weight
   const isSizeMeas = ['small', 'medium', 'large', 'extra large', 'xl', 'regular'].includes(recipeMeasNorm);
-  if (isSizeMeas && match.grams > 0) {
+  const isGrams = ['g', 'gram'].includes(recipeMeasNorm);
+
+  let recipeTotalGrams = null;
+  if (isSizeMeas) {
     const sizeGrams = getSizeGrams(name, recipeMeasNorm);
-    if (sizeGrams) {
-      // Convert: qty units * grams-per-unit / sheet-grams-per-serving
-      multiplier = qty * sizeGrams / match.grams;
-    }
+    if (sizeGrams) recipeTotalGrams = qty * sizeGrams;
+  } else if (isGrams) {
+    recipeTotalGrams = qty;
+  } else if (UNIT_TO_GRAMS[recipeMeasNorm]) {
+    recipeTotalGrams = qty * UNIT_TO_GRAMS[recipeMeasNorm];
   }
 
-  const isGrams = ['g', 'gram'].includes(recipeMeasNorm);
-  if (isSizeMeas && multiplier !== qty) {
-    // Already handled by size lookup above
-  } else if (isGrams && match.grams > 0) {
-    // Recipe in grams, sheet has grams-per-serving: e.g. 200g / 100g = 2x
-    multiplier = qty / match.grams;
-  } else if (!isSizeMeas && recipeMeasNorm && sheetMeasNorm && recipeMeasNorm !== sheetMeasNorm) {
-    // Different volume/weight units: convert via gram equivalents
-    // e.g. recipe=tsp(5g), sheet=tbsp(15g) → ratio = 5/15 = 0.333
-    const recipeGrams = UNIT_TO_GRAMS[recipeMeasNorm];
-    const sheetGrams = UNIT_TO_GRAMS[sheetMeasNorm];
-    if (recipeGrams && sheetGrams) {
-      multiplier = qty * (recipeGrams / sheetGrams);
-    }
+  let multiplier;
+  if (recipeTotalGrams != null && match.grams > 0) {
+    multiplier = recipeTotalGrams / match.grams;
+  } else if (recipeMeasNorm && sheetMeasNorm && recipeMeasNorm === sheetMeasNorm) {
+    // Same unit (e.g. both in "cup" with no grams info) — use qty ratio directly.
+    multiplier = qty;
+  } else {
+    // Unknown recipe measurement / no gram info in sheet. Fall back to raw qty.
+    multiplier = qty;
   }
 
   // Scale nutrition by multiplier. Sheet values are per 1 serving of the sheet's measurement.
