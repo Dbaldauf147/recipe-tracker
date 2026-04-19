@@ -332,16 +332,29 @@ export function useRecipes() {
 
     for (const line of lines) {
       const trimmed = line.trim();
-      if (trimmed === ',' || trimmed === '') { currentRecipe = null; inSteps = false; continue; }
+      if (trimmed === '' || /^,+$/.test(trimmed)) { currentRecipe = null; inSteps = false; continue; }
       if (trimmed.startsWith('http')) continue;
       const idx = trimmed.indexOf(',');
-      if (idx === -1) continue;
+      if (idx === -1) {
+        // No comma — treat as a bare recipe-name row before an Instructions block.
+        if (!inSteps) currentRecipe = trimmed;
+        continue;
+      }
       const name = trimmed.substring(0, idx).trim();
       let instruction = trimmed.substring(idx + 1).trim();
       if (instruction.startsWith('"') && instruction.endsWith('"')) {
         instruction = instruction.slice(1, -1).replace(/""/g, '"');
       }
-      if (name.startsWith('!') || instruction === 'Instructions' || instruction === 'Steps') { inSteps = true; continue; }
+      const instructionLower = instruction.toLowerCase();
+      const isHeader = name.startsWith('!') || instructionLower === 'instructions' || instructionLower === 'steps';
+      if (isHeader) {
+        // Some rows encode the recipe name in the same row as the Instructions
+        // marker (e.g. "Mediterranean Protein Pasta,Instructions"). Capture it
+        // here so the step rows that follow aren't orphaned.
+        if (name && !name.startsWith('!')) currentRecipe = name;
+        inSteps = true;
+        continue;
+      }
       if (!inSteps) { if (name && !currentRecipe) currentRecipe = name; continue; }
       if (!instruction) continue;
       const recipeName = currentRecipe || name;
@@ -356,10 +369,15 @@ export function useRecipes() {
       lookup.set(name.toLowerCase().trim(), steps);
     }
 
-    // Count matches against current recipes
-    const updated = recipes.filter(r =>
-      lookup.has((r.title || '').toLowerCase().trim())
-    ).length;
+    // Track which recipes matched and which didn't
+    const unmatched = [];
+    const updatedTitles = [];
+    for (const r of recipes) {
+      const key = (r.title || '').toLowerCase().trim();
+      if (!key) continue;
+      if (lookup.has(key)) updatedTitles.push(r.title);
+      else unmatched.push(r.title);
+    }
 
     // Apply updates
     setRecipes(prev => {
@@ -374,7 +392,7 @@ export function useRecipes() {
       return next;
     });
 
-    return { total: parsed.size, updated };
+    return { total: parsed.size, updated: updatedTitles.length, updatedTitles, unmatched, csvRecipeNames: [...parsed.keys()] };
   }
 
   return { recipes, addRecipe, updateRecipe, deleteRecipe, getRecipe, importRecipes, importInstructions };

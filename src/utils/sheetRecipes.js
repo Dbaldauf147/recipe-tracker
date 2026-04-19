@@ -110,10 +110,24 @@ export async function fetchRecipesFromSheet() {
       // Read ingredient + instruction rows
       const ingredients = [];
       const instructionSteps = [];
+      let blankRunsInARow = 0;
       while (i < lines.length) {
         const row = parseCSVLine(lines[i]);
-        // Stop if we hit the next recipe separator or a different recipe name
-        if (row[0] !== recipeName) break;
+        const firstCol = (row[0] || '').trim();
+
+        // Stop once a different recipe's row starts.
+        if (firstCol && firstCol !== recipeName) break;
+
+        const allBlank = row.every(c => !c || !c.trim());
+        if (allBlank) {
+          // Two consecutive fully-blank rows = end of this recipe block.
+          // A single blank row is tolerated (it's a common visual spacer).
+          blankRunsInARow++;
+          if (blankRunsInARow >= 2) { i++; break; }
+          i++;
+          continue;
+        }
+        blankRunsInARow = 0;
 
         const qty = (row[1] || '').trim();
         const meas = (row[2] || '').trim();
@@ -128,8 +142,8 @@ export async function fetchRecipesFromSheet() {
             ingredient: ing,
           });
         }
-        // Collect instruction text from any row that has it (ingredient rows
-        // and zero-qty spacer rows both carry steps in col 5)
+        // Collect instruction text from any row that has it — including rows
+        // where col 0 is blank (step-only continuation rows).
         if (step) instructionSteps.push(step);
         i++;
       }
