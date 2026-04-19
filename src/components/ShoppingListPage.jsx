@@ -13,6 +13,25 @@ const GridLayout = WidthProvider(GridLayoutLib);
 
 const DEFAULT_SPICES = [];
 const DEFAULT_SAUCES = [];
+const DEFAULT_SNACKS = [
+  { quantity: '1',  measurement: 'bag(s)',  ingredient: 'rice cake(s)_white cheddar' },
+  { quantity: '1',  measurement: 'bag(s)',  ingredient: 'brussel sprouts' },
+  { quantity: '1',  measurement: 'regular', ingredient: 'hummus_garlic' },
+  { quantity: '1',  measurement: 'jar',     ingredient: 'pickle(s)' },
+  { quantity: '24', measurement: 'stick(s)', ingredient: 'venison sticks' },
+  { quantity: '10', measurement: 'regular', ingredient: 'asparagus' },
+  { quantity: '2',  measurement: 'regular', ingredient: 'sweet potato(s)' },
+  { quantity: '3',  measurement: 'regular', ingredient: 'bell pepper(s)' },
+  { quantity: '1',  measurement: 'box',     ingredient: 'kefir' },
+  { quantity: '1',  measurement: 'bag(s)',  ingredient: 'shahshito peppers' },
+  { quantity: '1',  measurement: 'box',     ingredient: 'flaxseed crackers' },
+  { quantity: '1',  measurement: 'bag(s)',  ingredient: 'trail mix' },
+  { quantity: '1',  measurement: 'bag(s)',  ingredient: 'watermelon seeds' },
+  { quantity: '',   measurement: '',        ingredient: 'pistachios' },
+  { quantity: '',   measurement: '',        ingredient: 'toasted seaweed' },
+  { quantity: '1',  measurement: 'bag',     ingredient: 'popcorn' },
+  { quantity: '1',  measurement: 'jar',     ingredient: 'kimchi' },
+];
 
 const EXTRAS_KEY = 'sunday-shop-extras';
 const DISMISSED_KEY = 'sunday-shop-dismissed';
@@ -491,6 +510,7 @@ export function ShoppingListPage({ weeklyRecipes, weeklyServings = {}, onClose, 
                     storageKey="sunday-pantry-snacks"
                     firestoreField="pantrySnacks"
                     highlightNames={pantryMatchedItems.names}
+                    initialItems={DEFAULT_SNACKS}
                     hideHeader
                   />
                 </div>
