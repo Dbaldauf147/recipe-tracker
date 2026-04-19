@@ -260,12 +260,25 @@ export async function lookupFromSheet(ingredient) {
   let multiplier;
   if (recipeTotalGrams != null && match.grams > 0) {
     multiplier = recipeTotalGrams / match.grams;
+  } else if (recipeTotalGrams != null && (!match.grams || match.grams <= 0)) {
+    // Sheet row has no per-serving gram weight, but the recipe uses grams
+    // (or is convertible to grams). USDA-style nutrition data is per 100g,
+    // so treat the sheet's "per serving" as per 100g to avoid the 100x-too-
+    // large values we used to emit when falling back to raw qty.
+    multiplier = recipeTotalGrams / 100;
   } else if (recipeMeasNorm && sheetMeasNorm && recipeMeasNorm === sheetMeasNorm) {
     // Same unit (e.g. both in "cup" with no grams info) — use qty ratio directly.
     multiplier = qty;
   } else {
     // Unknown recipe measurement / no gram info in sheet. Fall back to raw qty.
     multiplier = qty;
+  }
+
+  // Hard guard: anything >200 servings-worth is almost certainly a unit-mismatch
+  // bug (e.g. sheet grams=0 for an item the recipe has in grams). Clamp so one
+  // bad row can't push the recipe totals into the tens of thousands of calories.
+  if (multiplier > 200) {
+    multiplier = 200;
   }
 
   // Scale nutrition by multiplier. Sheet values are per 1 serving of the sheet's measurement.

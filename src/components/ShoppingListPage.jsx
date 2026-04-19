@@ -4,7 +4,7 @@ import { GroceryStaples } from './GroceryStaples';
 import { PantryList } from './PantryList';
 import { TrackedItemsList } from './TrackedItemsList';
 import { useAuth } from '../contexts/AuthContext';
-import { saveField } from '../utils/firestoreSync';
+import { saveField, loadDailyLogFromFirestore } from '../utils/firestoreSync';
 import GridLayoutLib, { WidthProvider } from 'react-grid-layout';
 import 'react-grid-layout/css/styles.css';
 import styles from './ShoppingListPage.module.css';
@@ -92,15 +92,27 @@ function buildIngredientEatenMap(getRecipe) {
         for (const ing of entry.ingredientNutrition) {
           if (ing?.ingredient) names.push(ing.ingredient);
         }
-      } else if (entry.recipeId && typeof getRecipe === 'function') {
+      }
+      // Always also pull the recipe's current ingredient list (even when
+      // ingredientNutrition was stored at log time) — the stored list may be
+      // stale, and the recipe itself may have been updated since.
+      if (entry.recipeId && typeof getRecipe === 'function') {
         const r = getRecipe(entry.recipeId);
         if (r && Array.isArray(r.ingredients)) {
           for (const ing of r.ingredients) {
             if (ing?.ingredient) names.push(ing.ingredient);
           }
         }
-      } else if (entry.type === 'custom' && entry.mealName) {
+      }
+      if (names.length === 0 && entry.type === 'custom' && entry.mealName) {
         names.push(entry.mealName);
+      }
+      // Custom-meal entries can also store their own ingredient list.
+      if (Array.isArray(entry.ingredients)) {
+        for (const ing of entry.ingredients) {
+          if (typeof ing === 'string') names.push(ing);
+          else if (ing?.ingredient) names.push(ing.ingredient);
+        }
       }
       for (const n of names) {
         const key = normalizeIngName(n);
@@ -149,6 +161,31 @@ export function ShoppingListPage({ weeklyRecipes, weeklyServings = {}, getRecipe
       window.removeEventListener('storage', rebuild);
     };
   }, [getRecipe]);
+
+  // Pull the daily log subcollection from Firestore on mount so this page
+  // has fresh data even if the user hasn't visited Track Meals this session
+  // (localStorage can be stale/empty for fresh devices).
+  useEffect(() => {
+    if (!user?.uid) return;
+    let cancelled = false;
+    loadDailyLogFromFirestore(user.uid).then(remote => {
+      if (cancelled || !remote) return;
+      try {
+        const localRaw = localStorage.getItem('sunday-daily-log');
+        const local = localRaw ? JSON.parse(localRaw) : {};
+        // Merge: prefer the side with more entries for each date.
+        const merged = { ...remote };
+        for (const date of Object.keys(local)) {
+          const le = local[date]?.entries || [];
+          const re = merged[date]?.entries || [];
+          if (le.length >= re.length) merged[date] = local[date];
+        }
+        localStorage.setItem('sunday-daily-log', JSON.stringify(merged));
+      } catch { /* ignore */ }
+      setEatenMap(buildIngredientEatenMap(getRecipe));
+    }).catch(() => { /* ignore */ });
+    return () => { cancelled = true; };
+  }, [user?.uid, getRecipe]);
 
   // Re-read grid layout + custom widgets whenever the user.uid becomes known
   // (after the initial mount) or whenever Firestore fires a sync event. The
