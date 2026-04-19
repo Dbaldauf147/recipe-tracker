@@ -189,9 +189,19 @@ export function TrackedItemsList({ storageKey, firestoreField, hideHeader, title
             </thead>
             <tbody>
               {[...items]
-                .map((item, i) => ({ ...item, _i: i }))
-                .sort((a, b) => (a.ingredient || '').localeCompare(b.ingredient || ''))
-                .map(({ _i: i, ...item }) => {
+                .map((item, i) => {
+                  const eaten = lookupEatenDate(item.ingredient, eatenMap);
+                  const source = eaten || item.lastPurchased;
+                  const d = daysSince(source);
+                  // Never-eaten items sort above the oldest known date.
+                  const sortValue = d == null ? Number.POSITIVE_INFINITY : d;
+                  return { ...item, _i: i, _since: sortValue };
+                })
+                .sort((a, b) => {
+                  if (b._since !== a._since) return b._since - a._since;
+                  return (a.ingredient || '').localeCompare(b.ingredient || '');
+                })
+                .map(({ _i: i, _since, ...item }) => {
                   const highlighted = highlightNames && highlightNames.has((item.ingredient || '').toLowerCase().trim());
                   // Prefer the "eaten" date from the daily log (automatic
                   // tracking) over a manual lastPurchased bump.
