@@ -33,10 +33,10 @@ const DEFAULT_SNACKS = [
   { quantity: '1',  measurement: 'jar',     ingredient: 'kimchi' },
 ];
 const DEFAULT_FRUITS = [
-  { quantity: '5', measurement: 'regular', ingredient: 'apple(s)_honey' },
+  { quantity: '5', measurement: 'regular', ingredient: 'apple(s)_honey crisp' },
   { quantity: '5', measurement: 'regular', ingredient: 'banana(s)' },
   { quantity: '4', measurement: 'regular', ingredient: 'orange(s)' },
-  { quantity: '1', measurement: 'jar',     ingredient: 'olive(s)_pitted' },
+  { quantity: '1', measurement: 'jar',     ingredient: 'olive(s)_pitted black' },
   { quantity: '1', measurement: 'bag(s)',  ingredient: 'grapes_red' },
   { quantity: '1', measurement: 'regular', ingredient: 'pineapple' },
   { quantity: '5', measurement: 'regular', ingredient: 'mango(s)' },
