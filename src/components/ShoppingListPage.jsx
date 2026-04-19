@@ -90,6 +90,55 @@ function normalizeIngName(name) {
     .trim();
 }
 
+// Look up the most-recent eaten date for a given ingredient name from the
+// eatenMap. Tries exact match first, then contains-either-direction with a
+// 4-char floor to keep false positives down.
+function lookupEatenDate(ingredient, eatenMap) {
+  if (!eatenMap || typeof eatenMap.get !== 'function') return null;
+  const key = normalizeIngName(ingredient);
+  if (!key) return null;
+  const exact = eatenMap.get(key);
+  if (exact) return exact;
+  let best = null;
+  for (const [k, date] of eatenMap) {
+    if (k.length < 4 || key.length < 4) continue;
+    if (k.includes(key) || key.includes(k)) {
+      if (!best || date > best) best = date;
+    }
+  }
+  return best;
+}
+
+function daysSinceDate(d) {
+  if (!d) return null;
+  const then = new Date(d);
+  if (isNaN(then)) return null;
+  return Math.max(0, Math.floor((new Date() - then) / 86400000));
+}
+
+// Resolve the effective "last known" date for a tracked item — most recent
+// of the meal-log date and a manual lastPurchased bump.
+function effectiveDate(item, eatenMap) {
+  const eaten = lookupEatenDate(item.ingredient, eatenMap);
+  if (eaten && item.lastPurchased) {
+    return new Date(eaten) > new Date(item.lastPurchased) ? eaten : item.lastPurchased;
+  }
+  return eaten || item.lastPurchased || null;
+}
+
+// Pick the item from `list` with the highest Since (never-touched items win).
+function findTopSince(list, eatenMap) {
+  let best = null;
+  let bestDays = -1;
+  for (const item of (list || [])) {
+    if (!(item?.ingredient || '').trim()) continue;
+    const d = effectiveDate(item, eatenMap);
+    const days = d == null ? Number.POSITIVE_INFINITY : daysSinceDate(d);
+    if (days > bestDays) { bestDays = days; best = item; }
+  }
+  return best;
+}
+
 // Build a map of normalized-ingredient-name → ISO date of the most recent
 // daily-log entry that included that ingredient. Used by the Snacks widget
 // to show "days since last eaten".
@@ -177,6 +226,30 @@ export function ShoppingListPage({ weeklyRecipes, weeklyServings = {}, getRecipe
       window.removeEventListener('storage', rebuild);
     };
   }, [getRecipe]);
+
+  // Snacks + Fruit lists — needed for both auto-adding the longest-since
+  // item into the shopping list and for bumping lastPurchased on Reset.
+  const [snacksList, setSnacksList] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('sunday-pantry-snacks') || '[]'); } catch { return []; }
+  });
+  const [fruitList, setFruitList] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('sunday-pantry-fruit') || '[]'); } catch { return []; }
+  });
+  useEffect(() => {
+    function reload() {
+      try { setSnacksList(JSON.parse(localStorage.getItem('sunday-pantry-snacks') || '[]')); } catch { /* ignore */ }
+      try { setFruitList(JSON.parse(localStorage.getItem('sunday-pantry-fruit') || '[]')); } catch { /* ignore */ }
+    }
+    window.addEventListener('firestore-sync', reload);
+    window.addEventListener('storage', reload);
+    return () => {
+      window.removeEventListener('firestore-sync', reload);
+      window.removeEventListener('storage', reload);
+    };
+  }, []);
+
+  const topSnack = useMemo(() => findTopSince(snacksList, eatenMap), [snacksList, eatenMap]);
+  const topFruit = useMemo(() => findTopSince(fruitList, eatenMap), [fruitList, eatenMap]);
 
   // Pull the daily log subcollection from Firestore on mount so this page
   // has fresh data even if the user hasn't visited Track Meals this session
@@ -447,6 +520,20 @@ export function ShoppingListPage({ weeklyRecipes, weeklyServings = {}, getRecipe
     return { names: new Set(matched.keys()), labels: [...matched.values()].sort() };
   }, [weeklyRecipes, extras, pantryNames, dismissed]);
 
+  // Shopping list = user extras + auto-injected top-since snack and fruit.
+  // Skip auto-add if the user already put that item in extras manually.
+  const extrasWithAutoAdds = useMemo(() => {
+    const list = [...extras];
+    const has = (ing) => list.some(e => normalizeIngName(e.ingredient) === normalizeIngName(ing));
+    if (topSnack?.ingredient && !has(topSnack.ingredient)) {
+      list.push({ ...topSnack, source: 'auto-snack' });
+    }
+    if (topFruit?.ingredient && !has(topFruit.ingredient)) {
+      list.push({ ...topFruit, source: 'auto-fruit' });
+    }
+    return list;
+  }, [extras, topSnack, topFruit]);
+
   return (
     <div className={styles.container}>
       <div className={styles.header}>
@@ -467,6 +554,59 @@ export function ShoppingListPage({ weeklyRecipes, weeklyServings = {}, getRecipe
           <button
             className={styles.completedBtn}
             onClick={() => {
+              // Gather every ingredient name that's on the current shopping
+              // list so we can mark them as "just eaten" on each matching
+              // snack/fruit. Must happen BEFORE handleClearExtras wipes them.
+              const shoppingNames = new Set();
+              for (const r of weeklyRecipes) {
+                for (const ing of (r.ingredients || [])) {
+                  if (ing?.ingredient) shoppingNames.add(normalizeIngName(ing.ingredient));
+                }
+              }
+              for (const e of extrasWithAutoAdds) {
+                if (e?.ingredient) shoppingNames.add(normalizeIngName(e.ingredient));
+              }
+              try {
+                const staples = JSON.parse(localStorage.getItem('sunday-grocery-staples') || '[]');
+                for (const s of staples) {
+                  if (s?.ingredient) shoppingNames.add(normalizeIngName(s.ingredient));
+                }
+              } catch { /* ignore */ }
+
+              const today = new Date().toISOString();
+              function bumpMatches(list) {
+                let changed = false;
+                const next = (list || []).map(item => {
+                  const key = normalizeIngName(item.ingredient);
+                  if (!key) return item;
+                  let hit = shoppingNames.has(key);
+                  if (!hit) {
+                    for (const n of shoppingNames) {
+                      if (n.length >= 4 && key.length >= 4 && (n.includes(key) || key.includes(n))) {
+                        hit = true;
+                        break;
+                      }
+                    }
+                  }
+                  if (!hit) return item;
+                  changed = true;
+                  return { ...item, lastPurchased: today };
+                });
+                return { next, changed };
+              }
+              const sBump = bumpMatches(snacksList);
+              if (sBump.changed) {
+                setSnacksList(sBump.next);
+                try { localStorage.setItem('sunday-pantry-snacks', JSON.stringify(sBump.next)); } catch {}
+                if (user) saveField(user.uid, 'pantrySnacks', sBump.next);
+              }
+              const fBump = bumpMatches(fruitList);
+              if (fBump.changed) {
+                setFruitList(fBump.next);
+                try { localStorage.setItem('sunday-pantry-fruit', JSON.stringify(fBump.next)); } catch {}
+                if (user) saveField(user.uid, 'pantryFruit', fBump.next);
+              }
+
               onSaveToHistory();
               // Send grocery staples back to their boxes
               handleClearExtras();
@@ -495,7 +635,7 @@ export function ShoppingListPage({ weeklyRecipes, weeklyServings = {}, getRecipe
             <ShoppingList
               weeklyRecipes={weeklyRecipes}
               weeklyServings={weeklyServings}
-              extraItems={extras}
+              extraItems={extrasWithAutoAdds}
               onClearExtras={handleClearExtras}
               onAddCustomItem={handleAddCustomItem}
               pantryNames={pantryNames}

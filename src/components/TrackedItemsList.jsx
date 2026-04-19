@@ -191,7 +191,16 @@ export function TrackedItemsList({ storageKey, firestoreField, hideHeader, title
               {[...items]
                 .map((item, i) => {
                   const eaten = lookupEatenDate(item.ingredient, eatenMap);
-                  const source = eaten || item.lastPurchased;
+                  // Use the more-recent of the meal-log eaten date and the
+                  // manual lastPurchased bump. Reset Shopping List writes
+                  // lastPurchased=today for everything on the list, so that
+                  // should win over any older meal-log match.
+                  let source = null;
+                  if (eaten && item.lastPurchased) {
+                    source = new Date(eaten) > new Date(item.lastPurchased) ? eaten : item.lastPurchased;
+                  } else {
+                    source = eaten || item.lastPurchased || null;
+                  }
                   const d = daysSince(source);
                   // Never-eaten items sort above the oldest known date.
                   const sortValue = d == null ? Number.POSITIVE_INFINITY : d;
@@ -206,7 +215,12 @@ export function TrackedItemsList({ storageKey, firestoreField, hideHeader, title
                   // Prefer the "eaten" date from the daily log (automatic
                   // tracking) over a manual lastPurchased bump.
                   const eatenDate = lookupEatenDate(item.ingredient, eatenMap);
-                  const sourceDate = eatenDate || item.lastPurchased;
+                  let sourceDate = null;
+                  if (eatenDate && item.lastPurchased) {
+                    sourceDate = new Date(eatenDate) > new Date(item.lastPurchased) ? eatenDate : item.lastPurchased;
+                  } else {
+                    sourceDate = eatenDate || item.lastPurchased || null;
+                  }
                   const since = daysSince(sourceDate);
                   const sinceTitle = eatenDate
                     ? `Last eaten on ${eatenDate}`
