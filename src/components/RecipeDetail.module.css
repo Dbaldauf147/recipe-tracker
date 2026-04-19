@@ -1028,6 +1028,12 @@
   font-style: italic;
 }
 
+.cookModeEmptyNote {
+  color: var(--color-text-muted);
+  font-style: italic;
+  font-size: var(--font-size-sm);
+}
+
 .cookModeRemove {
   background: none;
   border: none;

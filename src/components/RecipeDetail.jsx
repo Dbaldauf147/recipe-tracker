@@ -2376,9 +2376,13 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
                 {(editing ? fields.steps : fields.steps.filter(s => s.trim())).map((step, si) => {
                   const assignedIndices = fields.stepIngredients[si] || [];
                   const assignedIngs = assignedIndices.map(idx => fields.ingredients[idx]).filter(Boolean);
-                  const unassigned = fields.ingredients.filter((ing, idx) =>
-                    (ing.ingredient || '').trim() && !Object.values(fields.stepIngredients).flat().includes(idx)
-                  );
+                  const assignedSet = new Set(Object.values(fields.stepIngredients).flat());
+                  // Ingredients still available to assign — preserve the original
+                  // recipe index so dropdown values remain stable.
+                  const unassignedOptions = fields.ingredients
+                    .map((ing, idx) => ({ ing, idx }))
+                    .filter(({ ing, idx }) => (ing.ingredient || '').trim() && !assignedSet.has(idx));
+                  const unassigned = unassignedOptions.map(o => o.ing);
                   return (
                     <div
                       key={si}
@@ -2490,7 +2494,7 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
                                     return { ...prev, stepIngredients: map };
                                   });
                                 }}>&times;</button>}
-                                {editing && assignedIngs.length === 1 && (
+                                {editing && assignedIngs.length === 1 && unassignedOptions.length > 0 && (
                                   <select className={styles.cookModeAddInline} value="" onChange={e => {
                                     const idx = parseInt(e.target.value);
                                     if (isNaN(idx)) return;
@@ -2501,9 +2505,9 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
                                     });
                                   }}>
                                     <option value="">+ Add</option>
-                                    {fields.ingredients.map((ig, idx) => (ig.ingredient || '').trim() ? (
+                                    {unassignedOptions.map(({ ing: ig, idx }) => (
                                       <option key={idx} value={idx}>{ig.quantity} {ig.measurement} {ig.ingredient}</option>
-                                    ) : null)}
+                                    ))}
                                   </select>
                                 )}
                               </div>
@@ -2512,20 +2516,24 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
                         ) : (
                           <td colSpan={3} className={styles.cookModeEmpty}>
                             {editing && (
-                              <select className={styles.cookModeSelect} value="" onChange={e => {
-                                const idx = parseInt(e.target.value);
-                                if (isNaN(idx)) return;
-                                setFields(prev => {
-                                  const map = { ...prev.stepIngredients };
-                                  map[si] = [...(map[si] || []), idx];
-                                  return { ...prev, stepIngredients: map };
-                                });
-                              }}>
-                                <option value="">+ Assign ingredient...</option>
-                                {fields.ingredients.map((ing, idx) => (ing.ingredient || '').trim() ? (
-                                  <option key={idx} value={idx}>{ing.quantity} {ing.measurement} {ing.ingredient}</option>
-                                ) : null)}
-                              </select>
+                              unassignedOptions.length === 0 ? (
+                                <span className={styles.cookModeEmptyNote}>All ingredients assigned</span>
+                              ) : (
+                                <select className={styles.cookModeSelect} value="" onChange={e => {
+                                  const idx = parseInt(e.target.value);
+                                  if (isNaN(idx)) return;
+                                  setFields(prev => {
+                                    const map = { ...prev.stepIngredients };
+                                    map[si] = [...(map[si] || []), idx];
+                                    return { ...prev, stepIngredients: map };
+                                  });
+                                }}>
+                                  <option value="">+ Assign ingredient...</option>
+                                  {unassignedOptions.map(({ ing, idx }) => (
+                                    <option key={idx} value={idx}>{ing.quantity} {ing.measurement} {ing.ingredient}</option>
+                                  ))}
+                                </select>
+                              )
                             )}
                           </td>
                         )}
@@ -2580,7 +2588,7 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
                                   return { ...prev, stepIngredients: map };
                                 });
                               }}>&times;</button>}
-                              {editing && ii === assignedIngs.length - 2 && (
+                              {editing && ii === assignedIngs.length - 2 && unassignedOptions.length > 0 && (
                                 <select className={styles.cookModeAddInline} value="" onChange={e => {
                                   const idx = parseInt(e.target.value);
                                   if (isNaN(idx)) return;
@@ -2591,9 +2599,9 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
                                   });
                                 }}>
                                   <option value="">+ Add</option>
-                                  {fields.ingredients.map((ig, idx) => (ig.ingredient || '').trim() ? (
+                                  {unassignedOptions.map(({ ing: ig, idx }) => (
                                     <option key={idx} value={idx}>{ig.quantity} {ig.measurement} {ig.ingredient}</option>
-                                  ) : null)}
+                                  ))}
                                 </select>
                               )}
                             </div>
