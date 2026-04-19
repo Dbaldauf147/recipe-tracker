@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo, useRef } from 'react';
+import { useState, useCallback, useMemo, useRef, useEffect } from 'react';
 import { ShoppingList } from './ShoppingList';
 import { GroceryStaples } from './GroceryStaples';
 import { PantryList } from './PantryList';
@@ -67,6 +67,26 @@ export function ShoppingListPage({ weeklyRecipes, weeklyServings = {}, onClose, 
   const [customWidgets, setCustomWidgets] = useState(() => {
     try { return JSON.parse(localStorage.getItem(user ? `sunday-shop-custom-widgets-${user?.uid}` : 'sunday-shop-custom-widgets')) || []; } catch { return []; }
   });
+
+  // Re-read grid layout + custom widgets whenever the user.uid becomes known
+  // (after the initial mount) or whenever Firestore fires a sync event. The
+  // useState initializers above only run once, so without this the first
+  // render's anonymous/stale key sticks and resized widgets appear to reset.
+  useEffect(() => {
+    function loadFromStorage() {
+      try {
+        const layout = JSON.parse(localStorage.getItem(GRID_LAYOUT_KEY));
+        if (Array.isArray(layout) && layout.length > 0) setGridLayout(layout);
+      } catch { /* ignore */ }
+      try {
+        const widgets = JSON.parse(localStorage.getItem(CUSTOM_WIDGETS_KEY));
+        if (Array.isArray(widgets)) setCustomWidgets(widgets);
+      } catch { /* ignore */ }
+    }
+    loadFromStorage();
+    window.addEventListener('firestore-sync', loadFromStorage);
+    return () => window.removeEventListener('firestore-sync', loadFromStorage);
+  }, [GRID_LAYOUT_KEY, CUSTOM_WIDGETS_KEY]);
 
   const [addingWidget, setAddingWidget] = useState(false);
   const [newWidgetName, setNewWidgetName] = useState('');
