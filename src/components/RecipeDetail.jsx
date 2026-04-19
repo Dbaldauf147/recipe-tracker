@@ -479,6 +479,9 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
   const isInWeek = recipe ? (weeklyPlan || []).includes(recipe.id) : false;
   const [adjustedServings, setAdjustedServings] = useState(null);
   const [servingWeight, setServingWeight] = useState('');
+  // User-entered grams per serving when computing macros directly from the
+  // sum of ingredient weights (independent of totalWeight / foodWeight).
+  const [sumPortionGrams, setSumPortionGrams] = useState('');
   const showWeighFood = useMemo(() => {
     try {
       const stats = JSON.parse(localStorage.getItem('sunday-body-stats') || '{}');
@@ -1777,6 +1780,47 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
                         </button>
                       </td>
                     </tr>
+                    {(() => {
+                      const n = parseFloat(sumPortionGrams);
+                      const hasPortion = n > 0 && ingredientWeightTotal > 0;
+                      const factor = hasPortion ? n / ingredientWeightTotal : 0;
+                      const t = nutritionTotals || {};
+                      const fmt = (v) => Math.round((v || 0) * factor);
+                      return (
+                        <tr className={styles.weighSumRow}>
+                          <td className={styles.weighSumLabel} colSpan={4}>
+                            Macros for a custom portion
+                            <span className={styles.weighSumNote}>
+                              {' (from ingredient sum)'}
+                            </span>
+                          </td>
+                          <td>
+                            <input
+                              className={styles.weighInput}
+                              type="number"
+                              min="0"
+                              placeholder="g"
+                              value={sumPortionGrams}
+                              onChange={e => setSumPortionGrams(e.target.value)}
+                            />
+                          </td>
+                          <td colSpan={2} className={styles.weighSumMacros}>
+                            {!nutritionTotals ? (
+                              <span className={styles.weighSumNote}>Nutrition loading…</span>
+                            ) : !hasPortion ? (
+                              <span className={styles.weighSumNote}>Enter grams per serving</span>
+                            ) : (
+                              <>
+                                <span>{fmt(t.calories)} cal</span>
+                                <span>{fmt(t.protein)}g P</span>
+                                <span>{fmt(t.carbs)}g C</span>
+                                <span>{fmt(t.fat)}g F</span>
+                              </>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })()}
                   </tfoot>
                 )}
               </table>
