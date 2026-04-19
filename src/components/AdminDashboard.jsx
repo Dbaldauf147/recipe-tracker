@@ -3,6 +3,7 @@ import { loadAllUsers, deleteUserDoc, savePendingSetup, saveField, loadRecipesFr
 import { parseRecipeText } from '../utils/parseRecipeText';
 import { classifyMealType } from '../utils/classifyMealType';
 import { fetchRecipesFromSheet } from '../utils/sheetRecipes';
+import { PENDING_RECIPE_FIXES } from '../utils/pendingRecipeFixes';
 import { auth } from '../firebase';
 import styles from './AdminDashboard.module.css';
 
@@ -89,6 +90,8 @@ export function AdminDashboard({ onClose }) {
   const [fillApplying, setFillApplying] = useState(false);
   const [fillPreview, setFillPreview] = useState(null);
   const [fillDone, setFillDone] = useState('');
+  const [overrideApplying, setOverrideApplying] = useState(false);
+  const [overrideMsg, setOverrideMsg] = useState('');
   const [fillError, setFillError] = useState('');
 
   useEffect(() => {
@@ -289,6 +292,53 @@ export function AdminDashboard({ onClose }) {
     setFillApplying(false);
   }
 
+  async function handleApplyRecipeFixes() {
+    setOverrideApplying(true);
+    setOverrideMsg('');
+    try {
+      const uid = auth.currentUser?.uid;
+      if (!uid) throw new Error('Not logged in');
+      const existing = (await loadRecipesFromFirestore(uid)) || [];
+      const fixByTitle = new Map(
+        PENDING_RECIPE_FIXES.map(f => [f.title.toLowerCase().trim(), f])
+      );
+      const applied = [];
+      const skipped = [];
+      const updatedRecipes = existing.map(r => {
+        const fix = fixByTitle.get((r.title || '').toLowerCase().trim());
+        if (!fix) return r;
+        const fields = {};
+        if (fix.instructions !== undefined && fix.instructions !== r.instructions) {
+          fields.instructions = fix.instructions;
+        }
+        if (fix.ingredients !== undefined) {
+          fields.ingredients = fix.ingredients;
+        }
+        if (Object.keys(fields).length === 0) {
+          skipped.push(r.title);
+          return r;
+        }
+        applied.push(r.title);
+        return { ...r, ...fields, updatedAt: new Date().toISOString() };
+      });
+      const seenTitles = new Set(existing.map(r => (r.title || '').toLowerCase().trim()));
+      const missing = PENDING_RECIPE_FIXES
+        .filter(f => !seenTitles.has(f.title.toLowerCase().trim()))
+        .map(f => f.title);
+      if (applied.length > 0) {
+        await saveRecipesToFirestore(uid, updatedRecipes);
+      }
+      const parts = [];
+      parts.push(`Applied ${applied.length}${applied.length ? `: ${applied.join(', ')}` : ''}`);
+      if (skipped.length) parts.push(`unchanged: ${skipped.join(', ')}`);
+      if (missing.length) parts.push(`not in account: ${missing.join(', ')}`);
+      setOverrideMsg(parts.join(' · '));
+    } catch (err) {
+      setOverrideMsg(`Error: ${err.message || String(err)}`);
+    }
+    setOverrideApplying(false);
+  }
+
   // Engagement stats
   const engagementCounts = users.reduce((acc, u) => {
     const e = getUserEngagement(u);
@@ -481,6 +531,36 @@ export function AdminDashboard({ onClose }) {
               </details>
             )}
           </div>
+        )}
+      </div>
+
+      {/* Apply one-shot pending recipe fixes (hard overrides) */}
+      <div className={styles.sourceSection}>
+        <h3 className={styles.sourceHeading}>Apply Pending Recipe Fixes</h3>
+        <p style={{ fontSize: '0.82rem', color: 'var(--color-text-muted)', marginBottom: '0.75rem' }}>
+          Overwrites matching fields on the currently logged-in account's recipes with the {PENDING_RECIPE_FIXES.length} entr{PENDING_RECIPE_FIXES.length === 1 ? 'y' : 'ies'} in <code>src/utils/pendingRecipeFixes.js</code>. Unlike Fill Recipe Gaps, this <em>does</em> overwrite existing instructions/ingredients. Matches by title.
+        </p>
+        <ul style={{ margin: '0 0 0.75rem', paddingLeft: '1.2rem', fontSize: '0.82rem' }}>
+          {PENDING_RECIPE_FIXES.map(f => (
+            <li key={f.title}>
+              {f.title} — {[f.instructions !== undefined && 'instructions', f.ingredients !== undefined && 'ingredients'].filter(Boolean).join(', ') || 'no fields'}
+            </li>
+          ))}
+        </ul>
+        <button
+          className={styles.setupBtn}
+          onClick={handleApplyRecipeFixes}
+          disabled={overrideApplying || PENDING_RECIPE_FIXES.length === 0}
+          style={{ background: 'var(--color-accent, #3B6B9C)', color: 'white' }}
+        >
+          {overrideApplying ? 'Applying...' : 'Apply Recipe Fixes'}
+        </button>
+        {overrideMsg && (
+          <p style={{
+            fontSize: '0.85rem',
+            marginTop: '0.5rem',
+            color: overrideMsg.startsWith('Error') ? 'var(--color-danger)' : 'var(--color-text)',
+          }}>{overrideMsg}</p>
         )}
       </div>
 
