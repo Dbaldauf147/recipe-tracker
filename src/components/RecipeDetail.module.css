@@ -591,6 +591,45 @@
   color: var(--color-text-secondary);
 }
 
+.weighSumRow {
+  border-top: 1px solid var(--color-border);
+}
+
+.weighSumRow td {
+  padding-top: 0.5rem;
+}
+
+.weighSumLabel {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--color-text);
+  text-align: right;
+  padding-right: 0.5rem;
+}
+
+.weighSumNote {
+  font-weight: 400;
+  color: var(--color-text-muted);
+  font-size: 0.78rem;
+}
+
+.weighUseSumBtn {
+  background: none;
+  border: 1px solid var(--color-border);
+  color: var(--color-accent);
+  font-family: inherit;
+  font-size: 0.78rem;
+  font-weight: 600;
+  padding: 0.25rem 0.6rem;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.weighUseSumBtn:hover {
+  background: var(--color-accent-light, #E6EEF8);
+  border-color: var(--color-accent);
+}
+
 .weightLabel {
   display: flex;
   flex-direction: column;

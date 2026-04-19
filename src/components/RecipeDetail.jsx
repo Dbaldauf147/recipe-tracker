@@ -759,6 +759,49 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
   const totalWeightNum = parseFloat(fields?.totalWeight) || 0;
   const containerWeightNum = (fields?.containers || []).reduce((sum, c) => sum + (parseFloat(c.weight) || 0), 0) || parseFloat(fields?.containerWeight) || 0;
   const foodWeight = Math.max(0, totalWeightNum - containerWeightNum);
+
+  // Convert a single ingredient row into grams using weight units, size units,
+  // or volume-to-weight cross-conversion via the ingredient database. Returns
+  // null if no conversion is possible.
+  function ingredientGrams(row) {
+    if (!row || !row.quantity || !row.measurement) return null;
+    const num = parseFloat(row.quantity);
+    if (!num || isNaN(num)) return null;
+    const unit = normalizeUnit(row.measurement);
+    if (WEIGHT_TO_G[unit]) return num * WEIGHT_TO_G[unit];
+    if (SIZE_UNITS.includes(unit)) {
+      const g = getSizeGrams(row.ingredient || '', unit);
+      if (g && g > 0) return num * g;
+      // Fall through to WEIGHT_TO_G generic size weights (whole/each/large/...)
+      if (WEIGHT_TO_G[unit]) return num * WEIGHT_TO_G[unit];
+    }
+    const dbGrams = getDbGrams(row.ingredient || '');
+    const dbMeas = getDbMeasurement(row.ingredient || '');
+    const cross = getCrossConversion(row.quantity, row.measurement, dbGrams, dbMeas);
+    if (cross.weight) {
+      const m = cross.weight.match(/^([\d.]+)/);
+      if (m) return parseFloat(m[1]);
+    }
+    return null;
+  }
+
+  // Sum of every ingredient's weight that we can convert to grams. Toppings
+  // (per-meal ingredients) are excluded so the total reflects the base recipe.
+  let ingredientWeightTotal = 0;
+  let ingredientsWeighed = 0;
+  let ingredientsMissing = 0;
+  for (const row of (fields?.ingredients || [])) {
+    if (row.topping) continue;
+    if (!(row.ingredient || '').trim()) continue;
+    const g = ingredientGrams(row);
+    if (g != null && g > 0) {
+      ingredientWeightTotal += g;
+      ingredientsWeighed++;
+    } else {
+      ingredientsMissing++;
+    }
+  }
+  ingredientWeightTotal = Math.round(ingredientWeightTotal);
   const defaultServingWeight = (foodWeight > 0 && baseServings > 0)
     ? String(Math.round(foodWeight / baseServings))
     : '';
@@ -1709,6 +1752,33 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
                     </tr>
                   ))}
                 </tbody>
+                {ingredientsWeighed > 0 && (
+                  <tfoot>
+                    <tr className={styles.weighSumRow}>
+                      <td className={styles.weighSumLabel} colSpan={4}>
+                        Sum of ingredient weights
+                        {ingredientsMissing > 0 && (
+                          <span className={styles.weighSumNote}>
+                            {` (${ingredientsMissing} ingredient${ingredientsMissing === 1 ? '' : 's'} missing weight data)`}
+                          </span>
+                        )}
+                      </td>
+                      <td className={styles.weighCalc}>
+                        <strong>{ingredientWeightTotal}g</strong>
+                      </td>
+                      <td colSpan={2}>
+                        <button
+                          type="button"
+                          className={styles.weighUseSumBtn}
+                          title="Set All Food + Containers to this sum"
+                          onClick={() => setField('totalWeight', String(ingredientWeightTotal + containerWeightNum))}
+                        >
+                          Use as total
+                        </button>
+                      </td>
+                    </tr>
+                  </tfoot>
+                )}
               </table>
               <div className={styles.weighActions}>
                 <button className={styles.containerAddBtn} onClick={() => {
