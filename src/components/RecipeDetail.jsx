@@ -332,19 +332,14 @@ const STORAGE_OPTIONS = [
   { key: 'Counter', shelfDays: { min: 2, max: 5 } },
 ];
 
-function StorageShelfCell({ ingredient, getDbShelfLife }) {
+function StorageShelfCell({ ingredient, storage, onChange, getDbShelfLife }) {
   const shelf = getDbShelfLife(ingredient);
   const defaultStorage = shelf?.storage || '';
   const defaultMatch = STORAGE_OPTIONS.find(o => defaultStorage.toLowerCase().includes(o.key.toLowerCase()));
+  const defaultKey = defaultMatch?.key || (defaultStorage ? 'Fridge' : '');
 
-  const [selected, setSelected] = useState(defaultMatch?.key || (defaultStorage ? 'Fridge' : ''));
-
-  // Update when ingredient changes
-  useEffect(() => {
-    const s = getDbShelfLife(ingredient);
-    const match = s?.storage ? STORAGE_OPTIONS.find(o => s.storage.toLowerCase().includes(o.key.toLowerCase())) : null;
-    setSelected(match?.key || '');
-  }, [ingredient]);
+  // Per-recipe override wins over DB default.
+  const selected = storage != null && storage !== '' ? storage : defaultKey;
 
   if (!ingredient?.trim()) return <span style={{ color: 'var(--color-border)' }}>—</span>;
 
@@ -373,7 +368,7 @@ function StorageShelfCell({ ingredient, getDbShelfLife }) {
         <div className={styles.storageCell}>
           <select
             value={selected}
-            onChange={e => setSelected(e.target.value)}
+            onChange={e => onChange && onChange(e.target.value)}
             className={styles.storageSelect}
           >
             <option value="">—</option>
@@ -2227,7 +2222,12 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
                     </td>
                     )}
                     {showShelfLife && (
-                      <StorageShelfCell ingredient={row.ingredient} getDbShelfLife={getDbShelfLife} />
+                      <StorageShelfCell
+                        ingredient={row.ingredient}
+                        storage={row.storage}
+                        onChange={(v) => updateIngredient(i, 'storage', v)}
+                        getDbShelfLife={getDbShelfLife}
+                      />
                     )}
                     <td>
                       <button
