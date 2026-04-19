@@ -477,6 +477,9 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
   // User-entered grams per serving when computing macros directly from the
   // sum of ingredient weights (independent of totalWeight / foodWeight).
   const [sumPortionGrams, setSumPortionGrams] = useState('');
+  // Which row in the Weigh Portion Size table drives the Nutrition panel.
+  // '' = neither (falls back to baseServings), 'sum' or 'manual' otherwise.
+  const [weighMode, setWeighMode] = useState('');
   const showWeighFood = useMemo(() => {
     try {
       const stats = JSON.parse(localStorage.getItem('sunday-body-stats') || '{}');
@@ -1050,9 +1053,15 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
     let steps = fields.steps;
     const stepEls = document.querySelectorAll('[data-placeholder^="Step "]');
     if (stepEls.length > 0 && stepEls.length === steps.length) {
-      steps = Array.from(stepEls).map(el => el.innerHTML);
-      // Update React state to stay in sync
-      setFields(prev => ({ ...prev, steps }));
+      const domSteps = Array.from(stepEls).map(el => el.innerHTML);
+      // Only sync React state back if the DOM actually differs. Otherwise
+      // setFields spawns a new object identity, the auto-save useEffect
+      // re-fires on it, and we end up in a 2-second save loop.
+      const changed = domSteps.some((s, i) => s !== steps[i]);
+      if (changed) {
+        steps = domSteps;
+        setFields(prev => ({ ...prev, steps }));
+      }
     }
 
     onSave({
@@ -1104,13 +1113,22 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
 
   // Auto-save after 2 seconds of inactivity
   const initialRef = useRef(true);
+  const lastSavedSnapshot = useRef('');
   useEffect(() => {
     if (!fields || initialRef.current) {
       initialRef.current = false;
+      try { lastSavedSnapshot.current = JSON.stringify(fields); } catch { /* ignore */ }
       return;
     }
+    // Skip the timer if nothing actually changed since the last save. This
+    // keeps us out of save loops triggered by React identity changes where
+    // the underlying data is unchanged (e.g. handleSave syncing DOM steps).
+    let snap = '';
+    try { snap = JSON.stringify(fields); } catch { /* ignore */ }
+    if (snap && snap === lastSavedSnapshot.current) return;
     const timer = setTimeout(() => {
       handleSave();
+      try { lastSavedSnapshot.current = JSON.stringify(fields); } catch { /* ignore */ }
       setShowSaved(k => k + 1);
     }, 2000);
     return () => clearTimeout(timer);
@@ -1665,8 +1683,20 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
       <NutritionPanel
         recipeId={recipe.id}
         ingredients={fields.ingredients}
-        servings={(showWeighFood && foodWeight > 0 && servingWeightNum > 0) ? foodWeight / servingWeightNum : (adjustedServings ?? baseServings)}
-        portionLabel={showWeighFood && servingWeightNum > 0 && foodWeight > 0 ? `My portion (${servingWeight}g)` : null}
+        servings={(() => {
+          if (weighMode === 'sum' && ingredientWeightTotal > 0 && parseFloat(sumPortionGrams) > 0) {
+            return ingredientWeightTotal / parseFloat(sumPortionGrams);
+          }
+          if (weighMode === 'manual' && foodWeight > 0 && servingWeightNum > 0) {
+            return foodWeight / servingWeightNum;
+          }
+          return adjustedServings ?? baseServings;
+        })()}
+        portionLabel={(() => {
+          if (weighMode === 'sum' && parseFloat(sumPortionGrams) > 0) return `My portion (${sumPortionGrams}g)`;
+          if (weighMode === 'manual' && servingWeightNum > 0 && foodWeight > 0) return `My portion (${servingWeight || defaultServingWeight}g)`;
+          return null;
+        })()}
         onViewSources={onViewSources}
         onNutritionData={(d) => setNutritionTotals(d?.totals || null)}
         weighPortionContent={showWeighFood ?
@@ -1689,7 +1719,14 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
                   {/* Row 1: derived from ingredient weight sum */}
                   <tr>
                     <td className={styles.weighRowLabel}>
-                      Sum of ingredient weights below
+                      <label className={styles.weighModeLabel}>
+                        <input
+                          type="checkbox"
+                          checked={weighMode === 'sum'}
+                          onChange={() => setWeighMode(weighMode === 'sum' ? '' : 'sum')}
+                        />
+                        Sum of ingredient weights below
+                      </label>
                       {ingredientsMissing > 0 && (
                         <span className={styles.weighSumNote}>
                           {` (${ingredientsMissing} missing weight)`}
@@ -1726,7 +1763,16 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
 
                   {/* Row 2: manually weigh the cooked meal */}
                   <tr>
-                    <td className={styles.weighRowLabel}>Manually weigh total meal</td>
+                    <td className={styles.weighRowLabel}>
+                      <label className={styles.weighModeLabel}>
+                        <input
+                          type="checkbox"
+                          checked={weighMode === 'manual'}
+                          onChange={() => setWeighMode(weighMode === 'manual' ? '' : 'manual')}
+                        />
+                        Manually weigh total meal
+                      </label>
+                    </td>
                     <td>
                       <input
                         className={styles.weighInput}
@@ -1778,44 +1824,6 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
                     </td>
                   </tr>
                 </tbody>
-                {(() => {
-                  // Show macros for whichever portion input is active.
-                  // Row 2 (manual weigh) wins if its serving is set and food is weighed.
-                  const manualN = parseFloat(servingWeight || defaultServingWeight);
-                  const sumN = parseFloat(sumPortionGrams);
-                  let portion = null;
-                  if (manualN > 0 && foodWeight > 0) {
-                    portion = { grams: manualN, denom: foodWeight, source: 'manually-weighed meal' };
-                  } else if (sumN > 0 && ingredientWeightTotal > 0) {
-                    portion = { grams: sumN, denom: ingredientWeightTotal, source: 'ingredient sum' };
-                  }
-                  if (!portion) return null;
-                  const factor = portion.grams / portion.denom;
-                  const t = nutritionTotals || {};
-                  const fmt = (v) => Math.round((v || 0) * factor);
-                  return (
-                    <tfoot>
-                      <tr className={styles.weighSumRow}>
-                        <td className={styles.weighRowLabel}>
-                          Macros for {portion.grams}g
-                          <span className={styles.weighSumNote}> (from {portion.source})</span>
-                        </td>
-                        <td colSpan={6} className={styles.weighSumMacros}>
-                          {!nutritionTotals ? (
-                            <span className={styles.weighSumNote}>Nutrition loading…</span>
-                          ) : (
-                            <>
-                              <span>{fmt(t.calories)} cal</span>
-                              <span>{fmt(t.protein)}g P</span>
-                              <span>{fmt(t.carbs)}g C</span>
-                              <span>{fmt(t.fat)}g F</span>
-                            </>
-                          )}
-                        </td>
-                      </tr>
-                    </tfoot>
-                  );
-                })()}
               </table>
               <div className={styles.weighActions}>
                 {foodWeight > 0 && servingWeight && servingWeight !== defaultServingWeight && (

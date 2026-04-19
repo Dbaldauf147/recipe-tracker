@@ -561,6 +561,18 @@
   padding-right: 0.75rem;
 }
 
+.weighModeLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  cursor: pointer;
+}
+
+.weighModeLabel input[type="checkbox"] {
+  accent-color: var(--color-accent);
+  cursor: pointer;
+}
+
 .weighRowRemove {
   background: none;
   border: none;
