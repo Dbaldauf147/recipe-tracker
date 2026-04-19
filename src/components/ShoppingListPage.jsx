@@ -64,7 +64,55 @@ const SOURCE_KEYS = {
   sauces: 'sunday-pantry-sauces',
 };
 
-export function ShoppingListPage({ weeklyRecipes, weeklyServings = {}, onClose, onSaveToHistory }) {
+// Normalize ingredient names for fuzzy matching between snacks and daily-log
+// entries (strip "(s)", underscores/dashes, collapse whitespace, lowercase).
+function normalizeIngName(name) {
+  return (name || '')
+    .toLowerCase()
+    .replace(/\(s\)/g, '')
+    .replace(/[_-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+// Build a map of normalized-ingredient-name → ISO date of the most recent
+// daily-log entry that included that ingredient. Used by the Snacks widget
+// to show "days since last eaten".
+function buildIngredientEatenMap(getRecipe) {
+  const map = new Map();
+  let log;
+  try { log = JSON.parse(localStorage.getItem('sunday-daily-log') || '{}'); } catch { return map; }
+  if (!log || typeof log !== 'object') return map;
+  const dates = Object.keys(log).sort(); // ascending so later overwrites earlier
+  for (const date of dates) {
+    const entries = log[date]?.entries || [];
+    for (const entry of entries) {
+      const names = [];
+      if (Array.isArray(entry.ingredientNutrition)) {
+        for (const ing of entry.ingredientNutrition) {
+          if (ing?.ingredient) names.push(ing.ingredient);
+        }
+      } else if (entry.recipeId && typeof getRecipe === 'function') {
+        const r = getRecipe(entry.recipeId);
+        if (r && Array.isArray(r.ingredients)) {
+          for (const ing of r.ingredients) {
+            if (ing?.ingredient) names.push(ing.ingredient);
+          }
+        }
+      } else if (entry.type === 'custom' && entry.mealName) {
+        names.push(entry.mealName);
+      }
+      for (const n of names) {
+        const key = normalizeIngName(n);
+        if (!key) continue;
+        map.set(key, date); // dates are iterated ascending → last-write-wins = latest
+      }
+    }
+  }
+  return map;
+}
+
+export function ShoppingListPage({ weeklyRecipes, weeklyServings = {}, getRecipe, onClose, onSaveToHistory }) {
   const { user } = useAuth();
   const [extras, setExtras] = useState(loadExtras);
   const [dismissed, setDismissed] = useState(loadDismissed);
@@ -88,6 +136,19 @@ export function ShoppingListPage({ weeklyRecipes, weeklyServings = {}, onClose, 
   const [customWidgets, setCustomWidgets] = useState(() => {
     try { return JSON.parse(localStorage.getItem(user ? `sunday-shop-custom-widgets-${user?.uid}` : 'sunday-shop-custom-widgets')) || []; } catch { return []; }
   });
+
+  // Map of normalized ingredient → most-recent date eaten. Rebuilt when the
+  // daily log changes on disk (or when another device syncs).
+  const [eatenMap, setEatenMap] = useState(() => buildIngredientEatenMap(getRecipe));
+  useEffect(() => {
+    function rebuild() { setEatenMap(buildIngredientEatenMap(getRecipe)); }
+    window.addEventListener('firestore-sync', rebuild);
+    window.addEventListener('storage', rebuild);
+    return () => {
+      window.removeEventListener('firestore-sync', rebuild);
+      window.removeEventListener('storage', rebuild);
+    };
+  }, [getRecipe]);
 
   // Re-read grid layout + custom widgets whenever the user.uid becomes known
   // (after the initial mount) or whenever Firestore fires a sync event. The
@@ -511,6 +572,7 @@ export function ShoppingListPage({ weeklyRecipes, weeklyServings = {}, onClose, 
                     firestoreField="pantrySnacks"
                     highlightNames={pantryMatchedItems.names}
                     initialItems={DEFAULT_SNACKS}
+                    eatenMap={eatenMap}
                     hideHeader
                   />
                 </div>

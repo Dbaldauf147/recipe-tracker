@@ -21,7 +21,37 @@ function sinceBg(days) {
   return `rgba(220, 38, 38, ${alpha.toFixed(2)})`;
 }
 
-export function TrackedItemsList({ storageKey, firestoreField, hideHeader, title, subtitle, highlightNames, initialItems }) {
+// Normalize a snack name for fuzzy matching against eatenMap keys.
+function normalizeSnackName(name) {
+  return (name || '')
+    .toLowerCase()
+    .replace(/\(s\)/g, '')
+    .replace(/[_-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+// Look up the most-recent eaten date for this snack from a normalized
+// ingredient-name → ISO-date map. Tries exact then contains-either-direction.
+function lookupEatenDate(snackIngredient, eatenMap) {
+  if (!eatenMap || typeof eatenMap.get !== 'function') return null;
+  const key = normalizeSnackName(snackIngredient);
+  if (!key) return null;
+  const exact = eatenMap.get(key);
+  if (exact) return exact;
+  // Partial match — e.g. snack "rice cake white cheddar" vs recipe ingredient
+  // "rice cakes". Require ≥4 chars of overlap to keep false positives down.
+  let best = null;
+  for (const [k, date] of eatenMap) {
+    if (k.length < 4 || key.length < 4) continue;
+    if (k.includes(key) || key.includes(k)) {
+      if (!best || date > best) best = date;
+    }
+  }
+  return best;
+}
+
+export function TrackedItemsList({ storageKey, firestoreField, hideHeader, title, subtitle, highlightNames, initialItems, eatenMap }) {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [adding, setAdding] = useState(false);
@@ -163,19 +193,31 @@ export function TrackedItemsList({ storageKey, firestoreField, hideHeader, title
                 .sort((a, b) => (a.ingredient || '').localeCompare(b.ingredient || ''))
                 .map(({ _i: i, ...item }) => {
                   const highlighted = highlightNames && highlightNames.has((item.ingredient || '').toLowerCase().trim());
-                  const since = daysSince(item.lastPurchased);
+                  // Prefer the "eaten" date from the daily log (automatic
+                  // tracking) over a manual lastPurchased bump.
+                  const eatenDate = lookupEatenDate(item.ingredient, eatenMap);
+                  const sourceDate = eatenDate || item.lastPurchased;
+                  const since = daysSince(sourceDate);
+                  const sinceTitle = eatenDate
+                    ? `Last eaten on ${eatenDate}`
+                    : item.lastPurchased
+                      ? `Marked purchased on ${item.lastPurchased.slice(0, 10)}`
+                      : 'Click to mark as just purchased';
                   return (
                     <tr
                       key={i}
                       className={highlighted ? styles.highlightRow : ''}
                       onClick={() => bumpItem(i)}
-                      title="Click to mark as just purchased (reset Since)"
+                      title="Click to mark as just purchased (resets manual Since)"
                       style={{ cursor: 'pointer' }}
                     >
                       <td><span className={styles.cellText}>{item.quantity}</span></td>
                       <td><span className={styles.cellText}>{item.measurement}</span></td>
                       <td><span className={styles.cellText}>{item.ingredient}</span></td>
-                      <td style={{ background: sinceBg(since), textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
+                      <td
+                        style={{ background: sinceBg(since), textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}
+                        title={sinceTitle}
+                      >
                         <span className={styles.cellText}>{since == null ? '—' : since}</span>
                       </td>
                       <td>

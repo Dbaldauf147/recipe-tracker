@@ -795,6 +795,7 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
           <ShoppingListPage
             weeklyRecipes={weeklyPlan.map(id => getRecipe(id)).filter(Boolean)}
             weeklyServings={weeklyServings}
+            getRecipe={getRecipe}
             onClose={goBack}
             onSaveToHistory={handleSaveToHistory}
           />
