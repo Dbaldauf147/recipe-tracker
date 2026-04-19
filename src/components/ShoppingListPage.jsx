@@ -2,6 +2,7 @@ import { useState, useCallback, useMemo, useRef, useEffect } from 'react';
 import { ShoppingList } from './ShoppingList';
 import { GroceryStaples } from './GroceryStaples';
 import { PantryList } from './PantryList';
+import { TrackedItemsList } from './TrackedItemsList';
 import { useAuth } from '../contexts/AuthContext';
 import { saveField } from '../utils/firestoreSync';
 import GridLayoutLib, { WidthProvider } from 'react-grid-layout';
@@ -56,8 +57,9 @@ export function ShoppingListPage({ weeklyRecipes, weeklyServings = {}, onClose, 
   const CUSTOM_WIDGETS_KEY = user ? `sunday-shop-custom-widgets-${user.uid}` : 'sunday-shop-custom-widgets';
 
   const FALLBACK_LAYOUT = [
-    { i: 'spices', x: 0, y: 0, w: 6, h: 20 },
-    { i: 'sauces', x: 6, y: 0, w: 6, h: 20 },
+    { i: 'spices', x: 0, y: 0, w: 4, h: 20 },
+    { i: 'sauces', x: 4, y: 0, w: 4, h: 20 },
+    { i: 'snacks', x: 8, y: 0, w: 4, h: 20 },
   ];
 
   const [gridLayout, setGridLayout] = useState(() => {
@@ -94,7 +96,7 @@ export function ShoppingListPage({ weeklyRecipes, weeklyServings = {}, onClose, 
   const [renameValue, setRenameValue] = useState('');
   const gridRef = useRef(null);
 
-  const allGridKeys = ['spices', 'sauces', ...customWidgets.map(w => w.id)];
+  const allGridKeys = ['spices', 'sauces', 'snacks', ...customWidgets.map(w => w.id)];
   const customWidgetIds = new Set(customWidgets.map(w => w.id));
 
   const visibleLayout = useMemo(() => {
@@ -471,6 +473,23 @@ export function ShoppingListPage({ weeklyRecipes, weeklyServings = {}, onClose, 
                     initialItems={DEFAULT_SAUCES}
                     onMoveToShop={handleMoveToShop}
                     source="sauces"
+                    highlightNames={pantryMatchedItems.names}
+                    hideHeader
+                  />
+                </div>
+              </div>
+              <div key="snacks" className={styles.widgetBox}>
+                <div className={styles.widgetHeadingRow}>
+                  <h3 className={styles.widgetHeading}>Snacks</h3>
+                  <div className={styles.widgetControls}>
+                    <span className={styles.widgetDragIcon}>&#8942;&#8942;</span>
+                  </div>
+                </div>
+                <div className={styles.widgetBody}>
+                  <TrackedItemsList
+                    key={`snacks-${resetKey}`}
+                    storageKey="sunday-pantry-snacks"
+                    firestoreField="pantrySnacks"
                     highlightNames={pantryMatchedItems.names}
                     hideHeader
                   />

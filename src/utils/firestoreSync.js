@@ -189,6 +189,11 @@ export async function migrateToFirestore(uid) {
   } catch {}
 
   try {
+    const snacks = localStorage.getItem('sunday-pantry-snacks');
+    if (snacks) data.pantrySnacks = JSON.parse(snacks);
+  } catch {}
+
+  try {
     const extras = localStorage.getItem('sunday-shop-extras');
     if (extras) data.shopExtras = JSON.parse(extras);
   } catch {}
@@ -356,6 +361,7 @@ export function hydrateLocalStorage(userData, uid) {
   localStorage.setItem('sunday-grocery-staples', JSON.stringify(userData.groceryStaples || []));
   localStorage.setItem('sunday-pantry-spices', JSON.stringify(userData.pantrySpices || []));
   localStorage.setItem('sunday-pantry-sauces', JSON.stringify(userData.pantrySauces || []));
+  localStorage.setItem('sunday-pantry-snacks', JSON.stringify(userData.pantrySnacks || []));
   localStorage.setItem('sunday-shop-extras', JSON.stringify(userData.shopExtras || []));
   localStorage.setItem('sunday-shopping-selection', JSON.stringify(userData.shoppingSelection || []));
   localStorage.setItem('sunday-weekly-servings', JSON.stringify(userData.weeklyServings || {}));
