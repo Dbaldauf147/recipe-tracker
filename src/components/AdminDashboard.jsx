@@ -324,6 +324,12 @@ export function AdminDashboard({ onClose }) {
         if (fix.ingredients !== undefined) {
           fields.ingredients = fix.ingredients;
         }
+        if (fix.stepsArray !== undefined) {
+          fields.stepsArray = fix.stepsArray;
+        }
+        if (fix.stepIngredients !== undefined) {
+          fields.stepIngredients = fix.stepIngredients;
+        }
         if (Object.keys(fields).length === 0) {
           skipped.push(r.title);
           return r;
@@ -558,7 +564,12 @@ export function AdminDashboard({ onClose }) {
         <ul style={{ margin: '0 0 0.75rem', paddingLeft: '1.2rem', fontSize: '0.82rem' }}>
           {PENDING_RECIPE_FIXES.map(f => (
             <li key={f.title}>
-              {f.title} — {[f.instructions !== undefined && 'instructions', f.ingredients !== undefined && 'ingredients'].filter(Boolean).join(', ') || 'no fields'}
+              {f.title} — {[
+                f.instructions !== undefined && 'instructions',
+                f.ingredients !== undefined && 'ingredients',
+                f.stepsArray !== undefined && 'stepsArray',
+                f.stepIngredients !== undefined && 'stepIngredients',
+              ].filter(Boolean).join(', ') || 'no fields'}
             </li>
           ))}
         </ul>
