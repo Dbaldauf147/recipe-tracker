@@ -53,10 +53,27 @@ export function UpdatePrompt() {
   if (!show) return null;
 
   async function handleUpdate() {
+    // Best-effort: tell the waiting SW to skip waiting so it takes over.
     try { await updateServiceWorker(true); } catch { /* ignore */ }
-    // Fallback: force reload (bypasses HTTP cache) so the new bundle loads
-    // even if the service worker didn't swap.
-    setTimeout(() => window.location.reload(), 400);
+    // Nuclear option for stuck SWs: unregister every registration and wipe
+    // every Cache Storage entry before reloading. Without this, an older SW
+    // built with skipWaiting:true can keep serving stale HTML/JS even after a
+    // new deploy.
+    try {
+      if ('serviceWorker' in navigator) {
+        const regs = await navigator.serviceWorker.getRegistrations();
+        await Promise.all(regs.map(r => r.unregister().catch(() => {})));
+      }
+    } catch { /* ignore */ }
+    try {
+      if ('caches' in window) {
+        const keys = await caches.keys();
+        await Promise.all(keys.map(k => caches.delete(k).catch(() => {})));
+      }
+    } catch { /* ignore */ }
+    // Hard reload. Some browsers honor `true` to bypass the HTTP cache; others
+    // ignore it, but the SW/cache purge above already did the real work.
+    setTimeout(() => window.location.reload(), 200);
   }
 
   return (

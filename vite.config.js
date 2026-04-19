@@ -309,6 +309,7 @@ export default defineConfig({
         // "new version available" pill (needRefresh only fires while the new
         // SW is still waiting).
         clientsClaim: true,
+        cleanupOutdatedCaches: true,
         navigateFallback: null,
         runtimeCaching: [
           {
