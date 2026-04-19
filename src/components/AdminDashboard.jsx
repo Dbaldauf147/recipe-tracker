@@ -251,9 +251,13 @@ export function AdminDashboard({ onClose }) {
         const sheet = byTitle.get((r.title || '').toLowerCase().trim());
         if (!sheet) return r;
         const fields = {};
-        const hasInstructions = (r.instructions || '').trim().length > 0;
+        const stepCount = (r.instructions || '').split('\n').map(s => s.trim()).filter(Boolean).length;
+        // Treat <=1 step as "effectively missing" so stub instructions get replaced
+        // with the full list from the sheet.
+        const instructionsLooksThin = stepCount <= 1;
+        const sheetStepCount = (sheet.instructions || '').split('\n').map(s => s.trim()).filter(Boolean).length;
         const hasIngredients = Array.isArray(r.ingredients) && r.ingredients.length > 0;
-        if (!hasInstructions && sheet.instructions) {
+        if (instructionsLooksThin && sheet.instructions && sheetStepCount > stepCount) {
           fields.instructions = sheet.instructions;
         }
         if (!hasIngredients && sheet.ingredients.length > 0) {
@@ -261,7 +265,7 @@ export function AdminDashboard({ onClose }) {
         }
         if (Object.keys(fields).length === 0) return r;
         updates.push({ title: r.title, filledFields: Object.keys(fields) });
-        return { ...r, ...fields };
+        return { ...r, ...fields, updatedAt: new Date().toISOString() };
       });
       const matchedTitles = new Set(
         existing.map(r => (r.title || '').toLowerCase().trim())
@@ -284,6 +288,12 @@ export function AdminDashboard({ onClose }) {
       const uid = auth.currentUser?.uid;
       if (!uid) throw new Error('Not logged in');
       await saveRecipesToFirestore(uid, fillPreview.updatedRecipes);
+      // Push the new recipes into localStorage and notify the rest of the app
+      // so the detail views refresh without a manual reload.
+      try {
+        localStorage.setItem('recipe-tracker-recipes', JSON.stringify(fillPreview.updatedRecipes));
+        window.dispatchEvent(new Event('firestore-sync'));
+      } catch {}
       setFillDone(`Updated ${fillPreview.updates.length} recipe${fillPreview.updates.length !== 1 ? 's' : ''}`);
       setFillPreview(null);
     } catch (err) {
@@ -327,6 +337,11 @@ export function AdminDashboard({ onClose }) {
         .map(f => f.title);
       if (applied.length > 0) {
         await saveRecipesToFirestore(uid, updatedRecipes);
+        // Push into localStorage and notify useRecipes so the UI refreshes.
+        try {
+          localStorage.setItem('recipe-tracker-recipes', JSON.stringify(updatedRecipes));
+          window.dispatchEvent(new Event('firestore-sync'));
+        } catch {}
       }
       const parts = [];
       parts.push(`Applied ${applied.length}${applied.length ? `: ${applied.join(', ')}` : ''}`);
@@ -480,7 +495,7 @@ export function AdminDashboard({ onClose }) {
       <div className={styles.sourceSection}>
         <h3 className={styles.sourceHeading}>Fill Recipe Gaps from Sheet</h3>
         <p style={{ fontSize: '0.82rem', color: 'var(--color-text-muted)', marginBottom: '0.75rem' }}>
-          Scans your recipes and fills empty <code>ingredients</code> or <code>instructions</code> from the master Google Sheet. Matches by title. Existing data is never overwritten. Runs against the currently logged-in account.
+          Scans your recipes and fills empty <code>ingredients</code> from the master Google Sheet, and replaces <code>instructions</code> when the recipe currently has 0 or 1 step (stub/imported placeholder). Matches by title. Runs against the currently logged-in account.
         </p>
         <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginBottom: '0.75rem' }}>
           <button className={styles.setupBtn} onClick={handlePreviewFill} disabled={fillLoading || fillApplying}>
