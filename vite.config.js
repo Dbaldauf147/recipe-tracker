@@ -236,6 +236,26 @@ function restaurantSearchProxy() {
   };
 }
 
+// Emits public-style /version.json at build time so the client can poll it
+// and detect when a newer deploy is live (independent of service-worker
+// update lifecycle, which is unreliable across registerType changes).
+function buildVersionPlugin() {
+  const version = String(Date.now());
+  return {
+    name: 'build-version',
+    config() {
+      return { define: { __APP_VERSION__: JSON.stringify(version) } };
+    },
+    generateBundle() {
+      this.emitFile({
+        type: 'asset',
+        fileName: 'version.json',
+        source: JSON.stringify({ version }),
+      });
+    },
+  };
+}
+
 // https://vite.dev/config/
 export default defineConfig({
   server: {
@@ -248,6 +268,7 @@ export default defineConfig({
     },
   },
   plugins: [
+    buildVersionPlugin(),
     react(),
     fetchUrlProxy(),
     instagramCaptionProxy(),
