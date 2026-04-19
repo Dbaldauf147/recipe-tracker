@@ -32,6 +32,21 @@ const DEFAULT_SNACKS = [
   { quantity: '1',  measurement: 'bag',     ingredient: 'popcorn' },
   { quantity: '1',  measurement: 'jar',     ingredient: 'kimchi' },
 ];
+const DEFAULT_FRUITS = [
+  { quantity: '5', measurement: 'regular', ingredient: 'apple(s)_honey' },
+  { quantity: '5', measurement: 'regular', ingredient: 'banana(s)' },
+  { quantity: '4', measurement: 'regular', ingredient: 'orange(s)' },
+  { quantity: '1', measurement: 'jar',     ingredient: 'olive(s)_pitted' },
+  { quantity: '1', measurement: 'bag(s)',  ingredient: 'grapes_red' },
+  { quantity: '1', measurement: 'regular', ingredient: 'pineapple' },
+  { quantity: '5', measurement: 'regular', ingredient: 'mango(s)' },
+  { quantity: '5', measurement: 'regular', ingredient: 'kiwi(s)' },
+  { quantity: '1', measurement: 'regular', ingredient: 'melon(s)' },
+  { quantity: '4', measurement: 'regular', ingredient: 'pear' },
+  { quantity: '1', measurement: 'box',     ingredient: 'cherries' },
+  { quantity: '1', measurement: 'regular', ingredient: 'watermelon' },
+  { quantity: '5', measurement: 'regular', ingredient: 'peach(es)' },
+];
 
 const EXTRAS_KEY = 'sunday-shop-extras';
 const DISMISSED_KEY = 'sunday-shop-dismissed';
@@ -136,9 +151,10 @@ export function ShoppingListPage({ weeklyRecipes, weeklyServings = {}, getRecipe
   const CUSTOM_WIDGETS_KEY = user ? `sunday-shop-custom-widgets-${user.uid}` : 'sunday-shop-custom-widgets';
 
   const FALLBACK_LAYOUT = [
-    { i: 'spices', x: 0, y: 0, w: 4, h: 20 },
-    { i: 'sauces', x: 4, y: 0, w: 4, h: 20 },
-    { i: 'snacks', x: 8, y: 0, w: 4, h: 20 },
+    { i: 'spices', x: 0, y: 0, w: 3, h: 20 },
+    { i: 'sauces', x: 3, y: 0, w: 3, h: 20 },
+    { i: 'snacks', x: 6, y: 0, w: 3, h: 20 },
+    { i: 'fruit',  x: 9, y: 0, w: 3, h: 20 },
   ];
 
   const [gridLayout, setGridLayout] = useState(() => {
@@ -213,7 +229,7 @@ export function ShoppingListPage({ weeklyRecipes, weeklyServings = {}, getRecipe
   const [renameValue, setRenameValue] = useState('');
   const gridRef = useRef(null);
 
-  const allGridKeys = ['spices', 'sauces', 'snacks', ...customWidgets.map(w => w.id)];
+  const allGridKeys = ['spices', 'sauces', 'snacks', 'fruit', ...customWidgets.map(w => w.id)];
   const customWidgetIds = new Set(customWidgets.map(w => w.id));
 
   const visibleLayout = useMemo(() => {
@@ -609,6 +625,25 @@ export function ShoppingListPage({ weeklyRecipes, weeklyServings = {}, getRecipe
                     firestoreField="pantrySnacks"
                     highlightNames={pantryMatchedItems.names}
                     initialItems={DEFAULT_SNACKS}
+                    eatenMap={eatenMap}
+                    hideHeader
+                  />
+                </div>
+              </div>
+              <div key="fruit" className={styles.widgetBox}>
+                <div className={styles.widgetHeadingRow}>
+                  <h3 className={styles.widgetHeading}>Fruit</h3>
+                  <div className={styles.widgetControls}>
+                    <span className={styles.widgetDragIcon}>&#8942;&#8942;</span>
+                  </div>
+                </div>
+                <div className={styles.widgetBody}>
+                  <TrackedItemsList
+                    key={`fruit-${resetKey}`}
+                    storageKey="sunday-pantry-fruit"
+                    firestoreField="pantryFruit"
+                    highlightNames={pantryMatchedItems.names}
+                    initialItems={DEFAULT_FRUITS}
                     eatenMap={eatenMap}
                     hideHeader
                   />
