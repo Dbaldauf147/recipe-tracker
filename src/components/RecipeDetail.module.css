@@ -553,6 +553,14 @@
   white-space: nowrap;
 }
 
+.weighRowLabel {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--color-text);
+  white-space: nowrap;
+  padding-right: 0.75rem;
+}
+
 .weighRowRemove {
   background: none;
   border: none;

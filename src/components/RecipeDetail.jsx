@@ -1691,146 +1691,138 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
                   </tr>
                 </thead>
                 <tbody>
-                  {(fields.containers || [{ weight: '' }]).map((c, ci) => (
-                    <tr key={ci}>
-                      <td className={styles.weighRowNum}>
-                        {ci + 1}
-                        {(fields.containers || []).length > 1 && (
-                          <button className={styles.weighRowRemove} onClick={() => {
-                            setFields(prev => ({ ...prev, containers: (prev.containers || []).filter((_, i) => i !== ci) }));
-                          }}>&times;</button>
-                        )}
-                      </td>
-                      <td>
-                        {ci === 0 ? (
-                          <input
-                            className={styles.weighInput}
-                            type="number"
-                            min="0"
-                            placeholder="g"
-                            value={fields.totalWeight}
-                            onChange={e => setField('totalWeight', e.target.value)}
-                          />
-                        ) : null}
-                      </td>
-                      <td>
+                  {/* Row 1: derived from ingredient weight sum */}
+                  <tr>
+                    <td className={styles.weighRowLabel}>
+                      Sum of ingredient weights below
+                      {ingredientsMissing > 0 && (
+                        <span className={styles.weighSumNote}>
+                          {` (${ingredientsMissing} missing weight)`}
+                        </span>
+                      )}
+                    </td>
+                    <td></td>
+                    <td></td>
+                    <td></td>
+                    <td className={styles.weighCalc}>
+                      {ingredientWeightTotal > 0 ? `${ingredientWeightTotal}g` : ''}
+                    </td>
+                    <td>
+                      {ingredientWeightTotal > 0 ? (
                         <input
                           className={styles.weighInput}
                           type="number"
                           min="0"
                           placeholder="g"
-                          value={c.weight || ''}
-                          onChange={e => {
-                            setFields(prev => {
-                              const next = [...(prev.containers || [{ weight: '' }])];
-                              next[ci] = { ...next[ci], weight: e.target.value };
-                              return { ...prev, containers: next };
-                            });
-                          }}
+                          value={sumPortionGrams}
+                          onChange={e => setSumPortionGrams(e.target.value)}
                         />
-                      </td>
-                      <td className={styles.weighCalc}>
-                        {ci === 0 && containerWeightNum > 0 ? `${containerWeightNum}g` : ''}
-                      </td>
-                      <td className={styles.weighCalc}>
-                        {ci === 0 && totalWeightNum > 0 ? `${foodWeight}g` : ''}
-                      </td>
-                      <td>
-                        {ci === 0 && foodWeight > 0 ? (
-                          <input
-                            className={styles.weighInput}
-                            type="number"
-                            min="0"
-                            placeholder="g"
-                            value={servingWeight || defaultServingWeight}
-                            onChange={e => setServingWeight(e.target.value)}
-                          />
-                        ) : null}
-                      </td>
-                      <td className={styles.weighCalc}>
-                        {ci === 0 && weightBasedServings !== null
-                          ? `${parseFloat(weightBasedServings.toFixed(2))}`
-                          : ''}
-                      </td>
-                    </tr>
-                  ))}
+                      ) : null}
+                    </td>
+                    <td className={styles.weighCalc}>
+                      {(() => {
+                        const n = parseFloat(sumPortionGrams);
+                        if (!(n > 0) || !(ingredientWeightTotal > 0)) return '';
+                        const s = (n / ingredientWeightTotal) * baseServings;
+                        return parseFloat(s.toFixed(2));
+                      })()}
+                    </td>
+                  </tr>
+
+                  {/* Row 2: manually weigh the cooked meal */}
+                  <tr>
+                    <td className={styles.weighRowLabel}>Manually weigh total meal</td>
+                    <td>
+                      <input
+                        className={styles.weighInput}
+                        type="number"
+                        min="0"
+                        placeholder="g"
+                        value={fields.totalWeight}
+                        onChange={e => setField('totalWeight', e.target.value)}
+                      />
+                    </td>
+                    <td>
+                      <input
+                        className={styles.weighInput}
+                        type="number"
+                        min="0"
+                        placeholder="g"
+                        value={((fields.containers || [])[0] || {}).weight || ''}
+                        onChange={e => {
+                          setFields(prev => {
+                            const next = [...(prev.containers || [{ weight: '' }])];
+                            next[0] = { ...(next[0] || {}), weight: e.target.value };
+                            return { ...prev, containers: next };
+                          });
+                        }}
+                      />
+                    </td>
+                    <td className={styles.weighCalc}>
+                      {containerWeightNum > 0 ? `${containerWeightNum}g` : ''}
+                    </td>
+                    <td className={styles.weighCalc}>
+                      {totalWeightNum > 0 ? `${foodWeight}g` : ''}
+                    </td>
+                    <td>
+                      {foodWeight > 0 ? (
+                        <input
+                          className={styles.weighInput}
+                          type="number"
+                          min="0"
+                          placeholder="g"
+                          value={servingWeight || defaultServingWeight}
+                          onChange={e => setServingWeight(e.target.value)}
+                        />
+                      ) : null}
+                    </td>
+                    <td className={styles.weighCalc}>
+                      {weightBasedServings !== null
+                        ? `${parseFloat(weightBasedServings.toFixed(2))}`
+                        : ''}
+                    </td>
+                  </tr>
                 </tbody>
-                {ingredientsWeighed > 0 && (
-                  <tfoot>
-                    <tr className={styles.weighSumRow}>
-                      <td className={styles.weighSumLabel} colSpan={4}>
-                        Sum of ingredient weights
-                        {ingredientsMissing > 0 && (
-                          <span className={styles.weighSumNote}>
-                            {` (${ingredientsMissing} ingredient${ingredientsMissing === 1 ? '' : 's'} missing weight data)`}
-                          </span>
-                        )}
-                      </td>
-                      <td className={styles.weighCalc}>
-                        <strong>{ingredientWeightTotal}g</strong>
-                      </td>
-                      <td colSpan={2}>
-                        <button
-                          type="button"
-                          className={styles.weighUseSumBtn}
-                          title="Set All Food + Containers to this sum"
-                          onClick={() => setField('totalWeight', String(ingredientWeightTotal + containerWeightNum))}
-                        >
-                          Use as total
-                        </button>
-                      </td>
-                    </tr>
-                    {(() => {
-                      const n = parseFloat(sumPortionGrams);
-                      const hasPortion = n > 0 && ingredientWeightTotal > 0;
-                      const factor = hasPortion ? n / ingredientWeightTotal : 0;
-                      const t = nutritionTotals || {};
-                      const fmt = (v) => Math.round((v || 0) * factor);
-                      return (
-                        <tr className={styles.weighSumRow}>
-                          <td className={styles.weighSumLabel} colSpan={4}>
-                            Macros for a custom portion
-                            <span className={styles.weighSumNote}>
-                              {' (from ingredient sum)'}
-                            </span>
-                          </td>
-                          <td>
-                            <input
-                              className={styles.weighInput}
-                              type="number"
-                              min="0"
-                              placeholder="g"
-                              value={sumPortionGrams}
-                              onChange={e => setSumPortionGrams(e.target.value)}
-                            />
-                          </td>
-                          <td colSpan={2} className={styles.weighSumMacros}>
-                            {!nutritionTotals ? (
-                              <span className={styles.weighSumNote}>Nutrition loading…</span>
-                            ) : !hasPortion ? (
-                              <span className={styles.weighSumNote}>Enter grams per serving</span>
-                            ) : (
-                              <>
-                                <span>{fmt(t.calories)} cal</span>
-                                <span>{fmt(t.protein)}g P</span>
-                                <span>{fmt(t.carbs)}g C</span>
-                                <span>{fmt(t.fat)}g F</span>
-                              </>
-                            )}
-                          </td>
-                        </tr>
-                      );
-                    })()}
-                  </tfoot>
-                )}
+                {(() => {
+                  // Show macros for whichever portion input is active.
+                  // Row 2 (manual weigh) wins if its serving is set and food is weighed.
+                  const manualN = parseFloat(servingWeight || defaultServingWeight);
+                  const sumN = parseFloat(sumPortionGrams);
+                  let portion = null;
+                  if (manualN > 0 && foodWeight > 0) {
+                    portion = { grams: manualN, denom: foodWeight, source: 'manually-weighed meal' };
+                  } else if (sumN > 0 && ingredientWeightTotal > 0) {
+                    portion = { grams: sumN, denom: ingredientWeightTotal, source: 'ingredient sum' };
+                  }
+                  if (!portion) return null;
+                  const factor = portion.grams / portion.denom;
+                  const t = nutritionTotals || {};
+                  const fmt = (v) => Math.round((v || 0) * factor);
+                  return (
+                    <tfoot>
+                      <tr className={styles.weighSumRow}>
+                        <td className={styles.weighRowLabel}>
+                          Macros for {portion.grams}g
+                          <span className={styles.weighSumNote}> (from {portion.source})</span>
+                        </td>
+                        <td colSpan={6} className={styles.weighSumMacros}>
+                          {!nutritionTotals ? (
+                            <span className={styles.weighSumNote}>Nutrition loading…</span>
+                          ) : (
+                            <>
+                              <span>{fmt(t.calories)} cal</span>
+                              <span>{fmt(t.protein)}g P</span>
+                              <span>{fmt(t.carbs)}g C</span>
+                              <span>{fmt(t.fat)}g F</span>
+                            </>
+                          )}
+                        </td>
+                      </tr>
+                    </tfoot>
+                  );
+                })()}
               </table>
               <div className={styles.weighActions}>
-                <button className={styles.containerAddBtn} onClick={() => {
-                  setFields(prev => ({
-                    ...prev,
-                    containers: [...(prev.containers || [{ label: '', weight: '' }]), { label: '', weight: '' }],
-                  }));
-                }}>+ Add Container</button>
                 {foodWeight > 0 && servingWeight && servingWeight !== defaultServingWeight && (
                   <button className={styles.weighResetBtn} onClick={() => setServingWeight('')}>
                     Reset to 1 serving
