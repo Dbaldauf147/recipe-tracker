@@ -857,10 +857,20 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
   }
 
   function removeRow(index) {
-    setFields(prev => ({
-      ...prev,
-      ingredients: prev.ingredients.filter((_, i) => i !== index),
-    }));
+    setFields(prev => {
+      const ingredients = prev.ingredients.filter((_, i) => i !== index);
+      // stepIngredients stores ingredient indices — strip the removed one and
+      // shift any references past it down by one so cook-mode steps keep
+      // pointing at the same ingredients.
+      const nextStepIngredients = {};
+      for (const [stepIdx, indices] of Object.entries(prev.stepIngredients || {})) {
+        const remapped = (indices || [])
+          .filter(i => i !== index)
+          .map(i => (i > index ? i - 1 : i));
+        if (remapped.length > 0) nextStepIngredients[stepIdx] = remapped;
+      }
+      return { ...prev, ingredients, stepIngredients: nextStepIngredients };
+    });
   }
 
   const [dragIdx, setDragIdx] = useState(null);
@@ -879,16 +889,28 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
 
   function handleIngredientDrop(e, index) {
     e.preventDefault();
-    if (dragIdx === null || dragIdx === index) {
+    const fromOld = dragIdx;
+    const toNew = index;
+    if (fromOld === null || fromOld === toNew) {
       setDragIdx(null);
       setDragOverIdx(null);
       return;
     }
     setFields(prev => {
       const items = [...prev.ingredients];
-      const [moved] = items.splice(dragIdx, 1);
-      items.splice(index, 0, moved);
-      return { ...prev, ingredients: items };
+      const [moved] = items.splice(fromOld, 1);
+      items.splice(toNew, 0, moved);
+      // Remap stepIngredients indices to match the reordered array.
+      function remap(i) {
+        if (i === fromOld) return toNew;
+        if (fromOld < toNew) return (i > fromOld && i <= toNew) ? i - 1 : i;
+        return (i >= toNew && i < fromOld) ? i + 1 : i;
+      }
+      const nextStepIngredients = {};
+      for (const [stepIdx, indices] of Object.entries(prev.stepIngredients || {})) {
+        nextStepIngredients[stepIdx] = (indices || []).map(remap);
+      }
+      return { ...prev, ingredients: items, stepIngredients: nextStepIngredients };
     });
     setDragIdx(null);
     setDragOverIdx(null);
