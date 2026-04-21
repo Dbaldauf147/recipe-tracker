@@ -125,6 +125,17 @@
   white-space: nowrap;
 }
 
+.sharedFromTag {
+  font-size: 0.65rem;
+  font-weight: 600;
+  padding: 0.1rem 0.4rem;
+  border-radius: var(--radius-full);
+  line-height: 1.4;
+  white-space: nowrap;
+  color: #7C3AED;
+  background: #EDE9FE;
+}
+
 .addBtn {
   background: none;
   border: 1.5px solid var(--color-accent);

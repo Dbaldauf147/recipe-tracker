@@ -225,7 +225,7 @@ export function FriendsPage({ onClose, addRecipe }) {
       await acceptSharedRecipe(share.id);
       if (addRecipe && share.recipe) {
         const { id, ...recipeData } = share.recipe;
-        addRecipe({ ...recipeData, source: 'shared' });
+        addRecipe({ ...recipeData, source: 'shared', sharedFrom: share.fromUsername || '' });
       }
       setSharedRecipes(prev => prev.filter(s => s.id !== share.id));
     } catch (err) {
@@ -417,7 +417,7 @@ export function FriendsPage({ onClose, addRecipe }) {
                     onClick={() => {
                       if (addRecipe) {
                         const { id, ...recipeData } = r;
-                        addRecipe({ ...recipeData, source: 'shared' });
+                        addRecipe({ ...recipeData, source: 'shared', sharedFrom: browseFriend.username || '' });
                       }
                     }}
                   >

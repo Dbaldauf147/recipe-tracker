@@ -1539,7 +1539,7 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
 
               <div className={styles.metaRow}>
                 <span className={styles.sourceInfo}>
-                  <span className={styles.sourceTag}>Recipe Source: {SOURCE_LABELS[recipe.source] || 'Unknown'}</span>
+                  <span className={styles.sourceTag}>Recipe Source: {recipe.source === 'shared' && recipe.sharedFrom ? `Shared by @${recipe.sharedFrom}` : (SOURCE_LABELS[recipe.source] || 'Unknown')}</span>
                 </span>
               </div>
               <div className={styles.metaRow}>
@@ -1635,7 +1635,7 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
                 <span className={styles.metaValue} style={{ textTransform: 'capitalize' }}>{recipe.cuisine || 'No cuisine'}</span>
               </div>
               <div className={styles.metaRow}>
-                <span className={styles.sourceTag}>{SOURCE_LABELS[recipe.source] || 'Recipe'}</span>
+                <span className={styles.sourceTag}>{recipe.source === 'shared' && recipe.sharedFrom ? `Shared by @${recipe.sharedFrom}` : (SOURCE_LABELS[recipe.source] || 'Recipe')}</span>
                 {fields.sourceUrl.trim() && (
                   <a
                     href={fields.sourceUrl.trim().startsWith('http') ? fields.sourceUrl.trim() : `https://${fields.sourceUrl.trim()}`}

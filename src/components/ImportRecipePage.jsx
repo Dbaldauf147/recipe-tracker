@@ -1751,7 +1751,7 @@ export function ImportRecipePage({ onSave, onAddWithoutClose, onCancel, userReci
                             onClick={async () => {
                               if (share.recipe) {
                                 const { id, ...rest } = share.recipe;
-                                (onAddWithoutClose || onSave)({ ...rest, source: 'shared' });
+                                (onAddWithoutClose || onSave)({ ...rest, source: 'shared', sharedFrom: share.fromUsername || '' });
                               }
                               await acceptSharedRecipe(share.id);
                               setPendingShares(prev => prev.filter(s => s.id !== share.id));

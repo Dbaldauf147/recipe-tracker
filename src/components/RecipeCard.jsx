@@ -36,6 +36,9 @@ export function RecipeCard({ recipe, onClick, draggable = false, onAdd, editMode
       <div className={styles.cardContent}>
         <span className={styles.name}>{recipe.title}</span>
         <div className={styles.tags}>
+          {recipe.source === 'shared' && recipe.sharedFrom && (
+            <span className={styles.sharedFromTag}>from @{recipe.sharedFrom}</span>
+          )}
           {recipeTags.map(tagKey => {
             const info = getTagInfo(tagKey);
             return (
