@@ -25,7 +25,7 @@ import styles from './FriendsPage.module.css';
 
 const USERNAME_RE = /^[a-zA-Z0-9_]{3,20}$/;
 
-export function FriendsPage({ onClose, addRecipe }) {
+export function FriendsPage({ onClose, addRecipe, importRecipes }) {
   const { user } = useAuth();
   const uid = user?.uid;
 
@@ -394,7 +394,25 @@ export function FriendsPage({ onClose, addRecipe }) {
         <div className={styles.section}>
           <div className={styles.browseFriendHeader}>
             <h3 className={styles.sectionTitle}>@{browseFriend.username}'s Recipes</h3>
-            <button className={styles.closeBtn} onClick={() => setBrowseFriend(null)}>&times;</button>
+            <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+              {!browseFriend.loading && browseFriend.recipes.length > 0 && importRecipes && (
+                <button
+                  className={styles.actionBtn}
+                  onClick={() => {
+                    const toImport = browseFriend.recipes
+                      .filter(r => (r.frequency || 'common') !== 'retired')
+                      .map(r => {
+                        const { id, ...rest } = r;
+                        return { ...rest, source: 'shared', sharedFrom: browseFriend.username || '' };
+                      });
+                    if (toImport.length > 0) importRecipes(toImport);
+                  }}
+                >
+                  + Add all
+                </button>
+              )}
+              <button className={styles.closeBtn} onClick={() => setBrowseFriend(null)}>&times;</button>
+            </div>
           </div>
           {browseFriend.loading ? (
             <p className={styles.emptyText}>Loading recipes...</p>

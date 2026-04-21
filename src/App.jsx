@@ -839,6 +839,7 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
               }
             }}
             addRecipe={addRecipe}
+            importRecipes={importRecipes}
           />
         ) : view === 'detail' && selectedId ? (
           <ErrorBoundary>
