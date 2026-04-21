@@ -667,13 +667,17 @@ export async function toggleRecipeAccess(uid, friendUid, grant) {
 
 /**
  * Load recipes from a friend who has granted access.
+ * Reads from the recipes subcollection (where active recipes live after migration),
+ * falling back to the legacy main-doc field for un-migrated users.
  */
 export async function loadFriendRecipes(friendUid) {
   const snap = await getDoc(doc(db, 'users', friendUid));
   if (!snap.exists()) return { recipes: [], username: '' };
   const data = snap.data();
+  const subRecipes = await loadRecipesFromFirestore(friendUid);
+  const recipes = subRecipes !== null ? subRecipes : (data.recipes || []);
   return {
-    recipes: data.recipes || [],
+    recipes,
     username: data.username || data.displayName || '',
   };
 }
