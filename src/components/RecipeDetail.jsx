@@ -234,6 +234,15 @@ function getCrossConversion(qty, measurement, dbGrams, dbMeasurement) {
 
   if (!dbGrams || dbGrams <= 0 || !dbUnit) return { weight: '', volume: '' };
 
+  // Direct match: recipe unit equals the DB measurement unit (e.g. both
+  // "scoop"). Use dbGrams as a direct grams-per-unit multiplier. Handles
+  // custom size units — e.g., 1 scoop protein powder = 15g.
+  if (unit === dbUnit) {
+    const grams = num * dbGrams;
+    const rounded = Math.round(grams);
+    return { weight: `${rounded} ${rounded === 1 ? 'gram' : 'grams'}`, volume: '' };
+  }
+
   // Need to know the ml-per-dbUnit or g-per-dbUnit to convert
   const dbIsVolume = !!VOLUME_TO_ML[dbUnit];
   const dbIsWeight = !!WEIGHT_TO_G[dbUnit];
@@ -2110,6 +2119,15 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
                   const liquid = isLiquid(row.ingredient);
                   const conversions = getConversions(row.quantity, row.measurement, dbGrams);
                   const crossConv = getCrossConversion(row.quantity, row.measurement, dbGrams, dbMeasurement);
+                  // Treat custom DB size units (scoop, etc.) like size units
+                  // for the conversion button.
+                  const rowUnitNorm = normalizeUnit(row.measurement || '');
+                  const hasCustomSizeMatch = !unitType && rowUnitNorm
+                    ? getDbSizeRows(row.ingredient).some(r =>
+                        normalizeUnit(r.measurement || '').replace(/\(s\)/g, '').replace(/_.*$/, '').replace(/s$/, '').trim() === rowUnitNorm.replace(/s$/, '').trim()
+                      )
+                    : false;
+                  const effectiveUnitType = unitType || (hasCustomSizeMatch ? 'size' : null);
                   return (
                   <tr
                     key={i}
@@ -2185,7 +2203,7 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
                         {field === 'measurement' && (
                           <>
                             <td style={{ position: 'relative' }}>
-                              {unitType === 'size' ? (
+                              {effectiveUnitType === 'size' ? (
                                 <>
                                 <button
                                   className={styles.typeBtn}
@@ -2265,7 +2283,7 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
                                   </div>
                                 )}
                                 </>
-                              ) : unitType ? (
+                              ) : effectiveUnitType ? (
                                 <>
                                 <button
                                   className={styles.typeBtn}

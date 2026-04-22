@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { NUTRIENTS, fetchNutritionForIngredient, fetchNutritionForRecipe } from '../utils/nutrition';
 import { loadIngredients } from '../utils/ingredientsStore';
+import { getSizeGrams } from '../utils/units';
 import { saveField, saveDailyLogToFirestore, loadDailyLogFromFirestore } from '../utils/firestoreSync';
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, ReferenceLine, Legend, CartesianGrid, Area, ComposedChart } from 'recharts';
 import { RecipeDetail } from './RecipeDetail';
@@ -2153,6 +2154,10 @@ function estimateIngGrams(ing) {
   const unit = (ing.measurement || '').trim().toLowerCase();
   // If no measurement but quantity looks like grams (>10), treat as grams
   if (!unit && qty > 10) return qty;
+  // Per-ingredient override from the ingredient database
+  // (e.g. "1 scoop protein powder = 15g").
+  const dbOverride = getSizeGrams(ing.ingredient || '', unit);
+  if (dbOverride && dbOverride > 0) return qty * dbOverride;
   return qty * (MEASUREMENT_TO_GRAMS[unit] || (qty > 10 ? 1 : 100));
 }
 
