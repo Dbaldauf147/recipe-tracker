@@ -1834,7 +1834,12 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
                       </label>
                       {ingredientsMissing > 0 && (
                         <span className={styles.weighSumNote}>
-                          {` (${ingredientsMissing} missing weight)`}
+                          {(() => {
+                            const names = missingIngredientDetails.map(m => m.name).filter(Boolean);
+                            const shown = names.slice(0, 3).join(', ');
+                            const extra = names.length > 3 ? ` +${names.length - 3}` : '';
+                            return ` (missing: ${shown}${extra})`;
+                          })()}
                         </span>
                       )}
                     </td>
