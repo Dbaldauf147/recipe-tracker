@@ -428,6 +428,20 @@
   font-weight: 600;
 }
 
+.sectionDivider {
+  background: var(--color-accent-light, #EDE9FE);
+}
+
+.sectionDivider td {
+  font-weight: 700;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-accent, #7C3AED);
+  padding: 0.4rem 0.6rem;
+  border-bottom: 1px solid var(--color-accent, #7C3AED);
+}
+
 .disclaimer {
   margin: 0.75rem 0 0;
   font-size: 0.75rem;

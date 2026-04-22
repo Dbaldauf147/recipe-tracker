@@ -349,21 +349,42 @@ function IngredientBreakdown({ items, totals }) {
             </tr>
           </thead>
           <tbody>
-            {items.map((item, i) => (
-              <tr key={i}>
-                <td className={styles.ingredientCell}>
-                  <span>{item.matchedTo}</span>
-                  <span className={styles.matchNote}>
-                    {item.name.toLowerCase()} ({item.grams}g)
-                  </span>
-                </td>
-                {visibleNutrients.map(n => (
-                  <td key={n.key}>
-                    {item.nutrients[n.key]}{n.unit}
+            {(() => {
+              const baseItems = items.map((item, i) => ({ item, i })).filter(({ item }) => !item.topping);
+              const topItems = items.map((item, i) => ({ item, i })).filter(({ item }) => item.topping);
+              const colSpan = 1 + visibleNutrients.length;
+              const renderItemRow = ({ item, i }) => (
+                <tr key={i}>
+                  <td className={styles.ingredientCell}>
+                    <span>{item.matchedTo}</span>
+                    <span className={styles.matchNote}>
+                      {item.name.toLowerCase()} ({item.grams}g)
+                    </span>
                   </td>
-                ))}
-              </tr>
-            ))}
+                  {visibleNutrients.map(n => (
+                    <td key={n.key}>
+                      {item.nutrients[n.key]}{n.unit}
+                    </td>
+                  ))}
+                </tr>
+              );
+              return (
+                <>
+                  {baseItems.length > 0 && (
+                    <tr className={styles.sectionDivider}>
+                      <td colSpan={colSpan}>Base Ingredients</td>
+                    </tr>
+                  )}
+                  {baseItems.map(renderItemRow)}
+                  {topItems.length > 0 && (
+                    <tr className={styles.sectionDivider}>
+                      <td colSpan={colSpan}>Per Meal Toppings</td>
+                    </tr>
+                  )}
+                  {topItems.map(renderItemRow)}
+                </>
+              );
+            })()}
             <tr className={styles.totalRow}>
               <td><strong>Total</strong></td>
               {visibleNutrients.map(n => (
@@ -638,7 +659,13 @@ export function NutritionPanel({ recipeId, ingredients, servings = 1, portionLab
         );
       })()}
 
-      <IngredientBreakdown items={items} totals={totals} />
+      <IngredientBreakdown
+        items={items.map((item, i) => ({
+          ...item,
+          topping: !!filteredIngredients[i]?.topping,
+        }))}
+        totals={totals}
+      />
 
       <p className={styles.disclaimer}>
         Nutrition data from USDA FoodData Central, Open Food Facts, and Canadian Nutrient File. Values are estimates based on approximate unit conversions.
