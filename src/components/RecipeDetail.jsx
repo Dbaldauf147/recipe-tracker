@@ -1935,6 +1935,37 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
                   </tr>
                 </tbody>
               </table>
+              {weighMode === 'sum' && ingredientsMissing > 0 && (
+                <div style={{
+                  background: '#FEE2E2',
+                  border: '1px solid #FCA5A5',
+                  borderRadius: '8px',
+                  padding: '0.6rem 0.75rem',
+                  marginTop: '0.5rem',
+                  fontSize: '0.78rem',
+                  color: '#7F1D1D',
+                }}>
+                  <div style={{ fontWeight: 700, fontSize: '0.82rem', marginBottom: '0.3rem' }}>
+                    Bottom-up sum is incomplete
+                  </div>
+                  <div style={{ marginBottom: '0.3rem', lineHeight: 1.4 }}>
+                    The {ingredientWeightTotal}g total only includes the {ingredientsWeighed} ingredient{ingredientsWeighed === 1 ? '' : 's'} we could convert to grams. These {ingredientsMissing} are missing weight data and aren't counted:
+                  </div>
+                  <ul style={{ margin: 0, paddingLeft: '1.1rem', lineHeight: 1.45 }}>
+                    {missingIngredientDetails.slice(0, 10).map((m, i) => (
+                      <li key={i}>
+                        <strong>{m.name}</strong>{m.reasons.length > 0 ? ` — ${m.reasons.join(', ')}` : ''}
+                      </li>
+                    ))}
+                    {missingIngredientDetails.length > 10 && (
+                      <li>…and {missingIngredientDetails.length - 10} more</li>
+                    )}
+                  </ul>
+                  <div style={{ fontSize: '0.7rem', marginTop: '0.4rem', fontStyle: 'italic' }}>
+                    Add a quantity + known unit (g, oz, cup, tbsp, tsp, ml, lb, kg, piece, slice, clove, can, bunch, pinch, dash, handful) to each ingredient in the Ingredients section, or switch to top-down weighing.
+                  </div>
+                </div>
+              )}
               <div className={styles.weighActions}>
                 {foodWeight > 0 && servingWeight && servingWeight !== defaultServingWeight && (
                   <button className={styles.weighResetBtn} onClick={() => setServingWeight('')}>
