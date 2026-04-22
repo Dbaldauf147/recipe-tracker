@@ -791,6 +791,7 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
   let ingredientWeightTotal = 0;
   let ingredientsWeighed = 0;
   let ingredientsMissing = 0;
+  const missingIngredientDetails = [];
   for (const row of (fields?.ingredients || [])) {
     if (row.topping) continue;
     if (!(row.ingredient || '').trim()) continue;
@@ -800,9 +801,23 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
       ingredientsWeighed++;
     } else {
       ingredientsMissing++;
+      const reasons = [];
+      if (!row.quantity || isNaN(parseFloat(row.quantity))) reasons.push('quantity missing');
+      if (!row.measurement) reasons.push('unit missing');
+      else if (row.quantity && parseFloat(row.quantity) > 0) {
+        reasons.push(`unit "${row.measurement}" can't be converted to grams (no DB match)`);
+      }
+      missingIngredientDetails.push({ name: row.ingredient, reasons });
     }
   }
   ingredientWeightTotal = Math.round(ingredientWeightTotal);
+
+  // Top-down weighing prerequisites — mirrors the Daily Tracker banner.
+  const hasContainersField = Array.isArray(fields?.containers) && fields.containers.some(c => parseFloat(c?.weight) > 0);
+  const topDownMissing = [];
+  if (!totalWeightNum) topDownMissing.push('Total meal weight (with container) is not entered.');
+  if (totalWeightNum > 0 && containerWeightNum >= totalWeightNum) topDownMissing.push('Container weight equals or exceeds total — food weight works out to 0.');
+  if (totalWeightNum > 0 && containerWeightNum === 0 && !hasContainersField) topDownMissing.push('Container weight is not entered (optional, but improves accuracy if you weighed with a container).');
   const defaultServingWeight = (foodWeight > 0 && baseServings > 0)
     ? String(Math.round(foodWeight / baseServings))
     : '';
@@ -1725,6 +1740,74 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
           <details className={styles.weightDetails}>
             <summary>Weigh portion size</summary>
             <div className={styles.weightAdjuster}>
+              {(topDownMissing.length > 0 || ingredientsMissing > 0) && (
+                <div style={{
+                  background: '#FEF3C7',
+                  border: '1px solid #FDE68A',
+                  borderRadius: '8px',
+                  padding: '0.6rem 0.75rem',
+                  marginBottom: '0.75rem',
+                  fontSize: '0.78rem',
+                  color: '#78350F',
+                }}>
+                  <div style={{ fontWeight: 700, fontSize: '0.82rem', color: '#92400E', marginBottom: '0.4rem' }}>
+                    What's needed for a total meal weight
+                  </div>
+
+                  <div style={{ marginBottom: '0.6rem', paddingBottom: '0.5rem', borderBottom: '1px dashed #FDE68A' }}>
+                    <div style={{ fontWeight: 700, color: '#92400E', marginBottom: '0.15rem' }}>
+                      Top-down weighing — {topDownMissing.length === 0 ? 'ready' : 'incomplete'}
+                    </div>
+                    <div style={{ fontSize: '0.72rem', marginBottom: '0.25rem', lineHeight: 1.4 }}>
+                      Weigh the full cooked meal with its container, then subtract container weight. Fill in the <strong>Manually weigh total meal</strong> row below.
+                    </div>
+                    {topDownMissing.length > 0 ? (
+                      <ul style={{ margin: 0, paddingLeft: '1.1rem', lineHeight: 1.45 }}>
+                        {topDownMissing.map((r, i) => <li key={i}>{r}</li>)}
+                      </ul>
+                    ) : (
+                      <div style={{ fontSize: '0.72rem', color: '#15803d', fontStyle: 'italic' }}>
+                        Total weight and container weight are set — food weight = {foodWeight}g.
+                      </div>
+                    )}
+                  </div>
+
+                  <div>
+                    <div style={{ fontWeight: 700, color: '#92400E', marginBottom: '0.15rem' }}>
+                      Bottom-up weighing — {ingredientsMissing === 0 && ingredientsWeighed > 0 ? 'ready' : 'incomplete'}
+                    </div>
+                    <div style={{ fontSize: '0.72rem', marginBottom: '0.25rem', lineHeight: 1.4 }}>
+                      Sum each ingredient's grams. Current estimate: <strong>{ingredientWeightTotal > 0 ? `${ingredientWeightTotal}g` : '—'}</strong> from {ingredientsWeighed} ingredient{ingredientsWeighed === 1 ? '' : 's'}.
+                    </div>
+                    {ingredientsMissing > 0 ? (
+                      <>
+                        <div style={{ fontSize: '0.72rem', marginBottom: '0.2rem' }}>
+                          {ingredientsMissing} ingredient{ingredientsMissing === 1 ? '' : 's'} can't be converted to grams:
+                        </div>
+                        <ul style={{ margin: 0, paddingLeft: '1.1rem', lineHeight: 1.45 }}>
+                          {missingIngredientDetails.slice(0, 8).map((m, i) => (
+                            <li key={i}>
+                              <strong>{m.name}</strong>{m.reasons.length > 0 ? ` — ${m.reasons.join(', ')}` : ''}
+                            </li>
+                          ))}
+                          {missingIngredientDetails.length > 8 && (
+                            <li>…and {missingIngredientDetails.length - 8} more</li>
+                          )}
+                        </ul>
+                        <div style={{ fontSize: '0.7rem', marginTop: '0.3rem', fontStyle: 'italic' }}>
+                          Fix in the Ingredients section: give each a quantity and a known unit (g, oz, cup, tbsp, tsp, ml, lb, kg, piece, slice, clove, can, bunch, pinch, dash, handful).
+                        </div>
+                      </>
+                    ) : ingredientsWeighed === 0 ? (
+                      <div style={{ fontSize: '0.72rem', fontStyle: 'italic' }}>No ingredients to sum yet.</div>
+                    ) : (
+                      <div style={{ fontSize: '0.72rem', color: '#15803d', fontStyle: 'italic' }}>
+                        Every ingredient has a recognized unit — bottom-up sum is usable.
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
               <table className={styles.weighTable}>
                 <thead>
                   <tr>
