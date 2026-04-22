@@ -1511,6 +1511,7 @@ function AddRecipeQuick({ recipes, getRecipe, onAdd, onBack, weeklyPlan, inline,
   const [mealWeight, setMealWeight] = useState('');
   const [showIngWeights, setShowIngWeights] = useState(false);
   const [ingWeights, setIngWeights] = useState({});
+  const [ingUnits, setIngUnits] = useState({}); // per-ingredient unit override (default: 'g')
   const [nutCacheVersion, setNutCacheVersion] = useState(0);
   const [previewTotal, setPreviewTotal] = useState(null); // the green Total row nutrition
   const [previewNutrition, setPreviewNutrition] = useState(null); // { perServing, recipeServings }
@@ -1524,6 +1525,7 @@ function AddRecipeQuick({ recipes, getRecipe, onAdd, onBack, weeklyPlan, inline,
   // Reset per-ingredient weights when recipe changes, and pre-fetch nutrition
   useEffect(() => {
     setIngWeights({});
+    setIngUnits({});
     setShowIngWeights(false);
     // Pre-fetch nutrition so the custom portions table has data
     if (recipeId) {
@@ -1716,7 +1718,8 @@ function AddRecipeQuick({ recipes, getRecipe, onAdd, onBack, weeklyPlan, inline,
         void nutCacheVersion; // ensure re-render when nutrition is fetched
         const recipe = getRecipe(recipeId);
         if (!recipe) return null;
-        const perMealIngs = (recipe.ingredients || []).map((ing, idx) => ({ ing, idx })).filter(({ ing }) => ing.topping);
+        // All ingredients (was: only toppings) so users can adjust any row.
+        const perMealIngs = (recipe.ingredients || []).map((ing, idx) => ({ ing, idx }));
         const recipeServings = parseInt(recipe.servings) || 1;
         const cache = loadNutritionCache();
         const cached = cache[recipeId];
@@ -1860,32 +1863,64 @@ function AddRecipeQuick({ recipes, getRecipe, onAdd, onBack, weeklyPlan, inline,
         }
         bottomUpEstimate = Math.round(bottomUpEstimate);
 
-        // Per-ingredient standard grams for each topping
+        // Per-ingredient row data. For each ingredient (topping or main):
+        //   batchGrams = full ingredient grams in the recipe (from quantity+unit)
+        //   defaultGrams = per-meal default (toppings as-is; mains divided by recipeServings)
+        //   mealScale = (mealWeight / portionStdGrams), applied to non-overridden mains
+        //   effectiveGrams = user-entered value × unit factor, else defaultGrams × mealScale (mains)
+        //   ingNutAdj = batch nutrition × (effectiveGrams / batchGrams)
+        const perIngItems = cached?.items || null;
+        const _mw = parseFloat(mealWeight);
+        const mealScale = (foodWeight > 0 && portionStdGrams > 0 && _mw > 0)
+          ? (_mw / portionStdGrams)
+          : 1;
         const toppingIngData = perMealIngs.map(({ ing, idx }) => {
-          const origGrams = Math.round(estimateIngGrams(ing));
+          const batchGrams = Math.round(estimateIngGrams(ing));
+          const defaultGrams = ing.topping ? batchGrams : Math.round(batchGrams / recipeServings);
+          const origQty = parseFloat(ing.quantity);
+          const defaultValue = !isNaN(origQty)
+            ? (ing.topping ? origQty : parseFloat((origQty / recipeServings).toFixed(3)))
+            : '';
+          const defaultUnit = (ing.measurement || 'g').toLowerCase();
+
           const rawVal = ingWeights[idx];
-          const customGrams = parseFloat(rawVal);
-          const hasCustom = rawVal !== undefined && rawVal !== '' && !isNaN(customGrams);
-          // Per-ingredient nutrition from cache
-          // Topping ingredients are per-meal (not divided across recipe servings)
-          // so we use the full cached nutrition as-is (it represents the quantity listed)
-          const perIngItems = cached?.items || null;
+          const rawUnit = ingUnits[idx];
+          const userVal = parseFloat(rawVal);
+          const hasCustomVal = rawVal !== undefined && rawVal !== '' && !isNaN(userVal);
+          const unit = (rawUnit || defaultUnit || 'g').toLowerCase();
+          const factor = MEASUREMENT_TO_GRAMS[unit] || 0;
+          const customGrams = hasCustomVal ? Math.round(userVal * factor) : null;
+          // Non-topping mains scale with mealWeight unless user overrode them.
+          const effectiveGrams = customGrams != null
+            ? customGrams
+            : (ing.topping ? defaultGrams : Math.round(defaultGrams * mealScale));
+
           const ingNutBase = (perIngItems && perIngItems[idx]?.nutrients) || {};
-          const ingNutPerServ = {};
-          for (const n of NUTRIENTS) ingNutPerServ[n.key] = ingNutBase[n.key] || 0;
-          const ratio = hasCustom ? (origGrams > 0 ? customGrams / origGrams : 0) : 1;
+          const ratio = batchGrams > 0 ? (effectiveGrams / batchGrams) : 0;
           const ingNutAdj = {};
-          for (const n of NUTRIENTS) ingNutAdj[n.key] = Math.round((ingNutPerServ[n.key] || 0) * ratio * 10) / 10;
-          return { ing, idx, origGrams, customGrams: hasCustom ? customGrams : null, ingNutPerServ, ingNutAdj };
+          const ingNutPerServ = {};
+          for (const n of NUTRIENTS) {
+            ingNutPerServ[n.key] = ingNutBase[n.key] || 0;
+            ingNutAdj[n.key] = Math.round(((ingNutBase[n.key] || 0) * ratio) * 10) / 10;
+          }
+          return {
+            ing, idx, origGrams: defaultGrams, batchGrams,
+            defaultValue, defaultUnit, unit,
+            customGrams, effectiveGrams,
+            ingNutPerServ, ingNutAdj,
+          };
         });
 
         // Portion nutrition
         const portionNutAdj = hasMealWeight && mealWeightNut ? mealWeightNut : mainNut;
 
         // Total = portion + all adjusted toppings
+        // Per-ingredient table (toppingIngData) now includes mains + toppings,
+        // so summing it gives the full meal nutrition. Don't add portionNutAdj
+        // (that would double-count the mains).
         const finalTotal = {};
         for (const n of NUTRIENTS) {
-          let sum = portionNutAdj[n.key] || 0;
+          let sum = 0;
           for (const t of toppingIngData) sum += t.ingNutAdj[n.key] || 0;
           finalTotal[n.key] = Math.round(sum * 10) / 10;
         }
@@ -1994,26 +2029,68 @@ function AddRecipeQuick({ recipes, getRecipe, onAdd, onBack, weeklyPlan, inline,
                     <td style={td}>{Math.round(portionNutAdj.carbs || 0)}</td>
                     <td style={td}>{Math.round(portionNutAdj.fat || 0)}</td>
                   </tr>
-                  {/* Per-meal ingredients title row */}
+                  {/* Per-ingredient title row */}
                   {toppingIngData.length > 0 && (
                     <tr style={{ background: 'var(--color-surface-alt)' }}>
-                      <td colSpan={7} style={{ ...tdLabel, fontWeight: 700, fontSize: '0.78rem', color: '#7C3AED', borderBottom: '2px solid #EDE9FE', padding: '0.5rem 0.4rem 0.25rem' }}>Per-Meal Ingredients</td>
+                      <td colSpan={7} style={{ ...tdLabel, fontWeight: 700, fontSize: '0.78rem', color: '#7C3AED', borderBottom: '2px solid #EDE9FE', padding: '0.5rem 0.4rem 0.25rem' }}>Per-Ingredient Adjustments</td>
                     </tr>
                   )}
-                  {/* Per-meal ingredient rows */}
+                  {/* Per-ingredient rows (mains + toppings, all individually adjustable) */}
                   {toppingIngData.map(t => (
-                    <tr key={t.idx} style={{ background: t.customGrams ? '#F5F3FF' : 'var(--color-surface)' }}>
-                      <td style={{ ...tdLabel, paddingLeft: '1rem' }}>{t.ing.ingredient}</td>
-                      <td style={td}>{t.origGrams}</td>
-                      <td style={{ ...td, padding: '0.25rem 0.4rem' }}>
+                    <tr key={t.idx} style={{ background: (t.customGrams != null) ? '#F5F3FF' : 'var(--color-surface)' }}>
+                      <td style={{ ...tdLabel, paddingLeft: '1rem' }}>
+                        {t.ing.ingredient}
+                        {t.ing.topping && <span style={{ color: '#7C3AED', fontSize: '0.66rem', marginLeft: '0.3rem' }}>(per meal)</span>}
+                      </td>
+                      <td style={td}>
+                        {t.defaultValue !== '' ? `${t.defaultValue} ${t.defaultUnit}` : `${t.origGrams}g`}
+                      </td>
+                      <td style={{ ...td, padding: '0.25rem 0.4rem', whiteSpace: 'nowrap' }}>
                         <input
                           type="number"
                           value={ingWeights[t.idx] || ''}
                           onChange={e => setIngWeights(prev => ({ ...prev, [t.idx]: e.target.value }))}
-                          placeholder={`${t.origGrams}`}
+                          placeholder={t.defaultValue !== '' ? String(t.defaultValue) : '0'}
                           min="0"
-                          style={inputStyle}
+                          step="0.01"
+                          style={{ ...inputStyle, width: '52px' }}
                         />
+                        <select
+                          value={t.unit}
+                          onChange={e => setIngUnits(prev => ({ ...prev, [t.idx]: e.target.value }))}
+                          style={{
+                            marginLeft: '4px',
+                            padding: '0.3rem 0.2rem',
+                            border: '1px solid var(--color-border)',
+                            borderRadius: '5px',
+                            fontSize: '0.78rem',
+                            fontFamily: 'inherit',
+                            background: 'var(--color-surface)',
+                          }}
+                        >
+                          <option value="g">g</option>
+                          <option value="oz">oz</option>
+                          <option value="cup">cup</option>
+                          <option value="tbsp">tbsp</option>
+                          <option value="tsp">tsp</option>
+                          <option value="ml">ml</option>
+                          <option value="lb">lb</option>
+                          <option value="kg">kg</option>
+                          <option value="piece">piece</option>
+                          <option value="slice">slice</option>
+                          <option value="clove">clove</option>
+                          <option value="can">can</option>
+                          <option value="bunch">bunch</option>
+                          <option value="pinch">pinch</option>
+                          <option value="dash">dash</option>
+                          <option value="handful">handful</option>
+                          <option value="medium">medium</option>
+                          <option value="large">large</option>
+                          <option value="small">small</option>
+                        </select>
+                        {t.customGrams != null && (
+                          <div style={{ fontSize: '0.66rem', color: 'var(--color-text-muted)', marginTop: '2px' }}>= {t.customGrams}g</div>
+                        )}
                       </td>
                       <td style={td}>{Math.round(t.ingNutAdj.calories || 0)}</td>
                       <td style={td}>{Math.round(t.ingNutAdj.protein || 0)}</td>
