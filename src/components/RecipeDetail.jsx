@@ -2383,7 +2383,7 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
                         className={styles.toggleSectionBtn}
                         type="button"
                         onClick={() => updateIngredient(i, 'topping', !row.topping)}
-                        title={row.topping ? 'Move to main ingredients' : 'Move to per meal'}
+                        title={row.topping ? 'Move to base ingredients' : 'Move to per meal toppings'}
                       >
                         {row.topping ? '\u2191' : '\u2193'}
                       </button>
@@ -2400,10 +2400,14 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
                   </tr>
                   );
                   };
+                  const editSpan = 5 + (showGHG ? 1 : 0) + (showShelfLife ? 2 : 0) + 1;
                   return (
                     <>
+                      {mainIdxRows.length > 0 && (
+                        <tr className={styles.sectionDivider}><td colSpan={editSpan}>Base Ingredients</td></tr>
+                      )}
                       {mainIdxRows.map(renderRow)}
-                      <tr className={styles.sectionDivider}><td colSpan={5 + (showGHG ? 1 : 0) + (showShelfLife ? 2 : 0) + 1}>Per Meal</td></tr>
+                      <tr className={styles.sectionDivider}><td colSpan={editSpan}>Per Meal Toppings</td></tr>
                       {toppingIdxRows.map(renderRow)}
                     </>
                   );
@@ -2494,12 +2498,16 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
                     </tr>
                   );
                 };
+                const viewSpan = 2 + (showGHG ? 1 : 0);
                 return (
                   <>
+                    {mainRows.length > 0 && toppingRows.length > 0 && (
+                      <tr className={styles.sectionDivider}><td colSpan={viewSpan}>Base Ingredients</td></tr>
+                    )}
                     {mainRows.map(renderViewRow)}
                     {toppingRows.length > 0 && (
                       <>
-                        <tr className={styles.sectionDivider}><td colSpan={2 + (showGHG ? 1 : 0)}>Per Meal</td></tr>
+                        <tr className={styles.sectionDivider}><td colSpan={viewSpan}>Per Meal Toppings</td></tr>
                         {toppingRows.map(renderViewRow)}
                       </>
                     )}
