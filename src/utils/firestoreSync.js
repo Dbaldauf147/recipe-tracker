@@ -750,11 +750,31 @@ export async function createShareLink(uid, recipe) {
 
 /**
  * Load a shared recipe by token. Returns the recipe object or null.
+ *
+ * Tries the public /api/shared-recipe endpoint first so unauthenticated
+ * external users can open a shared link. Falls back to a direct Firestore
+ * read for signed-in users (or if the API call fails).
  */
 export async function loadSharedRecipe(token) {
-  const snap = await getDoc(doc(db, 'sharedLinks', token));
-  if (!snap.exists()) return null;
-  return snap.data().recipe;
+  try {
+    const res = await fetch(`/api/shared-recipe?token=${encodeURIComponent(token)}`);
+    if (res.ok) {
+      const data = await res.json();
+      if (data?.recipe) return data.recipe;
+    } else if (res.status === 404) {
+      return null;
+    }
+    // Other errors (500, network): fall through to direct read
+  } catch {
+    // Network/etc. — fall through to direct read
+  }
+  try {
+    const snap = await getDoc(doc(db, 'sharedLinks', token));
+    if (!snap.exists()) return null;
+    return snap.data().recipe;
+  } catch {
+    return null;
+  }
 }
 
 /* ── Login tracking ── */
