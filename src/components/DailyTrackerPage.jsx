@@ -1885,8 +1885,11 @@ function AddRecipeQuick({ recipes, getRecipe, onAdd, onBack, weeklyPlan, inline,
                 borderBottom: '1px solid #FDE68A',
                 padding: '0.6rem 0.75rem',
               }}>
-                <div style={{ fontWeight: 700, fontSize: '0.82rem', color: '#92400E', marginBottom: '0.3rem' }}>
-                  Can't compute % of meal — recipe is missing weight info
+                <div style={{ fontWeight: 700, fontSize: '0.82rem', color: '#92400E', marginBottom: '0.25rem' }}>
+                  Top-down weighing isn't set up for this recipe
+                </div>
+                <div style={{ fontSize: '0.72rem', color: '#78350F', marginBottom: '0.4rem', lineHeight: 1.4 }}>
+                  <strong>Top-down</strong> = weigh the full cooked meal with its container, then subtract the container weight. We need that data to compute % of meal.
                 </div>
                 <ul style={{ margin: 0, paddingLeft: '1.1rem', color: '#78350F', fontSize: '0.78rem', lineHeight: 1.45 }}>
                   {missingWeightReasons.map((r, i) => (
@@ -1894,7 +1897,7 @@ function AddRecipeQuick({ recipes, getRecipe, onAdd, onBack, weeklyPlan, inline,
                   ))}
                 </ul>
                 <div style={{ fontSize: '0.72rem', color: '#92400E', marginTop: '0.4rem', fontStyle: 'italic' }}>
-                  Open the recipe and set <strong>total cooked weight</strong> (and any container weights) to enable weight-based portioning.
+                  Open the recipe and set <strong>total cooked weight</strong> (plus any container weights). Bottom-up weighing (summing each ingredient) is coming as a fallback.
                 </div>
               </div>
             )}
