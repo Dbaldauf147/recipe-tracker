@@ -1869,7 +1869,7 @@ function AddRecipeQuick({ recipes, getRecipe, onAdd, onBack, weeklyPlan, inline,
         //   mealScale = (mealWeight / portionStdGrams), applied to non-overridden mains
         //   effectiveGrams = user-entered value × unit factor, else defaultGrams × mealScale (mains)
         //   ingNutAdj = batch nutrition × (effectiveGrams / batchGrams)
-        const perIngItems = cached?.items || null;
+        // (perIngItems was already declared above for the main/topping split.)
         const _mw = parseFloat(mealWeight);
         const mealScale = (foodWeight > 0 && portionStdGrams > 0 && _mw > 0)
           ? (_mw / portionStdGrams)
