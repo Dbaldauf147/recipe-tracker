@@ -1838,6 +1838,28 @@ function AddRecipeQuick({ recipes, getRecipe, onAdd, onBack, weeklyPlan, inline,
           missingWeightReasons.push('Container weight is not set (optional, but improves accuracy if your recipe includes containers).');
         }
 
+        // Bottom-up status: sum each ingredient's grams. Surface ingredients
+        // whose unit isn't recognized (the helper falls back to 100g, which
+        // is just a guess) so the user can fix them.
+        let bottomUpEstimate = 0;
+        const bottomUpProblems = [];
+        for (const ing of (recipe.ingredients || [])) {
+          const qty = parseFloat(ing.quantity);
+          const unitRaw = (ing.measurement || '').trim().toLowerCase();
+          const unitKnown = unitRaw && Object.prototype.hasOwnProperty.call(MEASUREMENT_TO_GRAMS, unitRaw);
+          const qtyLooksLikeGrams = !unitRaw && !isNaN(qty) && qty > 10;
+          if (!isNaN(qty)) bottomUpEstimate += estimateIngGrams(ing);
+          const issues = [];
+          if (isNaN(qty)) issues.push('quantity missing');
+          if (!unitKnown && !qtyLooksLikeGrams) {
+            issues.push(unitRaw ? `unit "${ing.measurement}" not recognized` : 'no unit');
+          }
+          if (issues.length > 0) {
+            bottomUpProblems.push({ name: ing.ingredient || '(unnamed ingredient)', issues });
+          }
+        }
+        bottomUpEstimate = Math.round(bottomUpEstimate);
+
         // Per-ingredient standard grams for each topping
         const toppingIngData = perMealIngs.map(({ ing, idx }) => {
           const origGrams = Math.round(estimateIngGrams(ing));
@@ -1885,19 +1907,57 @@ function AddRecipeQuick({ recipes, getRecipe, onAdd, onBack, weeklyPlan, inline,
                 borderBottom: '1px solid #FDE68A',
                 padding: '0.6rem 0.75rem',
               }}>
-                <div style={{ fontWeight: 700, fontSize: '0.82rem', color: '#92400E', marginBottom: '0.25rem' }}>
-                  Top-down weighing isn't set up for this recipe
+                <div style={{ fontWeight: 700, fontSize: '0.82rem', color: '#92400E', marginBottom: '0.5rem' }}>
+                  Can't compute meal % — fix one of the two methods below
                 </div>
-                <div style={{ fontSize: '0.72rem', color: '#78350F', marginBottom: '0.4rem', lineHeight: 1.4 }}>
-                  <strong>Top-down</strong> = weigh the full cooked meal with its container, then subtract the container weight. We need that data to compute % of meal.
+
+                {/* Top-down */}
+                <div style={{ marginBottom: '0.6rem', paddingBottom: '0.5rem', borderBottom: '1px dashed #FDE68A' }}>
+                  <div style={{ fontWeight: 700, fontSize: '0.78rem', color: '#92400E', marginBottom: '0.2rem' }}>
+                    Top-down weighing — missing
+                  </div>
+                  <div style={{ fontSize: '0.72rem', color: '#78350F', marginBottom: '0.3rem', lineHeight: 1.4 }}>
+                    Weigh the full cooked meal with its container, then subtract container weight.
+                  </div>
+                  <ul style={{ margin: 0, paddingLeft: '1.1rem', color: '#78350F', fontSize: '0.78rem', lineHeight: 1.45 }}>
+                    {missingWeightReasons.map((r, i) => (
+                      <li key={i}>{r}</li>
+                    ))}
+                  </ul>
+                  <div style={{ fontSize: '0.7rem', color: '#92400E', marginTop: '0.3rem', fontStyle: 'italic' }}>
+                    Fix on the recipe: set <strong>total cooked weight</strong> (and any container weights).
+                  </div>
                 </div>
-                <ul style={{ margin: 0, paddingLeft: '1.1rem', color: '#78350F', fontSize: '0.78rem', lineHeight: 1.45 }}>
-                  {missingWeightReasons.map((r, i) => (
-                    <li key={i}>{r}</li>
-                  ))}
-                </ul>
-                <div style={{ fontSize: '0.72rem', color: '#92400E', marginTop: '0.4rem', fontStyle: 'italic' }}>
-                  Open the recipe and set <strong>total cooked weight</strong> (plus any container weights). Bottom-up weighing (summing each ingredient) is coming as a fallback.
+
+                {/* Bottom-up */}
+                <div>
+                  <div style={{ fontWeight: 700, fontSize: '0.78rem', color: '#92400E', marginBottom: '0.2rem' }}>
+                    Bottom-up weighing — {bottomUpProblems.length === 0 ? 'looks complete' : 'incomplete'}
+                  </div>
+                  <div style={{ fontSize: '0.72rem', color: '#78350F', marginBottom: '0.3rem', lineHeight: 1.4 }}>
+                    Sum each ingredient's grams. Current estimate: <strong>{bottomUpEstimate}g</strong>.
+                  </div>
+                  {bottomUpProblems.length > 0 ? (
+                    <>
+                      <ul style={{ margin: 0, paddingLeft: '1.1rem', color: '#78350F', fontSize: '0.78rem', lineHeight: 1.45 }}>
+                        {bottomUpProblems.slice(0, 8).map((p, i) => (
+                          <li key={i}>
+                            <strong>{p.name}</strong> — {p.issues.join(', ')}
+                          </li>
+                        ))}
+                        {bottomUpProblems.length > 8 && (
+                          <li>…and {bottomUpProblems.length - 8} more</li>
+                        )}
+                      </ul>
+                      <div style={{ fontSize: '0.7rem', color: '#92400E', marginTop: '0.3rem', fontStyle: 'italic' }}>
+                        Fix on the recipe: give each ingredient a quantity and a known unit (g, oz, cup, tbsp, tsp, ml, lb, kg, piece, slice, clove, can, bunch, pinch, dash, handful).
+                      </div>
+                    </>
+                  ) : (
+                    <div style={{ fontSize: '0.7rem', color: '#92400E', marginTop: '0.3rem', fontStyle: 'italic' }}>
+                      Bottom-up could power weight-based logging once the fallback ships — every ingredient already has a parseable unit.
+                    </div>
+                  )}
                 </div>
               </div>
             )}
