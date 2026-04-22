@@ -1824,6 +1824,20 @@ function AddRecipeQuick({ recipes, getRecipe, onAdd, onBack, weeklyPlan, inline,
         const foodWeight = Math.max(0, totalWeightNum - containerWeightNum);
         const portionStdGrams = foodWeight > 0 ? Math.round(foodWeight / recipeServings) : '';
 
+        // Reasons the food weight can't be computed — surfaced inline so the
+        // user knows what to fix on the recipe.
+        const missingWeightReasons = [];
+        if (!totalWeightNum) {
+          missingWeightReasons.push('Total cooked weight (g) is not set on this recipe.');
+        }
+        if (totalWeightNum > 0 && containerWeightNum >= totalWeightNum) {
+          missingWeightReasons.push('Container weight equals or exceeds total weight — food weight works out to 0.');
+        }
+        const hasContainers = Array.isArray(recipe.containers) && recipe.containers.length > 0;
+        if (totalWeightNum > 0 && !hasContainers && !recipe.containerWeight) {
+          missingWeightReasons.push('Container weight is not set (optional, but improves accuracy if your recipe includes containers).');
+        }
+
         // Per-ingredient standard grams for each topping
         const toppingIngData = perMealIngs.map(({ ing, idx }) => {
           const origGrams = Math.round(estimateIngGrams(ing));
@@ -1865,6 +1879,25 @@ function AddRecipeQuick({ recipes, getRecipe, onAdd, onBack, weeklyPlan, inline,
 
         return (
           <div style={{ marginTop: '0.5rem', marginBottom: '0.5rem', background: 'var(--color-surface-alt)', borderRadius: '10px', overflow: 'hidden' }}>
+            {foodWeight === 0 && missingWeightReasons.length > 0 && (
+              <div style={{
+                background: '#FEF3C7',
+                borderBottom: '1px solid #FDE68A',
+                padding: '0.6rem 0.75rem',
+              }}>
+                <div style={{ fontWeight: 700, fontSize: '0.82rem', color: '#92400E', marginBottom: '0.3rem' }}>
+                  Can't compute % of meal — recipe is missing weight info
+                </div>
+                <ul style={{ margin: 0, paddingLeft: '1.1rem', color: '#78350F', fontSize: '0.78rem', lineHeight: 1.45 }}>
+                  {missingWeightReasons.map((r, i) => (
+                    <li key={i}>{r}</li>
+                  ))}
+                </ul>
+                <div style={{ fontSize: '0.72rem', color: '#92400E', marginTop: '0.4rem', fontStyle: 'italic' }}>
+                  Open the recipe and set <strong>total cooked weight</strong> (and any container weights) to enable weight-based portioning.
+                </div>
+              </div>
+            )}
             <div style={{ overflowX: 'auto' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem' }}>
                 <thead>
