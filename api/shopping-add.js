@@ -53,19 +53,23 @@ export default async function handler(req, res) {
   const params = req.method === 'GET' ? req.query : req.body;
   const { uid, token, items } = params;
 
-  // Validate
-  const expectedToken = process.env.SHOPPING_WEBHOOK_TOKEN;
-  if (!expectedToken) {
-    return res.status(500).json({ error: 'SHOPPING_WEBHOOK_TOKEN not configured. Add it to Vercel environment variables.' });
+  if (!uid) return res.status(400).json({ error: 'Missing uid' });
+  if (!items) return res.status(400).json({ error: 'Missing items' });
+  if (!token) return res.status(401).json({ error: 'Missing token' });
+
+  // Auth: token must match either the user's per-user siriToken (preferred)
+  // or the legacy global SHOPPING_WEBHOOK_TOKEN env secret (backward compat).
+  let userSnap;
+  try {
+    userSnap = await db.collection('users').doc(uid).get();
+  } catch (err) {
+    console.error('User lookup error:', err);
+    return res.status(500).json({ error: 'User lookup failed' });
   }
-  if (token !== expectedToken) {
+  const userToken = userSnap.exists ? (userSnap.data().siriToken || null) : null;
+  const envToken = process.env.SHOPPING_WEBHOOK_TOKEN;
+  if (token !== userToken && (!envToken || token !== envToken)) {
     return res.status(401).json({ error: 'Invalid token' });
-  }
-  if (!uid) {
-    return res.status(400).json({ error: 'Missing uid' });
-  }
-  if (!items) {
-    return res.status(400).json({ error: 'Missing items' });
   }
 
   const parsed = parseItems(items);
@@ -75,8 +79,7 @@ export default async function handler(req, res) {
 
   try {
     const userRef = db.collection('users').doc(uid);
-    const snap = await userRef.get();
-    const existing = snap.exists ? (snap.data().shopExtras || []) : [];
+    const existing = userSnap.exists ? (userSnap.data().shopExtras || []) : [];
     const updated = [...existing, ...parsed];
     await userRef.set({ shopExtras: updated }, { merge: true });
 
