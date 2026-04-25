@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { ComposedChart, Area, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend } from 'recharts';
 import { saveField } from '../utils/firestoreSync';
+import { ExerciseLibrary } from './ExerciseLibrary';
 import styles from './WorkoutPage.module.css';
 
 const CHART_METRICS = {
@@ -30,6 +31,7 @@ const EXERCISES_BY_GROUP = {
 const GYMS = ['Edge South Tower', 'Home', 'Other'];
 
 const STORAGE_KEY = 'sunday-workout-log';
+const LIBRARY_KEY = 'sunday-exercise-library';
 
 function loadWorkouts() {
   try { return JSON.parse(localStorage.getItem(STORAGE_KEY)) || []; } catch { return []; }
@@ -38,6 +40,15 @@ function loadWorkouts() {
 function saveWorkouts(data, uid) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
   if (uid) saveField(uid, 'workoutLog', data);
+}
+
+function loadLibrary() {
+  try { return JSON.parse(localStorage.getItem(LIBRARY_KEY)) || []; } catch { return []; }
+}
+
+function saveLibrary(data, uid) {
+  localStorage.setItem(LIBRARY_KEY, JSON.stringify(data));
+  if (uid) saveField(uid, 'exerciseLibrary', data);
 }
 
 function todayStr() {
@@ -348,7 +359,8 @@ export function WorkoutPage({ onBack, user }) {
   const [selectedDate, setSelectedDate] = useState(todayStr());
   const [gym, setGym] = useState(GYMS[0]);
   const [entries, setEntries] = useState([emptyEntry()]);
-  const [viewMode, setViewMode] = useState('log'); // 'log' | 'history' | 'charts' | 'stats'
+  const [viewMode, setViewMode] = useState('log'); // 'log' | 'history' | 'charts' | 'exercises' | 'stats'
+  const [exerciseLibrary, setExerciseLibrary] = useState(loadLibrary);
   const [historyGroup, setHistoryGroup] = useState('');
   const [chartGroup, setChartGroup] = useState('');
   const [chartExercise, setChartExercise] = useState('');
@@ -584,9 +596,9 @@ export function WorkoutPage({ onBack, user }) {
       </div>
 
       <div className={styles.tabs}>
-        {['log', 'history', 'charts', 'stats'].map(tab => (
+        {['log', 'history', 'charts', 'exercises', 'stats'].map(tab => (
           <button key={tab} className={`${styles.tab} ${viewMode === tab ? styles.tabActive : ''}`} onClick={() => setViewMode(tab)}>
-            {tab === 'log' ? 'Log Workout' : tab === 'history' ? 'History' : tab === 'charts' ? 'Charts' : 'Stats & PRs'}
+            {tab === 'log' ? 'Log Workout' : tab === 'history' ? 'History' : tab === 'charts' ? 'Charts' : tab === 'exercises' ? 'Exercises' : 'Stats & PRs'}
           </button>
         ))}
       </div>
@@ -914,6 +926,13 @@ export function WorkoutPage({ onBack, user }) {
           </div>
         );
       })()}
+
+      {viewMode === 'exercises' && (
+        <ExerciseLibrary
+          library={exerciseLibrary}
+          onChange={(next) => { setExerciseLibrary(next); saveLibrary(next, user?.uid); }}
+        />
+      )}
 
       {viewMode === 'stats' && (
         <div className={styles.statsSection}>
