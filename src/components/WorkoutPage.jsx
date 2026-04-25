@@ -104,12 +104,13 @@ function findCol(headers, aliases) {
 
 /**
  * Parse a workout CSV (the user's spreadsheet format) into the workoutLog
- * shape: array of { date, gym, entries: [{group, exercise, sets, perArm, weight, notes, time, ...}] }.
+ * shape, plus a per-row cleaning report so the user can see exactly which
+ * cells we sanitized and which rows we had to skip.
  */
 function parseWorkoutCsv(text) {
   const delim = detectDelim(text);
   const lines = text.split(/\r?\n/).filter(l => l.trim().length > 0);
-  if (lines.length === 0) return { workouts: [], skipped: 0, headers: [] };
+  if (lines.length === 0) return { workouts: [], skippedRows: [], cleanings: [], headers: [] };
   const headers = splitCsvLine(lines[0], delim);
 
   const colGroup    = findCol(headers, ['group']);
@@ -129,30 +130,66 @@ function parseWorkoutCsv(text) {
     throw new Error('CSV must have Date and Exercises columns at minimum');
   }
 
+  // Helper that records cleaned-cell details for the report.
+  function cleanCell(raw, colName, type, fixes) {
+    if (raw == null || raw === '') return '';
+    const s = String(raw).trim();
+    if (!s) return '';
+    if (isJunkCell(s)) {
+      fixes.push(`${colName}: removed "${s}"`);
+      return '';
+    }
+    if (type === 'int' || type === 'float') {
+      const n = parseFloat(s);
+      if (isNaN(n)) {
+        fixes.push(`${colName}: not a number "${s}"`);
+        return '';
+      }
+      return type === 'int' ? String(n) : n;
+    }
+    return s;
+  }
+
   const byDate = new Map();
-  let skipped = 0;
+  const skippedRows = [];
+  const cleanings = []; // [{ lineNum, date, exercise, fixes: [...] }]
 
   for (let i = 1; i < lines.length; i++) {
+    const lineNum = i + 1;
     const cells = splitCsvLine(lines[i], delim);
-    const date = normalizeDate(cells[colDate]);
+    const dateRaw = cells[colDate] || '';
+    const date = normalizeDate(dateRaw);
     const exercise = (cells[colExercise] || '').trim();
-    if (!date || !exercise) { skipped++; continue; }
 
+    if (!date && !exercise) {
+      skippedRows.push({ lineNum, reason: 'blank date and exercise', raw: lines[i] });
+      continue;
+    }
+    if (!date) {
+      skippedRows.push({ lineNum, reason: `bad date "${dateRaw}"`, raw: lines[i] });
+      continue;
+    }
+    if (!exercise) {
+      skippedRows.push({ lineNum, reason: 'missing exercise', raw: lines[i] });
+      continue;
+    }
+
+    const fixes = [];
     const group = (cells[colGroup] || '').trim();
+    if (!group) fixes.push('Group: blank');
     const gym = colGym >= 0 ? (cells[colGym] || '').trim() : '';
     const notes = colNotes >= 0 ? (cells[colNotes] || '').trim() : '';
     const time = colRest >= 0 ? (cells[colRest] || '').trim() || '2:00' : '2:00';
 
     const sets = [
-      cleanInt(cells[colSet1]),
-      cleanInt(cells[colSet2]),
-      cleanInt(cells[colSet3]),
-      cleanInt(cells[colSet4]),
+      cleanCell(cells[colSet1], 'Set 1', 'int', fixes),
+      cleanCell(cells[colSet2], 'Set 2', 'int', fixes),
+      cleanCell(cells[colSet3], 'Set 3', 'int', fixes),
+      cleanCell(cells[colSet4], 'Set 4', 'int', fixes),
     ];
-    const perSide = colPerSide >= 0 ? cleanFloat(cells[colPerSide]) : '';
-    const totalWt = colTotalWt >= 0 ? cleanFloat(cells[colTotalWt]) : '';
+    const perSide = colPerSide >= 0 ? cleanCell(cells[colPerSide], 'Per Arm/Leg', 'float', fixes) : '';
+    const totalWt = colTotalWt >= 0 ? cleanCell(cells[colTotalWt], 'Total Weight', 'float', fixes) : '';
 
-    // perArm = true if Total ≈ PerSide × 2 (within 1lb tolerance).
     let weight = '';
     let perArm = false;
     if (perSide !== '' && totalWt !== '') {
@@ -166,14 +203,14 @@ function parseWorkoutCsv(text) {
     }
 
     const entry = { group, exercise, sets, perArm, weight, notes, time };
+    if (fixes.length > 0) cleanings.push({ lineNum, date, exercise, fixes });
+
     if (!byDate.has(date)) byDate.set(date, { date, gym: gym || 'Edge South Tower', entries: [] });
     const bucket = byDate.get(date);
     if (!bucket.gym && gym) bucket.gym = gym;
     bucket.entries.push(entry);
   }
 
-  // Compute the same stats saveWorkout enriches with, so the imported data
-  // immediately shows in History/Stats/PRs.
   const workouts = [];
   for (const w of byDate.values()) {
     const enriched = w.entries.map(e => {
@@ -187,7 +224,47 @@ function parseWorkoutCsv(text) {
     });
     workouts.push({ ...w, entries: enriched, savedAt: new Date().toISOString() });
   }
-  return { workouts, skipped, headers };
+  return { workouts, skippedRows, cleanings, headers };
+}
+
+// Re-emit the parsed workouts as a cleaned CSV using the same column
+// structure as the user's source sheet. They can paste this back over their
+// spreadsheet to replace junk values with blanks.
+function buildCleanedCsv(workouts) {
+  const header = [
+    'Group', 'Exercises', 'Date', 'Gym', 'Notes', 'Rest Time',
+    'Set 1', 'Set 2', 'Set 3', 'Set 4', 'Per Arm/Leg', 'Total Weight',
+    'Max Weight', 'Reps', 'Max Reps',
+  ];
+  const sortedDates = [...workouts].sort((a, b) => a.date.localeCompare(b.date));
+  const rows = [header.join('\t')];
+  for (const w of sortedDates) {
+    // M/D/YYYY to match source sheet format.
+    const [yyyy, mm, dd] = w.date.split('-');
+    const dateOut = `${parseInt(mm)}/${parseInt(dd)}/${yyyy}`;
+    for (const e of w.entries) {
+      const perSide = parseFloat(e.weight) || '';
+      const total = e.perArm ? perSide * 2 : perSide;
+      rows.push([
+        e.group || '',
+        e.exercise || '',
+        dateOut,
+        w.gym || '',
+        e.notes || '',
+        e.time || '',
+        e.sets[0] || '',
+        e.sets[1] || '',
+        e.sets[2] || '',
+        e.sets[3] || '',
+        perSide === '' ? '' : perSide,
+        total === '' ? '' : total,
+        e.maxWeight || '',
+        e.avgReps || '',
+        e.maxReps || '',
+      ].join('\t'));
+    }
+  }
+  return rows.join('\n');
 }
 
 export function WorkoutPage({ onBack, user }) {
@@ -231,6 +308,20 @@ export function WorkoutPage({ onBack, user }) {
     setImportPreview(null);
     setImportError('');
     alert(`Imported ${importPreview.workouts.length} workout day${importPreview.workouts.length === 1 ? '' : 's'}.`);
+  }
+
+  function handleDownloadCleaned() {
+    if (!importPreview) return;
+    const csv = buildCleanedCsv(importPreview.workouts);
+    const blob = new Blob([csv], { type: 'text/tab-separated-values' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `workouts-cleaned-${new Date().toISOString().slice(0, 10)}.tsv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
   }
 
   // Load today's workout if it exists
@@ -561,43 +652,93 @@ export function WorkoutPage({ onBack, user }) {
                 </button>
               )}
             </div>
-            {importPreview && (
-              <div style={{ marginTop: '1rem' }}>
-                <div style={{ fontSize: '0.85rem', color: 'var(--color-text-secondary)', marginBottom: '0.5rem' }}>
-                  <strong>{importPreview.workouts.length}</strong> workout day{importPreview.workouts.length === 1 ? '' : 's'},{' '}
-                  <strong>{importPreview.workouts.reduce((s, w) => s + w.entries.length, 0)}</strong> exercises
-                  {importPreview.skipped > 0 && <span> · {importPreview.skipped} rows skipped</span>}.
+            {importPreview && (() => {
+              const totalExercises = importPreview.workouts.reduce((s, w) => s + w.entries.length, 0);
+              const cleanedRowKeys = new Set(importPreview.cleanings.map(c => `${c.date}|${c.exercise}|${c.lineNum}`));
+              return (
+                <div style={{ marginTop: '1rem' }}>
+                  <div style={{ fontSize: '0.85rem', color: 'var(--color-text-secondary)', marginBottom: '0.5rem' }}>
+                    <strong>{importPreview.workouts.length}</strong> day{importPreview.workouts.length === 1 ? '' : 's'},{' '}
+                    <strong>{totalExercises}</strong> exercises ·{' '}
+                    <span style={{ color: '#92400E' }}>{importPreview.cleanings.length} row{importPreview.cleanings.length === 1 ? '' : 's'} cleaned</span> ·{' '}
+                    <span style={{ color: '#991B1B' }}>{importPreview.skippedRows.length} skipped</span>
+                  </div>
+
+                  <button
+                    className={styles.saveBtn}
+                    onClick={handleDownloadCleaned}
+                    style={{ background: '#0ea5e9', marginBottom: '0.75rem', width: '100%' }}
+                  >
+                    Download Cleaned CSV (TSV) — paste back into your sheet
+                  </button>
+
+                  {importPreview.cleanings.length > 0 && (
+                    <details style={{ marginBottom: '0.75rem', background: '#FEF3C7', border: '1px solid #FDE68A', borderRadius: 6, padding: '0.5rem 0.6rem' }}>
+                      <summary style={{ cursor: 'pointer', fontWeight: 600, color: '#92400E', fontSize: '0.84rem' }}>
+                        {importPreview.cleanings.length} row{importPreview.cleanings.length === 1 ? '' : 's'} had cleanups
+                      </summary>
+                      <div style={{ maxHeight: 180, overflow: 'auto', marginTop: '0.4rem', fontSize: '0.78rem', color: '#78350F' }}>
+                        {importPreview.cleanings.map((c, i) => (
+                          <div key={i} style={{ marginBottom: '0.3rem' }}>
+                            <strong>L{c.lineNum} · {c.date} · {c.exercise}</strong>: {c.fixes.join('; ')}
+                          </div>
+                        ))}
+                      </div>
+                    </details>
+                  )}
+
+                  {importPreview.skippedRows.length > 0 && (
+                    <details style={{ marginBottom: '0.75rem', background: '#FEE2E2', border: '1px solid #FCA5A5', borderRadius: 6, padding: '0.5rem 0.6rem' }}>
+                      <summary style={{ cursor: 'pointer', fontWeight: 600, color: '#991B1B', fontSize: '0.84rem' }}>
+                        {importPreview.skippedRows.length} row{importPreview.skippedRows.length === 1 ? '' : 's'} skipped (couldn't import)
+                      </summary>
+                      <div style={{ maxHeight: 180, overflow: 'auto', marginTop: '0.4rem', fontSize: '0.78rem', color: '#7F1D1D' }}>
+                        {importPreview.skippedRows.map((s, i) => (
+                          <div key={i} style={{ marginBottom: '0.3rem' }}>
+                            <strong>L{s.lineNum}</strong> ({s.reason}): <code style={{ fontSize: '0.74rem', whiteSpace: 'nowrap' }}>{s.raw.slice(0, 120)}{s.raw.length > 120 ? '…' : ''}</code>
+                          </div>
+                        ))}
+                      </div>
+                    </details>
+                  )}
+
+                  <div style={{ maxHeight: 260, overflow: 'auto', border: '1px solid var(--color-border-light)', borderRadius: 6 }}>
+                    <table style={{ width: '100%', fontSize: '0.78rem', borderCollapse: 'collapse' }}>
+                      <thead style={{ background: 'var(--color-surface-alt)', position: 'sticky', top: 0 }}>
+                        <tr>
+                          <th style={{ textAlign: 'left', padding: '0.4rem' }}>Date</th>
+                          <th style={{ textAlign: 'left', padding: '0.4rem' }}>Group</th>
+                          <th style={{ textAlign: 'left', padding: '0.4rem' }}>Exercise</th>
+                          <th style={{ textAlign: 'right', padding: '0.4rem' }}>Sets (reps)</th>
+                          <th style={{ textAlign: 'right', padding: '0.4rem' }}>Wt</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {importPreview.workouts.flatMap(w =>
+                          w.entries.map((e, i) => {
+                            // Find a matching cleaning entry for this row to highlight it.
+                            const wasCleaned = importPreview.cleanings.some(
+                              c => c.date === w.date && c.exercise === e.exercise,
+                            );
+                            return (
+                              <tr key={`${w.date}-${i}`} style={{ borderTop: '1px solid var(--color-border-light)', background: wasCleaned ? '#FEF3C7' : undefined }}>
+                                <td style={{ padding: '0.35rem 0.4rem', whiteSpace: 'nowrap' }}>{w.date}</td>
+                                <td style={{ padding: '0.35rem 0.4rem' }}>{e.group}</td>
+                                <td style={{ padding: '0.35rem 0.4rem' }}>{e.exercise}{wasCleaned && <span title="cleaned" style={{ marginLeft: 4, color: '#92400E' }}>⚠</span>}</td>
+                                <td style={{ padding: '0.35rem 0.4rem', textAlign: 'right' }}>{e.sets.filter(s => s !== '').join(', ')}</td>
+                                <td style={{ padding: '0.35rem 0.4rem', textAlign: 'right', whiteSpace: 'nowrap' }}>
+                                  {e.weight ? `${e.weight}${e.perArm ? ' ×2' : ''}` : '—'}
+                                </td>
+                              </tr>
+                            );
+                          })
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
-                <div style={{ maxHeight: 260, overflow: 'auto', border: '1px solid var(--color-border-light)', borderRadius: 6 }}>
-                  <table style={{ width: '100%', fontSize: '0.78rem', borderCollapse: 'collapse' }}>
-                    <thead style={{ background: 'var(--color-surface-alt)', position: 'sticky', top: 0 }}>
-                      <tr>
-                        <th style={{ textAlign: 'left', padding: '0.4rem' }}>Date</th>
-                        <th style={{ textAlign: 'left', padding: '0.4rem' }}>Group</th>
-                        <th style={{ textAlign: 'left', padding: '0.4rem' }}>Exercise</th>
-                        <th style={{ textAlign: 'right', padding: '0.4rem' }}>Sets (reps)</th>
-                        <th style={{ textAlign: 'right', padding: '0.4rem' }}>Wt</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {importPreview.workouts.flatMap(w =>
-                        w.entries.map((e, i) => (
-                          <tr key={`${w.date}-${i}`} style={{ borderTop: '1px solid var(--color-border-light)' }}>
-                            <td style={{ padding: '0.35rem 0.4rem', whiteSpace: 'nowrap' }}>{w.date}</td>
-                            <td style={{ padding: '0.35rem 0.4rem' }}>{e.group}</td>
-                            <td style={{ padding: '0.35rem 0.4rem' }}>{e.exercise}</td>
-                            <td style={{ padding: '0.35rem 0.4rem', textAlign: 'right' }}>{e.sets.filter(s => s !== '').join(', ')}</td>
-                            <td style={{ padding: '0.35rem 0.4rem', textAlign: 'right', whiteSpace: 'nowrap' }}>
-                              {e.weight ? `${e.weight}${e.perArm ? ' ×2' : ''}` : '—'}
-                            </td>
-                          </tr>
-                        ))
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            )}
+              );
+            })()}
           </div>
         </div>
       )}
