@@ -102,6 +102,30 @@ function findCol(headers, aliases) {
   return -1;
 }
 
+// Robust split — handles quoted CSV fields (Google Sheets CSV export wraps
+// any field containing a comma/quote/newline in double quotes and escapes
+// embedded quotes by doubling them).
+function splitCsvLineQuoted(line, delim) {
+  if (delim !== ',') return splitCsvLine(line, delim);
+  const out = [];
+  let cur = '';
+  let inQ = false;
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i];
+    if (inQ) {
+      if (c === '"' && line[i + 1] === '"') { cur += '"'; i++; }
+      else if (c === '"') inQ = false;
+      else cur += c;
+    } else {
+      if (c === '"') inQ = true;
+      else if (c === delim) { out.push(cur.trim()); cur = ''; }
+      else cur += c;
+    }
+  }
+  out.push(cur.trim());
+  return out;
+}
+
 /**
  * Parse a workout CSV (the user's spreadsheet format) into the workoutLog
  * shape, plus a per-row cleaning report so the user can see exactly which
@@ -109,9 +133,11 @@ function findCol(headers, aliases) {
  */
 function parseWorkoutCsv(text) {
   const delim = detectDelim(text);
-  const lines = text.split(/\r?\n/).filter(l => l.trim().length > 0);
-  if (lines.length === 0) return { workouts: [], skippedRows: [], cleanings: [], headers: [] };
-  const headers = splitCsvLine(lines[0], delim);
+  // Strip BOM (Google Sheets CSV export sometimes prepends one).
+  const cleaned = text.replace(/^﻿/, '');
+  const lines = cleaned.split(/\r?\n/).filter(l => l.trim().length > 0);
+  if (lines.length === 0) return { workouts: [], skippedRows: [], cleanings: [], headers: [], colMap: {}, sampleRow: [] };
+  const headers = splitCsvLineQuoted(lines[0], delim);
 
   const colGroup    = findCol(headers, ['group']);
   const colExercise = findCol(headers, ['exercises', 'exercise']);
@@ -156,7 +182,7 @@ function parseWorkoutCsv(text) {
 
   for (let i = 1; i < lines.length; i++) {
     const lineNum = i + 1;
-    const cells = splitCsvLine(lines[i], delim);
+    const cells = splitCsvLineQuoted(lines[i], delim);
     const dateRaw = cells[colDate] || '';
     const date = normalizeDate(dateRaw);
     const exercise = (cells[colExercise] || '').trim();
@@ -224,7 +250,24 @@ function parseWorkoutCsv(text) {
     });
     workouts.push({ ...w, entries: enriched, savedAt: new Date().toISOString() });
   }
-  return { workouts, skippedRows, cleanings, headers };
+  // Diagnostic data so the UI can show which header maps to which index +
+  // what's actually in that cell on the first data row.
+  const sampleRow = lines.length > 1 ? splitCsvLineQuoted(lines[1], delim) : [];
+  const colMap = {
+    Group: colGroup,
+    Exercises: colExercise,
+    Date: colDate,
+    Gym: colGym,
+    Notes: colNotes,
+    'Rest Time': colRest,
+    'Set 1': colSet1,
+    'Set 2': colSet2,
+    'Set 3': colSet3,
+    'Set 4': colSet4,
+    'Per Arm/Leg': colPerSide,
+    'Total Weight': colTotalWt,
+  };
+  return { workouts, skippedRows, cleanings, headers, colMap, sampleRow, delim };
 }
 
 // Re-emit the parsed workouts as a cleaned CSV using the same column
@@ -778,6 +821,40 @@ export function WorkoutPage({ onBack, user }) {
                   >
                     Download Cleaned CSV (TSV) — paste back into your sheet
                   </button>
+
+                  <details style={{ marginBottom: '0.75rem', background: '#EFF6FF', border: '1px solid #BFDBFE', borderRadius: 6, padding: '0.5rem 0.6rem' }}>
+                    <summary style={{ cursor: 'pointer', fontWeight: 600, color: '#1E3A8A', fontSize: '0.84rem' }}>
+                      Column mapping (delim: {importPreview.delim === '\t' ? 'TAB' : importPreview.delim || '?'}) — verify Set 1–4 read the right values
+                    </summary>
+                    <table style={{ width: '100%', fontSize: '0.78rem', marginTop: '0.4rem', borderCollapse: 'collapse' }}>
+                      <thead>
+                        <tr style={{ color: '#1E3A8A' }}>
+                          <th style={{ textAlign: 'left', padding: '0.3rem 0.4rem' }}>Field</th>
+                          <th style={{ textAlign: 'right', padding: '0.3rem 0.4rem' }}>Col #</th>
+                          <th style={{ textAlign: 'left', padding: '0.3rem 0.4rem' }}>Header at that index</th>
+                          <th style={{ textAlign: 'left', padding: '0.3rem 0.4rem' }}>First-row value</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {Object.entries(importPreview.colMap).map(([field, idx]) => {
+                          const headerVal = idx >= 0 ? (importPreview.headers[idx] ?? '') : '';
+                          const sampleVal = idx >= 0 ? (importPreview.sampleRow[idx] ?? '') : '';
+                          const notFound = idx < 0;
+                          return (
+                            <tr key={field} style={{ borderTop: '1px solid #BFDBFE', background: notFound ? '#FEE2E2' : undefined }}>
+                              <td style={{ padding: '0.25rem 0.4rem', fontWeight: 600 }}>{field}</td>
+                              <td style={{ padding: '0.25rem 0.4rem', textAlign: 'right' }}>{idx >= 0 ? idx : 'NOT FOUND'}</td>
+                              <td style={{ padding: '0.25rem 0.4rem', fontFamily: 'monospace', color: '#1E3A8A' }}>{String(headerVal)}</td>
+                              <td style={{ padding: '0.25rem 0.4rem', fontFamily: 'monospace' }}>{String(sampleVal) || <span style={{ color: '#999' }}>(empty)</span>}</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                    <div style={{ fontSize: '0.72rem', color: '#1E3A8A', marginTop: '0.4rem', fontStyle: 'italic' }}>
+                      First data row had {importPreview.sampleRow.length} cells. If "First-row value" for Set 1–4 looks wrong (e.g. shows "2:00" instead of a number), your spreadsheet has an extra column the parser doesn't know about.
+                    </div>
+                  </details>
 
                   {importPreview.cleanings.length > 0 && (
                     <details style={{ marginBottom: '0.75rem', background: '#FEF3C7', border: '1px solid #FDE68A', borderRadius: 6, padding: '0.5rem 0.6rem' }}>
