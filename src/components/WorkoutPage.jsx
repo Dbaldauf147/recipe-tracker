@@ -557,35 +557,47 @@ export function WorkoutPage({ onBack, user }) {
                     </tr>
                   </thead>
                   <tbody>
-                    {flatRows.map(({ w, e, isFirstOfDay, dayCount }, ri) => (
-                      <tr key={ri} className={isFirstOfDay ? styles.historyRowDayStart : undefined}>
-                        {isFirstOfDay && (
-                          <td rowSpan={dayCount} className={styles.historyDateCell}>
-                            <div className={styles.historyDateMain}>{formatDate(w.date)}</div>
-                            <div className={styles.historyDateSub}>{w.gym}</div>
-                          </td>
-                        )}
-                        <td><span className={styles.historyGroup}>{e.group}</span></td>
-                        <td className={styles.historyExerciseCell}>{e.exercise}</td>
-                        {[0, 1, 2, 3].map(si => {
-                          const reps = e.sets?.[si];
-                          const hasVal = reps !== '' && reps != null && String(reps).trim() !== '';
-                          return (
+                    {flatRows.map(({ w, e, isFirstOfDay, dayCount }, ri) => {
+                      // Coerce sets into a 4-slot array of strings regardless
+                      // of how the data was saved (string array, number array,
+                      // missing, object, etc.). This is defensive so the
+                      // display works on legacy entries too.
+                      const setsArr = Array.isArray(e.sets) ? e.sets : (e.sets ? Object.values(e.sets) : []);
+                      const setVals = [0, 1, 2, 3].map(si => {
+                        const v = setsArr[si];
+                        if (v == null) return '';
+                        const s = String(v).trim();
+                        if (!s || /^#/.test(s)) return '';
+                        return s;
+                      });
+                      const debugTitle = `sets: ${JSON.stringify(setsArr)}`;
+                      return (
+                        <tr key={ri} className={isFirstOfDay ? styles.historyRowDayStart : undefined}>
+                          {isFirstOfDay && (
+                            <td rowSpan={dayCount} className={styles.historyDateCell}>
+                              <div className={styles.historyDateMain}>{formatDate(w.date)}</div>
+                              <div className={styles.historyDateSub}>{w.gym}</div>
+                            </td>
+                          )}
+                          <td><span className={styles.historyGroup}>{e.group}</span></td>
+                          <td className={styles.historyExerciseCell} title={debugTitle}>{e.exercise}</td>
+                          {setVals.map((reps, si) => (
                             <td
                               key={si}
                               className={styles.historySetCell}
-                              title={hasVal ? `Set ${si + 1}: ${reps} reps` : `Set ${si + 1}: not done`}
+                              title={reps ? `Set ${si + 1}: ${reps} reps` : `Set ${si + 1}: not done · ${debugTitle}`}
+                              style={{ color: '#0f172a', fontWeight: 700, fontSize: '0.95rem' }}
                             >
-                              {hasVal ? String(reps) : <span style={{ color: 'var(--color-text-muted)' }}>—</span>}
+                              {reps !== '' ? reps : <span style={{ color: '#999', fontWeight: 400 }}>—</span>}
                             </td>
-                          );
-                        })}
-                        <td className={styles.historyWeightCell}>
-                          {e.totalWeight ? `${e.totalWeight}${e.perArm ? ' (×2)' : ''}` : '—'}
-                        </td>
-                        <td className={styles.historyNotesCell}>{e.notes || ''}</td>
-                      </tr>
-                    ))}
+                          ))}
+                          <td className={styles.historyWeightCell}>
+                            {e.totalWeight ? `${e.totalWeight}${e.perArm ? ' (×2)' : ''}` : '—'}
+                          </td>
+                          <td className={styles.historyNotesCell}>{e.notes || ''}</td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
