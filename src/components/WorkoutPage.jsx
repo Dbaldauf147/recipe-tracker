@@ -482,14 +482,48 @@ export function WorkoutPage({ onBack, user }) {
     return map;
   }, [workouts]);
 
+  // Same data keyed by exercise name only (case-insensitive). Lets Charts
+  // look up history by exercise regardless of which muscle group it was
+  // logged under — the saved workouts use anatomy groups (Chest/Back) while
+  // the imported library uses movement patterns (Push/Pull).
+  const exerciseHistoryByName = useMemo(() => {
+    const map = {};
+    for (const w of workouts) {
+      for (const e of w.entries || []) {
+        if (!e.exercise) continue;
+        const key = e.exercise.trim().toLowerCase();
+        if (!map[key]) map[key] = [];
+        map[key].push({ date: w.date, ...e });
+      }
+    }
+    return map;
+  }, [workouts]);
+
   const filteredHistory = useMemo(() => {
     if (!historyGroup) return workouts;
     return workouts.filter(w => w.entries?.some(e => e.group === historyGroup));
   }, [workouts, historyGroup]);
 
+  // Library-driven groupings for the Charts picker. Falls back to the
+  // groups present in the saved workouts when the library is empty so the
+  // tab still works before the user imports their exercise list.
+  const libraryByGroup = useMemo(() => {
+    const map = {};
+    for (const item of exerciseLibrary || []) {
+      if (!item?.exercise) continue;
+      if (item.retired) continue;
+      const g = item.group || 'Other';
+      if (!map[g]) map[g] = [];
+      map[g].push(item.exercise);
+    }
+    for (const g of Object.keys(map)) {
+      map[g] = Array.from(new Set(map[g])).sort();
+    }
+    return map;
+  }, [exerciseLibrary]);
+
   // Build the list of muscle groups + exercises that actually appear in the
-  // saved workouts, so the Charts picker only offers exercises the user has
-  // logged at least once.
+  // saved workouts. Used as a fallback when no library is imported yet.
   const groupsWithHistory = useMemo(() => {
     const map = {};
     for (const key of Object.keys(exerciseHistory)) {
@@ -503,13 +537,20 @@ export function WorkoutPage({ onBack, user }) {
     return out;
   }, [exerciseHistory]);
 
+  // The picker prefers the imported library (richer + the user's preferred
+  // taxonomy); falls back to whatever groups appear in the saved workouts.
+  const chartGroupSource = useMemo(() => {
+    return Object.keys(libraryByGroup).length > 0 ? libraryByGroup : groupsWithHistory;
+  }, [libraryByGroup, groupsWithHistory]);
+
   // Time series for the selected exercise: one row per session, ordered by
   // date. Includes all metrics so the user can pick which one renders on each
-  // axis without re-aggregating.
+  // axis without re-aggregating. Looks up history by exercise name (not
+  // group) so a Push-grouped library exercise still finds Chest-grouped
+  // history entries.
   const chartData = useMemo(() => {
-    if (!chartGroup || !chartExercise) return [];
-    const key = `${chartGroup}|${chartExercise}`;
-    const history = exerciseHistory[key] || [];
+    if (!chartExercise) return [];
+    const history = exerciseHistoryByName[chartExercise.trim().toLowerCase()] || [];
     return [...history]
       .sort((a, b) => a.date.localeCompare(b.date))
       .map(h => ({
@@ -520,7 +561,7 @@ export function WorkoutPage({ onBack, user }) {
         totalWeight: Number(h.totalWeight) || 0,
         maxWeight: Number(h.maxWeight) || 0,
       }));
-  }, [chartGroup, chartExercise, exerciseHistory]);
+  }, [chartExercise, exerciseHistoryByName]);
 
   // Augment chart data with a least-squares trend line on the right-axis
   // metric so the user can see overall progression at a glance, regardless
@@ -756,10 +797,14 @@ export function WorkoutPage({ onBack, user }) {
       )}
 
       {viewMode === 'charts' && (() => {
-        const groupNames = Object.keys(groupsWithHistory).sort();
-        const exerciseOptions = chartGroup ? (groupsWithHistory[chartGroup] || []) : [];
+        const groupNames = Object.keys(chartGroupSource).sort();
+        const usingLibrary = Object.keys(libraryByGroup).length > 0;
+        const exerciseOptions = chartGroup ? (chartGroupSource[chartGroup] || []) : [];
         const leftMeta = CHART_METRICS[chartLeftMetric];
         const rightMeta = CHART_METRICS[chartRightMetric];
+        const sessionCount = chartExercise
+          ? (exerciseHistoryByName[chartExercise.trim().toLowerCase()] || []).length
+          : 0;
         return (
           <div className={styles.chartsSection}>
             <div className={styles.chartFilterRow}>
@@ -768,7 +813,7 @@ export function WorkoutPage({ onBack, user }) {
                 value={chartGroup}
                 onChange={e => { setChartGroup(e.target.value); setChartExercise(''); }}
               >
-                <option value="">Muscle Group</option>
+                <option value="">{usingLibrary ? 'Group' : 'Muscle Group'}</option>
                 {groupNames.map(g => <option key={g} value={g}>{g}</option>)}
               </select>
               <select
@@ -778,7 +823,10 @@ export function WorkoutPage({ onBack, user }) {
                 disabled={!chartGroup}
               >
                 <option value="">Exercise</option>
-                {exerciseOptions.map(ex => <option key={ex} value={ex}>{ex}</option>)}
+                {exerciseOptions.map(ex => {
+                  const n = (exerciseHistoryByName[ex.trim().toLowerCase()] || []).length;
+                  return <option key={ex} value={ex}>{ex}{n > 0 ? ` (${n})` : ''}</option>;
+                })}
               </select>
             </div>
             <div className={styles.chartFilterRow}>
@@ -807,8 +855,15 @@ export function WorkoutPage({ onBack, user }) {
             {!chartExercise ? (
               <div className={styles.empty}>
                 {groupNames.length === 0
-                  ? 'Log workouts to see charts here.'
-                  : 'Pick a muscle group and exercise to see its trend over time.'}
+                  ? 'Import your exercise library or log workouts to see charts here.'
+                  : usingLibrary
+                    ? 'Pick a group and exercise from your library to see its trend over time.'
+                    : 'Pick a muscle group and exercise to see its trend over time.'}
+              </div>
+            ) : sessionCount === 0 ? (
+              <div className={styles.empty}>
+                No sessions logged for <strong>{chartExercise}</strong> yet.
+                {usingLibrary && ' (Names must match the workout log exactly.)'}
               </div>
             ) : chartData.length < 2 ? (
               <div className={styles.empty}>
