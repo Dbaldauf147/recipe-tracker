@@ -10,6 +10,11 @@ struct MainTabView: View {
                     Label("Scan", systemImage: "barcode.viewfinder")
                 }
 
+            ShoppingListView(authVM: authVM)
+                .tabItem {
+                    Label("Shopping", systemImage: "cart.fill")
+                }
+
             LogWorkoutView(authVM: authVM)
                 .tabItem {
                     Label("Log Workout", systemImage: "dumbbell.fill")
