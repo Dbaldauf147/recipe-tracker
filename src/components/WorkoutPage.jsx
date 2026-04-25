@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { ComposedChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend } from 'recharts';
+import { ComposedChart, Area, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend } from 'recharts';
 import { saveField } from '../utils/firestoreSync';
 import styles from './WorkoutPage.module.css';
 
@@ -510,6 +510,28 @@ export function WorkoutPage({ onBack, user }) {
       }));
   }, [chartGroup, chartExercise, exerciseHistory]);
 
+  // Augment chart data with a least-squares trend line on the right-axis
+  // metric so the user can see overall progression at a glance, regardless
+  // of session-to-session noise.
+  const chartDataWithTrend = useMemo(() => {
+    if (chartData.length < 2) return chartData;
+    const field = CHART_METRICS[chartRightMetric].field;
+    const n = chartData.length;
+    let sumX = 0, sumY = 0, sumXY = 0, sumXX = 0;
+    for (let i = 0; i < n; i++) {
+      const y = chartData[i][field];
+      sumX += i;
+      sumY += y;
+      sumXY += i * y;
+      sumXX += i * i;
+    }
+    const denom = n * sumXX - sumX * sumX;
+    if (denom === 0) return chartData;
+    const slope = (n * sumXY - sumX * sumY) / denom;
+    const intercept = (sumY - slope * sumX) / n;
+    return chartData.map((d, i) => ({ ...d, trend: intercept + slope * i }));
+  }, [chartData, chartRightMetric]);
+
   // Workout frequency stats
   const stats = useMemo(() => {
     const groupCounts = {};
@@ -785,7 +807,7 @@ export function WorkoutPage({ onBack, user }) {
                 <div className={styles.chartTitle}>{chartExercise}</div>
                 <div className={styles.chartWrap}>
                   <ResponsiveContainer width="100%" height="100%">
-                    <ComposedChart data={chartData} margin={{ top: 20, right: 40, left: 10, bottom: 50 }}>
+                    <ComposedChart data={chartDataWithTrend} margin={{ top: 20, right: 40, left: 10, bottom: 50 }}>
                       <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" vertical={false} />
                       <XAxis
                         dataKey="date"
@@ -849,12 +871,44 @@ export function WorkoutPage({ onBack, user }) {
                         dot={false}
                         activeDot={{ r: 4 }}
                       />
+                      <Line
+                        yAxisId="right"
+                        type="linear"
+                        dataKey="trend"
+                        name={`${rightMeta.label} trend`}
+                        stroke="#3B6B9C"
+                        strokeWidth={1.5}
+                        strokeOpacity={0.6}
+                        strokeDasharray="4 3"
+                        dot={false}
+                        activeDot={false}
+                        legendType="none"
+                      />
                     </ComposedChart>
                   </ResponsiveContainer>
                 </div>
-                <div className={styles.chartSummary}>
-                  {chartData.length} sessions · {formatDate(chartData[0].date)} → {formatDate(chartData[chartData.length - 1].date)}
-                </div>
+                {(() => {
+                  const first = chartData[0];
+                  const last = chartData[chartData.length - 1];
+                  const lf = leftMeta.field;
+                  const rf = rightMeta.field;
+                  const ld = last[lf] - first[lf];
+                  const rd = last[rf] - first[rf];
+                  const fmt = (v, d) => `${d > 0 ? '+' : ''}${v.toFixed(1)} (${d === 0 ? '0%' : `${d > 0 ? '+' : ''}${(d * 100).toFixed(0)}%`})`;
+                  const lPct = first[lf] ? ld / first[lf] : 0;
+                  const rPct = first[rf] ? rd / first[rf] : 0;
+                  return (
+                    <div className={styles.chartSummary}>
+                      <strong>{chartData.length} sessions</strong> · {formatDate(first.date)} → {formatDate(last.date)}
+                      <span className={styles.chartDelta} style={{ color: '#dc2626' }}>
+                        {leftMeta.label}: {first[lf]} → {last[lf]} {ld !== 0 && <em>{fmt(ld, lPct)}</em>}
+                      </span>
+                      <span className={styles.chartDelta} style={{ color: '#3B6B9C' }}>
+                        {rightMeta.label}: {first[rf]} → {last[rf]} {rd !== 0 && <em>{fmt(rd, rPct)}</em>}
+                      </span>
+                    </div>
+                  );
+                })()}
               </>
             )}
           </div>
