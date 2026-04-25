@@ -144,16 +144,40 @@ function parseWorkoutCsv(text) {
   const colDate     = findCol(headers, ['date']);
   const colGym      = findCol(headers, ['gym', 'location']);
   const colNotes    = findCol(headers, ['notes', 'note']);
-  const colRest     = findCol(headers, ['rest time', 'rest']);
-  const colSet1     = findCol(headers, ['set 1', 'set1']);
-  const colSet2     = findCol(headers, ['set 2', 'set2']);
-  const colSet3     = findCol(headers, ['set 3', 'set3']);
-  const colSet4     = findCol(headers, ['set 4', 'set4']);
+  let colRest       = findCol(headers, ['rest time', 'rest']);
+  let colSet1       = findCol(headers, ['set 1', 'set1', 's1', 'reps 1', 'set1 reps']);
+  let colSet2       = findCol(headers, ['set 2', 'set2', 's2', 'reps 2', 'set2 reps']);
+  let colSet3       = findCol(headers, ['set 3', 'set3', 's3', 'reps 3', 'set3 reps']);
+  let colSet4       = findCol(headers, ['set 4', 'set4', 's4', 'reps 4', 'set4 reps']);
   const colPerSide  = findCol(headers, ['per arm/leg', 'per arm', 'per side', 'weight per side']);
   const colTotalWt  = findCol(headers, ['total weight', 'weight']);
 
   if (colDate < 0 || colExercise < 0) {
     throw new Error('CSV must have Date and Exercises columns at minimum');
+  }
+
+  // Positional fallback: if Set 1–4 weren't matched by name but the row has
+  // a known anchor on each side (Notes/Date on the left, Per Arm/Leg or
+  // Total Weight on the right), infer the missing columns by position.
+  if (colSet1 < 0 || colSet2 < 0 || colSet3 < 0 || colSet4 < 0) {
+    const leftAnchor = colNotes >= 0 ? colNotes : (colGym >= 0 ? colGym : colDate);
+    const rightAnchor = colPerSide >= 0 ? colPerSide : (colTotalWt >= 0 ? colTotalWt : -1);
+    if (leftAnchor >= 0 && rightAnchor > leftAnchor) {
+      const gap = rightAnchor - leftAnchor - 1;
+      // Common shapes: 5 cells = Rest Time + Set 1-4, 4 cells = Set 1-4 only.
+      if (gap === 5) {
+        if (colRest < 0) colRest = leftAnchor + 1;
+        if (colSet1 < 0) colSet1 = leftAnchor + 2;
+        if (colSet2 < 0) colSet2 = leftAnchor + 3;
+        if (colSet3 < 0) colSet3 = leftAnchor + 4;
+        if (colSet4 < 0) colSet4 = leftAnchor + 5;
+      } else if (gap === 4) {
+        if (colSet1 < 0) colSet1 = leftAnchor + 1;
+        if (colSet2 < 0) colSet2 = leftAnchor + 2;
+        if (colSet3 < 0) colSet3 = leftAnchor + 3;
+        if (colSet4 < 0) colSet4 = leftAnchor + 4;
+      }
+    }
   }
 
   // Helper that records cleaned-cell details for the report.
@@ -853,6 +877,16 @@ export function WorkoutPage({ onBack, user }) {
                     </table>
                     <div style={{ fontSize: '0.72rem', color: '#1E3A8A', marginTop: '0.4rem', fontStyle: 'italic' }}>
                       First data row had {importPreview.sampleRow.length} cells. If "First-row value" for Set 1–4 looks wrong (e.g. shows "2:00" instead of a number), your spreadsheet has an extra column the parser doesn't know about.
+                    </div>
+                    <div style={{ marginTop: '0.6rem', fontSize: '0.74rem', color: '#1E3A8A' }}>
+                      <strong>All headers in your file (showing index : header → first-row value):</strong>
+                      <div style={{ marginTop: '0.3rem', fontFamily: 'monospace', fontSize: '0.72rem', background: '#fff', padding: '0.4rem', borderRadius: 4, maxHeight: 160, overflow: 'auto' }}>
+                        {importPreview.headers.map((h, i) => (
+                          <div key={i}>
+                            <strong>{i}:</strong> "{h}" → "{importPreview.sampleRow[i] ?? ''}"
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   </details>
 
