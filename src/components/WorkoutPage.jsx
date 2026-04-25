@@ -917,35 +917,35 @@ export function WorkoutPage({ onBack, user }) {
                         <div className={styles.chartCardTitle}>{slot.exercise}</div>
                         <div className={styles.chartCardChart}>
                           <ResponsiveContainer width="100%" height="100%">
-                            <ComposedChart data={dataT} margin={{ top: 8, right: 28, left: 0, bottom: 4 }}>
+                            <ComposedChart data={dataT} margin={{ top: 12, right: 36, left: 4, bottom: 8 }}>
                               <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" vertical={false} />
                               <XAxis
                                 dataKey="date"
-                                tick={{ fontSize: 9, fill: '#6b7280' }}
+                                tick={{ fontSize: 11, fill: '#6b7280' }}
                                 tickFormatter={d => {
                                   if (!d) return '';
                                   const [, m, dd] = d.split('-');
                                   return `${parseInt(m)}/${parseInt(dd)}`;
                                 }}
-                                minTickGap={24}
-                                height={20}
+                                minTickGap={28}
+                                height={24}
                               />
-                              <YAxis yAxisId="left" tick={{ fontSize: 9, fill: '#dc2626' }} axisLine={false} tickLine={false} width={28} />
-                              <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 9, fill: '#3B6B9C' }} axisLine={false} tickLine={false} width={28} />
+                              <YAxis yAxisId="left" tick={{ fontSize: 11, fill: '#dc2626' }} axisLine={false} tickLine={false} width={36} />
+                              <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 11, fill: '#3B6B9C' }} axisLine={false} tickLine={false} width={36} />
                               <Tooltip content={({ active, payload, label }) => {
                                 if (!active || !payload?.length) return null;
                                 const d = payload[0].payload;
                                 return (
-                                  <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 6, padding: '0.4rem 0.55rem', fontSize: '0.75rem', boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }}>
+                                  <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 6, padding: '0.5rem 0.7rem', fontSize: '0.82rem', boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }}>
                                     <div style={{ fontWeight: 700, marginBottom: 2 }}>{formatDate(label)}</div>
                                     <div style={{ color: '#dc2626' }}>{leftMeta.label}: {d[leftMeta.field]}</div>
                                     <div style={{ color: '#3B6B9C' }}>{rightMeta.label}: {d[rightMeta.field]}</div>
                                   </div>
                                 );
                               }} />
-                              <Area yAxisId="left" type="stepAfter" dataKey={leftMeta.field} stroke="#dc2626" strokeWidth={1.5} fill="#fca5a5" fillOpacity={0.45} dot={false} activeDot={{ r: 3 }} isAnimationActive={false} />
-                              <Area yAxisId="right" type="stepAfter" dataKey={rightMeta.field} stroke="#3B6B9C" strokeWidth={1.5} fill="#bfdbfe" fillOpacity={0.45} dot={false} activeDot={{ r: 3 }} isAnimationActive={false} />
-                              <Line yAxisId="right" type="linear" dataKey="trend" stroke="#3B6B9C" strokeWidth={1} strokeOpacity={0.6} strokeDasharray="3 3" dot={false} activeDot={false} legendType="none" isAnimationActive={false} />
+                              <Area yAxisId="left" type="stepAfter" dataKey={leftMeta.field} stroke="#dc2626" strokeWidth={2} fill="#fca5a5" fillOpacity={0.45} dot={false} activeDot={{ r: 4 }} isAnimationActive={false} />
+                              <Area yAxisId="right" type="stepAfter" dataKey={rightMeta.field} stroke="#3B6B9C" strokeWidth={2} fill="#bfdbfe" fillOpacity={0.45} dot={false} activeDot={{ r: 4 }} isAnimationActive={false} />
+                              <Line yAxisId="right" type="linear" dataKey="trend" stroke="#3B6B9C" strokeWidth={1.25} strokeOpacity={0.6} strokeDasharray="4 3" dot={false} activeDot={false} legendType="none" isAnimationActive={false} />
                             </ComposedChart>
                           </ResponsiveContainer>
                         </div>
