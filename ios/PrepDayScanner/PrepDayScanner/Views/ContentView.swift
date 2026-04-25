@@ -14,7 +14,7 @@ struct ContentView: View {
 
             case .signedIn(let isAdmin):
                 if isAdmin {
-                    MainScannerView(authVM: authVM)
+                    MainTabView(authVM: authVM)
                 } else {
                     accessDeniedView
                 }
