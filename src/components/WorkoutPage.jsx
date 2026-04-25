@@ -1,6 +1,15 @@
 import { useState, useEffect, useMemo } from 'react';
+import { ComposedChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend } from 'recharts';
 import { saveField } from '../utils/firestoreSync';
 import styles from './WorkoutPage.module.css';
+
+const CHART_METRICS = {
+  avgReps: { label: 'Avg Reps', field: 'avgReps' },
+  totalReps: { label: 'Total Reps', field: 'totalReps' },
+  maxReps: { label: 'Max Reps', field: 'maxReps' },
+  weight: { label: 'Weight', field: 'totalWeight' },
+  maxWeight: { label: 'Max Weight', field: 'maxWeight' },
+};
 
 const MUSCLE_GROUPS = ['Chest', 'Back', 'Legs', 'Shoulders', 'Biceps', 'Triceps', 'Abs', 'Forearms', 'Cardio', 'Yoga', 'Whole Body'];
 
@@ -339,8 +348,12 @@ export function WorkoutPage({ onBack, user }) {
   const [selectedDate, setSelectedDate] = useState(todayStr());
   const [gym, setGym] = useState(GYMS[0]);
   const [entries, setEntries] = useState([emptyEntry()]);
-  const [viewMode, setViewMode] = useState('log'); // 'log' | 'history' | 'stats'
+  const [viewMode, setViewMode] = useState('log'); // 'log' | 'history' | 'charts' | 'stats'
   const [historyGroup, setHistoryGroup] = useState('');
+  const [chartGroup, setChartGroup] = useState('');
+  const [chartExercise, setChartExercise] = useState('');
+  const [chartLeftMetric, setChartLeftMetric] = useState('avgReps');
+  const [chartRightMetric, setChartRightMetric] = useState('weight');
   const [showImport, setShowImport] = useState(false);
   const [importText, setImportText] = useState('');
   const [importPreview, setImportPreview] = useState(null);
@@ -462,6 +475,41 @@ export function WorkoutPage({ onBack, user }) {
     return workouts.filter(w => w.entries?.some(e => e.group === historyGroup));
   }, [workouts, historyGroup]);
 
+  // Build the list of muscle groups + exercises that actually appear in the
+  // saved workouts, so the Charts picker only offers exercises the user has
+  // logged at least once.
+  const groupsWithHistory = useMemo(() => {
+    const map = {};
+    for (const key of Object.keys(exerciseHistory)) {
+      const [g, ex] = key.split('|');
+      if (!g || !ex) continue;
+      if (!map[g]) map[g] = new Set();
+      map[g].add(ex);
+    }
+    const out = {};
+    for (const g of Object.keys(map)) out[g] = Array.from(map[g]).sort();
+    return out;
+  }, [exerciseHistory]);
+
+  // Time series for the selected exercise: one row per session, ordered by
+  // date. Includes all metrics so the user can pick which one renders on each
+  // axis without re-aggregating.
+  const chartData = useMemo(() => {
+    if (!chartGroup || !chartExercise) return [];
+    const key = `${chartGroup}|${chartExercise}`;
+    const history = exerciseHistory[key] || [];
+    return [...history]
+      .sort((a, b) => a.date.localeCompare(b.date))
+      .map(h => ({
+        date: h.date,
+        avgReps: Number(h.avgReps) || 0,
+        totalReps: Number(h.totalReps) || 0,
+        maxReps: Number(h.maxReps) || 0,
+        totalWeight: Number(h.totalWeight) || 0,
+        maxWeight: Number(h.maxWeight) || 0,
+      }));
+  }, [chartGroup, chartExercise, exerciseHistory]);
+
   // Workout frequency stats
   const stats = useMemo(() => {
     const groupCounts = {};
@@ -514,9 +562,9 @@ export function WorkoutPage({ onBack, user }) {
       </div>
 
       <div className={styles.tabs}>
-        {['log', 'history', 'stats'].map(tab => (
+        {['log', 'history', 'charts', 'stats'].map(tab => (
           <button key={tab} className={`${styles.tab} ${viewMode === tab ? styles.tabActive : ''}`} onClick={() => setViewMode(tab)}>
-            {tab === 'log' ? 'Log Workout' : tab === 'history' ? 'History' : 'Stats & PRs'}
+            {tab === 'log' ? 'Log Workout' : tab === 'history' ? 'History' : tab === 'charts' ? 'Charts' : 'Stats & PRs'}
           </button>
         ))}
       </div>
@@ -672,6 +720,146 @@ export function WorkoutPage({ onBack, user }) {
           })()}
         </div>
       )}
+
+      {viewMode === 'charts' && (() => {
+        const groupNames = Object.keys(groupsWithHistory).sort();
+        const exerciseOptions = chartGroup ? (groupsWithHistory[chartGroup] || []) : [];
+        const leftMeta = CHART_METRICS[chartLeftMetric];
+        const rightMeta = CHART_METRICS[chartRightMetric];
+        return (
+          <div className={styles.chartsSection}>
+            <div className={styles.chartFilterRow}>
+              <select
+                className={styles.groupSelect}
+                value={chartGroup}
+                onChange={e => { setChartGroup(e.target.value); setChartExercise(''); }}
+              >
+                <option value="">Muscle Group</option>
+                {groupNames.map(g => <option key={g} value={g}>{g}</option>)}
+              </select>
+              <select
+                className={styles.exerciseSelect}
+                value={chartExercise}
+                onChange={e => setChartExercise(e.target.value)}
+                disabled={!chartGroup}
+              >
+                <option value="">Exercise</option>
+                {exerciseOptions.map(ex => <option key={ex} value={ex}>{ex}</option>)}
+              </select>
+            </div>
+            <div className={styles.chartFilterRow}>
+              <label className={styles.chartMetricLabel}>
+                <span style={{ color: '#dc2626' }}>● Left axis</span>
+                <select
+                  className={styles.chartMetricSelect}
+                  value={chartLeftMetric}
+                  onChange={e => setChartLeftMetric(e.target.value)}
+                >
+                  {Object.entries(CHART_METRICS).map(([k, m]) => <option key={k} value={k}>{m.label}</option>)}
+                </select>
+              </label>
+              <label className={styles.chartMetricLabel}>
+                <span style={{ color: '#3B6B9C' }}>● Right axis</span>
+                <select
+                  className={styles.chartMetricSelect}
+                  value={chartRightMetric}
+                  onChange={e => setChartRightMetric(e.target.value)}
+                >
+                  {Object.entries(CHART_METRICS).map(([k, m]) => <option key={k} value={k}>{m.label}</option>)}
+                </select>
+              </label>
+            </div>
+
+            {!chartExercise ? (
+              <div className={styles.empty}>
+                {groupNames.length === 0
+                  ? 'Log workouts to see charts here.'
+                  : 'Pick a muscle group and exercise to see its trend over time.'}
+              </div>
+            ) : chartData.length < 2 ? (
+              <div className={styles.empty}>
+                Only {chartData.length} session logged for {chartExercise}. Log at least 2 to see a chart.
+              </div>
+            ) : (
+              <>
+                <div className={styles.chartTitle}>{chartExercise}</div>
+                <div className={styles.chartWrap}>
+                  <ResponsiveContainer width="100%" height="100%">
+                    <ComposedChart data={chartData} margin={{ top: 20, right: 40, left: 10, bottom: 50 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" vertical={false} />
+                      <XAxis
+                        dataKey="date"
+                        tick={{ fontSize: 11, fill: '#6b7280' }}
+                        tickFormatter={d => {
+                          if (!d) return '';
+                          const [y, m, dd] = d.split('-');
+                          return `${parseInt(m)}/${parseInt(dd)}/${y}`;
+                        }}
+                        angle={-45}
+                        textAnchor="end"
+                        height={60}
+                        minTickGap={20}
+                      />
+                      <YAxis
+                        yAxisId="left"
+                        tick={{ fontSize: 11, fill: '#dc2626' }}
+                        axisLine={{ stroke: '#e5e7eb' }}
+                        tickLine={false}
+                      />
+                      <YAxis
+                        yAxisId="right"
+                        orientation="right"
+                        tick={{ fontSize: 11, fill: '#3B6B9C' }}
+                        axisLine={{ stroke: '#e5e7eb' }}
+                        tickLine={false}
+                      />
+                      <Tooltip content={({ active, payload, label }) => {
+                        if (!active || !payload?.length) return null;
+                        const d = payload[0].payload;
+                        return (
+                          <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 8, padding: '0.5rem 0.75rem', fontSize: '0.82rem', boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }}>
+                            <div style={{ fontWeight: 700, marginBottom: 2 }}>{formatDate(label)}</div>
+                            <div style={{ color: '#dc2626' }}>{leftMeta.label}: {d[leftMeta.field]}</div>
+                            <div style={{ color: '#3B6B9C' }}>{rightMeta.label}: {d[rightMeta.field]}</div>
+                          </div>
+                        );
+                      }} />
+                      <Legend verticalAlign="top" height={28} />
+                      <Area
+                        yAxisId="left"
+                        type="stepAfter"
+                        dataKey={leftMeta.field}
+                        name={leftMeta.label}
+                        stroke="#dc2626"
+                        strokeWidth={2}
+                        fill="#fca5a5"
+                        fillOpacity={0.45}
+                        dot={false}
+                        activeDot={{ r: 4 }}
+                      />
+                      <Area
+                        yAxisId="right"
+                        type="stepAfter"
+                        dataKey={rightMeta.field}
+                        name={rightMeta.label}
+                        stroke="#3B6B9C"
+                        strokeWidth={2}
+                        fill="#bfdbfe"
+                        fillOpacity={0.45}
+                        dot={false}
+                        activeDot={{ r: 4 }}
+                      />
+                    </ComposedChart>
+                  </ResponsiveContainer>
+                </div>
+                <div className={styles.chartSummary}>
+                  {chartData.length} sessions · {formatDate(chartData[0].date)} → {formatDate(chartData[chartData.length - 1].date)}
+                </div>
+              </>
+            )}
+          </div>
+        );
+      })()}
 
       {viewMode === 'stats' && (
         <div className={styles.statsSection}>
