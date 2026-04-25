@@ -666,17 +666,60 @@ export function WorkoutPage({ onBack, user }) {
               >×</button>
             </div>
             <p style={{ fontSize: '0.85rem', color: 'var(--color-text-secondary)', marginBottom: '0.75rem', lineHeight: 1.5 }}>
-              Paste your spreadsheet (tab- or comma-separated). Supported columns:{' '}
+              Upload a <code>.csv</code> / <code>.tsv</code> file (most reliable for full history) or paste below.
+              Supported columns:{' '}
               <code style={{ fontSize: '0.78rem' }}>Group, Exercises, Date, Gym, Notes, Rest Time, Set 1–4, Per Arm/Leg, Total Weight</code>.
               Existing workouts on the same dates will be replaced.
             </p>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
+              <label
+                style={{
+                  display: 'inline-flex', alignItems: 'center', gap: '0.4rem',
+                  padding: '0.45rem 0.8rem', borderRadius: 8, cursor: 'pointer',
+                  background: 'var(--color-accent)', color: '#fff', fontWeight: 600,
+                  fontSize: '0.85rem',
+                }}
+              >
+                Choose file…
+                <input
+                  type="file"
+                  accept=".csv,.tsv,.txt,text/csv,text/tab-separated-values,text/plain"
+                  style={{ display: 'none' }}
+                  onChange={e => {
+                    const file = e.target.files?.[0];
+                    if (!file) return;
+                    const reader = new FileReader();
+                    reader.onload = ev => {
+                      const text = String(ev.target?.result || '');
+                      setImportText(text);
+                      setImportPreview(null);
+                      setImportError('');
+                      // Auto-parse so user sees preview immediately.
+                      try {
+                        const result = parseWorkoutCsv(text);
+                        if (result.workouts.length > 0) setImportPreview(result);
+                      } catch (err) {
+                        setImportError(err.message || 'Parse failed');
+                      }
+                    };
+                    reader.onerror = () => setImportError('Could not read the file');
+                    reader.readAsText(file);
+                    // Allow re-uploading the same file.
+                    e.target.value = '';
+                  }}
+                />
+              </label>
+              <span style={{ fontSize: '0.78rem', color: 'var(--color-text-muted)' }}>
+                or paste below ↓
+              </span>
+            </div>
             <textarea
               style={{
                 width: '100%', minHeight: 180, padding: '0.6rem', borderRadius: 8,
                 border: '1px solid var(--color-border)', fontFamily: 'monospace', fontSize: '0.78rem',
                 background: 'var(--color-surface-alt)', resize: 'vertical', color: 'var(--color-text)',
               }}
-              placeholder="Paste your CSV here..."
+              placeholder="Or paste your CSV/TSV content here..."
               value={importText}
               onChange={e => { setImportText(e.target.value); setImportPreview(null); setImportError(''); }}
             />
