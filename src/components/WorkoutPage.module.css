@@ -73,6 +73,56 @@
 }
 .historyWeight { font-size: 0.78rem; font-weight: 600; color: var(--color-accent); min-width: 60px; text-align: right; }
 
+/* History — flat table view */
+.historyTableWrap {
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  overflow: auto;
+  max-height: 70vh;
+  background: var(--color-surface);
+}
+.historyTable {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 0.82rem;
+}
+.historyTable thead th {
+  position: sticky;
+  top: 0;
+  background: var(--color-surface-alt);
+  z-index: 1;
+  text-align: left;
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text-muted);
+  padding: 0.55rem 0.6rem;
+  border-bottom: 2px solid var(--color-border);
+  white-space: nowrap;
+}
+.historyTable tbody td {
+  padding: 0.5rem 0.6rem;
+  vertical-align: middle;
+  border-bottom: 1px solid var(--color-border-light);
+  color: var(--color-text);
+}
+.historyRowDayStart td { border-top: 2px solid var(--color-border); }
+.historyDateCell {
+  background: var(--color-surface-alt);
+  white-space: nowrap;
+  vertical-align: top;
+  border-right: 1px solid var(--color-border);
+  min-width: 110px;
+}
+.historyDateMain { font-weight: 600; }
+.historyDateSub { font-size: 0.7rem; color: var(--color-text-muted); margin-top: 1px; }
+.historyExerciseCell { min-width: 160px; font-weight: 500; }
+.historySetCell { text-align: center; min-width: 38px; font-variant-numeric: tabular-nums; }
+.historyWeightCell { text-align: right; white-space: nowrap; font-weight: 600; color: var(--color-accent); min-width: 80px; }
+.historyNotesCell { font-size: 0.75rem; color: var(--color-text-secondary); max-width: 200px; }
+
 /* Stats */
 .statCards { display: flex; gap: 0.75rem; margin-bottom: 1.5rem; }
 .statCard { flex: 1; background: var(--color-surface); border-radius: 12px; padding: 1rem; text-align: center; box-shadow: var(--shadow-sm); }

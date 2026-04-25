@@ -518,44 +518,64 @@ export function WorkoutPage({ onBack, user }) {
           </div>
           {filteredHistory.length === 0 ? (
             <div className={styles.empty}>No workouts logged yet</div>
-          ) : (
-            filteredHistory.slice(0, 30).map((w, wi) => (
-              <div key={wi} className={styles.historyCard}>
-                <div className={styles.historyDate}>
-                  <span className={styles.historyDateText}>{formatDate(w.date)}</span>
-                  <span className={styles.historyGym}>{w.gym}</span>
-                  <span className={styles.historyExCount}>{w.entries?.length || 0} exercises</span>
-                </div>
-                <div className={styles.historyEntries}>
-                  {(w.entries || []).filter(e => !historyGroup || e.group === historyGroup).map((e, ei) => {
-                    const allSets = e.sets || ['', '', '', ''];
-                    const hasReps = allSets.some(s => s !== '' && s != null);
-                    return (
-                      <div key={ei} className={styles.historyEntry}>
-                        <span className={styles.historyGroup}>{e.group}</span>
-                        <span className={styles.historyExercise}>{e.exercise}</span>
-                        <span className={styles.historySets}>
-                          {hasReps ? allSets.map((reps, si) => {
-                            if (reps === '' || reps == null) return null;
-                            return (
-                              <span key={si} className={styles.setChip} title={`Set ${si + 1}: ${reps} reps`}>
-                                {reps}
-                              </span>
-                            );
-                          }) : <span style={{ fontStyle: 'italic', color: 'var(--color-text-muted)' }}>warm-up</span>}
-                        </span>
-                        <span className={styles.historyWeight}>
-                          {e.totalWeight
-                            ? `${e.totalWeight} lbs${e.perArm ? ' (×2)' : ''}`
-                            : '—'}
-                        </span>
-                      </div>
-                    );
-                  })}
-                </div>
+          ) : (() => {
+            // Flatten workouts → one row per exercise. Date shows on the first
+            // row of each workout day (rowSpan), keeping the grouping visible
+            // while presenting everything as a single sortable-feeling table.
+            const flatRows = [];
+            for (const w of filteredHistory) {
+              const dayEntries = (w.entries || []).filter(e => !historyGroup || e.group === historyGroup);
+              dayEntries.forEach((e, idx) => {
+                flatRows.push({ w, e, isFirstOfDay: idx === 0, dayCount: dayEntries.length });
+              });
+            }
+            return (
+              <div className={styles.historyTableWrap}>
+                <table className={styles.historyTable}>
+                  <thead>
+                    <tr>
+                      <th>Date</th>
+                      <th>Group</th>
+                      <th>Exercise</th>
+                      <th title="Set 1 reps">S1</th>
+                      <th title="Set 2 reps">S2</th>
+                      <th title="Set 3 reps">S3</th>
+                      <th title="Set 4 reps">S4</th>
+                      <th>Weight</th>
+                      <th>Notes</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {flatRows.map(({ w, e, isFirstOfDay, dayCount }, ri) => (
+                      <tr key={ri} className={isFirstOfDay ? styles.historyRowDayStart : undefined}>
+                        {isFirstOfDay && (
+                          <td rowSpan={dayCount} className={styles.historyDateCell}>
+                            <div className={styles.historyDateMain}>{formatDate(w.date)}</div>
+                            <div className={styles.historyDateSub}>{w.gym}</div>
+                          </td>
+                        )}
+                        <td><span className={styles.historyGroup}>{e.group}</span></td>
+                        <td className={styles.historyExerciseCell}>{e.exercise}</td>
+                        {[0, 1, 2, 3].map(si => {
+                          const reps = e.sets?.[si];
+                          const hasVal = reps !== '' && reps != null;
+                          return (
+                            <td key={si} className={styles.historySetCell}>
+                              {hasVal ? <span className={styles.setChip} title={`Set ${si + 1}`}>{reps}</span> : <span style={{ color: 'var(--color-text-muted)' }}>—</span>}
+                            </td>
+                          );
+                        })}
+                        <td className={styles.historyWeightCell}>
+                          {e.totalWeight ? `${e.totalWeight}${e.perArm ? ' (×2)' : ''}` : '—'}
+                        </td>
+                        <td className={styles.historyNotesCell}>{e.notes || ''}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
-            ))
-          )}
+            );
+          })()}
         </div>
       )}
 
