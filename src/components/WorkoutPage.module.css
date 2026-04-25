@@ -128,7 +128,13 @@
 .historyDateMain { font-weight: 600; }
 .historyDateSub { font-size: 0.7rem; color: var(--color-text-muted); margin-top: 1px; }
 .historyExerciseCell { font-weight: 500; word-wrap: break-word; }
-.historySetCell { text-align: center; font-variant-numeric: tabular-nums; }
+.historySetCell {
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  font-size: 0.88rem;
+  color: var(--color-text);
+}
 .historyWeightCell { text-align: right; white-space: nowrap; font-weight: 600; color: var(--color-accent); }
 .historyNotesCell { font-size: 0.75rem; color: var(--color-text-secondary); word-wrap: break-word; }
 

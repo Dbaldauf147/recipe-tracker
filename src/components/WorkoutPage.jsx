@@ -569,10 +569,14 @@ export function WorkoutPage({ onBack, user }) {
                         <td className={styles.historyExerciseCell}>{e.exercise}</td>
                         {[0, 1, 2, 3].map(si => {
                           const reps = e.sets?.[si];
-                          const hasVal = reps !== '' && reps != null;
+                          const hasVal = reps !== '' && reps != null && String(reps).trim() !== '';
                           return (
-                            <td key={si} className={styles.historySetCell}>
-                              {hasVal ? <span className={styles.setChip} title={`Set ${si + 1}`}>{reps}</span> : <span style={{ color: 'var(--color-text-muted)' }}>—</span>}
+                            <td
+                              key={si}
+                              className={styles.historySetCell}
+                              title={hasVal ? `Set ${si + 1}: ${reps} reps` : `Set ${si + 1}: not done`}
+                            >
+                              {hasVal ? String(reps) : <span style={{ color: 'var(--color-text-muted)' }}>—</span>}
                             </td>
                           );
                         })}
