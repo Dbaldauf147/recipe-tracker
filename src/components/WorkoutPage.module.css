@@ -138,6 +138,17 @@
 .historyWeightCell { text-align: right; white-space: nowrap; font-weight: 600; color: var(--color-accent); }
 .historyNotesCell { font-size: 0.75rem; color: var(--color-text-secondary); word-wrap: break-word; }
 
+/* Charts */
+.chartsSection { display: flex; flex-direction: column; gap: 0.5rem; }
+.chartFilterRow { display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center; }
+.chartMetricLabel { display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.78rem; font-weight: 600; color: var(--color-text-secondary); }
+.chartMetricSelect { padding: 0.35rem 0.5rem; border: 1px solid var(--color-border); border-radius: 6px; font-size: 0.82rem; font-family: inherit; color: var(--color-text); background: var(--color-surface); }
+.chartTitle { font-size: 1.05rem; font-weight: 700; color: var(--color-text); margin-top: 0.5rem; text-align: center; }
+.chartWrap { background: var(--color-surface); border: 1px solid var(--color-border-light); border-radius: 12px; padding: 0.75rem 0.5rem 0.5rem; height: 420px; }
+.chartSummary { font-size: 0.78rem; color: var(--color-text-muted); text-align: center; margin-top: 0.5rem; display: flex; flex-wrap: wrap; gap: 0.25rem 1rem; justify-content: center; align-items: baseline; }
+.chartDelta { font-weight: 600; font-size: 0.8rem; }
+.chartDelta em { font-style: normal; font-weight: 700; margin-left: 0.25rem; }
+
 /* Stats */
 .statCards { display: flex; gap: 0.75rem; margin-bottom: 1.5rem; }
 .statCard { flex: 1; background: var(--color-surface); border-radius: 12px; padding: 1rem; text-align: center; box-shadow: var(--shadow-sm); }
