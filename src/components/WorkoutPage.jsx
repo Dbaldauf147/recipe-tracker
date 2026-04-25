@@ -532,6 +532,17 @@ export function WorkoutPage({ onBack, user }) {
             return (
               <div className={styles.historyTableWrap}>
                 <table className={styles.historyTable}>
+                  <colgroup>
+                    <col className={styles.colDate} />
+                    <col className={styles.colGroup} />
+                    <col className={styles.colExercise} />
+                    <col className={styles.colSet} />
+                    <col className={styles.colSet} />
+                    <col className={styles.colSet} />
+                    <col className={styles.colSet} />
+                    <col className={styles.colWeight} />
+                    <col className={styles.colNotes} />
+                  </colgroup>
                   <thead>
                     <tr>
                       <th>Date</th>
