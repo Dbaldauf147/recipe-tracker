@@ -51,7 +51,26 @@
 .historyEntry:last-child { border-bottom: none; }
 .historyGroup { font-size: 0.68rem; font-weight: 600; color: #7C3AED; background: #EDE9FE; padding: 1px 6px; border-radius: 999px; min-width: 55px; text-align: center; }
 .historyExercise { flex: 1; font-weight: 500; color: var(--color-text); }
-.historySets { font-size: 0.78rem; color: var(--color-text-secondary); }
+.historySets {
+  display: inline-flex;
+  gap: 4px;
+  flex-wrap: wrap;
+  font-size: 0.78rem;
+  color: var(--color-text-secondary);
+}
+.setChip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 26px;
+  padding: 2px 6px;
+  border-radius: 6px;
+  background: var(--color-surface-alt);
+  color: var(--color-text);
+  font-weight: 600;
+  font-size: 0.78rem;
+  font-variant-numeric: tabular-nums;
+}
 .historyWeight { font-size: 0.78rem; font-weight: 600; color: var(--color-accent); min-width: 60px; text-align: right; }
 
 /* Stats */

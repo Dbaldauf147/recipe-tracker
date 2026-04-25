@@ -527,14 +527,31 @@ export function WorkoutPage({ onBack, user }) {
                   <span className={styles.historyExCount}>{w.entries?.length || 0} exercises</span>
                 </div>
                 <div className={styles.historyEntries}>
-                  {(w.entries || []).filter(e => !historyGroup || e.group === historyGroup).map((e, ei) => (
-                    <div key={ei} className={styles.historyEntry}>
-                      <span className={styles.historyGroup}>{e.group}</span>
-                      <span className={styles.historyExercise}>{e.exercise}</span>
-                      <span className={styles.historySets}>{e.sets?.filter(s => s).join(' / ') || '—'}</span>
-                      <span className={styles.historyWeight}>{e.totalWeight ? `${e.totalWeight} lbs` : '—'}</span>
-                    </div>
-                  ))}
+                  {(w.entries || []).filter(e => !historyGroup || e.group === historyGroup).map((e, ei) => {
+                    const allSets = e.sets || ['', '', '', ''];
+                    const hasReps = allSets.some(s => s !== '' && s != null);
+                    return (
+                      <div key={ei} className={styles.historyEntry}>
+                        <span className={styles.historyGroup}>{e.group}</span>
+                        <span className={styles.historyExercise}>{e.exercise}</span>
+                        <span className={styles.historySets}>
+                          {hasReps ? allSets.map((reps, si) => {
+                            if (reps === '' || reps == null) return null;
+                            return (
+                              <span key={si} className={styles.setChip} title={`Set ${si + 1}: ${reps} reps`}>
+                                {reps}
+                              </span>
+                            );
+                          }) : <span style={{ fontStyle: 'italic', color: 'var(--color-text-muted)' }}>warm-up</span>}
+                        </span>
+                        <span className={styles.historyWeight}>
+                          {e.totalWeight
+                            ? `${e.totalWeight} lbs${e.perArm ? ' (×2)' : ''}`
+                            : '—'}
+                        </span>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             ))
