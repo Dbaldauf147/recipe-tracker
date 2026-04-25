@@ -45,6 +45,151 @@ function emptyEntry() {
   return { group: '', exercise: '', sets: ['', '', '', ''], perArm: false, weight: '', notes: '', time: '2:00' };
 }
 
+// ---- CSV import ----------------------------------------------------------
+// Splits one line of a tab- or comma-separated CSV. Returns array of cells.
+function splitCsvLine(line, delim) {
+  // Naive split — the source spreadsheet doesn't quote fields.
+  return line.split(delim).map(s => s.trim());
+}
+
+function detectDelim(text) {
+  const firstLine = text.split(/\r?\n/, 1)[0] || '';
+  const tabs = (firstLine.match(/\t/g) || []).length;
+  const commas = (firstLine.match(/,/g) || []).length;
+  return tabs >= commas ? '\t' : ',';
+}
+
+function isJunkCell(v) {
+  if (v == null) return true;
+  const s = String(v).trim();
+  return !s || /^#(N\/A|DIV\/0!|ERROR!|VALUE!|REF!|NAME\?|NULL!)/i.test(s);
+}
+
+function cleanInt(v) {
+  if (isJunkCell(v)) return '';
+  const n = parseFloat(String(v).trim());
+  return isNaN(n) ? '' : String(n);
+}
+
+function cleanFloat(v) {
+  if (isJunkCell(v)) return '';
+  const n = parseFloat(String(v).trim());
+  return isNaN(n) ? '' : n;
+}
+
+// Parse "M/D/YYYY" or "YYYY-MM-DD" → "YYYY-MM-DD"
+function normalizeDate(s) {
+  if (!s) return '';
+  const t = String(s).trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(t)) return t;
+  const m = t.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
+  if (!m) return '';
+  let yyyy = m[3];
+  if (yyyy.length === 2) yyyy = (parseInt(yyyy) >= 70 ? '19' : '20') + yyyy;
+  const mm = String(parseInt(m[1])).padStart(2, '0');
+  const dd = String(parseInt(m[2])).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+// Find a column index by trying any of several header aliases (case-insensitive,
+// allows leading/trailing whitespace).
+function findCol(headers, aliases) {
+  const norm = headers.map(h => h.trim().toLowerCase());
+  for (const alias of aliases) {
+    const i = norm.indexOf(alias.toLowerCase());
+    if (i >= 0) return i;
+  }
+  return -1;
+}
+
+/**
+ * Parse a workout CSV (the user's spreadsheet format) into the workoutLog
+ * shape: array of { date, gym, entries: [{group, exercise, sets, perArm, weight, notes, time, ...}] }.
+ */
+function parseWorkoutCsv(text) {
+  const delim = detectDelim(text);
+  const lines = text.split(/\r?\n/).filter(l => l.trim().length > 0);
+  if (lines.length === 0) return { workouts: [], skipped: 0, headers: [] };
+  const headers = splitCsvLine(lines[0], delim);
+
+  const colGroup    = findCol(headers, ['group']);
+  const colExercise = findCol(headers, ['exercises', 'exercise']);
+  const colDate     = findCol(headers, ['date']);
+  const colGym      = findCol(headers, ['gym', 'location']);
+  const colNotes    = findCol(headers, ['notes', 'note']);
+  const colRest     = findCol(headers, ['rest time', 'rest']);
+  const colSet1     = findCol(headers, ['set 1', 'set1']);
+  const colSet2     = findCol(headers, ['set 2', 'set2']);
+  const colSet3     = findCol(headers, ['set 3', 'set3']);
+  const colSet4     = findCol(headers, ['set 4', 'set4']);
+  const colPerSide  = findCol(headers, ['per arm/leg', 'per arm', 'per side', 'weight per side']);
+  const colTotalWt  = findCol(headers, ['total weight', 'weight']);
+
+  if (colDate < 0 || colExercise < 0) {
+    throw new Error('CSV must have Date and Exercises columns at minimum');
+  }
+
+  const byDate = new Map();
+  let skipped = 0;
+
+  for (let i = 1; i < lines.length; i++) {
+    const cells = splitCsvLine(lines[i], delim);
+    const date = normalizeDate(cells[colDate]);
+    const exercise = (cells[colExercise] || '').trim();
+    if (!date || !exercise) { skipped++; continue; }
+
+    const group = (cells[colGroup] || '').trim();
+    const gym = colGym >= 0 ? (cells[colGym] || '').trim() : '';
+    const notes = colNotes >= 0 ? (cells[colNotes] || '').trim() : '';
+    const time = colRest >= 0 ? (cells[colRest] || '').trim() || '2:00' : '2:00';
+
+    const sets = [
+      cleanInt(cells[colSet1]),
+      cleanInt(cells[colSet2]),
+      cleanInt(cells[colSet3]),
+      cleanInt(cells[colSet4]),
+    ];
+    const perSide = colPerSide >= 0 ? cleanFloat(cells[colPerSide]) : '';
+    const totalWt = colTotalWt >= 0 ? cleanFloat(cells[colTotalWt]) : '';
+
+    // perArm = true if Total ≈ PerSide × 2 (within 1lb tolerance).
+    let weight = '';
+    let perArm = false;
+    if (perSide !== '' && totalWt !== '') {
+      perArm = Math.abs(perSide * 2 - totalWt) < 1;
+      weight = String(perSide);
+    } else if (perSide !== '') {
+      weight = String(perSide);
+      perArm = true;
+    } else if (totalWt !== '') {
+      weight = String(totalWt);
+    }
+
+    const entry = { group, exercise, sets, perArm, weight, notes, time };
+    if (!byDate.has(date)) byDate.set(date, { date, gym: gym || 'Edge South Tower', entries: [] });
+    const bucket = byDate.get(date);
+    if (!bucket.gym && gym) bucket.gym = gym;
+    bucket.entries.push(entry);
+  }
+
+  // Compute the same stats saveWorkout enriches with, so the imported data
+  // immediately shows in History/Stats/PRs.
+  const workouts = [];
+  for (const w of byDate.values()) {
+    const enriched = w.entries.map(e => {
+      const reps = e.sets.filter(s => s !== '').map(Number).filter(n => !isNaN(n));
+      const totalReps = reps.reduce((s, r) => s + r, 0);
+      const maxReps = reps.length > 0 ? Math.max(...reps) : 0;
+      const avgReps = reps.length > 0 ? parseFloat((totalReps / reps.length).toFixed(1)) : 0;
+      const wt = parseFloat(e.weight) || 0;
+      const totalWeight = e.perArm ? wt * 2 : wt;
+      return { ...e, totalReps, maxReps, avgReps, totalWeight, maxWeight: totalWeight };
+    });
+    workouts.push({ ...w, entries: enriched, savedAt: new Date().toISOString() });
+  }
+  return { workouts, skipped, headers };
+}
+
 export function WorkoutPage({ onBack, user }) {
   const [workouts, setWorkouts] = useState(loadWorkouts);
   const [selectedDate, setSelectedDate] = useState(todayStr());
@@ -52,6 +197,41 @@ export function WorkoutPage({ onBack, user }) {
   const [entries, setEntries] = useState([emptyEntry()]);
   const [viewMode, setViewMode] = useState('log'); // 'log' | 'history' | 'stats'
   const [historyGroup, setHistoryGroup] = useState('');
+  const [showImport, setShowImport] = useState(false);
+  const [importText, setImportText] = useState('');
+  const [importPreview, setImportPreview] = useState(null);
+  const [importError, setImportError] = useState('');
+
+  function handleParseImport() {
+    setImportError('');
+    try {
+      const result = parseWorkoutCsv(importText);
+      if (result.workouts.length === 0) {
+        setImportError('No valid rows found. Check that the CSV has Date and Exercises columns.');
+        return;
+      }
+      setImportPreview(result);
+    } catch (err) {
+      setImportError(err.message || 'Parse failed');
+    }
+  }
+
+  function handleConfirmImport() {
+    if (!importPreview) return;
+    // Replace any existing workouts on the imported dates.
+    const importedDates = new Set(importPreview.workouts.map(w => w.date));
+    const merged = [
+      ...importPreview.workouts,
+      ...workouts.filter(w => !importedDates.has(w.date)),
+    ].sort((a, b) => b.date.localeCompare(a.date));
+    setWorkouts(merged);
+    saveWorkouts(merged, user?.uid);
+    setShowImport(false);
+    setImportText('');
+    setImportPreview(null);
+    setImportError('');
+    alert(`Imported ${importPreview.workouts.length} workout day${importPreview.workouts.length === 1 ? '' : 's'}.`);
+  }
 
   // Load today's workout if it exists
   useEffect(() => {
@@ -165,6 +345,14 @@ export function WorkoutPage({ onBack, user }) {
       <div className={styles.header}>
         <button className={styles.backBtn} onClick={onBack}>← Back</button>
         <h1 className={styles.title}>Workout Tracker</h1>
+        <button
+          className={styles.backBtn}
+          style={{ marginLeft: 'auto' }}
+          onClick={() => setShowImport(true)}
+          title="Import historical workouts from a CSV"
+        >
+          Import CSV
+        </button>
       </div>
 
       <div className={styles.tabs}>
@@ -307,6 +495,110 @@ export function WorkoutPage({ onBack, user }) {
               <span className={styles.prDate}>{formatDate(pr.date)}</span>
             </div>
           )) : <div className={styles.empty}>Log workouts with weights to track PRs</div>}
+        </div>
+      )}
+
+      {showImport && (
+        <div
+          style={{
+            position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            zIndex: 200, padding: '1rem',
+          }}
+          onClick={() => setShowImport(false)}
+        >
+          <div
+            style={{
+              background: 'var(--color-surface)', borderRadius: 12, padding: '1.25rem',
+              width: '100%', maxWidth: 720, maxHeight: '85vh', overflow: 'auto',
+              boxShadow: '0 12px 40px rgba(0,0,0,0.25)',
+            }}
+            onClick={e => e.stopPropagation()}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
+              <h2 style={{ margin: 0, fontSize: '1.1rem' }}>Import Workout CSV</h2>
+              <button
+                style={{ background: 'none', border: 'none', fontSize: '1.4rem', cursor: 'pointer', color: 'var(--color-text-muted)' }}
+                onClick={() => setShowImport(false)}
+              >×</button>
+            </div>
+            <p style={{ fontSize: '0.85rem', color: 'var(--color-text-secondary)', marginBottom: '0.75rem', lineHeight: 1.5 }}>
+              Paste your spreadsheet (tab- or comma-separated). Supported columns:{' '}
+              <code style={{ fontSize: '0.78rem' }}>Group, Exercises, Date, Gym, Notes, Rest Time, Set 1–4, Per Arm/Leg, Total Weight</code>.
+              Existing workouts on the same dates will be replaced.
+            </p>
+            <textarea
+              style={{
+                width: '100%', minHeight: 180, padding: '0.6rem', borderRadius: 8,
+                border: '1px solid var(--color-border)', fontFamily: 'monospace', fontSize: '0.78rem',
+                background: 'var(--color-surface-alt)', resize: 'vertical', color: 'var(--color-text)',
+              }}
+              placeholder="Paste your CSV here..."
+              value={importText}
+              onChange={e => { setImportText(e.target.value); setImportPreview(null); setImportError(''); }}
+            />
+            {importError && (
+              <div style={{ background: '#FEE2E2', color: '#991B1B', padding: '0.5rem 0.75rem', borderRadius: 6, marginTop: '0.5rem', fontSize: '0.82rem' }}>
+                {importError}
+              </div>
+            )}
+            <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.75rem' }}>
+              <button
+                className={styles.saveBtn}
+                onClick={handleParseImport}
+                disabled={!importText.trim()}
+                style={{ flex: 1 }}
+              >
+                Parse & Preview
+              </button>
+              {importPreview && (
+                <button
+                  className={styles.saveBtn}
+                  onClick={handleConfirmImport}
+                  style={{ flex: 1, background: '#16a34a' }}
+                >
+                  Import {importPreview.workouts.length} workout{importPreview.workouts.length === 1 ? '' : 's'}
+                </button>
+              )}
+            </div>
+            {importPreview && (
+              <div style={{ marginTop: '1rem' }}>
+                <div style={{ fontSize: '0.85rem', color: 'var(--color-text-secondary)', marginBottom: '0.5rem' }}>
+                  <strong>{importPreview.workouts.length}</strong> workout day{importPreview.workouts.length === 1 ? '' : 's'},{' '}
+                  <strong>{importPreview.workouts.reduce((s, w) => s + w.entries.length, 0)}</strong> exercises
+                  {importPreview.skipped > 0 && <span> · {importPreview.skipped} rows skipped</span>}.
+                </div>
+                <div style={{ maxHeight: 260, overflow: 'auto', border: '1px solid var(--color-border-light)', borderRadius: 6 }}>
+                  <table style={{ width: '100%', fontSize: '0.78rem', borderCollapse: 'collapse' }}>
+                    <thead style={{ background: 'var(--color-surface-alt)', position: 'sticky', top: 0 }}>
+                      <tr>
+                        <th style={{ textAlign: 'left', padding: '0.4rem' }}>Date</th>
+                        <th style={{ textAlign: 'left', padding: '0.4rem' }}>Group</th>
+                        <th style={{ textAlign: 'left', padding: '0.4rem' }}>Exercise</th>
+                        <th style={{ textAlign: 'right', padding: '0.4rem' }}>Sets (reps)</th>
+                        <th style={{ textAlign: 'right', padding: '0.4rem' }}>Wt</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {importPreview.workouts.flatMap(w =>
+                        w.entries.map((e, i) => (
+                          <tr key={`${w.date}-${i}`} style={{ borderTop: '1px solid var(--color-border-light)' }}>
+                            <td style={{ padding: '0.35rem 0.4rem', whiteSpace: 'nowrap' }}>{w.date}</td>
+                            <td style={{ padding: '0.35rem 0.4rem' }}>{e.group}</td>
+                            <td style={{ padding: '0.35rem 0.4rem' }}>{e.exercise}</td>
+                            <td style={{ padding: '0.35rem 0.4rem', textAlign: 'right' }}>{e.sets.filter(s => s !== '').join(', ')}</td>
+                            <td style={{ padding: '0.35rem 0.4rem', textAlign: 'right', whiteSpace: 'nowrap' }}>
+                              {e.weight ? `${e.weight}${e.perArm ? ' ×2' : ''}` : '—'}
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       )}
     </div>
