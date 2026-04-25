@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { ComposedChart, Area, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend } from 'recharts';
+import { ComposedChart, Area, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
 import { saveField } from '../utils/firestoreSync';
 import { ExerciseLibrary } from './ExerciseLibrary';
 import styles from './WorkoutPage.module.css';
@@ -11,6 +11,8 @@ const CHART_METRICS = {
   weight: { label: 'Weight', field: 'totalWeight' },
   maxWeight: { label: 'Max Weight', field: 'maxWeight' },
 };
+
+const NUM_CHART_SLOTS = 6;
 
 const MUSCLE_GROUPS = ['Chest', 'Back', 'Legs', 'Shoulders', 'Biceps', 'Triceps', 'Abs', 'Forearms', 'Cardio', 'Yoga', 'Whole Body'];
 
@@ -362,10 +364,23 @@ export function WorkoutPage({ onBack, user }) {
   const [viewMode, setViewMode] = useState('log'); // 'log' | 'history' | 'charts' | 'exercises' | 'stats'
   const [exerciseLibrary, setExerciseLibrary] = useState(loadLibrary);
   const [historyGroup, setHistoryGroup] = useState('');
-  const [chartGroup, setChartGroup] = useState('');
-  const [chartExercise, setChartExercise] = useState('');
+  const [chartSlots, setChartSlots] = useState(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem('sunday-chart-slots') || 'null');
+      if (Array.isArray(saved) && saved.length === NUM_CHART_SLOTS) return saved;
+    } catch {}
+    return Array.from({ length: NUM_CHART_SLOTS }, () => ({ group: '', exercise: '' }));
+  });
   const [chartLeftMetric, setChartLeftMetric] = useState('avgReps');
   const [chartRightMetric, setChartRightMetric] = useState('weight');
+
+  function setSlot(idx, patch) {
+    setChartSlots(prev => {
+      const next = prev.map((s, i) => i === idx ? { ...s, ...patch } : s);
+      try { localStorage.setItem('sunday-chart-slots', JSON.stringify(next)); } catch {}
+      return next;
+    });
+  }
   const [showImport, setShowImport] = useState(false);
   const [importText, setImportText] = useState('');
   const [importPreview, setImportPreview] = useState(null);
@@ -482,14 +497,48 @@ export function WorkoutPage({ onBack, user }) {
     return map;
   }, [workouts]);
 
+  // Same data keyed by exercise name only (case-insensitive). Lets Charts
+  // look up history by exercise regardless of which muscle group it was
+  // logged under — the saved workouts use anatomy groups (Chest/Back) while
+  // the imported library uses movement patterns (Push/Pull).
+  const exerciseHistoryByName = useMemo(() => {
+    const map = {};
+    for (const w of workouts) {
+      for (const e of w.entries || []) {
+        if (!e.exercise) continue;
+        const key = e.exercise.trim().toLowerCase();
+        if (!map[key]) map[key] = [];
+        map[key].push({ date: w.date, ...e });
+      }
+    }
+    return map;
+  }, [workouts]);
+
   const filteredHistory = useMemo(() => {
     if (!historyGroup) return workouts;
     return workouts.filter(w => w.entries?.some(e => e.group === historyGroup));
   }, [workouts, historyGroup]);
 
+  // Library-driven groupings for the Charts picker. Falls back to the
+  // groups present in the saved workouts when the library is empty so the
+  // tab still works before the user imports their exercise list.
+  const libraryByGroup = useMemo(() => {
+    const map = {};
+    for (const item of exerciseLibrary || []) {
+      if (!item?.exercise) continue;
+      if (item.retired) continue;
+      const g = item.group || 'Other';
+      if (!map[g]) map[g] = [];
+      map[g].push(item.exercise);
+    }
+    for (const g of Object.keys(map)) {
+      map[g] = Array.from(new Set(map[g])).sort();
+    }
+    return map;
+  }, [exerciseLibrary]);
+
   // Build the list of muscle groups + exercises that actually appear in the
-  // saved workouts, so the Charts picker only offers exercises the user has
-  // logged at least once.
+  // saved workouts. Used as a fallback when no library is imported yet.
   const groupsWithHistory = useMemo(() => {
     const map = {};
     for (const key of Object.keys(exerciseHistory)) {
@@ -503,13 +552,17 @@ export function WorkoutPage({ onBack, user }) {
     return out;
   }, [exerciseHistory]);
 
-  // Time series for the selected exercise: one row per session, ordered by
-  // date. Includes all metrics so the user can pick which one renders on each
-  // axis without re-aggregating.
-  const chartData = useMemo(() => {
-    if (!chartGroup || !chartExercise) return [];
-    const key = `${chartGroup}|${chartExercise}`;
-    const history = exerciseHistory[key] || [];
+  // The picker prefers the imported library (richer + the user's preferred
+  // taxonomy); falls back to whatever groups appear in the saved workouts.
+  const chartGroupSource = useMemo(() => {
+    return Object.keys(libraryByGroup).length > 0 ? libraryByGroup : groupsWithHistory;
+  }, [libraryByGroup, groupsWithHistory]);
+
+  // Build a single exercise's time series. Looks up by name (not group)
+  // so a Push-grouped library entry still finds Chest-grouped history.
+  function buildChartData(exerciseName) {
+    if (!exerciseName) return [];
+    const history = exerciseHistoryByName[exerciseName.trim().toLowerCase()] || [];
     return [...history]
       .sort((a, b) => a.date.localeCompare(b.date))
       .map(h => ({
@@ -520,29 +573,59 @@ export function WorkoutPage({ onBack, user }) {
         totalWeight: Number(h.totalWeight) || 0,
         maxWeight: Number(h.maxWeight) || 0,
       }));
-  }, [chartGroup, chartExercise, exerciseHistory]);
+  }
 
-  // Augment chart data with a least-squares trend line on the right-axis
-  // metric so the user can see overall progression at a glance, regardless
-  // of session-to-session noise.
-  const chartDataWithTrend = useMemo(() => {
-    if (chartData.length < 2) return chartData;
-    const field = CHART_METRICS[chartRightMetric].field;
-    const n = chartData.length;
+  function withTrend(data, rightField) {
+    if (data.length < 2) return data;
+    const n = data.length;
     let sumX = 0, sumY = 0, sumXY = 0, sumXX = 0;
     for (let i = 0; i < n; i++) {
-      const y = chartData[i][field];
+      const y = data[i][rightField];
       sumX += i;
       sumY += y;
       sumXY += i * y;
       sumXX += i * i;
     }
     const denom = n * sumXX - sumX * sumX;
-    if (denom === 0) return chartData;
+    if (denom === 0) return data;
     const slope = (n * sumXY - sumX * sumY) / denom;
     const intercept = (sumY - slope * sumX) / n;
-    return chartData.map((d, i) => ({ ...d, trend: intercept + slope * i }));
-  }, [chartData, chartRightMetric]);
+    return data.map((d, i) => ({ ...d, trend: intercept + slope * i }));
+  }
+
+  // Auto-fill empty chart slots with the six most-logged exercises once
+  // workout history is available, so the dashboard isn't blank on first
+  // visit. Uses library group when known so the slot's group dropdown
+  // pre-selects correctly.
+  useEffect(() => {
+    if (chartSlots.some(s => s.exercise)) return;
+    const counts = {};
+    for (const w of workouts) {
+      for (const e of w.entries || []) {
+        if (!e.exercise) continue;
+        const k = e.exercise.trim().toLowerCase();
+        if (!counts[k]) counts[k] = { exercise: e.exercise, count: 0, group: e.group || '' };
+        counts[k].count += 1;
+      }
+    }
+    const top = Object.values(counts)
+      .sort((a, b) => b.count - a.count)
+      .slice(0, NUM_CHART_SLOTS);
+    if (top.length === 0) return;
+    const libByExercise = {};
+    for (const item of exerciseLibrary || []) {
+      if (item?.exercise) libByExercise[item.exercise.trim().toLowerCase()] = item.group || '';
+    }
+    const next = Array.from({ length: NUM_CHART_SLOTS }, (_, i) => {
+      const it = top[i];
+      if (!it) return { group: '', exercise: '' };
+      const libGroup = libByExercise[it.exercise.trim().toLowerCase()];
+      return { group: libGroup || it.group || '', exercise: it.exercise };
+    });
+    setChartSlots(next);
+    try { localStorage.setItem('sunday-chart-slots', JSON.stringify(next)); } catch {}
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [workouts, exerciseLibrary]);
 
   // Workout frequency stats
   const stats = useMemo(() => {
@@ -756,31 +839,13 @@ export function WorkoutPage({ onBack, user }) {
       )}
 
       {viewMode === 'charts' && (() => {
-        const groupNames = Object.keys(groupsWithHistory).sort();
-        const exerciseOptions = chartGroup ? (groupsWithHistory[chartGroup] || []) : [];
+        const groupNames = Object.keys(chartGroupSource).sort();
+        const usingLibrary = Object.keys(libraryByGroup).length > 0;
         const leftMeta = CHART_METRICS[chartLeftMetric];
         const rightMeta = CHART_METRICS[chartRightMetric];
+        const fmtDelta = (v, pct) => `${v > 0 ? '+' : ''}${v.toFixed(1)} (${pct === 0 ? '0%' : `${pct > 0 ? '+' : ''}${(pct * 100).toFixed(0)}%`})`;
         return (
           <div className={styles.chartsSection}>
-            <div className={styles.chartFilterRow}>
-              <select
-                className={styles.groupSelect}
-                value={chartGroup}
-                onChange={e => { setChartGroup(e.target.value); setChartExercise(''); }}
-              >
-                <option value="">Muscle Group</option>
-                {groupNames.map(g => <option key={g} value={g}>{g}</option>)}
-              </select>
-              <select
-                className={styles.exerciseSelect}
-                value={chartExercise}
-                onChange={e => setChartExercise(e.target.value)}
-                disabled={!chartGroup}
-              >
-                <option value="">Exercise</option>
-                {exerciseOptions.map(ex => <option key={ex} value={ex}>{ex}</option>)}
-              </select>
-            </div>
             <div className={styles.chartFilterRow}>
               <label className={styles.chartMetricLabel}>
                 <span style={{ color: '#dc2626' }}>● Left axis</span>
@@ -802,127 +867,107 @@ export function WorkoutPage({ onBack, user }) {
                   {Object.entries(CHART_METRICS).map(([k, m]) => <option key={k} value={k}>{m.label}</option>)}
                 </select>
               </label>
+              <span className={styles.chartHint}>
+                {groupNames.length === 0
+                  ? 'Import your library or log workouts to populate charts.'
+                  : `Picks apply to all 6 charts. ${usingLibrary ? 'Groups come from your library.' : ''}`}
+              </span>
             </div>
 
-            {!chartExercise ? (
-              <div className={styles.empty}>
-                {groupNames.length === 0
-                  ? 'Log workouts to see charts here.'
-                  : 'Pick a muscle group and exercise to see its trend over time.'}
-              </div>
-            ) : chartData.length < 2 ? (
-              <div className={styles.empty}>
-                Only {chartData.length} session logged for {chartExercise}. Log at least 2 to see a chart.
-              </div>
-            ) : (
-              <>
-                <div className={styles.chartTitle}>{chartExercise}</div>
-                <div className={styles.chartWrap}>
-                  <ResponsiveContainer width="100%" height="100%">
-                    <ComposedChart data={chartDataWithTrend} margin={{ top: 20, right: 40, left: 10, bottom: 50 }}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" vertical={false} />
-                      <XAxis
-                        dataKey="date"
-                        tick={{ fontSize: 11, fill: '#6b7280' }}
-                        tickFormatter={d => {
-                          if (!d) return '';
-                          const [y, m, dd] = d.split('-');
-                          return `${parseInt(m)}/${parseInt(dd)}/${y}`;
-                        }}
-                        angle={-45}
-                        textAnchor="end"
-                        height={60}
-                        minTickGap={20}
-                      />
-                      <YAxis
-                        yAxisId="left"
-                        tick={{ fontSize: 11, fill: '#dc2626' }}
-                        axisLine={{ stroke: '#e5e7eb' }}
-                        tickLine={false}
-                      />
-                      <YAxis
-                        yAxisId="right"
-                        orientation="right"
-                        tick={{ fontSize: 11, fill: '#3B6B9C' }}
-                        axisLine={{ stroke: '#e5e7eb' }}
-                        tickLine={false}
-                      />
-                      <Tooltip content={({ active, payload, label }) => {
-                        if (!active || !payload?.length) return null;
-                        const d = payload[0].payload;
-                        return (
-                          <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 8, padding: '0.5rem 0.75rem', fontSize: '0.82rem', boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }}>
-                            <div style={{ fontWeight: 700, marginBottom: 2 }}>{formatDate(label)}</div>
-                            <div style={{ color: '#dc2626' }}>{leftMeta.label}: {d[leftMeta.field]}</div>
-                            <div style={{ color: '#3B6B9C' }}>{rightMeta.label}: {d[rightMeta.field]}</div>
-                          </div>
-                        );
-                      }} />
-                      <Legend verticalAlign="top" height={28} />
-                      <Area
-                        yAxisId="left"
-                        type="stepAfter"
-                        dataKey={leftMeta.field}
-                        name={leftMeta.label}
-                        stroke="#dc2626"
-                        strokeWidth={2}
-                        fill="#fca5a5"
-                        fillOpacity={0.45}
-                        dot={false}
-                        activeDot={{ r: 4 }}
-                      />
-                      <Area
-                        yAxisId="right"
-                        type="stepAfter"
-                        dataKey={rightMeta.field}
-                        name={rightMeta.label}
-                        stroke="#3B6B9C"
-                        strokeWidth={2}
-                        fill="#bfdbfe"
-                        fillOpacity={0.45}
-                        dot={false}
-                        activeDot={{ r: 4 }}
-                      />
-                      <Line
-                        yAxisId="right"
-                        type="linear"
-                        dataKey="trend"
-                        name={`${rightMeta.label} trend`}
-                        stroke="#3B6B9C"
-                        strokeWidth={1.5}
-                        strokeOpacity={0.6}
-                        strokeDasharray="4 3"
-                        dot={false}
-                        activeDot={false}
-                        legendType="none"
-                      />
-                    </ComposedChart>
-                  </ResponsiveContainer>
-                </div>
-                {(() => {
-                  const first = chartData[0];
-                  const last = chartData[chartData.length - 1];
-                  const lf = leftMeta.field;
-                  const rf = rightMeta.field;
-                  const ld = last[lf] - first[lf];
-                  const rd = last[rf] - first[rf];
-                  const fmt = (v, d) => `${d > 0 ? '+' : ''}${v.toFixed(1)} (${d === 0 ? '0%' : `${d > 0 ? '+' : ''}${(d * 100).toFixed(0)}%`})`;
-                  const lPct = first[lf] ? ld / first[lf] : 0;
-                  const rPct = first[rf] ? rd / first[rf] : 0;
-                  return (
-                    <div className={styles.chartSummary}>
-                      <strong>{chartData.length} sessions</strong> · {formatDate(first.date)} → {formatDate(last.date)}
-                      <span className={styles.chartDelta} style={{ color: '#dc2626' }}>
-                        {leftMeta.label}: {first[lf]} → {last[lf]} {ld !== 0 && <em>{fmt(ld, lPct)}</em>}
-                      </span>
-                      <span className={styles.chartDelta} style={{ color: '#3B6B9C' }}>
-                        {rightMeta.label}: {first[rf]} → {last[rf]} {rd !== 0 && <em>{fmt(rd, rPct)}</em>}
-                      </span>
+            <div className={styles.chartGrid}>
+              {chartSlots.map((slot, idx) => {
+                const exerciseOptions = slot.group ? (chartGroupSource[slot.group] || []) : [];
+                const data = buildChartData(slot.exercise);
+                const dataT = withTrend(data, rightMeta.field);
+                const first = data[0];
+                const last = data[data.length - 1];
+                return (
+                  <div key={idx} className={styles.chartCard}>
+                    <div className={styles.chartCardSelectors}>
+                      <select
+                        className={styles.chartCardSelect}
+                        value={slot.group}
+                        onChange={e => setSlot(idx, { group: e.target.value, exercise: '' })}
+                      >
+                        <option value="">Group</option>
+                        {groupNames.map(g => <option key={g} value={g}>{g}</option>)}
+                      </select>
+                      <select
+                        className={styles.chartCardSelect}
+                        value={slot.exercise}
+                        onChange={e => setSlot(idx, { exercise: e.target.value })}
+                        disabled={!slot.group}
+                      >
+                        <option value="">Exercise</option>
+                        {exerciseOptions.map(ex => {
+                          const n = (exerciseHistoryByName[ex.trim().toLowerCase()] || []).length;
+                          return <option key={ex} value={ex}>{ex}{n > 0 ? ` (${n})` : ''}</option>;
+                        })}
+                      </select>
                     </div>
-                  );
-                })()}
-              </>
-            )}
+
+                    {!slot.exercise ? (
+                      <div className={styles.chartCardEmpty}>Pick a group + exercise</div>
+                    ) : data.length === 0 ? (
+                      <div className={styles.chartCardEmpty}>No sessions logged for {slot.exercise}</div>
+                    ) : data.length < 2 ? (
+                      <div className={styles.chartCardEmpty}>Need 2+ sessions to chart {slot.exercise}</div>
+                    ) : (
+                      <>
+                        <div className={styles.chartCardTitle}>{slot.exercise}</div>
+                        <div className={styles.chartCardChart}>
+                          <ResponsiveContainer width="100%" height="100%">
+                            <ComposedChart data={dataT} margin={{ top: 8, right: 28, left: 0, bottom: 4 }}>
+                              <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" vertical={false} />
+                              <XAxis
+                                dataKey="date"
+                                tick={{ fontSize: 9, fill: '#6b7280' }}
+                                tickFormatter={d => {
+                                  if (!d) return '';
+                                  const [, m, dd] = d.split('-');
+                                  return `${parseInt(m)}/${parseInt(dd)}`;
+                                }}
+                                minTickGap={24}
+                                height={20}
+                              />
+                              <YAxis yAxisId="left" tick={{ fontSize: 9, fill: '#dc2626' }} axisLine={false} tickLine={false} width={28} />
+                              <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 9, fill: '#3B6B9C' }} axisLine={false} tickLine={false} width={28} />
+                              <Tooltip content={({ active, payload, label }) => {
+                                if (!active || !payload?.length) return null;
+                                const d = payload[0].payload;
+                                return (
+                                  <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 6, padding: '0.4rem 0.55rem', fontSize: '0.75rem', boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }}>
+                                    <div style={{ fontWeight: 700, marginBottom: 2 }}>{formatDate(label)}</div>
+                                    <div style={{ color: '#dc2626' }}>{leftMeta.label}: {d[leftMeta.field]}</div>
+                                    <div style={{ color: '#3B6B9C' }}>{rightMeta.label}: {d[rightMeta.field]}</div>
+                                  </div>
+                                );
+                              }} />
+                              <Area yAxisId="left" type="stepAfter" dataKey={leftMeta.field} stroke="#dc2626" strokeWidth={1.5} fill="#fca5a5" fillOpacity={0.45} dot={false} activeDot={{ r: 3 }} isAnimationActive={false} />
+                              <Area yAxisId="right" type="stepAfter" dataKey={rightMeta.field} stroke="#3B6B9C" strokeWidth={1.5} fill="#bfdbfe" fillOpacity={0.45} dot={false} activeDot={{ r: 3 }} isAnimationActive={false} />
+                              <Line yAxisId="right" type="linear" dataKey="trend" stroke="#3B6B9C" strokeWidth={1} strokeOpacity={0.6} strokeDasharray="3 3" dot={false} activeDot={false} legendType="none" isAnimationActive={false} />
+                            </ComposedChart>
+                          </ResponsiveContainer>
+                        </div>
+                        {first && last && (() => {
+                          const ld = last[leftMeta.field] - first[leftMeta.field];
+                          const rd = last[rightMeta.field] - first[rightMeta.field];
+                          const lPct = first[leftMeta.field] ? ld / first[leftMeta.field] : 0;
+                          const rPct = first[rightMeta.field] ? rd / first[rightMeta.field] : 0;
+                          return (
+                            <div className={styles.chartCardSummary}>
+                              <span className={styles.chartCardSessions}>{data.length} sessions</span>
+                              <span style={{ color: '#dc2626' }}>{first[leftMeta.field]}→{last[leftMeta.field]}{ld !== 0 ? ` ${fmtDelta(ld, lPct)}` : ''}</span>
+                              <span style={{ color: '#3B6B9C' }}>{first[rightMeta.field]}→{last[rightMeta.field]}{rd !== 0 ? ` ${fmtDelta(rd, rPct)}` : ''}</span>
+                            </div>
+                          );
+                        })()}
+                      </>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
           </div>
         );
       })()}
