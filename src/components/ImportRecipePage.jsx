@@ -1733,7 +1733,7 @@ export function ImportRecipePage({ onSave, onAddWithoutClose, onCancel, userReci
             {bulkPasteMode === 'image' && (
               <>
                 <p style={{ fontSize: '0.8rem', color: 'var(--color-text-secondary)', margin: '0 0 0.5rem', lineHeight: 1.5 }}>
-                  Take a screenshot of any recipe (cookbook page, website, sticky note, even a sheet) and paste it here with <strong>Cmd/Ctrl-V</strong>, drag & drop the image, or click to choose a file. We'll read the image with AI and add the recipe to the list below.
+                  Take a screenshot of any recipe (cookbook page, website, sticky note, even a sheet), click into the box below, and paste with <strong>Cmd/Ctrl-V</strong>. You can also drag & drop or browse for a file. We'll read the image with AI and add the recipe to the list below.
                 </p>
                 <input
                   ref={bulkImageFileRef}
@@ -1747,17 +1747,37 @@ export function ImportRecipePage({ onSave, onAddWithoutClose, onCancel, userReci
                   }}
                 />
                 <div
+                  tabIndex={0}
+                  role="textbox"
+                  aria-label="Paste a screenshot here"
                   style={{
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
                     gap: '0.5rem', padding: '2rem 1rem',
                     border: '2px dashed var(--color-border)', borderRadius: '8px',
-                    cursor: bulkImageProcessing ? 'wait' : 'pointer',
+                    cursor: bulkImageProcessing ? 'wait' : 'text',
                     marginBottom: '0.75rem',
                     background: 'var(--color-surface-alt)',
                     transition: 'border-color 0.15s, background 0.15s',
                     flexDirection: 'column', textAlign: 'center',
+                    outline: 'none',
                   }}
-                  onClick={() => !bulkImageProcessing && bulkImageFileRef.current?.click()}
+                  onFocus={e => { e.currentTarget.style.borderColor = 'var(--color-accent)'; }}
+                  onBlur={e => { e.currentTarget.style.borderColor = ''; }}
+                  onPaste={e => {
+                    if (bulkImageProcessing) return;
+                    const items = e.clipboardData?.items;
+                    if (!items) return;
+                    for (const item of items) {
+                      if (item.type?.startsWith('image/')) {
+                        const blob = item.getAsFile();
+                        if (blob) {
+                          e.preventDefault();
+                          handleBulkImage(blob);
+                          return;
+                        }
+                      }
+                    }
+                  }}
                   onDragOver={e => { e.preventDefault(); e.currentTarget.style.borderColor = 'var(--color-accent)'; }}
                   onDragLeave={e => { e.currentTarget.style.borderColor = ''; }}
                   onDrop={e => {
@@ -1776,8 +1796,9 @@ export function ImportRecipePage({ onSave, onAddWithoutClose, onCancel, userReci
                   ) : (
                     <>
                       <span style={{ fontSize: '1.5rem' }}>📸</span>
-                      <span style={{ fontSize: '0.95rem', color: 'var(--color-text-secondary)', fontWeight: 600 }}>Paste an image (Cmd/Ctrl-V), drag & drop, or click to browse</span>
-                      <span style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>PNG, JPG, GIF, WebP</span>
+                      <span style={{ fontSize: '0.95rem', color: 'var(--color-text-secondary)', fontWeight: 600 }}>Click here, then paste with Cmd/Ctrl-V</span>
+                      <span style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)' }}>or drag & drop an image, or <button type="button" onClick={() => !bulkImageProcessing && bulkImageFileRef.current?.click()} style={{ background: 'none', border: 'none', padding: 0, color: 'var(--color-accent)', textDecoration: 'underline', cursor: 'pointer', font: 'inherit' }}>browse for a file</button></span>
+                      <span style={{ fontSize: '0.7rem', color: 'var(--color-text-muted)' }}>PNG, JPG, GIF, WebP</span>
                     </>
                   )}
                 </div>
