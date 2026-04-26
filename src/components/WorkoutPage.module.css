@@ -328,6 +328,20 @@
 }
 .historyDateMain { font-weight: 600; }
 .historyDateSub { font-size: 0.7rem; color: var(--color-text-muted); margin-top: 1px; }
+.historyTypeSelect {
+  margin-top: 6px;
+  display: block;
+  width: 100%;
+  padding: 2px 4px;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: 0.7rem;
+  font-family: inherit;
+  cursor: pointer;
+}
+.historyTypeSelect:focus { outline: none; border-color: var(--color-accent); }
 .historyDeleteDayBtn {
   margin-top: 6px;
   display: inline-block;

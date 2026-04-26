@@ -708,6 +708,9 @@ export function WorkoutPage({ onBack, user }) {
     if (!window.confirm(`Delete the entire ${date} workout? This can't be undone.`)) return;
     commitWorkouts(workouts.filter(w => w.date !== date));
   }
+  function setHistoryWorkoutType(date, type) {
+    commitWorkouts(workouts.map(w => w.date === date ? { ...w, workoutType: type } : w));
+  }
 
   // Stats
   // Most recent saved workout for each tagged type. Lets us suggest the
@@ -757,6 +760,17 @@ export function WorkoutPage({ onBack, user }) {
   function handleTypeClick(t) {
     if (workoutType === t) return;
     setWorkoutType(t);
+    // If today's date already has a saved workout, persist the new type
+    // immediately so "days ago" updates without making the user re-save.
+    const existing = workouts.find(w => w.date === selectedDate);
+    if (existing) {
+      const next = workouts.map(w => w.date === selectedDate ? { ...w, workoutType: t } : w);
+      setWorkouts(next);
+      saveWorkouts(next, user?.uid);
+      return;
+    }
+    // Fresh day — only auto-fill when the table is still empty so we
+    // don't clobber data the user has already started entering.
     const hasData = entries.some(e => e.exercise || e.group);
     if (!hasData) fillFromLast(t);
   }
@@ -1177,7 +1191,16 @@ export function WorkoutPage({ onBack, user }) {
                           {isFirstOfDay && (
                             <td rowSpan={dayCount} className={styles.historyDateCell}>
                               <div className={styles.historyDateMain}>{formatDate(w.date)}</div>
-                              <div className={styles.historyDateSub}>{w.gym}{w.workoutType ? ` · ${w.workoutType}` : ''}</div>
+                              <div className={styles.historyDateSub}>{w.gym}</div>
+                              <select
+                                className={styles.historyTypeSelect}
+                                value={w.workoutType || ''}
+                                onChange={ev => setHistoryWorkoutType(w.date, ev.target.value)}
+                                title="Tag this workout's type"
+                              >
+                                <option value="">No type</option>
+                                {WORKOUT_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                              </select>
                               <button
                                 className={styles.historyDeleteDayBtn}
                                 onClick={() => deleteHistoryDay(w.date)}
