@@ -184,6 +184,10 @@ export function ImportRecipePage({ onSave, onAddWithoutClose, onCancel, userReci
     { quantity: '', measurement: '', ingredient: '' },
     { quantity: '', measurement: '', ingredient: '' },
   ]);
+  const [bulkPasteMode, setBulkPasteMode] = useState('text'); // 'text' | 'sheet'
+  const [bulkSheetRows, setBulkSheetRows] = useState(() =>
+    Array.from({ length: 3 }, () => ({ title: '', ingredients: '', instructions: '', servings: '', category: '' }))
+  );
   const [recipeTitle, setRecipeTitle] = useState('');
   const [sourceUrl, setSourceUrl] = useState('');
   const [linkUrl, setLinkUrl] = useState('');
@@ -402,6 +406,161 @@ export function ImportRecipePage({ onSave, onAddWithoutClose, onCancel, userReci
       const after = prev.slice(rowIndex + 1);
       return [...before, ...newRows, ...after];
     });
+  }
+
+  // Parse a clipboard payload from Excel/Sheets into a rectangular grid.
+  // Handles double-quote escaping so cells containing embedded newlines or
+  // tabs (Alt-Enter inside Excel cells) survive intact.
+  function parseClipboardSheet(text) {
+    const rows = [];
+    let row = [];
+    let cur = '';
+    let inQ = false;
+    for (let i = 0; i < text.length; i++) {
+      const c = text[i];
+      if (inQ) {
+        if (c === '"' && text[i + 1] === '"') { cur += '"'; i++; }
+        else if (c === '"') inQ = false;
+        else cur += c;
+      } else {
+        if (c === '"' && cur === '') inQ = true;
+        else if (c === '\t') { row.push(cur); cur = ''; }
+        else if (c === '\n' || c === '\r') {
+          if (c === '\r' && text[i + 1] === '\n') i++;
+          row.push(cur);
+          rows.push(row);
+          row = [];
+          cur = '';
+        } else cur += c;
+      }
+    }
+    if (cur !== '' || row.length > 0) {
+      row.push(cur);
+      rows.push(row);
+    }
+    while (rows.length && rows[rows.length - 1].every(c => c.trim() === '')) rows.pop();
+    return rows;
+  }
+
+  const BULK_SHEET_COLS = ['title', 'ingredients', 'instructions', 'servings', 'category'];
+
+  // Look at a header row and return the column indexes if it looks like a
+  // per-ingredient table (Quantity / Measurement / Ingredient, optionally
+  // with Instructions). Returns null otherwise so the paste falls through
+  // to the normal Excel cell-distribution behaviour.
+  function detectIngredientHeaders(headerRow) {
+    if (!Array.isArray(headerRow)) return null;
+    const norm = headerRow.map(h => (h || '').trim().toLowerCase());
+    const ingIdx = norm.findIndex(h => /^ingredient(s)?$|^item(s)?$/.test(h));
+    if (ingIdx < 0) return null;
+    return {
+      instructions: norm.findIndex(h => /^instruction(s)?$|^step(s)?$|^direction(s)?$|^method$/.test(h)),
+      quantity: norm.findIndex(h => /^quantity$|^qty$|^amount$/.test(h)),
+      measurement: norm.findIndex(h => /^measurement$|^unit$|^measure$/.test(h)),
+      ingredient: ingIdx,
+    };
+  }
+
+  function trimNumber(s) {
+    const t = (s || '').trim();
+    if (!t) return '';
+    // Strip trailing zeros from decimals: "9.00" → "9", "1.50" → "1.5"
+    if (/^-?\d+\.\d+$/.test(t)) return t.replace(/\.?0+$/, '');
+    return t;
+  }
+
+  function handleBulkSheetPaste(e, rowIdx, colKey) {
+    const text = e.clipboardData.getData('text');
+    if (!text.includes('\t') && !text.includes('\n')) return; // single-cell paste — let default fire
+    e.preventDefault();
+    const grid = parseClipboardSheet(text);
+    if (grid.length === 0) return;
+
+    // Vertical-ingredient layout: header row + one row per ingredient
+    // (with an optional Instructions column whose cells make up the steps).
+    // Collapses the entire pasted block into a single recipe in the
+    // current sheet row.
+    const headers = detectIngredientHeaders(grid[0]);
+    if (headers && grid.length > 1) {
+      const ingredients = [];
+      const instructions = [];
+      for (let r = 1; r < grid.length; r++) {
+        const cells = grid[r];
+        const qty = headers.quantity >= 0 ? trimNumber(cells[headers.quantity]) : '';
+        const meas = headers.measurement >= 0 ? (cells[headers.measurement] || '').trim() : '';
+        const ing = headers.ingredient >= 0 ? (cells[headers.ingredient] || '').trim() : '';
+        const inst = headers.instructions >= 0 ? (cells[headers.instructions] || '').trim() : '';
+        if (ing) ingredients.push([qty, meas, ing].filter(Boolean).join(' '));
+        if (inst) instructions.push(inst);
+      }
+      setBulkSheetRows(prev => {
+        const next = [...prev];
+        const target = rowIdx < next.length ? rowIdx : 0;
+        next[target] = {
+          ...next[target],
+          ingredients: ingredients.join('\n'),
+          instructions: instructions.join('\n\n'),
+        };
+        return next;
+      });
+      return;
+    }
+
+    // Default: Excel-style cell distribution starting at the focused cell.
+    const startCol = BULK_SHEET_COLS.indexOf(colKey);
+    setBulkSheetRows(prev => {
+      const next = [...prev];
+      for (let r = 0; r < grid.length; r++) {
+        const target = rowIdx + r;
+        while (next.length <= target) next.push({ title: '', ingredients: '', instructions: '', servings: '', category: '' });
+        const merged = { ...next[target] };
+        for (let c = 0; c < grid[r].length; c++) {
+          const key = BULK_SHEET_COLS[startCol + c];
+          if (!key) break;
+          merged[key] = grid[r][c];
+        }
+        next[target] = merged;
+      }
+      return next;
+    });
+  }
+
+  function updateBulkSheetRow(idx, field, value) {
+    setBulkSheetRows(prev => prev.map((r, i) => i === idx ? { ...r, [field]: value } : r));
+  }
+  function addBulkSheetRow() {
+    setBulkSheetRows(prev => [...prev, { title: '', ingredients: '', instructions: '', servings: '', category: '' }]);
+  }
+  function removeBulkSheetRow(idx) {
+    setBulkSheetRows(prev => prev.length > 1 ? prev.filter((_, i) => i !== idx) : prev);
+  }
+
+  function parseBulkSheetRows() {
+    const recipes = [];
+    for (const r of bulkSheetRows) {
+      const title = r.title.trim();
+      const ingRaw = r.ingredients.trim();
+      if (!title && !ingRaw) continue;
+      const ingredients = ingRaw
+        .split(/\n|;/)
+        .map(s => s.trim())
+        .filter(Boolean);
+      const instructions = r.instructions.trim();
+      recipes.push({
+        title,
+        description: '',
+        category: r.category.trim() || 'lunch-dinner',
+        frequency: 'common',
+        servings: r.servings.trim() || '1',
+        mealType: ingredients.length > 0 ? classifyMealType(ingredients) : '',
+        ingredients,
+        instructions,
+        sourceFile: 'Pasted spreadsheet',
+      });
+    }
+    if (recipes.length === 0) return;
+    setBulkRecipes(prev => [...prev, ...recipes]);
+    setBulkSheetRows(Array.from({ length: 3 }, () => ({ title: '', ingredients: '', instructions: '', servings: '', category: '' })));
   }
 
   function handleParse() {
@@ -1477,51 +1636,174 @@ export function ImportRecipePage({ onSave, onAddWithoutClose, onCancel, userReci
               )}
             </div>
 
-            {/* Two side-by-side paste areas */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem', marginBottom: '0.75rem' }}>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
-                <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--color-text-secondary)', textTransform: 'uppercase', letterSpacing: '0.03em' }}>Recipe 1</span>
-                <textarea
-                  className={styles.textarea}
-                  rows={14}
-                  value={rawText}
-                  onChange={e => setRawText(e.target.value)}
-                  placeholder={"Paste recipe text here...\n\nRecipe Title\n\nIngredients:\n2 cups flour\n1 tsp salt\n\nInstructions:\nMix together.\nBake at 350°F."}
-                  style={{ resize: 'vertical', minHeight: '200px' }}
-                />
-              </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
-                <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--color-text-secondary)', textTransform: 'uppercase', letterSpacing: '0.03em' }}>Recipe 2</span>
-                <textarea
-                  className={styles.textarea}
-                  rows={14}
-                  value={rawText2}
-                  onChange={e => setRawText2(e.target.value)}
-                  placeholder={"Paste another recipe here...\n\nRecipe Title\n\nIngredients:\n1 lb chicken\n2 tbsp olive oil\n\nInstructions:\nSeason and cook."}
-                  style={{ resize: 'vertical', minHeight: '200px' }}
-                />
-              </div>
+            <div className={styles.pasteFormatToggle} style={{ marginBottom: '0.75rem' }}>
+              <button
+                className={`${styles.pasteFormatBtn} ${bulkPasteMode === 'text' ? styles.pasteFormatBtnActive : ''}`}
+                onClick={() => setBulkPasteMode('text')}
+              >Free Text</button>
+              <button
+                className={`${styles.pasteFormatBtn} ${bulkPasteMode === 'sheet' ? styles.pasteFormatBtnActive : ''}`}
+                onClick={() => setBulkPasteMode('sheet')}
+              >Spreadsheet</button>
             </div>
 
-            {(rawText.trim() || rawText2.trim()) && (
-              <button className={styles.menuGoBtn} style={{ marginBottom: '1rem' }} onClick={() => {
-                [rawText, rawText2].forEach((text, idx) => {
-                  if (!text.trim()) return;
-                  const parsed = parseRecipeText(text);
-                  if (parsed.title || parsed.ingredients.length > 0) {
-                    setBulkRecipes(prev => [...prev, {
-                      ...parsed,
-                      category: 'lunch-dinner',
-                      frequency: 'common',
-                      servings: '1',
-                      mealType: parsed.ingredients.length > 0 ? classifyMealType(parsed.ingredients) : '',
-                      sourceFile: 'Pasted text',
-                    }]);
-                  }
-                });
-                setRawText('');
-                setRawText2('');
-              }}>Parse Recipe{rawText.trim() && rawText2.trim() ? 's' : ''}</button>
+            {bulkPasteMode === 'text' && (
+              <>
+                {/* Two side-by-side paste areas */}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem', marginBottom: '0.75rem' }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                    <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--color-text-secondary)', textTransform: 'uppercase', letterSpacing: '0.03em' }}>Recipe 1</span>
+                    <textarea
+                      className={styles.textarea}
+                      rows={14}
+                      value={rawText}
+                      onChange={e => setRawText(e.target.value)}
+                      placeholder={"Paste recipe text here...\n\nRecipe Title\n\nIngredients:\n2 cups flour\n1 tsp salt\n\nInstructions:\nMix together.\nBake at 350°F."}
+                      style={{ resize: 'vertical', minHeight: '200px' }}
+                    />
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                    <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--color-text-secondary)', textTransform: 'uppercase', letterSpacing: '0.03em' }}>Recipe 2</span>
+                    <textarea
+                      className={styles.textarea}
+                      rows={14}
+                      value={rawText2}
+                      onChange={e => setRawText2(e.target.value)}
+                      placeholder={"Paste another recipe here...\n\nRecipe Title\n\nIngredients:\n1 lb chicken\n2 tbsp olive oil\n\nInstructions:\nSeason and cook."}
+                      style={{ resize: 'vertical', minHeight: '200px' }}
+                    />
+                  </div>
+                </div>
+
+                {(rawText.trim() || rawText2.trim()) && (
+                  <button className={styles.menuGoBtn} style={{ marginBottom: '1rem' }} onClick={() => {
+                    [rawText, rawText2].forEach((text) => {
+                      if (!text.trim()) return;
+                      const parsed = parseRecipeText(text);
+                      if (parsed.title || parsed.ingredients.length > 0) {
+                        setBulkRecipes(prev => [...prev, {
+                          ...parsed,
+                          category: 'lunch-dinner',
+                          frequency: 'common',
+                          servings: '1',
+                          mealType: parsed.ingredients.length > 0 ? classifyMealType(parsed.ingredients) : '',
+                          sourceFile: 'Pasted text',
+                        }]);
+                      }
+                    });
+                    setRawText('');
+                    setRawText2('');
+                  }}>Parse Recipe{rawText.trim() && rawText2.trim() ? 's' : ''}</button>
+                )}
+              </>
+            )}
+
+            {bulkPasteMode === 'sheet' && (
+              <>
+                <p style={{ fontSize: '0.8rem', color: 'var(--color-text-secondary)', margin: '0 0 0.5rem', lineHeight: 1.5 }}>
+                  Copy a block of cells from Excel or Google Sheets and paste anywhere in the table.
+                  <strong> One row per recipe</strong> works as Excel-to-Excel paste.
+                  Or paste a <strong>per-ingredient table</strong> with header columns like
+                  <code style={{ margin: '0 0.2rem', fontSize: '0.78rem' }}>Quantity, Measurement, Ingredient</code>
+                  (optionally with an <code style={{ fontSize: '0.78rem' }}>Instructions</code> column) and the entire block will be collapsed into a single recipe row.
+                </p>
+                <div style={{ overflowX: 'auto', marginBottom: '0.5rem' }}>
+                  <table className={styles.ingredientTable} style={{ tableLayout: 'fixed', minWidth: '720px' }}>
+                    <colgroup>
+                      <col style={{ width: '20%' }} />
+                      <col style={{ width: '28%' }} />
+                      <col style={{ width: '28%' }} />
+                      <col style={{ width: '8%' }} />
+                      <col style={{ width: '14%' }} />
+                      <col style={{ width: '2rem' }} />
+                    </colgroup>
+                    <thead>
+                      <tr>
+                        <th>Title</th>
+                        <th>Ingredients</th>
+                        <th>Instructions</th>
+                        <th>Servings</th>
+                        <th>Category</th>
+                        <th></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {bulkSheetRows.map((row, i) => (
+                        <tr key={i}>
+                          <td>
+                            <input
+                              className={styles.tableInput}
+                              type="text"
+                              value={row.title}
+                              onChange={e => updateBulkSheetRow(i, 'title', e.target.value)}
+                              onPaste={e => handleBulkSheetPaste(e, i, 'title')}
+                              placeholder="Chicken Stir Fry"
+                            />
+                          </td>
+                          <td>
+                            <textarea
+                              className={styles.tableInput}
+                              rows={3}
+                              value={row.ingredients}
+                              onChange={e => updateBulkSheetRow(i, 'ingredients', e.target.value)}
+                              onPaste={e => handleBulkSheetPaste(e, i, 'ingredients')}
+                              placeholder={"2 cups rice\n1 lb chicken\n2 tbsp soy sauce"}
+                              style={{ resize: 'vertical', minHeight: '60px', fontFamily: 'inherit' }}
+                            />
+                          </td>
+                          <td>
+                            <textarea
+                              className={styles.tableInput}
+                              rows={3}
+                              value={row.instructions}
+                              onChange={e => updateBulkSheetRow(i, 'instructions', e.target.value)}
+                              onPaste={e => handleBulkSheetPaste(e, i, 'instructions')}
+                              placeholder={"Cook rice. Sear chicken. Combine."}
+                              style={{ resize: 'vertical', minHeight: '60px', fontFamily: 'inherit' }}
+                            />
+                          </td>
+                          <td>
+                            <input
+                              className={styles.tableInput}
+                              type="text"
+                              value={row.servings}
+                              onChange={e => updateBulkSheetRow(i, 'servings', e.target.value)}
+                              onPaste={e => handleBulkSheetPaste(e, i, 'servings')}
+                              placeholder="4"
+                            />
+                          </td>
+                          <td>
+                            <input
+                              className={styles.tableInput}
+                              type="text"
+                              value={row.category}
+                              onChange={e => updateBulkSheetRow(i, 'category', e.target.value)}
+                              onPaste={e => handleBulkSheetPaste(e, i, 'category')}
+                              placeholder="lunch-dinner"
+                            />
+                          </td>
+                          <td>
+                            {bulkSheetRows.length > 1 && (
+                              <button
+                                className={styles.tableRemoveBtn}
+                                onClick={() => removeBulkSheetRow(i)}
+                                type="button"
+                                title="Remove row"
+                              >×</button>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <button className={styles.tableAddRowBtn} onClick={addBulkSheetRow} type="button">+ Add row</button>
+                {bulkSheetRows.some(r => r.title.trim() || r.ingredients.trim()) && (
+                  <button className={styles.menuGoBtn} style={{ marginBottom: '1rem', marginLeft: '0.75rem' }} onClick={parseBulkSheetRows}>
+                    Parse {bulkSheetRows.filter(r => r.title.trim() || r.ingredients.trim()).length} Recipe{bulkSheetRows.filter(r => r.title.trim() || r.ingredients.trim()).length === 1 ? '' : 's'}
+                  </button>
+                )}
+              </>
             )}
 
             {bulkRecipes.length > 0 && (
