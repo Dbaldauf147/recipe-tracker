@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { ComposedChart, Area, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
-import { saveField } from '../utils/firestoreSync';
+import { saveField, loadWorkoutLogFromFirestore } from '../utils/firestoreSync';
 import { ExerciseLibrary } from './ExerciseLibrary';
 import styles from './WorkoutPage.module.css';
 
@@ -382,6 +382,30 @@ function buildCleanedCsv(workouts) {
 export function WorkoutPage({ onBack, user }) {
   const [workouts, setWorkouts] = useState(loadWorkouts);
   const [selectedDate, setSelectedDate] = useState(todayStr());
+
+  // Hydrate from Firestore on mount so workouts saved on the mobile app
+  // appear here. Merges with whatever is in localStorage — Firestore wins
+  // for dates that exist in both, local-only dates are preserved.
+  useEffect(() => {
+    if (!user?.uid) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const remote = await loadWorkoutLogFromFirestore(user.uid);
+        if (cancelled || remote === null) return;
+        setWorkouts(prev => {
+          const remoteDates = new Set(remote.map(w => w.date));
+          const localOnly = prev.filter(w => !remoteDates.has(w.date));
+          const merged = [...remote, ...localOnly].sort((a, b) => b.date.localeCompare(a.date));
+          try { localStorage.setItem(STORAGE_KEY, JSON.stringify(merged)); } catch {}
+          return merged;
+        });
+      } catch (err) {
+        console.error('Workout cloud hydrate error:', err);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [user?.uid]);
   const [gym, setGym] = useState(GYMS[0]);
   const [workoutType, setWorkoutType] = useState('');
   const [entries, setEntries] = useState(() => blankEntries());
