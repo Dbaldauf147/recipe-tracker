@@ -79,6 +79,20 @@ function emptyEntry() {
   return { group: '', exercise: '', sets: ['', '', '', ''], perArm: false, weight: '', notes: '', time: '2:00' };
 }
 
+// Recompute derived fields from the user-editable fields. Used by both
+// the Log Workout save path and the History inline-edit path so cell
+// edits keep totalReps/maxReps/avgReps/totalWeight/maxWeight in sync.
+function enrichEntry(e) {
+  const sets = Array.isArray(e.sets) ? e.sets : [];
+  const reps = sets.filter(s => s !== '' && s != null).map(Number).filter(n => !isNaN(n));
+  const totalReps = reps.reduce((s, r) => s + r, 0);
+  const maxReps = reps.length > 0 ? Math.max(...reps) : 0;
+  const avgReps = reps.length > 0 ? parseFloat((totalReps / reps.length).toFixed(1)) : 0;
+  const w = parseFloat(e.weight) || 0;
+  const totalWeight = e.perArm ? w * 2 : w;
+  return { ...e, totalReps, maxReps, avgReps, totalWeight, maxWeight: totalWeight };
+}
+
 const DEFAULT_LOG_ENTRY_COUNT = 8;
 
 function blankEntries(n = DEFAULT_LOG_ENTRY_COUNT) {
@@ -618,15 +632,7 @@ export function WorkoutPage({ onBack, user }) {
     const validEntries = entries.filter(e => e.group && e.exercise);
     if (validEntries.length === 0) return;
 
-    const enriched = validEntries.map(e => {
-      const reps = e.sets.filter(s => s !== '').map(Number).filter(n => !isNaN(n));
-      const totalReps = reps.reduce((s, r) => s + r, 0);
-      const maxReps = reps.length > 0 ? Math.max(...reps) : 0;
-      const avgReps = reps.length > 0 ? (totalReps / reps.length).toFixed(1) : '0';
-      const w = parseFloat(e.weight) || 0;
-      const totalWeight = e.perArm ? w * 2 : w;
-      return { ...e, totalReps, maxReps, avgReps: parseFloat(avgReps), totalWeight, maxWeight: totalWeight };
-    });
+    const enriched = validEntries.map(enrichEntry);
 
     const workout = { date: selectedDate, gym, workoutType, entries: enriched, savedAt: new Date().toISOString() };
     const next = [workout, ...workouts.filter(w => w.date !== selectedDate)].sort((a, b) => b.date.localeCompare(a.date));
@@ -656,6 +662,52 @@ export function WorkoutPage({ onBack, user }) {
     }, 800);
     return () => clearTimeout(draftDebounceRef.current);
   }, [user?.uid, selectedDate, gym, workoutType, entries]);
+
+  // Inline edits on the History tab. Each handler mutates the workouts
+  // array, re-enriches the touched entry, and persists to localStorage +
+  // Firestore. Deleting the last entry of a workout removes the whole
+  // workout day.
+  function commitWorkouts(next) {
+    setWorkouts(next);
+    saveWorkouts(next, user?.uid);
+  }
+  function updateHistoryField(date, originalIdx, field, value) {
+    const next = workouts.map(w => {
+      if (w.date !== date) return w;
+      const entries = w.entries.map((e, i) => {
+        if (i !== originalIdx) return e;
+        const updated = { ...e, [field]: value };
+        if (field === 'group') updated.exercise = ''; // exercise list depends on group
+        return enrichEntry(updated);
+      });
+      return { ...w, entries };
+    });
+    commitWorkouts(next);
+  }
+  function updateHistorySetField(date, originalIdx, setIdx, value) {
+    const next = workouts.map(w => {
+      if (w.date !== date) return w;
+      const entries = w.entries.map((e, i) => {
+        if (i !== originalIdx) return e;
+        const sets = Array.isArray(e.sets) ? [...e.sets] : ['', '', '', ''];
+        while (sets.length < 4) sets.push('');
+        sets[setIdx] = value;
+        return enrichEntry({ ...e, sets });
+      });
+      return { ...w, entries };
+    });
+    commitWorkouts(next);
+  }
+  function deleteHistoryEntry(date, originalIdx) {
+    const next = workouts
+      .map(w => w.date === date ? { ...w, entries: w.entries.filter((_, i) => i !== originalIdx) } : w)
+      .filter(w => w.entries.length > 0);
+    commitWorkouts(next);
+  }
+  function deleteHistoryDay(date) {
+    if (!window.confirm(`Delete the entire ${date} workout? This can't be undone.`)) return;
+    commitWorkouts(workouts.filter(w => w.date !== date));
+  }
 
   // Stats
   // Most recent saved workout for each tagged type. Lets us suggest the
@@ -1079,82 +1131,127 @@ export function WorkoutPage({ onBack, user }) {
           {filteredHistory.length === 0 ? (
             <div className={styles.empty}>No workouts logged yet</div>
           ) : (() => {
-            // Flatten workouts → one row per exercise. Date shows on the first
-            // row of each workout day (rowSpan), keeping the grouping visible
-            // while presenting everything as a single sortable-feeling table.
+            // Flatten workouts → one row per exercise, preserving the
+            // original entry index inside w.entries so inline-edit
+            // handlers can mutate the right slot even when the visible
+            // list is filtered by group.
             const flatRows = [];
             for (const w of filteredHistory) {
-              const dayEntries = (w.entries || []).filter(e => !historyGroup || e.group === historyGroup);
-              dayEntries.forEach((e, idx) => {
-                flatRows.push({ w, e, isFirstOfDay: idx === 0, dayCount: dayEntries.length });
+              const visible = (w.entries || [])
+                .map((e, originalIdx) => ({ e, originalIdx }))
+                .filter(({ e }) => !historyGroup || e.group === historyGroup);
+              visible.forEach(({ e, originalIdx }, idx) => {
+                flatRows.push({ w, e, originalIdx, isFirstOfDay: idx === 0, dayCount: visible.length });
               });
             }
             return (
-              <div className={styles.historyTableWrap}>
-                <table className={styles.historyTable}>
-                  <colgroup>
-                    <col className={styles.colDate} />
-                    <col className={styles.colGroup} />
-                    <col className={styles.colExercise} />
-                    <col className={styles.colSet} />
-                    <col className={styles.colSet} />
-                    <col className={styles.colSet} />
-                    <col className={styles.colSet} />
-                    <col className={styles.colWeight} />
-                    <col className={styles.colNotes} />
-                  </colgroup>
+              <div className={styles.logTableWrap}>
+                <table className={styles.logTable}>
                   <thead>
                     <tr>
                       <th>Date</th>
-                      <th>Group</th>
-                      <th>Exercise</th>
-                      <th title="Set 1 reps">S1</th>
-                      <th title="Set 2 reps">S2</th>
-                      <th title="Set 3 reps">S3</th>
-                      <th title="Set 4 reps">S4</th>
-                      <th>Weight</th>
-                      <th>Notes</th>
+                      <th className={styles.logGroupCol}>Group</th>
+                      <th className={styles.logExerciseCol}>Exercise</th>
+                      <th className={styles.logNotesCol}>Notes</th>
+                      <th className={styles.logSetCol} title="Set 1 reps">S1</th>
+                      <th className={styles.logSetCol}>S2</th>
+                      <th className={styles.logSetCol}>S3</th>
+                      <th className={styles.logSetCol}>S4</th>
+                      <th className={styles.logWeightCol}>Weight</th>
+                      <th className={styles.logPerCol} title="Per arm/leg">×2</th>
+                      <th className={styles.logTotalCol}>Total</th>
+                      <th className={styles.logRemoveCol}></th>
                     </tr>
                   </thead>
                   <tbody>
-                    {flatRows.map(({ w, e, isFirstOfDay, dayCount }, ri) => {
-                      // Coerce sets into a 4-slot array of strings regardless
-                      // of how the data was saved (string array, number array,
-                      // missing, object, etc.). This is defensive so the
-                      // display works on legacy entries too.
+                    {flatRows.map(({ w, e, originalIdx, isFirstOfDay, dayCount }, ri) => {
                       const setsArr = Array.isArray(e.sets) ? e.sets : (e.sets ? Object.values(e.sets) : []);
                       const setVals = [0, 1, 2, 3].map(si => {
                         const v = setsArr[si];
-                        if (v == null) return '';
-                        const s = String(v).trim();
-                        if (!s || /^#/.test(s)) return '';
-                        return s;
+                        return v == null ? '' : String(v);
                       });
-                      const debugTitle = `sets: ${JSON.stringify(setsArr)}`;
+                      const wt = parseFloat(e.weight) || 0;
+                      const total = e.perArm ? wt * 2 : wt;
                       return (
-                        <tr key={ri} className={isFirstOfDay ? styles.historyRowDayStart : undefined}>
+                        <tr key={`${w.date}-${originalIdx}`} className={isFirstOfDay ? styles.historyRowDayStart : undefined}>
                           {isFirstOfDay && (
                             <td rowSpan={dayCount} className={styles.historyDateCell}>
                               <div className={styles.historyDateMain}>{formatDate(w.date)}</div>
-                              <div className={styles.historyDateSub}>{w.gym}</div>
+                              <div className={styles.historyDateSub}>{w.gym}{w.workoutType ? ` · ${w.workoutType}` : ''}</div>
+                              <button
+                                className={styles.historyDeleteDayBtn}
+                                onClick={() => deleteHistoryDay(w.date)}
+                                title={`Delete the ${w.date} workout`}
+                                type="button"
+                              >Delete day</button>
                             </td>
                           )}
-                          <td><span className={styles.historyGroup}>{e.group}</span></td>
-                          <td className={styles.historyExerciseCell} title={debugTitle}>{e.exercise}</td>
-                          {setVals.map((reps, si) => (
-                            <td
-                              key={si}
-                              className={styles.historySetCell}
-                              title={reps ? `Set ${si + 1}: ${reps} reps` : `Set ${si + 1}: not done · ${debugTitle}`}
-                              style={{ color: '#0f172a', fontWeight: 700, fontSize: '0.95rem' }}
+                          <td>
+                            <select
+                              className={`${styles.logCell} ${styles.logGroupSelect}`}
+                              value={e.group || ''}
+                              onChange={ev => updateHistoryField(w.date, originalIdx, 'group', ev.target.value)}
                             >
-                              {reps !== '' ? reps : <span style={{ color: '#999', fontWeight: 400 }}>—</span>}
+                              <option value="">—</option>
+                              {MUSCLE_GROUPS.map(g => <option key={g} value={g}>{g}</option>)}
+                            </select>
+                          </td>
+                          <td>
+                            <select
+                              className={`${styles.logCell} ${styles.logExerciseSelect}`}
+                              value={e.exercise || ''}
+                              onChange={ev => updateHistoryField(w.date, originalIdx, 'exercise', ev.target.value)}
+                              disabled={!e.group}
+                            >
+                              <option value="">—</option>
+                              {(EXERCISES_BY_GROUP[e.group] || (e.exercise ? [e.exercise] : [])).map(ex => (
+                                <option key={ex} value={ex}>{ex}</option>
+                              ))}
+                            </select>
+                          </td>
+                          <td>
+                            <input
+                              className={styles.logCell}
+                              type="text"
+                              value={e.notes || ''}
+                              onChange={ev => updateHistoryField(w.date, originalIdx, 'notes', ev.target.value)}
+                            />
+                          </td>
+                          {setVals.map((reps, si) => (
+                            <td key={si}>
+                              <input
+                                className={`${styles.logCell} ${styles.logSetInput}`}
+                                type="number"
+                                value={reps}
+                                onChange={ev => updateHistorySetField(w.date, originalIdx, si, ev.target.value)}
+                              />
                             </td>
                           ))}
-                          <td className={styles.historyWeightCell}>
-                            {e.totalWeight ? `${e.totalWeight}${e.perArm ? ' (×2)' : ''}` : '—'}
+                          <td>
+                            <input
+                              className={`${styles.logCell} ${styles.logWeightInput}`}
+                              type="number"
+                              value={e.weight ?? ''}
+                              onChange={ev => updateHistoryField(w.date, originalIdx, 'weight', ev.target.value)}
+                            />
                           </td>
-                          <td className={styles.historyNotesCell}>{e.notes || ''}</td>
+                          <td className={styles.logPerCell}>
+                            <input
+                              type="checkbox"
+                              checked={!!e.perArm}
+                              onChange={ev => updateHistoryField(w.date, originalIdx, 'perArm', ev.target.checked)}
+                              title="Per arm/leg — total doubles the weight"
+                            />
+                          </td>
+                          <td className={styles.logTotalCell}>{total > 0 ? total : ''}</td>
+                          <td className={styles.logRemoveCell}>
+                            <button
+                              className={styles.logRemoveBtn}
+                              onClick={() => deleteHistoryEntry(w.date, originalIdx)}
+                              title="Delete this exercise"
+                              type="button"
+                            >×</button>
+                          </td>
                         </tr>
                       );
                     })}
