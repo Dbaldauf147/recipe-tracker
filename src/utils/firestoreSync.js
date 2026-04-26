@@ -44,12 +44,37 @@ export async function loadDailyLogFromFirestore(uid) {
 }
 
 export async function saveField(uid, field, value) {
-  // Recipes go to a separate subcollection doc to avoid 1MB user doc limit
+  // Large fields go to separate subcollection docs to avoid the 1 MB user
+  // doc limit. New ones added here as we hit the cap.
   if (field === 'recipes') {
     return saveRecipesToFirestore(uid, value);
   }
+  if (field === 'workoutLog') {
+    return saveWorkoutLogToFirestore(uid, value);
+  }
   const ref = doc(db, 'users', uid);
   await setDoc(ref, { [field]: value }, { merge: true });
+}
+
+/** Save workout log to a separate Firestore document (avoids 1 MB user doc limit). */
+export async function saveWorkoutLogToFirestore(uid, workouts) {
+  const ref = doc(db, 'users', uid, 'data', 'workoutLog');
+  await setDoc(ref, { workouts: workouts || [] }, { merge: false });
+}
+
+/** Load workout log from the separate subcollection doc. Returns null when
+ *  the subcollection doc doesn't exist (caller should check the main user
+ *  doc for legacy data and migrate). */
+export async function loadWorkoutLogFromFirestore(uid) {
+  try {
+    const ref = doc(db, 'users', uid, 'data', 'workoutLog');
+    const snap = await getDoc(ref);
+    if (snap.exists()) return snap.data().workouts || [];
+    return null;
+  } catch (err) {
+    console.error('loadWorkoutLogFromFirestore:', err);
+    return null;
+  }
 }
 
 /**
@@ -139,6 +164,20 @@ export async function loadUserData(uid) {
         await setDoc(ref, { recipes: [] }, { merge: true });
       } catch (migErr) {
         console.error('Recipe migration error:', migErr);
+      }
+    }
+
+    // Load workoutLog from subcollection (or migrate from main doc).
+    // Uses the same pattern — separate doc avoids the 1 MB user-doc cap.
+    const subWorkouts = await loadWorkoutLogFromFirestore(uid);
+    if (subWorkouts !== null) {
+      data.workoutLog = subWorkouts;
+    } else if (Array.isArray(data.workoutLog) && data.workoutLog.length > 0) {
+      try {
+        await saveWorkoutLogToFirestore(uid, data.workoutLog);
+        await setDoc(ref, { workoutLog: [] }, { merge: true });
+      } catch (migErr) {
+        console.error('Workout migration error:', migErr);
       }
     }
 
