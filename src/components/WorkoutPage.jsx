@@ -741,42 +741,71 @@ export function WorkoutPage({ onBack, user }) {
             </select>
           </div>
 
-          {entries.map((entry, i) => (
-            <div key={i} className={styles.entryCard}>
-              <div className={styles.entryHeader}>
-                <select className={styles.groupSelect} value={entry.group} onChange={e => { updateEntry(i, 'group', e.target.value); updateEntry(i, 'exercise', ''); }}>
-                  <option value="">Muscle Group</option>
-                  {MUSCLE_GROUPS.map(g => <option key={g} value={g}>{g}</option>)}
-                </select>
-                <select className={styles.exerciseSelect} value={entry.exercise} onChange={e => updateEntry(i, 'exercise', e.target.value)} disabled={!entry.group}>
-                  <option value="">Exercise</option>
-                  {(EXERCISES_BY_GROUP[entry.group] || []).map(ex => <option key={ex} value={ex}>{ex}</option>)}
-                </select>
-                {entries.length > 1 && (
-                  <button className={styles.removeBtn} onClick={() => removeEntry(i)}>×</button>
-                )}
-              </div>
-              <div className={styles.setsRow}>
-                <div className={styles.setsGrid}>
-                  {entry.sets.map((s, si) => (
-                    <div key={si} className={styles.setCell}>
-                      <label className={styles.setLabel}>Set {si + 1}</label>
-                      <input className={styles.setInput} type="number" value={s} onChange={e => updateSet(i, si, e.target.value)} placeholder="reps" />
-                    </div>
-                  ))}
-                </div>
-                <div className={styles.weightCell}>
-                  <label className={styles.setLabel}>Weight</label>
-                  <input className={styles.setInput} type="number" value={entry.weight} onChange={e => updateEntry(i, 'weight', e.target.value)} placeholder="lbs" />
-                </div>
-                <label className={styles.perArmLabel}>
-                  <input type="checkbox" checked={entry.perArm} onChange={e => updateEntry(i, 'perArm', e.target.checked)} />
-                  Per arm
-                </label>
-              </div>
-              <input className={styles.notesInput} value={entry.notes} onChange={e => updateEntry(i, 'notes', e.target.value)} placeholder="Notes (machine settings, form cues...)" />
-            </div>
-          ))}
+          <div className={styles.logTableWrap}>
+            <table className={styles.logTable}>
+              <thead>
+                <tr>
+                  <th className={styles.logGroupCol}>Group</th>
+                  <th className={styles.logExerciseCol}>Exercise</th>
+                  <th className={styles.logNotesCol}>Notes</th>
+                  <th className={styles.logTimeCol}>Time</th>
+                  <th className={styles.logSetCol}>S1</th>
+                  <th className={styles.logSetCol}>S2</th>
+                  <th className={styles.logSetCol}>S3</th>
+                  <th className={styles.logSetCol}>S4</th>
+                  <th className={styles.logWeightCol}>Weight</th>
+                  <th className={styles.logPerCol} title="Weight is per arm/leg (totals double)">×2</th>
+                  <th className={styles.logTotalCol}>Total</th>
+                  <th className={styles.logRemoveCol}></th>
+                </tr>
+              </thead>
+              <tbody>
+                {entries.map((entry, i) => {
+                  const w = parseFloat(entry.weight) || 0;
+                  const total = entry.perArm ? w * 2 : w;
+                  return (
+                    <tr key={i}>
+                      <td>
+                        <select className={`${styles.logCell} ${styles.logGroupSelect}`} value={entry.group} onChange={e => { updateEntry(i, 'group', e.target.value); updateEntry(i, 'exercise', ''); }}>
+                          <option value="">—</option>
+                          {MUSCLE_GROUPS.map(g => <option key={g} value={g}>{g}</option>)}
+                        </select>
+                      </td>
+                      <td>
+                        <select className={`${styles.logCell} ${styles.logExerciseSelect}`} value={entry.exercise} onChange={e => updateEntry(i, 'exercise', e.target.value)} disabled={!entry.group}>
+                          <option value="">—</option>
+                          {(EXERCISES_BY_GROUP[entry.group] || []).map(ex => <option key={ex} value={ex}>{ex}</option>)}
+                        </select>
+                      </td>
+                      <td>
+                        <input className={styles.logCell} type="text" value={entry.notes} onChange={e => updateEntry(i, 'notes', e.target.value)} placeholder="" />
+                      </td>
+                      <td>
+                        <input className={`${styles.logCell} ${styles.logTimeInput}`} type="text" value={entry.time} onChange={e => updateEntry(i, 'time', e.target.value)} placeholder="2:00" />
+                      </td>
+                      {entry.sets.map((s, si) => (
+                        <td key={si}>
+                          <input className={`${styles.logCell} ${styles.logSetInput}`} type="number" value={s} onChange={e => updateSet(i, si, e.target.value)} />
+                        </td>
+                      ))}
+                      <td>
+                        <input className={`${styles.logCell} ${styles.logWeightInput}`} type="number" value={entry.weight} onChange={e => updateEntry(i, 'weight', e.target.value)} placeholder="" />
+                      </td>
+                      <td className={styles.logPerCell}>
+                        <input type="checkbox" checked={entry.perArm} onChange={e => updateEntry(i, 'perArm', e.target.checked)} title="Per arm/leg — total doubles the weight" />
+                      </td>
+                      <td className={styles.logTotalCell}>{total > 0 ? total : ''}</td>
+                      <td className={styles.logRemoveCell}>
+                        {entries.length > 1 && (
+                          <button className={styles.logRemoveBtn} onClick={() => removeEntry(i)} title="Remove row">×</button>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
 
           <div className={styles.actions}>
             <button className={styles.addExerciseBtn} onClick={addEntry}>+ Add Exercise</button>
