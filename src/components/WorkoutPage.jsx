@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { ComposedChart, Area, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
 import { saveField } from '../utils/firestoreSync';
 import { ExerciseLibrary } from './ExerciseLibrary';
@@ -403,6 +403,60 @@ export function WorkoutPage({ onBack, user }) {
   const [importText, setImportText] = useState('');
   const [importPreview, setImportPreview] = useState(null);
   const [importError, setImportError] = useState('');
+  const [logImageProcessing, setLogImageProcessing] = useState(false);
+  const [logImageError, setLogImageError] = useState('');
+  const [logImageInfo, setLogImageInfo] = useState('');
+  const logImageFileRef = useRef(null);
+
+  async function handleLogImage(blob) {
+    if (!blob) return;
+    setLogImageError('');
+    setLogImageInfo('');
+    setLogImageProcessing(true);
+    try {
+      const dataUrl = await new Promise((resolve, reject) => {
+        const r = new FileReader();
+        r.onload = () => resolve(r.result);
+        r.onerror = () => reject(r.error);
+        r.readAsDataURL(blob);
+      });
+      const res = await fetch('/api/parse-workout-image', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ image: dataUrl }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || `Server error ${res.status}`);
+      }
+      const data = await res.json();
+      const incoming = (data.entries || []).filter(e => e.exercise || e.group);
+      if (incoming.length === 0) {
+        throw new Error("Couldn't read any exercises from that image — try a clearer screenshot.");
+      }
+      // Fill empty rows from the top first; if the table is full or there
+      // are leftover incoming rows, append them to the end.
+      setEntries(prev => {
+        const next = [...prev];
+        let pos = 0;
+        for (const e of incoming) {
+          while (pos < next.length && (next[pos].exercise || next[pos].group)) pos++;
+          if (pos < next.length) {
+            next[pos] = e;
+            pos++;
+          } else {
+            next.push(e);
+          }
+        }
+        return padToMin(next);
+      });
+      setLogImageInfo(`Imported ${incoming.length} exercise${incoming.length === 1 ? '' : 's'} — review then click Save Workout.`);
+    } catch (err) {
+      setLogImageError(err.message || 'Failed to read image');
+    } finally {
+      setLogImageProcessing(false);
+    }
+  }
 
   function handleParseImport() {
     setImportError('');
@@ -479,6 +533,30 @@ export function WorkoutPage({ onBack, user }) {
       setEntries(blankEntries());
     }
   }, [selectedDate]);
+
+  // Listen for clipboard image paste while on the Log tab so the user can
+  // hit Cmd/Ctrl-V right after taking a screenshot without first clicking
+  // into the dropzone.
+  useEffect(() => {
+    if (viewMode !== 'log') return;
+    function onPaste(e) {
+      const items = e.clipboardData?.items;
+      if (!items) return;
+      for (const item of items) {
+        if (item.type?.startsWith('image/')) {
+          const blob = item.getAsFile();
+          if (blob) {
+            e.preventDefault();
+            handleLogImage(blob);
+            return;
+          }
+        }
+      }
+    }
+    window.addEventListener('paste', onPaste);
+    return () => window.removeEventListener('paste', onPaste);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [viewMode]);
 
   function updateEntry(idx, field, value) {
     setEntries(prev => prev.map((e, i) => i === idx ? { ...e, [field]: value } : e));
@@ -740,6 +818,39 @@ export function WorkoutPage({ onBack, user }) {
               {GYMS.map(g => <option key={g} value={g}>{g}</option>)}
             </select>
           </div>
+
+          <input
+            ref={logImageFileRef}
+            type="file"
+            accept="image/*"
+            style={{ display: 'none' }}
+            onChange={e => {
+              const file = e.target.files?.[0];
+              if (file) handleLogImage(file);
+              e.target.value = '';
+            }}
+          />
+          <div
+            className={styles.logImageDrop}
+            onClick={() => !logImageProcessing && logImageFileRef.current?.click()}
+            onDragOver={e => { e.preventDefault(); e.currentTarget.classList.add(styles.logImageDropActive); }}
+            onDragLeave={e => e.currentTarget.classList.remove(styles.logImageDropActive)}
+            onDrop={e => {
+              e.preventDefault();
+              e.currentTarget.classList.remove(styles.logImageDropActive);
+              if (logImageProcessing) return;
+              const file = e.dataTransfer.files?.[0];
+              if (file?.type?.startsWith('image/')) handleLogImage(file);
+            }}
+          >
+            {logImageProcessing ? (
+              <span>🧠 Reading workout from image…</span>
+            ) : (
+              <span>📸 Paste a workout screenshot (Cmd/Ctrl-V), drop an image here, or click to browse — we&apos;ll fill the table for you.</span>
+            )}
+          </div>
+          {logImageError && <div className={styles.logImageError}>{logImageError}</div>}
+          {logImageInfo && <div className={styles.logImageInfo}>{logImageInfo}</div>}
 
           <div className={styles.logTableWrap}>
             <table className={styles.logTable}>
