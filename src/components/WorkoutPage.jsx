@@ -71,6 +71,17 @@ function emptyEntry() {
   return { group: '', exercise: '', sets: ['', '', '', ''], perArm: false, weight: '', notes: '', time: '2:00' };
 }
 
+const DEFAULT_LOG_ENTRY_COUNT = 8;
+
+function blankEntries(n = DEFAULT_LOG_ENTRY_COUNT) {
+  return Array.from({ length: n }, () => emptyEntry());
+}
+
+function padToMin(entries, min = DEFAULT_LOG_ENTRY_COUNT) {
+  if (entries.length >= min) return entries;
+  return [...entries, ...blankEntries(min - entries.length)];
+}
+
 // ---- CSV import ----------------------------------------------------------
 // Splits one line of a tab- or comma-separated CSV. Returns array of cells.
 function splitCsvLine(line, delim) {
@@ -364,7 +375,7 @@ export function WorkoutPage({ onBack, user }) {
   const [workouts, setWorkouts] = useState(loadWorkouts);
   const [selectedDate, setSelectedDate] = useState(todayStr());
   const [gym, setGym] = useState(GYMS[0]);
-  const [entries, setEntries] = useState([emptyEntry()]);
+  const [entries, setEntries] = useState(() => blankEntries());
   const [viewMode, setViewMode] = useState('log'); // 'log' | 'history' | 'charts' | 'exercises' | 'stats'
   const [exerciseLibrary, setExerciseLibrary] = useState(loadLibrary);
   const [historyGroup, setHistoryGroup] = useState('');
@@ -463,9 +474,9 @@ export function WorkoutPage({ onBack, user }) {
     const existing = workouts.find(w => w.date === selectedDate);
     if (existing) {
       setGym(existing.gym || GYMS[0]);
-      setEntries(existing.entries.length > 0 ? existing.entries : [emptyEntry()]);
+      setEntries(padToMin(existing.entries.length > 0 ? existing.entries : []));
     } else {
-      setEntries([emptyEntry()]);
+      setEntries(blankEntries());
     }
   }, [selectedDate]);
 
