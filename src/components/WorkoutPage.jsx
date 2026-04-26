@@ -36,6 +36,14 @@ const EXERCISES_BY_GROUP = {
 
 const GYMS = ['Edge South Tower', 'Home', 'Other'];
 
+const WORKOUT_TYPES = ['Push', 'Pull', 'Legs', 'Full Body'];
+
+function daysSince(dateStr) {
+  if (!dateStr) return null;
+  const ms = Date.now() - new Date(dateStr + 'T00:00:00').getTime();
+  return Math.max(0, Math.floor(ms / 86400000));
+}
+
 const STORAGE_KEY = 'sunday-workout-log';
 const LIBRARY_KEY = 'sunday-exercise-library';
 
@@ -375,6 +383,7 @@ export function WorkoutPage({ onBack, user }) {
   const [workouts, setWorkouts] = useState(loadWorkouts);
   const [selectedDate, setSelectedDate] = useState(todayStr());
   const [gym, setGym] = useState(GYMS[0]);
+  const [workoutType, setWorkoutType] = useState('');
   const [entries, setEntries] = useState(() => blankEntries());
   const [viewMode, setViewMode] = useState('log'); // 'log' | 'history' | 'charts' | 'exercises' | 'stats'
   const [exerciseLibrary, setExerciseLibrary] = useState(loadLibrary);
@@ -528,9 +537,11 @@ export function WorkoutPage({ onBack, user }) {
     const existing = workouts.find(w => w.date === selectedDate);
     if (existing) {
       setGym(existing.gym || GYMS[0]);
+      setWorkoutType(existing.workoutType || '');
       setEntries(padToMin(existing.entries.length > 0 ? existing.entries : []));
     } else {
       setEntries(blankEntries());
+      setWorkoutType('');
     }
   }, [selectedDate]);
 
@@ -593,7 +604,7 @@ export function WorkoutPage({ onBack, user }) {
       return { ...e, totalReps, maxReps, avgReps: parseFloat(avgReps), totalWeight, maxWeight: totalWeight };
     });
 
-    const workout = { date: selectedDate, gym, entries: enriched, savedAt: new Date().toISOString() };
+    const workout = { date: selectedDate, gym, workoutType, entries: enriched, savedAt: new Date().toISOString() };
     const next = [workout, ...workouts.filter(w => w.date !== selectedDate)].sort((a, b) => b.date.localeCompare(a.date));
     setWorkouts(next);
     saveWorkouts(next, user?.uid);
@@ -601,6 +612,57 @@ export function WorkoutPage({ onBack, user }) {
   }
 
   // Stats
+  // Most recent saved workout for each tagged type. Lets us suggest the
+  // type that's been longest since done and auto-fill from the last
+  // instance for a quick starting point.
+  const lastByType = useMemo(() => {
+    const m = {};
+    for (const w of workouts) {
+      if (!w.workoutType) continue;
+      if (!m[w.workoutType] || w.date > m[w.workoutType].date) {
+        m[w.workoutType] = w;
+      }
+    }
+    return m;
+  }, [workouts]);
+
+  const suggestedType = useMemo(() => {
+    let suggested = WORKOUT_TYPES[0];
+    let suggestedDate = lastByType[suggested]?.date || '';
+    for (const t of WORKOUT_TYPES) {
+      const d = lastByType[t]?.date || '';
+      if (!d) return t; // never done yet — suggest immediately
+      if (suggestedDate && d < suggestedDate) {
+        suggested = t;
+        suggestedDate = d;
+      }
+    }
+    return suggested;
+  }, [lastByType]);
+
+  function fillFromLast(t) {
+    const last = lastByType[t];
+    if (!last) return;
+    const fill = (last.entries || []).map(e => ({
+      group: e.group || '',
+      exercise: e.exercise || '',
+      sets: Array.isArray(e.sets) ? e.sets.map(s => (s == null ? '' : String(s))) : ['', '', '', ''],
+      perArm: !!e.perArm,
+      weight: e.weight != null ? String(e.weight) : '',
+      notes: e.notes || '',
+      time: e.time || '2:00',
+    }));
+    while (fill.length < 4) fill[fill.length] = undefined; // no-op padding marker
+    setEntries(padToMin(fill.filter(Boolean)));
+  }
+
+  function handleTypeClick(t) {
+    if (workoutType === t) return;
+    setWorkoutType(t);
+    const hasData = entries.some(e => e.exercise || e.group);
+    if (!hasData) fillFromLast(t);
+  }
+
   const exerciseHistory = useMemo(() => {
     const map = {};
     for (const w of workouts) {
@@ -817,6 +879,40 @@ export function WorkoutPage({ onBack, user }) {
             <select className={styles.gymSelect} value={gym} onChange={e => setGym(e.target.value)}>
               {GYMS.map(g => <option key={g} value={g}>{g}</option>)}
             </select>
+          </div>
+
+          <div className={styles.workoutTypeRow}>
+            <span className={styles.workoutTypeLabel}>Workout type:</span>
+            {WORKOUT_TYPES.map(t => {
+              const last = lastByType[t];
+              const days = daysSince(last?.date);
+              const isSuggested = t === suggestedType && !workoutType;
+              const isActive = workoutType === t;
+              return (
+                <button
+                  key={t}
+                  className={`${styles.workoutTypePill} ${isActive ? styles.workoutTypePillActive : ''} ${isSuggested ? styles.workoutTypePillSuggested : ''}`}
+                  onClick={() => handleTypeClick(t)}
+                  title={last ? `Last ${t}: ${days} day${days === 1 ? '' : 's'} ago (${formatDate(last.date)})` : `Never done ${t}`}
+                  type="button"
+                >
+                  <span className={styles.workoutTypePillName}>{isSuggested && '⭐ '}{t}</span>
+                  <span className={styles.workoutTypePillSub}>
+                    {last ? `${days}d ago` : 'never'}
+                  </span>
+                </button>
+              );
+            })}
+            {workoutType && lastByType[workoutType] && (
+              <button
+                className={styles.workoutTypeRefill}
+                onClick={() => fillFromLast(workoutType)}
+                type="button"
+                title={`Replace the table with your last ${workoutType} workout`}
+              >
+                ↻ Refill from last {workoutType}
+              </button>
+            )}
           </div>
 
           <input

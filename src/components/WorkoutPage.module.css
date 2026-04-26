@@ -38,6 +38,62 @@
 .saveBtn { padding: 0.5rem 1.5rem; border: none; border-radius: 8px; background: var(--color-accent); color: #fff; font-size: 0.9rem; font-weight: 600; cursor: pointer; font-family: inherit; margin-left: auto; }
 .saveBtn:hover { opacity: 0.9; }
 
+/* Log Workout — workout type selector */
+.workoutTypeRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  align-items: center;
+  margin-bottom: 0.75rem;
+}
+.workoutTypeLabel {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--color-text-secondary);
+  margin-right: 0.3rem;
+}
+.workoutTypePill {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 0.4rem 0.85rem;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-family: inherit;
+  cursor: pointer;
+  transition: all 0.15s;
+  min-width: 76px;
+}
+.workoutTypePill:hover { border-color: var(--color-accent); color: var(--color-accent); }
+.workoutTypePillName { font-size: 0.85rem; font-weight: 700; line-height: 1.1; }
+.workoutTypePillSub { font-size: 0.65rem; font-weight: 500; margin-top: 2px; opacity: 0.7; }
+.workoutTypePillActive {
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+  color: #fff;
+}
+.workoutTypePillActive:hover { color: #fff; opacity: 0.9; }
+.workoutTypePillSuggested {
+  border-color: #f59e0b;
+  border-width: 2px;
+  padding: calc(0.4rem - 1px) calc(0.85rem - 1px);
+}
+.workoutTypeRefill {
+  margin-left: auto;
+  padding: 0.4rem 0.75rem;
+  border: 1px dashed var(--color-accent);
+  border-radius: 8px;
+  background: none;
+  color: var(--color-accent);
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+}
+.workoutTypeRefill:hover { background: var(--color-accent-light, #eaf2fb); }
+
 /* Log Workout — screenshot import dropzone */
 .logImageDrop {
   display: flex;
