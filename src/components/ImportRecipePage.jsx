@@ -1746,62 +1746,73 @@ export function ImportRecipePage({ onSave, onAddWithoutClose, onCancel, userReci
                     e.target.value = '';
                   }}
                 />
-                <div
-                  tabIndex={0}
-                  role="textbox"
-                  aria-label="Paste a screenshot here"
-                  style={{
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    gap: '0.5rem', padding: '2rem 1rem',
-                    border: '2px dashed var(--color-border)', borderRadius: '8px',
-                    cursor: bulkImageProcessing ? 'wait' : 'text',
-                    marginBottom: '0.75rem',
-                    background: 'var(--color-surface-alt)',
-                    transition: 'border-color 0.15s, background 0.15s',
-                    flexDirection: 'column', textAlign: 'center',
-                    outline: 'none',
-                  }}
-                  onFocus={e => { e.currentTarget.style.borderColor = 'var(--color-accent)'; }}
-                  onBlur={e => { e.currentTarget.style.borderColor = ''; }}
-                  onPaste={e => {
-                    if (bulkImageProcessing) return;
-                    const items = e.clipboardData?.items;
-                    if (!items) return;
-                    for (const item of items) {
-                      if (item.type?.startsWith('image/')) {
-                        const blob = item.getAsFile();
-                        if (blob) {
-                          e.preventDefault();
-                          handleBulkImage(blob);
-                          return;
+                {bulkImageProcessing ? (
+                  <div
+                    style={{
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      gap: '0.5rem', padding: '2rem 1rem',
+                      border: '2px dashed var(--color-border)', borderRadius: '8px',
+                      cursor: 'wait',
+                      marginBottom: '0.75rem',
+                      background: 'var(--color-surface-alt)',
+                      flexDirection: 'column', textAlign: 'center',
+                    }}
+                  >
+                    <span style={{ fontSize: '1.2rem' }}>🧠</span>
+                    <span style={{ fontSize: '0.9rem', color: 'var(--color-text-secondary)', fontWeight: 500 }}>Reading recipe from image…</span>
+                  </div>
+                ) : (
+                  <div style={{ marginBottom: '0.75rem' }}>
+                    <textarea
+                      aria-label="Paste a screenshot here"
+                      placeholder="📸 Click here and paste your screenshot with Cmd/Ctrl-V (or drag & drop an image)"
+                      value=""
+                      onChange={() => {}}
+                      onPaste={e => {
+                        const items = e.clipboardData?.items;
+                        if (!items) return;
+                        for (const item of items) {
+                          if (item.type?.startsWith('image/')) {
+                            const blob = item.getAsFile();
+                            if (blob) {
+                              e.preventDefault();
+                              handleBulkImage(blob);
+                              return;
+                            }
+                          }
                         }
-                      }
-                    }
-                  }}
-                  onDragOver={e => { e.preventDefault(); e.currentTarget.style.borderColor = 'var(--color-accent)'; }}
-                  onDragLeave={e => { e.currentTarget.style.borderColor = ''; }}
-                  onDrop={e => {
-                    e.preventDefault();
-                    e.currentTarget.style.borderColor = '';
-                    if (bulkImageProcessing) return;
-                    const file = e.dataTransfer.files?.[0];
-                    if (file?.type?.startsWith('image/')) handleBulkImage(file);
-                  }}
-                >
-                  {bulkImageProcessing ? (
-                    <>
-                      <span style={{ fontSize: '1.2rem' }}>🧠</span>
-                      <span style={{ fontSize: '0.9rem', color: 'var(--color-text-secondary)', fontWeight: 500 }}>Reading recipe from image…</span>
-                    </>
-                  ) : (
-                    <>
-                      <span style={{ fontSize: '1.5rem' }}>📸</span>
-                      <span style={{ fontSize: '0.95rem', color: 'var(--color-text-secondary)', fontWeight: 600 }}>Click here, then paste with Cmd/Ctrl-V</span>
-                      <span style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)' }}>or drag & drop an image, or <button type="button" onClick={() => !bulkImageProcessing && bulkImageFileRef.current?.click()} style={{ background: 'none', border: 'none', padding: 0, color: 'var(--color-accent)', textDecoration: 'underline', cursor: 'pointer', font: 'inherit' }}>browse for a file</button></span>
-                      <span style={{ fontSize: '0.7rem', color: 'var(--color-text-muted)' }}>PNG, JPG, GIF, WebP</span>
-                    </>
-                  )}
-                </div>
+                        e.preventDefault();
+                      }}
+                      onDragOver={e => { e.preventDefault(); e.currentTarget.style.borderColor = 'var(--color-accent)'; }}
+                      onDragLeave={e => { e.currentTarget.style.borderColor = ''; }}
+                      onDrop={e => {
+                        e.preventDefault();
+                        e.currentTarget.style.borderColor = '';
+                        const file = e.dataTransfer.files?.[0];
+                        if (file?.type?.startsWith('image/')) handleBulkImage(file);
+                      }}
+                      style={{
+                        width: '100%',
+                        minHeight: '110px',
+                        padding: '1rem',
+                        border: '2px dashed var(--color-border)',
+                        borderRadius: '8px',
+                        background: 'var(--color-surface-alt)',
+                        fontSize: '0.95rem',
+                        fontFamily: 'inherit',
+                        color: 'var(--color-text-primary)',
+                        resize: 'vertical',
+                        outline: 'none',
+                        boxSizing: 'border-box',
+                      }}
+                      onFocus={e => { e.currentTarget.style.borderColor = 'var(--color-accent)'; }}
+                      onBlur={e => { e.currentTarget.style.borderColor = ''; }}
+                    />
+                    <div style={{ marginTop: '0.4rem', fontSize: '0.78rem', color: 'var(--color-text-muted)', textAlign: 'center' }}>
+                      or <button type="button" onClick={() => bulkImageFileRef.current?.click()} style={{ background: 'none', border: 'none', padding: 0, color: 'var(--color-accent)', textDecoration: 'underline', cursor: 'pointer', font: 'inherit' }}>browse for a file</button> · PNG, JPG, GIF, WebP
+                    </div>
+                  </div>
+                )}
                 {bulkImageError && (
                   <div style={{ background: '#FEE2E2', color: '#991B1B', padding: '0.5rem 0.75rem', borderRadius: 6, marginBottom: '0.75rem', fontSize: '0.82rem' }}>
                     {bulkImageError}
