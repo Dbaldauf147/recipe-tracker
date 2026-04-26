@@ -12,7 +12,11 @@ const CHART_METRICS = {
   maxWeight: { label: 'Max Weight', field: 'maxWeight' },
 };
 
-const NUM_CHART_SLOTS = 6;
+const NUM_CHART_SLOTS = 8;
+
+function isWarmUp(name) {
+  return /^\s*warm[-\s]?up\s*$/i.test(name || '');
+}
 
 const MUSCLE_GROUPS = ['Chest', 'Back', 'Legs', 'Shoulders', 'Biceps', 'Triceps', 'Abs', 'Forearms', 'Cardio', 'Yoga', 'Whole Body'];
 
@@ -367,7 +371,9 @@ export function WorkoutPage({ onBack, user }) {
   const [chartSlots, setChartSlots] = useState(() => {
     try {
       const saved = JSON.parse(localStorage.getItem('sunday-chart-slots') || 'null');
-      if (Array.isArray(saved) && saved.length === NUM_CHART_SLOTS) return saved;
+      if (Array.isArray(saved)) {
+        return Array.from({ length: NUM_CHART_SLOTS }, (_, i) => saved[i] || { group: '', exercise: '' });
+      }
     } catch {}
     return Array.from({ length: NUM_CHART_SLOTS }, () => ({ group: '', exercise: '' }));
   });
@@ -603,7 +609,7 @@ export function WorkoutPage({ onBack, user }) {
     const counts = {};
     for (const w of workouts) {
       for (const e of w.entries || []) {
-        if (!e.exercise) continue;
+        if (!e.exercise || isWarmUp(e.exercise)) continue;
         const k = e.exercise.trim().toLowerCase();
         if (!counts[k]) counts[k] = { exercise: e.exercise, count: 0, group: e.group || '' };
         counts[k].count += 1;
@@ -911,10 +917,33 @@ export function WorkoutPage({ onBack, user }) {
         // by session count so the busiest exercises render first.
         const groupViewExercises = chartView !== 'custom'
           ? (chartGroupSource[chartView] || [])
+              .filter(ex => !isWarmUp(ex))
               .map(ex => ({ exercise: ex, count: (exerciseHistoryByName[ex.trim().toLowerCase()] || []).length }))
               .filter(x => x.count >= 1)
               .sort((a, b) => b.count - a.count)
           : [];
+
+        // For the "Fill 8 with most recent" buttons: ranks each library
+        // exercise in the chosen group by the most recent log date.
+        function fillSlotsFromGroup(group) {
+          const exercises = chartGroupSource[group] || [];
+          const ranked = exercises
+            .filter(ex => !isWarmUp(ex))
+            .map(ex => {
+              const history = exerciseHistoryByName[ex.trim().toLowerCase()] || [];
+              let lastDate = '';
+              for (const h of history) if (h.date > lastDate) lastDate = h.date;
+              return { exercise: ex, lastDate };
+            })
+            .filter(x => x.lastDate)
+            .sort((a, b) => b.lastDate.localeCompare(a.lastDate));
+          const next = Array.from({ length: NUM_CHART_SLOTS }, (_, i) => {
+            const it = ranked[i];
+            return it ? { group, exercise: it.exercise } : { group: '', exercise: '' };
+          });
+          setChartSlots(next);
+          try { localStorage.setItem('sunday-chart-slots', JSON.stringify(next)); } catch {}
+        }
 
         return (
           <div className={styles.chartsSection}>
@@ -951,7 +980,7 @@ export function WorkoutPage({ onBack, user }) {
               <button
                 className={`${styles.chartViewBtn} ${chartView === 'custom' ? styles.chartViewBtnActive : ''}`}
                 onClick={() => setChartView('custom')}
-              >My 6</button>
+              >My {NUM_CHART_SLOTS}</button>
               {groupNames.map(g => (
                 <button
                   key={g}
@@ -960,6 +989,19 @@ export function WorkoutPage({ onBack, user }) {
                 >All {g}</button>
               ))}
             </div>
+
+            {chartView === 'custom' && groupNames.length > 0 && (
+              <div className={styles.chartViewRow}>
+                <span className={styles.chartViewLabel}>Fill {NUM_CHART_SLOTS} with most recent:</span>
+                {groupNames.map(g => (
+                  <button
+                    key={g}
+                    className={styles.chartViewBtn}
+                    onClick={() => fillSlotsFromGroup(g)}
+                  >{g}</button>
+                ))}
+              </div>
+            )}
 
             {chartView === 'custom' ? (
               <div className={styles.chartGrid}>
@@ -983,7 +1025,7 @@ export function WorkoutPage({ onBack, user }) {
                           disabled={!slot.group}
                         >
                           <option value="">Exercise</option>
-                          {exerciseOptions.map(ex => {
+                          {exerciseOptions.filter(ex => !isWarmUp(ex)).map(ex => {
                             const n = (exerciseHistoryByName[ex.trim().toLowerCase()] || []).length;
                             return <option key={ex} value={ex}>{ex}{n > 0 ? ` (${n})` : ''}</option>;
                           })}
