@@ -186,7 +186,7 @@ export function ImportRecipePage({ onSave, onAddWithoutClose, onCancel, userReci
   ]);
   const [bulkPasteMode, setBulkPasteMode] = useState('text'); // 'text' | 'sheet'
   const [bulkSheetRows, setBulkSheetRows] = useState(() =>
-    Array.from({ length: 3 }, () => ({ title: '', ingredients: '', instructions: '', servings: '', category: '' }))
+    Array.from({ length: 8 }, () => ({ title: '', ingredients: '', instructions: '', servings: '', category: '' }))
   );
   const [recipeTitle, setRecipeTitle] = useState('');
   const [sourceUrl, setSourceUrl] = useState('');
@@ -526,7 +526,15 @@ export function ImportRecipePage({ onSave, onAddWithoutClose, onCancel, userReci
   }
 
   function updateBulkSheetRow(idx, field, value) {
-    setBulkSheetRows(prev => prev.map((r, i) => i === idx ? { ...r, [field]: value } : r));
+    setBulkSheetRows(prev => {
+      const next = prev.map((r, i) => i === idx ? { ...r, [field]: value } : r);
+      // Auto-grow: add a fresh blank row when user starts typing in the
+      // last row, so the grid always has an empty row underneath.
+      if (idx === next.length - 1 && value && !prev[idx][field]) {
+        next.push({ title: '', ingredients: '', instructions: '', servings: '', category: '' });
+      }
+      return next;
+    });
   }
   function addBulkSheetRow() {
     setBulkSheetRows(prev => [...prev, { title: '', ingredients: '', instructions: '', servings: '', category: '' }]);
@@ -1707,9 +1715,10 @@ export function ImportRecipePage({ onSave, onAddWithoutClose, onCancel, userReci
                   <code style={{ margin: '0 0.2rem', fontSize: '0.78rem' }}>Quantity, Measurement, Ingredient</code>
                   (optionally with an <code style={{ fontSize: '0.78rem' }}>Instructions</code> column) and the entire block will be collapsed into a single recipe row.
                 </p>
-                <div style={{ overflowX: 'auto', marginBottom: '0.5rem' }}>
-                  <table className={styles.ingredientTable} style={{ tableLayout: 'fixed', minWidth: '720px' }}>
+                <div className={styles.bulkSheetWrap}>
+                  <table className={`${styles.ingredientTable} ${styles.bulkSheetTable}`}>
                     <colgroup>
+                      <col style={{ width: '2.25rem' }} />
                       <col style={{ width: '20%' }} />
                       <col style={{ width: '28%' }} />
                       <col style={{ width: '28%' }} />
@@ -1719,6 +1728,7 @@ export function ImportRecipePage({ onSave, onAddWithoutClose, onCancel, userReci
                     </colgroup>
                     <thead>
                       <tr>
+                        <th className={styles.bulkSheetCorner}></th>
                         <th>Title</th>
                         <th>Ingredients</th>
                         <th>Instructions</th>
@@ -1730,56 +1740,57 @@ export function ImportRecipePage({ onSave, onAddWithoutClose, onCancel, userReci
                     <tbody>
                       {bulkSheetRows.map((row, i) => (
                         <tr key={i}>
+                          <td className={styles.bulkSheetRowNum}>{i + 1}</td>
                           <td>
                             <input
-                              className={styles.tableInput}
+                              className={`${styles.tableInput} ${styles.bulkSheetCell}`}
                               type="text"
                               value={row.title}
                               onChange={e => updateBulkSheetRow(i, 'title', e.target.value)}
                               onPaste={e => handleBulkSheetPaste(e, i, 'title')}
-                              placeholder="Chicken Stir Fry"
+                              placeholder=""
                             />
                           </td>
                           <td>
                             <textarea
-                              className={styles.tableInput}
+                              className={`${styles.tableInput} ${styles.bulkSheetCell}`}
                               rows={3}
                               value={row.ingredients}
                               onChange={e => updateBulkSheetRow(i, 'ingredients', e.target.value)}
                               onPaste={e => handleBulkSheetPaste(e, i, 'ingredients')}
-                              placeholder={"2 cups rice\n1 lb chicken\n2 tbsp soy sauce"}
+                              placeholder=""
                               style={{ resize: 'vertical', minHeight: '60px', fontFamily: 'inherit' }}
                             />
                           </td>
                           <td>
                             <textarea
-                              className={styles.tableInput}
+                              className={`${styles.tableInput} ${styles.bulkSheetCell}`}
                               rows={3}
                               value={row.instructions}
                               onChange={e => updateBulkSheetRow(i, 'instructions', e.target.value)}
                               onPaste={e => handleBulkSheetPaste(e, i, 'instructions')}
-                              placeholder={"Cook rice. Sear chicken. Combine."}
+                              placeholder=""
                               style={{ resize: 'vertical', minHeight: '60px', fontFamily: 'inherit' }}
                             />
                           </td>
                           <td>
                             <input
-                              className={styles.tableInput}
+                              className={`${styles.tableInput} ${styles.bulkSheetCell}`}
                               type="text"
                               value={row.servings}
                               onChange={e => updateBulkSheetRow(i, 'servings', e.target.value)}
                               onPaste={e => handleBulkSheetPaste(e, i, 'servings')}
-                              placeholder="4"
+                              placeholder=""
                             />
                           </td>
                           <td>
                             <input
-                              className={styles.tableInput}
+                              className={`${styles.tableInput} ${styles.bulkSheetCell}`}
                               type="text"
                               value={row.category}
                               onChange={e => updateBulkSheetRow(i, 'category', e.target.value)}
                               onPaste={e => handleBulkSheetPaste(e, i, 'category')}
-                              placeholder="lunch-dinner"
+                              placeholder=""
                             />
                           </td>
                           <td>
