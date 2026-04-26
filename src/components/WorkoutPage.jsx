@@ -373,6 +373,7 @@ export function WorkoutPage({ onBack, user }) {
   });
   const [chartLeftMetric, setChartLeftMetric] = useState('avgReps');
   const [chartRightMetric, setChartRightMetric] = useState('weight');
+  const [chartView, setChartView] = useState('custom'); // 'custom' or a group name like 'Push'
 
   function setSlot(idx, patch) {
     setChartSlots(prev => {
@@ -844,6 +845,77 @@ export function WorkoutPage({ onBack, user }) {
         const leftMeta = CHART_METRICS[chartLeftMetric];
         const rightMeta = CHART_METRICS[chartRightMetric];
         const fmtDelta = (v, pct) => `${v > 0 ? '+' : ''}${v.toFixed(1)} (${pct === 0 ? '0%' : `${pct > 0 ? '+' : ''}${(pct * 100).toFixed(0)}%`})`;
+
+        // Renders title + chart + summary for a single exercise. Returns
+        // an empty-state element if the exercise has too little history.
+        function renderChartContent(exercise) {
+          if (!exercise) return <div className={styles.chartCardEmpty}>Pick a group + exercise</div>;
+          const data = buildChartData(exercise);
+          if (data.length === 0) return <div className={styles.chartCardEmpty}>No sessions logged for {exercise}</div>;
+          if (data.length < 2) return <div className={styles.chartCardEmpty}>Need 2+ sessions to chart {exercise}</div>;
+          const dataT = withTrend(data, rightMeta.field);
+          const first = data[0];
+          const last = data[data.length - 1];
+          const ld = last[leftMeta.field] - first[leftMeta.field];
+          const rd = last[rightMeta.field] - first[rightMeta.field];
+          const lPct = first[leftMeta.field] ? ld / first[leftMeta.field] : 0;
+          const rPct = first[rightMeta.field] ? rd / first[rightMeta.field] : 0;
+          return (
+            <>
+              <div className={styles.chartCardTitle}>{exercise}</div>
+              <div className={styles.chartCardChart}>
+                <ResponsiveContainer width="100%" height="100%">
+                  <ComposedChart data={dataT} margin={{ top: 12, right: 36, left: 4, bottom: 8 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" vertical={false} />
+                    <XAxis
+                      dataKey="date"
+                      tick={{ fontSize: 11, fill: '#6b7280' }}
+                      tickFormatter={d => {
+                        if (!d) return '';
+                        const [, m, dd] = d.split('-');
+                        return `${parseInt(m)}/${parseInt(dd)}`;
+                      }}
+                      minTickGap={28}
+                      height={24}
+                    />
+                    <YAxis yAxisId="left" tick={{ fontSize: 11, fill: '#dc2626' }} axisLine={false} tickLine={false} width={36} />
+                    <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 11, fill: '#3B6B9C' }} axisLine={false} tickLine={false} width={36} />
+                    <Tooltip content={({ active, payload, label }) => {
+                      if (!active || !payload?.length) return null;
+                      const d = payload[0].payload;
+                      return (
+                        <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 6, padding: '0.5rem 0.7rem', fontSize: '0.82rem', boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }}>
+                          <div style={{ fontWeight: 700, marginBottom: 2 }}>{formatDate(label)}</div>
+                          <div style={{ color: '#dc2626' }}>{leftMeta.label}: {d[leftMeta.field]}</div>
+                          <div style={{ color: '#3B6B9C' }}>{rightMeta.label}: {d[rightMeta.field]}</div>
+                        </div>
+                      );
+                    }} />
+                    <Area yAxisId="left" type="stepAfter" dataKey={leftMeta.field} stroke="#dc2626" strokeWidth={2} fill="#fca5a5" fillOpacity={0.45} dot={false} activeDot={{ r: 4 }} isAnimationActive={false} />
+                    <Area yAxisId="right" type="stepAfter" dataKey={rightMeta.field} stroke="#3B6B9C" strokeWidth={2} fill="#bfdbfe" fillOpacity={0.45} dot={false} activeDot={{ r: 4 }} isAnimationActive={false} />
+                    <Line yAxisId="right" type="linear" dataKey="trend" stroke="#3B6B9C" strokeWidth={1.25} strokeOpacity={0.6} strokeDasharray="4 3" dot={false} activeDot={false} legendType="none" isAnimationActive={false} />
+                  </ComposedChart>
+                </ResponsiveContainer>
+              </div>
+              <div className={styles.chartCardSummary}>
+                <span className={styles.chartCardSessions}>{data.length} sessions</span>
+                <span style={{ color: '#dc2626' }}>{first[leftMeta.field]}→{last[leftMeta.field]}{ld !== 0 ? ` ${fmtDelta(ld, lPct)}` : ''}</span>
+                <span style={{ color: '#3B6B9C' }}>{first[rightMeta.field]}→{last[rightMeta.field]}{rd !== 0 ? ` ${fmtDelta(rd, rPct)}` : ''}</span>
+              </div>
+            </>
+          );
+        }
+
+        // Build the list of exercises to render in group view: every
+        // library entry in the chosen group that has ≥1 session, sorted
+        // by session count so the busiest exercises render first.
+        const groupViewExercises = chartView !== 'custom'
+          ? (chartGroupSource[chartView] || [])
+              .map(ex => ({ exercise: ex, count: (exerciseHistoryByName[ex.trim().toLowerCase()] || []).length }))
+              .filter(x => x.count >= 1)
+              .sort((a, b) => b.count - a.count)
+          : [];
+
         return (
           <div className={styles.chartsSection}>
             <div className={styles.chartFilterRow}>
@@ -870,104 +942,71 @@ export function WorkoutPage({ onBack, user }) {
               <span className={styles.chartHint}>
                 {groupNames.length === 0
                   ? 'Import your library or log workouts to populate charts.'
-                  : `Picks apply to all 6 charts. ${usingLibrary ? 'Groups come from your library.' : ''}`}
+                  : `${usingLibrary ? 'Groups come from your library.' : ''}`}
               </span>
             </div>
 
-            <div className={styles.chartGrid}>
-              {chartSlots.map((slot, idx) => {
-                const exerciseOptions = slot.group ? (chartGroupSource[slot.group] || []) : [];
-                const data = buildChartData(slot.exercise);
-                const dataT = withTrend(data, rightMeta.field);
-                const first = data[0];
-                const last = data[data.length - 1];
-                return (
-                  <div key={idx} className={styles.chartCard}>
-                    <div className={styles.chartCardSelectors}>
-                      <select
-                        className={styles.chartCardSelect}
-                        value={slot.group}
-                        onChange={e => setSlot(idx, { group: e.target.value, exercise: '' })}
-                      >
-                        <option value="">Group</option>
-                        {groupNames.map(g => <option key={g} value={g}>{g}</option>)}
-                      </select>
-                      <select
-                        className={styles.chartCardSelect}
-                        value={slot.exercise}
-                        onChange={e => setSlot(idx, { exercise: e.target.value })}
-                        disabled={!slot.group}
-                      >
-                        <option value="">Exercise</option>
-                        {exerciseOptions.map(ex => {
-                          const n = (exerciseHistoryByName[ex.trim().toLowerCase()] || []).length;
-                          return <option key={ex} value={ex}>{ex}{n > 0 ? ` (${n})` : ''}</option>;
-                        })}
-                      </select>
-                    </div>
-
-                    {!slot.exercise ? (
-                      <div className={styles.chartCardEmpty}>Pick a group + exercise</div>
-                    ) : data.length === 0 ? (
-                      <div className={styles.chartCardEmpty}>No sessions logged for {slot.exercise}</div>
-                    ) : data.length < 2 ? (
-                      <div className={styles.chartCardEmpty}>Need 2+ sessions to chart {slot.exercise}</div>
-                    ) : (
-                      <>
-                        <div className={styles.chartCardTitle}>{slot.exercise}</div>
-                        <div className={styles.chartCardChart}>
-                          <ResponsiveContainer width="100%" height="100%">
-                            <ComposedChart data={dataT} margin={{ top: 12, right: 36, left: 4, bottom: 8 }}>
-                              <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" vertical={false} />
-                              <XAxis
-                                dataKey="date"
-                                tick={{ fontSize: 11, fill: '#6b7280' }}
-                                tickFormatter={d => {
-                                  if (!d) return '';
-                                  const [, m, dd] = d.split('-');
-                                  return `${parseInt(m)}/${parseInt(dd)}`;
-                                }}
-                                minTickGap={28}
-                                height={24}
-                              />
-                              <YAxis yAxisId="left" tick={{ fontSize: 11, fill: '#dc2626' }} axisLine={false} tickLine={false} width={36} />
-                              <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 11, fill: '#3B6B9C' }} axisLine={false} tickLine={false} width={36} />
-                              <Tooltip content={({ active, payload, label }) => {
-                                if (!active || !payload?.length) return null;
-                                const d = payload[0].payload;
-                                return (
-                                  <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 6, padding: '0.5rem 0.7rem', fontSize: '0.82rem', boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }}>
-                                    <div style={{ fontWeight: 700, marginBottom: 2 }}>{formatDate(label)}</div>
-                                    <div style={{ color: '#dc2626' }}>{leftMeta.label}: {d[leftMeta.field]}</div>
-                                    <div style={{ color: '#3B6B9C' }}>{rightMeta.label}: {d[rightMeta.field]}</div>
-                                  </div>
-                                );
-                              }} />
-                              <Area yAxisId="left" type="stepAfter" dataKey={leftMeta.field} stroke="#dc2626" strokeWidth={2} fill="#fca5a5" fillOpacity={0.45} dot={false} activeDot={{ r: 4 }} isAnimationActive={false} />
-                              <Area yAxisId="right" type="stepAfter" dataKey={rightMeta.field} stroke="#3B6B9C" strokeWidth={2} fill="#bfdbfe" fillOpacity={0.45} dot={false} activeDot={{ r: 4 }} isAnimationActive={false} />
-                              <Line yAxisId="right" type="linear" dataKey="trend" stroke="#3B6B9C" strokeWidth={1.25} strokeOpacity={0.6} strokeDasharray="4 3" dot={false} activeDot={false} legendType="none" isAnimationActive={false} />
-                            </ComposedChart>
-                          </ResponsiveContainer>
-                        </div>
-                        {first && last && (() => {
-                          const ld = last[leftMeta.field] - first[leftMeta.field];
-                          const rd = last[rightMeta.field] - first[rightMeta.field];
-                          const lPct = first[leftMeta.field] ? ld / first[leftMeta.field] : 0;
-                          const rPct = first[rightMeta.field] ? rd / first[rightMeta.field] : 0;
-                          return (
-                            <div className={styles.chartCardSummary}>
-                              <span className={styles.chartCardSessions}>{data.length} sessions</span>
-                              <span style={{ color: '#dc2626' }}>{first[leftMeta.field]}→{last[leftMeta.field]}{ld !== 0 ? ` ${fmtDelta(ld, lPct)}` : ''}</span>
-                              <span style={{ color: '#3B6B9C' }}>{first[rightMeta.field]}→{last[rightMeta.field]}{rd !== 0 ? ` ${fmtDelta(rd, rPct)}` : ''}</span>
-                            </div>
-                          );
-                        })()}
-                      </>
-                    )}
-                  </div>
-                );
-              })}
+            <div className={styles.chartViewRow}>
+              <span className={styles.chartViewLabel}>View:</span>
+              <button
+                className={`${styles.chartViewBtn} ${chartView === 'custom' ? styles.chartViewBtnActive : ''}`}
+                onClick={() => setChartView('custom')}
+              >My 6</button>
+              {groupNames.map(g => (
+                <button
+                  key={g}
+                  className={`${styles.chartViewBtn} ${chartView === g ? styles.chartViewBtnActive : ''}`}
+                  onClick={() => setChartView(g)}
+                >All {g}</button>
+              ))}
             </div>
+
+            {chartView === 'custom' ? (
+              <div className={styles.chartGrid}>
+                {chartSlots.map((slot, idx) => {
+                  const exerciseOptions = slot.group ? (chartGroupSource[slot.group] || []) : [];
+                  return (
+                    <div key={idx} className={styles.chartCard}>
+                      <div className={styles.chartCardSelectors}>
+                        <select
+                          className={styles.chartCardSelect}
+                          value={slot.group}
+                          onChange={e => setSlot(idx, { group: e.target.value, exercise: '' })}
+                        >
+                          <option value="">Group</option>
+                          {groupNames.map(g => <option key={g} value={g}>{g}</option>)}
+                        </select>
+                        <select
+                          className={styles.chartCardSelect}
+                          value={slot.exercise}
+                          onChange={e => setSlot(idx, { exercise: e.target.value })}
+                          disabled={!slot.group}
+                        >
+                          <option value="">Exercise</option>
+                          {exerciseOptions.map(ex => {
+                            const n = (exerciseHistoryByName[ex.trim().toLowerCase()] || []).length;
+                            return <option key={ex} value={ex}>{ex}{n > 0 ? ` (${n})` : ''}</option>;
+                          })}
+                        </select>
+                      </div>
+                      {renderChartContent(slot.exercise)}
+                    </div>
+                  );
+                })}
+              </div>
+            ) : groupViewExercises.length === 0 ? (
+              <div className={styles.empty}>
+                No <strong>{chartView}</strong> exercises with logged sessions yet.
+              </div>
+            ) : (
+              <div className={styles.chartGrid}>
+                {groupViewExercises.map(({ exercise }) => (
+                  <div key={exercise} className={styles.chartCard}>
+                    {renderChartContent(exercise)}
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         );
       })()}
