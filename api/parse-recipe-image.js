@@ -24,22 +24,38 @@ export default async function handler(req, res) {
     base64Data = image.replace(/^data:image\/\w+;base64,/, '');
   }
 
-  const prompt = `You are reading a recipe from an image — screenshot of a website, photo of a recipe card, cookbook page, sticky note, sheet/spreadsheet, or similar. Extract the recipe and return ONLY a JSON object with these exact keys:
+  const prompt = `You are reading a recipe from an image. The layout could be ANY of:
+- A standard recipe (Title, "Ingredients:" list, "Instructions:" steps)
+- A photo of a recipe card or cookbook page
+- A spreadsheet/table with columns like Instructions, Quantity, Measurement, Ingredient (or Unit, Item, Amount, Qty)
+- A sticky note or hand-written list
+
+Extract the recipe and return ONLY a JSON object with these exact keys:
 
 {
   "title": "(recipe name; empty string if none visible)",
-  "ingredients": ["(one ingredient per item, e.g. '1 cup all-purpose flour', '2 tbsp olive oil')"],
+  "ingredients": ["(one ingredient per array element, e.g. '9 large eggs', '2 tbsp olive oil')"],
   "instructions": "(steps as a single string, one step per line, separated by \\n; do not number)",
   "servings": "(number of servings as a string, or empty string)",
   "category": "(one of: breakfast, lunch-dinner, snack, dessert, drink — or empty string)"
 }
 
+CRITICAL — handle tabular layouts carefully:
+- If the image shows columns labeled "Quantity", "Measurement", "Ingredient" (or similar like Unit/Item/Amount/Qty), each ROW is ONE ingredient. Combine the quantity + measurement + ingredient cells from each row into a single natural string and put it in the ingredients array.
+- If the image has BOTH an "Instructions" column AND ingredient columns, you must extract BOTH independently:
+    - Instructions cells → joined into the "instructions" field (one step per line)
+    - Quantity + Measurement + Ingredient cells from each row → one entry in the "ingredients" array
+- A row may have an instruction step paired with an ingredient — extract both, do not skip either side.
+- An empty Instructions cell does NOT mean skip the row — the ingredient on that row is still valid.
+- An empty Ingredient cell with a non-empty Instructions cell is still a valid instruction step.
+
 Rules:
 - Return ONLY the JSON object — no markdown, no commentary, no code fence
-- Each ingredient is one array element combining quantity + unit + name into one natural string
-- Skip section headers in the ingredients list (e.g. "For the sauce:")
-- Skip blank lines
-- Use "" for any string value not visible; use [] for missing ingredients`;
+- Each ingredient is one array element, formatted naturally (combine qty + unit + name)
+- Strip trailing zeros from numeric quantities ("9.00" → "9", "1.50" → "1.5")
+- Skip section headers in ingredients (e.g. "For the sauce:") and skip column headers themselves
+- Use "" for missing strings, [] for missing ingredients
+- Never return an empty ingredients array if any ingredient text is visible in the image`;
 
   try {
     const response = await fetch('https://api.anthropic.com/v1/messages', {
@@ -50,7 +66,7 @@ Rules:
         'anthropic-version': '2023-06-01',
       },
       body: JSON.stringify({
-        model: 'claude-haiku-4-5-20251001',
+        model: 'claude-sonnet-4-6',
         max_tokens: 2048,
         messages: [
           {
