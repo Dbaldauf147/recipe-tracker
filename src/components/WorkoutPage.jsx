@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { ComposedChart, Area, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
-import { saveField, loadWorkoutLogFromFirestore } from '../utils/firestoreSync';
+import { saveField, loadWorkoutLogFromFirestore, saveWorkoutDraft, clearWorkoutDraft } from '../utils/firestoreSync';
 import { ExerciseLibrary } from './ExerciseLibrary';
 import styles from './WorkoutPage.module.css';
 
@@ -632,8 +632,30 @@ export function WorkoutPage({ onBack, user }) {
     const next = [workout, ...workouts.filter(w => w.date !== selectedDate)].sort((a, b) => b.date.localeCompare(a.date));
     setWorkouts(next);
     saveWorkouts(next, user?.uid);
+    // Clear the in-progress draft so mobile stops showing the unsaved version.
+    if (user?.uid) clearWorkoutDraft(user.uid).catch(() => {});
     alert('Workout saved!');
   }
+
+  // Auto-save the in-progress draft to Firestore so other devices (mobile)
+  // can see what's being typed live. Debounced so we don't fire on every
+  // keystroke. Only meaningful if at least one entry has a group+exercise.
+  const draftDebounceRef = useRef(null);
+  useEffect(() => {
+    if (!user?.uid) return;
+    clearTimeout(draftDebounceRef.current);
+    draftDebounceRef.current = setTimeout(() => {
+      const meaningful = entries.filter(e => e.group && e.exercise);
+      if (meaningful.length === 0) return;
+      saveWorkoutDraft(user.uid, {
+        date: selectedDate,
+        gym,
+        workoutType,
+        entries: meaningful,
+      }).catch(() => {});
+    }, 800);
+    return () => clearTimeout(draftDebounceRef.current);
+  }, [user?.uid, selectedDate, gym, workoutType, entries]);
 
   // Stats
   // Most recent saved workout for each tagged type. Lets us suggest the

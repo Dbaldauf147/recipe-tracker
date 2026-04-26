@@ -77,6 +77,52 @@ export async function loadWorkoutLogFromFirestore(uid) {
   }
 }
 
+// ── Workout draft (in-progress, unsaved) — synced web → mobile ──────────
+
+/** Save the current in-progress workout so other devices can see it live. */
+export async function saveWorkoutDraft(uid, draft) {
+  const ref = doc(db, 'users', uid, 'data', 'workoutDraft');
+  await setDoc(ref, {
+    ...draft,
+    updatedAt: new Date().toISOString(),
+  }, { merge: false });
+}
+
+/** Clear the draft (called when the workout is saved or the user resets). */
+export async function clearWorkoutDraft(uid) {
+  const ref = doc(db, 'users', uid, 'data', 'workoutDraft');
+  try {
+    await setDoc(ref, { cleared: true, updatedAt: new Date().toISOString() }, { merge: false });
+  } catch {
+    // Non-critical if it fails.
+  }
+}
+
+/** One-shot read of the current draft. */
+export async function loadWorkoutDraft(uid) {
+  try {
+    const ref = doc(db, 'users', uid, 'data', 'workoutDraft');
+    const snap = await getDoc(ref);
+    if (!snap.exists()) return null;
+    const data = snap.data();
+    if (data?.cleared) return null;
+    return data;
+  } catch {
+    return null;
+  }
+}
+
+/** Subscribe to the draft for real-time updates from other devices. */
+export function subscribeToWorkoutDraft(uid, onChange) {
+  const ref = doc(db, 'users', uid, 'data', 'workoutDraft');
+  return onSnapshot(ref, snap => {
+    if (!snap.exists()) { onChange(null); return; }
+    const data = snap.data();
+    if (data?.cleared) { onChange(null); return; }
+    onChange(data || null);
+  });
+}
+
 /**
  * Save recipes to a separate Firestore document to avoid 1MB user doc limit.
  */
