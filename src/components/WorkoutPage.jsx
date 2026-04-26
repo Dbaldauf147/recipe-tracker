@@ -424,6 +424,26 @@ export function WorkoutPage({ onBack, user }) {
     alert(`Imported ${importPreview.workouts.length} workout day${importPreview.workouts.length === 1 ? '' : 's'}.`);
   }
 
+  /**
+   * Force-push the current localStorage workouts to Firestore. Useful if
+   * the user imported / saved while signed-out, or the auto-write silently
+   * skipped (so the mobile app's `users/{uid}.workoutLog` is empty even
+   * though localStorage has all the data).
+   */
+  async function handlePushToCloud() {
+    if (!user?.uid) {
+      alert('You must be signed in to push workouts to the cloud.');
+      return;
+    }
+    try {
+      await saveField(user.uid, 'workoutLog', workouts);
+      alert(`Pushed ${workouts.length} workout day${workouts.length === 1 ? '' : 's'} to Firestore. The mobile app should see them after a sync.`);
+    } catch (err) {
+      console.error('Push to cloud error:', err);
+      alert(`Push failed: ${err.message || err}`);
+    }
+  }
+
   function handleDownloadCleaned() {
     if (!importPreview) return;
     const csv = buildCleanedCsv(importPreview.workouts);
@@ -678,6 +698,14 @@ export function WorkoutPage({ onBack, user }) {
         <button
           className={styles.backBtn}
           style={{ marginLeft: 'auto' }}
+          onClick={handlePushToCloud}
+          title="Re-push all local workouts to Firestore (rescue if the mobile app shows 0 workouts)"
+          disabled={!user?.uid}
+        >
+          ⬆ Push to Cloud ({workouts.length})
+        </button>
+        <button
+          className={styles.backBtn}
           onClick={() => setShowImport(true)}
           title="Import historical workouts from a CSV"
         >
