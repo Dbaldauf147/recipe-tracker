@@ -444,12 +444,69 @@ export function ImportRecipePage({ onSave, onAddWithoutClose, onCancel, userReci
 
   const BULK_SHEET_COLS = ['title', 'ingredients', 'instructions', 'servings', 'category'];
 
+  // Look at a header row and return the column indexes if it looks like a
+  // per-ingredient table (Quantity / Measurement / Ingredient, optionally
+  // with Instructions). Returns null otherwise so the paste falls through
+  // to the normal Excel cell-distribution behaviour.
+  function detectIngredientHeaders(headerRow) {
+    if (!Array.isArray(headerRow)) return null;
+    const norm = headerRow.map(h => (h || '').trim().toLowerCase());
+    const ingIdx = norm.findIndex(h => /^ingredient(s)?$|^item(s)?$/.test(h));
+    if (ingIdx < 0) return null;
+    return {
+      instructions: norm.findIndex(h => /^instruction(s)?$|^step(s)?$|^direction(s)?$|^method$/.test(h)),
+      quantity: norm.findIndex(h => /^quantity$|^qty$|^amount$/.test(h)),
+      measurement: norm.findIndex(h => /^measurement$|^unit$|^measure$/.test(h)),
+      ingredient: ingIdx,
+    };
+  }
+
+  function trimNumber(s) {
+    const t = (s || '').trim();
+    if (!t) return '';
+    // Strip trailing zeros from decimals: "9.00" → "9", "1.50" → "1.5"
+    if (/^-?\d+\.\d+$/.test(t)) return t.replace(/\.?0+$/, '');
+    return t;
+  }
+
   function handleBulkSheetPaste(e, rowIdx, colKey) {
     const text = e.clipboardData.getData('text');
     if (!text.includes('\t') && !text.includes('\n')) return; // single-cell paste — let default fire
     e.preventDefault();
     const grid = parseClipboardSheet(text);
     if (grid.length === 0) return;
+
+    // Vertical-ingredient layout: header row + one row per ingredient
+    // (with an optional Instructions column whose cells make up the steps).
+    // Collapses the entire pasted block into a single recipe in the
+    // current sheet row.
+    const headers = detectIngredientHeaders(grid[0]);
+    if (headers && grid.length > 1) {
+      const ingredients = [];
+      const instructions = [];
+      for (let r = 1; r < grid.length; r++) {
+        const cells = grid[r];
+        const qty = headers.quantity >= 0 ? trimNumber(cells[headers.quantity]) : '';
+        const meas = headers.measurement >= 0 ? (cells[headers.measurement] || '').trim() : '';
+        const ing = headers.ingredient >= 0 ? (cells[headers.ingredient] || '').trim() : '';
+        const inst = headers.instructions >= 0 ? (cells[headers.instructions] || '').trim() : '';
+        if (ing) ingredients.push([qty, meas, ing].filter(Boolean).join(' '));
+        if (inst) instructions.push(inst);
+      }
+      setBulkSheetRows(prev => {
+        const next = [...prev];
+        const target = rowIdx < next.length ? rowIdx : 0;
+        next[target] = {
+          ...next[target],
+          ingredients: ingredients.join('\n'),
+          instructions: instructions.join('\n\n'),
+        };
+        return next;
+      });
+      return;
+    }
+
+    // Default: Excel-style cell distribution starting at the focused cell.
     const startCol = BULK_SHEET_COLS.indexOf(colKey);
     setBulkSheetRows(prev => {
       const next = [...prev];
@@ -1644,7 +1701,11 @@ export function ImportRecipePage({ onSave, onAddWithoutClose, onCancel, userReci
             {bulkPasteMode === 'sheet' && (
               <>
                 <p style={{ fontSize: '0.8rem', color: 'var(--color-text-secondary)', margin: '0 0 0.5rem', lineHeight: 1.5 }}>
-                  Copy a block of cells from Excel or Google Sheets and paste anywhere in the table — the cells are distributed across columns and rows just like Excel-to-Excel. Each row = one recipe. Use new lines or semicolons inside <strong>Ingredients</strong> to separate items.
+                  Copy a block of cells from Excel or Google Sheets and paste anywhere in the table.
+                  <strong> One row per recipe</strong> works as Excel-to-Excel paste.
+                  Or paste a <strong>per-ingredient table</strong> with header columns like
+                  <code style={{ margin: '0 0.2rem', fontSize: '0.78rem' }}>Quantity, Measurement, Ingredient</code>
+                  (optionally with an <code style={{ fontSize: '0.78rem' }}>Instructions</code> column) and the entire block will be collapsed into a single recipe row.
                 </p>
                 <div style={{ overflowX: 'auto', marginBottom: '0.5rem' }}>
                   <table className={styles.ingredientTable} style={{ tableLayout: 'fixed', minWidth: '720px' }}>
