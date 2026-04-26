@@ -767,12 +767,8 @@ export function WorkoutPage({ onBack, user }) {
       const next = workouts.map(w => w.date === selectedDate ? { ...w, workoutType: t } : w);
       setWorkouts(next);
       saveWorkouts(next, user?.uid);
-      return;
     }
-    // Fresh day — only auto-fill when the table is still empty so we
-    // don't clobber data the user has already started entering.
-    const hasData = entries.some(e => e.exercise || e.group);
-    if (!hasData) fillFromLast(t);
+    fillFromLast(t);
   }
 
   const exerciseHistory = useMemo(() => {
