@@ -184,10 +184,13 @@ export function ImportRecipePage({ onSave, onAddWithoutClose, onCancel, userReci
     { quantity: '', measurement: '', ingredient: '' },
     { quantity: '', measurement: '', ingredient: '' },
   ]);
-  const [bulkPasteMode, setBulkPasteMode] = useState('text'); // 'text' | 'sheet'
+  const [bulkPasteMode, setBulkPasteMode] = useState('text'); // 'text' | 'sheet' | 'image'
   const [bulkSheetRows, setBulkSheetRows] = useState(() =>
     Array.from({ length: 8 }, () => ({ title: '', ingredients: '', instructions: '', servings: '', category: '' }))
   );
+  const [bulkImageProcessing, setBulkImageProcessing] = useState(false);
+  const [bulkImageError, setBulkImageError] = useState('');
+  const bulkImageFileRef = useRef(null);
   const [recipeTitle, setRecipeTitle] = useState('');
   const [sourceUrl, setSourceUrl] = useState('');
   const [linkUrl, setLinkUrl] = useState('');
@@ -568,8 +571,76 @@ export function ImportRecipePage({ onSave, onAddWithoutClose, onCancel, userReci
     }
     if (recipes.length === 0) return;
     setBulkRecipes(prev => [...prev, ...recipes]);
-    setBulkSheetRows(Array.from({ length: 3 }, () => ({ title: '', ingredients: '', instructions: '', servings: '', category: '' })));
+    setBulkSheetRows(Array.from({ length: 8 }, () => ({ title: '', ingredients: '', instructions: '', servings: '', category: '' })));
   }
+
+  async function handleBulkImage(blob) {
+    if (!blob) return;
+    setBulkImageError('');
+    setBulkImageProcessing(true);
+    try {
+      const dataUrl = await new Promise((resolve, reject) => {
+        const r = new FileReader();
+        r.onload = () => resolve(r.result);
+        r.onerror = () => reject(r.error);
+        r.readAsDataURL(blob);
+      });
+      const res = await fetch('/api/parse-recipe-image', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ image: dataUrl }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || `Server error ${res.status}`);
+      }
+      const recipe = await res.json();
+      const ingredients = (recipe.ingredients || []).map(s => String(s).trim()).filter(Boolean);
+      if (!recipe.title && ingredients.length === 0) {
+        throw new Error("Couldn't read a recipe from that image — try a clearer screenshot.");
+      }
+      setBulkRecipes(prev => [...prev, {
+        title: recipe.title || '',
+        description: '',
+        category: recipe.category || 'lunch-dinner',
+        frequency: 'common',
+        servings: recipe.servings || '1',
+        mealType: ingredients.length > 0 ? classifyMealType(ingredients) : '',
+        ingredients,
+        instructions: recipe.instructions || '',
+        sourceFile: 'Pasted screenshot',
+      }]);
+    } catch (err) {
+      setBulkImageError(err.message || 'Failed to read image');
+    } finally {
+      setBulkImageProcessing(false);
+    }
+  }
+
+  // Listen for clipboard image paste while the bulk Screenshot mode is
+  // active. Works regardless of which element is focused so the user can
+  // hit Cmd/Ctrl-V immediately after taking a screenshot without first
+  // clicking into the dropzone.
+  useEffect(() => {
+    if (importMode !== 'bulk' || bulkPasteMode !== 'image') return;
+    function onPaste(e) {
+      const items = e.clipboardData?.items;
+      if (!items) return;
+      for (const item of items) {
+        if (item.type?.startsWith('image/')) {
+          const blob = item.getAsFile();
+          if (blob) {
+            e.preventDefault();
+            handleBulkImage(blob);
+            return;
+          }
+        }
+      }
+    }
+    window.addEventListener('paste', onPaste);
+    return () => window.removeEventListener('paste', onPaste);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [importMode, bulkPasteMode]);
 
   function handleParse() {
     const result = parseRecipeText(rawText);
@@ -1653,7 +1724,70 @@ export function ImportRecipePage({ onSave, onAddWithoutClose, onCancel, userReci
                 className={`${styles.pasteFormatBtn} ${bulkPasteMode === 'sheet' ? styles.pasteFormatBtnActive : ''}`}
                 onClick={() => setBulkPasteMode('sheet')}
               >Spreadsheet</button>
+              <button
+                className={`${styles.pasteFormatBtn} ${bulkPasteMode === 'image' ? styles.pasteFormatBtnActive : ''}`}
+                onClick={() => setBulkPasteMode('image')}
+              >Screenshot</button>
             </div>
+
+            {bulkPasteMode === 'image' && (
+              <>
+                <p style={{ fontSize: '0.8rem', color: 'var(--color-text-secondary)', margin: '0 0 0.5rem', lineHeight: 1.5 }}>
+                  Take a screenshot of any recipe (cookbook page, website, sticky note, even a sheet) and paste it here with <strong>Cmd/Ctrl-V</strong>, drag & drop the image, or click to choose a file. We'll read the image with AI and add the recipe to the list below.
+                </p>
+                <input
+                  ref={bulkImageFileRef}
+                  type="file"
+                  accept="image/*"
+                  style={{ display: 'none' }}
+                  onChange={e => {
+                    const file = e.target.files?.[0];
+                    if (file) handleBulkImage(file);
+                    e.target.value = '';
+                  }}
+                />
+                <div
+                  style={{
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    gap: '0.5rem', padding: '2rem 1rem',
+                    border: '2px dashed var(--color-border)', borderRadius: '8px',
+                    cursor: bulkImageProcessing ? 'wait' : 'pointer',
+                    marginBottom: '0.75rem',
+                    background: 'var(--color-surface-alt)',
+                    transition: 'border-color 0.15s, background 0.15s',
+                    flexDirection: 'column', textAlign: 'center',
+                  }}
+                  onClick={() => !bulkImageProcessing && bulkImageFileRef.current?.click()}
+                  onDragOver={e => { e.preventDefault(); e.currentTarget.style.borderColor = 'var(--color-accent)'; }}
+                  onDragLeave={e => { e.currentTarget.style.borderColor = ''; }}
+                  onDrop={e => {
+                    e.preventDefault();
+                    e.currentTarget.style.borderColor = '';
+                    if (bulkImageProcessing) return;
+                    const file = e.dataTransfer.files?.[0];
+                    if (file?.type?.startsWith('image/')) handleBulkImage(file);
+                  }}
+                >
+                  {bulkImageProcessing ? (
+                    <>
+                      <span style={{ fontSize: '1.2rem' }}>🧠</span>
+                      <span style={{ fontSize: '0.9rem', color: 'var(--color-text-secondary)', fontWeight: 500 }}>Reading recipe from image…</span>
+                    </>
+                  ) : (
+                    <>
+                      <span style={{ fontSize: '1.5rem' }}>📸</span>
+                      <span style={{ fontSize: '0.95rem', color: 'var(--color-text-secondary)', fontWeight: 600 }}>Paste an image (Cmd/Ctrl-V), drag & drop, or click to browse</span>
+                      <span style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>PNG, JPG, GIF, WebP</span>
+                    </>
+                  )}
+                </div>
+                {bulkImageError && (
+                  <div style={{ background: '#FEE2E2', color: '#991B1B', padding: '0.5rem 0.75rem', borderRadius: 6, marginBottom: '0.75rem', fontSize: '0.82rem' }}>
+                    {bulkImageError}
+                  </div>
+                )}
+              </>
+            )}
 
             {bulkPasteMode === 'text' && (
               <>
