@@ -830,6 +830,9 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
   const defaultServingWeight = (foodWeight > 0 && baseServings > 0)
     ? String(Math.round(foodWeight / baseServings))
     : '';
+  const defaultSumPortionGrams = (ingredientWeightTotal > 0 && baseServings > 0)
+    ? String(Math.round(ingredientWeightTotal / baseServings))
+    : '';
   const servingWeightNum = parseFloat(servingWeight || defaultServingWeight) || 0;
   const weightBasedServings = (foodWeight > 0 && servingWeightNum > 0)
     ? (servingWeightNum / foodWeight) * baseServings
@@ -1860,19 +1863,26 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
                     </td>
                     <td>
                       {ingredientWeightTotal > 0 ? (
-                        <input
-                          className={styles.weighInput}
-                          type="number"
-                          min="0"
-                          placeholder="g"
-                          value={sumPortionGrams}
-                          onChange={e => setSumPortionGrams(e.target.value)}
-                        />
+                        <>
+                          <input
+                            className={styles.weighInput}
+                            type="number"
+                            min="0"
+                            placeholder={defaultSumPortionGrams || 'g'}
+                            value={sumPortionGrams || defaultSumPortionGrams}
+                            onChange={e => setSumPortionGrams(e.target.value)}
+                          />
+                          {defaultSumPortionGrams && (
+                            <div className={styles.weighSumNote} style={{ marginTop: '0.2rem' }}>
+                              avg: {defaultSumPortionGrams}g/serving
+                            </div>
+                          )}
+                        </>
                       ) : null}
                     </td>
                     <td className={styles.weighCalc}>
                       {(() => {
-                        const n = parseFloat(sumPortionGrams);
+                        const n = parseFloat(sumPortionGrams || defaultSumPortionGrams);
                         if (!(n > 0) || !(ingredientWeightTotal > 0)) return '';
                         const s = (n / ingredientWeightTotal) * baseServings;
                         return parseFloat(s.toFixed(2));
@@ -1926,14 +1936,21 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
                     </td>
                     <td>
                       {foodWeight > 0 ? (
-                        <input
-                          className={styles.weighInput}
-                          type="number"
-                          min="0"
-                          placeholder="g"
-                          value={servingWeight || defaultServingWeight}
-                          onChange={e => setServingWeight(e.target.value)}
-                        />
+                        <>
+                          <input
+                            className={styles.weighInput}
+                            type="number"
+                            min="0"
+                            placeholder="g"
+                            value={servingWeight || defaultServingWeight}
+                            onChange={e => setServingWeight(e.target.value)}
+                          />
+                          {defaultServingWeight && (
+                            <div className={styles.weighSumNote} style={{ marginTop: '0.2rem' }}>
+                              avg: {defaultServingWeight}g/serving
+                            </div>
+                          )}
+                        </>
                       ) : null}
                     </td>
                     <td className={styles.weighCalc}>
