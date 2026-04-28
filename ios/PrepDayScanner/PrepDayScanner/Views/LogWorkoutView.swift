@@ -50,6 +50,10 @@ struct LogWorkoutView: View {
             Picker("Gym", selection: $vm.gym) {
                 ForEach(WorkoutCatalog.gyms, id: \.self) { Text($0).tag($0) }
             }
+            Picker("Workout Type", selection: $vm.workoutType) {
+                Text("None").tag("")
+                ForEach(WorkoutCatalog.workoutTypes, id: \.self) { Text($0).tag($0) }
+            }
         }
     }
 

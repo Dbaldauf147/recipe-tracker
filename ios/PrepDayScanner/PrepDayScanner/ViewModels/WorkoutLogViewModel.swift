@@ -6,6 +6,7 @@ final class WorkoutLogViewModel: ObservableObject {
     @Published var workouts: [Workout] = []
     @Published var selectedDate: String = WorkoutLogViewModel.todayString()
     @Published var gym: String = WorkoutCatalog.gyms[0]
+    @Published var workoutType: String = ""
     @Published var entries: [WorkoutEntry] = [WorkoutEntry()]
     @Published var isLoading: Bool = false
     @Published var saveStatus: SaveStatus = .idle
@@ -34,8 +35,10 @@ final class WorkoutLogViewModel: ObservableObject {
     private func loadEntries(for date: String) {
         if let existing = workouts.first(where: { $0.date == date }) {
             gym = existing.gym
+            workoutType = existing.workoutType
             entries = existing.entries.isEmpty ? [WorkoutEntry()] : existing.entries
         } else {
+            workoutType = ""
             entries = [WorkoutEntry()]
         }
     }
@@ -77,7 +80,8 @@ final class WorkoutLogViewModel: ObservableObject {
             date: selectedDate,
             gym: gym,
             entries: valid,
-            savedAt: ISO8601DateFormatter().string(from: Date())
+            savedAt: ISO8601DateFormatter().string(from: Date()),
+            workoutType: workoutType
         )
 
         var next = workouts.filter { $0.date != selectedDate }

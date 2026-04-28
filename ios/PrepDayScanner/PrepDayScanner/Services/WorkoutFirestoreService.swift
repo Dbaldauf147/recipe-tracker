@@ -33,6 +33,7 @@ enum WorkoutFirestoreService {
             "date": w.date,
             "gym": w.gym,
             "savedAt": w.savedAt,
+            "workoutType": w.workoutType,
             "entries": w.entries.map { $0.enriched() },
         ]
     }
@@ -65,6 +66,7 @@ enum WorkoutFirestoreService {
             entry.time = raw["time"] as? String ?? "2:00"
             return entry
         }
-        return Workout(date: date, gym: gym, entries: entries, savedAt: savedAt)
+        let workoutType = dict["workoutType"] as? String ?? ""
+        return Workout(date: date, gym: gym, entries: entries, savedAt: savedAt, workoutType: workoutType)
     }
 }

@@ -8,6 +8,8 @@ enum WorkoutCatalog {
 
     static let gyms = ["Edge South Tower", "Home", "Other"]
 
+    static let workoutTypes = ["Push", "Pull", "Legs", "Full Body", "Yoga"]
+
     static let exercisesByGroup: [String: [String]] = [
         "Chest": ["Warm up", "Butterfly", "Cable crossover low to high", "Cable flys declined", "Chest press", "Close grip bench press", "Decline Barbell Press", "Decline press", "Decline push-up", "Dips", "Dumbbell flys", "Dumbbell press", "Dumbbell press inclined", "Dumbbell squeeze press", "Incline press", "Incline push-up", "Inclined Barbell Press", "Inclined machine press", "Inclined smith machine press"],
         "Back": ["Warm up", "Back extensions", "Back extensions - machine", "Bent-over dumbbell row", "Bent-over smith machine row", "Cable lat pullover", "Chin ups", "Face pulls", "Lat pull down (wide grip)", "Lat pull downs (bar)", "Lat pull downs (bar) underhand grip", "Lat pull downs (machine)", "Lat pulldown (vbar grip)", "Middle grip row", "One arm rows", "Plate-loaded low row", "Pull-ups", "Seated cable row", "Seated neutral grip row", "Seated pronated machine row", "Seated vertical row machine", "Single arm cable row", "Single arm lat pulldown", "Standing bent-over dumbbell row", "T bar machine", "Two arm cable row", "Weighted pull-up", "Wide grip row"],
@@ -74,4 +76,5 @@ struct Workout: Identifiable, Codable, Equatable {
     var gym: String
     var entries: [WorkoutEntry]
     var savedAt: String        // ISO 8601
+    var workoutType: String = ""
 }

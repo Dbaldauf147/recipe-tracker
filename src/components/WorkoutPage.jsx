@@ -38,6 +38,36 @@ const GYMS = ['Edge South Tower', 'Home', 'Other'];
 
 const WORKOUT_TYPES = ['Push', 'Pull', 'Legs', 'Full Body', 'Yoga'];
 
+const LOG_COLUMN_DEFS = [
+  { id: 'group', default: 100, min: 60 },
+  { id: 'exercise', default: 220, min: 120 },
+  { id: 'notes', default: 220, min: 120 },
+  { id: 'time', default: 60, min: 40 },
+  { id: 's1', default: 44, min: 32 },
+  { id: 's2', default: 44, min: 32 },
+  { id: 's3', default: 44, min: 32 },
+  { id: 's4', default: 44, min: 32 },
+  { id: 'weight', default: 80, min: 60 },
+  { id: 'per', default: 36, min: 28 },
+  { id: 'total', default: 70, min: 50 },
+  { id: 'remove', default: 32, min: 28 },
+];
+const COL_WIDTHS_KEY = 'sunday-workout-log-col-widths';
+const DEFAULT_COL_WIDTHS = LOG_COLUMN_DEFS.reduce((acc, c) => { acc[c.id] = c.default; return acc; }, {});
+
+function loadColWidths() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(COL_WIDTHS_KEY)) || {};
+    const merged = { ...DEFAULT_COL_WIDTHS };
+    for (const c of LOG_COLUMN_DEFS) {
+      if (typeof saved[c.id] === 'number' && saved[c.id] >= c.min) {
+        merged[c.id] = saved[c.id];
+      }
+    }
+    return merged;
+  } catch { return { ...DEFAULT_COL_WIDTHS }; }
+}
+
 function daysSince(dateStr) {
   if (!dateStr) return null;
   const ms = Date.now() - new Date(dateStr + 'T00:00:00').getTime();
@@ -454,6 +484,49 @@ export function WorkoutPage({ onBack, user }) {
   const [logImageError, setLogImageError] = useState('');
   const [logImageInfo, setLogImageInfo] = useState('');
   const logImageFileRef = useRef(null);
+
+  const [colWidths, setColWidths] = useState(loadColWidths);
+  useEffect(() => {
+    try { localStorage.setItem(COL_WIDTHS_KEY, JSON.stringify(colWidths)); } catch {}
+  }, [colWidths]);
+  const colResizeRef = useRef(null);
+
+  function startColResize(colId, e) {
+    e.preventDefault();
+    e.stopPropagation();
+    const def = LOG_COLUMN_DEFS.find(c => c.id === colId);
+    colResizeRef.current = {
+      colId,
+      startX: e.clientX,
+      startWidth: colWidths[colId],
+      minWidth: def?.min || 30,
+    };
+    e.currentTarget.setPointerCapture(e.pointerId);
+    e.currentTarget.classList.add(styles.colResizing);
+  }
+  function onColResizeMove(e) {
+    const s = colResizeRef.current;
+    if (!s) return;
+    const next = Math.max(s.minWidth, s.startWidth + (e.clientX - s.startX));
+    setColWidths(prev => prev[s.colId] === next ? prev : ({ ...prev, [s.colId]: next }));
+  }
+  function onColResizeEnd(e) {
+    if (!colResizeRef.current) return;
+    colResizeRef.current = null;
+    e.currentTarget.classList.remove(styles.colResizing);
+  }
+  function renderColResizer(colId) {
+    return (
+      <span
+        className={styles.colResizer}
+        onPointerDown={ev => startColResize(colId, ev)}
+        onPointerMove={onColResizeMove}
+        onPointerUp={onColResizeEnd}
+        onPointerCancel={onColResizeEnd}
+      />
+    );
+  }
+  const logTableWidth = LOG_COLUMN_DEFS.reduce((s, c) => s + (colWidths[c.id] || 0), 0);
 
   async function handleLogImage(blob) {
     if (!blob) return;
@@ -1098,21 +1171,29 @@ export function WorkoutPage({ onBack, user }) {
           {logImageInfo && <div className={styles.logImageInfo}>{logImageInfo}</div>}
 
           <div className={styles.logTableWrap}>
-            <table className={styles.logTable}>
+            <table
+              className={styles.logTable}
+              style={{ width: logTableWidth, minWidth: 0, tableLayout: 'fixed' }}
+            >
+              <colgroup>
+                {LOG_COLUMN_DEFS.map(c => (
+                  <col key={c.id} style={{ width: colWidths[c.id] }} />
+                ))}
+              </colgroup>
               <thead>
                 <tr>
-                  <th className={styles.logGroupCol}>Group</th>
-                  <th className={styles.logExerciseCol}>Exercise</th>
-                  <th className={styles.logNotesCol}>Notes</th>
-                  <th className={styles.logTimeCol}>Time</th>
-                  <th className={styles.logSetCol}>S1</th>
-                  <th className={styles.logSetCol}>S2</th>
-                  <th className={styles.logSetCol}>S3</th>
-                  <th className={styles.logSetCol}>S4</th>
-                  <th className={styles.logWeightCol}>Weight</th>
-                  <th className={styles.logPerCol} title="Weight is per arm/leg (totals double)">×2</th>
-                  <th className={styles.logTotalCol}>Total</th>
-                  <th className={styles.logRemoveCol}></th>
+                  <th className={styles.logGroupCol}>Group{renderColResizer('group')}</th>
+                  <th className={styles.logExerciseCol}>Exercise{renderColResizer('exercise')}</th>
+                  <th className={styles.logNotesCol}>Notes{renderColResizer('notes')}</th>
+                  <th className={styles.logTimeCol}>Time{renderColResizer('time')}</th>
+                  <th className={styles.logSetCol}>S1{renderColResizer('s1')}</th>
+                  <th className={styles.logSetCol}>S2{renderColResizer('s2')}</th>
+                  <th className={styles.logSetCol}>S3{renderColResizer('s3')}</th>
+                  <th className={styles.logSetCol}>S4{renderColResizer('s4')}</th>
+                  <th className={styles.logWeightCol}>Weight{renderColResizer('weight')}</th>
+                  <th className={styles.logPerCol} title="Weight is per arm/leg (totals double)">×2{renderColResizer('per')}</th>
+                  <th className={styles.logTotalCol}>Total{renderColResizer('total')}</th>
+                  <th className={styles.logRemoveCol}>{renderColResizer('remove')}</th>
                 </tr>
               </thead>
               <tbody>
