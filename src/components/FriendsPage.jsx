@@ -355,6 +355,14 @@ export function FriendsPage({ onClose, addRecipe, importRecipes }) {
               <div className={styles.friendInfo}>
                 <span className={styles.friendUsername}>@{f.username}</span>
                 {f.displayName && <span className={styles.friendDisplayName}>{f.displayName}</span>}
+                {(f.hasGrantedAccess || f.hasSharedShoppingWithMe) && (
+                  <span className={styles.friendDisplayName}>
+                    sharing with you:
+                    {f.hasGrantedAccess ? ' recipes' : ''}
+                    {f.hasGrantedAccess && f.hasSharedShoppingWithMe ? ',' : ''}
+                    {f.hasSharedShoppingWithMe ? ' shopping list' : ''}
+                  </span>
+                )}
                 <div className={styles.friendAccessRow}>
                   <label className={styles.shareToggle}>
                     <input
