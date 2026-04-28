@@ -19,6 +19,7 @@ import {
   acceptSharedRecipe,
   declineSharedRecipe,
   toggleRecipeAccess,
+  toggleShoppingShare,
   loadFriendRecipes,
 } from '../utils/firestoreSync';
 import styles from './FriendsPage.module.css';
@@ -366,6 +367,18 @@ export function FriendsPage({ onClose, addRecipe, importRecipes }) {
                       }}
                     />
                     Share my recipes
+                  </label>
+                  <label className={styles.shareToggle}>
+                    <input
+                      type="checkbox"
+                      checked={f.iSharedShopping}
+                      onChange={async (e) => {
+                        const grant = e.target.checked;
+                        await toggleShoppingShare(uid, f.uid, grant);
+                        setFriends(prev => prev.map(fr => fr.uid === f.uid ? { ...fr, iSharedShopping: grant } : fr));
+                      }}
+                    />
+                    Share my shopping list
                   </label>
                   {f.hasGrantedAccess && (
                     <button

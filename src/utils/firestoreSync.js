@@ -737,6 +737,7 @@ export async function loadFriends(uid) {
   const userData = userSnap.data();
   const friendUids = userData.friends || [];
   const mySharedAccess = userData.sharedAccess || [];
+  const mySharedShopping = userData.sharedShoppingWith || [];
   const friends = [];
   for (const fid of friendUids) {
     const fSnap = await getDoc(doc(db, 'users', fid));
@@ -749,6 +750,8 @@ export async function loadFriends(uid) {
         email: data.email || '',
         hasGrantedAccess: (data.sharedAccess || []).includes(uid), // they shared with me
         iGrantedAccess: mySharedAccess.includes(fid), // I shared with them
+        hasSharedShoppingWithMe: (data.sharedShoppingWith || []).includes(uid),
+        iSharedShopping: mySharedShopping.includes(fid),
       });
     }
   }
@@ -766,6 +769,51 @@ export async function toggleRecipeAccess(uid, friendUid, grant) {
   } else {
     await updateDoc(ref, { sharedAccess: arrayRemove(friendUid) });
   }
+}
+
+/**
+ * Toggle sharing the current weekly shopping list (planned meals) with a friend.
+ * When enabled, the friend can see your weeklyPlan recipes on their Shopping List page.
+ */
+export async function toggleShoppingShare(uid, friendUid, grant) {
+  const ref = doc(db, 'users', uid);
+  if (grant) {
+    await updateDoc(ref, { sharedShoppingWith: arrayUnion(friendUid) });
+  } else {
+    await updateDoc(ref, { sharedShoppingWith: arrayRemove(friendUid) });
+  }
+}
+
+/**
+ * Load a friend's weekly meal plan as a list of { id, title, servings } so the
+ * recipient can render the shared shopping list. Best-effort recipe-title join:
+ * if the friend hasn't also shared their recipes, titles fall back to a placeholder.
+ */
+export async function loadFriendShoppingList(friendUid) {
+  const snap = await getDoc(doc(db, 'users', friendUid));
+  if (!snap.exists()) return { meals: [], username: '' };
+  const data = snap.data();
+  const weeklyPlan = Array.isArray(data.weeklyPlan) ? data.weeklyPlan : [];
+  const weeklyServings = data.weeklyServings || {};
+  let recipes = [];
+  try {
+    const r = await loadFriendRecipes(friendUid);
+    recipes = r.recipes || [];
+  } catch { /* recipe titles unavailable; fall back below */ }
+  const recipeById = new Map(recipes.map(r => [r.id, r]));
+  const meals = weeklyPlan.map(id => {
+    const r = recipeById.get(id);
+    return {
+      id,
+      title: r?.title || '(recipe unavailable)',
+      servings: weeklyServings[id] ?? r?.servings ?? 1,
+      category: r?.category || '',
+    };
+  });
+  return {
+    username: data.username || data.displayName || '',
+    meals,
+  };
 }
 
 /**

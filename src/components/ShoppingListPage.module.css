@@ -347,6 +347,37 @@
   white-space: nowrap;
 }
 
+.sharedSection {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  margin: 0.5rem 0 1rem;
+  padding: 0.75rem 1rem;
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius-md, 8px);
+  background: var(--color-surface-alt, rgba(0, 0, 0, 0.02));
+}
+
+.sharedFriendBlock {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.sharedFriendHeading {
+  font-size: 0.78rem;
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.sharedFriendHeading strong {
+  color: var(--color-text);
+  font-weight: 700;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
 .hiddenBox {
   background: #fff;
   border: 1px solid var(--color-border-light);
