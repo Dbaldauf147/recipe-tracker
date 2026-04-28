@@ -199,6 +199,9 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
   });
   const [viewHistory, setViewHistory] = useState([]);
   const [modalView, setModalView] = useState(null);
+  // Holds a friend-shared recipe being viewed inline (without persisting it
+  // to the user's own library). Cleared when the user navigates away.
+  const [transientViewRecipe, setTransientViewRecipe] = useState(null);
   const [weeklyPlan, setWeeklyPlan] = useState(loadWeeklyPlan);
   const [weeklyServings, setWeeklyServings] = useState(loadWeeklyServings);
   // Friends who have toggled "Share my shopping list" on for this user.
@@ -871,13 +874,13 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
             addRecipe={addRecipe}
             importRecipes={importRecipes}
           />
-        ) : view === 'detail' && selectedId ? (
+        ) : view === 'detail' && (transientViewRecipe || selectedId) ? (
           <ErrorBoundary>
             <RecipeDetail
-              recipe={getRecipe(selectedId)}
+              recipe={transientViewRecipe || getRecipe(selectedId)}
               onSave={handleUpdate}
               onDelete={handleDelete}
-              onBack={goBack}
+              onBack={() => { setTransientViewRecipe(null); goBack(); }}
               onAddToWeek={handleAddToWeek}
               weeklyPlan={weeklyPlan}
               user={user}
@@ -892,6 +895,16 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
             <RecipeList
               recipes={recipes}
               onSelect={handleSelect}
+              onSelectShared={(meal, sharer) => {
+                setTransientViewRecipe({
+                  ...meal,
+                  source: 'shared-link',
+                  sharedFromUid: sharer.uid,
+                  sharedFromRecipeId: meal.id,
+                  sharedFrom: sharer.username,
+                });
+                navigateTo('detail');
+              }}
               onAdd={() => setShowImportModal(true)}
               onImport={importRecipes}
               weeklyPlan={weeklyPlan}

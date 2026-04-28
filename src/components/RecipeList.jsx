@@ -260,6 +260,7 @@ export function RecipeList({
   weeklyPlan,
   weeklyServings = {},
   sharedFromFriends = [],
+  onSelectShared,
   onAddToWeek,
   onRemoveFromWeek,
   onClearWeek,
@@ -1501,9 +1502,12 @@ export function RecipeList({
                 {sharedFromFriends.flatMap(s => s.meals.map(m => (
                   <div key={`shared-${s.uid}-${m.id}`} className={styles.weekItem}>
                     <div className={styles.weekItemContent}>
-                      <span className={styles.weekItemName} style={{ cursor: 'default' }}>
+                      <button
+                        className={styles.weekItemName}
+                        onClick={() => onSelectShared && onSelectShared(m, s)}
+                      >
                         {m.title}
-                      </span>
+                      </button>
                       <span style={{
                         fontSize: '0.7rem',
                         color: 'var(--color-text-muted)',
