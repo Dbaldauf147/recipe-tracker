@@ -225,8 +225,14 @@ export function FriendsPage({ onClose, addRecipe, importRecipes }) {
     try {
       await acceptSharedRecipe(share.id);
       if (addRecipe && share.recipe) {
-        const { id, ...recipeData } = share.recipe;
-        addRecipe({ ...recipeData, source: 'shared', sharedFrom: share.fromUsername || '' });
+        // Live link: edits the sender makes propagate automatically.
+        addRecipe({
+          source: 'shared-link',
+          sharedFromUid: share.from,
+          sharedFromRecipeId: share.recipe.id,
+          sharedFrom: share.fromUsername || '',
+          title: share.recipe.title || 'Shared recipe',
+        });
       }
       setSharedRecipes(prev => prev.filter(s => s.id !== share.id));
     } catch (err) {
@@ -422,10 +428,13 @@ export function FriendsPage({ onClose, addRecipe, importRecipes }) {
                   onClick={() => {
                     const toImport = browseFriend.recipes
                       .filter(r => (r.frequency || 'common') !== 'retired')
-                      .map(r => {
-                        const { id, ...rest } = r;
-                        return { ...rest, source: 'shared', sharedFrom: browseFriend.username || '' };
-                      });
+                      .map(r => ({
+                        source: 'shared-link',
+                        sharedFromUid: browseFriend.uid,
+                        sharedFromRecipeId: r.id,
+                        sharedFrom: browseFriend.username || '',
+                        title: r.title || 'Shared recipe',
+                      }));
                     if (toImport.length > 0) importRecipes(toImport);
                   }}
                 >
@@ -455,8 +464,13 @@ export function FriendsPage({ onClose, addRecipe, importRecipes }) {
                     className={styles.importBtn}
                     onClick={() => {
                       if (addRecipe) {
-                        const { id, ...recipeData } = r;
-                        addRecipe({ ...recipeData, source: 'shared', sharedFrom: browseFriend.username || '' });
+                        addRecipe({
+                          source: 'shared-link',
+                          sharedFromUid: browseFriend.uid,
+                          sharedFromRecipeId: r.id,
+                          sharedFrom: browseFriend.username || '',
+                          title: r.title || 'Shared recipe',
+                        });
                       }
                     }}
                   >

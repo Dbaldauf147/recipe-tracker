@@ -1,7 +1,24 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { auth } from '../firebase';
-import { saveField, backupRecipes } from '../utils/firestoreSync';
+import { saveField, backupRecipes, loadFriendRecipes } from '../utils/firestoreSync';
 import { classifyMealType } from '../utils/classifyMealType';
+
+// Merge a stub link recipe with its resolved owner data. Local id and link
+// metadata always win so Joanne's app keeps using her own pointer.
+function mergeLinkRecipe(stub, resolved) {
+  if (!resolved) {
+    return { ...stub, _linkUnavailable: true, title: stub.title || '(unavailable)' };
+  }
+  return {
+    ...resolved,
+    id: stub.id,
+    source: 'shared-link',
+    sharedFromUid: stub.sharedFromUid,
+    sharedFromRecipeId: stub.sharedFromRecipeId,
+    sharedFrom: stub.sharedFrom,
+    createdAt: stub.createdAt,
+  };
+}
 
 const STORAGE_KEY = 'recipe-tracker-recipes';
 
@@ -142,23 +159,105 @@ async function syncToFirestore(uid, recipes, retryCount = 0) {
 }
 
 export function useRecipes() {
-  const [recipes, setRecipes] = useState(loadRecipes);
+  // rawRecipes = exactly what's in storage (link stubs stay as stubs).
+  // The exported `recipes` is rawRecipes with link stubs merged with their
+  // live data from the owner's Firestore.
+  const [rawRecipes, setRecipes] = useState(loadRecipes);
+  // ownerUid -> Map<recipeId, recipeObj | null>. null means "fetched, not found".
+  const [linkCache, setLinkCache] = useState(() => new Map());
   const backupDone = useRef(false);
 
-  // Auto-backup recipes once per day
+  // Whenever rawRecipes changes, find link stubs whose owners we haven't
+  // fetched yet, and prefetch all that owner's recipes in one round trip.
   useEffect(() => {
-    if (backupDone.current || recipes.length === 0) return;
+    const stubs = rawRecipes.filter(r => r?.source === 'shared-link' && r.sharedFromUid && r.sharedFromRecipeId);
+    if (stubs.length === 0) return;
+    const ownersToFetch = new Set();
+    for (const s of stubs) {
+      if (!linkCache.has(s.sharedFromUid)) ownersToFetch.add(s.sharedFromUid);
+    }
+    if (ownersToFetch.size === 0) return;
+    let cancelled = false;
+    (async () => {
+      const updates = new Map();
+      await Promise.all([...ownersToFetch].map(async (ownerUid) => {
+        try {
+          const r = await loadFriendRecipes(ownerUid);
+          const byId = new Map((r.recipes || []).map(rec => [rec.id, rec]));
+          updates.set(ownerUid, byId);
+        } catch {
+          updates.set(ownerUid, new Map()); // empty → resolutions return null
+        }
+      }));
+      if (cancelled) return;
+      setLinkCache(prev => {
+        const next = new Map(prev);
+        for (const [k, v] of updates) next.set(k, v);
+        return next;
+      });
+    })();
+    return () => { cancelled = true; };
+    // linkCache is intentionally NOT a dependency: we only want this to fire
+    // when rawRecipes changes (adding more deps would loop).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rawRecipes]);
+
+  // Refresh linked-recipe data when the tab regains focus, so owner edits
+  // propagate without a full reload. Uses the same visibility hook the
+  // own-recipes fetch already uses below.
+  useEffect(() => {
+    function refreshLinks() {
+      if (document.visibilityState !== 'visible') return;
+      const owners = new Set();
+      for (const r of rawRecipes) {
+        if (r?.source === 'shared-link' && r.sharedFromUid) owners.add(r.sharedFromUid);
+      }
+      if (owners.size === 0) return;
+      (async () => {
+        const updates = new Map();
+        await Promise.all([...owners].map(async (ownerUid) => {
+          try {
+            const r = await loadFriendRecipes(ownerUid);
+            updates.set(ownerUid, new Map((r.recipes || []).map(rec => [rec.id, rec])));
+          } catch { /* keep stale cache */ }
+        }));
+        setLinkCache(prev => {
+          const next = new Map(prev);
+          for (const [k, v] of updates) next.set(k, v);
+          return next;
+        });
+      })();
+    }
+    document.addEventListener('visibilitychange', refreshLinks);
+    return () => document.removeEventListener('visibilitychange', refreshLinks);
+  }, [rawRecipes]);
+
+  // Merged view used everywhere outside this hook.
+  const recipes = useMemo(() => {
+    return rawRecipes.map(r => {
+      if (r?.source !== 'shared-link') return r;
+      const ownerMap = linkCache.get(r.sharedFromUid);
+      if (!ownerMap) return mergeLinkRecipe(r, null); // not loaded yet
+      const resolved = ownerMap.get(r.sharedFromRecipeId);
+      return mergeLinkRecipe(r, resolved || null);
+    });
+  }, [rawRecipes, linkCache]);
+
+  // Auto-backup recipes once per day. Uses rawRecipes so link stubs stay as
+  // pointers in backups (not denormalized snapshots of friends' recipes).
+  useEffect(() => {
+    if (backupDone.current || rawRecipes.length === 0) return;
     const user = auth.currentUser;
     if (!user) return;
     const today = new Date().toISOString().slice(0, 10);
     const lastBackup = localStorage.getItem('sunday-last-recipe-backup');
     if (lastBackup === today) { backupDone.current = true; return; }
     backupDone.current = true;
-    backupRecipes(user.uid, recipes).then(() => {
+    backupRecipes(user.uid, rawRecipes).then(() => {
       localStorage.setItem('sunday-last-recipe-backup', today);
-      console.log(`[Backup] Saved ${recipes.length} recipes for ${today}`);
+      console.log(`[Backup] Saved ${rawRecipes.length} recipes for ${today}`);
     }).catch(err => console.error('[Backup] Failed:', err));
-  }, [recipes]);
+  }, [rawRecipes]);
 
   // Re-read localStorage when remote Firestore data is synced
   useEffect(() => {
@@ -229,6 +328,23 @@ export function useRecipes() {
   }, []);
 
   function addRecipe(recipe) {
+    // Link stubs are just pointers — skip ingredient/step processing entirely.
+    if (recipe?.source === 'shared-link') {
+      const now = new Date().toISOString();
+      const newRecipe = {
+        ...recipe,
+        id: crypto.randomUUID(),
+        createdAt: now,
+        updatedAt: now,
+      };
+      setRecipes(prev => {
+        const next = [newRecipe, ...prev];
+        save(next);
+        return next;
+      });
+      emitRecipeChange('added', newRecipe.title || 'shared recipe');
+      return newRecipe;
+    }
     // Auto-assign ingredients to instruction steps based on name matching
     if (recipe.instructions && recipe.ingredients?.length > 0 && !recipe.stepIngredients) {
       const steps = (recipe.stepsArray && recipe.stepsArray.length > 0)

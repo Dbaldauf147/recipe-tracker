@@ -820,6 +820,19 @@ export async function loadFriendShoppingList(friendUid) {
 }
 
 /**
+ * Look up a single recipe by id from a friend who has granted access.
+ * Returns null if the recipe is gone or the read isn't permitted.
+ */
+export async function loadFriendRecipeById(friendUid, recipeId) {
+  try {
+    const r = await loadFriendRecipes(friendUid);
+    return (r.recipes || []).find(x => x.id === recipeId) || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Load recipes from a friend who has granted access.
  * Reads from the recipes subcollection (where active recipes live after migration),
  * falling back to the legacy main-doc field for un-migrated users.

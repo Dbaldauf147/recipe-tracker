@@ -1096,6 +1096,9 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
   }
 
   function handleSave() {
+    // Linked-from-friend recipes are read-only mirrors; never push edits to
+    // the owner's record (and never persist a divergent local copy).
+    if (recipe?.source === 'shared-link') return;
     // Flush any pending contentEditable debounce — read latest step text
     // directly from the DOM so we never save stale data
     if (autoSaveRef.current) clearTimeout(autoSaveRef.current);
@@ -1164,6 +1167,8 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
   const initialRef = useRef(true);
   const lastSavedSnapshot = useRef('');
   useEffect(() => {
+    // Linked recipes are read-only — skip the timer + toast entirely.
+    if (recipe?.source === 'shared-link') return;
     if (!fields || initialRef.current) {
       initialRef.current = false;
       try { lastSavedSnapshot.current = JSON.stringify(fields); } catch { /* ignore */ }
@@ -1378,6 +1383,29 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
           <SyncStatus />
         </div>
       </div>
+
+      {recipe?.source === 'shared-link' && (
+        <div style={{
+          margin: '0.5rem 0 1rem',
+          padding: '0.6rem 0.85rem',
+          borderRadius: '8px',
+          background: recipe._linkUnavailable ? '#FEE2E2' : '#EEF2FF',
+          border: `1px solid ${recipe._linkUnavailable ? '#FCA5A5' : '#C7D2FE'}`,
+          color: recipe._linkUnavailable ? '#7F1D1D' : '#3730A3',
+          fontSize: '0.82rem',
+          lineHeight: 1.4,
+        }}>
+          {recipe._linkUnavailable ? (
+            <>
+              <strong>Shared recipe unavailable.</strong> @{recipe.sharedFrom || 'the owner'} may have deleted it or unshared their recipes. You can remove this entry from your list.
+            </>
+          ) : (
+            <>
+              <strong>Linked from @{recipe.sharedFrom || 'a friend'}</strong> — read-only. Edits the owner makes show up automatically; changes you make here won't save.
+            </>
+          )}
+        </div>
+      )}
 
       <div className={styles.topRow}>
         <div className={styles.topRowLeft}>
