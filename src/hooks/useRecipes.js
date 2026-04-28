@@ -412,6 +412,28 @@ export function useRecipes() {
     return recipes.find(r => r.id === id) || null;
   }
 
+  // Force-refresh link cache for all friends Joanne has linked recipes from.
+  // Call before opening a linked recipe so she sees the owner's latest edits.
+  async function refreshLinkedRecipes() {
+    const owners = new Set();
+    for (const r of rawRecipes) {
+      if (r?.source === 'shared-link' && r.sharedFromUid) owners.add(r.sharedFromUid);
+    }
+    if (owners.size === 0) return;
+    const updates = new Map();
+    await Promise.all([...owners].map(async (ownerUid) => {
+      try {
+        const r = await loadFriendRecipes(ownerUid);
+        updates.set(ownerUid, new Map((r.recipes || []).map(rec => [rec.id, rec])));
+      } catch { /* keep stale cache */ }
+    }));
+    setLinkCache(prev => {
+      const next = new Map(prev);
+      for (const [k, v] of updates) next.set(k, v);
+      return next;
+    });
+  }
+
   function importRecipes(newRecipes) {
     let addedCount = 0;
     setRecipes(prev => {
@@ -511,5 +533,5 @@ export function useRecipes() {
     return { total: parsed.size, updated: updatedTitles.length, updatedTitles, unmatched, csvRecipeNames: [...parsed.keys()] };
   }
 
-  return { recipes, addRecipe, updateRecipe, deleteRecipe, getRecipe, importRecipes, importInstructions };
+  return { recipes, addRecipe, updateRecipe, deleteRecipe, getRecipe, importRecipes, importInstructions, refreshLinkedRecipes };
 }

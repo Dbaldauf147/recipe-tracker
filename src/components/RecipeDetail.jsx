@@ -1163,6 +1163,16 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
     return () => { handleSaveRef.current(); };
   }, []);
 
+  // For linked-from-friend recipes, re-init the displayed fields whenever
+  // the owner's data changes (detected via updatedAt). Without this, fields
+  // is initialized once via useState and never updates when the link cache
+  // refreshes with the owner's latest edits.
+  useEffect(() => {
+    if (recipe?.source !== 'shared-link') return;
+    if (!recipe) return;
+    setFields(initFields(recipe));
+  }, [recipe?.id, recipe?.updatedAt, recipe?._linkUnavailable]);
+
   // Auto-save after 2 seconds of inactivity
   const initialRef = useRef(true);
   const lastSavedSnapshot = useRef('');

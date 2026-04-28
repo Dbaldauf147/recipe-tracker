@@ -182,7 +182,7 @@ function loadWeeklyServings() {
  * remounts when the user changes, re-initializing all useState from localStorage.
  */
 function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal, onCloseGoalsModal, onCompleteGoals }) {
-  const { recipes, addRecipe, updateRecipe, deleteRecipe, getRecipe, importRecipes } =
+  const { recipes, addRecipe, updateRecipe, deleteRecipe, getRecipe, importRecipes, refreshLinkedRecipes } =
     useRecipes();
 
   const [view, setView] = useState(() => {
@@ -413,6 +413,11 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
     const hash = nextSelectedId !== undefined ? `${nextView}/${nextSelectedId}` : nextView;
     window.history.pushState({ view: nextView, selectedId: nextSelectedId ?? null }, '', `#${hash}`);
     window.scrollTo(0, 0);
+    // When opening a recipe detail, force-refresh linked-recipe data so the
+    // viewer always sees the owner's latest edits (instead of stale cache).
+    if (nextView === 'detail') {
+      refreshLinkedRecipes().catch(() => {});
+    }
   }
 
   function goBack() {
