@@ -477,9 +477,28 @@ export function ShoppingListPage({ weeklyRecipes, weeklyServings = {}, getRecipe
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [resetKey, extras.length]);
 
+  // Recipes and servings used for actually computing the shopping list:
+  // Joanne's own + meals shared with her by friends. Title bubbles above
+  // still show only her own (the shared section above lists friends' meals
+  // separately, so don't duplicate).
+  const combinedRecipes = useMemo(() => {
+    const fromShared = sharedFromFriends.flatMap(s => s.meals.filter(m => Array.isArray(m.ingredients)));
+    return [...weeklyRecipes, ...fromShared];
+  }, [weeklyRecipes, sharedFromFriends]);
+
+  const combinedServings = useMemo(() => {
+    const merged = { ...weeklyServings };
+    for (const s of sharedFromFriends) {
+      for (const m of s.meals) {
+        if (m.id != null && merged[m.id] == null) merged[m.id] = m.servings;
+      }
+    }
+    return merged;
+  }, [weeklyServings, sharedFromFriends]);
+
   const shopIngredientNames = useMemo(() => {
     const names = new Set();
-    for (const recipe of weeklyRecipes) {
+    for (const recipe of combinedRecipes) {
       for (const ing of (recipe.ingredients || [])) {
         const name = (ing.ingredient || '').toLowerCase().trim();
         if (name) names.add(name);
@@ -490,7 +509,7 @@ export function ShoppingListPage({ weeklyRecipes, weeklyServings = {}, getRecipe
       if (name) names.add(name);
     }
     return names;
-  }, [weeklyRecipes, extras]);
+  }, [combinedRecipes, extras]);
 
   function wordMatch(a, b) {
     if (a === b) return true;
@@ -521,7 +540,7 @@ export function ShoppingListPage({ weeklyRecipes, weeklyServings = {}, getRecipe
 
   const pantryMatchedItems = useMemo(() => {
     const matched = new Map();
-    for (const recipe of weeklyRecipes) {
+    for (const recipe of combinedRecipes) {
       for (const ing of (recipe.ingredients || [])) {
         const name = (ing.ingredient || '').toLowerCase().trim();
         if (name && matchesPantry(name) && !matched.has(name)) {
@@ -542,7 +561,7 @@ export function ShoppingListPage({ weeklyRecipes, weeklyServings = {}, getRecipe
       }
     }
     return { names: new Set(matched.keys()), labels: [...matched.values()].sort() };
-  }, [weeklyRecipes, extras, pantryNames, dismissed]);
+  }, [combinedRecipes, extras, pantryNames, dismissed]);
 
   // Shopping list = user extras + auto-injected top-since snack and fruit.
   // Skip auto-add if the user already put that item in extras manually.
@@ -601,7 +620,7 @@ export function ShoppingListPage({ weeklyRecipes, weeklyServings = {}, getRecipe
               // list so we can mark them as "just eaten" on each matching
               // snack/fruit. Must happen BEFORE handleClearExtras wipes them.
               const shoppingNames = new Set();
-              for (const r of weeklyRecipes) {
+              for (const r of combinedRecipes) {
                 for (const ing of (r.ingredients || [])) {
                   if (ing?.ingredient) shoppingNames.add(normalizeIngName(ing.ingredient));
                 }
@@ -676,8 +695,8 @@ export function ShoppingListPage({ weeklyRecipes, weeklyServings = {}, getRecipe
         <div className={styles.fixedLeft}>
           <div className={styles.fixedCol}>
             <ShoppingList
-              weeklyRecipes={weeklyRecipes}
-              weeklyServings={weeklyServings}
+              weeklyRecipes={combinedRecipes}
+              weeklyServings={combinedServings}
               extraItems={extrasWithAutoAdds}
               onClearExtras={handleClearExtras}
               onAddCustomItem={handleAddCustomItem}

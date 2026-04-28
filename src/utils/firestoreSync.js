@@ -803,16 +803,19 @@ export async function loadFriendShoppingList(friendUid) {
   const recipeById = new Map(recipes.map(r => [r.id, r]));
   const meals = weeklyPlan.map(id => {
     const r = recipeById.get(id);
+    if (!r) {
+      return { id, title: '(recipe unavailable)', servings: weeklyServings[id] ?? 1, category: '', ingredients: [] };
+    }
     return {
+      ...r,
       id,
-      title: r?.title || '(recipe unavailable)',
-      servings: weeklyServings[id] ?? r?.servings ?? 1,
-      category: r?.category || '',
+      servings: weeklyServings[id] ?? r.servings ?? 1,
     };
   });
   return {
     username: data.username || data.displayName || '',
     meals,
+    weeklyServings,
   };
 }
 
