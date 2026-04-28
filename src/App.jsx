@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { useRecipes } from './hooks/useRecipes';
 import { useAuth } from './contexts/AuthContext';
-import { saveField, getPendingRequests, getPendingSharedRecipes } from './utils/firestoreSync';
+import { saveField, getPendingRequests, getPendingSharedRecipes, loadFriends, loadFriendShoppingList } from './utils/firestoreSync';
 import { RecipeList } from './components/RecipeList';
 import { RecipeDetail } from './components/RecipeDetail';
 import { WeightTracker, checkWeighReminder } from './components/WeightTracker';
@@ -201,6 +201,30 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
   const [modalView, setModalView] = useState(null);
   const [weeklyPlan, setWeeklyPlan] = useState(loadWeeklyPlan);
   const [weeklyServings, setWeeklyServings] = useState(loadWeeklyServings);
+  // Friends who have toggled "Share my shopping list" on for this user.
+  // Each entry: { uid, username, meals: [<full recipe objects>] }.
+  // Loaded once per session here so both ShoppingList and RecipeList can use it.
+  const [sharedFromFriends, setSharedFromFriends] = useState([]);
+  useEffect(() => {
+    if (!user?.uid) { setSharedFromFriends([]); return; }
+    let cancelled = false;
+    (async () => {
+      try {
+        const friends = await loadFriends(user.uid);
+        const sharers = friends.filter(f => f.hasSharedShoppingWithMe);
+        const lists = await Promise.all(sharers.map(async f => {
+          const data = await loadFriendShoppingList(f.uid);
+          return {
+            uid: f.uid,
+            username: data.username || f.username || f.displayName || 'friend',
+            meals: data.meals || [],
+          };
+        }));
+        if (!cancelled) setSharedFromFriends(lists.filter(l => l.meals.length > 0));
+      } catch { /* ignore */ }
+    })();
+    return () => { cancelled = true; };
+  }, [user?.uid]);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
   const [viewRecipeId, setViewRecipeId] = useState(null);
@@ -796,6 +820,7 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
             weeklyRecipes={weeklyPlan.map(id => getRecipe(id)).filter(Boolean)}
             weeklyServings={weeklyServings}
             getRecipe={getRecipe}
+            sharedFromFriends={sharedFromFriends}
             onClose={goBack}
             onSaveToHistory={handleSaveToHistory}
           />
@@ -866,6 +891,7 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
               onImport={importRecipes}
               weeklyPlan={weeklyPlan}
               weeklyServings={weeklyServings}
+              sharedFromFriends={sharedFromFriends}
               onAddToWeek={handleAddToWeek}
               onRemoveFromWeek={handleRemoveFromWeek}
               onClearWeek={handleClearWeek}

@@ -259,6 +259,7 @@ export function RecipeList({
   onImport,
   weeklyPlan,
   weeklyServings = {},
+  sharedFromFriends = [],
   onAddToWeek,
   onRemoveFromWeek,
   onClearWeek,
@@ -1444,7 +1445,7 @@ export function RecipeList({
         {weekMenuOpen && (
         <div className={styles.weekContent}>
           <div className={styles.weekMain}>
-            {filteredWeeklyRecipes.length === 0 ? (
+            {filteredWeeklyRecipes.length === 0 && sharedFromFriends.every(s => s.meals.length === 0) ? (
               <div className={styles.weekEmpty}>
                 <span className={styles.weekEmptyIcon}>🍽</span>
                 <span className={styles.weekEmptyTitle}>Click the + next to recipes below to add them to your shopping list</span>
@@ -1497,6 +1498,37 @@ export function RecipeList({
                     </div>
                   );
                 })}
+                {sharedFromFriends.map(s => (
+                  s.meals.length > 0 && (
+                    <div key={`shared-${s.uid}`} style={{
+                      marginTop: '0.75rem',
+                      paddingTop: '0.75rem',
+                      borderTop: '1px dashed var(--color-border)',
+                    }}>
+                      <div style={{
+                        fontSize: '0.72rem',
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.04em',
+                        color: 'var(--color-text-muted)',
+                        marginBottom: '0.4rem',
+                      }}>
+                        Shared with you · from <strong style={{ color: 'var(--color-text)', textTransform: 'none', letterSpacing: 0 }}>@{s.username}</strong>
+                      </div>
+                      {s.meals.map(m => (
+                        <div key={`${s.uid}-${m.id}`} className={styles.weekItem} style={{ opacity: 0.85 }}>
+                          <div className={styles.weekItemContent}>
+                            <span className={styles.weekItemName} style={{ cursor: 'default' }}>
+                              {m.title}
+                            </span>
+                            <span className={styles.weekItemServingsControl}>
+                              <span className={styles.weekServingCount}>{m.servings} {m.servings === 1 ? 'serving' : 'servings'}</span>
+                            </span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )
+                ))}
               </div>
             )}
           </div>

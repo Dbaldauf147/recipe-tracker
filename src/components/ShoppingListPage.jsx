@@ -4,7 +4,7 @@ import { GroceryStaples } from './GroceryStaples';
 import { PantryList } from './PantryList';
 import { TrackedItemsList } from './TrackedItemsList';
 import { useAuth } from '../contexts/AuthContext';
-import { saveField, loadDailyLogFromFirestore, loadFriends, loadFriendShoppingList } from '../utils/firestoreSync';
+import { saveField, loadDailyLogFromFirestore } from '../utils/firestoreSync';
 import GridLayoutLib, { WidthProvider } from 'react-grid-layout';
 import 'react-grid-layout/css/styles.css';
 import styles from './ShoppingListPage.module.css';
@@ -188,7 +188,7 @@ function buildIngredientEatenMap(getRecipe) {
   return map;
 }
 
-export function ShoppingListPage({ weeklyRecipes, weeklyServings = {}, getRecipe, onClose, onSaveToHistory }) {
+export function ShoppingListPage({ weeklyRecipes, weeklyServings = {}, getRecipe, sharedFromFriends = [], onClose, onSaveToHistory }) {
   const { user } = useAuth();
   const [extras, setExtras] = useState(loadExtras);
   const [dismissed, setDismissed] = useState(loadDismissed);
@@ -250,30 +250,6 @@ export function ShoppingListPage({ weeklyRecipes, weeklyServings = {}, getRecipe
 
   const topSnack = useMemo(() => findTopSince(snacksList, eatenMap), [snacksList, eatenMap]);
   const topFruit = useMemo(() => findTopSince(fruitList, eatenMap), [fruitList, eatenMap]);
-
-  // Friends who have shared their weekly shopping list (planned meals) with
-  // me. Each entry: { uid, username, meals: [{ id, title, servings, category }] }.
-  const [sharedFromFriends, setSharedFromFriends] = useState([]);
-  useEffect(() => {
-    if (!user?.uid) { setSharedFromFriends([]); return; }
-    let cancelled = false;
-    (async () => {
-      try {
-        const friends = await loadFriends(user.uid);
-        const sharers = friends.filter(f => f.hasSharedShoppingWithMe);
-        const lists = await Promise.all(sharers.map(async f => {
-          const data = await loadFriendShoppingList(f.uid);
-          return {
-            uid: f.uid,
-            username: data.username || f.username || f.displayName || 'friend',
-            meals: data.meals || [],
-          };
-        }));
-        if (!cancelled) setSharedFromFriends(lists.filter(l => l.meals.length > 0));
-      } catch { /* ignore — fail silently, just don't show shared section */ }
-    })();
-    return () => { cancelled = true; };
-  }, [user?.uid]);
 
   // Pull the daily log subcollection from Firestore on mount so this page
   // has fresh data even if the user hasn't visited Track Meals this session
