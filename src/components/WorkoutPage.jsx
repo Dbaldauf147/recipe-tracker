@@ -36,7 +36,7 @@ const EXERCISES_BY_GROUP = {
 
 const GYMS = ['Edge South Tower', 'Home', 'Other'];
 
-const WORKOUT_TYPES = ['Push', 'Pull', 'Legs', 'Full Body'];
+const WORKOUT_TYPES = ['Push', 'Pull', 'Legs', 'Full Body', 'Yoga'];
 
 function daysSince(dateStr) {
   if (!dateStr) return null;
@@ -1026,6 +1026,43 @@ export function WorkoutPage({ onBack, user }) {
               </button>
             )}
           </div>
+
+          {workoutType && lastByType[workoutType] && (() => {
+            const last = lastByType[workoutType];
+            const days = daysSince(last.date);
+            const visibleEntries = (last.entries || []).filter(e => e.exercise);
+            return (
+              <div className={styles.lastWorkoutPreview}>
+                <div className={styles.lastWorkoutPreviewHeader}>
+                  Last {workoutType}: {formatDate(last.date)} · {days}d ago
+                  {last.gym ? ` · ${last.gym}` : ''}
+                </div>
+                {visibleEntries.length === 0 ? (
+                  <div className={styles.lastWorkoutPreviewEmpty}>No exercises were logged.</div>
+                ) : (
+                  <ul className={styles.lastWorkoutPreviewList}>
+                    {visibleEntries.map((e, i) => {
+                      const setsArr = Array.isArray(e.sets) ? e.sets : [];
+                      const repsStr = setsArr
+                        .filter(s => s !== '' && s != null)
+                        .join('/');
+                      const wt = parseFloat(e.weight);
+                      const wtStr = !isNaN(wt) && wt > 0
+                        ? ` @ ${wt}${e.perArm ? '×2' : ''}`
+                        : '';
+                      return (
+                        <li key={i}>
+                          <span className={styles.lastWorkoutExercise}>{e.exercise}</span>
+                          {repsStr && <span className={styles.lastWorkoutSets}> · {repsStr}</span>}
+                          {wtStr && <span className={styles.lastWorkoutSets}>{wtStr}</span>}
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+              </div>
+            );
+          })()}
 
           <input
             ref={logImageFileRef}
