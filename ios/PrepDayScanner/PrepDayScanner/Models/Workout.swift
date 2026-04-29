@@ -3,7 +3,7 @@ import Foundation
 enum WorkoutCatalog {
     static let muscleGroups = [
         "Chest", "Back", "Legs", "Shoulders", "Biceps", "Triceps",
-        "Abs", "Forearms", "Cardio", "Yoga", "Whole Body",
+        "Abs", "Forearms", "Cardio", "Yoga", "Heat", "Whole Body",
     ]
 
     static let gyms = ["Edge South Tower", "Home", "Other"]
@@ -15,12 +15,13 @@ enum WorkoutCatalog {
         "Back": ["Warm up", "Back extensions", "Back extensions - machine", "Bent-over dumbbell row", "Bent-over smith machine row", "Cable lat pullover", "Chin ups", "Face pulls", "Lat pull down (wide grip)", "Lat pull downs (bar)", "Lat pull downs (bar) underhand grip", "Lat pull downs (machine)", "Lat pulldown (vbar grip)", "Middle grip row", "One arm rows", "Plate-loaded low row", "Pull-ups", "Seated cable row", "Seated neutral grip row", "Seated pronated machine row", "Seated vertical row machine", "Single arm cable row", "Single arm lat pulldown", "Standing bent-over dumbbell row", "T bar machine", "Two arm cable row", "Weighted pull-up", "Wide grip row"],
         "Legs": ["Warm up", "Air squats", "Barbell squats", "Bulgarian split squat", "Calf raise", "Curtsey lunges", "Deadlifts", "Dumbbell deadlift", "Glute bridges", "Good mornings", "Hamstring curls", "Hip thrust_barbell", "Jump rope", "Leg extensions", "Leg press", "Leg press calf raise", "Romanian deadlifts - barbell", "Romanian deadlifts - dumbbell", "Seated abductors", "Single leg extension", "Single leg press", "Squats - Barbell", "Squats - Smith machine", "Sumo squat", "Sumo squat cable machine", "Walk", "Wall squats"],
         "Shoulders": ["Warm up", "Arm raises", "Arm raises - Lateral", "Cable lateral raise", "Dumbbell shoulder press", "Face pull", "Shoulder press"],
-        "Biceps": ["Warm up", "Bar curls", "Barbell Curls", "Bayesian bicep curl", "Bicep curl", "Bicep curl machine", "Bicep hammer curls", "Hammer rope curls", "Reverse bar bell curls"],
+        "Biceps": ["Warm up", "Bar curls", "Barbell Curls", "Bayesian bicep curl", "Bicep curl", "Bicep curl machine", "Bicep hammer curls", "Hammer rope curls", "Preacher curl", "Reverse bar bell curls"],
         "Triceps": ["Warm up", "Cable tricep kickback", "Extension", "Seated tricep", "Triangle pushup", "Tricep push down machine", "Tricep pushdown", "Tricep rope pushdowns"],
         "Abs": ["Warm up", "Ab crunch machine", "Ab roller", "Cable crunches", "Cable woodchoppers", "Cable woodchoppers - High to low", "Deadbug", "Dragon flag abs", "Elbow plank", "Hanging leg raise", "Hanging leg raises knees bent", "Hanging leg raises legs straight", "Heel taps", "Kneeling halo", "Leg raises", "Pallof press", "Plank", "Seated cable crunch", "Side bend", "Toe touches"],
-        "Forearms": ["Warm up", "Wrist curls", "Reverse wrist curls", "Farmer walks"],
+        "Forearms": ["Warm up", "Wrist curls", "Wrist extensions", "Reverse wrist curls", "Farmer walks"],
         "Cardio": ["Walk", "Run", "Bike", "Recumbent upright bike", "Jump rope", "Rowing machine", "Elliptical", "Stair climber"],
-        "Yoga": ["Yoga flow", "Stretching", "Foam rolling"],
+        "Yoga": ["Yoga flow", "Stretching", "Foam rolling", "Bikram hot yoga", "Vinyasa", "Yin"],
+        "Heat": ["Sauna", "Hottub", "Steam room"],
         "Whole Body": ["Warm up", "Circuit training", "HIIT"],
     ]
 }
