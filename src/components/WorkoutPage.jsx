@@ -833,19 +833,13 @@ export function WorkoutPage({ onBack, user }) {
   function handleTypeClick(t) {
     if (workoutType === t) return;
     setWorkoutType(t);
-    // If today's date already has a saved workout, persist the new type
-    // immediately so "days ago" updates without making the user re-save.
-    const existing = workouts.find(w => w.date === selectedDate);
-    if (existing) {
-      const next = workouts.map(w => w.date === selectedDate ? { ...w, workoutType: t } : w);
-      setWorkouts(next);
-      saveWorkouts(next, user?.uid);
-      return;
+    // The table reflects the selected type: refill from that type's
+    // last workout, or clear to a blank slate if it's never been done.
+    if (lastByType[t]) {
+      fillFromLast(t);
+    } else {
+      setEntries(blankEntries());
     }
-    // Fresh day — only auto-fill when the table is still empty so we
-    // don't clobber data the user has already started entering.
-    const hasData = entries.some(e => e.exercise || e.group);
-    if (!hasData) fillFromLast(t);
   }
 
   const exerciseHistory = useMemo(() => {
