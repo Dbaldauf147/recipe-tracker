@@ -49,7 +49,7 @@ const LOG_COLUMN_DEFS = [
   { id: 's3', default: 44, min: 32 },
   { id: 's4', default: 44, min: 32 },
   { id: 'weight', default: 80, min: 60 },
-  { id: 'per', default: 36, min: 28 },
+  { id: 'per', default: 80, min: 64 },
   { id: 'total', default: 70, min: 50 },
   { id: 'remove', default: 32, min: 28 },
 ];
@@ -1204,7 +1204,7 @@ export function WorkoutPage({ onBack, user }) {
                   <th className={styles.logSetCol}>S3{renderColResizer('s3')}</th>
                   <th className={styles.logSetCol}>S4{renderColResizer('s4')}</th>
                   <th className={styles.logWeightCol}>Weight{renderColResizer('weight')}</th>
-                  <th className={styles.logPerCol} title="Weight is per arm/leg (totals double)">×2{renderColResizer('per')}</th>
+                  <th className={styles.logPerCol} title="Weight is per leg/arm (totals double)">Per leg/arm{renderColResizer('per')}</th>
                   <th className={styles.logTotalCol}>Total{renderColResizer('total')}</th>
                   <th className={styles.logRemoveCol}>{renderColResizer('remove')}</th>
                 </tr>
@@ -1305,7 +1305,7 @@ export function WorkoutPage({ onBack, user }) {
                       <th className={styles.logSetCol}>S3</th>
                       <th className={styles.logSetCol}>S4</th>
                       <th className={styles.logWeightCol}>Weight</th>
-                      <th className={styles.logPerCol} title="Per arm/leg">×2</th>
+                      <th className={styles.logPerCol} title="Per leg/arm">Per leg/arm</th>
                       <th className={styles.logTotalCol}>Total</th>
                       <th className={styles.logRemoveCol}></th>
                     </tr>

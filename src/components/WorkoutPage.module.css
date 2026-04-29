@@ -239,7 +239,7 @@
 .logTimeCol { width: 56px; }
 .logSetCol { width: 44px; text-align: center !important; }
 .logWeightCol { width: 70px; text-align: right !important; }
-.logPerCol { width: 30px; text-align: center !important; }
+.logPerCol { width: 80px; text-align: center !important; }
 .logTotalCol { width: 60px; text-align: right !important; }
 .logRemoveCol { width: 28px; }
 
