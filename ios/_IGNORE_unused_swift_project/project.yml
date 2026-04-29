@@ -1,4 +1,9 @@
-name: PrepDayScanner
+# DO NOT USE THIS PROJECT.
+# It is the abandoned Swift / SwiftUI project formerly known as
+# PrepDayScanner. The user's actual mobile app is the Expo project at
+# OneDrive/Desktop/PrepDay (bundle id com.sundayroutine.prepday).
+# See IGNORE_THIS_PROJECT.md in this directory.
+name: IgnoreThisProject
 options:
   bundleIdPrefix: com.sundayroutine
   deploymentTarget:
@@ -14,15 +19,15 @@ packages:
     majorVersion: 8.0.0
 
 targets:
-  PrepDayScanner:
+  IgnoreThisProject:
     type: application
     platform: iOS
     sources:
-      - PrepDayScanner
+      - IgnoreThisProject_src
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.sundayroutine.prepdayscanner
-        INFOPLIST_FILE: PrepDayScanner/Info.plist
+        PRODUCT_BUNDLE_IDENTIFIER: com.sundayroutine.ignorethisproject
+        INFOPLIST_FILE: IgnoreThisProject_src/Info.plist
         DEVELOPMENT_TEAM: ""
         SWIFT_VERSION: "5.9"
         TARGETED_DEVICE_FAMILY: "1"
