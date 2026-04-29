@@ -259,6 +259,16 @@
   border-color: var(--color-accent);
   background: var(--color-surface);
 }
+.manuallyEdited {
+  background: color-mix(in srgb, var(--color-accent) 18%, transparent);
+}
+.manuallyEdited:focus {
+  background: color-mix(in srgb, var(--color-accent) 24%, transparent);
+}
+td.logPerCell.manuallyEdited {
+  background: color-mix(in srgb, var(--color-accent) 18%, transparent);
+  border-radius: 4px;
+}
 .logCell:disabled {
   color: var(--color-text-muted);
   cursor: not-allowed;

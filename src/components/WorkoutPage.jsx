@@ -114,14 +114,15 @@ function emptyEntry() {
 // the Log Workout save path and the History inline-edit path so cell
 // edits keep totalReps/maxReps/avgReps/totalWeight/maxWeight in sync.
 function enrichEntry(e) {
-  const sets = Array.isArray(e.sets) ? e.sets : [];
+  const { editedFields: _editedFields, ...rest } = e;
+  const sets = Array.isArray(rest.sets) ? rest.sets : [];
   const reps = sets.filter(s => s !== '' && s != null).map(Number).filter(n => !isNaN(n));
   const totalReps = reps.reduce((s, r) => s + r, 0);
   const maxReps = reps.length > 0 ? Math.max(...reps) : 0;
   const avgReps = reps.length > 0 ? parseFloat((totalReps / reps.length).toFixed(1)) : 0;
-  const w = parseFloat(e.weight) || 0;
-  const totalWeight = e.perArm ? w * 2 : w;
-  return { ...e, totalReps, maxReps, avgReps, totalWeight, maxWeight: totalWeight };
+  const w = parseFloat(rest.weight) || 0;
+  const totalWeight = rest.perArm ? w * 2 : w;
+  return { ...rest, totalReps, maxReps, avgReps, totalWeight, maxWeight: totalWeight };
 }
 
 const DEFAULT_LOG_ENTRY_COUNT = 8;
@@ -682,7 +683,9 @@ export function WorkoutPage({ onBack, user }) {
   }, [viewMode]);
 
   function updateEntry(idx, field, value) {
-    setEntries(prev => prev.map((e, i) => i === idx ? { ...e, [field]: value } : e));
+    setEntries(prev => prev.map((e, i) => i === idx
+      ? { ...e, [field]: value, editedFields: { ...e.editedFields, [field]: true } }
+      : e));
   }
 
   function updateSet(entryIdx, setIdx, value) {
@@ -690,7 +693,7 @@ export function WorkoutPage({ onBack, user }) {
       if (i !== entryIdx) return e;
       const sets = [...e.sets];
       sets[setIdx] = value;
-      return { ...e, sets };
+      return { ...e, sets, editedFields: { ...e.editedFields, [`set${setIdx}`]: true } };
     }));
   }
 
@@ -725,7 +728,13 @@ export function WorkoutPage({ onBack, user }) {
     if (!user?.uid) return;
     clearTimeout(draftDebounceRef.current);
     draftDebounceRef.current = setTimeout(() => {
-      const meaningful = entries.filter(e => e.group && e.exercise);
+      const meaningful = entries
+        .filter(e => e.group && e.exercise)
+        .map(e => {
+          const rest = { ...e };
+          delete rest.editedFields;
+          return rest;
+        });
       if (meaningful.length === 0) return;
       saveWorkoutDraft(user.uid, {
         date: selectedDate,
@@ -1204,35 +1213,37 @@ export function WorkoutPage({ onBack, user }) {
                 {entries.map((entry, i) => {
                   const w = parseFloat(entry.weight) || 0;
                   const total = entry.perArm ? w * 2 : w;
+                  const ed = entry.editedFields || {};
+                  const editedCls = (field) => ed[field] ? styles.manuallyEdited : '';
                   return (
                     <tr key={i}>
                       <td>
-                        <select className={`${styles.logCell} ${styles.logGroupSelect}`} value={entry.group} onChange={e => { updateEntry(i, 'group', e.target.value); updateEntry(i, 'exercise', ''); }}>
+                        <select className={`${styles.logCell} ${styles.logGroupSelect} ${editedCls('group')}`} value={entry.group} onChange={e => { updateEntry(i, 'group', e.target.value); updateEntry(i, 'exercise', ''); }}>
                           <option value="">—</option>
                           {MUSCLE_GROUPS.map(g => <option key={g} value={g}>{g}</option>)}
                         </select>
                       </td>
                       <td>
-                        <select className={`${styles.logCell} ${styles.logExerciseSelect}`} value={entry.exercise} onChange={e => updateEntry(i, 'exercise', e.target.value)} disabled={!entry.group}>
+                        <select className={`${styles.logCell} ${styles.logExerciseSelect} ${editedCls('exercise')}`} value={entry.exercise} onChange={e => updateEntry(i, 'exercise', e.target.value)} disabled={!entry.group}>
                           <option value="">—</option>
                           {(EXERCISES_BY_GROUP[entry.group] || []).map(ex => <option key={ex} value={ex}>{ex}</option>)}
                         </select>
                       </td>
                       <td>
-                        <input className={styles.logCell} type="text" value={entry.notes} onChange={e => updateEntry(i, 'notes', e.target.value)} placeholder="" />
+                        <input className={`${styles.logCell} ${editedCls('notes')}`} type="text" value={entry.notes} onChange={e => updateEntry(i, 'notes', e.target.value)} placeholder="" />
                       </td>
                       <td>
-                        <input className={`${styles.logCell} ${styles.logTimeInput}`} type="text" value={entry.time} onChange={e => updateEntry(i, 'time', e.target.value)} placeholder="2:00" />
+                        <input className={`${styles.logCell} ${styles.logTimeInput} ${editedCls('time')}`} type="text" value={entry.time} onChange={e => updateEntry(i, 'time', e.target.value)} placeholder="2:00" />
                       </td>
                       {entry.sets.map((s, si) => (
                         <td key={si}>
-                          <input className={`${styles.logCell} ${styles.logSetInput}`} type="number" value={s} onChange={e => updateSet(i, si, e.target.value)} />
+                          <input className={`${styles.logCell} ${styles.logSetInput} ${editedCls(`set${si}`)}`} type="number" value={s} onChange={e => updateSet(i, si, e.target.value)} />
                         </td>
                       ))}
                       <td>
-                        <input className={`${styles.logCell} ${styles.logWeightInput}`} type="number" value={entry.weight} onChange={e => updateEntry(i, 'weight', e.target.value)} placeholder="" />
+                        <input className={`${styles.logCell} ${styles.logWeightInput} ${editedCls('weight')}`} type="number" value={entry.weight} onChange={e => updateEntry(i, 'weight', e.target.value)} placeholder="" />
                       </td>
-                      <td className={styles.logPerCell}>
+                      <td className={`${styles.logPerCell} ${editedCls('perArm')}`}>
                         <input type="checkbox" checked={entry.perArm} onChange={e => updateEntry(i, 'perArm', e.target.checked)} title="Per arm/leg — total doubles the weight" />
                       </td>
                       <td className={styles.logTotalCell}>{total > 0 ? total : ''}</td>
