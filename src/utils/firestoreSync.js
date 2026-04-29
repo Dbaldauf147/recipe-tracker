@@ -334,6 +334,11 @@ export async function migrateToFirestore(uid) {
   } catch {}
 
   try {
+    const gyms = localStorage.getItem('sunday-workout-gyms');
+    if (gyms) data.gyms = JSON.parse(gyms);
+  } catch {}
+
+  try {
     const reminderSettings = localStorage.getItem('sunday-reminder-settings');
     if (reminderSettings) data.reminderSettings = JSON.parse(reminderSettings);
   } catch {}
@@ -504,6 +509,10 @@ export function hydrateLocalStorage(userData, uid) {
 
   if (userData.exerciseLibrary) {
     localStorage.setItem('sunday-exercise-library', JSON.stringify(userData.exerciseLibrary));
+  }
+
+  if (Array.isArray(userData.gyms)) {
+    localStorage.setItem('sunday-workout-gyms', JSON.stringify(userData.gyms));
   }
 
   if (userData.reminderSettings) {

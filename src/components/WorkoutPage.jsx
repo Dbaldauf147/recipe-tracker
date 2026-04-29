@@ -36,7 +36,23 @@ const EXERCISES_BY_GROUP = {
   'Whole Body': ['Warm up', 'Circuit training', 'HIIT'],
 };
 
-const GYMS = ['Edge South Tower', 'Home', 'Other'];
+const DEFAULT_GYMS = ['Edge South Tower', 'Home', 'Other'];
+const GYMS_KEY = 'sunday-workout-gyms';
+
+function loadGyms() {
+  try {
+    const v = JSON.parse(localStorage.getItem(GYMS_KEY));
+    if (Array.isArray(v) && v.length > 0) {
+      return v.map(g => (typeof g === 'string' ? g.trim() : '')).filter(Boolean);
+    }
+  } catch { /* fall through */ }
+  return [...DEFAULT_GYMS];
+}
+
+function saveGyms(data, uid) {
+  localStorage.setItem(GYMS_KEY, JSON.stringify(data));
+  if (uid) saveField(uid, 'gyms', data);
+}
 
 const WORKOUT_TYPES = ['Push', 'Pull', 'Legs', 'Full Body', 'Yoga'];
 
@@ -453,7 +469,9 @@ export function WorkoutPage({ onBack, user }) {
     })();
     return () => { cancelled = true; };
   }, [user?.uid]);
-  const [gym, setGym] = useState(GYMS[0]);
+  const [gyms, setGymsState] = useState(loadGyms);
+  const [gym, setGym] = useState(() => loadGyms()[0] || '');
+  const [locationEditorOpen, setLocationEditorOpen] = useState(false);
   const [workoutType, setWorkoutType] = useState('');
   const [entries, setEntries] = useState(() => blankEntries());
   const [viewMode, setViewMode] = useState('log'); // 'log' | 'history' | 'charts' | 'body' | 'exercises' | 'stats'
@@ -650,13 +668,14 @@ export function WorkoutPage({ onBack, user }) {
   useEffect(() => {
     const existing = workouts.find(w => w.date === selectedDate);
     if (existing) {
-      setGym(existing.gym || GYMS[0]);
+      setGym(existing.gym || gyms[0] || '');
       setWorkoutType(existing.workoutType || '');
       setEntries(padToMin(existing.entries.length > 0 ? existing.entries : []));
     } else {
       setEntries(blankEntries());
       setWorkoutType('');
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedDate]);
 
   // Listen for clipboard image paste while on the Log tab so the user can
@@ -689,28 +708,112 @@ export function WorkoutPage({ onBack, user }) {
       : e));
   }
 
-  // Pick exercise + carry forward the notes from the *most recent* logged
-  // workout for that exercise (even if those notes were empty — that's what
-  // "last logged" means). Notes are NOT marked as edited so the highlight stays
+  // Find the most recent prior log of the given exercise at the given gym
+  // location. Returns null if none.
+  function lastLogForExerciseAt(exerciseName, gymName) {
+    if (!exerciseName) return null;
+    const key = exerciseName.trim().toLowerCase();
+    const history = exerciseHistoryByName[key] || [];
+    let best = null;
+    for (const h of history) {
+      if (h.gym !== gymName) continue;
+      if (!best || (h.date || '').localeCompare(best.date || '') > 0) best = h;
+    }
+    return best;
+  }
+
+  // Refill an entry's value-fields (weight/sets/time/perArm/notes) from the
+  // last log of its exercise at the given location. If there's no history at
+  // that location, clears the value-fields. Auto-filled fields are stripped
+  // from editedFields so they don't show the manual-edit highlight.
+  function applyLastFromLocation(entry, gymName) {
+    const next = { ...entry };
+    const last = entry.exercise ? lastLogForExerciseAt(entry.exercise, gymName) : null;
+    if (last) {
+      next.notes = last.notes != null ? String(last.notes) : '';
+      next.weight = last.weight != null ? String(last.weight) : '';
+      next.time = last.time ? String(last.time) : '2:00';
+      next.perArm = !!last.perArm;
+      next.sets = Array.isArray(last.sets)
+        ? last.sets.slice(0, 4).map(s => (s == null ? '' : String(s)))
+        : ['', '', '', ''];
+      while (next.sets.length < 4) next.sets.push('');
+    } else {
+      next.notes = '';
+      next.weight = '';
+      next.time = '2:00';
+      next.perArm = false;
+      next.sets = ['', '', '', ''];
+    }
+    const ef = { ...next.editedFields };
+    delete ef.notes; delete ef.weight; delete ef.time; delete ef.perArm;
+    delete ef.set0; delete ef.set1; delete ef.set2; delete ef.set3;
+    next.editedFields = ef;
+    return next;
+  }
+
+  // Pick exercise + carry forward weight/sets/notes/etc. from the *most recent*
+  // logged workout for that exercise at the currently selected location.
+  // Auto-filled fields are NOT marked as edited so the highlight stays
   // reserved for values the user typed by hand.
   function pickExercise(idx, exerciseName) {
     setEntries(prev => prev.map((e, i) => {
       if (i !== idx) return e;
-      const next = { ...e, exercise: exerciseName, editedFields: { ...e.editedFields, exercise: true } };
-      if (exerciseName) {
-        const key = exerciseName.trim().toLowerCase();
-        const history = exerciseHistoryByName[key] || [];
-        const sorted = [...history].sort((a, b) => (b.date || '').localeCompare(a.date || ''));
-        const last = sorted[0];
-        next.notes = last && last.notes != null ? String(last.notes) : '';
-      } else {
-        next.notes = '';
-      }
-      const ef = { ...next.editedFields };
-      delete ef.notes;
-      next.editedFields = ef;
-      return next;
+      const withExercise = { ...e, exercise: exerciseName, editedFields: { ...e.editedFields, exercise: true } };
+      return applyLastFromLocation(withExercise, gym);
     }));
+  }
+
+  // Switching the location refills every row that has an exercise selected
+  // with the last values from that location.
+  function handleGymChange(newGym) {
+    setGym(newGym);
+    setEntries(prev => prev.map(e => (e.exercise ? applyLastFromLocation(e, newGym) : e)));
+  }
+
+  // ---- Locations CRUD ----------------------------------------------------
+  function commitGyms(next) {
+    setGymsState(next);
+    saveGyms(next, user?.uid);
+  }
+
+  function renameGym(oldName, newName) {
+    if (!newName || newName === oldName) return;
+    if (gyms.includes(newName)) {
+      alert(`A location named "${newName}" already exists.`);
+      return;
+    }
+    commitGyms(gyms.map(g => (g === oldName ? newName : g)));
+    // Bulk-rename existing workouts so location-aware history lookups keep
+    // matching after the rename.
+    const touchesWorkouts = workouts.some(w => w.gym === oldName);
+    if (touchesWorkouts) {
+      const nextWorkouts = workouts.map(w => (w.gym === oldName ? { ...w, gym: newName } : w));
+      setWorkouts(nextWorkouts);
+      saveWorkouts(nextWorkouts, user?.uid);
+    }
+    if (gym === oldName) setGym(newName);
+  }
+
+  function deleteGym(name) {
+    if (gyms.length <= 1) {
+      alert('Keep at least one location.');
+      return;
+    }
+    if (!window.confirm(`Delete "${name}"? Existing workouts logged here keep the label but it won't appear in the dropdown.`)) {
+      return;
+    }
+    const nextGyms = gyms.filter(g => g !== name);
+    commitGyms(nextGyms);
+    if (gym === name) setGym(nextGyms[0]);
+  }
+
+  function addGym() {
+    const base = 'New location';
+    let candidate = base;
+    let n = 1;
+    while (gyms.includes(candidate)) { n += 1; candidate = `${base} ${n}`; }
+    commitGyms([...gyms, candidate]);
   }
 
   function updateSet(entryIdx, setIdx, value) {
@@ -909,7 +1012,9 @@ export function WorkoutPage({ onBack, user }) {
         if (!e.exercise) continue;
         const key = e.exercise.trim().toLowerCase();
         if (!map[key]) map[key] = [];
-        map[key].push({ date: w.date, ...e });
+        // Spread the entry first so `gym` from the workout (not the entry, which
+        // doesn't normally carry one) is the source of truth for location.
+        map[key].push({ ...e, date: w.date, gym: w.gym });
       }
     }
     return map;
@@ -1107,10 +1212,55 @@ export function WorkoutPage({ onBack, user }) {
         <div className={styles.logSection}>
           <div className={styles.dateRow}>
             <input type="date" className={styles.dateInput} value={selectedDate} onChange={e => setSelectedDate(e.target.value)} />
-            <select className={styles.gymSelect} value={gym} onChange={e => setGym(e.target.value)}>
-              {GYMS.map(g => <option key={g} value={g}>{g}</option>)}
+            <select className={styles.gymSelect} value={gym} onChange={e => handleGymChange(e.target.value)}>
+              {gyms.map(g => <option key={g} value={g}>{g}</option>)}
+              {gym && !gyms.includes(gym) && <option value={gym}>{gym}</option>}
             </select>
+            <button
+              type="button"
+              className={styles.gymManageBtn}
+              onClick={() => setLocationEditorOpen(o => !o)}
+              title="Manage locations"
+              aria-label="Manage locations"
+              aria-expanded={locationEditorOpen}
+            >
+              ✎
+            </button>
           </div>
+
+          {locationEditorOpen && (
+            <div className={styles.gymEditor}>
+              <div className={styles.gymEditorTitle}>Locations</div>
+              {gyms.map((g) => (
+                <div key={g} className={styles.gymEditorRow}>
+                  <input
+                    type="text"
+                    defaultValue={g}
+                    className={styles.gymEditorInput}
+                    onBlur={(e) => {
+                      const next = e.target.value.trim();
+                      if (!next || next === g) { e.target.value = g; return; }
+                      renameGym(g, next);
+                    }}
+                    onKeyDown={(e) => { if (e.key === 'Enter') e.target.blur(); }}
+                  />
+                  <button
+                    type="button"
+                    className={styles.gymEditorDelBtn}
+                    onClick={() => deleteGym(g)}
+                    title={`Delete "${g}"`}
+                    aria-label={`Delete ${g}`}
+                    disabled={gyms.length <= 1}
+                  >
+                    ×
+                  </button>
+                </div>
+              ))}
+              <button type="button" className={styles.gymEditorAddBtn} onClick={addGym}>
+                + Add location
+              </button>
+            </div>
+          )}
 
           <div className={styles.workoutTypeRow}>
             <span className={styles.workoutTypeLabel}>Workout type:</span>

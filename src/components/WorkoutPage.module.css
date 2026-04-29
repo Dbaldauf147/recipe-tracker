@@ -13,6 +13,99 @@
 .dateInput { padding: 0.5rem 0.75rem; border: 1px solid var(--color-border); border-radius: 8px; font-size: 0.9rem; font-family: inherit; color: var(--color-text); }
 .gymSelect { padding: 0.5rem 0.75rem; border: 1px solid var(--color-border); border-radius: 8px; font-size: 0.9rem; font-family: inherit; color: var(--color-text); flex: 1; }
 
+.gymManageBtn {
+  width: 36px;
+  height: 36px;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text-secondary);
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 1rem;
+  font-family: inherit;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.gymManageBtn:hover {
+  background: var(--color-accent-light);
+  color: var(--color-accent);
+}
+
+.gymEditor {
+  background: var(--color-surface);
+  border: 1px solid var(--color-accent-subtle);
+  border-radius: 8px;
+  padding: 0.6rem 0.75rem;
+  margin-bottom: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.gymEditorTitle {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 0.1rem;
+}
+
+.gymEditorRow {
+  display: flex;
+  gap: 0.4rem;
+  align-items: center;
+}
+
+.gymEditorInput {
+  flex: 1;
+  padding: 0.35rem 0.5rem;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  font-size: 0.85rem;
+  font-family: inherit;
+  color: var(--color-text);
+}
+
+.gymEditorDelBtn {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 1px solid var(--color-border);
+  background: none;
+  color: var(--color-text-muted);
+  font-size: 1rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.gymEditorDelBtn:hover:not(:disabled) {
+  border-color: var(--color-danger, #c33);
+  color: var(--color-danger, #c33);
+}
+.gymEditorDelBtn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.gymEditorAddBtn {
+  align-self: flex-start;
+  padding: 0.35rem 0.7rem;
+  background: none;
+  border: 1px dashed var(--color-accent-subtle);
+  color: var(--color-accent);
+  border-radius: 6px;
+  font-size: 0.85rem;
+  font-family: inherit;
+  cursor: pointer;
+}
+.gymEditorAddBtn:hover {
+  background: var(--color-accent-light);
+}
+
 .entryCard { background: var(--color-surface); border: 1px solid var(--color-border-light); border-radius: 12px; padding: 1rem; margin-bottom: 0.75rem; }
 .entryHeader { display: flex; gap: 0.5rem; margin-bottom: 0.75rem; align-items: center; }
 .groupSelect { padding: 0.4rem 0.6rem; border: 1px solid var(--color-border); border-radius: 6px; font-size: 0.85rem; font-family: inherit; color: var(--color-text); min-width: 120px; }
