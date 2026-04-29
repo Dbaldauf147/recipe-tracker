@@ -71,56 +71,76 @@
   text-transform: uppercase;
 }
 
-.body {
+.modelHolder {
   width: 100%;
   max-width: 280px;
-  height: auto;
-  display: block;
 }
 
-.silhouette {
-  fill: var(--color-surface);
-  stroke: var(--color-accent-subtle);
-  stroke-width: 1.5;
-  stroke-linejoin: round;
+.detail {
+  background: var(--color-surface);
+  border: 1px solid var(--color-accent-subtle);
+  border-radius: 8px;
+  padding: 0.75rem 1rem;
 }
 
-.muscle {
-  stroke: var(--color-accent-hover);
-  stroke-width: 0.8;
-  stroke-opacity: 0.5;
-  transition: fill 120ms ease, stroke-opacity 120ms ease, transform 120ms ease;
-  cursor: pointer;
-  transform-box: fill-box;
-  transform-origin: center;
+.detailHeader {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
 }
 
-.muscle:hover {
-  stroke-opacity: 1;
-  stroke-width: 1.5;
+.detailMuscle {
+  text-transform: capitalize;
+  color: var(--color-text);
 }
 
-.tooltip {
-  position: fixed;
-  pointer-events: none;
-  background: var(--color-text);
-  color: var(--color-bg);
-  padding: 0.4rem 0.6rem;
-  border-radius: 6px;
+.detailFreq {
   font-size: 0.8rem;
-  z-index: 50;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.18);
-  white-space: nowrap;
+  color: var(--color-text-muted);
 }
 
-.tooltipName {
-  font-weight: 600;
+.detailClose {
+  margin-left: auto;
+  background: none;
+  border: none;
+  font-size: 1.25rem;
+  line-height: 1;
+  cursor: pointer;
+  color: var(--color-text-muted);
+  padding: 0 0.25rem;
 }
 
-.tooltipCount {
-  opacity: 0.85;
+.detailClose:hover {
+  color: var(--color-text);
+}
+
+.detailList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.detailList li {
+  background: var(--color-accent-light);
+  color: var(--color-text);
+  padding: 0.25rem 0.6rem;
+  border-radius: 999px;
+  font-size: 0.8rem;
+}
+
+.detailCount {
+  color: var(--color-text-muted);
   font-size: 0.75rem;
-  margin-top: 0.1rem;
+  margin-left: 0.25rem;
+}
+
+.detailEmpty {
+  color: var(--color-text-muted);
+  font-size: 0.85rem;
 }
 
 .legend {
@@ -130,6 +150,8 @@
   margin: 0 auto;
   font-size: 0.8rem;
   color: var(--color-text-muted);
+  flex-wrap: wrap;
+  justify-content: center;
 }
 
 .legendBar {
@@ -148,9 +170,10 @@
   font-size: 0.75rem;
 }
 
-.legendMax {
-  margin-left: 0.75rem;
-  color: var(--color-text-secondary);
+.legendHint {
+  margin-left: 0.5rem;
+  font-style: italic;
+  font-size: 0.75rem;
 }
 
 .empty {
@@ -162,9 +185,13 @@
 
 @media (max-width: 600px) {
   .bodies {
-    gap: 0.75rem;
+    gap: 0.5rem;
   }
-  .body {
+  .modelHolder {
     max-width: 100%;
+  }
+  .summary {
+    margin-left: 0;
+    width: 100%;
   }
 }
