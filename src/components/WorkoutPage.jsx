@@ -994,31 +994,34 @@ export function WorkoutPage({ onBack, user }) {
     return data.map((d, i) => ({ ...d, trend: intercept + slope * i }));
   }
 
-  // Auto-fill empty chart slots with the six most-logged exercises once
-  // workout history is available, so the dashboard isn't blank on first
-  // visit. Uses library group when known so the slot's group dropdown
-  // pre-selects correctly.
+  // Auto-fill empty chart slots with the most-recently-logged exercises so
+  // the dashboard reflects what the user is currently training. Walks the
+  // workouts newest-first and picks unique exercises in the order they were
+  // last seen. Uses library group when known so the slot's group dropdown
+  // pre-selects correctly. Preserves existing slots if any are already set.
   useEffect(() => {
     if (chartSlots.some(s => s.exercise)) return;
-    const counts = {};
-    for (const w of workouts) {
+    const sortedWorkouts = [...workouts].sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+    const seen = new Set();
+    const ordered = [];
+    for (const w of sortedWorkouts) {
       for (const e of w.entries || []) {
         if (!e.exercise || isWarmUp(e.exercise)) continue;
         const k = e.exercise.trim().toLowerCase();
-        if (!counts[k]) counts[k] = { exercise: e.exercise, count: 0, group: e.group || '' };
-        counts[k].count += 1;
+        if (seen.has(k)) continue;
+        seen.add(k);
+        ordered.push({ exercise: e.exercise, group: e.group || '' });
+        if (ordered.length >= NUM_CHART_SLOTS) break;
       }
+      if (ordered.length >= NUM_CHART_SLOTS) break;
     }
-    const top = Object.values(counts)
-      .sort((a, b) => b.count - a.count)
-      .slice(0, NUM_CHART_SLOTS);
-    if (top.length === 0) return;
+    if (ordered.length === 0) return;
     const libByExercise = {};
     for (const item of exerciseLibrary || []) {
       if (item?.exercise) libByExercise[item.exercise.trim().toLowerCase()] = item.group || '';
     }
     const next = Array.from({ length: NUM_CHART_SLOTS }, (_, i) => {
-      const it = top[i];
+      const it = ordered[i];
       if (!it) return { group: '', exercise: '' };
       const libGroup = libByExercise[it.exercise.trim().toLowerCase()];
       return { group: libGroup || it.group || '', exercise: it.exercise };
