@@ -112,6 +112,35 @@ export function parseExerciseLibrary(text) {
   return out;
 }
 
+const MUSCLE_GROUP_LOOKUP = {
+  Abs: ['Ab crunch machine', 'Cable crunches', 'Cable woodchoppers', 'Cable woodchoppers - High to low', 'Deadbug', 'Dragon flag abs', 'Elbow plank', 'Hanging leg raise', 'Hanging leg raises knees bent', 'Hanging leg raises legs straight', 'Heel taps', 'Kneeling halo', 'Leg raises', 'Pallof press', 'Plank', 'Seated cable crunch', 'Side bend', 'Toe touches'],
+  Back: ['Back extensions', 'Back extensions - machine', 'Bent-over dumbbell row', 'Bent-over smith machine row', 'Cable lat pullover', 'Chin ups', 'Face pulls', 'Lat pull down (wide grip)', 'Lat pull downs (bar)', 'Lat pull downs (bar) underhand grip', 'Lat pull downs (machine)', 'Lat pulldown (vbar grip)', 'Middle grip row', 'One arm rows', 'Plate-loaded low row', 'Pull-ups', 'Seated cable row', 'Seated neutral grip row', 'Seated pronated machine row', 'Seated vertical row machine', 'Single arm cable row', 'Single arm lat pulldown', 'Standing bent-over dumbbell row', 'T bar machine', 'Two arm cable row', 'Weighted pull-up', 'Wide grip row'],
+  Biceps: ['Bar curls', 'Bayesian bicep curl', 'Bicep curl', 'Bicep curl machine', 'Bicep hammer curls', 'Hammer rope curls', 'Preacher curl'],
+  Cardio: ['Recumbent upright bike'],
+  Chest: ['Butterfly', 'Cable crossover low to high', 'Cable flys declined', 'Chest press', 'Decline Barbell Press', 'Decline press', 'Decline push-up', 'Dumbbell flys', 'Dumbbell press', 'Dumbbell press inclined', 'Dumbbell squeeze press', 'Incline press', 'Inclined Barbell Press', 'Inclined machine press', 'Inclined smith machine press'],
+  Forearms: ['wrist curls', 'wrist extensions'],
+  Heat: ['Sauna', 'Hottub', 'Steam room'],
+  Legs: ['Air squats', 'Barbell squats', 'Buglarian split squat', 'Bulgarian split squat', 'Curtsey lunges', 'Deadlifts', 'Dumbbell deadlift', 'Glute bridges', 'Good mornings', 'Hamstring curls', 'Hip thrust_barbell', 'Jump rope', 'Leg extensions', 'Leg press', 'Leg press calf raise', 'Romanian deadlifts - barbell', 'Romanian deadlifts - dumbbell', 'Seated abductors', 'Single leg extension', 'Single leg press', 'Squats - Barbell', 'Squats - Smith machine', 'Sumo squat', 'Sumo squat cable machine', 'Walk', 'Wall squats'],
+  Shoulders: ['Arm raises - Lateral', 'Cable lateral raise', 'Dumbbell shoulder press', 'Face pull', 'Shoulder press'],
+  Triceps: ['Cable tricep kickback', 'Extension', 'Seated tricep', 'Triangle pushup', 'Tricep push down machine', 'Tricep pushdown', 'Tricep rope pushdowns'],
+  'Whole Body': ['Warm up'],
+  Yoga: ['Bikram hot yoga', 'Vinyasa', 'Yin'],
+};
+
+const MUSCLE_GROUP_BY_EXERCISE = (() => {
+  const map = {};
+  for (const [group, exercises] of Object.entries(MUSCLE_GROUP_LOOKUP)) {
+    for (const ex of exercises) {
+      map[ex.trim().toLowerCase()] = group;
+    }
+  }
+  return map;
+})();
+
+function lookupMuscleGroup(exerciseName) {
+  return MUSCLE_GROUP_BY_EXERCISE[String(exerciseName || '').trim().toLowerCase()] || '';
+}
+
 function videoSourceLabel(url) {
   const u = url.toLowerCase();
   if (u.includes('instagram.com')) return 'IG';
@@ -224,6 +253,7 @@ export function ExerciseLibrary({ library, onChange }) {
             <tr>
               <th className={styles.colName}>Exercise</th>
               <th className={styles.colGroup}>Group</th>
+              <th className={styles.colMuscleGroup}>Muscle Group</th>
               <th className={styles.colMuscles}>Primary</th>
               <th className={styles.colMuscles}>Secondary</th>
               <th className={styles.colVideos}>Videos</th>
@@ -242,6 +272,12 @@ export function ExerciseLibrary({ library, onChange }) {
                   {e.retired && <div className={styles.retiredTag}>Retired</div>}
                 </td>
                 <td>{e.group && <span className={styles.groupBadge}>{e.group}</span>}</td>
+                <td>
+                  {(() => {
+                    const mg = lookupMuscleGroup(e.exercise);
+                    return mg ? <span className={styles.groupBadge}>{mg}</span> : <span className={styles.dim}>—</span>;
+                  })()}
+                </td>
                 <td className={styles.musclesCell}>{e.primaryMuscles}</td>
                 <td className={styles.musclesCell}>{e.secondaryMuscles}</td>
                 <td className={styles.videosCell}>

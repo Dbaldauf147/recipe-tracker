@@ -102,11 +102,12 @@
 .table tbody tr:hover { background: var(--color-surface-alt); }
 .retiredRow { opacity: 0.55; }
 
-.colName { width: 22%; }
+.colName { width: 20%; }
 .colGroup { width: 8%; }
-.colMuscles { width: 18%; }
-.colVideos { width: 14%; }
-.colAlt { width: 20%; }
+.colMuscleGroup { width: 10%; }
+.colMuscles { width: 16%; }
+.colVideos { width: 12%; }
+.colAlt { width: 18%; }
 
 .nameCell { font-weight: 600; }
 .exName { display: flex; align-items: center; gap: 0.3rem; line-height: 1.25; }
