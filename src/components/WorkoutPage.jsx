@@ -688,6 +688,27 @@ export function WorkoutPage({ onBack, user }) {
       : e));
   }
 
+  // Pick exercise + auto-fill notes from the most recent prior workout for that
+  // exercise. Notes are NOT marked as edited (the highlight is reserved for
+  // values the user typed by hand).
+  function pickExercise(idx, exerciseName) {
+    setEntries(prev => prev.map((e, i) => {
+      if (i !== idx) return e;
+      const next = { ...e, exercise: exerciseName, editedFields: { ...e.editedFields, exercise: true } };
+      if (exerciseName) {
+        const key = exerciseName.trim().toLowerCase();
+        const history = exerciseHistoryByName[key];
+        const lastWithNotes = history && history.find(h => h.notes && String(h.notes).trim());
+        const lastNotes = lastWithNotes ? lastWithNotes.notes : '';
+        next.notes = lastNotes;
+        const ef = { ...next.editedFields };
+        delete ef.notes;
+        next.editedFields = ef;
+      }
+      return next;
+    }));
+  }
+
   function updateSet(entryIdx, setIdx, value) {
     setEntries(prev => prev.map((e, i) => {
       if (i !== entryIdx) return e;
@@ -1224,7 +1245,7 @@ export function WorkoutPage({ onBack, user }) {
                         </select>
                       </td>
                       <td>
-                        <select className={`${styles.logCell} ${styles.logExerciseSelect} ${editedCls('exercise')}`} value={entry.exercise} onChange={e => updateEntry(i, 'exercise', e.target.value)} disabled={!entry.group}>
+                        <select className={`${styles.logCell} ${styles.logExerciseSelect} ${editedCls('exercise')}`} value={entry.exercise} onChange={e => pickExercise(i, e.target.value)} disabled={!entry.group}>
                           <option value="">—</option>
                           {(EXERCISES_BY_GROUP[entry.group] || []).map(ex => <option key={ex} value={ex}>{ex}</option>)}
                         </select>
