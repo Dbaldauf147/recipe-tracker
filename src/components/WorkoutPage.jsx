@@ -994,13 +994,17 @@ export function WorkoutPage({ onBack, user }) {
     return data.map((d, i) => ({ ...d, trend: intercept + slope * i }));
   }
 
-  // Auto-fill empty chart slots with the most-recently-logged exercises so
-  // the dashboard reflects what the user is currently training. Walks the
-  // workouts newest-first and picks unique exercises in the order they were
-  // last seen. Uses library group when known so the slot's group dropdown
-  // pre-selects correctly. Preserves existing slots if any are already set.
+  // On each page load, default the chart slots to the most-recently-logged
+  // exercises so the dashboard reflects current training. Walks workouts
+  // newest-first and picks unique exercises in last-seen order. Fires once
+  // per mount, the first time workouts arrive (handles the Firestore-sync
+  // race where workouts is empty on the initial render). After that, any
+  // user customization within the session sticks. Reloading the page resets
+  // to the latest defaults again — that's the requested behavior.
+  const chartDefaultsAppliedRef = useRef(false);
   useEffect(() => {
-    if (chartSlots.some(s => s.exercise)) return;
+    if (chartDefaultsAppliedRef.current) return;
+    if (!workouts || workouts.length === 0) return;
     const sortedWorkouts = [...workouts].sort((a, b) => (b.date || '').localeCompare(a.date || ''));
     const seen = new Set();
     const ordered = [];
@@ -1016,6 +1020,7 @@ export function WorkoutPage({ onBack, user }) {
       if (ordered.length >= NUM_CHART_SLOTS) break;
     }
     if (ordered.length === 0) return;
+    chartDefaultsAppliedRef.current = true;
     const libByExercise = {};
     for (const item of exerciseLibrary || []) {
       if (item?.exercise) libByExercise[item.exercise.trim().toLowerCase()] = item.group || '';
