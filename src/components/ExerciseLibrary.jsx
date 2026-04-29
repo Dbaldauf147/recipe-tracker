@@ -141,6 +141,24 @@ function lookupMuscleGroup(exerciseName) {
   return MUSCLE_GROUP_BY_EXERCISE[String(exerciseName || '').trim().toLowerCase()] || '';
 }
 
+const KNOWN_GROUPS = Object.keys(MUSCLE_GROUP_LOOKUP).sort();
+
+function blankExercise() {
+  return {
+    exercise: '',
+    primaryMuscles: '',
+    secondaryMuscles: '',
+    group: '',
+    thisWeek: 0,
+    lastWeek: 0,
+    alternative: '',
+    top: false,
+    nickname: '',
+    retired: false,
+    videos: [],
+  };
+}
+
 function videoSourceLabel(url) {
   const u = url.toLowerCase();
   if (u.includes('instagram.com')) return 'IG';
@@ -162,14 +180,28 @@ export function ExerciseLibrary({ library, onChange }) {
   const [sort, setSort] = useState({ col: '', dir: 'asc' });
 
   const COLUMNS = useMemo(() => [
-    { key: 'exercise', label: 'Exercise', cls: 'colName', searchable: true, get: e => e.exercise },
-    { key: 'group', label: 'Group', cls: 'colGroup', searchable: true, get: e => e.group },
-    { key: 'muscleGroup', label: 'Muscle Group', cls: 'colMuscleGroup', searchable: true, get: e => lookupMuscleGroup(e.exercise) },
-    { key: 'primary', label: 'Primary', cls: 'colMuscles', searchable: true, get: e => e.primaryMuscles },
-    { key: 'secondary', label: 'Secondary', cls: 'colMuscles', searchable: true, get: e => e.secondaryMuscles },
-    { key: 'videos', label: 'Videos', cls: 'colVideos', searchable: false, get: e => e.videos.length },
-    { key: 'alternative', label: 'Alternative', cls: 'colAlt', searchable: true, get: e => e.alternative },
+    { key: 'exercise', label: 'Exercise', cls: 'colName', searchable: true, sortable: true, get: e => e.exercise },
+    { key: 'group', label: 'Group', cls: 'colGroup', searchable: true, sortable: true, get: e => e.group },
+    { key: 'muscleGroup', label: 'Muscle Group', cls: 'colMuscleGroup', searchable: true, sortable: true, get: e => lookupMuscleGroup(e.exercise) },
+    { key: 'primary', label: 'Primary', cls: 'colMuscles', searchable: true, sortable: true, get: e => e.primaryMuscles },
+    { key: 'secondary', label: 'Secondary', cls: 'colMuscles', searchable: true, sortable: true, get: e => e.secondaryMuscles },
+    { key: 'videos', label: 'Videos', cls: 'colVideos', searchable: false, sortable: true, get: e => e.videos.length },
+    { key: 'alternative', label: 'Alternative', cls: 'colAlt', searchable: true, sortable: true, get: e => e.alternative },
+    { key: 'actions', label: '', cls: 'colActions', searchable: false, sortable: false, get: () => '' },
   ], []);
+
+  function updateRow(originalIdx, field, value) {
+    onChange(library.map((row, i) => i === originalIdx ? { ...row, [field]: value } : row));
+  }
+  function addRow() {
+    onChange([...library, blankExercise()]);
+  }
+  function removeRow(originalIdx) {
+    const ex = library[originalIdx];
+    const label = ex?.exercise?.trim() || 'this row';
+    if (!window.confirm(`Remove ${label}? This can't be undone.`)) return;
+    onChange(library.filter((_, i) => i !== originalIdx));
+  }
 
   function toggleSort(col) {
     setSort(prev => {
@@ -192,26 +224,28 @@ export function ExerciseLibrary({ library, onChange }) {
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return library.filter(e => {
-      if (!showRetired && e.retired) return false;
-      if (topOnly && !e.top) return false;
-      if (groupFilter && e.group !== groupFilter) return false;
-      for (const c of COLUMNS) {
-        const term = (colSearch[c.key] || '').trim().toLowerCase();
-        if (!term) continue;
-        const v = c.get(e);
-        if (v == null) return false;
-        if (!String(v).toLowerCase().includes(term)) return false;
-      }
-      if (!q) return true;
-      return (
-        e.exercise.toLowerCase().includes(q) ||
-        e.nickname.toLowerCase().includes(q) ||
-        e.primaryMuscles.toLowerCase().includes(q) ||
-        e.secondaryMuscles.toLowerCase().includes(q) ||
-        e.alternative.toLowerCase().includes(q)
-      );
-    });
+    return library
+      .map((e, originalIdx) => ({ e, originalIdx }))
+      .filter(({ e }) => {
+        if (!showRetired && e.retired) return false;
+        if (topOnly && !e.top) return false;
+        if (groupFilter && e.group !== groupFilter) return false;
+        for (const c of COLUMNS) {
+          const term = (colSearch[c.key] || '').trim().toLowerCase();
+          if (!term) continue;
+          const v = c.get(e);
+          if (v == null) return false;
+          if (!String(v).toLowerCase().includes(term)) return false;
+        }
+        if (!q) return true;
+        return (
+          e.exercise.toLowerCase().includes(q) ||
+          e.nickname.toLowerCase().includes(q) ||
+          e.primaryMuscles.toLowerCase().includes(q) ||
+          e.secondaryMuscles.toLowerCase().includes(q) ||
+          e.alternative.toLowerCase().includes(q)
+        );
+      });
   }, [library, search, groupFilter, showRetired, topOnly, colSearch, COLUMNS]);
 
   const sorted = useMemo(() => {
@@ -220,8 +254,8 @@ export function ExerciseLibrary({ library, onChange }) {
     const arr = [...filtered];
     const dir = sort.dir === 'desc' ? -1 : 1;
     arr.sort((a, b) => {
-      const av = col.get(a);
-      const bv = col.get(b);
+      const av = col.get(a.e);
+      const bv = col.get(b.e);
       if (typeof av === 'number' && typeof bv === 'number') return (av - bv) * dir;
       return String(av || '').localeCompare(String(bv || '')) * dir;
     });
@@ -255,8 +289,11 @@ export function ExerciseLibrary({ library, onChange }) {
     return (
       <div className={styles.section}>
         <div className={styles.empty}>
-          <p>No exercises in your library yet. Import a list to get started.</p>
-          <button className={styles.primaryBtn} onClick={() => setShowImport(true)}>Import Exercises</button>
+          <p>No exercises in your library yet. Add manually or import a list.</p>
+          <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'center', flexWrap: 'wrap' }}>
+            <button className={styles.primaryBtn} onClick={addRow}>+ Add exercise</button>
+            <button className={styles.secondaryBtn} onClick={() => setShowImport(true)}>Import Exercises</button>
+          </div>
           <p className={styles.hint}>
             Paste a tab- or comma-separated list with columns like <code>Workout, Primary Muscles, Secondary Muscles, Group, Insta, Insta 2…, Knickname</code>.
           </p>
@@ -286,6 +323,7 @@ export function ExerciseLibrary({ library, onChange }) {
           <input type="checkbox" checked={showRetired} onChange={e => setShowRetired(e.target.checked)} />
           Show retired
         </label>
+        <button className={styles.primaryBtn} onClick={addRow}>+ Add exercise</button>
         <button className={styles.secondaryBtn} onClick={() => setShowImport(true)}>Re-import</button>
       </div>
 
@@ -293,21 +331,29 @@ export function ExerciseLibrary({ library, onChange }) {
         {filtered.length} of {library.length} exercise{library.length === 1 ? '' : 's'}
       </div>
 
+      <datalist id="exercise-known-groups">
+        {KNOWN_GROUPS.map(g => <option key={g} value={g} />)}
+      </datalist>
+
       <div className={styles.tableWrap}>
         <table className={styles.table}>
           <thead>
             <tr>
               {COLUMNS.map(c => (
                 <th key={c.key} className={styles[c.cls]}>
-                  <button
-                    type="button"
-                    className={styles.sortHeaderBtn}
-                    onClick={() => toggleSort(c.key)}
-                    title={`Sort by ${c.label}`}
-                  >
+                  {c.sortable ? (
+                    <button
+                      type="button"
+                      className={styles.sortHeaderBtn}
+                      onClick={() => toggleSort(c.key)}
+                      title={`Sort by ${c.label}`}
+                    >
+                      <span>{c.label}</span>
+                      {sortIcon(c.key)}
+                    </button>
+                  ) : (
                     <span>{c.label}</span>
-                    {sortIcon(c.key)}
-                  </button>
+                  )}
                 </th>
               ))}
             </tr>
@@ -328,35 +374,103 @@ export function ExerciseLibrary({ library, onChange }) {
             </tr>
           </thead>
           <tbody>
-            {sorted.map((e, i) => (
-              <tr key={`${e.exercise}-${i}`} className={e.retired ? styles.retiredRow : undefined}>
+            {sorted.map(({ e, originalIdx }) => (
+              <tr key={originalIdx} className={e.retired ? styles.retiredRow : undefined}>
                 <td className={styles.nameCell}>
                   <div className={styles.exName}>
-                    {e.top && <span className={styles.topStar} title="Top exercise">★</span>}
-                    {e.exercise}
+                    <button
+                      type="button"
+                      className={e.top ? styles.topStarBtn : styles.topStarBtnDim}
+                      onClick={() => updateRow(originalIdx, 'top', !e.top)}
+                      title={e.top ? 'Top exercise (click to unmark)' : 'Mark as top'}
+                    >★</button>
+                    <input
+                      className={`${styles.cellInput} ${styles.exNameInput}`}
+                      value={e.exercise}
+                      onChange={ev => updateRow(originalIdx, 'exercise', ev.target.value)}
+                      placeholder="Exercise name"
+                    />
                   </div>
-                  {e.nickname && <div className={styles.nickname}>{e.nickname}</div>}
-                  {e.retired && <div className={styles.retiredTag}>Retired</div>}
+                  <input
+                    className={`${styles.cellInput} ${styles.nicknameInput}`}
+                    value={e.nickname || ''}
+                    onChange={ev => updateRow(originalIdx, 'nickname', ev.target.value)}
+                    placeholder="Nickname (optional)"
+                  />
+                  <label className={styles.retiredToggle}>
+                    <input
+                      type="checkbox"
+                      checked={!!e.retired}
+                      onChange={ev => updateRow(originalIdx, 'retired', ev.target.checked)}
+                    />
+                    Retired
+                  </label>
                 </td>
-                <td>{e.group && <span className={styles.groupBadge}>{e.group}</span>}</td>
+                <td>
+                  <input
+                    list="exercise-known-groups"
+                    className={styles.cellInput}
+                    value={e.group || ''}
+                    onChange={ev => updateRow(originalIdx, 'group', ev.target.value)}
+                    placeholder="—"
+                  />
+                </td>
                 <td>
                   {(() => {
                     const mg = lookupMuscleGroup(e.exercise);
                     return mg ? <span className={styles.groupBadge}>{mg}</span> : <span className={styles.dim}>—</span>;
                   })()}
                 </td>
-                <td className={styles.musclesCell}>{e.primaryMuscles}</td>
-                <td className={styles.musclesCell}>{e.secondaryMuscles}</td>
-                <td className={styles.videosCell}>
-                  {e.videos.length === 0
-                    ? <span className={styles.dim}>—</span>
-                    : e.videos.map((url, vi) => (
-                      <a key={vi} href={url} target="_blank" rel="noopener noreferrer" className={styles.videoLink} title={url}>
-                        {videoSourceLabel(url)}
-                      </a>
-                    ))}
+                <td className={styles.musclesCell}>
+                  <input
+                    className={styles.cellInput}
+                    value={e.primaryMuscles || ''}
+                    onChange={ev => updateRow(originalIdx, 'primaryMuscles', ev.target.value)}
+                  />
                 </td>
-                <td className={styles.altCell}>{e.alternative || <span className={styles.dim}>—</span>}</td>
+                <td className={styles.musclesCell}>
+                  <input
+                    className={styles.cellInput}
+                    value={e.secondaryMuscles || ''}
+                    onChange={ev => updateRow(originalIdx, 'secondaryMuscles', ev.target.value)}
+                  />
+                </td>
+                <td className={styles.videosCell}>
+                  <input
+                    className={styles.cellInput}
+                    value={(e.videos || []).join(', ')}
+                    onChange={ev => {
+                      const urls = ev.target.value.split(/[,\n]/).map(s => s.trim()).filter(Boolean);
+                      updateRow(originalIdx, 'videos', urls);
+                    }}
+                    placeholder="URLs comma-separated"
+                  />
+                  {e.videos.length > 0 && (
+                    <div className={styles.videoLinkRow}>
+                      {e.videos.map((url, vi) => (
+                        <a key={vi} href={url} target="_blank" rel="noopener noreferrer" className={styles.videoLink} title={url}>
+                          {videoSourceLabel(url)}
+                        </a>
+                      ))}
+                    </div>
+                  )}
+                </td>
+                <td className={styles.altCell}>
+                  <input
+                    className={styles.cellInput}
+                    value={e.alternative || ''}
+                    onChange={ev => updateRow(originalIdx, 'alternative', ev.target.value)}
+                  />
+                </td>
+                <td className={styles.colActions}>
+                  <button
+                    type="button"
+                    className={styles.removeBtn}
+                    onClick={() => removeRow(originalIdx)}
+                    title="Remove this exercise"
+                    aria-label="Remove exercise"
+                  >×</button>
+                </td>
               </tr>
             ))}
           </tbody>

@@ -102,12 +102,13 @@
 .table tbody tr:hover { background: var(--color-surface-alt); }
 .retiredRow { opacity: 0.55; }
 
-.colName { width: 20%; }
+.colName { width: 18%; }
 .colGroup { width: 8%; }
-.colMuscleGroup { width: 10%; }
-.colMuscles { width: 16%; }
-.colVideos { width: 12%; }
-.colAlt { width: 18%; }
+.colMuscleGroup { width: 9%; }
+.colMuscles { width: 14%; }
+.colVideos { width: 13%; }
+.colAlt { width: 14%; }
+.colActions { width: 40px; text-align: center; }
 
 .sortHeaderBtn {
   display: inline-flex;
@@ -150,6 +151,75 @@
 }
 .colSearchInput::placeholder { color: var(--color-text-muted); opacity: 0.6; }
 .colSearchInput:focus { outline: none; border-color: var(--color-accent); }
+
+.cellInput {
+  width: 100%;
+  padding: 0.3rem 0.4rem;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-family: inherit;
+}
+.cellInput:hover { border-color: var(--color-border); }
+.cellInput:focus {
+  outline: none;
+  border-color: var(--color-accent);
+  background: var(--color-surface-alt);
+}
+.cellInput::placeholder { color: var(--color-text-muted); opacity: 0.55; }
+
+.exNameInput { font-weight: 600; flex: 1; }
+.nicknameInput { font-size: 0.78rem; color: var(--color-text-secondary); margin-top: 2px; }
+
+.retiredToggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.72rem;
+  color: var(--color-text-muted);
+  margin-top: 4px;
+  cursor: pointer;
+}
+
+.topStarBtn, .topStarBtnDim {
+  background: none;
+  border: 0;
+  padding: 0 2px;
+  font-size: 1rem;
+  cursor: pointer;
+  font-family: inherit;
+  line-height: 1;
+}
+.topStarBtn { color: #f59e0b; }
+.topStarBtnDim { color: var(--color-border); }
+.topStarBtnDim:hover { color: #f59e0b; }
+
+.videoLinkRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.removeBtn {
+  background: none;
+  border: 1px solid transparent;
+  color: var(--color-text-muted);
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  font-size: 1.05rem;
+  line-height: 1;
+  cursor: pointer;
+  font-family: inherit;
+}
+.removeBtn:hover {
+  color: #c94545;
+  border-color: #c94545;
+  background: rgba(201, 69, 69, 0.08);
+}
 
 .nameCell { font-weight: 600; }
 .exName { display: flex; align-items: center; gap: 0.3rem; line-height: 1.25; }
