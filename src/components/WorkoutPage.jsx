@@ -688,19 +688,20 @@ export function WorkoutPage({ onBack, user }) {
       : e));
   }
 
-  // Pick exercise + auto-fill notes from the most recent prior workout for that
-  // exercise. Notes are NOT marked as edited (the highlight is reserved for
-  // values the user typed by hand).
+  // Pick exercise + carry forward the notes from the *most recent* logged
+  // workout for that exercise (even if those notes were empty — that's what
+  // "last logged" means). Notes are NOT marked as edited so the highlight stays
+  // reserved for values the user typed by hand.
   function pickExercise(idx, exerciseName) {
     setEntries(prev => prev.map((e, i) => {
       if (i !== idx) return e;
       const next = { ...e, exercise: exerciseName, editedFields: { ...e.editedFields, exercise: true } };
       if (exerciseName) {
         const key = exerciseName.trim().toLowerCase();
-        const history = exerciseHistoryByName[key];
-        const lastWithNotes = history && history.find(h => h.notes && String(h.notes).trim());
-        const lastNotes = lastWithNotes ? lastWithNotes.notes : '';
-        next.notes = lastNotes;
+        const history = exerciseHistoryByName[key] || [];
+        const sorted = [...history].sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+        const last = sorted[0];
+        next.notes = last && last.notes != null ? String(last.notes) : '';
         const ef = { ...next.editedFields };
         delete ef.notes;
         next.editedFields = ef;
