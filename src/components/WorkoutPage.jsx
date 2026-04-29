@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo, useRef } from 'react';
 import { ComposedChart, Area, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
 import { saveField, loadWorkoutLogFromFirestore, saveWorkoutDraft, clearWorkoutDraft } from '../utils/firestoreSync';
 import { ExerciseLibrary } from './ExerciseLibrary';
+import { BodyHeatmap } from './BodyHeatmap';
 import styles from './WorkoutPage.module.css';
 
 const CHART_METRICS = {
@@ -455,7 +456,7 @@ export function WorkoutPage({ onBack, user }) {
   const [gym, setGym] = useState(GYMS[0]);
   const [workoutType, setWorkoutType] = useState('');
   const [entries, setEntries] = useState(() => blankEntries());
-  const [viewMode, setViewMode] = useState('log'); // 'log' | 'history' | 'charts' | 'exercises' | 'stats'
+  const [viewMode, setViewMode] = useState('log'); // 'log' | 'history' | 'charts' | 'body' | 'exercises' | 'stats'
   const [exerciseLibrary, setExerciseLibrary] = useState(loadLibrary);
   const [historyGroup, setHistoryGroup] = useState('');
   const [chartSlots, setChartSlots] = useState(() => {
@@ -1087,9 +1088,9 @@ export function WorkoutPage({ onBack, user }) {
       </div>
 
       <div className={styles.tabs}>
-        {['log', 'history', 'charts', 'exercises', 'stats'].map(tab => (
+        {['log', 'history', 'charts', 'body', 'exercises', 'stats'].map(tab => (
           <button key={tab} className={`${styles.tab} ${viewMode === tab ? styles.tabActive : ''}`} onClick={() => setViewMode(tab)}>
-            {tab === 'log' ? 'Log Workout' : tab === 'history' ? 'History' : tab === 'charts' ? 'Charts' : tab === 'exercises' ? 'Exercises' : 'Stats & PRs'}
+            {tab === 'log' ? 'Log Workout' : tab === 'history' ? 'History' : tab === 'charts' ? 'Charts' : tab === 'body' ? 'Body Map' : tab === 'exercises' ? 'Exercises' : 'Stats & PRs'}
           </button>
         ))}
       </div>
@@ -1657,6 +1658,10 @@ export function WorkoutPage({ onBack, user }) {
           </div>
         );
       })()}
+
+      {viewMode === 'body' && (
+        <BodyHeatmap workouts={workouts} exerciseLibrary={exerciseLibrary} />
+      )}
 
       {viewMode === 'exercises' && (
         <ExerciseLibrary
