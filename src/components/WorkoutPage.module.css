@@ -396,8 +396,20 @@
   vertical-align: top;
   border-right: 1px solid var(--color-border);
 }
-.historyDateMain { font-weight: 600; }
+.historyDateMain { font-weight: 600; font-size: 0.78rem; margin-top: 3px; }
 .historyDateSub { font-size: 0.7rem; color: var(--color-text-muted); margin-top: 1px; }
+.historyDateInput {
+  display: block;
+  width: 100%;
+  padding: 2px 4px;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: 0.72rem;
+  font-family: inherit;
+}
+.historyDateInput:focus { outline: none; border-color: var(--color-accent); }
 .historyTypeSelect {
   margin-top: 6px;
   display: block;

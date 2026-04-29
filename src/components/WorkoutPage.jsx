@@ -785,6 +785,15 @@ export function WorkoutPage({ onBack, user }) {
   function setHistoryWorkoutType(date, type) {
     commitWorkouts(workouts.map(w => w.date === date ? { ...w, workoutType: type } : w));
   }
+  function setHistoryDate(oldDate, newDate) {
+    if (!newDate || newDate === oldDate) return;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(newDate)) return;
+    if (workouts.some(w => w.date === newDate)) {
+      window.alert(`There's already a workout logged on ${newDate}. Pick a different date or merge manually.`);
+      return;
+    }
+    commitWorkouts(workouts.map(w => w.date === oldDate ? { ...w, date: newDate } : w));
+  }
 
   // Stats
   // Most recent saved workout for each tagged type. Lets us suggest the
@@ -1303,6 +1312,13 @@ export function WorkoutPage({ onBack, user }) {
                         <tr key={`${w.date}-${originalIdx}`} className={isFirstOfDay ? styles.historyRowDayStart : undefined}>
                           {isFirstOfDay && (
                             <td rowSpan={dayCount} className={styles.historyDateCell}>
+                              <input
+                                type="date"
+                                className={styles.historyDateInput}
+                                value={w.date}
+                                onChange={ev => setHistoryDate(w.date, ev.target.value)}
+                                title="Edit date"
+                              />
                               <div className={styles.historyDateMain}>{formatDate(w.date)}</div>
                               <div className={styles.historyDateSub}>{w.gym}</div>
                               <select
