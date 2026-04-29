@@ -7,7 +7,7 @@ struct LogWorkoutView: View {
     var body: some View {
         NavigationStack {
             ZStack {
-                Form {
+                List {
                     dateAndGymSection
                     ForEach(vm.entries) { entry in
                         entrySection(entry)
@@ -15,6 +15,7 @@ struct LogWorkoutView: View {
                     addExerciseSection
                     saveSection
                 }
+                .listStyle(.insetGrouped)
 
                 if vm.isLoading {
                     ProgressView("Loading...")
@@ -59,26 +60,62 @@ struct LogWorkoutView: View {
 
     private func entrySection(_ entry: WorkoutEntry) -> some View {
         Section {
-            Picker("Muscle Group", selection: Binding(
-                get: { entry.group },
-                set: { vm.setGroup($0, for: entry.id) }
-            )) {
-                Text("Select…").tag("")
-                ForEach(WorkoutCatalog.muscleGroups, id: \.self) { Text($0).tag($0) }
+            TabView {
+                entryMainPage(entry).tag(0)
+                entryDetailPage(entry).tag(1)
+            }
+            .tabViewStyle(.page(indexDisplayMode: .always))
+            .indexViewStyle(.page(backgroundDisplayMode: .always))
+            .frame(height: 360)
+            .listRowInsets(EdgeInsets())
+        } header: {
+            HStack {
+                Text(entry.exercise.isEmpty ? "Exercise" : entry.exercise)
+                Spacer()
+                Image(systemName: "arrow.left.arrow.right")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+                Text("swipe for notes")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+                    .textCase(.lowercase)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func entryMainPage(_ entry: WorkoutEntry) -> some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack {
+                Text("Muscle Group").font(.subheadline)
+                Spacer()
+                Picker("Muscle Group", selection: Binding(
+                    get: { entry.group },
+                    set: { vm.setGroup($0, for: entry.id) }
+                )) {
+                    Text("Select…").tag("")
+                    ForEach(WorkoutCatalog.muscleGroups, id: \.self) { Text($0).tag($0) }
+                }
+                .labelsHidden()
+                .pickerStyle(.menu)
             }
 
-            Picker("Exercise", selection: Binding(
-                get: { entry.exercise },
-                set: { newVal in
-                    vm.updateEntry(entry.id) { $0.exercise = newVal }
+            HStack {
+                Text("Exercise").font(.subheadline)
+                Spacer()
+                Picker("Exercise", selection: Binding(
+                    get: { entry.exercise },
+                    set: { newVal in vm.updateEntry(entry.id) { $0.exercise = newVal } }
+                )) {
+                    Text(entry.group.isEmpty ? "Pick a group first" : "Select…").tag("")
+                    ForEach(WorkoutCatalog.exercisesByGroup[entry.group] ?? [], id: \.self) {
+                        Text($0).tag($0)
+                    }
                 }
-            )) {
-                Text(entry.group.isEmpty ? "Pick a group first" : "Select…").tag("")
-                ForEach(WorkoutCatalog.exercisesByGroup[entry.group] ?? [], id: \.self) {
-                    Text($0).tag($0)
-                }
+                .labelsHidden()
+                .pickerStyle(.menu)
+                .disabled(entry.group.isEmpty)
             }
-            .disabled(entry.group.isEmpty)
 
             HStack(spacing: 8) {
                 ForEach(0..<4, id: \.self) { i in
@@ -87,40 +124,71 @@ struct LogWorkoutView: View {
             }
 
             HStack {
-                Text("Weight")
+                Text("Weight").font(.subheadline)
+                Spacer()
                 TextField("lbs", text: Binding(
                     get: { entry.weight },
                     set: { newVal in vm.updateEntry(entry.id) { $0.weight = newVal } }
                 ))
                 .keyboardType(.decimalPad)
                 .multilineTextAlignment(.trailing)
+                .textFieldStyle(.roundedBorder)
+                .frame(maxWidth: 110)
             }
 
             Toggle("Per arm", isOn: Binding(
                 get: { entry.perArm },
                 set: { newVal in vm.updateEntry(entry.id) { $0.perArm = newVal } }
             ))
-
-            TextField(
-                "Notes (machine settings, form cues…)",
-                text: Binding(
-                    get: { entry.notes },
-                    set: { newVal in vm.updateEntry(entry.id) { $0.notes = newVal } }
-                ),
-                axis: .vertical
-            )
-            .lineLimit(1...3)
+            .font(.subheadline)
 
             if vm.entries.count > 1 {
                 Button(role: .destructive) {
                     vm.removeEntry(id: entry.id)
                 } label: {
                     Label("Remove exercise", systemImage: "trash")
+                        .font(.footnote)
                 }
             }
-        } header: {
-            Text(entry.exercise.isEmpty ? "Exercise" : entry.exercise)
+
+            Spacer(minLength: 0)
         }
+        .padding(.horizontal, 16)
+        .padding(.top, 12)
+        .padding(.bottom, 28) // leave room for page dots
+    }
+
+    @ViewBuilder
+    private func entryDetailPage(_ entry: WorkoutEntry) -> some View {
+        VStack(alignment: .leading, spacing: 18) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Notes")
+                    .font(.subheadline.weight(.semibold))
+                TextField(
+                    "Machine settings, form cues…",
+                    text: Binding(
+                        get: { entry.notes },
+                        set: { newVal in vm.updateEntry(entry.id) { $0.notes = newVal } }
+                    ),
+                    axis: .vertical
+                )
+                .lineLimit(3...8)
+                .textFieldStyle(.roundedBorder)
+            }
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Videos")
+                    .font(.subheadline.weight(.semibold))
+                Text("No videos linked for this exercise yet.")
+                    .font(.footnote)
+                    .foregroundColor(.secondary)
+            }
+
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, 12)
+        .padding(.bottom, 28)
     }
 
     private func setField(entry: WorkoutEntry, setIndex i: Int) -> some View {
