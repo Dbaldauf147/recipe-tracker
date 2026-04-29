@@ -158,6 +158,31 @@ export function ExerciseLibrary({ library, onChange }) {
   const [importText, setImportText] = useState('');
   const [importPreview, setImportPreview] = useState(null);
   const [importError, setImportError] = useState('');
+  const [colSearch, setColSearch] = useState({});
+  const [sort, setSort] = useState({ col: '', dir: 'asc' });
+
+  const COLUMNS = useMemo(() => [
+    { key: 'exercise', label: 'Exercise', cls: 'colName', searchable: true, get: e => e.exercise },
+    { key: 'group', label: 'Group', cls: 'colGroup', searchable: true, get: e => e.group },
+    { key: 'muscleGroup', label: 'Muscle Group', cls: 'colMuscleGroup', searchable: true, get: e => lookupMuscleGroup(e.exercise) },
+    { key: 'primary', label: 'Primary', cls: 'colMuscles', searchable: true, get: e => e.primaryMuscles },
+    { key: 'secondary', label: 'Secondary', cls: 'colMuscles', searchable: true, get: e => e.secondaryMuscles },
+    { key: 'videos', label: 'Videos', cls: 'colVideos', searchable: false, get: e => e.videos.length },
+    { key: 'alternative', label: 'Alternative', cls: 'colAlt', searchable: true, get: e => e.alternative },
+  ], []);
+
+  function toggleSort(col) {
+    setSort(prev => {
+      if (prev.col !== col) return { col, dir: 'asc' };
+      if (prev.dir === 'asc') return { col, dir: 'desc' };
+      return { col: '', dir: 'asc' };
+    });
+  }
+
+  function sortIcon(col) {
+    if (sort.col !== col) return <span className={styles.sortIconDim}>↕</span>;
+    return <span className={styles.sortIcon}>{sort.dir === 'asc' ? '↑' : '↓'}</span>;
+  }
 
   const groups = useMemo(() => {
     const s = new Set();
@@ -171,6 +196,13 @@ export function ExerciseLibrary({ library, onChange }) {
       if (!showRetired && e.retired) return false;
       if (topOnly && !e.top) return false;
       if (groupFilter && e.group !== groupFilter) return false;
+      for (const c of COLUMNS) {
+        const term = (colSearch[c.key] || '').trim().toLowerCase();
+        if (!term) continue;
+        const v = c.get(e);
+        if (v == null) return false;
+        if (!String(v).toLowerCase().includes(term)) return false;
+      }
       if (!q) return true;
       return (
         e.exercise.toLowerCase().includes(q) ||
@@ -180,7 +212,21 @@ export function ExerciseLibrary({ library, onChange }) {
         e.alternative.toLowerCase().includes(q)
       );
     });
-  }, [library, search, groupFilter, showRetired, topOnly]);
+  }, [library, search, groupFilter, showRetired, topOnly, colSearch, COLUMNS]);
+
+  const sorted = useMemo(() => {
+    const col = COLUMNS.find(c => c.key === sort.col);
+    if (!col) return filtered;
+    const arr = [...filtered];
+    const dir = sort.dir === 'desc' ? -1 : 1;
+    arr.sort((a, b) => {
+      const av = col.get(a);
+      const bv = col.get(b);
+      if (typeof av === 'number' && typeof bv === 'number') return (av - bv) * dir;
+      return String(av || '').localeCompare(String(bv || '')) * dir;
+    });
+    return arr;
+  }, [filtered, sort, COLUMNS]);
 
   function handleParseImport() {
     setImportError('');
@@ -251,17 +297,38 @@ export function ExerciseLibrary({ library, onChange }) {
         <table className={styles.table}>
           <thead>
             <tr>
-              <th className={styles.colName}>Exercise</th>
-              <th className={styles.colGroup}>Group</th>
-              <th className={styles.colMuscleGroup}>Muscle Group</th>
-              <th className={styles.colMuscles}>Primary</th>
-              <th className={styles.colMuscles}>Secondary</th>
-              <th className={styles.colVideos}>Videos</th>
-              <th className={styles.colAlt}>Alternative</th>
+              {COLUMNS.map(c => (
+                <th key={c.key} className={styles[c.cls]}>
+                  <button
+                    type="button"
+                    className={styles.sortHeaderBtn}
+                    onClick={() => toggleSort(c.key)}
+                    title={`Sort by ${c.label}`}
+                  >
+                    <span>{c.label}</span>
+                    {sortIcon(c.key)}
+                  </button>
+                </th>
+              ))}
+            </tr>
+            <tr className={styles.colSearchRow}>
+              {COLUMNS.map(c => (
+                <th key={c.key}>
+                  {c.searchable ? (
+                    <input
+                      className={styles.colSearchInput}
+                      value={colSearch[c.key] || ''}
+                      onChange={ev => setColSearch(prev => ({ ...prev, [c.key]: ev.target.value }))}
+                      placeholder="filter…"
+                      aria-label={`Filter ${c.label}`}
+                    />
+                  ) : null}
+                </th>
+              ))}
             </tr>
           </thead>
           <tbody>
-            {filtered.map((e, i) => (
+            {sorted.map((e, i) => (
               <tr key={`${e.exercise}-${i}`} className={e.retired ? styles.retiredRow : undefined}>
                 <td className={styles.nameCell}>
                   <div className={styles.exName}>
