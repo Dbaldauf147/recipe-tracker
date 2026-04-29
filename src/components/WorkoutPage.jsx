@@ -702,10 +702,12 @@ export function WorkoutPage({ onBack, user }) {
         const sorted = [...history].sort((a, b) => (b.date || '').localeCompare(a.date || ''));
         const last = sorted[0];
         next.notes = last && last.notes != null ? String(last.notes) : '';
-        const ef = { ...next.editedFields };
-        delete ef.notes;
-        next.editedFields = ef;
+      } else {
+        next.notes = '';
       }
+      const ef = { ...next.editedFields };
+      delete ef.notes;
+      next.editedFields = ef;
       return next;
     }));
   }
@@ -1240,7 +1242,7 @@ export function WorkoutPage({ onBack, user }) {
                   return (
                     <tr key={i}>
                       <td>
-                        <select className={`${styles.logCell} ${styles.logGroupSelect} ${editedCls('group')}`} value={entry.group} onChange={e => { updateEntry(i, 'group', e.target.value); updateEntry(i, 'exercise', ''); }}>
+                        <select className={`${styles.logCell} ${styles.logGroupSelect} ${editedCls('group')}`} value={entry.group} onChange={e => { updateEntry(i, 'group', e.target.value); pickExercise(i, ''); }}>
                           <option value="">—</option>
                           {MUSCLE_GROUPS.map(g => <option key={g} value={g}>{g}</option>)}
                         </select>
