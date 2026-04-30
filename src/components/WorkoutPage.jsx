@@ -477,6 +477,10 @@ export function WorkoutPage({ onBack, user }) {
   const [viewMode, setViewMode] = useState('log'); // 'log' | 'history' | 'charts' | 'body' | 'exercises' | 'stats'
   const [exerciseLibrary, setExerciseLibrary] = useState(loadLibrary);
   const [historyGroup, setHistoryGroup] = useState('');
+  const [historyStartDate, setHistoryStartDate] = useState('');
+  const [historyEndDate, setHistoryEndDate] = useState('');
+  const [historyGym, setHistoryGym] = useState('');
+  const [historyExercise, setHistoryExercise] = useState('');
   const [chartSlots, setChartSlots] = useState(() => {
     try {
       const saved = JSON.parse(localStorage.getItem('sunday-chart-slots') || 'null');
@@ -1020,10 +1024,55 @@ export function WorkoutPage({ onBack, user }) {
     return map;
   }, [workouts]);
 
-  const filteredHistory = useMemo(() => {
-    if (!historyGroup) return workouts;
-    return workouts.filter(w => w.entries?.some(e => e.group === historyGroup));
+  // Dropdown options derived from actual logged workouts so the user only
+  // sees gyms/exercises they've actually used. Exercise list narrows to the
+  // selected group when one is active.
+  const historyGyms = useMemo(() => {
+    const set = new Set();
+    for (const w of workouts) if (w.gym) set.add(w.gym);
+    return Array.from(set).sort();
+  }, [workouts]);
+
+  const historyExercises = useMemo(() => {
+    const set = new Set();
+    for (const w of workouts) {
+      for (const e of w.entries || []) {
+        if (!e.exercise) continue;
+        if (historyGroup && e.group !== historyGroup) continue;
+        set.add(e.exercise);
+      }
+    }
+    return Array.from(set).sort();
   }, [workouts, historyGroup]);
+
+  // Drop the exercise filter if a group change made the current selection
+  // disappear from the dropdown options.
+  useEffect(() => {
+    if (historyExercise && !historyExercises.includes(historyExercise)) {
+      setHistoryExercise('');
+    }
+  }, [historyExercise, historyExercises]);
+
+  const filteredHistory = useMemo(() => {
+    return workouts.filter(w => {
+      if (historyStartDate && w.date < historyStartDate) return false;
+      if (historyEndDate && w.date > historyEndDate) return false;
+      if (historyGym && w.gym !== historyGym) return false;
+      const entries = w.entries || [];
+      if (historyGroup && !entries.some(e => e.group === historyGroup)) return false;
+      if (historyExercise && !entries.some(e => e.exercise === historyExercise)) return false;
+      return true;
+    });
+  }, [workouts, historyStartDate, historyEndDate, historyGym, historyGroup, historyExercise]);
+
+  const hasActiveHistoryFilters = !!(historyGroup || historyStartDate || historyEndDate || historyGym || historyExercise);
+  function clearHistoryFilters() {
+    setHistoryGroup('');
+    setHistoryStartDate('');
+    setHistoryEndDate('');
+    setHistoryGym('');
+    setHistoryExercise('');
+  }
 
   // Library-driven groupings for the Charts picker. Falls back to the
   // groups present in the saved workouts when the library is empty so the
@@ -1452,10 +1501,36 @@ export function WorkoutPage({ onBack, user }) {
       {viewMode === 'history' && (
         <div className={styles.historySection}>
           <div className={styles.filterRow}>
+            <input
+              type="date"
+              className={styles.dateInput}
+              value={historyStartDate}
+              onChange={e => setHistoryStartDate(e.target.value)}
+              aria-label="Start date"
+            />
+            <span className={styles.dateSep}>–</span>
+            <input
+              type="date"
+              className={styles.dateInput}
+              value={historyEndDate}
+              onChange={e => setHistoryEndDate(e.target.value)}
+              aria-label="End date"
+            />
+            <select className={styles.groupSelect} value={historyGym} onChange={e => setHistoryGym(e.target.value)}>
+              <option value="">All Locations</option>
+              {historyGyms.map(g => <option key={g} value={g}>{g}</option>)}
+            </select>
             <select className={styles.groupSelect} value={historyGroup} onChange={e => setHistoryGroup(e.target.value)}>
               <option value="">All Groups</option>
               {MUSCLE_GROUPS.map(g => <option key={g} value={g}>{g}</option>)}
             </select>
+            <select className={styles.groupSelect} value={historyExercise} onChange={e => setHistoryExercise(e.target.value)}>
+              <option value="">All Exercises</option>
+              {historyExercises.map(ex => <option key={ex} value={ex}>{ex}</option>)}
+            </select>
+            {hasActiveHistoryFilters && (
+              <button className={styles.clearBtn} onClick={clearHistoryFilters}>Clear</button>
+            )}
             <span className={styles.historyCount}>{filteredHistory.length} workouts</span>
           </div>
           {filteredHistory.length === 0 ? (
@@ -1469,7 +1544,10 @@ export function WorkoutPage({ onBack, user }) {
             for (const w of filteredHistory) {
               const visible = (w.entries || [])
                 .map((e, originalIdx) => ({ e, originalIdx }))
-                .filter(({ e }) => !historyGroup || e.group === historyGroup);
+                .filter(({ e }) =>
+                  (!historyGroup || e.group === historyGroup) &&
+                  (!historyExercise || e.exercise === historyExercise)
+                );
               visible.forEach(({ e, originalIdx }, idx) => {
                 flatRows.push({ w, e, originalIdx, isFirstOfDay: idx === 0, dayCount: visible.length });
               });

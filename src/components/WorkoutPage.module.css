@@ -413,8 +413,11 @@ td.logPerCell.manuallyEdited {
 }
 
 /* History */
-.filterRow { display: flex; gap: 0.75rem; align-items: center; margin-bottom: 1rem; }
-.historyCount { font-size: 0.8rem; color: var(--color-text-muted); }
+.filterRow { display: flex; gap: 0.5rem; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; }
+.dateSep { color: var(--color-text-muted); font-size: 0.85rem; }
+.clearBtn { padding: 0.4rem 0.75rem; border: 1px solid var(--color-border); border-radius: 6px; background: var(--color-surface); font-size: 0.8rem; font-weight: 600; color: var(--color-text-muted); cursor: pointer; font-family: inherit; }
+.clearBtn:hover { border-color: var(--color-accent); color: var(--color-accent); }
+.historyCount { font-size: 0.8rem; color: var(--color-text-muted); margin-left: auto; }
 .historyCard { background: var(--color-surface); border: 1px solid var(--color-border-light); border-radius: 10px; padding: 0.75rem; margin-bottom: 0.5rem; }
 .historyDate { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem; }
 .historyDateText { font-weight: 700; font-size: 0.9rem; color: var(--color-text); }
