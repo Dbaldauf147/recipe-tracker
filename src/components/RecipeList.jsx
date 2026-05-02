@@ -333,6 +333,12 @@ export function RecipeList({
     }).catch(() => {});
   }, [user, adminDefaultLayout]);
 
+  // Bumps every time plan history / daily log changes locally or via cloud
+  // sync. Fed into the suggestions useMemo so its localStorage reads of
+  // sunday-plan-history and sunday-daily-log refresh, instead of holding
+  // a stale snapshot from first render.
+  const [historyTick, setHistoryTick] = useState(0);
+
   // Sync layout and custom widgets from Firestore when another device changes it
   useEffect(() => {
     const handleSync = () => {
@@ -344,6 +350,7 @@ export function RecipeList({
         const saved = localStorage.getItem(CUSTOM_WIDGETS_KEY);
         if (saved) setCustomGridWidgets(JSON.parse(saved));
       } catch {}
+      setHistoryTick(t => t + 1);
     };
     window.addEventListener('firestore-sync', handleSync);
     return () => window.removeEventListener('firestore-sync', handleSync);
@@ -1093,24 +1100,50 @@ export function RecipeList({
       (a, b) => new Date(b.timestamp) - new Date(a.timestamp)
     );
 
-    // Build map: recipeId → most recent date it was cooked (from plan history)
-    const lastCookedMap = {};
-    for (const entry of byRecent) {
-      for (const rid of entry.recipeIds) {
-        if (!lastCookedMap[rid]) lastCookedMap[rid] = entry.date;
+    // Build TWO maps: by recipe-id and by lower-cased title. The title
+    // fallback catches cases where a recipe was renamed, duplicated, or
+    // re-imported with a new id — the history entry references the old id
+    // but the visible recipe has a new id under the same title.
+    const lastCookedById = {};
+    const lastCookedByTitle = {};
+    function bumpTitle(title, dateStr) {
+      const key = (title || '').toLowerCase().trim();
+      if (!key) return;
+      if (!lastCookedByTitle[key] || dateStr > lastCookedByTitle[key]) {
+        lastCookedByTitle[key] = dateStr;
       }
     }
-
-    // Also check daily tracker entries for more recent "last eaten" dates
+    const recipeById = new Map(recipes.map(r => [r.id, r]));
+    for (const entry of byRecent) {
+      for (const rid of entry.recipeIds) {
+        if (!lastCookedById[rid] || entry.date > lastCookedById[rid]) {
+          lastCookedById[rid] = entry.date;
+        }
+        const r = recipeById.get(rid);
+        if (r?.title) bumpTitle(r.title, entry.date);
+      }
+    }
     for (const [dateStr, dayData] of Object.entries(dailyLog)) {
       for (const entry of (dayData.entries || [])) {
-        if (entry.type === 'recipe' && entry.recipeId) {
-          const existing = lastCookedMap[entry.recipeId];
+        if (entry.type !== 'recipe') continue;
+        if (entry.recipeId) {
+          const existing = lastCookedById[entry.recipeId];
           if (!existing || dateStr > existing) {
-            lastCookedMap[entry.recipeId] = dateStr;
+            lastCookedById[entry.recipeId] = dateStr;
           }
+          const r = recipeById.get(entry.recipeId);
+          if (r?.title) bumpTitle(r.title, dateStr);
         }
+        // recipeName is set when the entry was logged, even if the underlying
+        // recipe id later went stale — use it so renames/duplicates still hit.
+        if (entry.recipeName) bumpTitle(entry.recipeName, dateStr);
       }
+    }
+    function lookupLastCooked(recipe) {
+      const byId = lastCookedById[recipe.id];
+      const byTitle = lastCookedByTitle[(recipe.title || '').toLowerCase().trim()];
+      if (byId && byTitle) return byId > byTitle ? byId : byTitle;
+      return byId || byTitle || null;
     }
 
     // Build map: normalized key ingredient → most recent date it was eaten
@@ -1177,7 +1210,7 @@ export function RecipeList({
 
 
     const scored = candidates.map(recipe => {
-      const lastCooked = lastCookedMap[recipe.id];
+      const lastCooked = lookupLastCooked(recipe);
       const recipeDays = lastCooked ? daysSince(lastCooked) : 9999;
 
       // Sum days-since-last-eaten for each key ingredient this recipe has
@@ -1225,7 +1258,7 @@ export function RecipeList({
     const lunches = scored.filter(s => s.recipe.category === 'lunch-dinner').slice(0, 10);
     return { breakfasts, lunches };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [recipes, weeklyPlan, showCommon, showRare, showToTry, showRetired, checkedTypes, checkedCategories, checkedCuisines, checkedTags, checkedSources]);
+  }, [recipes, weeklyPlan, showCommon, showRare, showToTry, showRetired, checkedTypes, checkedCategories, checkedCuisines, checkedTags, checkedSources, historyTick]);
 
   return (
     <>

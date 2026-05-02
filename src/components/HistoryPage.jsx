@@ -21,6 +21,9 @@ function saveHistory(entries) {
   } catch {}
   const user = auth.currentUser;
   if (user) saveField(user.uid, 'planHistory', entries);
+  // Notify other views (Recipe List suggestions, etc.) that plan history
+  // has changed so their localStorage-backed memos can refresh.
+  try { window.dispatchEvent(new Event('firestore-sync')); } catch {}
 }
 
 function formatDate(dateStr) {
@@ -48,6 +51,7 @@ export function HistoryPage({ getRecipe, recipes, onClose }) {
     const result = importSheetHistory(recipes);
     setImportStatus(result);
     setEntries(loadHistory());
+    try { window.dispatchEvent(new Event('firestore-sync')); } catch {}
   }
 
   function persist(next) {

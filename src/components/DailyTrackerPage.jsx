@@ -137,6 +137,10 @@ function saveDailyLog(log, user) {
   try {
     localStorage.setItem(DAILY_LOG_KEY, JSON.stringify(log));
   } catch {}
+  // Notify other views (Recipe List suggestions, etc.) that the daily log
+  // has changed so their localStorage-backed memos can refresh and pick
+  // up the new "last eaten" date.
+  try { window.dispatchEvent(new Event('firestore-sync')); } catch {}
   if (user) {
     window.__dailyLogLocalEdit = true;
     // Save to a SEPARATE document (not the main user doc) to avoid 1MB limit
