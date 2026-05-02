@@ -226,3 +226,47 @@ export function exportToCSV() {
   a.click();
   URL.revokeObjectURL(url);
 }
+
+// Excel-friendly CSV export of the workout history. `rows` is a flat array
+// of one-entry-per-exercise objects shaped like:
+//   { date, workoutType, gym, group, exercise, notes, sets[], weight, perArm, time }
+// Excel opens .csv natively. UTF-8 BOM prepended so Excel detects encoding
+// correctly on Windows.
+export function exportWorkoutHistoryToCSV(rows) {
+  const headers = [
+    'Date', 'Workout Type', 'Location', 'Group', 'Exercise', 'Notes',
+    'Set 1', 'Set 2', 'Set 3', 'Set 4',
+    'Weight', 'Per Arm/Leg', 'Total Weight', 'Time',
+  ];
+  const lines = [headers.map(csvEscape).join(',')];
+  for (const r of rows) {
+    const sets = Array.isArray(r.sets) ? r.sets : [];
+    const wt = parseFloat(r.weight);
+    const total = !isNaN(wt) ? (r.perArm ? wt * 2 : wt) : '';
+    lines.push([
+      r.date,
+      r.workoutType || '',
+      r.gym || '',
+      r.group || '',
+      r.exercise || '',
+      r.notes || '',
+      sets[0] ?? '',
+      sets[1] ?? '',
+      sets[2] ?? '',
+      sets[3] ?? '',
+      r.weight ?? '',
+      r.perArm ? 'Yes' : 'No',
+      total,
+      r.time || '',
+    ].map(csvEscape).join(','));
+  }
+  const csv = '﻿' + lines.join('\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  const today = new Date().toISOString().slice(0, 10);
+  a.download = `workout-history-${today}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+}

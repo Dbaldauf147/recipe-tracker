@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { ComposedChart, Area, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
 import { saveField, loadWorkoutLogFromFirestore, saveWorkoutDraft, clearWorkoutDraft } from '../utils/firestoreSync';
+import { exportWorkoutHistoryToCSV } from '../utils/exportData';
 import { ExerciseLibrary } from './ExerciseLibrary';
 import { BodyHeatmap } from './BodyHeatmap';
 import styles from './WorkoutPage.module.css';
@@ -1144,6 +1145,32 @@ export function WorkoutPage({ onBack, user }) {
   }, [workouts, historyStartDate, historyEndDate, historyGym, historyGroup, historyExercise]);
 
   const hasActiveHistoryFilters = !!(historyGroup || historyStartDate || historyEndDate || historyGym || historyExercise);
+  function exportHistory() {
+    const rows = [];
+    for (const w of filteredHistory) {
+      for (const e of (w.entries || [])) {
+        if (historyGroup && e.group !== historyGroup) continue;
+        if (historyExercise && e.exercise !== historyExercise) continue;
+        rows.push({
+          date: w.date,
+          workoutType: w.workoutType || '',
+          gym: w.gym || '',
+          group: e.group || '',
+          exercise: e.exercise || '',
+          notes: e.notes || '',
+          sets: Array.isArray(e.sets) ? e.sets : [],
+          weight: e.weight,
+          perArm: !!e.perArm,
+          time: e.time || '',
+        });
+      }
+    }
+    if (rows.length === 0) {
+      window.alert('Nothing to export — adjust the filters or log a workout first.');
+      return;
+    }
+    exportWorkoutHistoryToCSV(rows);
+  }
   function clearHistoryFilters() {
     setHistoryGroup('');
     setHistoryStartDate('');
@@ -1617,6 +1644,11 @@ export function WorkoutPage({ onBack, user }) {
             {hasActiveHistoryFilters && (
               <button className={styles.clearBtn} onClick={clearHistoryFilters}>Clear</button>
             )}
+            <button
+              className={styles.clearBtn}
+              onClick={exportHistory}
+              title="Download a .csv file (opens in Excel) of the currently filtered history"
+            >Export</button>
             <span className={styles.historyCount}>{filteredHistory.length} workouts</span>
           </div>
           {filteredHistory.length === 0 ? (
