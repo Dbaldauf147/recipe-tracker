@@ -488,6 +488,69 @@ td.logPerCell.manuallyEdited {
   color: var(--color-text);
 }
 .historyRowDayStart td { border-top: 2px solid var(--color-border); }
+.historyRowSelected td { background: color-mix(in srgb, var(--color-accent) 10%, var(--color-surface)); }
+.logSelectCol { width: 28px; text-align: center !important; }
+.logSelectCell { text-align: center; }
+.logSelectCell input[type="checkbox"] { cursor: pointer; }
+
+.bulkBar {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.5rem 0.75rem;
+  margin-bottom: 0.5rem;
+  background: color-mix(in srgb, var(--color-accent) 8%, var(--color-surface));
+  border: 1px solid var(--color-accent);
+  border-radius: 6px;
+  font-size: 0.8rem;
+}
+.bulkCount {
+  font-weight: 700;
+  color: var(--color-accent);
+  margin-right: 0.25rem;
+}
+.bulkSelect, .bulkInput {
+  padding: 4px 6px;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: 0.78rem;
+  font-family: inherit;
+}
+.bulkInput { width: 90px; }
+.bulkApplyBtn, .bulkPerBtn, .bulkClearBtn {
+  padding: 4px 8px;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+}
+.bulkApplyBtn:hover, .bulkPerBtn:hover, .bulkClearBtn:hover {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+.bulkApplyBtn:disabled { opacity: 0.5; cursor: not-allowed; }
+.bulkDeleteBtn {
+  padding: 4px 8px;
+  border: 1px solid #d33;
+  border-radius: 4px;
+  background: var(--color-surface);
+  color: #d33;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+}
+.bulkDeleteBtn:hover { background: #d33; color: #fff; }
 /* Fixed column widths so the table fits the page width with no horizontal
    scroll. Total = 100%. */
 .historyTable col.colDate { width: 11%; }

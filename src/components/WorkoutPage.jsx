@@ -481,6 +481,9 @@ export function WorkoutPage({ onBack, user }) {
   const [historyEndDate, setHistoryEndDate] = useState('');
   const [historyGym, setHistoryGym] = useState('');
   const [historyExercise, setHistoryExercise] = useState('');
+  const [selectedRows, setSelectedRows] = useState(() => new Set());
+  const [bulkWeightInput, setBulkWeightInput] = useState('');
+  const [bulkNotesInput, setBulkNotesInput] = useState('');
   const [chartSlots, setChartSlots] = useState(() => {
     try {
       const saved = JSON.parse(localStorage.getItem('sunday-chart-slots') || 'null');
@@ -929,6 +932,77 @@ export function WorkoutPage({ onBack, user }) {
   function setHistoryGymForDate(date, newGym) {
     if (!newGym) return;
     commitWorkouts(workouts.map(w => w.date === date ? { ...w, gym: newGym } : w));
+  }
+
+  // ---- Bulk-edit helpers (History tab) ----------------------------------
+  function rowKey(date, idx) { return `${date}::${idx}`; }
+  function parseRowKey(k) {
+    const sep = k.indexOf('::');
+    return { date: k.slice(0, sep), idx: parseInt(k.slice(sep + 2), 10) };
+  }
+  function toggleRowSelected(date, idx) {
+    setSelectedRows(prev => {
+      const next = new Set(prev);
+      const k = rowKey(date, idx);
+      if (next.has(k)) next.delete(k); else next.add(k);
+      return next;
+    });
+  }
+  function clearSelectedRows() { setSelectedRows(new Set()); }
+  function setVisibleRowsSelected(visibleKeys, select) {
+    setSelectedRows(prev => {
+      const next = new Set(prev);
+      if (select) visibleKeys.forEach(k => next.add(k));
+      else visibleKeys.forEach(k => next.delete(k));
+      return next;
+    });
+  }
+  // Group selection by date so we touch each workout-day only once.
+  function selectionByDate() {
+    const byDate = new Map();
+    for (const k of selectedRows) {
+      const { date, idx } = parseRowKey(k);
+      if (!byDate.has(date)) byDate.set(date, new Set());
+      byDate.get(date).add(idx);
+    }
+    return byDate;
+  }
+  function bulkUpdateField(field, value) {
+    if (selectedRows.size === 0) return;
+    const byDate = selectionByDate();
+    const next = workouts.map(w => {
+      const idxSet = byDate.get(w.date);
+      if (!idxSet) return w;
+      const entries = w.entries.map((e, i) => {
+        if (!idxSet.has(i)) return e;
+        const updated = { ...e, [field]: value };
+        if (field === 'group') updated.exercise = '';
+        return enrichEntry(updated);
+      });
+      return { ...w, entries };
+    });
+    commitWorkouts(next);
+  }
+  function bulkSetGym(newGym) {
+    if (!newGym || selectedRows.size === 0) return;
+    const dates = new Set();
+    for (const k of selectedRows) dates.add(parseRowKey(k).date);
+    commitWorkouts(workouts.map(w => dates.has(w.date) ? { ...w, gym: newGym } : w));
+  }
+  function bulkDeleteSelected() {
+    if (selectedRows.size === 0) return;
+    const n = selectedRows.size;
+    if (!window.confirm(`Delete ${n} exercise${n === 1 ? '' : 's'}? This can't be undone.`)) return;
+    const byDate = selectionByDate();
+    const next = workouts
+      .map(w => {
+        const idxSet = byDate.get(w.date);
+        if (!idxSet) return w;
+        return { ...w, entries: w.entries.filter((_, i) => !idxSet.has(i)) };
+      })
+      .filter(w => w.entries.length > 0);
+    commitWorkouts(next);
+    clearSelectedRows();
   }
   function setHistoryDate(oldDate, newDate) {
     if (!newDate || newDate === oldDate) return;
@@ -1556,11 +1630,94 @@ export function WorkoutPage({ onBack, user }) {
                 flatRows.push({ w, e, originalIdx, isFirstOfDay: idx === 0, dayCount: visible.length });
               });
             }
+            const visibleKeys = flatRows.map(({ w, originalIdx }) => rowKey(w.date, originalIdx));
+            const visibleSelectedCount = visibleKeys.reduce((n, k) => n + (selectedRows.has(k) ? 1 : 0), 0);
+            const allVisibleSelected = visibleKeys.length > 0 && visibleSelectedCount === visibleKeys.length;
+            const someVisibleSelected = visibleSelectedCount > 0 && !allVisibleSelected;
             return (
               <div className={styles.logTableWrap}>
+                {selectedRows.size > 0 && (
+                  <div className={styles.bulkBar}>
+                    <span className={styles.bulkCount}>{selectedRows.size} selected</span>
+                    <select
+                      className={styles.bulkSelect}
+                      value=""
+                      onChange={ev => { if (ev.target.value) bulkUpdateField('group', ev.target.value); }}
+                    >
+                      <option value="">Set group…</option>
+                      {MUSCLE_GROUPS.map(g => <option key={g} value={g}>{g}</option>)}
+                    </select>
+                    <select
+                      className={styles.bulkSelect}
+                      value=""
+                      onChange={ev => { if (ev.target.value) bulkUpdateField('exercise', ev.target.value); }}
+                    >
+                      <option value="">Set exercise…</option>
+                      {Array.from(new Set(Object.values(EXERCISES_BY_GROUP).flat()))
+                        .sort((a, b) => a.localeCompare(b))
+                        .map(ex => <option key={ex} value={ex}>{ex}</option>)}
+                    </select>
+                    <select
+                      className={styles.bulkSelect}
+                      value=""
+                      onChange={ev => { if (ev.target.value) bulkSetGym(ev.target.value); }}
+                    >
+                      <option value="">Set location…</option>
+                      {gyms.map(g => <option key={g} value={g}>{g}</option>)}
+                    </select>
+                    <input
+                      type="number"
+                      className={styles.bulkInput}
+                      placeholder="Weight"
+                      value={bulkWeightInput}
+                      onChange={ev => setBulkWeightInput(ev.target.value)}
+                      onKeyDown={ev => {
+                        if (ev.key === 'Enter' && bulkWeightInput !== '') {
+                          bulkUpdateField('weight', bulkWeightInput);
+                          setBulkWeightInput('');
+                        }
+                      }}
+                    />
+                    <button
+                      className={styles.bulkApplyBtn}
+                      disabled={bulkWeightInput === ''}
+                      onClick={() => { bulkUpdateField('weight', bulkWeightInput); setBulkWeightInput(''); }}
+                    >Apply weight</button>
+                    <input
+                      type="text"
+                      className={styles.bulkInput}
+                      placeholder="Notes"
+                      value={bulkNotesInput}
+                      onChange={ev => setBulkNotesInput(ev.target.value)}
+                      onKeyDown={ev => {
+                        if (ev.key === 'Enter') {
+                          bulkUpdateField('notes', bulkNotesInput);
+                          setBulkNotesInput('');
+                        }
+                      }}
+                    />
+                    <button
+                      className={styles.bulkApplyBtn}
+                      onClick={() => { bulkUpdateField('notes', bulkNotesInput); setBulkNotesInput(''); }}
+                    >Apply notes</button>
+                    <button className={styles.bulkPerBtn} onClick={() => bulkUpdateField('perArm', true)} title="Mark as per arm/leg">Per arm/leg ✓</button>
+                    <button className={styles.bulkPerBtn} onClick={() => bulkUpdateField('perArm', false)} title="Unmark per arm/leg">Per arm/leg ✗</button>
+                    <button className={styles.bulkDeleteBtn} onClick={bulkDeleteSelected}>Delete</button>
+                    <button className={styles.bulkClearBtn} onClick={clearSelectedRows}>Clear</button>
+                  </div>
+                )}
                 <table className={styles.logTable}>
                   <thead>
                     <tr>
+                      <th className={styles.logSelectCol}>
+                        <input
+                          type="checkbox"
+                          aria-label="Select all visible"
+                          checked={allVisibleSelected}
+                          ref={el => { if (el) el.indeterminate = someVisibleSelected; }}
+                          onChange={() => setVisibleRowsSelected(visibleKeys, !allVisibleSelected)}
+                        />
+                      </th>
                       <th>Date</th>
                       <th className={styles.logGroupCol}>Group</th>
                       <th className={styles.logExerciseCol}>Exercise</th>
@@ -1584,8 +1741,21 @@ export function WorkoutPage({ onBack, user }) {
                       });
                       const wt = parseFloat(e.weight) || 0;
                       const total = e.perArm ? wt * 2 : wt;
+                      const rk = rowKey(w.date, originalIdx);
+                      const isSelected = selectedRows.has(rk);
                       return (
-                        <tr key={`${w.date}-${originalIdx}`} className={isFirstOfDay ? styles.historyRowDayStart : undefined}>
+                        <tr
+                          key={`${w.date}-${originalIdx}`}
+                          className={`${isFirstOfDay ? styles.historyRowDayStart : ''} ${isSelected ? styles.historyRowSelected : ''}`.trim() || undefined}
+                        >
+                          <td className={styles.logSelectCell}>
+                            <input
+                              type="checkbox"
+                              aria-label="Select row"
+                              checked={isSelected}
+                              onChange={() => toggleRowSelected(w.date, originalIdx)}
+                            />
+                          </td>
                           {isFirstOfDay && (
                             <td rowSpan={dayCount} className={styles.historyDateCell}>
                               <input
