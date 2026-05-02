@@ -227,6 +227,59 @@ export function exportToCSV() {
   URL.revokeObjectURL(url);
 }
 
+// Parse a workout-history CSV (the format produced by exportWorkoutHistoryToCSV)
+// back into the workouts[] shape used by WorkoutPage. Each row in the CSV
+// becomes one entry; rows sharing a date are grouped into one workout-day,
+// taking Workout Type and Location from the first row of that date.
+// Returns a workouts[] array sorted newest-date-first. Throws on malformed
+// headers (missing Date column).
+export function parseWorkoutHistoryCSV(text) {
+  const stripped = (text || '').replace(/^﻿/, '');
+  const lines = stripped.split(/\r?\n/).filter(l => l.length > 0);
+  if (lines.length === 0) return [];
+  const headers = parseCSVLine(lines[0]).map(h => h.trim().toLowerCase());
+  const idx = {};
+  headers.forEach((h, i) => { idx[h] = i; });
+  if (idx['date'] == null) {
+    throw new Error('CSV is missing a "Date" column.');
+  }
+  function get(row, name) {
+    const i = idx[name.toLowerCase()];
+    return i != null ? (row[i] ?? '') : '';
+  }
+  const byDate = new Map();
+  for (let i = 1; i < lines.length; i++) {
+    const cells = parseCSVLine(lines[i]);
+    const date = String(get(cells, 'Date')).trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) continue;
+    const entry = {
+      group: String(get(cells, 'Group')).trim(),
+      exercise: String(get(cells, 'Exercise')).trim(),
+      notes: String(get(cells, 'Notes')).trim(),
+      sets: [
+        String(get(cells, 'Set 1')).trim(),
+        String(get(cells, 'Set 2')).trim(),
+        String(get(cells, 'Set 3')).trim(),
+        String(get(cells, 'Set 4')).trim(),
+      ],
+      weight: String(get(cells, 'Weight')).trim(),
+      perArm: /^(yes|true|y|1)$/i.test(String(get(cells, 'Per Arm/Leg')).trim()),
+      time: String(get(cells, 'Time')).trim() || '2:00',
+    };
+    if (!byDate.has(date)) {
+      byDate.set(date, {
+        date,
+        gym: String(get(cells, 'Location')).trim(),
+        workoutType: String(get(cells, 'Workout Type')).trim(),
+        entries: [],
+        savedAt: new Date().toISOString(),
+      });
+    }
+    byDate.get(date).entries.push(entry);
+  }
+  return [...byDate.values()].sort((a, b) => b.date.localeCompare(a.date));
+}
+
 // Excel-friendly CSV export of the workout history. `rows` is a flat array
 // of one-entry-per-exercise objects shaped like:
 //   { date, workoutType, gym, group, exercise, notes, sets[], weight, perArm, time }

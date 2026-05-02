@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { ComposedChart, Area, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
 import { saveField, loadWorkoutLogFromFirestore, saveWorkoutDraft, clearWorkoutDraft } from '../utils/firestoreSync';
-import { exportWorkoutHistoryToCSV } from '../utils/exportData';
+import { exportWorkoutHistoryToCSV, parseWorkoutHistoryCSV } from '../utils/exportData';
 import { ExerciseLibrary } from './ExerciseLibrary';
 import { BodyHeatmap } from './BodyHeatmap';
 import styles from './WorkoutPage.module.css';
@@ -1145,6 +1145,42 @@ export function WorkoutPage({ onBack, user }) {
   }, [workouts, historyStartDate, historyEndDate, historyGym, historyGroup, historyExercise]);
 
   const hasActiveHistoryFilters = !!(historyGroup || historyStartDate || historyEndDate || historyGym || historyExercise);
+  const historyImportInputRef = useRef(null);
+  function handleImportHistoryClick() {
+    historyImportInputRef.current?.click();
+  }
+  async function handleImportHistoryFile(ev) {
+    const file = ev.target.files?.[0];
+    ev.target.value = ''; // allow re-importing the same file
+    if (!file) return;
+    let text;
+    try {
+      text = await file.text();
+    } catch (err) {
+      window.alert('Could not read the file: ' + (err?.message || err));
+      return;
+    }
+    let parsed;
+    try {
+      parsed = parseWorkoutHistoryCSV(text);
+    } catch (err) {
+      window.alert('Could not parse the CSV: ' + (err?.message || err));
+      return;
+    }
+    if (parsed.length === 0) {
+      window.alert('No workouts found in that file. Make sure the CSV has a Date column with rows below.');
+      return;
+    }
+    const totalEntries = parsed.reduce((n, w) => n + w.entries.length, 0);
+    const existingDays = workouts.length;
+    if (!window.confirm(
+      `This will REPLACE all ${existingDays} existing workout day${existingDays === 1 ? '' : 's'} with ${parsed.length} day${parsed.length === 1 ? '' : 's'} (${totalEntries} exercise entries) from the CSV. This can't be undone. Continue?`
+    )) return;
+    const enriched = parsed.map(w => ({ ...w, entries: w.entries.map(enrichEntry) }));
+    commitWorkouts(enriched);
+    clearSelectedRows();
+    window.alert(`Replaced workout history with ${parsed.length} day${parsed.length === 1 ? '' : 's'} from the CSV.`);
+  }
   function exportHistory() {
     const rows = [];
     for (const w of filteredHistory) {
@@ -1649,6 +1685,18 @@ export function WorkoutPage({ onBack, user }) {
               onClick={exportHistory}
               title="Download a .csv file (opens in Excel) of the currently filtered history"
             >Export</button>
+            <button
+              className={styles.clearBtn}
+              onClick={handleImportHistoryClick}
+              title="Replace ALL workout history with the contents of a CSV file (same format as Export)"
+            >Import</button>
+            <input
+              ref={historyImportInputRef}
+              type="file"
+              accept=".csv,text/csv"
+              style={{ display: 'none' }}
+              onChange={handleImportHistoryFile}
+            />
             <span className={styles.historyCount}>{filteredHistory.length} workouts</span>
           </div>
           {filteredHistory.length === 0 ? (
