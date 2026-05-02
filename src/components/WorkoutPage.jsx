@@ -926,6 +926,10 @@ export function WorkoutPage({ onBack, user }) {
   function setHistoryWorkoutType(date, type) {
     commitWorkouts(workouts.map(w => w.date === date ? { ...w, workoutType: type } : w));
   }
+  function setHistoryGymForDate(date, newGym) {
+    if (!newGym) return;
+    commitWorkouts(workouts.map(w => w.date === date ? { ...w, gym: newGym } : w));
+  }
   function setHistoryDate(oldDate, newDate) {
     if (!newDate || newDate === oldDate) return;
     if (!/^\d{4}-\d{2}-\d{2}$/.test(newDate)) return;
@@ -1592,7 +1596,17 @@ export function WorkoutPage({ onBack, user }) {
                                 title="Edit date"
                               />
                               <div className={styles.historyDateMain}>{formatDate(w.date)}</div>
-                              <div className={styles.historyDateSub}>{w.gym}</div>
+                              <select
+                                className={styles.historyGymSelect}
+                                value={w.gym || ''}
+                                onChange={ev => setHistoryGymForDate(w.date, ev.target.value)}
+                                title="Edit location"
+                              >
+                                {w.gym && !gyms.includes(w.gym) && (
+                                  <option value={w.gym}>{w.gym}</option>
+                                )}
+                                {gyms.map(g => <option key={g} value={g}>{g}</option>)}
+                              </select>
                               <select
                                 className={styles.historyTypeSelect}
                                 value={w.workoutType || ''}

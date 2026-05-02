@@ -530,6 +530,20 @@ td.logPerCell.manuallyEdited {
   cursor: pointer;
 }
 .historyTypeSelect:focus { outline: none; border-color: var(--color-accent); }
+.historyGymSelect {
+  margin-top: 4px;
+  display: block;
+  width: 100%;
+  padding: 1px 4px;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+  font-size: 0.7rem;
+  font-family: inherit;
+  cursor: pointer;
+}
+.historyGymSelect:focus { outline: none; border-color: var(--color-accent); color: var(--color-text); }
 .historyDeleteDayBtn {
   margin-top: 6px;
   display: inline-block;
