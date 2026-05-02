@@ -1135,7 +1135,7 @@ export function WorkoutPage({ onBack, user }) {
     return workouts.filter(w => {
       if (historyStartDate && w.date < historyStartDate) return false;
       if (historyEndDate && w.date > historyEndDate) return false;
-      if (historyGym && w.gym !== historyGym) return false;
+      if (historyGym && !(w.gym || '').toLowerCase().includes(historyGym.toLowerCase())) return false;
       const entries = w.entries || [];
       if (historyGroup && !entries.some(e => e.group === historyGroup)) return false;
       if (historyExercise && !entries.some(e => e.exercise === historyExercise)) return false;
@@ -1594,10 +1594,18 @@ export function WorkoutPage({ onBack, user }) {
               onChange={e => setHistoryEndDate(e.target.value)}
               aria-label="End date"
             />
-            <select className={styles.groupSelect} value={historyGym} onChange={e => setHistoryGym(e.target.value)}>
-              <option value="">All Locations</option>
-              {historyGyms.map(g => <option key={g} value={g}>{g}</option>)}
-            </select>
+            <input
+              type="text"
+              list="historyGymOptions"
+              className={styles.groupSelect}
+              placeholder="All Locations"
+              value={historyGym}
+              onChange={e => setHistoryGym(e.target.value)}
+              aria-label="Filter by location"
+            />
+            <datalist id="historyGymOptions">
+              {historyGyms.map(g => <option key={g} value={g} />)}
+            </datalist>
             <select className={styles.groupSelect} value={historyGroup} onChange={e => setHistoryGroup(e.target.value)}>
               <option value="">All Groups</option>
               {MUSCLE_GROUPS.map(g => <option key={g} value={g}>{g}</option>)}
