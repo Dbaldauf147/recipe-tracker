@@ -2315,7 +2315,6 @@ function AddRecipeAdjust({ recipes, getRecipe, onAdd, onBack, weeklyPlan }) {
           </div>
         );
       })()}
-      )}
 
       <div className={styles.formRow} style={{ marginTop: '0.75rem' }}>
         <button className={styles.addBtn} onClick={handleAdd} disabled={loading || !recipeId}>{loading ? 'Adding...' : 'Add Meal'}</button>
