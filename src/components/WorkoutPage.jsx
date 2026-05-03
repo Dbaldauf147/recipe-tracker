@@ -240,53 +240,127 @@ function splitCsvLineQuoted(line, delim) {
  * shape, plus a per-row cleaning report so the user can see exactly which
  * cells we sanitized and which rows we had to skip.
  */
-function parseWorkoutCsv(text) {
+const WORKOUT_TARGET_OPTIONS = [
+  { value: 'ignore', label: 'Ignore' },
+  { value: 'group', label: 'Group' },
+  { value: 'exercise', label: 'Exercises' },
+  { value: 'date', label: 'Date' },
+  { value: 'gym', label: 'Gym' },
+  { value: 'notes', label: 'Notes' },
+  { value: 'rest', label: 'Rest Time' },
+  { value: 'set1', label: 'Set 1' },
+  { value: 'set2', label: 'Set 2' },
+  { value: 'set3', label: 'Set 3' },
+  { value: 'set4', label: 'Set 4' },
+  { value: 'perSide', label: 'Per Arm/Leg' },
+  { value: 'totalWt', label: 'Total Weight' },
+];
+
+const WORKOUT_TARGET_BY_DISPLAY = {
+  Group: 'group',
+  Exercises: 'exercise',
+  Date: 'date',
+  Gym: 'gym',
+  Notes: 'notes',
+  'Rest Time': 'rest',
+  'Set 1': 'set1',
+  'Set 2': 'set2',
+  'Set 3': 'set3',
+  'Set 4': 'set4',
+  'Per Arm/Leg': 'perSide',
+  'Total Weight': 'totalWt',
+};
+
+function getCsvHeadersAndSample(text) {
+  if (!text || !text.trim()) return { headers: [], sampleRow: [], delim: ',' };
+  const delim = detectDelim(text);
+  const cleaned = text.replace(/^﻿/, '');
+  const lines = cleaned.split(/\r?\n/).filter(l => l.trim().length > 0);
+  if (lines.length === 0) return { headers: [], sampleRow: [], delim };
+  const headers = splitCsvLineQuoted(lines[0], delim);
+  const sampleRow = lines.length > 1 ? splitCsvLineQuoted(lines[1], delim) : [];
+  return { headers, sampleRow, delim };
+}
+
+function deriveColMapOverride(parsedColMap, ncols) {
+  const result = {};
+  for (let i = 0; i < ncols; i++) result[i] = 'ignore';
+  for (const [display, idx] of Object.entries(parsedColMap || {})) {
+    if (idx >= 0 && WORKOUT_TARGET_BY_DISPLAY[display]) {
+      result[idx] = WORKOUT_TARGET_BY_DISPLAY[display];
+    }
+  }
+  return result;
+}
+
+function parseWorkoutCsv(text, overrideMap = null) {
   const delim = detectDelim(text);
   // Strip BOM (Google Sheets CSV export sometimes prepends one).
   const cleaned = text.replace(/^﻿/, '');
   const lines = cleaned.split(/\r?\n/).filter(l => l.trim().length > 0);
-  if (lines.length === 0) return { workouts: [], skippedRows: [], cleanings: [], headers: [], colMap: {}, sampleRow: [] };
+  if (lines.length === 0) return { workouts: [], skippedRows: [], cleanings: [], headers: [], colMap: {}, sampleRow: [], delim: delim };
   const headers = splitCsvLineQuoted(lines[0], delim);
 
-  const colGroup    = findCol(headers, ['group']);
-  const colExercise = findCol(headers, ['exercises', 'exercise']);
-  const colDate     = findCol(headers, ['date']);
-  const colGym      = findCol(headers, ['gym', 'location']);
-  const colNotes    = findCol(headers, ['notes', 'note']);
-  let colRest       = findCol(headers, ['rest time', 'rest']);
-  let colSet1       = findCol(headers, ['set 1', 'set1', 's1', 'reps 1', 'set1 reps']);
-  let colSet2       = findCol(headers, ['set 2', 'set2', 's2', 'reps 2', 'set2 reps']);
-  let colSet3       = findCol(headers, ['set 3', 'set3', 's3', 'reps 3', 'set3 reps']);
-  let colSet4       = findCol(headers, ['set 4', 'set4', 's4', 'reps 4', 'set4 reps']);
-  const colPerSide  = findCol(headers, ['per arm/leg', 'per arm', 'per side', 'weight per side']);
-  const colTotalWt  = findCol(headers, ['total weight', 'weight']);
+  let colGroup, colExercise, colDate, colGym, colNotes, colRest, colSet1, colSet2, colSet3, colSet4, colPerSide, colTotalWt;
 
-  if (colDate < 0 || colExercise < 0) {
-    throw new Error('CSV must have Date and Exercises columns at minimum');
-  }
+  if (overrideMap && Object.keys(overrideMap).length > 0) {
+    colGroup = colExercise = colDate = colGym = colNotes = colRest = -1;
+    colSet1 = colSet2 = colSet3 = colSet4 = colPerSide = colTotalWt = -1;
+    for (const [idxStr, target] of Object.entries(overrideMap)) {
+      const idx = Number(idxStr);
+      if (target === 'group') colGroup = idx;
+      else if (target === 'exercise') colExercise = idx;
+      else if (target === 'date') colDate = idx;
+      else if (target === 'gym') colGym = idx;
+      else if (target === 'notes') colNotes = idx;
+      else if (target === 'rest') colRest = idx;
+      else if (target === 'set1') colSet1 = idx;
+      else if (target === 'set2') colSet2 = idx;
+      else if (target === 'set3') colSet3 = idx;
+      else if (target === 'set4') colSet4 = idx;
+      else if (target === 'perSide') colPerSide = idx;
+      else if (target === 'totalWt') colTotalWt = idx;
+    }
+  } else {
+    colGroup    = findCol(headers, ['group']);
+    colExercise = findCol(headers, ['exercises', 'exercise']);
+    colDate     = findCol(headers, ['date']);
+    colGym      = findCol(headers, ['gym', 'location']);
+    colNotes    = findCol(headers, ['notes', 'note']);
+    colRest     = findCol(headers, ['rest time', 'rest']);
+    colSet1     = findCol(headers, ['set 1', 'set1', 's1', 'reps 1', 'set1 reps']);
+    colSet2     = findCol(headers, ['set 2', 'set2', 's2', 'reps 2', 'set2 reps']);
+    colSet3     = findCol(headers, ['set 3', 'set3', 's3', 'reps 3', 'set3 reps']);
+    colSet4     = findCol(headers, ['set 4', 'set4', 's4', 'reps 4', 'set4 reps']);
+    colPerSide  = findCol(headers, ['per arm/leg', 'per arm', 'per side', 'weight per side']);
+    colTotalWt  = findCol(headers, ['total weight', 'weight']);
 
-  // Positional fallback: if Set 1–4 weren't matched by name but the row has
-  // a known anchor on each side (Notes/Date on the left, Per Arm/Leg or
-  // Total Weight on the right), infer the missing columns by position.
-  if (colSet1 < 0 || colSet2 < 0 || colSet3 < 0 || colSet4 < 0) {
-    const leftAnchor = colNotes >= 0 ? colNotes : (colGym >= 0 ? colGym : colDate);
-    const rightAnchor = colPerSide >= 0 ? colPerSide : (colTotalWt >= 0 ? colTotalWt : -1);
-    if (leftAnchor >= 0 && rightAnchor > leftAnchor) {
-      const gap = rightAnchor - leftAnchor - 1;
-      // Common shapes: 5 cells = Rest Time + Set 1-4, 4 cells = Set 1-4 only.
-      if (gap === 5) {
-        if (colRest < 0) colRest = leftAnchor + 1;
-        if (colSet1 < 0) colSet1 = leftAnchor + 2;
-        if (colSet2 < 0) colSet2 = leftAnchor + 3;
-        if (colSet3 < 0) colSet3 = leftAnchor + 4;
-        if (colSet4 < 0) colSet4 = leftAnchor + 5;
-      } else if (gap === 4) {
-        if (colSet1 < 0) colSet1 = leftAnchor + 1;
-        if (colSet2 < 0) colSet2 = leftAnchor + 2;
-        if (colSet3 < 0) colSet3 = leftAnchor + 3;
-        if (colSet4 < 0) colSet4 = leftAnchor + 4;
+    // Positional fallback only on auto-detect: if Set 1–4 weren't matched by
+    // name but the row has a known anchor on each side (Notes/Date on the
+    // left, Per Arm/Leg or Total Weight on the right), infer by position.
+    if (colSet1 < 0 || colSet2 < 0 || colSet3 < 0 || colSet4 < 0) {
+      const leftAnchor = colNotes >= 0 ? colNotes : (colGym >= 0 ? colGym : colDate);
+      const rightAnchor = colPerSide >= 0 ? colPerSide : (colTotalWt >= 0 ? colTotalWt : -1);
+      if (leftAnchor >= 0 && rightAnchor > leftAnchor) {
+        const gap = rightAnchor - leftAnchor - 1;
+        if (gap === 5) {
+          if (colRest < 0) colRest = leftAnchor + 1;
+          if (colSet1 < 0) colSet1 = leftAnchor + 2;
+          if (colSet2 < 0) colSet2 = leftAnchor + 3;
+          if (colSet3 < 0) colSet3 = leftAnchor + 4;
+          if (colSet4 < 0) colSet4 = leftAnchor + 5;
+        } else if (gap === 4) {
+          if (colSet1 < 0) colSet1 = leftAnchor + 1;
+          if (colSet2 < 0) colSet2 = leftAnchor + 2;
+          if (colSet3 < 0) colSet3 = leftAnchor + 3;
+          if (colSet4 < 0) colSet4 = leftAnchor + 4;
+        }
       }
     }
+  }
+
+  if (colDate < 0 || colExercise < 0) {
+    throw new Error('CSV must have Date and Exercises columns mapped (use the column-mapping panel below).');
   }
 
   // Helper that records cleaned-cell details for the report.
@@ -509,6 +583,7 @@ export function WorkoutPage({ onBack, user }) {
   const [importText, setImportText] = useState('');
   const [importPreview, setImportPreview] = useState(null);
   const [importError, setImportError] = useState('');
+  const [userColMap, setUserColMap] = useState(null);
   const [logImageProcessing, setLogImageProcessing] = useState(false);
   const [logImageError, setLogImageError] = useState('');
   const [logImageInfo, setLogImageInfo] = useState('');
@@ -610,14 +685,60 @@ export function WorkoutPage({ onBack, user }) {
   function handleParseImport() {
     setImportError('');
     try {
-      const result = parseWorkoutCsv(importText);
+      const result = parseWorkoutCsv(importText, userColMap);
       if (result.workouts.length === 0) {
-        setImportError('No valid rows found. Check that the CSV has Date and Exercises columns.');
+        setImportError('No valid rows found. Make sure Date and Exercises are mapped to columns with data.');
+        // Even on no rows, keep headers visible so user can fix mapping.
+        if (!userColMap) {
+          const { headers } = getCsvHeadersAndSample(importText);
+          if (headers.length > 0) {
+            setUserColMap(deriveColMapOverride(result.colMap, headers.length));
+          }
+        }
+        setImportPreview(result.headers && result.headers.length > 0 ? result : null);
         return;
+      }
+      setImportPreview(result);
+      if (!userColMap) {
+        setUserColMap(deriveColMapOverride(result.colMap, result.headers.length));
+      }
+    } catch (err) {
+      setImportError(err.message || 'Parse failed');
+      // Try to extract headers anyway so the mapping panel can render.
+      const { headers, sampleRow } = getCsvHeadersAndSample(importText);
+      if (headers.length > 0) {
+        setImportPreview({ workouts: [], skippedRows: [], cleanings: [], headers, colMap: {}, sampleRow });
+        if (!userColMap) {
+          const blank = {};
+          for (let i = 0; i < headers.length; i++) blank[i] = 'ignore';
+          setUserColMap(blank);
+        }
+      }
+    }
+  }
+
+  function changeColumnMapping(idx, target) {
+    const next = { ...(userColMap || {}) };
+    // If target is a non-ignore value, clear any other column already mapped
+    // to it (each target except 'ignore' should have at most one source).
+    if (target !== 'ignore') {
+      for (const [k, v] of Object.entries(next)) {
+        if (v === target && Number(k) !== idx) next[k] = 'ignore';
+      }
+    }
+    next[idx] = target;
+    setUserColMap(next);
+    setImportError('');
+    try {
+      const result = parseWorkoutCsv(importText, next);
+      if (result.workouts.length === 0) {
+        setImportError('No valid rows with current mapping. Check that Date and Exercises point to columns with data.');
       }
       setImportPreview(result);
     } catch (err) {
       setImportError(err.message || 'Parse failed');
+      const { headers, sampleRow } = getCsvHeadersAndSample(importText);
+      setImportPreview({ workouts: [], skippedRows: [], cleanings: [], headers, colMap: {}, sampleRow });
     }
   }
 
@@ -635,6 +756,7 @@ export function WorkoutPage({ onBack, user }) {
     setImportText('');
     setImportPreview(null);
     setImportError('');
+    setUserColMap(null);
     alert(`Imported ${importPreview.workouts.length} workout day${importPreview.workouts.length === 1 ? '' : 's'}.`);
   }
 
@@ -2278,12 +2400,24 @@ export function WorkoutPage({ onBack, user }) {
                       setImportText(text);
                       setImportPreview(null);
                       setImportError('');
-                      // Auto-parse so user sees preview immediately.
+                      setUserColMap(null);
+                      // Auto-parse so user sees preview + mapping immediately.
                       try {
                         const result = parseWorkoutCsv(text);
-                        if (result.workouts.length > 0) setImportPreview(result);
+                        const ncols = (result.headers || []).length;
+                        if (ncols > 0) {
+                          setImportPreview(result);
+                          setUserColMap(deriveColMapOverride(result.colMap, ncols));
+                        }
                       } catch (err) {
                         setImportError(err.message || 'Parse failed');
+                        const { headers, sampleRow } = getCsvHeadersAndSample(text);
+                        if (headers.length > 0) {
+                          setImportPreview({ workouts: [], skippedRows: [], cleanings: [], headers, colMap: {}, sampleRow });
+                          const blank = {};
+                          for (let i = 0; i < headers.length; i++) blank[i] = 'ignore';
+                          setUserColMap(blank);
+                        }
                       }
                     };
                     reader.onerror = () => setImportError('Could not read the file');
@@ -2305,7 +2439,12 @@ export function WorkoutPage({ onBack, user }) {
               }}
               placeholder="Or paste your CSV/TSV content here..."
               value={importText}
-              onChange={e => { setImportText(e.target.value); setImportPreview(null); setImportError(''); }}
+              onChange={e => {
+                setImportText(e.target.value);
+                setImportPreview(null);
+                setImportError('');
+                setUserColMap(null);
+              }}
             />
             {importError && (
               <div style={{ background: '#FEE2E2', color: '#991B1B', padding: '0.5rem 0.75rem', borderRadius: 6, marginTop: '0.5rem', fontSize: '0.82rem' }}>
@@ -2325,13 +2464,88 @@ export function WorkoutPage({ onBack, user }) {
                 <button
                   className={styles.saveBtn}
                   onClick={handleConfirmImport}
-                  style={{ flex: 1, background: '#16a34a' }}
+                  disabled={importPreview.workouts.length === 0}
+                  style={{ flex: 1, background: importPreview.workouts.length === 0 ? '#9ca3af' : '#16a34a' }}
                 >
                   Import {importPreview.workouts.length} workout{importPreview.workouts.length === 1 ? '' : 's'}
                 </button>
               )}
             </div>
-            {importPreview && (() => {
+            {importPreview && userColMap && importPreview.headers && importPreview.headers.length > 0 && (
+              <div style={{
+                marginTop: '1rem',
+                padding: '0.75rem 0.85rem',
+                border: '1px solid var(--color-border)',
+                borderRadius: 8,
+                background: 'var(--color-surface-alt)',
+              }}>
+                <div style={{
+                  fontSize: '0.72rem',
+                  fontWeight: 700,
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.04em',
+                  color: 'var(--color-text-muted)',
+                  marginBottom: '0.5rem',
+                }}>
+                  Column mapping
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                  {importPreview.headers.map((h, i) => {
+                    const sample = (importPreview.sampleRow || [])[i] || '';
+                    return (
+                      <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                        <span style={{
+                          fontSize: '0.72rem',
+                          fontWeight: 700,
+                          color: 'var(--color-text-muted)',
+                          background: 'var(--color-surface)',
+                          padding: '0.2rem 0.45rem',
+                          borderRadius: 6,
+                          border: '1px solid var(--color-border)',
+                          flexShrink: 0,
+                          minWidth: 38,
+                          textAlign: 'center',
+                        }}>
+                          {i + 1}
+                        </span>
+                        <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
+                          <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--color-text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                            {h || <em style={{ color: 'var(--color-text-muted)' }}>(no header)</em>}
+                          </span>
+                          {sample && (
+                            <span style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={sample}>
+                              e.g. {sample}
+                            </span>
+                          )}
+                        </div>
+                        <select
+                          value={userColMap[i] || 'ignore'}
+                          onChange={e => changeColumnMapping(i, e.target.value)}
+                          style={{
+                            padding: '0.35rem 0.5rem',
+                            border: '1px solid var(--color-border)',
+                            borderRadius: 6,
+                            fontSize: '0.85rem',
+                            background: 'var(--color-surface)',
+                            color: 'var(--color-text)',
+                            cursor: 'pointer',
+                            minWidth: 130,
+                          }}
+                        >
+                          {WORKOUT_TARGET_OPTIONS.map(opt => (
+                            <option key={opt.value} value={opt.value}>{opt.label}</option>
+                          ))}
+                        </select>
+                      </div>
+                    );
+                  })}
+                </div>
+                <div style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', marginTop: '0.5rem', lineHeight: 1.4 }}>
+                  Date and Exercises are required. Changing a mapping re-parses the preview below.
+                </div>
+              </div>
+            )}
+            {importPreview && importPreview.workouts.length > 0 && (() => {
               const totalExercises = importPreview.workouts.reduce((s, w) => s + w.entries.length, 0);
               const cleanedRowKeys = new Set(importPreview.cleanings.map(c => `${c.date}|${c.exercise}|${c.lineNum}`));
               return (
