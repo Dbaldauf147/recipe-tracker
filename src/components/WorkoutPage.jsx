@@ -2067,7 +2067,7 @@ export function WorkoutPage({ onBack, user }) {
                                 title="Tag this workout's type"
                               >
                                 <option value="">No type</option>
-                                {WORKOUT_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                                {workoutTypes.map(t => <option key={t} value={t}>{t}</option>)}
                               </select>
                               <button
                                 className={styles.historyDeleteDayBtn}
