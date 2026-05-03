@@ -514,7 +514,7 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
       ...(showRotateHealthy ? [{ label: 'Healthy Foods', action: 'key-ingredients' }] : []),
     ] }] : []),
     { label: 'Shopping List', action: 'shopping', icon: 'shopping_cart' },
-    ...(user?.email === 'baldaufdan@gmail.com' ? [{ label: 'Workout', action: 'workout', icon: 'fitness_center' }] : []),
+    ...((user?.email === 'baldaufdan@gmail.com' || localStorage.getItem('sunday-workout-enabled') === 'true') ? [{ label: 'Workout', action: 'workout', icon: 'fitness_center' }] : []),
   ];
 
   function handleNavClick(item) {

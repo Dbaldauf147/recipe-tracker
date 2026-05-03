@@ -511,6 +511,14 @@ export function hydrateLocalStorage(userData, uid) {
     localStorage.setItem('sunday-exercise-library', JSON.stringify(userData.exerciseLibrary));
   }
 
+  // Workout tab gating: anyone with this flag set on their user doc sees
+  // the Workout nav entry. baldaufdan@gmail.com always sees it.
+  if (userData.workoutEnabled) {
+    localStorage.setItem('sunday-workout-enabled', 'true');
+  } else {
+    localStorage.removeItem('sunday-workout-enabled');
+  }
+
   if (Array.isArray(userData.gyms)) {
     localStorage.setItem('sunday-workout-gyms', JSON.stringify(userData.gyms));
   }

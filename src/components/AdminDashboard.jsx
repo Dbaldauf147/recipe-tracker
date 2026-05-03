@@ -272,9 +272,12 @@ export function AdminDashboard({ onClose }) {
         }
       }
 
-      await saveField(target.uid, 'exerciseLibrary', myLibrary);
-      setUsers(prev => prev.map(u => u.uid === target.uid ? { ...u, exerciseLibrary: myLibrary } : u));
-      setLibCopyMsg(`✓ Copied ${myLibrary.length} exercise${myLibrary.length === 1 ? '' : 's'} to ${targetName}.`);
+      await Promise.all([
+        saveField(target.uid, 'exerciseLibrary', myLibrary),
+        saveField(target.uid, 'workoutEnabled', true),
+      ]);
+      setUsers(prev => prev.map(u => u.uid === target.uid ? { ...u, exerciseLibrary: myLibrary, workoutEnabled: true } : u));
+      setLibCopyMsg(`✓ Copied ${myLibrary.length} exercise${myLibrary.length === 1 ? '' : 's'} to ${targetName} and enabled their Workout tab.`);
       setLibCopyEmail('');
     } catch (err) {
       setLibCopyMsg(`✗ ${err.message || 'Failed to copy'}`);
@@ -549,7 +552,9 @@ export function AdminDashboard({ onClose }) {
       <div className={styles.sourceSection}>
         <h3 className={styles.sourceHeading}>Copy Workout Library to User</h3>
         <p style={{ fontSize: '0.82rem', color: 'var(--color-text-muted)', marginBottom: '0.75rem' }}>
-          Replaces the target user&apos;s <code>exerciseLibrary</code> with a copy of yours. Their workout log is not touched.
+          Replaces the target user&apos;s <code>exerciseLibrary</code> with a copy of yours and enables their Workout tab
+          (<code>workoutEnabled: true</code>). Their workout log is not touched. They&apos;ll need to refresh / sign back in
+          to see the tab.
         </p>
         <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap', marginBottom: '0.5rem' }}>
           <input
