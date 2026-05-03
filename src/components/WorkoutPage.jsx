@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { ComposedChart, Area, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
 import { saveField, loadWorkoutLogFromFirestore, saveWorkoutDraft, clearWorkoutDraft } from '../utils/firestoreSync';
-import { exportWorkoutHistoryToCSV, parseWorkoutHistoryCSV } from '../utils/exportData';
+import { exportWorkoutHistoryToCSV } from '../utils/exportData';
 import { ExerciseLibrary } from './ExerciseLibrary';
 import { BodyHeatmap } from './BodyHeatmap';
 import styles from './WorkoutPage.module.css';
@@ -254,6 +254,7 @@ const WORKOUT_TARGET_OPTIONS = [
   { value: 'set4', label: 'Set 4' },
   { value: 'perSide', label: 'Per Arm/Leg' },
   { value: 'totalWt', label: 'Total Weight' },
+  { value: 'workoutType', label: 'Workout Type' },
 ];
 
 const WORKOUT_TARGET_BY_DISPLAY = {
@@ -269,6 +270,7 @@ const WORKOUT_TARGET_BY_DISPLAY = {
   'Set 4': 'set4',
   'Per Arm/Leg': 'perSide',
   'Total Weight': 'totalWt',
+  'Workout Type': 'workoutType',
 };
 
 function getCsvHeadersAndSample(text) {
@@ -301,11 +303,11 @@ function parseWorkoutCsv(text, overrideMap = null) {
   if (lines.length === 0) return { workouts: [], skippedRows: [], cleanings: [], headers: [], colMap: {}, sampleRow: [], delim: delim };
   const headers = splitCsvLineQuoted(lines[0], delim);
 
-  let colGroup, colExercise, colDate, colGym, colNotes, colRest, colSet1, colSet2, colSet3, colSet4, colPerSide, colTotalWt;
+  let colGroup, colExercise, colDate, colGym, colNotes, colRest, colSet1, colSet2, colSet3, colSet4, colPerSide, colTotalWt, colWorkoutType;
 
   if (overrideMap && Object.keys(overrideMap).length > 0) {
     colGroup = colExercise = colDate = colGym = colNotes = colRest = -1;
-    colSet1 = colSet2 = colSet3 = colSet4 = colPerSide = colTotalWt = -1;
+    colSet1 = colSet2 = colSet3 = colSet4 = colPerSide = colTotalWt = colWorkoutType = -1;
     for (const [idxStr, target] of Object.entries(overrideMap)) {
       const idx = Number(idxStr);
       if (target === 'group') colGroup = idx;
@@ -320,20 +322,22 @@ function parseWorkoutCsv(text, overrideMap = null) {
       else if (target === 'set4') colSet4 = idx;
       else if (target === 'perSide') colPerSide = idx;
       else if (target === 'totalWt') colTotalWt = idx;
+      else if (target === 'workoutType') colWorkoutType = idx;
     }
   } else {
-    colGroup    = findCol(headers, ['group']);
-    colExercise = findCol(headers, ['exercises', 'exercise']);
-    colDate     = findCol(headers, ['date']);
-    colGym      = findCol(headers, ['gym', 'location']);
-    colNotes    = findCol(headers, ['notes', 'note']);
-    colRest     = findCol(headers, ['rest time', 'rest']);
-    colSet1     = findCol(headers, ['set 1', 'set1', 's1', 'reps 1', 'set1 reps']);
-    colSet2     = findCol(headers, ['set 2', 'set2', 's2', 'reps 2', 'set2 reps']);
-    colSet3     = findCol(headers, ['set 3', 'set3', 's3', 'reps 3', 'set3 reps']);
-    colSet4     = findCol(headers, ['set 4', 'set4', 's4', 'reps 4', 'set4 reps']);
-    colPerSide  = findCol(headers, ['per arm/leg', 'per arm', 'per side', 'weight per side']);
-    colTotalWt  = findCol(headers, ['total weight', 'weight']);
+    colGroup        = findCol(headers, ['group']);
+    colExercise     = findCol(headers, ['exercises', 'exercise']);
+    colDate         = findCol(headers, ['date']);
+    colGym          = findCol(headers, ['gym', 'location']);
+    colNotes        = findCol(headers, ['notes', 'note']);
+    colRest         = findCol(headers, ['rest time', 'rest', 'time']);
+    colSet1         = findCol(headers, ['set 1', 'set1', 's1', 'reps 1', 'set1 reps']);
+    colSet2         = findCol(headers, ['set 2', 'set2', 's2', 'reps 2', 'set2 reps']);
+    colSet3         = findCol(headers, ['set 3', 'set3', 's3', 'reps 3', 'set3 reps']);
+    colSet4         = findCol(headers, ['set 4', 'set4', 's4', 'reps 4', 'set4 reps']);
+    colPerSide      = findCol(headers, ['per arm/leg', 'per arm', 'per side', 'weight per side']);
+    colTotalWt      = findCol(headers, ['total weight', 'weight']);
+    colWorkoutType  = findCol(headers, ['workout type', 'type']);
 
     // Positional fallback only on auto-detect: if Set 1–4 weren't matched by
     // name but the row has a known anchor on each side (Notes/Date on the
@@ -420,27 +424,46 @@ function parseWorkoutCsv(text, overrideMap = null) {
       cleanCell(cells[colSet3], 'Set 3', 'int', fixes),
       cleanCell(cells[colSet4], 'Set 4', 'int', fixes),
     ];
-    const perSide = colPerSide >= 0 ? cleanCell(cells[colPerSide], 'Per Arm/Leg', 'float', fixes) : '';
+
+    // The Per Arm/Leg column can be either a per-side numeric weight (old
+    // Sheets format) or a Yes/No flag (this app's own export format).
+    const perArmRaw = colPerSide >= 0 ? String(cells[colPerSide] ?? '').trim() : '';
+    let perArmBool = null;
+    let perSideNum = '';
+    if (perArmRaw !== '') {
+      if (/^(yes|true|y)$/i.test(perArmRaw)) perArmBool = true;
+      else if (/^(no|false|n)$/i.test(perArmRaw)) perArmBool = false;
+      else {
+        const v = cleanCell(perArmRaw, 'Per Arm/Leg', 'float', fixes);
+        if (v !== '') perSideNum = v;
+      }
+    }
     const totalWt = colTotalWt >= 0 ? cleanCell(cells[colTotalWt], 'Total Weight', 'float', fixes) : '';
 
     let weight = '';
     let perArm = false;
-    if (perSide !== '' && totalWt !== '') {
-      perArm = Math.abs(perSide * 2 - totalWt) < 1;
-      weight = String(perSide);
-    } else if (perSide !== '') {
-      weight = String(perSide);
+    if (perArmBool !== null) {
+      perArm = perArmBool;
+      weight = totalWt !== '' ? String(totalWt) : '';
+    } else if (perSideNum !== '' && totalWt !== '') {
+      perArm = Math.abs(perSideNum * 2 - totalWt) < 1;
+      weight = String(perSideNum);
+    } else if (perSideNum !== '') {
+      weight = String(perSideNum);
       perArm = true;
     } else if (totalWt !== '') {
       weight = String(totalWt);
     }
 
+    const workoutType = colWorkoutType >= 0 ? (cells[colWorkoutType] || '').trim() : '';
+
     const entry = { group, exercise, sets, perArm, weight, notes, time };
     if (fixes.length > 0) cleanings.push({ lineNum, date, exercise, fixes });
 
-    if (!byDate.has(date)) byDate.set(date, { date, gym: gym || 'Edge South Tower', entries: [] });
+    if (!byDate.has(date)) byDate.set(date, { date, gym: gym || 'Edge South Tower', workoutType: '', entries: [] });
     const bucket = byDate.get(date);
     if (!bucket.gym && gym) bucket.gym = gym;
+    if (!bucket.workoutType && workoutType) bucket.workoutType = workoutType;
     bucket.entries.push(entry);
   }
 
@@ -473,6 +496,7 @@ function parseWorkoutCsv(text, overrideMap = null) {
     'Set 4': colSet4,
     'Per Arm/Leg': colPerSide,
     'Total Weight': colTotalWt,
+    'Workout Type': colWorkoutType,
   };
   return { workouts, skippedRows, cleanings, headers, colMap, sampleRow, delim };
 }
@@ -584,6 +608,7 @@ export function WorkoutPage({ onBack, user }) {
   const [importPreview, setImportPreview] = useState(null);
   const [importError, setImportError] = useState('');
   const [userColMap, setUserColMap] = useState(null);
+  const [importMode, setImportMode] = useState('merge');
   const [logImageProcessing, setLogImageProcessing] = useState(false);
   const [logImageError, setLogImageError] = useState('');
   const [logImageInfo, setLogImageInfo] = useState('');
@@ -743,21 +768,32 @@ export function WorkoutPage({ onBack, user }) {
   }
 
   function handleConfirmImport() {
-    if (!importPreview) return;
-    // Replace any existing workouts on the imported dates.
-    const importedDates = new Set(importPreview.workouts.map(w => w.date));
-    const merged = [
-      ...importPreview.workouts,
-      ...workouts.filter(w => !importedDates.has(w.date)),
-    ].sort((a, b) => b.date.localeCompare(a.date));
-    setWorkouts(merged);
-    saveWorkouts(merged, user?.uid);
+    if (!importPreview || importPreview.workouts.length === 0) return;
+    let next;
+    if (importMode === 'replace') {
+      const existingDays = workouts.length;
+      if (existingDays > 0 && !window.confirm(
+        `This will REPLACE all ${existingDays} existing workout day${existingDays === 1 ? '' : 's'} with ${importPreview.workouts.length} day${importPreview.workouts.length === 1 ? '' : 's'} from the CSV. This can't be undone. Continue?`
+      )) return;
+      next = [...importPreview.workouts].sort((a, b) => b.date.localeCompare(a.date));
+    } else {
+      const importedDates = new Set(importPreview.workouts.map(w => w.date));
+      next = [
+        ...importPreview.workouts,
+        ...workouts.filter(w => !importedDates.has(w.date)),
+      ].sort((a, b) => b.date.localeCompare(a.date));
+    }
+    setWorkouts(next);
+    saveWorkouts(next, user?.uid);
+    clearSelectedRows();
     setShowImport(false);
     setImportText('');
     setImportPreview(null);
     setImportError('');
     setUserColMap(null);
-    alert(`Imported ${importPreview.workouts.length} workout day${importPreview.workouts.length === 1 ? '' : 's'}.`);
+    setImportMode('merge');
+    const verb = importMode === 'replace' ? 'Replaced workout history with' : 'Imported';
+    alert(`${verb} ${importPreview.workouts.length} workout day${importPreview.workouts.length === 1 ? '' : 's'}.`);
   }
 
   /**
@@ -1267,42 +1303,6 @@ export function WorkoutPage({ onBack, user }) {
   }, [workouts, historyStartDate, historyEndDate, historyGym, historyGroup, historyExercise]);
 
   const hasActiveHistoryFilters = !!(historyGroup || historyStartDate || historyEndDate || historyGym || historyExercise);
-  const historyImportInputRef = useRef(null);
-  function handleImportHistoryClick() {
-    historyImportInputRef.current?.click();
-  }
-  async function handleImportHistoryFile(ev) {
-    const file = ev.target.files?.[0];
-    ev.target.value = ''; // allow re-importing the same file
-    if (!file) return;
-    let text;
-    try {
-      text = await file.text();
-    } catch (err) {
-      window.alert('Could not read the file: ' + (err?.message || err));
-      return;
-    }
-    let parsed;
-    try {
-      parsed = parseWorkoutHistoryCSV(text);
-    } catch (err) {
-      window.alert('Could not parse the CSV: ' + (err?.message || err));
-      return;
-    }
-    if (parsed.length === 0) {
-      window.alert('No workouts found in that file. Make sure the CSV has a Date column with rows below.');
-      return;
-    }
-    const totalEntries = parsed.reduce((n, w) => n + w.entries.length, 0);
-    const existingDays = workouts.length;
-    if (!window.confirm(
-      `This will REPLACE all ${existingDays} existing workout day${existingDays === 1 ? '' : 's'} with ${parsed.length} day${parsed.length === 1 ? '' : 's'} (${totalEntries} exercise entries) from the CSV. This can't be undone. Continue?`
-    )) return;
-    const enriched = parsed.map(w => ({ ...w, entries: w.entries.map(enrichEntry) }));
-    commitWorkouts(enriched);
-    clearSelectedRows();
-    window.alert(`Replaced workout history with ${parsed.length} day${parsed.length === 1 ? '' : 's'} from the CSV.`);
-  }
   function exportHistory() {
     const rows = [];
     for (const w of filteredHistory) {
@@ -1807,18 +1807,6 @@ export function WorkoutPage({ onBack, user }) {
               onClick={exportHistory}
               title="Download a .csv file (opens in Excel) of the currently filtered history"
             >Export</button>
-            <button
-              className={styles.clearBtn}
-              onClick={handleImportHistoryClick}
-              title="Replace ALL workout history with the contents of a CSV file (same format as Export)"
-            >Import</button>
-            <input
-              ref={historyImportInputRef}
-              type="file"
-              accept=".csv,text/csv"
-              style={{ display: 'none' }}
-              onChange={handleImportHistoryFile}
-            />
             <span className={styles.historyCount}>{filteredHistory.length} workouts</span>
           </div>
           {filteredHistory.length === 0 ? (
@@ -2372,10 +2360,9 @@ export function WorkoutPage({ onBack, user }) {
               >×</button>
             </div>
             <p style={{ fontSize: '0.85rem', color: 'var(--color-text-secondary)', marginBottom: '0.75rem', lineHeight: 1.5 }}>
-              Upload a <code>.csv</code> / <code>.tsv</code> file (most reliable for full history) or paste below.
-              Supported columns:{' '}
-              <code style={{ fontSize: '0.78rem' }}>Group, Exercises, Date, Gym, Notes, Rest Time, Set 1–4, Per Arm/Leg, Total Weight</code>.
-              Existing workouts on the same dates will be replaced.
+              Upload a <code>.csv</code> / <code>.tsv</code> file or paste below. Columns are auto-detected
+              and adjustable in the mapping panel — recognized targets: <code style={{ fontSize: '0.78rem' }}>Date, Exercises, Group, Gym/Location, Notes, Rest Time, Set 1–4, Per Arm/Leg (number or Yes/No), Total Weight, Workout Type</code>.
+              Choose <strong>Merge</strong> or <strong>Replace</strong> below.
             </p>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
               <label
@@ -2451,6 +2438,51 @@ export function WorkoutPage({ onBack, user }) {
                 {importError}
               </div>
             )}
+            <fieldset style={{
+              marginTop: '0.75rem',
+              border: '1px solid var(--color-border)',
+              borderRadius: 8,
+              padding: '0.5rem 0.85rem 0.6rem',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '0.35rem',
+            }}>
+              <legend style={{ fontSize: '0.72rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--color-text-muted)', padding: '0 0.35rem' }}>
+                Import mode
+              </legend>
+              <label style={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem', fontSize: '0.85rem', cursor: 'pointer' }}>
+                <input
+                  type="radio"
+                  name="importMode"
+                  value="merge"
+                  checked={importMode === 'merge'}
+                  onChange={() => setImportMode('merge')}
+                  style={{ marginTop: '0.18rem' }}
+                />
+                <span>
+                  <strong>Merge by date</strong>
+                  <span style={{ color: 'var(--color-text-muted)', display: 'block', fontSize: '0.78rem' }}>
+                    Replace only the workout days that appear in the CSV. Other days stay.
+                  </span>
+                </span>
+              </label>
+              <label style={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem', fontSize: '0.85rem', cursor: 'pointer' }}>
+                <input
+                  type="radio"
+                  name="importMode"
+                  value="replace"
+                  checked={importMode === 'replace'}
+                  onChange={() => setImportMode('replace')}
+                  style={{ marginTop: '0.18rem' }}
+                />
+                <span>
+                  <strong style={{ color: '#991B1B' }}>Replace all history</strong>
+                  <span style={{ color: 'var(--color-text-muted)', display: 'block', fontSize: '0.78rem' }}>
+                    Delete every existing workout and replace with the CSV. Can&apos;t be undone.
+                  </span>
+                </span>
+              </label>
+            </fieldset>
             <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.75rem' }}>
               <button
                 className={styles.saveBtn}
@@ -2465,9 +2497,15 @@ export function WorkoutPage({ onBack, user }) {
                   className={styles.saveBtn}
                   onClick={handleConfirmImport}
                   disabled={importPreview.workouts.length === 0}
-                  style={{ flex: 1, background: importPreview.workouts.length === 0 ? '#9ca3af' : '#16a34a' }}
+                  style={{
+                    flex: 1,
+                    background: importPreview.workouts.length === 0
+                      ? '#9ca3af'
+                      : (importMode === 'replace' ? '#dc2626' : '#16a34a'),
+                  }}
+                  title={importMode === 'replace' ? 'Replace ALL workout history with the CSV' : 'Merge by date — only days in the CSV are replaced'}
                 >
-                  Import {importPreview.workouts.length} workout{importPreview.workouts.length === 1 ? '' : 's'}
+                  {importMode === 'replace' ? 'Replace all' : 'Import'} {importPreview.workouts.length} workout{importPreview.workouts.length === 1 ? '' : 's'}
                 </button>
               )}
             </div>
