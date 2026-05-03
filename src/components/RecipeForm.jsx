@@ -2,10 +2,104 @@ import { useState, useEffect } from 'react';
 import { BarcodeScanner } from './BarcodeScanner';
 import { loadIngredients, loadIngredientsFromFirestore } from '../utils/ingredientsStore';
 import { classifyMealType } from '../utils/classifyMealType';
+import { parseIngredientLine } from '../utils/parseRecipeText';
 import styles from './RecipeForm.module.css';
 
 const emptyRow = { quantity: '', measurement: '', ingredient: '' };
 const fields = ['quantity', 'measurement', 'ingredient'];
+
+const HEADER_KEYWORDS = {
+  quantity: ['quantity', 'qty', 'amount'],
+  measurement: ['measurement', 'unit', 'units'],
+  ingredient: ['ingredient', 'ingredients', 'name', 'item'],
+};
+
+function splitPasteToCells(text) {
+  return text
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n')
+    .split('\n')
+    .map(l => l.split('\t'));
+}
+
+function detectColumnMap(text) {
+  const lines = splitPasteToCells(text);
+  if (lines.length === 0) return { ncols: 0, hasHeader: false, map: {} };
+  const ncols = Math.max(...lines.map(l => l.length));
+  const map = {};
+  for (let i = 0; i < ncols; i++) map[i] = 'ignore';
+  if (ncols < 2) return { ncols, hasHeader: false, map };
+
+  const firstLine = (lines[0] || []).map(c => c.trim().toLowerCase());
+  const matchHeader = c => {
+    if (HEADER_KEYWORDS.quantity.includes(c)) return 'quantity';
+    if (HEADER_KEYWORDS.measurement.includes(c)) return 'measurement';
+    if (HEADER_KEYWORDS.ingredient.includes(c)) return 'ingredient';
+    return null;
+  };
+  const hasHeader = firstLine.some(c => matchHeader(c) !== null);
+
+  if (hasHeader) {
+    firstLine.forEach((c, i) => {
+      const m = matchHeader(c);
+      if (m) map[i] = m;
+    });
+  } else if (ncols >= 3) {
+    map[ncols - 3] = 'quantity';
+    map[ncols - 2] = 'measurement';
+    map[ncols - 1] = 'ingredient';
+  } else if (ncols === 2) {
+    map[0] = 'measurement';
+    map[1] = 'ingredient';
+  }
+  return { ncols, hasHeader, map };
+}
+
+function cleanQuantity(q) {
+  const t = (q || '').trim();
+  if (/^-?\d+\.\d+$/.test(t)) {
+    const n = parseFloat(t);
+    if (!Number.isNaN(n)) return String(n);
+  }
+  return t;
+}
+
+function applyColumnMap(text, map, hasHeader) {
+  const lines = splitPasteToCells(text);
+  if (lines.length === 0) return [];
+  const ncols = Math.max(...lines.map(l => l.length));
+  const isTabular = ncols >= 2;
+  const dataStart = isTabular && hasHeader ? 1 : 0;
+
+  const rows = [];
+  for (let i = dataStart; i < lines.length; i++) {
+    const cells = lines[i];
+    if (isTabular) {
+      const r = { quantity: '', measurement: '', ingredient: '' };
+      for (const [colIdxStr, target] of Object.entries(map)) {
+        if (target === 'ignore' || !target) continue;
+        const val = (cells[Number(colIdxStr)] || '').trim();
+        if (target === 'quantity') r.quantity = cleanQuantity(val);
+        else if (target === 'measurement') r.measurement = val;
+        else if (target === 'ingredient') r.ingredient = val;
+      }
+      if (!r.ingredient && !r.quantity) continue;
+      rows.push(r);
+    } else {
+      const line = (cells[0] || '').trim();
+      if (!line) continue;
+      const parsed = parseIngredientLine(line);
+      if (parsed) {
+        rows.push({
+          quantity: parsed.quantity || '',
+          measurement: parsed.measurement || '',
+          ingredient: parsed.ingredient || '',
+        });
+      }
+    }
+  }
+  return rows;
+}
 
 export function RecipeForm({ recipe, onSave, onCancel, saveLabel, cancelLabel, headerAction, titleOverride }) {
   const [title, setTitle] = useState('');
@@ -24,6 +118,10 @@ export function RecipeForm({ recipe, onSave, onCancel, saveLabel, cancelLabel, h
   const [activeAutoIdx, setActiveAutoIdx] = useState(-1);
   const [showPasteBox, setShowPasteBox] = useState(false);
   const [pasteText, setPasteText] = useState('');
+  const [columnMap, setColumnMap] = useState({});
+  const [hasHeader, setHasHeader] = useState(false);
+  const [imageProcessing, setImageProcessing] = useState(false);
+  const [imageError, setImageError] = useState('');
 
   useEffect(() => {
     async function loadNames() {
@@ -109,103 +207,74 @@ export function RecipeForm({ recipe, onSave, onCancel, saveLabel, cancelLabel, h
     }]);
   }
 
-  function handlePaste(e, rowIndex, colIndex) {
-    const text = e.clipboardData.getData('text');
-    // Detect multi-cell paste: contains tabs or multiple lines
-    if (!text.includes('\t') && !text.includes('\n')) return;
-
-    e.preventDefault();
-
-    const pastedRows = text
-      .replace(/\r\n/g, '\n')
-      .replace(/\r/g, '\n')
-      .trimEnd()
-      .split('\n')
-      .map(line => line.split('\t'));
-
-    setIngredients(prev => {
-      const updated = prev.map(row => ({ ...row }));
-
-      // Ensure enough rows exist
-      const neededRows = rowIndex + pastedRows.length;
-      while (updated.length < neededRows) {
-        updated.push({ ...emptyRow });
-      }
-
-      for (let r = 0; r < pastedRows.length; r++) {
-        const cells = pastedRows[r];
-        for (let c = 0; c < cells.length; c++) {
-          const targetCol = colIndex + c;
-          if (targetCol < fields.length) {
-            updated[rowIndex + r][fields[targetCol]] = cells[c].trim();
-          }
-        }
-      }
-
-      return updated;
-    });
+  function setPasteSource(text) {
+    setPasteText(text);
+    const detected = detectColumnMap(text);
+    setColumnMap(detected.map);
+    setHasHeader(detected.hasHeader);
+    setImageError('');
   }
 
-  function parsePastedTable(text) {
-    const lines = text
-      .replace(/\r\n/g, '\n')
-      .replace(/\r/g, '\n')
-      .split('\n')
-      .map(l => l.split('\t'));
-    if (lines.length === 0) return [];
-
-    const colMap = { quantity: -1, measurement: -1, ingredient: -1 };
-    let dataStart = 0;
-    const firstLine = lines[0].map(c => c.trim().toLowerCase());
-    const headerKeywords = ['quantity', 'qty', 'amount', 'measurement', 'unit', 'units', 'ingredient', 'ingredients', 'name'];
-    const hasHeader = firstLine.some(c => headerKeywords.includes(c));
-
-    if (hasHeader) {
-      firstLine.forEach((c, i) => {
-        if (c === 'quantity' || c === 'qty' || c === 'amount') colMap.quantity = i;
-        else if (c === 'measurement' || c === 'unit' || c === 'units') colMap.measurement = i;
-        else if (c === 'ingredient' || c === 'ingredients' || c === 'name') colMap.ingredient = i;
+  async function processImage(blob) {
+    if (!blob) return;
+    setImageError('');
+    setImageProcessing(true);
+    try {
+      const dataUrl = await new Promise((resolve, reject) => {
+        const r = new FileReader();
+        r.onload = () => resolve(r.result);
+        r.onerror = () => reject(r.error);
+        r.readAsDataURL(blob);
       });
-      dataStart = 1;
-    } else {
-      const ncols = lines[0].length;
-      if (ncols >= 3) {
-        colMap.quantity = ncols - 3;
-        colMap.measurement = ncols - 2;
-        colMap.ingredient = ncols - 1;
-      } else if (ncols === 2) {
-        colMap.measurement = 0;
-        colMap.ingredient = 1;
-      } else {
-        colMap.ingredient = 0;
+      const res = await fetch('/api/parse-recipe-image', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ image: dataUrl }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || `Server error ${res.status}`);
+      }
+      const recipe = await res.json();
+      const ingLines = (recipe.ingredients || []).map(s => String(s).trim()).filter(Boolean);
+      if (ingLines.length === 0) {
+        throw new Error("Couldn't read any ingredients from that image.");
+      }
+      setPasteSource(ingLines.join('\n'));
+    } catch (err) {
+      setImageError(err.message || 'Failed to read image');
+    } finally {
+      setImageProcessing(false);
+    }
+  }
+
+  function handleIngredientsPaste(e) {
+    const items = Array.from(e.clipboardData?.items || []);
+    const imageItem = items.find(it => it.type?.startsWith('image/'));
+    if (imageItem) {
+      const blob = imageItem.getAsFile();
+      if (blob) {
+        e.preventDefault();
+        setPasteText('');
+        setColumnMap({});
+        setHasHeader(false);
+        setShowPasteBox(true);
+        processImage(blob);
+        return;
       }
     }
-
-    const cleanQuantity = q => {
-      const t = (q || '').trim();
-      if (/^-?\d+\.\d+$/.test(t)) {
-        const n = parseFloat(t);
-        if (!Number.isNaN(n)) return String(n);
-      }
-      return t;
-    };
-
-    const rows = [];
-    for (let i = dataStart; i < lines.length; i++) {
-      const cells = lines[i];
-      const ingredient = colMap.ingredient >= 0 ? (cells[colMap.ingredient] || '').trim() : '';
-      const quantity = colMap.quantity >= 0 ? cleanQuantity(cells[colMap.quantity]) : '';
-      const measurement = colMap.measurement >= 0 ? (cells[colMap.measurement] || '').trim() : '';
-      if (!ingredient && !quantity) continue;
-      rows.push({ quantity, measurement, ingredient });
-    }
-    return rows;
+    const text = e.clipboardData?.getData('text') || '';
+    const isMultiRow = text.includes('\t') || text.split('\n').filter(l => l.trim()).length >= 2;
+    if (!isMultiRow) return;
+    e.preventDefault();
+    setPasteSource(text);
+    setShowPasteBox(true);
   }
 
   function applyPaste(mode) {
-    const parsed = parsePastedTable(pasteText);
+    const parsed = applyColumnMap(pasteText, columnMap, hasHeader);
     if (parsed.length === 0) {
-      window.alert('No ingredient rows found. Paste tab-separated data from Excel or Google Sheets.');
+      window.alert('No ingredient rows found. Check that at least one column is mapped to "Ingredient".');
       return;
     }
     setIngredients(prev => {
@@ -214,6 +283,8 @@ export function RecipeForm({ recipe, onSave, onCancel, saveLabel, cancelLabel, h
       return [...existing, ...parsed];
     });
     setPasteText('');
+    setColumnMap({});
+    setHasHeader(false);
     setShowPasteBox(false);
   }
 
@@ -362,7 +433,7 @@ export function RecipeForm({ recipe, onSave, onCancel, saveLabel, cancelLabel, h
         />
       </label>
 
-      <fieldset className={styles.fieldset}>
+      <fieldset className={styles.fieldset} onPaste={handleIngredientsPaste}>
         <legend className={styles.legend}>Ingredients</legend>
         <table className={styles.table}>
           <thead>
@@ -394,7 +465,6 @@ export function RecipeForm({ recipe, onSave, onCancel, saveLabel, cancelLabel, h
                           }}
                           onFocus={() => setActiveAutoIdx(i)}
                           onBlur={() => setTimeout(() => setActiveAutoIdx(-1), 150)}
-                          onPaste={e => handlePaste(e, i, colIdx)}
                           placeholder="flour"
                         />
                         {suggestions.length > 0 && row.ingredient.trim() && (
@@ -420,7 +490,6 @@ export function RecipeForm({ recipe, onSave, onCancel, saveLabel, cancelLabel, h
                         type="text"
                         value={row[field]}
                         onChange={e => updateIngredient(i, field, e.target.value)}
-                        onPaste={e => handlePaste(e, i, colIdx)}
                         placeholder={field === 'quantity' ? '1' : 'cup'}
                       />
                     )}
@@ -454,38 +523,119 @@ export function RecipeForm({ recipe, onSave, onCancel, saveLabel, cancelLabel, h
             type="button"
             onClick={() => setShowPasteBox(true)}
           >
-            Paste from spreadsheet
+            Paste / import
           </button>
         </div>
       </fieldset>
 
       {showPasteBox && (() => {
-        const preview = parsePastedTable(pasteText);
-        const close = () => { setPasteText(''); setShowPasteBox(false); };
+        const close = () => {
+          setPasteText('');
+          setColumnMap({});
+          setHasHeader(false);
+          setImageError('');
+          setShowPasteBox(false);
+        };
+        const cells = splitPasteToCells(pasteText);
+        const ncols = cells.length === 0 ? 0 : Math.max(...cells.map(l => l.length));
+        const isTabular = ncols >= 2;
+        const sampleRow = isTabular && hasHeader ? (cells[1] || []) : (cells[0] || []);
+        const preview = applyColumnMap(pasteText, columnMap, hasHeader);
         const PREVIEW_LIMIT = 15;
+
+        const targetOptions = [
+          { value: 'ignore', label: 'Ignore' },
+          { value: 'quantity', label: 'Quantity' },
+          { value: 'measurement', label: 'Measurement' },
+          { value: 'ingredient', label: 'Ingredient' },
+        ];
+
+        const formatLabel = imageProcessing
+          ? 'Reading image…'
+          : isTabular
+            ? `Tabular · ${ncols} columns`
+            : (pasteText.trim() ? `Free text · ${cells.filter(c => c.join('').trim()).length} lines` : null);
+
         return (
           <div className={styles.pasteOverlay} onClick={close}>
             <div className={styles.pasteModal} onClick={e => e.stopPropagation()}>
               <div className={styles.pasteHeader}>
-                <h3 className={styles.pasteTitle}>Paste from spreadsheet</h3>
+                <h3 className={styles.pasteTitle}>Import ingredients</h3>
+                {formatLabel && <span className={styles.pasteFormatBadge}>{formatLabel}</span>}
                 <button type="button" className={styles.pasteCloseBtn} onClick={close} aria-label="Close">×</button>
               </div>
               <div className={styles.pasteBody}>
                 <div className={styles.pasteHint}>
-                  Paste tab-separated rows from Excel or Google Sheets. Headers (Quantity / Measurement / Ingredient) are auto-detected; otherwise the last three columns are used. Empty rows are skipped.
+                  Paste a spreadsheet, free text (one ingredient per line), or a screenshot. Tabular pastes show a column-mapping panel; free text and images are parsed line by line.
                 </div>
                 <textarea
                   className={styles.pasteArea}
                   value={pasteText}
-                  onChange={e => setPasteText(e.target.value)}
-                  placeholder={'Quantity\tMeasurement\tIngredient\n0.9\tcup(s)\tcherries_frozen\n1.5\tcup(s)\tkale_frozen'}
+                  onChange={e => setPasteSource(e.target.value)}
+                  onPaste={e => {
+                    const items = Array.from(e.clipboardData?.items || []);
+                    const imageItem = items.find(it => it.type?.startsWith('image/'));
+                    if (imageItem) {
+                      const blob = imageItem.getAsFile();
+                      if (blob) {
+                        e.preventDefault();
+                        processImage(blob);
+                      }
+                    }
+                  }}
+                  placeholder={'Paste here:\n• Tab-separated rows from Excel/Sheets\n• One ingredient per line ("1 cup flour")\n• A screenshot (Cmd/Ctrl-V an image)'}
                   rows={6}
                   autoFocus
+                  disabled={imageProcessing}
                 />
+                {imageProcessing && (
+                  <div className={styles.pasteStatus}>Reading image…</div>
+                )}
+                {imageError && (
+                  <div className={styles.pasteError}>{imageError}</div>
+                )}
+
+                {isTabular && (
+                  <div className={styles.colMapWrap}>
+                    <div className={styles.colMapTitle}>Column mapping</div>
+                    <div className={styles.colMapList}>
+                      {Array.from({ length: ncols }, (_, i) => (
+                        <div key={i} className={styles.colMapRow}>
+                          <div className={styles.colMapMeta}>
+                            <span className={styles.colMapNum}>Col {i + 1}</span>
+                            <span className={styles.colMapSample} title={(sampleRow[i] || '').trim()}>
+                              {(sampleRow[i] || '').trim() || <em className={styles.colMapEmpty}>(empty)</em>}
+                            </span>
+                          </div>
+                          <select
+                            className={styles.colMapSelect}
+                            value={columnMap[i] || 'ignore'}
+                            onChange={e => setColumnMap(m => ({ ...m, [i]: e.target.value }))}
+                          >
+                            {targetOptions.map(opt => (
+                              <option key={opt.value} value={opt.value}>{opt.label}</option>
+                            ))}
+                          </select>
+                        </div>
+                      ))}
+                    </div>
+                    <label className={styles.colMapHeaderToggle}>
+                      <input
+                        type="checkbox"
+                        checked={hasHeader}
+                        onChange={e => setHasHeader(e.target.checked)}
+                      />
+                      First row is a header (skip it)
+                    </label>
+                  </div>
+                )}
+
                 <div className={styles.pasteCount}>
                   {preview.length === 0
-                    ? (pasteText.trim() ? 'No rows detected — check the column layout.' : 'Paste data above to preview.')
-                    : `${preview.length} row${preview.length === 1 ? '' : 's'} detected`}
+                    ? (pasteText.trim()
+                        ? (isTabular ? 'No rows yet — map at least one column to "Ingredient".' : 'No ingredient lines parsed.')
+                        : 'Paste data above to preview.')
+                    : `${preview.length} row${preview.length === 1 ? '' : 's'} ready`}
                 </div>
                 <div className={styles.previewWrap}>
                   <table className={styles.previewTable}>
@@ -522,7 +672,7 @@ export function RecipeForm({ recipe, onSave, onCancel, saveLabel, cancelLabel, h
                   className={styles.pasteAppendBtn}
                   type="button"
                   onClick={() => applyPaste('append')}
-                  disabled={preview.length === 0}
+                  disabled={preview.length === 0 || imageProcessing}
                 >
                   Append rows
                 </button>
@@ -530,7 +680,7 @@ export function RecipeForm({ recipe, onSave, onCancel, saveLabel, cancelLabel, h
                   className={styles.pasteReplaceBtn}
                   type="button"
                   onClick={() => applyPaste('replace')}
-                  disabled={preview.length === 0}
+                  disabled={preview.length === 0 || imageProcessing}
                 >
                   Replace existing
                 </button>

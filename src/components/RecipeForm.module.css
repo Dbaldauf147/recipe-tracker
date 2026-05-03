@@ -275,9 +275,25 @@
 .pasteHeader {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  gap: 0.5rem;
   padding: 0.85rem 1.1rem;
   border-bottom: 1px solid var(--color-border);
+}
+
+.pasteFormatBadge {
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-accent);
+  background: var(--color-surface-alt);
+  border: 1px solid var(--color-border);
+  padding: 0.2rem 0.5rem;
+  border-radius: 999px;
+}
+
+.pasteHeader .pasteCloseBtn {
+  margin-left: auto;
 }
 
 .pasteTitle {
@@ -450,4 +466,118 @@
 .pasteReplaceBtn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+.pasteStatus {
+  font-size: 0.82rem;
+  color: var(--color-text-secondary);
+  font-style: italic;
+  padding: 0.35rem 0.6rem;
+  background: var(--color-surface-alt);
+  border-radius: var(--radius-sm);
+}
+
+.pasteError {
+  font-size: 0.82rem;
+  color: var(--color-danger, #c0392b);
+  padding: 0.35rem 0.6rem;
+  background: var(--color-danger-light, #fdecea);
+  border: 1px solid var(--color-danger, #c0392b);
+  border-radius: var(--radius-sm);
+}
+
+.colMapWrap {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-alt);
+  padding: 0.6rem 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.colMapTitle {
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text-muted);
+}
+
+.colMapList {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.colMapRow {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.colMapMeta {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.colMapNum {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--color-text-muted);
+  background: var(--color-surface);
+  padding: 0.2rem 0.45rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+  flex-shrink: 0;
+}
+
+.colMapSample {
+  font-size: 0.85rem;
+  color: var(--color-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1;
+  min-width: 0;
+}
+
+.colMapEmpty {
+  color: var(--color-text-muted);
+  font-style: italic;
+}
+
+.colMapSelect {
+  padding: 0.35rem 0.5rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  font-size: 0.85rem;
+  font-family: inherit;
+  background: var(--color-surface);
+  color: var(--color-text);
+  cursor: pointer;
+  min-width: 130px;
+}
+
+.colMapSelect:focus {
+  outline: none;
+  border-color: var(--color-accent);
+  box-shadow: var(--focus-ring);
+}
+
+.colMapHeaderToggle {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: 0.82rem;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  user-select: none;
+}
+
+.colMapHeaderToggle input {
+  cursor: pointer;
 }
