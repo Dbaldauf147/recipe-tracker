@@ -86,6 +86,10 @@ export function AdminDashboard({ onClose }) {
   const [setupDone, setSetupDone] = useState(false);
   const setupFileRef = useRef(null);
 
+  const [libCopyEmail, setLibCopyEmail] = useState('');
+  const [libCopySaving, setLibCopySaving] = useState(false);
+  const [libCopyMsg, setLibCopyMsg] = useState('');
+
   const [fillLoading, setFillLoading] = useState(false);
   const [fillApplying, setFillApplying] = useState(false);
   const [fillPreview, setFillPreview] = useState(null);
@@ -233,6 +237,50 @@ export function AdminDashboard({ onClose }) {
       alert('Failed to save: ' + err.message);
     }
     setSetupSaving(false);
+  }
+
+  async function handleCopyLibrary() {
+    const targetEmail = libCopyEmail.trim().toLowerCase();
+    if (!targetEmail) return;
+    setLibCopySaving(true);
+    setLibCopyMsg('');
+    try {
+      const myUid = auth.currentUser?.uid;
+      if (!myUid) throw new Error('Not signed in.');
+      const me = users.find(u => u.uid === myUid);
+      const myLibrary = (me?.exerciseLibrary || []);
+      if (myLibrary.length === 0) throw new Error('Your exerciseLibrary is empty — nothing to copy.');
+
+      const target = users.find(u => (u.email || '').toLowerCase() === targetEmail);
+      if (!target) {
+        throw new Error(`No user found with email ${targetEmail}. Have they signed up yet?`);
+      }
+      if (target.uid === myUid) {
+        throw new Error('That is your own account.');
+      }
+
+      const targetName = target.displayName || target.email || target.uid;
+      const targetExisting = (target.exerciseLibrary || []).length;
+      if (targetExisting > 0) {
+        const ok = window.confirm(
+          `${targetName} already has ${targetExisting} exercise${targetExisting === 1 ? '' : 's'} in their library. ` +
+          `This will REPLACE them with your ${myLibrary.length} exercise${myLibrary.length === 1 ? '' : 's'}. Continue?`
+        );
+        if (!ok) {
+          setLibCopySaving(false);
+          return;
+        }
+      }
+
+      await saveField(target.uid, 'exerciseLibrary', myLibrary);
+      setUsers(prev => prev.map(u => u.uid === target.uid ? { ...u, exerciseLibrary: myLibrary } : u));
+      setLibCopyMsg(`✓ Copied ${myLibrary.length} exercise${myLibrary.length === 1 ? '' : 's'} to ${targetName}.`);
+      setLibCopyEmail('');
+    } catch (err) {
+      setLibCopyMsg(`✗ ${err.message || 'Failed to copy'}`);
+    } finally {
+      setLibCopySaving(false);
+    }
   }
 
   async function handlePreviewFill() {
@@ -495,6 +543,40 @@ export function AdminDashboard({ onClose }) {
           </button>
           {setupDone && <span style={{ color: 'var(--color-success)', fontWeight: 600, fontSize: '0.88rem' }}>Saved! User can now sign up with that email.</span>}
         </div>
+      </div>
+
+      {/* Copy Workout Library to Another User */}
+      <div className={styles.sourceSection}>
+        <h3 className={styles.sourceHeading}>Copy Workout Library to User</h3>
+        <p style={{ fontSize: '0.82rem', color: 'var(--color-text-muted)', marginBottom: '0.75rem' }}>
+          Replaces the target user&apos;s <code>exerciseLibrary</code> with a copy of yours. Their workout log is not touched.
+        </p>
+        <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap', marginBottom: '0.5rem' }}>
+          <input
+            className={styles.setupInput}
+            type="email"
+            placeholder="Target user's email"
+            value={libCopyEmail}
+            onChange={e => setLibCopyEmail(e.target.value)}
+          />
+          <button
+            className={styles.setupBtn}
+            disabled={!libCopyEmail.trim() || libCopySaving}
+            onClick={handleCopyLibrary}
+            style={{ opacity: !libCopyEmail.trim() ? 0.5 : 1 }}
+          >
+            {libCopySaving ? 'Copying...' : 'Copy My Library →'}
+          </button>
+        </div>
+        {libCopyMsg && (
+          <div style={{
+            fontSize: '0.85rem',
+            fontWeight: 600,
+            color: libCopyMsg.startsWith('✓') ? 'var(--color-success, #16a34a)' : 'var(--color-danger, #c0392b)',
+          }}>
+            {libCopyMsg}
+          </div>
+        )}
       </div>
 
       {/* Fill Recipe Gaps from Sheet */}
