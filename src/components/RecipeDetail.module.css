@@ -2576,3 +2576,96 @@
     transition-duration: 0.01ms !important;
   }
 }
+
+.pasteBox {
+  margin-top: 0.75rem;
+  padding: 0.75rem;
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius-md, 8px);
+  background: var(--color-surface-alt);
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.pasteHint {
+  font-size: 0.78rem;
+  color: var(--color-text-muted);
+  line-height: 1.4;
+}
+
+.pasteArea {
+  width: 100%;
+  padding: 0.5rem 0.65rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm, 6px);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.85rem;
+  background: var(--color-surface);
+  color: var(--color-text);
+  resize: vertical;
+  box-sizing: border-box;
+  white-space: pre;
+  overflow-x: auto;
+}
+
+.pasteArea:focus {
+  outline: none;
+  border-color: var(--color-accent);
+  box-shadow: var(--focus-ring);
+}
+
+.pasteActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.pasteAppendBtn,
+.pasteReplaceBtn,
+.pasteCancelBtn {
+  padding: 0.4rem 0.9rem;
+  font-size: 0.85rem;
+  font-family: inherit;
+  font-weight: 600;
+  border-radius: var(--radius-sm, 6px);
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, opacity 0.15s ease;
+}
+
+.pasteAppendBtn {
+  border: 1px solid var(--color-accent);
+  background: var(--color-accent);
+  color: #fff;
+}
+
+.pasteAppendBtn:hover:not(:disabled) {
+  background: var(--color-accent-hover);
+}
+
+.pasteReplaceBtn {
+  border: 1px solid var(--color-danger, #c0392b);
+  background: var(--color-surface);
+  color: var(--color-danger, #c0392b);
+}
+
+.pasteReplaceBtn:hover:not(:disabled) {
+  background: var(--color-danger, #c0392b);
+  color: #fff;
+}
+
+.pasteCancelBtn {
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text-secondary);
+}
+
+.pasteCancelBtn:hover {
+  background: var(--color-surface-alt);
+}
+
+.pasteAppendBtn:disabled,
+.pasteReplaceBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

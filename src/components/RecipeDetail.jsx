@@ -593,6 +593,8 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
   }
   const [showScanner, setShowScanner] = useState(false);
   const [showAddMenu, setShowAddMenu] = useState(false);
+  const [showPasteBox, setShowPasteBox] = useState(false);
+  const [pasteText, setPasteText] = useState('');
   const addMenuRef = useRef(null);
   const [convertPopup, setConvertPopup] = useState(null); // { rowIdx, options: [{ qty, unit, label }] }
   const convertPopupRef = useRef(null);
@@ -976,6 +978,81 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
       }
       return { ...prev, ingredients: updated };
     });
+  }
+
+  function parsePastedTable(text) {
+    const lines = text
+      .replace(/\r\n/g, '\n')
+      .replace(/\r/g, '\n')
+      .split('\n')
+      .map(l => l.split('\t'));
+    if (lines.length === 0) return [];
+
+    const colMap = { quantity: -1, measurement: -1, ingredient: -1 };
+    let dataStart = 0;
+    const firstLine = lines[0].map(c => c.trim().toLowerCase());
+    const headerKeywords = ['quantity', 'qty', 'amount', 'measurement', 'unit', 'units', 'ingredient', 'ingredients', 'name'];
+    const hasHeader = firstLine.some(c => headerKeywords.includes(c));
+
+    if (hasHeader) {
+      firstLine.forEach((c, i) => {
+        if (c === 'quantity' || c === 'qty' || c === 'amount') colMap.quantity = i;
+        else if (c === 'measurement' || c === 'unit' || c === 'units') colMap.measurement = i;
+        else if (c === 'ingredient' || c === 'ingredients' || c === 'name') colMap.ingredient = i;
+      });
+      dataStart = 1;
+    } else {
+      const ncols = lines[0].length;
+      if (ncols >= 3) {
+        colMap.quantity = ncols - 3;
+        colMap.measurement = ncols - 2;
+        colMap.ingredient = ncols - 1;
+      } else if (ncols === 2) {
+        colMap.measurement = 0;
+        colMap.ingredient = 1;
+      } else {
+        colMap.ingredient = 0;
+      }
+    }
+
+    const cleanQuantity = q => {
+      const t = (q || '').trim();
+      if (/^-?\d+\.\d+$/.test(t)) {
+        const n = parseFloat(t);
+        if (!Number.isNaN(n)) return String(n);
+      }
+      return t;
+    };
+
+    const rows = [];
+    for (let i = dataStart; i < lines.length; i++) {
+      const cells = lines[i];
+      const ingredient = colMap.ingredient >= 0 ? (cells[colMap.ingredient] || '').trim() : '';
+      const quantity = colMap.quantity >= 0 ? cleanQuantity(cells[colMap.quantity]) : '';
+      const measurement = colMap.measurement >= 0 ? (cells[colMap.measurement] || '').trim() : '';
+      if (!ingredient && !quantity) continue;
+      rows.push({ ...emptyRow, quantity, measurement, ingredient });
+    }
+    return rows;
+  }
+
+  function applyPaste(mode) {
+    const parsed = parsePastedTable(pasteText);
+    if (parsed.length === 0) {
+      window.alert('No ingredient rows found. Paste tab-separated data from Excel or Google Sheets.');
+      return;
+    }
+    setFields(prev => {
+      if (mode === 'replace') {
+        return { ...prev, ingredients: parsed, stepIngredients: {} };
+      }
+      const existing = (prev.ingredients || []).filter(r =>
+        (r.ingredient || '').trim() !== '' || (r.quantity || '').trim() !== ''
+      );
+      return { ...prev, ingredients: [...existing, ...parsed] };
+    });
+    setPasteText('');
+    setShowPasteBox(false);
   }
 
   function updateStep(index, value) {
@@ -2503,10 +2580,54 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
                     <button className={styles.addMenuOption} onClick={() => { addToppingRow(); setShowAddMenu(false); }}>
                       Add per meal topping
                     </button>
+                    <button className={styles.addMenuOption} onClick={() => { setShowPasteBox(true); setShowAddMenu(false); }}>
+                      Paste from spreadsheet
+                    </button>
                   </div>
                 )}
               </div>
             </div>
+            {showPasteBox && (
+              <div className={styles.pasteBox}>
+                <div className={styles.pasteHint}>
+                  Paste rows copied from Excel or Google Sheets. Columns are detected from a header row
+                  (Quantity / Measurement / Ingredient); without a header the last three columns are used.
+                  Empty rows are skipped.
+                </div>
+                <textarea
+                  className={styles.pasteArea}
+                  value={pasteText}
+                  onChange={e => setPasteText(e.target.value)}
+                  placeholder={'Quantity\tMeasurement\tIngredient\n0.9\tcup(s)\tcherries_frozen\n1.5\tcup(s)\tkale_frozen'}
+                  rows={6}
+                />
+                <div className={styles.pasteActions}>
+                  <button
+                    className={styles.pasteAppendBtn}
+                    type="button"
+                    onClick={() => applyPaste('append')}
+                    disabled={!pasteText.trim()}
+                  >
+                    Append rows
+                  </button>
+                  <button
+                    className={styles.pasteReplaceBtn}
+                    type="button"
+                    onClick={() => applyPaste('replace')}
+                    disabled={!pasteText.trim()}
+                  >
+                    Replace existing
+                  </button>
+                  <button
+                    className={styles.pasteCancelBtn}
+                    type="button"
+                    onClick={() => { setPasteText(''); setShowPasteBox(false); }}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
           </>
         ) : (
           <table className={styles.viewTable}>
