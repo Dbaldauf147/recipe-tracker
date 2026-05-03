@@ -155,9 +155,38 @@ function enrichEntry(e) {
   const totalReps = reps.reduce((s, r) => s + r, 0);
   const maxReps = reps.length > 0 ? Math.max(...reps) : 0;
   const avgReps = reps.length > 0 ? parseFloat((totalReps / reps.length).toFixed(1)) : 0;
-  const w = parseFloat(rest.weight) || 0;
-  const totalWeight = rest.perArm ? w * 2 : w;
-  return { ...rest, totalReps, maxReps, avgReps, totalWeight, maxWeight: totalWeight };
+
+  // Compute representative weight + max for stats. When per-set mode is
+  // on, derive `weight` from the first non-empty setWeights value so any
+  // older clients (or this app's history-flat list views) still render a
+  // sensible number; maxWeight reflects the heaviest single set × 2 if
+  // per-arm.
+  let representativeWeight = rest.weight;
+  let perSetMax = 0;
+  if (rest.useSetWeights && Array.isArray(rest.setWeights)) {
+    const nums = rest.setWeights
+      .map(v => parseFloat(v || ''))
+      .filter(n => !isNaN(n));
+    if (nums.length > 0) {
+      perSetMax = Math.max(...nums);
+      const firstNonEmpty = rest.setWeights.find(v => (v || '').toString().trim() !== '');
+      if (firstNonEmpty != null) representativeWeight = firstNonEmpty;
+    }
+  }
+  const baseWeight = rest.useSetWeights && perSetMax > 0
+    ? perSetMax
+    : (parseFloat(rest.weight) || 0);
+  const totalWeight = rest.perArm ? baseWeight * 2 : baseWeight;
+
+  return {
+    ...rest,
+    weight: representativeWeight,
+    totalReps,
+    maxReps,
+    avgReps,
+    totalWeight,
+    maxWeight: totalWeight,
+  };
 }
 
 const DEFAULT_LOG_ENTRY_COUNT = 8;
@@ -1012,6 +1041,31 @@ export function WorkoutPage({ onBack, user }) {
     }));
   }
 
+  function updateSetWeight(entryIdx, setIdx, value) {
+    setEntries(prev => prev.map((e, i) => {
+      if (i !== entryIdx) return e;
+      const setWeights = Array.isArray(e.setWeights) ? [...e.setWeights] : ['', '', '', ''];
+      while (setWeights.length < 4) setWeights.push('');
+      setWeights[setIdx] = value;
+      return { ...e, setWeights, editedFields: { ...e.editedFields, [`setWeight${setIdx}`]: true } };
+    }));
+  }
+
+  function setEntryUseSetWeights(entryIdx, on) {
+    setEntries(prev => prev.map((e, i) => {
+      if (i !== entryIdx) return e;
+      if (on) {
+        const seed = e.weight || '';
+        const setWeights = [seed, seed, seed, seed];
+        return { ...e, useSetWeights: true, setWeights, editedFields: { ...e.editedFields, weight: true } };
+      } else {
+        const next = { ...e, useSetWeights: false };
+        delete next.setWeights;
+        return next;
+      }
+    }));
+  }
+
   function addEntry() {
     setEntries(prev => [...prev, emptyEntry()]);
   }
@@ -1091,6 +1145,40 @@ export function WorkoutPage({ onBack, user }) {
         while (sets.length < 4) sets.push('');
         sets[setIdx] = value;
         return enrichEntry({ ...e, sets });
+      });
+      return { ...w, entries };
+    });
+    commitWorkouts(next);
+  }
+
+  function updateHistorySetWeight(date, originalIdx, setIdx, value) {
+    const next = workouts.map(w => {
+      if (w.date !== date) return w;
+      const entries = w.entries.map((e, i) => {
+        if (i !== originalIdx) return e;
+        const setWeights = Array.isArray(e.setWeights) ? [...e.setWeights] : ['', '', '', ''];
+        while (setWeights.length < 4) setWeights.push('');
+        setWeights[setIdx] = value;
+        return enrichEntry({ ...e, setWeights });
+      });
+      return { ...w, entries };
+    });
+    commitWorkouts(next);
+  }
+
+  function setHistoryUseSetWeights(date, originalIdx, on) {
+    const next = workouts.map(w => {
+      if (w.date !== date) return w;
+      const entries = w.entries.map((e, i) => {
+        if (i !== originalIdx) return e;
+        if (on) {
+          const seed = e.weight || '';
+          return enrichEntry({ ...e, useSetWeights: true, setWeights: [seed, seed, seed, seed] });
+        } else {
+          const stripped = { ...e, useSetWeights: false };
+          delete stripped.setWeights;
+          return enrichEntry(stripped);
+        }
       });
       return { ...w, entries };
     });
@@ -1791,8 +1879,12 @@ export function WorkoutPage({ onBack, user }) {
               </thead>
               <tbody>
                 {entries.map((entry, i) => {
-                  const w = parseFloat(entry.weight) || 0;
-                  const total = entry.perArm ? w * 2 : w;
+                  let baseW = parseFloat(entry.weight) || 0;
+                  if (entry.useSetWeights && Array.isArray(entry.setWeights)) {
+                    const nums = entry.setWeights.map(v => parseFloat(v || '')).filter(n => !isNaN(n));
+                    if (nums.length > 0) baseW = Math.max(...nums);
+                  }
+                  const total = entry.perArm ? baseW * 2 : baseW;
                   const ed = entry.editedFields || {};
                   const editedCls = (field) => ed[field] ? styles.manuallyEdited : '';
                   return (
@@ -1818,10 +1910,39 @@ export function WorkoutPage({ onBack, user }) {
                       {entry.sets.map((s, si) => (
                         <td key={si}>
                           <input className={`${styles.logCell} ${styles.logSetInput} ${editedCls(`set${si}`)}`} type="number" value={s} onChange={e => updateSet(i, si, e.target.value)} />
+                          {entry.useSetWeights && (
+                            <input
+                              className={`${styles.logCell} ${styles.logSetWeightInput} ${editedCls(`setWeight${si}`)}`}
+                              type="number"
+                              value={(entry.setWeights || [])[si] ?? ''}
+                              onChange={e => updateSetWeight(i, si, e.target.value)}
+                              placeholder="lb"
+                              title={`Set ${si + 1} weight`}
+                            />
+                          )}
                         </td>
                       ))}
                       <td>
-                        <input className={`${styles.logCell} ${styles.logWeightInput} ${editedCls('weight')}`} type="number" value={entry.weight} onChange={e => updateEntry(i, 'weight', e.target.value)} placeholder="" />
+                        {entry.useSetWeights ? (
+                          <button
+                            type="button"
+                            className={`${styles.logCell} ${styles.logWeightInput} ${styles.perSetBadge}`}
+                            onClick={() => setEntryUseSetWeights(i, false)}
+                            title="Switch back to a single weight for all sets"
+                          >
+                            PER SET
+                          </button>
+                        ) : (
+                          <span className={styles.weightCellWrap}>
+                            <input className={`${styles.logCell} ${styles.logWeightInput} ${editedCls('weight')}`} type="number" value={entry.weight} onChange={e => updateEntry(i, 'weight', e.target.value)} placeholder="" />
+                            <button
+                              type="button"
+                              className={styles.perSetToggleBtn}
+                              onClick={() => setEntryUseSetWeights(i, true)}
+                              title="Use a different weight per set"
+                            >↕</button>
+                          </span>
+                        )}
                       </td>
                       <td className={`${styles.logPerCell} ${editedCls('perArm')}`}>
                         <input type="checkbox" checked={entry.perArm} onChange={e => updateEntry(i, 'perArm', e.target.checked)} title="Per arm/leg — total doubles the weight" />
@@ -2022,8 +2143,17 @@ export function WorkoutPage({ onBack, user }) {
                         const v = setsArr[si];
                         return v == null ? '' : String(v);
                       });
-                      const wt = parseFloat(e.weight) || 0;
-                      const total = e.perArm ? wt * 2 : wt;
+                      const setWeightsArr = Array.isArray(e.setWeights) ? e.setWeights : [];
+                      const setWeightVals = [0, 1, 2, 3].map(si => {
+                        const v = setWeightsArr[si];
+                        return v == null ? '' : String(v);
+                      });
+                      let baseWt = parseFloat(e.weight) || 0;
+                      if (e.useSetWeights && setWeightsArr.length > 0) {
+                        const nums = setWeightsArr.map(v => parseFloat(v || '')).filter(n => !isNaN(n));
+                        if (nums.length > 0) baseWt = Math.max(...nums);
+                      }
+                      const total = e.perArm ? baseWt * 2 : baseWt;
                       const rk = rowKey(w.date, originalIdx);
                       const isSelected = selectedRows.has(rk);
                       return (
@@ -2116,15 +2246,44 @@ export function WorkoutPage({ onBack, user }) {
                                 value={reps}
                                 onChange={ev => updateHistorySetField(w.date, originalIdx, si, ev.target.value)}
                               />
+                              {e.useSetWeights && (
+                                <input
+                                  className={`${styles.logCell} ${styles.logSetWeightInput}`}
+                                  type="number"
+                                  value={setWeightVals[si]}
+                                  onChange={ev => updateHistorySetWeight(w.date, originalIdx, si, ev.target.value)}
+                                  placeholder="lb"
+                                  title={`Set ${si + 1} weight`}
+                                />
+                              )}
                             </td>
                           ))}
                           <td>
-                            <input
-                              className={`${styles.logCell} ${styles.logWeightInput}`}
-                              type="number"
-                              value={e.weight ?? ''}
-                              onChange={ev => updateHistoryField(w.date, originalIdx, 'weight', ev.target.value)}
-                            />
+                            {e.useSetWeights ? (
+                              <button
+                                type="button"
+                                className={`${styles.logCell} ${styles.logWeightInput} ${styles.perSetBadge}`}
+                                onClick={() => setHistoryUseSetWeights(w.date, originalIdx, false)}
+                                title="Switch back to a single weight for all sets"
+                              >
+                                PER SET
+                              </button>
+                            ) : (
+                              <span className={styles.weightCellWrap}>
+                                <input
+                                  className={`${styles.logCell} ${styles.logWeightInput}`}
+                                  type="number"
+                                  value={e.weight ?? ''}
+                                  onChange={ev => updateHistoryField(w.date, originalIdx, 'weight', ev.target.value)}
+                                />
+                                <button
+                                  type="button"
+                                  className={styles.perSetToggleBtn}
+                                  onClick={() => setHistoryUseSetWeights(w.date, originalIdx, true)}
+                                  title="Use a different weight per set"
+                                >↕</button>
+                              </span>
+                            )}
                           </td>
                           <td className={styles.logPerCell}>
                             <input
