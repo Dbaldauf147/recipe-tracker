@@ -55,7 +55,7 @@ function saveGyms(data, uid) {
   if (uid) saveField(uid, 'gyms', data);
 }
 
-const WORKOUT_TYPES = ['Push', 'Pull', 'Legs', 'Full Body', 'Yoga'];
+const DEFAULT_WORKOUT_TYPES = ['Push', 'Pull', 'Legs', 'Full Body', 'Yoga'];
 
 const LOG_COLUMN_DEFS = [
   { id: 'group', default: 100, min: 60 },
@@ -95,6 +95,7 @@ function daysSince(dateStr) {
 
 const STORAGE_KEY = 'sunday-workout-log';
 const LIBRARY_KEY = 'sunday-exercise-library';
+const WORKOUT_TYPES_KEY = 'sunday-workout-types';
 
 function loadWorkouts() {
   try { return JSON.parse(localStorage.getItem(STORAGE_KEY)) || []; } catch { return []; }
@@ -112,6 +113,22 @@ function loadLibrary() {
 function saveLibrary(data, uid) {
   localStorage.setItem(LIBRARY_KEY, JSON.stringify(data));
   if (uid) saveField(uid, 'exerciseLibrary', data);
+}
+
+function loadWorkoutTypes() {
+  try {
+    const raw = localStorage.getItem(WORKOUT_TYPES_KEY);
+    if (raw) {
+      const arr = JSON.parse(raw);
+      if (Array.isArray(arr) && arr.length > 0) return arr.map(s => String(s)).filter(Boolean);
+    }
+  } catch { /* fall through */ }
+  return [...DEFAULT_WORKOUT_TYPES];
+}
+
+function saveWorkoutTypes(data, uid) {
+  localStorage.setItem(WORKOUT_TYPES_KEY, JSON.stringify(data));
+  if (uid) saveField(uid, 'workoutTypes', data);
 }
 
 function todayStr() {
@@ -575,6 +592,10 @@ export function WorkoutPage({ onBack, user }) {
   const [entries, setEntries] = useState(() => blankEntries());
   const [viewMode, setViewMode] = useState('log'); // 'log' | 'history' | 'charts' | 'body' | 'exercises' | 'stats'
   const [exerciseLibrary, setExerciseLibrary] = useState(loadLibrary);
+  const [workoutTypes, setWorkoutTypes] = useState(loadWorkoutTypes);
+  const [editingTypes, setEditingTypes] = useState(false);
+  const [addingType, setAddingType] = useState(false);
+  const [newTypeName, setNewTypeName] = useState('');
   const [historyGroup, setHistoryGroup] = useState('');
   const [historyStartDate, setHistoryStartDate] = useState('');
   const [historyEndDate, setHistoryEndDate] = useState('');
@@ -1189,9 +1210,10 @@ export function WorkoutPage({ onBack, user }) {
   }, [workouts]);
 
   const suggestedType = useMemo(() => {
-    let suggested = WORKOUT_TYPES[0];
+    if (workoutTypes.length === 0) return '';
+    let suggested = workoutTypes[0];
     let suggestedDate = lastByType[suggested]?.date || '';
-    for (const t of WORKOUT_TYPES) {
+    for (const t of workoutTypes) {
       const d = lastByType[t]?.date || '';
       if (!d) return t; // never done yet — suggest immediately
       if (suggestedDate && d < suggestedDate) {
@@ -1200,7 +1222,7 @@ export function WorkoutPage({ onBack, user }) {
       }
     }
     return suggested;
-  }, [lastByType]);
+  }, [lastByType, workoutTypes]);
 
   function fillFromLast(t) {
     const last = lastByType[t];
@@ -1576,7 +1598,7 @@ export function WorkoutPage({ onBack, user }) {
 
           <div className={styles.workoutTypeRow}>
             <span className={styles.workoutTypeLabel}>Workout type:</span>
-            {WORKOUT_TYPES.map(t => {
+            {workoutTypes.map(t => {
               const last = lastByType[t];
               const days = daysSince(last?.date);
               const isSuggested = t === suggestedType && !workoutType;
@@ -1585,18 +1607,81 @@ export function WorkoutPage({ onBack, user }) {
                 <button
                   key={t}
                   className={`${styles.workoutTypePill} ${isActive ? styles.workoutTypePillActive : ''} ${isSuggested ? styles.workoutTypePillSuggested : ''}`}
-                  onClick={() => handleTypeClick(t)}
-                  title={last ? `Last ${t}: ${days} day${days === 1 ? '' : 's'} ago (${formatDate(last.date)})` : `Never done ${t}`}
+                  onClick={() => {
+                    if (editingTypes) {
+                      if (workoutTypes.length <= 1) {
+                        window.alert('Keep at least one workout type. Add a new one before removing this.');
+                        return;
+                      }
+                      if (!window.confirm(`Remove "${t}" from your workout types? Past workouts tagged "${t}" stay tagged.`)) return;
+                      const next = workoutTypes.filter(x => x !== t);
+                      setWorkoutTypes(next);
+                      saveWorkoutTypes(next, user?.uid);
+                      if (workoutType === t) setWorkoutType('');
+                    } else {
+                      handleTypeClick(t);
+                    }
+                  }}
+                  title={editingTypes ? `Click to remove "${t}"` : (last ? `Last ${t}: ${days} day${days === 1 ? '' : 's'} ago (${formatDate(last.date)})` : `Never done ${t}`)}
                   type="button"
                 >
-                  <span className={styles.workoutTypePillName}>{isSuggested && '⭐ '}{t}</span>
+                  <span className={styles.workoutTypePillName}>
+                    {editingTypes ? '× ' : (isSuggested && '⭐ ')}{t}
+                  </span>
                   <span className={styles.workoutTypePillSub}>
-                    {last ? `${days}d ago` : 'never'}
+                    {editingTypes ? 'click to remove' : (last ? `${days}d ago` : 'never')}
                   </span>
                 </button>
               );
             })}
-            {workoutType && lastByType[workoutType] && (
+
+            {addingType ? (
+              <input
+                autoFocus
+                className={styles.workoutTypeInput}
+                type="text"
+                placeholder="New type name"
+                value={newTypeName}
+                onChange={e => setNewTypeName(e.target.value)}
+                onBlur={() => {
+                  const name = newTypeName.trim();
+                  if (name && !workoutTypes.some(x => x.toLowerCase() === name.toLowerCase())) {
+                    const next = [...workoutTypes, name];
+                    setWorkoutTypes(next);
+                    saveWorkoutTypes(next, user?.uid);
+                  }
+                  setNewTypeName('');
+                  setAddingType(false);
+                }}
+                onKeyDown={e => {
+                  if (e.key === 'Enter') {
+                    e.currentTarget.blur();
+                  } else if (e.key === 'Escape') {
+                    setNewTypeName('');
+                    setAddingType(false);
+                  }
+                }}
+              />
+            ) : (
+              <button
+                className={styles.workoutTypeAddBtn}
+                onClick={() => setAddingType(true)}
+                type="button"
+                title="Add a new workout type"
+              >
+                + Add
+              </button>
+            )}
+            <button
+              className={`${styles.workoutTypeEditBtn} ${editingTypes ? styles.workoutTypeEditBtnActive : ''}`}
+              onClick={() => setEditingTypes(v => !v)}
+              type="button"
+              title={editingTypes ? 'Done editing' : 'Edit / remove workout types'}
+            >
+              {editingTypes ? '✓ Done' : '✎ Edit'}
+            </button>
+
+            {workoutType && lastByType[workoutType] && !editingTypes && (
               <button
                 className={styles.workoutTypeRefill}
                 onClick={() => fillFromLast(workoutType)}

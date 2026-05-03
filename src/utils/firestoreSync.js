@@ -511,6 +511,10 @@ export function hydrateLocalStorage(userData, uid) {
     localStorage.setItem('sunday-exercise-library', JSON.stringify(userData.exerciseLibrary));
   }
 
+  if (Array.isArray(userData.workoutTypes) && userData.workoutTypes.length > 0) {
+    localStorage.setItem('sunday-workout-types', JSON.stringify(userData.workoutTypes));
+  }
+
   // Workout tab gating: anyone with this flag set on their user doc sees
   // the Workout nav entry. baldaufdan@gmail.com always sees it.
   if (userData.workoutEnabled) {
