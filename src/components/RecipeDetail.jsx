@@ -2587,47 +2587,93 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
                 )}
               </div>
             </div>
-            {showPasteBox && (
-              <div className={styles.pasteBox}>
-                <div className={styles.pasteHint}>
-                  Paste rows copied from Excel or Google Sheets. Columns are detected from a header row
-                  (Quantity / Measurement / Ingredient); without a header the last three columns are used.
-                  Empty rows are skipped.
+            {showPasteBox && (() => {
+              const preview = parsePastedTable(pasteText);
+              const close = () => { setPasteText(''); setShowPasteBox(false); };
+              const PREVIEW_LIMIT = 15;
+              return (
+                <div className={styles.pasteOverlay} onClick={close}>
+                  <div className={styles.pasteModal} onClick={e => e.stopPropagation()}>
+                    <div className={styles.pasteHeader}>
+                      <h3 className={styles.pasteTitle}>Paste from spreadsheet</h3>
+                      <button type="button" className={styles.pasteCloseBtn} onClick={close} aria-label="Close">×</button>
+                    </div>
+                    <div className={styles.pasteBody}>
+                      <div className={styles.pasteHint}>
+                        Paste tab-separated rows from Excel or Google Sheets. Headers (Quantity / Measurement / Ingredient) are auto-detected; otherwise the last three columns are used. Empty rows are skipped.
+                      </div>
+                      <textarea
+                        className={styles.pasteArea}
+                        value={pasteText}
+                        onChange={e => setPasteText(e.target.value)}
+                        placeholder={'Quantity\tMeasurement\tIngredient\n0.9\tcup(s)\tcherries_frozen\n1.5\tcup(s)\tkale_frozen'}
+                        rows={6}
+                        autoFocus
+                      />
+                      <div className={styles.pasteCount}>
+                        {preview.length === 0
+                          ? (pasteText.trim() ? 'No rows detected — check the column layout.' : 'Paste data above to preview.')
+                          : `${preview.length} row${preview.length === 1 ? '' : 's'} detected`}
+                      </div>
+                      <div className={styles.previewWrap}>
+                        <table className={styles.previewTable}>
+                          <thead>
+                            <tr>
+                              <th>Quantity</th>
+                              <th>Measurement</th>
+                              <th>Ingredient</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {preview.length === 0 ? (
+                              <tr><td colSpan={3} className={styles.previewEmpty}>—</td></tr>
+                            ) : (
+                              <>
+                                {preview.slice(0, PREVIEW_LIMIT).map((r, i) => (
+                                  <tr key={i}>
+                                    <td>{r.quantity}</td>
+                                    <td>{r.measurement}</td>
+                                    <td>{r.ingredient}</td>
+                                  </tr>
+                                ))}
+                                {preview.length > PREVIEW_LIMIT && (
+                                  <tr><td colSpan={3} className={styles.previewMore}>+ {preview.length - PREVIEW_LIMIT} more</td></tr>
+                                )}
+                              </>
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                    <div className={styles.pasteFooter}>
+                      <button
+                        className={styles.pasteAppendBtn}
+                        type="button"
+                        onClick={() => applyPaste('append')}
+                        disabled={preview.length === 0}
+                      >
+                        Append rows
+                      </button>
+                      <button
+                        className={styles.pasteReplaceBtn}
+                        type="button"
+                        onClick={() => applyPaste('replace')}
+                        disabled={preview.length === 0}
+                      >
+                        Replace existing
+                      </button>
+                      <button
+                        className={styles.pasteCancelBtn}
+                        type="button"
+                        onClick={close}
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
                 </div>
-                <textarea
-                  className={styles.pasteArea}
-                  value={pasteText}
-                  onChange={e => setPasteText(e.target.value)}
-                  placeholder={'Quantity\tMeasurement\tIngredient\n0.9\tcup(s)\tcherries_frozen\n1.5\tcup(s)\tkale_frozen'}
-                  rows={6}
-                />
-                <div className={styles.pasteActions}>
-                  <button
-                    className={styles.pasteAppendBtn}
-                    type="button"
-                    onClick={() => applyPaste('append')}
-                    disabled={!pasteText.trim()}
-                  >
-                    Append rows
-                  </button>
-                  <button
-                    className={styles.pasteReplaceBtn}
-                    type="button"
-                    onClick={() => applyPaste('replace')}
-                    disabled={!pasteText.trim()}
-                  >
-                    Replace existing
-                  </button>
-                  <button
-                    className={styles.pasteCancelBtn}
-                    type="button"
-                    onClick={() => { setPasteText(''); setShowPasteBox(false); }}
-                  >
-                    Cancel
-                  </button>
-                </div>
-              </div>
-            )}
+              );
+            })()}
           </>
         ) : (
           <table className={styles.viewTable}>

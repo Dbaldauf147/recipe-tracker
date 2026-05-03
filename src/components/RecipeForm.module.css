@@ -249,15 +249,66 @@
   background: var(--color-surface-alt, #f3f4f6);
 }
 
-.pasteBox {
-  margin-top: 0.75rem;
-  padding: 0.75rem;
-  border: 1px dashed var(--color-border);
-  border-radius: var(--radius-md);
-  background: var(--color-surface-alt);
+.pasteOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+}
+
+.pasteModal {
+  background: var(--color-surface);
+  border-radius: var(--radius-lg, 12px);
+  box-shadow: var(--shadow-md);
+  width: 100%;
+  max-width: 640px;
+  max-height: 90vh;
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
+  overflow: hidden;
+}
+
+.pasteHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.85rem 1.1rem;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.pasteTitle {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--color-text);
+}
+
+.pasteCloseBtn {
+  background: none;
+  border: none;
+  font-size: 1.4rem;
+  line-height: 1;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  padding: 0.15rem 0.4rem;
+  border-radius: var(--radius-sm);
+}
+
+.pasteCloseBtn:hover {
+  background: var(--color-surface-alt);
+  color: var(--color-text);
+}
+
+.pasteBody {
+  padding: 1rem 1.1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  overflow-y: auto;
 }
 
 .pasteHint {
@@ -268,7 +319,7 @@
 
 .pasteArea {
   width: 100%;
-  padding: 0.5rem 0.65rem;
+  padding: 0.55rem 0.7rem;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
@@ -287,16 +338,74 @@
   box-shadow: var(--focus-ring);
 }
 
-.pasteActions {
+.pasteCount {
+  font-size: 0.78rem;
+  color: var(--color-text-muted);
+  font-weight: 500;
+}
+
+.previewWrap {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  max-height: 260px;
+  overflow-y: auto;
+  background: var(--color-surface);
+}
+
+.previewTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+.previewTable thead th {
+  text-align: left;
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text-muted);
+  background: var(--color-surface-alt);
+  padding: 0.45rem 0.7rem;
+  border-bottom: 1px solid var(--color-border);
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.previewTable tbody td {
+  padding: 0.4rem 0.7rem;
+  border-bottom: 1px solid var(--color-border-light, var(--color-border));
+  color: var(--color-text);
+  vertical-align: top;
+}
+
+.previewTable tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.previewEmpty,
+.previewMore {
+  text-align: center;
+  color: var(--color-text-muted);
+  font-style: italic;
+  font-size: 0.8rem;
+}
+
+.pasteFooter {
   display: flex;
   flex-wrap: wrap;
   gap: 0.5rem;
+  padding: 0.85rem 1.1rem;
+  border-top: 1px solid var(--color-border);
+  background: var(--color-surface-alt);
 }
 
 .pasteAppendBtn,
-.pasteReplaceBtn {
-  padding: 0.4rem 0.9rem;
-  font-size: 0.85rem;
+.pasteReplaceBtn,
+.pasteCancelBtn {
+  padding: 0.45rem 1rem;
+  font-size: 0.88rem;
   font-family: inherit;
   font-weight: 600;
   border-radius: var(--radius-sm);
@@ -323,6 +432,18 @@
 .pasteReplaceBtn:hover:not(:disabled) {
   background: var(--color-danger, #c0392b);
   color: #fff;
+}
+
+.pasteCancelBtn {
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text-secondary);
+  margin-left: auto;
+}
+
+.pasteCancelBtn:hover {
+  background: var(--color-surface);
+  color: var(--color-text);
 }
 
 .pasteAppendBtn:disabled,
