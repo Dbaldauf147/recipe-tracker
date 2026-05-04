@@ -146,11 +146,60 @@ function isSocialMediaUrl(url) {
   return /tiktok\.com|instagram\.com|pinterest\.com|youtube\.com|youtu\.be|facebook\.com|threads\.net/i.test(url);
 }
 
+async function fetchInstagramEmbedCaption(url) {
+  // Instagram's normal pages are login-walled, so og:description/og:title
+  // come back empty when fetched server-side. The /reel/<id>/embed/captioned/
+  // endpoint is public and returns the caption HTML.
+  const m = url.match(/instagram\.com\/(?:p|reels?|tv)\/([A-Za-z0-9_-]+)/i);
+  if (!m) return '';
+  const shortcode = m[1];
+  try {
+    const res = await fetch(`https://www.instagram.com/reel/${shortcode}/embed/captioned/`, {
+      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36', 'Accept': 'text/html' },
+    });
+    if (!res.ok) return '';
+    const html = await res.text();
+    let captionMatch = html.match(/class="Caption"[^>]*>([\s\S]*?)<\/div>/);
+    if (!captionMatch) captionMatch = html.match(/class="CaptionComments"[^>]*>[\s\S]*?class="CaptionUsername"[^>]*>[\s\S]*?<\/a>([\s\S]*?)<\/div>/);
+    if (!captionMatch) captionMatch = html.match(/"caption":\s*\{[^}]*"text":"((?:[^"\\]|\\.)*)"/);
+    if (!captionMatch) captionMatch = html.match(/"edge_media_to_caption"[\s\S]*?"text":"((?:[^"\\]|\\.)*)"/);
+    if (!captionMatch) {
+      // Last-ditch oEmbed
+      try {
+        const oembedRes = await fetch(`https://www.instagram.com/api/v1/oembed/?url=https://www.instagram.com/reel/${shortcode}/`);
+        if (oembedRes.ok) {
+          const oembed = await oembedRes.json();
+          if (oembed.title) return oembed.title;
+        }
+      } catch {}
+      return '';
+    }
+    let caption = captionMatch[1];
+    try { caption = JSON.parse(`"${caption}"`); } catch {}
+    caption = caption.replace(/<br\s*\/?>/gi, '\n').replace(/<[^>]+>/g, '');
+    caption = caption
+      .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&nbsp;/g, ' ');
+    caption = caption.replace(/^[\w.]+/, '').trim();
+    caption = caption.replace(/View all \d+ comments\s*$/, '').trim();
+    return caption;
+  } catch {
+    return '';
+  }
+}
+
 async function fetchSocialData(url) {
   let caption = '';
   let author = '';
   let thumbnailUrl = '';
   let videoDownloadUrl = '';
+
+  // Instagram: pull the caption from the public embed endpoint.
+  // The normal page is login-walled and would return only "Instagram"
+  // as the og:title, which is what was leaking through to the AI parse.
+  if (/instagram\.com/i.test(url)) {
+    caption = await fetchInstagramEmbedCaption(url);
+  }
 
   // TikTok: use oEmbed + tikwm for video download URL
   if (/tiktok\.com/i.test(url)) {
