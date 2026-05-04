@@ -56,21 +56,43 @@ export async function saveField(uid, field, value) {
   await setDoc(ref, { [field]: value }, { merge: true });
 }
 
-/** Save workout log to a separate Firestore document (avoids 1 MB user doc limit). */
+/** Save workout log to a separate Firestore document (avoids 1 MB user doc limit).
+ *  Refuses to overwrite a non-empty remote with an empty/non-array — this
+ *  was the data-loss kill path on 2026-05-04 where a stray hydrate-with-[]
+ *  caused subsequent saves to wipe Firestore. */
 export async function saveWorkoutLogToFirestore(uid, workouts) {
   const ref = doc(db, 'users', uid, 'data', 'workoutLog');
+  if (!Array.isArray(workouts) || workouts.length === 0) {
+    try {
+      const existing = await getDoc(ref);
+      const existingCount = existing.exists() ? (existing.data().workouts || []).length : 0;
+      if (existingCount > 0) {
+        console.warn(
+          `[saveWorkoutLogToFirestore] About to write ${Array.isArray(workouts) ? workouts.length : 'non-array'} workouts; remote has ${existingCount}. Refusing to overwrite. uid=${uid}`,
+        );
+        return;
+      }
+    } catch (err) {
+      console.error('[saveWorkoutLogToFirestore] safety pre-read failed:', err);
+      return;
+    }
+  }
   await setDoc(ref, { workouts: workouts || [] }, { merge: false });
 }
 
 /** Load workout log from the separate subcollection doc. Returns null when
- *  the subcollection doc doesn't exist (caller should check the main user
- *  doc for legacy data and migrate). */
+ *  the subcollection doc doesn't exist OR holds an empty/missing workouts
+ *  array — empty is treated as "no data" so the migration block can fall
+ *  through to the legacy main-doc field if needed, instead of letting a
+ *  stray `{workouts: []}` mask healthy legacy data on every load. */
 export async function loadWorkoutLogFromFirestore(uid) {
   try {
     const ref = doc(db, 'users', uid, 'data', 'workoutLog');
     const snap = await getDoc(ref);
-    if (snap.exists()) return snap.data().workouts || [];
-    return null;
+    if (!snap.exists()) return null;
+    const workouts = snap.data().workouts;
+    if (!Array.isArray(workouts) || workouts.length === 0) return null;
+    return workouts;
   } catch (err) {
     console.error('loadWorkoutLogFromFirestore:', err);
     return null;
@@ -504,7 +526,25 @@ export function hydrateLocalStorage(userData, uid) {
   }
 
   if (userData.workoutLog) {
-    localStorage.setItem('sunday-workout-log', JSON.stringify(userData.workoutLog));
+    // Don't let a remote-empty wipe a populated local log. If localStorage
+    // already has workouts and the remote is empty, keep local — same
+    // defense as the mobile workoutStore.hydrate guard.
+    let nextLog = userData.workoutLog;
+    if (Array.isArray(nextLog) && nextLog.length === 0) {
+      try {
+        const existingRaw = localStorage.getItem('sunday-workout-log');
+        const existingArr = existingRaw ? JSON.parse(existingRaw) : null;
+        if (Array.isArray(existingArr) && existingArr.length > 0) {
+          console.warn(
+            `[loadUserData] Remote workoutLog empty; preserving ${existingArr.length} local workouts.`,
+          );
+          nextLog = null;
+        }
+      } catch { /* fall through */ }
+    }
+    if (nextLog) {
+      localStorage.setItem('sunday-workout-log', JSON.stringify(nextLog));
+    }
   }
 
   if (userData.exerciseLibrary) {
