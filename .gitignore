@@ -41,3 +41,7 @@ OneDrive/
 *firebase-adminsdk*.json
 *service-account*.json
 firebase-key*.json
+
+# Firebase Functions / CLI build cache
+.firebase/
+functions/lib/

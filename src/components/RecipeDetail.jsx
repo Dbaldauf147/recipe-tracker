@@ -512,7 +512,8 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
     try { return localStorage.getItem('sunday-show-ghg') !== 'false'; } catch { return true; }
   });
   const [showShelfLife, setShowShelfLife] = useState(() => {
-    try { return localStorage.getItem('sunday-show-shelf') !== 'false'; } catch { return true; }
+    // Default hidden. Only show if the user has explicitly opted in.
+    try { return localStorage.getItem('sunday-show-shelf') === 'true'; } catch { return false; }
   });
   const [ingGearOpen, setIngGearOpen] = useState(false);
   const ingGearRef = useRef(null);

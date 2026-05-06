@@ -227,6 +227,58 @@ export function exportToCSV() {
   URL.revokeObjectURL(url);
 }
 
+/**
+ * Full JSON snapshot of every app-owned localStorage key, packaged for
+ * cold storage on the user's machine. Auto-discovers any key matching the
+ * established naming prefixes — no list to maintain.
+ */
+const APP_BACKUP_PREFIXES = ['sunday-', 'recipe-tracker-', 'prep-day-'];
+const APP_BACKUP_EXCLUDE = new Set([
+  'sunday-current-uid',
+  'sunday-post-onboarding',
+  'sunday-pending-shared-recipe',
+  'sunday-recipe-source-seen',
+  'sunday-weight-cleanup-v2',
+  'sunday-weight-cleanup-v3',
+  'sunday-weight-setup-done',
+  'migration-key-ingredients-v1',
+  'migration-size-variants-v2',
+]);
+
+export function exportFullJSON() {
+  const data = {};
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i);
+    if (!key) continue;
+    if (APP_BACKUP_EXCLUDE.has(key)) continue;
+    if (key.startsWith('sunday-backup-full-')) continue;
+    if (!APP_BACKUP_PREFIXES.some(p => key.startsWith(p))) continue;
+    const raw = localStorage.getItem(key);
+    if (raw == null) continue;
+    try {
+      data[key] = JSON.parse(raw);
+    } catch {
+      data[key] = raw;
+    }
+  }
+  const exportObj = {
+    schema: 'prep-day-full-backup',
+    version: 2,
+    exportedAt: new Date().toISOString(),
+    keyCount: Object.keys(data).length,
+    data,
+  };
+  const json = JSON.stringify(exportObj, null, 2);
+  const blob = new Blob([json], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  const today = new Date().toISOString().slice(0, 10);
+  a.download = `prep-day-full-backup-${today}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 // Parse a workout-history CSV (the format produced by exportWorkoutHistoryToCSV)
 // back into the workouts[] shape used by WorkoutPage. Each row in the CSV
 // becomes one entry; rows sharing a date are grouped into one workout-day,

@@ -1,7 +1,7 @@
 import { createContext, useContext, useState, useEffect, useRef } from 'react';
-import { onAuthStateChanged, signInWithPopup, signOut, createUserWithEmailAndPassword, signInWithEmailAndPassword, updateProfile, sendPasswordResetEmail, deleteUser as firebaseDeleteUser } from 'firebase/auth';
+import { onAuthStateChanged, signInWithPopup, signOut, createUserWithEmailAndPassword, signInWithEmailAndPassword, updateProfile, sendPasswordResetEmail } from 'firebase/auth';
 import { auth, googleProvider, facebookProvider, appleProvider } from '../firebase';
-import { loadUserData, migrateToFirestore, hydrateLocalStorage, saveField, recordLogin, subscribeToUserData, loadPendingSetup } from '../utils/firestoreSync';
+import { loadUserData, migrateToFirestore, hydrateLocalStorage, saveField, recordLogin, subscribeToUserData, loadPendingSetup, backupAllUserData } from '../utils/firestoreSync';
 import { syncMealImages, clearImageCache } from '../utils/generateMealImage';
 
 const AuthContext = createContext(null);
@@ -68,6 +68,9 @@ export function AuthProvider({ children }) {
   const [hasCompletedOnboarding, setHasCompletedOnboarding] = useState(false);
   const firestoreUnsubRef = useRef(null);
   const [syncVersion, setSyncVersion] = useState(0);
+  // ISO string from userData.deletedAtClient when soft-delete is pending; null otherwise.
+  // Populated on initial load + kept fresh via the realtime subscription.
+  const [deletionPendingAt, setDeletionPendingAt] = useState(null);
 
   const currentOnboardingStep = onboardingSteps[0] || null;
 
@@ -171,13 +174,25 @@ export function AuthProvider({ children }) {
           } catch {}
         }
 
-        // Determine onboarding state
+        // Determine onboarding state. An established user is anyone with the
+        // explicit flag, with key ingredients chosen, OR with existing recipes
+        // / weight history / body stats — those are unambiguous signals they
+        // already finished setup once. Without the broader checks, a missing
+        // `keyIngredients` field (which can happen if it gets cleared or
+        // never written) drops returning users back into onboarding even
+        // though they've used the app for months.
         const hasOnboardingComplete = userData?.onboardingComplete === true;
         const hasKeyIngredients = userData?.keyIngredients?.length > 0;
+        const hasRecipes = Array.isArray(userData?.recipes) && userData.recipes.length > 0;
+        const hasWeightLog = Array.isArray(userData?.weightLog) && userData.weightLog.length > 0;
+        const hasBodyStats = userData?.bodyStats && Object.keys(userData.bodyStats).length > 0;
+        const looksEstablished =
+          hasOnboardingComplete || hasKeyIngredients || hasRecipes || hasWeightLog || hasBodyStats;
         const hasGoals = userData?.userGoals != null;
 
-        if (hasOnboardingComplete || hasKeyIngredients) {
-          // Backwards compat: already completed onboarding
+        if (looksEstablished) {
+          // Already an active user — skip onboarding regardless of which
+          // marker flag(s) survived.
           setHasCompletedOnboarding(true);
           setOnboardingSteps([]);
           setCompletedSteps([]);
@@ -198,9 +213,15 @@ export function AuthProvider({ children }) {
           setCompletedSteps([]);
         }
 
+        // Track soft-delete pending state — see the recovery banner in App.jsx.
+        setDeletionPendingAt(userData?.deletedAtClient || null);
+
         // Start real-time sync — re-hydrate localStorage when another device writes
         firestoreUnsubRef.current = subscribeToUserData(firebaseUser.uid, (data) => {
           hydrateLocalStorage(data, firebaseUser.uid);
+          // Keep deletion-pending state fresh too so cancel/re-mark from
+          // another tab or device propagates without a reload.
+          setDeletionPendingAt(data?.deletedAtClient || null);
           setSyncVersion(v => v + 1);
           // Notify hooks that localStorage was updated from remote
           window.dispatchEvent(new Event('firestore-sync'));
@@ -208,6 +229,24 @@ export function AuthProvider({ children }) {
 
         setUser(firebaseUser);
         setDataReady(true);
+
+        // Daily safety snapshot of all user-doc fields. Throttled so it only
+        // writes once per day per UID. Recipes are already snapshotted by
+        // backupRecipes() in useRecipes; this fills the gap for everything
+        // else (weightLog, bodyStats, nutritionGoals, keyIngredients, etc.)
+        // so a future doc-level deletion can't take this stuff down again.
+        try {
+          const today = new Date().toISOString().slice(0, 10);
+          const markerKey = `sunday-backup-full-${firebaseUser.uid}`;
+          if (localStorage.getItem(markerKey) !== today) {
+            // Defer slightly so initial sync has populated localStorage.
+            setTimeout(() => {
+              backupAllUserData(firebaseUser.uid).then(() => {
+                localStorage.setItem(markerKey, today);
+              });
+            }, 5000);
+          }
+        } catch {}
       } else if (!isGuestRef.current) {
         setUser(null);
         setDataReady(false);
@@ -418,28 +457,56 @@ export function AuthProvider({ children }) {
     }
   }
 
+  /**
+   * Soft delete: mark the account for deletion in 30 days but don't actually
+   * delete anything. The user can sign back in within the window to cancel.
+   * A scheduled Cloud Function (processSoftDeletes) does the real deletion
+   * after the grace period.
+   *
+   * Behavior change history: previously this function performed an immediate
+   * hard delete (deleteDoc + firebaseDeleteUser), which was irrecoverable.
+   * The 2026-05-06 incident was traced to this exact path running silently
+   * — the symptoms are auth record gone, main user doc gone, but
+   * subcollections orphaned. 12 user accounts in this project showed that
+   * pattern. Soft delete adds a 30-day undo window for any future case.
+   */
   async function deleteAccount() {
     const currentUser = auth.currentUser;
     if (!currentUser) return;
     try {
-      // Delete user document from Firestore
-      const { doc, deleteDoc } = await import('firebase/firestore');
+      const { doc, setDoc, serverTimestamp } = await import('firebase/firestore');
       const { db } = await import('../firebase');
-      await deleteDoc(doc(db, 'users', currentUser.uid));
-      // Clear all local data
-      clearAppStorage();
-      clearImageCache();
-      // Delete the Firebase Auth account
-      await firebaseDeleteUser(currentUser);
-      setUser(null);
-      setDataReady(false);
+      await setDoc(
+        doc(db, 'users', currentUser.uid),
+        {
+          deletedAt: serverTimestamp(),
+          deletedAtClient: new Date().toISOString(),
+        },
+        { merge: true },
+      );
+      // Sign the user out (this also clears localStorage via the existing
+      // logOut path). Their data stays intact in Firestore.
+      await signOut(auth);
     } catch (err) {
-      console.error('Delete account error:', err);
-      if (err.code === 'auth/requires-recent-login') {
-        throw new Error('For security, please sign out and sign back in, then try deleting again.');
-      }
+      console.error('Soft-delete error:', err);
       throw err;
     }
+  }
+
+  /**
+   * Cancel a pending soft-delete by clearing the deletedAt fields on the
+   * user doc. Called from the recovery banner when the user signs back in
+   * within the 30-day window and wants to keep their account.
+   */
+  async function cancelDeletion() {
+    const currentUser = auth.currentUser;
+    if (!currentUser) return;
+    const { doc, updateDoc, deleteField } = await import('firebase/firestore');
+    const { db } = await import('../firebase');
+    await updateDoc(doc(db, 'users', currentUser.uid), {
+      deletedAt: deleteField(),
+      deletedAtClient: deleteField(),
+    });
   }
 
   function restartOnboarding() {
@@ -454,8 +521,8 @@ export function AuthProvider({ children }) {
   }
 
   const value = {
-    user, loading, dataReady, syncVersion, isGuest, currentOnboardingStep, justOnboarded, hasCompletedOnboarding, authError,
-    signInWithGoogle, signInWithFacebook, signInWithApple, signUpWithEmail, signInWithEmail, resetPassword, continueAsGuest, logOut, deleteAccount,
+    user, loading, dataReady, syncVersion, isGuest, currentOnboardingStep, justOnboarded, hasCompletedOnboarding, authError, deletionPendingAt,
+    signInWithGoogle, signInWithFacebook, signInWithApple, signUpWithEmail, signInWithEmail, resetPassword, continueAsGuest, logOut, deleteAccount, cancelDeletion,
     completeGoals, skipGoals, goBackOnboarding, advanceOnboarding,
     completeNutritionGoals, completeKeyIngredients, completeRecipeSetup,
     restartOnboarding, cancelOnboarding,

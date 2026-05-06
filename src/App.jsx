@@ -181,7 +181,7 @@ function loadWeeklyServings() {
  * Authenticated app content — rendered with key={user.uid} so it
  * remounts when the user changes, re-initializing all useState from localStorage.
  */
-function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal, onCloseGoalsModal, onCompleteGoals }) {
+function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal, onCloseGoalsModal, onCompleteGoals, deletionPendingAt, cancelDeletion }) {
   const { recipes, addRecipe, updateRecipe, deleteRecipe, getRecipe, importRecipes, refreshLinkedRecipes } =
     useRecipes();
 
@@ -742,6 +742,39 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
       </aside>
 
       <main className={styles.main}>
+        {/* Soft-delete recovery banner — shows when an account is scheduled
+            for permanent deletion. Always rendered above other banners since
+            data loss prevention takes priority. */}
+        {deletionPendingAt && (() => {
+          const scheduledFor = new Date(new Date(deletionPendingAt).getTime() + 30 * 24 * 60 * 60 * 1000);
+          const daysLeft = Math.max(0, Math.ceil((scheduledFor.getTime() - Date.now()) / (24 * 60 * 60 * 1000)));
+          return (
+            <div style={{ background: '#FEF2F2', border: '1px solid #FCA5A5', borderRadius: 8, padding: '0.75rem 1rem', margin: '0.5rem 1rem 1rem', display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
+              <span style={{ fontSize: '1.2rem' }}>⚠️</span>
+              <div style={{ flex: 1, minWidth: 200 }}>
+                <div style={{ fontWeight: 700, color: '#991B1B', fontSize: '0.95rem' }}>
+                  Account scheduled for permanent deletion
+                </div>
+                <div style={{ fontSize: '0.85rem', color: '#7F1D1D', marginTop: 2 }}>
+                  Your data will be permanently deleted on {scheduledFor.toLocaleDateString()} ({daysLeft} {daysLeft === 1 ? 'day' : 'days'} remaining).
+                </div>
+              </div>
+              <button
+                onClick={async () => {
+                  try {
+                    await cancelDeletion();
+                  } catch (err) {
+                    alert('Failed to cancel deletion. Please try again.');
+                  }
+                }}
+                style={{ background: '#16A34A', color: '#fff', border: 'none', borderRadius: 6, padding: '0.5rem 1rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}
+              >
+                Cancel deletion — keep my data
+              </button>
+            </div>
+          );
+        })()}
+
         {(() => {
           const items = [];
           if (showWeighBanner) items.push({ label: "Enter this week's weight", action: () => navigateTo('weight-tracker') });
@@ -1055,6 +1088,7 @@ function App() {
     completeGoals, skipGoals, goBackOnboarding, advanceOnboarding,
     completeNutritionGoals, completeKeyIngredients, completeRecipeSetup,
     restartOnboarding, cancelOnboarding, hasCompletedOnboarding,
+    deletionPendingAt, cancelDeletion,
   } = useAuth();
 
   const shareToken = new URLSearchParams(window.location.search).get('share');
@@ -1095,6 +1129,8 @@ function App() {
           showGoalsModal={false}
           onCloseGoalsModal={cancelOnboarding}
           onCompleteGoals={completeGoals}
+          deletionPendingAt={deletionPendingAt}
+          cancelDeletion={cancelDeletion}
         />
         <GoalsPage asModal onComplete={completeGoals} onSkip={goalsSkip} onBack={goalsBack} />
       </ErrorBoundary>
@@ -1139,6 +1175,8 @@ function App() {
         showGoalsModal={hasCompletedOnboarding && currentOnboardingStep === 'goals'}
         onCloseGoalsModal={cancelOnboarding}
         onCompleteGoals={completeGoals}
+        deletionPendingAt={deletionPendingAt}
+        cancelDeletion={cancelDeletion}
       />
     </ErrorBoundary>
   );

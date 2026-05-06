@@ -241,9 +241,34 @@ function WeightCalendar({ log }) {
   );
 }
 
+// Monday-anchored start of the ISO week containing `date`, as YYYY-MM-DD.
+function startOfWeekStr(date = new Date()) {
+  const d = new Date(date);
+  d.setHours(0, 0, 0, 0);
+  const dow = (d.getDay() + 6) % 7; // Monday = 0
+  d.setDate(d.getDate() - dow);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
 export function checkWeighReminder() {
   const log = loadWeightLog();
-  return shouldWeighToday(log) && !log.some(e => e.date === todayStr());
+  if (!shouldWeighToday(log)) return false;
+  const today = todayStr();
+  const settings = getWeighSettings();
+  // For week / month cadences, count any log entry within the current
+  // window — not just today. So if you weigh weekly and logged on
+  // Monday, the banner stays hidden Tuesday–Sunday even on the
+  // configured weigh day(s) of the next eligible week.
+  if (settings.repeatUnit === 'week') {
+    const start = startOfWeekStr();
+    return !log.some(e => e.date >= start && e.date <= today);
+  }
+  if (settings.repeatUnit === 'month') {
+    const month = today.slice(0, 7);
+    return !log.some(e => e.date.startsWith(month));
+  }
+  // Daily (or anything else): logged exactly today fulfills it.
+  return !log.some(e => e.date === today);
 }
 
 const ADMIN_UID_WT = import.meta.env.VITE_ADMIN_UID;

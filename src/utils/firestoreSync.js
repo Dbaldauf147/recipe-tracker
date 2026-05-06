@@ -169,6 +169,80 @@ export async function backupRecipes(uid, recipes) {
   }, { merge: false });
 }
 
+// Prefixes that identify app-owned data in localStorage. Any key starting
+// with one of these is automatically captured by backups — no list to
+// maintain. New features that follow the naming convention are protected
+// for free. Update this array (rather than per-feature lists elsewhere)
+// only if you adopt a new prefix.
+export const APP_STORAGE_PREFIXES = ['sunday-', 'recipe-tracker-', 'prep-day-'];
+
+// Internal localStorage keys that don't represent user-owned data and
+// shouldn't be in backups (mostly sync markers / one-shot migration flags).
+const BACKUP_EXCLUDE = new Set([
+  'sunday-current-uid',
+  'sunday-post-onboarding',
+  'sunday-pending-shared-recipe',
+  'sunday-recipe-source-seen',
+  'sunday-weight-cleanup-v2',
+  'sunday-weight-cleanup-v3',
+  'sunday-weight-setup-done',
+  'migration-key-ingredients-v1',
+  'migration-size-variants-v2',
+]);
+
+function snapshotAllAppLocalStorage() {
+  const data = {};
+  if (typeof localStorage === 'undefined') return data;
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i);
+    if (!key) continue;
+    if (BACKUP_EXCLUDE.has(key)) continue;
+    if (key.startsWith('sunday-backup-full-')) continue; // throttle markers
+    if (!APP_STORAGE_PREFIXES.some(p => key.startsWith(p))) continue;
+    const raw = localStorage.getItem(key);
+    if (raw == null) continue;
+    try {
+      data[key] = JSON.parse(raw);
+    } catch {
+      data[key] = raw;
+    }
+  }
+  return data;
+}
+
+/**
+ * Save a daily snapshot of *all* app-owned data — every localStorage key
+ * matching APP_STORAGE_PREFIXES, regardless of whether the field existed
+ * when this code was written. Stored at users/{uid}/backups/full-YYYY-MM-DD.
+ *
+ * Auto-discovery model: new features that follow the naming convention are
+ * captured automatically. No per-feature backup wiring needed. The previous
+ * approach (hardcoded field list) is what caused weight log to be missed —
+ * that mistake can't recur with this approach as long as new features use
+ * one of the established prefixes.
+ *
+ * Same-day calls overwrite (one snapshot per day, latest wins).
+ */
+export async function backupAllUserData(uid) {
+  if (!uid) return;
+  const today = new Date().toISOString().slice(0, 10);
+  const snapshot = snapshotAllAppLocalStorage();
+  try {
+    const ref = doc(db, 'users', uid, 'backups', `full-${today}`);
+    await setDoc(ref, {
+      data: snapshot,
+      date: today,
+      timestamp: new Date().toISOString(),
+      keyCount: Object.keys(snapshot).length,
+      version: 2,
+    }, { merge: false });
+  } catch (err) {
+    // Don't break the app if the backup write fails — user-facing operations
+    // shouldn't error because of a background safety mechanism.
+    console.error('backupAllUserData write failed:', err);
+  }
+}
+
 /**
  * List available recipe backups (returns array of { date, count, timestamp }).
  */
@@ -921,15 +995,99 @@ export async function getUsername(uid) {
 
 /* ── Recipe sharing functions ── */
 
+// Mirror of mobile's RECIPE_MEASUREMENT_TO_GRAMS table — keep in sync.
+const SHARE_MEAS_TO_GRAMS = {
+  g: 1, grams: 1, gram: 1, gm: 1,
+  oz: 28.35, ounce: 28.35, ounces: 28.35,
+  cup: 140, cups: 140,
+  tbsp: 15, tablespoon: 15, tablespoons: 15,
+  tsp: 5, teaspoon: 5, teaspoons: 5,
+  ml: 1, milliliter: 1, milliliters: 1, millilitre: 1,
+  lb: 453.6, lbs: 453.6, pound: 453.6, pounds: 453.6,
+  kg: 1000, kilogram: 1000, kilograms: 1000,
+  piece: 100, pieces: 100, whole: 100, medium: 150, large: 200, small: 80,
+  clove: 5, cloves: 5, slice: 30, slices: 30, can: 400, bunch: 50,
+  pinch: 0.5, dash: 0.5, handful: 30,
+};
+
+const SHARE_NUTRIENT_FIELDS = [
+  'calories', 'protein', 'carbs', 'fat', 'fiber', 'sugar',
+  'saturatedFat', 'addedSugar', 'sodium', 'potassium',
+  'calcium', 'iron', 'magnesium', 'zinc', 'vitaminB12', 'vitaminC',
+  'leucine', 'omega3',
+];
+
+function computeShareIngredientNutrition(row, qty, measurement) {
+  const gPer100 = parseFloat(row?.grams) || 100;
+  const measGrams = SHARE_MEAS_TO_GRAMS[(measurement || '').toLowerCase()] || gPer100;
+  const totalGrams = qty * measGrams;
+  const scale = totalGrams / 100;
+  const result = {};
+  for (const f of SHARE_NUTRIENT_FIELDS) {
+    const val = parseFloat(row?.[f]);
+    if (!isNaN(val)) result[f] = val * scale;
+  }
+  return result;
+}
+
+/**
+ * Embed per-ingredient nutrition + a per-serving macros snapshot, computed
+ * against the sender's ingredient DB. Self-contains the recipe so a
+ * recipient with an empty / mismatched ingredient DB still sees correct
+ * macros when logging the meal.
+ */
+function enrichRecipeForShare(recipe, ingredientsDB) {
+  const cleanRecipe = JSON.parse(JSON.stringify(recipe));
+  const recipeServings = parseFloat(cleanRecipe?.servings) || 1;
+  const totals = {};
+  const enrichedIngredients = [];
+  let any = false;
+  for (const ing of cleanRecipe?.ingredients || []) {
+    const dbRow = (ingredientsDB || []).find(
+      i => (i.ingredient || '').toLowerCase().trim() === (ing.ingredient || '').toLowerCase().trim(),
+    );
+    if (dbRow) {
+      const qty = parseFloat(ing.quantity) || 1;
+      const ingNutrition = computeShareIngredientNutrition(dbRow, qty, ing.measurement || 'g');
+      enrichedIngredients.push({ ...ing, nutrition: ingNutrition });
+      for (const [k, v] of Object.entries(ingNutrition)) {
+        if (typeof v === 'number') totals[k] = (totals[k] || 0) + v;
+      }
+      any = true;
+    } else {
+      enrichedIngredients.push(ing);
+    }
+  }
+  if (any) {
+    cleanRecipe.ingredients = enrichedIngredients;
+    const macrosPerServing = {};
+    for (const [k, v] of Object.entries(totals)) {
+      macrosPerServing[k] = v / recipeServings;
+    }
+    cleanRecipe.macrosPerServing = macrosPerServing;
+  }
+  return cleanRecipe;
+}
+
 /**
  * Share a recipe with a friend. Creates a doc in sharedRecipes collection.
+ * Recipe is enriched with per-ingredient nutrition and a per-serving macros
+ * snapshot so it stays accurate for recipients regardless of their own
+ * ingredient DB state.
  */
 export async function shareRecipe(fromUid, toUid, fromUsername, recipe) {
+  let ingredientsDB = [];
+  try {
+    // Lazy import to avoid bundler tangling at module-init time.
+    const { loadIngredients } = await import('./ingredientsStore.js');
+    ingredientsDB = loadIngredients() || [];
+  } catch {}
+  const enriched = enrichRecipeForShare(recipe, ingredientsDB);
   await addDoc(collection(db, 'sharedRecipes'), {
     from: fromUid,
     to: toUid,
     fromUsername,
-    recipe,
+    recipe: enriched,
     sharedAt: new Date().toISOString(),
   });
 }

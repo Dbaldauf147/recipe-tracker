@@ -2,7 +2,7 @@ import { useState, useMemo, useEffect, useRef } from 'react';
 import { RecipeCard } from './RecipeCard';
 import { loadStarterRecipes } from '../utils/starterRecipes';
 import { getUserKeyIngredients, normalize, recipeHasIngredient } from '../utils/keyIngredients';
-import { exportToCSV, importFromCSV } from '../utils/exportData';
+import { exportToCSV, importFromCSV, exportFullJSON } from '../utils/exportData';
 import { locationToRegion, getSeasonalIngredients, getRecipeSeasonalIngredients } from '../utils/seasonal';
 import { useAuth } from '../contexts/AuthContext';
 import { loadUserData, saveField, loadFriends, loadFriendRecipes, getPendingSharedRecipes, shareRecipe, getUsername } from '../utils/firestoreSync';
@@ -1868,17 +1868,8 @@ export function RecipeList({
         </button>
         <button
           className={styles.importBtn}
-          onClick={() => {
-            const data = JSON.stringify(recipes, null, 2);
-            const blob = new Blob([data], { type: 'application/json' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = `prep-day-recipes-${new Date().toISOString().slice(0, 10)}.json`;
-            a.click();
-            URL.revokeObjectURL(url);
-          }}
-          title="Download a backup of all your recipes as a JSON file"
+          onClick={exportFullJSON}
+          title="Download a full backup of everything — recipes, weight log, meal log, body stats, goals, healthy ingredients, weekly plan — as a JSON file. Save it somewhere safe; this is your cold backup if anything ever happens to your cloud data."
         >
           ↓ Backup
         </button>
