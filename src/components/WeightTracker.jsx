@@ -42,6 +42,217 @@ function parseWeightCSV(text) {
   return entries;
 }
 
+// Paste-from-Excel helpers. Excel copies cells as tab-separated values; we
+// also accept CSV. The grid is shown to the user with column-mapping
+// dropdowns *before* anything is imported.
+function detectDelim(firstLine) {
+  const tabs = (firstLine.match(/\t/g) || []).length;
+  const commas = (firstLine.match(/,/g) || []).length;
+  if (tabs === 0 && commas === 0) return null;
+  return tabs >= commas ? '\t' : ',';
+}
+
+function parsePasteGrid(text) {
+  const lines = text.replace(/\r\n/g, '\n').split('\n').filter(l => l.length > 0);
+  if (lines.length === 0) return { rows: [], colCount: 0 };
+  const delim = detectDelim(lines[0]) || '\t';
+  const rows = lines
+    .map(l => l.split(delim).map(c => c.trim()))
+    .filter(r => r.some(c => c.length > 0));
+  const colCount = rows.length === 0 ? 0 : Math.max(...rows.map(r => r.length));
+  for (const r of rows) while (r.length < colCount) r.push('');
+  return { rows, colCount };
+}
+
+function isPasteHeaderRow(row) {
+  return row.some(cell => /^(date|weight|wt|lbs|kg|pounds)\b/i.test(cell));
+}
+
+function autoMapPasteColumns(rows) {
+  if (rows.length === 0) return [];
+  const first = rows[0];
+  if (isPasteHeaderRow(first)) {
+    return first.map(cell => {
+      const v = cell.toLowerCase();
+      if (/date/.test(v)) return 'date';
+      if (/weight|wt|lbs|kg|pounds/.test(v)) return 'weight';
+      return 'ignore';
+    });
+  }
+  return first.map(cell => {
+    if (/^\d{4}-\d{1,2}-\d{1,2}$/.test(cell)) return 'date';
+    if (/^\d{1,2}\/\d{1,2}\/\d{2,4}$/.test(cell)) return 'date';
+    if (/^\d+(\.\d+)?$/.test(cell)) {
+      const n = parseFloat(cell);
+      if (n > 50 && n < 600) return 'weight';
+    }
+    return 'ignore';
+  });
+}
+
+function normalizePasteDate(raw) {
+  const v = String(raw).trim();
+  if (!v) return null;
+  const iso = v.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+  if (iso) return `${iso[1]}-${iso[2].padStart(2, '0')}-${iso[3].padStart(2, '0')}`;
+  const slash = v.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
+  if (slash) {
+    let yr = slash[3];
+    if (yr.length === 2) yr = '20' + yr;
+    return `${yr}-${slash[1].padStart(2, '0')}-${slash[2].padStart(2, '0')}`;
+  }
+  const parsed = new Date(v);
+  if (!isNaN(parsed.getTime())) {
+    const y = parsed.getFullYear();
+    if (y > 1900 && y < 2200) {
+      return `${y}-${String(parsed.getMonth() + 1).padStart(2, '0')}-${String(parsed.getDate()).padStart(2, '0')}`;
+    }
+  }
+  return null;
+}
+
+function normalizePasteWeight(raw) {
+  const cleaned = String(raw).replace(/[^0-9.\-]/g, '');
+  const n = parseFloat(cleaned);
+  if (!cleaned || isNaN(n) || n <= 0) return null;
+  return n;
+}
+
+function PasteImportModal({ existingDates, onClose, onImport }) {
+  const [rawText, setRawText] = useState('');
+  const [columnMap, setColumnMap] = useState([]);
+  const [userTouched, setUserTouched] = useState(false);
+
+  const grid = useMemo(() => parsePasteGrid(rawText), [rawText]);
+  const hasHeader = grid.rows.length > 0 && isPasteHeaderRow(grid.rows[0]);
+  const dataRows = hasHeader ? grid.rows.slice(1) : grid.rows;
+
+  useEffect(() => {
+    if (!userTouched) setColumnMap(autoMapPasteColumns(grid.rows));
+  }, [grid.colCount, hasHeader, rawText, userTouched]);
+
+  const setColAt = (idx, value) => {
+    setUserTouched(true);
+    setColumnMap(prev => {
+      const next = [...prev];
+      while (next.length < grid.colCount) next.push('ignore');
+      if (value === 'date' || value === 'weight') {
+        next.forEach((v, i) => { if (i !== idx && v === value) next[i] = 'ignore'; });
+      }
+      next[idx] = value;
+      return next;
+    });
+  };
+
+  const dateCol = columnMap.indexOf('date');
+  const weightCol = columnMap.indexOf('weight');
+
+  const parsed = useMemo(() => {
+    if (dateCol < 0 || weightCol < 0) return { entries: [], invalid: 0, duplicates: 0 };
+    const entries = [];
+    let invalid = 0;
+    let duplicates = 0;
+    const seen = new Set();
+    for (const row of dataRows) {
+      const dRaw = row[dateCol] || '';
+      const wRaw = row[weightCol] || '';
+      if (!dRaw.trim() && !wRaw.trim()) continue;
+      const d = normalizePasteDate(dRaw);
+      const w = normalizePasteWeight(wRaw);
+      if (!d || w === null) { invalid++; continue; }
+      if (seen.has(d) || existingDates.has(d)) { duplicates++; continue; }
+      seen.add(d);
+      entries.push({ date: d, weight: w });
+    }
+    return { entries, invalid, duplicates };
+  }, [dataRows, dateCol, weightCol, existingDates]);
+
+  const canImport = dateCol >= 0 && weightCol >= 0 && parsed.entries.length > 0;
+  const previewLimit = 8;
+
+  return (
+    <div className={styles.setupOverlay} onClick={onClose}>
+      <div className={styles.pasteModal} onClick={e => e.stopPropagation()}>
+        <h3 className={styles.setupTitle}>Paste from Excel</h3>
+        <p className={styles.setupDesc}>
+          Copy cells from a spreadsheet (Date and Weight columns) and paste them below.
+          You'll see a preview with column mapping before anything is imported.
+        </p>
+        <textarea
+          className={styles.pasteTextarea}
+          value={rawText}
+          onChange={e => { setRawText(e.target.value); setUserTouched(false); }}
+          placeholder="Paste here — one row per weigh-in"
+          rows={5}
+          autoFocus
+        />
+        {grid.colCount > 0 && (
+          <div className={styles.pastePreview}>
+            <div className={styles.pasteSummary}>
+              {dataRows.length} {dataRows.length === 1 ? 'row' : 'rows'} · {grid.colCount} {grid.colCount === 1 ? 'column' : 'columns'}
+              {hasHeader && <span className={styles.pasteBadge}> header skipped</span>}
+            </div>
+            <div className={styles.pasteHint}>Map each column below — pick which is Date and which is Weight.</div>
+            <div className={styles.pasteTableWrap}>
+              <table className={styles.pasteTable}>
+                <thead>
+                  <tr>
+                    {Array.from({ length: grid.colCount }).map((_, i) => (
+                      <th key={i}>
+                        <select
+                          className={styles.pasteSelect}
+                          value={columnMap[i] || 'ignore'}
+                          onChange={e => setColAt(i, e.target.value)}
+                        >
+                          <option value="ignore">Ignore</option>
+                          <option value="date">Date</option>
+                          <option value="weight">Weight (lbs)</option>
+                        </select>
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {dataRows.slice(0, previewLimit).map((row, i) => (
+                    <tr key={i}>
+                      {Array.from({ length: grid.colCount }).map((_, c) => (
+                        <td key={c}>{row[c] || ''}</td>
+                      ))}
+                    </tr>
+                  ))}
+                  {dataRows.length > previewLimit && (
+                    <tr>
+                      <td colSpan={grid.colCount} className={styles.pasteMore}>
+                        … and {dataRows.length - previewLimit} more
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+            <div className={styles.pasteCounts}>
+              <span className={styles.pasteOk}>{parsed.entries.length} valid</span>
+              {parsed.invalid > 0 && <span className={styles.pasteWarn}>{parsed.invalid} invalid</span>}
+              {parsed.duplicates > 0 && <span className={styles.pasteDup}>{parsed.duplicates} duplicate</span>}
+            </div>
+          </div>
+        )}
+        <div className={styles.pasteActions}>
+          <button type="button" className={styles.pasteCancel} onClick={onClose}>Cancel</button>
+          <button
+            type="button"
+            className={styles.pasteConfirm}
+            disabled={!canImport}
+            onClick={() => { onImport(parsed.entries); onClose(); }}
+          >
+            Import {parsed.entries.length} {parsed.entries.length === 1 ? 'entry' : 'entries'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 const WEIGHT_KEY = 'sunday-weight-log';
 
 function loadWeightLog() {
@@ -414,6 +625,20 @@ export function WeightTracker({ onClose, user, isOnboarding = false }) {
 
   const uploadRef = useRef(null);
   const [uploadResult, setUploadResult] = useState(null);
+  const [showPaste, setShowPaste] = useState(false);
+
+  const importEntries = useCallback((entries) => {
+    if (!entries || entries.length === 0) return;
+    setLog(prev => {
+      const dateSet = new Set(prev.map(e => e.date));
+      const newEntries = entries.filter(e => !dateSet.has(e.date));
+      const merged = [...prev, ...newEntries].sort((a, b) => a.date.localeCompare(b.date));
+      saveWeightLog(merged, user);
+      return merged;
+    });
+    setUploadResult(`Imported ${entries.length} ${entries.length === 1 ? 'entry' : 'entries'}.`);
+    setTimeout(() => setUploadResult(null), 3000);
+  }, [user]);
 
   const handleUploadCSV = useCallback((e) => {
     const file = e.target.files?.[0];
@@ -1096,6 +1321,9 @@ export function WeightTracker({ onClose, user, isOnboarding = false }) {
             <button className={styles.csvBtn} onClick={() => uploadRef.current?.click()}>
               ↑ Import CSV
             </button>
+            <button className={styles.csvBtn} onClick={() => setShowPaste(true)}>
+              📋 Paste from Excel
+            </button>
             <button className={styles.csvBtn} onClick={() => {
               const ws = getWeighSettings();
               const today = new Date(); today.setHours(0, 0, 0, 0);
@@ -1538,6 +1766,13 @@ export function WeightTracker({ onClose, user, isOnboarding = false }) {
           </div>
         </div>
       </div>
+    )}
+    {showPaste && (
+      <PasteImportModal
+        existingDates={new Set(log.map(e => e.date))}
+        onClose={() => setShowPaste(false)}
+        onImport={importEntries}
+      />
     )}
     </>
   );
