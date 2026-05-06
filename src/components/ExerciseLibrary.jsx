@@ -141,6 +141,10 @@ function lookupMuscleGroup(exerciseName) {
   return MUSCLE_GROUP_BY_EXERCISE[String(exerciseName || '').trim().toLowerCase()] || '';
 }
 
+function effectiveMuscleGroup(e) {
+  return (e?.muscleGroup && e.muscleGroup.trim()) || lookupMuscleGroup(e?.exercise);
+}
+
 const KNOWN_GROUPS = Object.keys(MUSCLE_GROUP_LOOKUP).sort();
 
 function blankExercise() {
@@ -149,6 +153,7 @@ function blankExercise() {
     primaryMuscles: '',
     secondaryMuscles: '',
     group: '',
+    muscleGroup: '',
     thisWeek: 0,
     lastWeek: 0,
     alternative: '',
@@ -182,7 +187,7 @@ export function ExerciseLibrary({ library, onChange }) {
   const COLUMNS = useMemo(() => [
     { key: 'exercise', label: 'Exercise', cls: 'colName', searchable: true, sortable: true, get: e => e.exercise },
     { key: 'group', label: 'Group', cls: 'colGroup', searchable: true, sortable: true, get: e => e.group },
-    { key: 'muscleGroup', label: 'Muscle Group', cls: 'colMuscleGroup', searchable: true, sortable: true, get: e => lookupMuscleGroup(e.exercise) },
+    { key: 'muscleGroup', label: 'Muscle Group', cls: 'colMuscleGroup', searchable: true, sortable: true, get: e => effectiveMuscleGroup(e) },
     { key: 'primary', label: 'Primary', cls: 'colMuscles', searchable: true, sortable: true, get: e => e.primaryMuscles },
     { key: 'secondary', label: 'Secondary', cls: 'colMuscles', searchable: true, sortable: true, get: e => e.secondaryMuscles },
     { key: 'videos', label: 'Videos', cls: 'colVideos', searchable: false, sortable: true, get: e => e.videos.length },
@@ -416,10 +421,14 @@ export function ExerciseLibrary({ library, onChange }) {
                   />
                 </td>
                 <td>
-                  {(() => {
-                    const mg = lookupMuscleGroup(e.exercise);
-                    return mg ? <span className={styles.groupBadge}>{mg}</span> : <span className={styles.dim}>—</span>;
-                  })()}
+                  <input
+                    list="exercise-known-groups"
+                    className={styles.cellInput}
+                    value={e.muscleGroup || ''}
+                    placeholder={lookupMuscleGroup(e.exercise) || '—'}
+                    onChange={ev => updateRow(originalIdx, 'muscleGroup', ev.target.value)}
+                    title={!e.muscleGroup && lookupMuscleGroup(e.exercise) ? `Auto-detected: ${lookupMuscleGroup(e.exercise)}` : undefined}
+                  />
                 </td>
                 <td className={styles.musclesCell}>
                   <input
