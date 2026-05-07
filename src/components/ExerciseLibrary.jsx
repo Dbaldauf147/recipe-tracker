@@ -141,8 +141,6 @@ function lookupMuscleGroup(exerciseName) {
   return MUSCLE_GROUP_BY_EXERCISE[String(exerciseName || '').trim().toLowerCase()] || '';
 }
 
-const KNOWN_GROUPS = Object.keys(MUSCLE_GROUP_LOOKUP).sort();
-
 function blankExercise() {
   return {
     exercise: '',
@@ -169,7 +167,6 @@ function videoSourceLabel(url) {
 
 export function ExerciseLibrary({ library, onChange }) {
   const [search, setSearch] = useState('');
-  const [groupFilter, setGroupFilter] = useState('');
   const [showRetired, setShowRetired] = useState(false);
   const [topOnly, setTopOnly] = useState(false);
   const [showImport, setShowImport] = useState(false);
@@ -181,7 +178,6 @@ export function ExerciseLibrary({ library, onChange }) {
 
   const COLUMNS = useMemo(() => [
     { key: 'exercise', label: 'Exercise', cls: 'colName', searchable: true, sortable: true, get: e => e.exercise },
-    { key: 'group', label: 'Group', cls: 'colGroup', searchable: true, sortable: true, get: e => e.group },
     { key: 'muscleGroup', label: 'Muscle Group', cls: 'colMuscleGroup', searchable: true, sortable: true, get: e => lookupMuscleGroup(e.exercise) },
     { key: 'primary', label: 'Primary', cls: 'colMuscles', searchable: true, sortable: true, get: e => e.primaryMuscles },
     { key: 'secondary', label: 'Secondary', cls: 'colMuscles', searchable: true, sortable: true, get: e => e.secondaryMuscles },
@@ -216,12 +212,6 @@ export function ExerciseLibrary({ library, onChange }) {
     return <span className={styles.sortIcon}>{sort.dir === 'asc' ? '↑' : '↓'}</span>;
   }
 
-  const groups = useMemo(() => {
-    const s = new Set();
-    for (const e of library) if (e.group) s.add(e.group);
-    return Array.from(s).sort();
-  }, [library]);
-
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     return library
@@ -229,7 +219,6 @@ export function ExerciseLibrary({ library, onChange }) {
       .filter(({ e }) => {
         if (!showRetired && e.retired) return false;
         if (topOnly && !e.top) return false;
-        if (groupFilter && e.group !== groupFilter) return false;
         for (const c of COLUMNS) {
           const term = (colSearch[c.key] || '').trim().toLowerCase();
           if (!term) continue;
@@ -246,7 +235,7 @@ export function ExerciseLibrary({ library, onChange }) {
           e.alternative.toLowerCase().includes(q)
         );
       });
-  }, [library, search, groupFilter, showRetired, topOnly, colSearch, COLUMNS]);
+  }, [library, search, showRetired, topOnly, colSearch, COLUMNS]);
 
   const sorted = useMemo(() => {
     const col = COLUMNS.find(c => c.key === sort.col);
@@ -311,10 +300,6 @@ export function ExerciseLibrary({ library, onChange }) {
           value={search}
           onChange={e => setSearch(e.target.value)}
         />
-        <select className={styles.select} value={groupFilter} onChange={e => setGroupFilter(e.target.value)}>
-          <option value="">All groups</option>
-          {groups.map(g => <option key={g} value={g}>{g}</option>)}
-        </select>
         <label className={styles.checkLabel}>
           <input type="checkbox" checked={topOnly} onChange={e => setTopOnly(e.target.checked)} />
           Top only
@@ -330,10 +315,6 @@ export function ExerciseLibrary({ library, onChange }) {
       <div className={styles.count}>
         {filtered.length} of {library.length} exercise{library.length === 1 ? '' : 's'}
       </div>
-
-      <datalist id="exercise-known-groups">
-        {KNOWN_GROUPS.map(g => <option key={g} value={g} />)}
-      </datalist>
 
       <div className={styles.tableWrap}>
         <table className={styles.table}>
@@ -405,15 +386,6 @@ export function ExerciseLibrary({ library, onChange }) {
                     />
                     Retired
                   </label>
-                </td>
-                <td>
-                  <input
-                    list="exercise-known-groups"
-                    className={styles.cellInput}
-                    value={e.group || ''}
-                    onChange={ev => updateRow(originalIdx, 'group', ev.target.value)}
-                    placeholder="—"
-                  />
                 </td>
                 <td>
                   {(() => {
