@@ -557,8 +557,40 @@ export function hydrateLocalStorage(userData, uid) {
       localStorage.setItem('recipe-tracker-recipes', JSON.stringify(remoteRecipes));
     }
   }
-  localStorage.setItem('sunday-weekly-plan', JSON.stringify(userData.weeklyPlan || []));
-  localStorage.setItem('sunday-plan-history', JSON.stringify(userData.planHistory || []));
+  // Don't let a remote-empty value wipe a populated local one. Same
+  // defense as the workoutLog guard further down — if the remote is
+  // empty/missing and we already have local data, keep local.
+  function hydrateArrayWithDefense(localKey, remoteVal, label) {
+    const remoteIsEmpty = remoteVal == null || (Array.isArray(remoteVal) && remoteVal.length === 0);
+    if (remoteIsEmpty) {
+      try {
+        const existingRaw = localStorage.getItem(localKey);
+        const existingArr = existingRaw ? JSON.parse(existingRaw) : null;
+        if (Array.isArray(existingArr) && existingArr.length > 0) {
+          console.warn(`[loadUserData] Remote ${label} empty; preserving ${existingArr.length} local entries.`);
+          return; // skip overwrite
+        }
+      } catch { /* fall through */ }
+    }
+    localStorage.setItem(localKey, JSON.stringify(remoteVal || []));
+  }
+  function hydrateObjectWithDefense(localKey, remoteVal, label) {
+    const remoteIsEmpty = remoteVal == null || (typeof remoteVal === 'object' && Object.keys(remoteVal).length === 0);
+    if (remoteIsEmpty) {
+      try {
+        const existingRaw = localStorage.getItem(localKey);
+        const existingObj = existingRaw ? JSON.parse(existingRaw) : null;
+        if (existingObj && typeof existingObj === 'object' && Object.keys(existingObj).length > 0) {
+          console.warn(`[loadUserData] Remote ${label} empty; preserving local.`);
+          return;
+        }
+      } catch { /* fall through */ }
+    }
+    localStorage.setItem(localKey, JSON.stringify(remoteVal || {}));
+  }
+
+  hydrateArrayWithDefense('sunday-weekly-plan', userData.weeklyPlan, 'weeklyPlan');
+  hydrateArrayWithDefense('sunday-plan-history', userData.planHistory, 'planHistory');
   localStorage.setItem('sunday-grocery-staples', JSON.stringify(userData.groceryStaples || []));
   localStorage.setItem('sunday-pantry-spices', JSON.stringify(userData.pantrySpices || []));
   localStorage.setItem('sunday-pantry-sauces', JSON.stringify(userData.pantrySauces || []));
@@ -566,7 +598,7 @@ export function hydrateLocalStorage(userData, uid) {
   localStorage.setItem('sunday-pantry-fruit', JSON.stringify(userData.pantryFruit || []));
   localStorage.setItem('sunday-shop-extras', JSON.stringify(userData.shopExtras || []));
   localStorage.setItem('sunday-shopping-selection', JSON.stringify(userData.shoppingSelection || []));
-  localStorage.setItem('sunday-weekly-servings', JSON.stringify(userData.weeklyServings || {}));
+  hydrateObjectWithDefense('sunday-weekly-servings', userData.weeklyServings, 'weeklyServings');
 
   if (userData.keyIngredients) {
     localStorage.setItem('sunday-key-ingredients', JSON.stringify(userData.keyIngredients));
@@ -595,8 +627,8 @@ export function hydrateLocalStorage(userData, uid) {
     localStorage.setItem('sunday-user-location', userData.userLocation);
   }
 
-  if (userData.weightLog) {
-    localStorage.setItem('sunday-weight-log', JSON.stringify(userData.weightLog));
+  if (userData.weightLog !== undefined) {
+    hydrateArrayWithDefense('sunday-weight-log', userData.weightLog, 'weightLog');
   }
 
   if (userData.workoutLog) {
