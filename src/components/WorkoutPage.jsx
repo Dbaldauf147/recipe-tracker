@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useRef } from 'react';
 import { ComposedChart, Area, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
 import { saveField, loadWorkoutLogFromFirestore, saveWorkoutDraft, clearWorkoutDraft } from '../utils/firestoreSync';
 import { exportWorkoutHistoryToCSV } from '../utils/exportData';
-import { ExerciseLibrary } from './ExerciseLibrary';
+import { ExerciseLibrary, effectiveMuscleGroup } from './ExerciseLibrary';
 import { BodyHeatmap } from './BodyHeatmap';
 import styles from './WorkoutPage.module.css';
 
@@ -621,6 +621,23 @@ export function WorkoutPage({ onBack, user }) {
   const [entries, setEntries] = useState(() => blankEntries());
   const [viewMode, setViewMode] = useState('log'); // 'log' | 'history' | 'charts' | 'body' | 'exercises' | 'stats'
   const [exerciseLibrary, setExerciseLibrary] = useState(loadLibrary);
+
+  // User's exercises grouped by their assigned muscle group. This is the
+  // source of truth for the Log Workout exercise dropdown — pick a muscle
+  // group, see only the exercises you've put in that group.
+  const exercisesByMuscleGroup = useMemo(() => {
+    const map = {};
+    for (const item of exerciseLibrary || []) {
+      if (item?.retired) continue;
+      if (!item?.exercise) continue;
+      const mg = effectiveMuscleGroup(item);
+      if (!mg) continue;
+      if (!map[mg]) map[mg] = [];
+      if (!map[mg].includes(item.exercise)) map[mg].push(item.exercise);
+    }
+    for (const mg of Object.keys(map)) map[mg].sort((a, b) => a.localeCompare(b));
+    return map;
+  }, [exerciseLibrary]);
   const [workoutTypes, setWorkoutTypes] = useState(loadWorkoutTypes);
   const [editingTypes, setEditingTypes] = useState(false);
   const [addingType, setAddingType] = useState(false);
@@ -1898,7 +1915,7 @@ export function WorkoutPage({ onBack, user }) {
                       <td>
                         <select className={`${styles.logCell} ${styles.logExerciseSelect} ${editedCls('exercise')}`} value={entry.exercise} onChange={e => pickExercise(i, e.target.value)} disabled={!entry.group}>
                           <option value="">—</option>
-                          {(EXERCISES_BY_GROUP[entry.group] || []).map(ex => <option key={ex} value={ex}>{ex}</option>)}
+                          {(exercisesByMuscleGroup[entry.group] || []).map(ex => <option key={ex} value={ex}>{ex}</option>)}
                         </select>
                       </td>
                       <td>

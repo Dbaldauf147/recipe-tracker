@@ -137,11 +137,11 @@ const MUSCLE_GROUP_BY_EXERCISE = (() => {
   return map;
 })();
 
-function lookupMuscleGroup(exerciseName) {
+export function lookupMuscleGroup(exerciseName) {
   return MUSCLE_GROUP_BY_EXERCISE[String(exerciseName || '').trim().toLowerCase()] || '';
 }
 
-function effectiveMuscleGroup(e) {
+export function effectiveMuscleGroup(e) {
   return (e?.muscleGroup && e.muscleGroup.trim()) || lookupMuscleGroup(e?.exercise);
 }
 
@@ -186,7 +186,6 @@ export function ExerciseLibrary({ library, onChange }) {
 
   const COLUMNS = useMemo(() => [
     { key: 'exercise', label: 'Exercise', cls: 'colName', searchable: true, sortable: true, get: e => e.exercise },
-    { key: 'group', label: 'Group', cls: 'colGroup', searchable: true, sortable: true, get: e => e.group },
     { key: 'muscleGroup', label: 'Muscle Group', cls: 'colMuscleGroup', searchable: true, sortable: true, get: e => effectiveMuscleGroup(e) },
     { key: 'primary', label: 'Primary', cls: 'colMuscles', searchable: true, sortable: true, get: e => e.primaryMuscles },
     { key: 'secondary', label: 'Secondary', cls: 'colMuscles', searchable: true, sortable: true, get: e => e.secondaryMuscles },
@@ -221,9 +220,12 @@ export function ExerciseLibrary({ library, onChange }) {
     return <span className={styles.sortIcon}>{sort.dir === 'asc' ? '↑' : '↓'}</span>;
   }
 
-  const groups = useMemo(() => {
+  const muscleGroups = useMemo(() => {
     const s = new Set();
-    for (const e of library) if (e.group) s.add(e.group);
+    for (const e of library) {
+      const g = effectiveMuscleGroup(e);
+      if (g) s.add(g);
+    }
     return Array.from(s).sort();
   }, [library]);
 
@@ -234,7 +236,7 @@ export function ExerciseLibrary({ library, onChange }) {
       .filter(({ e }) => {
         if (!showRetired && e.retired) return false;
         if (topOnly && !e.top) return false;
-        if (groupFilter && e.group !== groupFilter) return false;
+        if (groupFilter && effectiveMuscleGroup(e) !== groupFilter) return false;
         for (const c of COLUMNS) {
           const term = (colSearch[c.key] || '').trim().toLowerCase();
           if (!term) continue;
@@ -317,8 +319,8 @@ export function ExerciseLibrary({ library, onChange }) {
           onChange={e => setSearch(e.target.value)}
         />
         <select className={styles.select} value={groupFilter} onChange={e => setGroupFilter(e.target.value)}>
-          <option value="">All groups</option>
-          {groups.map(g => <option key={g} value={g}>{g}</option>)}
+          <option value="">All muscle groups</option>
+          {muscleGroups.map(g => <option key={g} value={g}>{g}</option>)}
         </select>
         <label className={styles.checkLabel}>
           <input type="checkbox" checked={topOnly} onChange={e => setTopOnly(e.target.checked)} />
@@ -410,15 +412,6 @@ export function ExerciseLibrary({ library, onChange }) {
                     />
                     Retired
                   </label>
-                </td>
-                <td>
-                  <input
-                    list="exercise-known-groups"
-                    className={styles.cellInput}
-                    value={e.group || ''}
-                    onChange={ev => updateRow(originalIdx, 'group', ev.target.value)}
-                    placeholder="—"
-                  />
                 </td>
                 <td>
                   <input
