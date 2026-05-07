@@ -52,6 +52,40 @@ function detectDelim(firstLine) {
   return tabs >= commas ? '\t' : ',';
 }
 
+function looksLikeDateCell(s) {
+  if (!s) return false;
+  const v = s.trim();
+  if (/^\d{4}-\d{1,2}-\d{1,2}$/.test(v)) return true;
+  if (/^\d{1,2}\/\d{1,2}\/\d{2,4}$/.test(v)) return true;
+  // "May 11, 2026" / "Jan 5 2024" / "March 17, 2025"
+  if (/^[A-Za-z]{3,9}\.?\s+\d{1,2},?\s+\d{4}$/.test(v)) return true;
+  return false;
+}
+
+// Pasted text from a rendered web page often comes one cell per line
+// instead of one row per line (e.g. selecting from the Weight Log table
+// itself). We detect that shape and reconstruct rows by anchoring on
+// date-like cells.
+function reconstructVerticalRows(rows) {
+  const cells = rows.flatMap(r => r.filter(c => c.length > 0));
+  let startIdx = 0;
+  while (startIdx < cells.length && !looksLikeDateCell(cells[startIdx])) startIdx++;
+  if (startIdx >= cells.length) return null;
+  const out = [];
+  let current = [];
+  for (let i = startIdx; i < cells.length; i++) {
+    const cell = cells[i];
+    if (looksLikeDateCell(cell) && current.length > 0) {
+      out.push(current);
+      current = [cell];
+    } else {
+      current.push(cell);
+    }
+  }
+  if (current.length > 0) out.push(current);
+  return out.length > 0 ? out : null;
+}
+
 function parsePasteGrid(text) {
   const lines = text.replace(/\r\n/g, '\n').split('\n').filter(l => l.length > 0);
   if (lines.length === 0) return { rows: [], colCount: 0 };
@@ -59,6 +93,19 @@ function parsePasteGrid(text) {
   const rows = lines
     .map(l => l.split(delim).map(c => c.trim()))
     .filter(r => r.some(c => c.length > 0));
+
+  // If most lines have only one populated cell, we're likely reading
+  // rendered DOM text, not a spreadsheet grid — switch to vertical mode.
+  const oneCellRows = rows.filter(r => r.filter(c => c.length > 0).length === 1).length;
+  if (rows.length > 4 && oneCellRows / rows.length > 0.5) {
+    const reconstructed = reconstructVerticalRows(rows);
+    if (reconstructed) {
+      const colCount = Math.max(...reconstructed.map(r => r.length));
+      for (const r of reconstructed) while (r.length < colCount) r.push('');
+      return { rows: reconstructed, colCount };
+    }
+  }
+
   const colCount = rows.length === 0 ? 0 : Math.max(...rows.map(r => r.length));
   for (const r of rows) while (r.length < colCount) r.push('');
   return { rows, colCount };
@@ -79,15 +126,41 @@ function autoMapPasteColumns(rows) {
       return 'ignore';
     });
   }
-  return first.map(cell => {
-    if (/^\d{4}-\d{1,2}-\d{1,2}$/.test(cell)) return 'date';
-    if (/^\d{1,2}\/\d{1,2}\/\d{2,4}$/.test(cell)) return 'date';
-    if (/^\d+(\.\d+)?$/.test(cell)) {
-      const n = parseFloat(cell);
-      if (n > 50 && n < 600) return 'weight';
+  // Sniff up to 6 rows so a single bad row (e.g. "Missing — enter weight")
+  // doesn't prevent column detection.
+  const sample = rows.slice(0, Math.min(6, rows.length));
+  const colCount = first.length;
+  const types = new Array(colCount).fill('ignore');
+  for (let c = 0; c < colCount; c++) {
+    let dateHits = 0;
+    let weightHits = 0;
+    let cellsSeen = 0;
+    for (const row of sample) {
+      const cell = (row[c] || '').trim();
+      if (!cell) continue;
+      cellsSeen++;
+      if (looksLikeDateCell(cell)) dateHits++;
+      if (/^\d+(\.\d+)?$/.test(cell)) {
+        const n = parseFloat(cell);
+        if (n >= 50 && n < 600) weightHits++;
+      }
     }
-    return 'ignore';
-  });
+    if (cellsSeen === 0) continue;
+    if (dateHits / cellsSeen >= 0.5) types[c] = 'date';
+    else if (weightHits / cellsSeen >= 0.5) types[c] = 'weight';
+  }
+  // First match wins for each role.
+  let dateAssigned = false, weightAssigned = false;
+  for (let i = 0; i < types.length; i++) {
+    if (types[i] === 'date') {
+      if (dateAssigned) types[i] = 'ignore';
+      else dateAssigned = true;
+    } else if (types[i] === 'weight') {
+      if (weightAssigned) types[i] = 'ignore';
+      else weightAssigned = true;
+    }
+  }
+  return types;
 }
 
 function normalizePasteDate(raw) {
@@ -101,11 +174,15 @@ function normalizePasteDate(raw) {
     if (yr.length === 2) yr = '20' + yr;
     return `${yr}-${slash[1].padStart(2, '0')}-${slash[2].padStart(2, '0')}`;
   }
-  const parsed = new Date(v);
-  if (!isNaN(parsed.getTime())) {
-    const y = parsed.getFullYear();
-    if (y > 1900 && y < 2200) {
-      return `${y}-${String(parsed.getMonth() + 1).padStart(2, '0')}-${String(parsed.getDate()).padStart(2, '0')}`;
+  // Only fall back to Date.parse for strings containing a month name —
+  // otherwise stray short numbers (like "19") get parsed as years.
+  if (/[A-Za-z]{3,}/.test(v)) {
+    const parsed = new Date(v);
+    if (!isNaN(parsed.getTime())) {
+      const y = parsed.getFullYear();
+      if (y > 1900 && y < 2200) {
+        return `${y}-${String(parsed.getMonth() + 1).padStart(2, '0')}-${String(parsed.getDate()).padStart(2, '0')}`;
+      }
     }
   }
   return null;
