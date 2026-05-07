@@ -566,38 +566,28 @@ export function WeightTracker({ onClose, user, isOnboarding = false }) {
   const [log, setLog] = useState(() => {
     const existing = loadWeightLog();
 
-    // For non-admin users: aggressively clear contaminated weight data
+    // For non-admin users: clear contaminated weight data, but only if the
+    // user hasn't already set up weight tracking. Once a goal weight has
+    // been saved, treat the log as the user's real data — even if some
+    // entries happen to match the seed array (the seed IS the admin's real
+    // history baked into the bundle, so legitimate users will overlap).
+    // We also never delete a saved goalWeight here — that's user input,
+    // not contamination, and deleting it forces the setup modal to pop
+    // back up on every mount.
     if (user?.uid !== ADMIN_UID_WT && existing.length > 0) {
-      const seedSet = new Set(SEED_DATA.map(s => `${s.date}|${s.weight}`));
-      const hasSeedData = existing.some(e => seedSet.has(`${e.date}|${e.weight}`));
-
-      if (hasSeedData) {
-        // Has seed data contamination — clear everything and reset settings
-        saveWeightLog([], user);
-        try {
-          const stats = JSON.parse(localStorage.getItem('sunday-body-stats') || '{}');
-          delete stats.goalWeight;
-          delete stats.weighRepeatUnit;
-          delete stats.weighRepeatEvery;
-          delete stats.weighWeekDays;
-          delete stats.weighMonthOption;
-          delete stats.weighMonthDay;
-          delete stats.weighMonthWeek;
-          delete stats.weighMonthWeekday;
-          stats.mealTrackingGoals = (stats.mealTrackingGoals || []).filter(g => !g.startsWith('weigh'));
-          localStorage.setItem('sunday-body-stats', JSON.stringify(stats));
-          if (user) saveField(user.uid, 'bodyStats', stats);
-        } catch {}
-        return [];
-      }
-
-      // No seed data but user never set up weight tracking — entries are orphaned
       let hasConfigured = false;
       try {
         const stats = JSON.parse(localStorage.getItem('sunday-body-stats') || '{}');
         hasConfigured = !!stats.goalWeight;
       } catch {}
       if (!hasConfigured) {
+        const seedSet = new Set(SEED_DATA.map(s => `${s.date}|${s.weight}`));
+        const hasSeedData = existing.some(e => seedSet.has(`${e.date}|${e.weight}`));
+        if (hasSeedData) {
+          saveWeightLog([], user);
+          return [];
+        }
+        // Orphaned data with no configured goal — clear it.
         saveWeightLog([], user);
         return [];
       }
