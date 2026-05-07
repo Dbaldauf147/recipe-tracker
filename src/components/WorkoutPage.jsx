@@ -1074,6 +1074,99 @@ export function WorkoutPage({ onBack, user }) {
     setEntries(prev => prev.filter((_, i) => i !== idx));
   }
 
+  // Exercise picker modal — opened by clicking the muscle-group cell on a
+  // log row. Lets the user pick a group and then an exercise in one flow,
+  // with a "+ Add new exercise" shortcut at the top of the list.
+  const [pickerEntryIdx, setPickerEntryIdx] = useState(null);
+  const [pickerGroup, setPickerGroup] = useState('');
+
+  function openExercisePicker(idx) {
+    const cur = entries[idx];
+    setPickerGroup(cur?.group || MUSCLE_GROUPS[0]);
+    setPickerEntryIdx(idx);
+  }
+
+  function closeExercisePicker() {
+    setPickerEntryIdx(null);
+  }
+
+  function pickGroupAndExercise(idx, groupName, exerciseName) {
+    setEntries(prev => prev.map((e, i) => {
+      if (i !== idx) return e;
+      const withBoth = {
+        ...e,
+        group: groupName,
+        exercise: exerciseName,
+        editedFields: { ...e.editedFields, group: true, exercise: true },
+      };
+      return applyLastFromLocation(withBoth, gym);
+    }));
+  }
+
+  function handlePickerSelect(exerciseName) {
+    if (pickerEntryIdx == null) return;
+    pickGroupAndExercise(pickerEntryIdx, pickerGroup, exerciseName);
+    closeExercisePicker();
+  }
+
+  function handleAddNewExerciseFromPicker() {
+    const name = (window.prompt('New exercise name:') || '').trim();
+    if (!name) return;
+    // Add to the exercise library so it stays available for next time.
+    const exists = (exerciseLibrary || []).some(
+      it => (it.exercise || '').trim().toLowerCase() === name.toLowerCase()
+    );
+    if (!exists) {
+      const nextLibrary = [
+        ...(exerciseLibrary || []),
+        {
+          exercise: name,
+          primaryMuscles: '',
+          secondaryMuscles: '',
+          group: pickerGroup,
+          thisWeek: 0,
+          lastWeek: 0,
+          alternative: '',
+          top: false,
+          nickname: '',
+          retired: false,
+          videos: [],
+        },
+      ];
+      setExerciseLibrary(nextLibrary);
+      saveLibrary(nextLibrary, user?.uid);
+    }
+    handlePickerSelect(name);
+  }
+
+  // Combined exercise list for the picker: built-in defaults for the
+  // current group, merged (case-insensitively) with any library entries
+  // that match the group. Sorted alphabetically with "Warm up" pinned to
+  // the top when present.
+  const pickerExerciseList = useMemo(() => {
+    if (!pickerGroup) return [];
+    const seen = new Set();
+    const out = [];
+    function push(name) {
+      const key = (name || '').trim().toLowerCase();
+      if (!key || seen.has(key)) return;
+      seen.add(key);
+      out.push(name.trim());
+    }
+    for (const ex of EXERCISES_BY_GROUP[pickerGroup] || []) push(ex);
+    for (const item of exerciseLibrary || []) {
+      if (item?.retired) continue;
+      if ((item?.group || '').trim().toLowerCase() !== pickerGroup.trim().toLowerCase()) continue;
+      if (item?.exercise) push(item.exercise);
+    }
+    out.sort((a, b) => {
+      if (/^warm/i.test(a) && !/^warm/i.test(b)) return -1;
+      if (/^warm/i.test(b) && !/^warm/i.test(a)) return 1;
+      return a.localeCompare(b);
+    });
+    return out;
+  }, [pickerGroup, exerciseLibrary]);
+
   function saveWorkout() {
     const validEntries = entries.filter(e => e.group && e.exercise);
     if (validEntries.length === 0) return;
@@ -1890,10 +1983,14 @@ export function WorkoutPage({ onBack, user }) {
                   return (
                     <tr key={i}>
                       <td>
-                        <select className={`${styles.logCell} ${styles.logGroupSelect} ${editedCls('group')}`} value={entry.group} onChange={e => { updateEntry(i, 'group', e.target.value); pickExercise(i, ''); }}>
-                          <option value="">—</option>
-                          {MUSCLE_GROUPS.map(g => <option key={g} value={g}>{g}</option>)}
-                        </select>
+                        <button
+                          type="button"
+                          className={`${styles.logCell} ${styles.logGroupSelect} ${styles.logGroupBtn} ${editedCls('group')}`}
+                          onClick={() => openExercisePicker(i)}
+                          title="Pick a muscle group and exercise"
+                        >
+                          {entry.group || '—'}
+                        </button>
                       </td>
                       <td>
                         <select className={`${styles.logCell} ${styles.logExerciseSelect} ${editedCls('exercise')}`} value={entry.exercise} onChange={e => pickExercise(i, e.target.value)} disabled={!entry.group}>
@@ -2958,6 +3055,51 @@ export function WorkoutPage({ onBack, user }) {
                 </div>
               );
             })()}
+          </div>
+        </div>
+      )}
+
+      {pickerEntryIdx != null && (
+        <div className={styles.pickerBackdrop} onClick={closeExercisePicker}>
+          <div className={styles.pickerModal} onClick={e => e.stopPropagation()}>
+            <div className={styles.pickerHeader}>
+              <h3 className={styles.pickerTitle}>Pick exercise</h3>
+              <button
+                type="button"
+                className={styles.pickerCloseBtn}
+                onClick={closeExercisePicker}
+                aria-label="Close"
+              >×</button>
+            </div>
+            <div className={styles.pickerGroupTabs}>
+              {MUSCLE_GROUPS.map(g => (
+                <button
+                  key={g}
+                  type="button"
+                  className={`${styles.pickerGroupTab} ${pickerGroup === g ? styles.pickerGroupTabActive : ''}`}
+                  onClick={() => setPickerGroup(g)}
+                >{g}</button>
+              ))}
+            </div>
+            <button
+              type="button"
+              className={styles.pickerAddNewBtn}
+              onClick={handleAddNewExerciseFromPicker}
+            >+ Add new exercise</button>
+            <div className={styles.pickerExerciseList}>
+              {pickerExerciseList.length === 0 ? (
+                <div className={styles.pickerEmpty}>
+                  No exercises for {pickerGroup}. Use “Add new exercise” above.
+                </div>
+              ) : pickerExerciseList.map(ex => (
+                <button
+                  key={ex}
+                  type="button"
+                  className={styles.pickerExerciseBtn}
+                  onClick={() => handlePickerSelect(ex)}
+                >{ex}</button>
+              ))}
+            </div>
           </div>
         </div>
       )}

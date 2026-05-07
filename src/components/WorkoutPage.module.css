@@ -885,3 +885,122 @@ td.logPerCell.manuallyEdited {
 .prDate { font-size: 0.72rem; color: var(--color-text-muted); }
 
 .empty { padding: 2rem; text-align: center; color: var(--color-text-muted); font-size: 0.9rem; }
+
+/* Group cell — looks like the old select but is a button that opens the picker. */
+.logGroupBtn {
+  text-align: left;
+  cursor: pointer;
+  background: transparent;
+  border: 1px solid transparent;
+}
+.logGroupBtn:hover {
+  border-color: var(--color-accent);
+  background: var(--color-surface);
+}
+
+/* Exercise picker modal */
+.pickerBackdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 300;
+  padding: 1rem;
+}
+.pickerModal {
+  background: var(--color-surface);
+  border-radius: 12px;
+  width: 100%;
+  max-width: 540px;
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.25);
+  overflow: hidden;
+}
+.pickerHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.85rem 1rem;
+  border-bottom: 1px solid var(--color-border-light);
+}
+.pickerTitle { margin: 0; font-size: 1.05rem; font-weight: 700; color: var(--color-text); }
+.pickerCloseBtn {
+  background: none;
+  border: none;
+  font-size: 1.4rem;
+  line-height: 1;
+  cursor: pointer;
+  color: var(--color-text-muted);
+  padding: 0 0.25rem;
+}
+.pickerGroupTabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  padding: 0.65rem 1rem;
+  border-bottom: 1px solid var(--color-border-light);
+}
+.pickerGroupTab {
+  padding: 0.35rem 0.75rem;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  background: var(--color-surface);
+  color: var(--color-text-secondary);
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+}
+.pickerGroupTab:hover { border-color: var(--color-accent); color: var(--color-accent); }
+.pickerGroupTabActive {
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+  color: #fff;
+}
+.pickerGroupTabActive:hover { color: #fff; opacity: 0.9; }
+.pickerAddNewBtn {
+  margin: 0.75rem 1rem 0.5rem;
+  padding: 0.55rem 0.9rem;
+  border: 1px dashed var(--color-accent);
+  border-radius: 8px;
+  background: none;
+  color: var(--color-accent);
+  font-size: 0.88rem;
+  font-weight: 700;
+  cursor: pointer;
+  font-family: inherit;
+}
+.pickerAddNewBtn:hover { background: var(--color-accent-light, #eaf2fb); }
+.pickerExerciseList {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: 0.25rem 1rem 1rem;
+  overflow-y: auto;
+}
+.pickerExerciseBtn {
+  text-align: left;
+  padding: 0.55rem 0.75rem;
+  border: 1px solid var(--color-border-light);
+  border-radius: 8px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: 0.9rem;
+  font-family: inherit;
+  cursor: pointer;
+}
+.pickerExerciseBtn:hover {
+  border-color: var(--color-accent);
+  background: var(--color-accent-light, #eaf2fb);
+  color: var(--color-accent);
+}
+.pickerEmpty {
+  padding: 1.25rem 0.5rem;
+  text-align: center;
+  color: var(--color-text-muted);
+  font-size: 0.88rem;
+}
