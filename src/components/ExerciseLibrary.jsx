@@ -116,7 +116,7 @@ const MUSCLE_GROUP_LOOKUP = {
   Abs: ['Ab crunch machine', 'Cable crunches', 'Cable woodchoppers', 'Cable woodchoppers - High to low', 'Deadbug', 'Dragon flag abs', 'Elbow plank', 'Hanging leg raise', 'Hanging leg raises knees bent', 'Hanging leg raises legs straight', 'Heel taps', 'Kneeling halo', 'Leg raises', 'Pallof press', 'Plank', 'Seated cable crunch', 'Side bend', 'Toe touches'],
   Back: ['Back extensions', 'Back extensions - machine', 'Bent-over dumbbell row', 'Bent-over smith machine row', 'Cable lat pullover', 'Chin ups', 'Face pulls', 'Lat pull down (wide grip)', 'Lat pull downs (bar)', 'Lat pull downs (bar) underhand grip', 'Lat pull downs (machine)', 'Lat pulldown (vbar grip)', 'Middle grip row', 'One arm rows', 'Plate-loaded low row', 'Pull-ups', 'Seated cable row', 'Seated neutral grip row', 'Seated pronated machine row', 'Seated vertical row machine', 'Single arm cable row', 'Single arm lat pulldown', 'Standing bent-over dumbbell row', 'T bar machine', 'Two arm cable row', 'Weighted pull-up', 'Wide grip row'],
   Biceps: ['Bar curls', 'Bayesian bicep curl', 'Bicep curl', 'Bicep curl machine', 'Bicep hammer curls', 'Hammer rope curls', 'Preacher curl'],
-  Cardio: ['Recumbent upright bike'],
+  Cardio: ['Recumbent upright bike', 'Pilates'],
   Chest: ['Butterfly', 'Cable crossover low to high', 'Cable flys declined', 'Chest press', 'Decline Barbell Press', 'Decline press', 'Decline push-up', 'Dumbbell flys', 'Dumbbell press', 'Dumbbell press inclined', 'Dumbbell squeeze press', 'Incline press', 'Inclined Barbell Press', 'Inclined machine press', 'Inclined smith machine press'],
   Forearms: ['wrist curls', 'wrist extensions'],
   Heat: ['Sauna', 'Hottub', 'Steam room'],
@@ -178,7 +178,6 @@ export function ExerciseLibrary({ library, onChange }) {
 
   const COLUMNS = useMemo(() => [
     { key: 'exercise', label: 'Exercise', cls: 'colName', searchable: true, sortable: true, get: e => e.exercise },
-    { key: 'muscleGroup', label: 'Muscle Group', cls: 'colMuscleGroup', searchable: true, sortable: true, get: e => lookupMuscleGroup(e.exercise) },
     { key: 'primary', label: 'Primary', cls: 'colMuscles', searchable: true, sortable: true, get: e => e.primaryMuscles },
     { key: 'secondary', label: 'Secondary', cls: 'colMuscles', searchable: true, sortable: true, get: e => e.secondaryMuscles },
     { key: 'videos', label: 'Videos', cls: 'colVideos', searchable: false, sortable: true, get: e => e.videos.length },
@@ -386,12 +385,6 @@ export function ExerciseLibrary({ library, onChange }) {
                     />
                     Retired
                   </label>
-                </td>
-                <td>
-                  {(() => {
-                    const mg = lookupMuscleGroup(e.exercise);
-                    return mg ? <span className={styles.groupBadge}>{mg}</span> : <span className={styles.dim}>—</span>;
-                  })()}
                 </td>
                 <td className={styles.musclesCell}>
                   <input
