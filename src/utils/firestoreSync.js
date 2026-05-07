@@ -244,6 +244,69 @@ export async function backupAllUserData(uid) {
 }
 
 /**
+ * List every full-snapshot backup we have for this user, with key counts so
+ * the user can pick which one to restore from. Returns newest-first.
+ *
+ * Two kinds of backups can live here:
+ *   - full-YYYY-MM-DD  → client-side snapshot of localStorage (key/value map)
+ *   - full-server-YYYY-MM-DD → Cloud Function snapshot of users/{uid} doc
+ */
+export async function listFullBackups(uid) {
+  const colRef = collection(db, 'users', uid, 'backups');
+  const snap = await getDocs(colRef);
+  const out = [];
+  snap.forEach(d => {
+    const id = d.id;
+    if (!id.startsWith('full-')) return; // skip 'recipes-*' and others
+    const data = d.data();
+    const inner = data.data || data;
+    const planHistory = inner['sunday-plan-history'] || inner.planHistory;
+    const weightLog = inner['sunday-weight-log'] || inner.weightLog;
+    out.push({
+      id,
+      date: data.date || id.replace(/^full-(server-)?/, ''),
+      source: data.source || (id.startsWith('full-server-') ? 'scheduled-fn' : 'client'),
+      planHistoryCount: Array.isArray(planHistory) ? planHistory.length : 0,
+      weightLogCount: Array.isArray(weightLog) ? weightLog.length : 0,
+    });
+  });
+  return out.sort((a, b) => b.date.localeCompare(a.date));
+}
+
+/**
+ * Restore a single field from a full-snapshot backup. Writes back to both
+ * Firestore (main user doc) and localStorage so the UI picks it up on next
+ * render. Returns the restored array.
+ */
+export async function restoreFieldFromBackup(uid, backupId, field) {
+  const ref = doc(db, 'users', uid, 'backups', backupId);
+  const snap = await getDoc(ref);
+  if (!snap.exists()) throw new Error('Backup not found');
+  const data = snap.data();
+  const inner = data.data || data;
+  // Map our field name → both possible storage keys.
+  const FIELD_KEYS = {
+    planHistory: ['sunday-plan-history', 'planHistory'],
+    weightLog: ['sunday-weight-log', 'weightLog'],
+    weeklyPlan: ['sunday-weekly-plan', 'weeklyPlan'],
+    weeklyServings: ['sunday-weekly-servings', 'weeklyServings'],
+    workoutLog: ['sunday-workout-log', 'workoutLog'],
+  };
+  const keys = FIELD_KEYS[field] || [field];
+  let value = null;
+  for (const k of keys) {
+    if (inner[k] != null) { value = inner[k]; break; }
+  }
+  if (value == null) throw new Error(`Backup has no ${field}`);
+  // Persist back. saveField writes to Firestore main doc; localStorage
+  // makes the change immediately visible to the current page.
+  await saveField(uid, field, value);
+  const localKey = keys.find(k => k.startsWith('sunday-')) || `sunday-${field}`;
+  localStorage.setItem(localKey, JSON.stringify(value));
+  return Array.isArray(value) ? value.length : 1;
+}
+
+/**
  * List available recipe backups (returns array of { date, count, timestamp }).
  */
 export async function listRecipeBackups(uid) {
