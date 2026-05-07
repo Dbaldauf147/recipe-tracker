@@ -1338,10 +1338,11 @@ export function WeightTracker({ onClose, user, isOnboarding = false }) {
                       });
                     }}
                     onPaste={e => {
-                      const text = e.clipboardData.getData('text');
+                      const raw = e.clipboardData.getData('text');
+                      const text = raw.replace(/\r/g, '').trim();
                       if (!text.includes('\n') && !text.includes('\t')) return;
                       e.preventDefault();
-                      const lines = text.trim().split('\n').filter(l => l.trim());
+                      const lines = text.split('\n').filter(l => l.trim());
                       const newEntries = [];
                       for (const line of lines) {
                         const parts = line.split('\t').map(s => s.trim());
@@ -1355,6 +1356,7 @@ export function WeightTracker({ onClose, user, isOnboarding = false }) {
                             dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
                           }
                         }
+                        if (!dateStr && weightVal && lines.length === 1) dateStr = entry.date;
                         if (dateStr && weightVal) newEntries.push({ date: dateStr, weight: weightVal });
                       }
                       if (newEntries.length > 0) {
