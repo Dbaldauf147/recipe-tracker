@@ -198,7 +198,9 @@ export function ExerciseLibrary({ library, onChange }) {
     onChange(library.map((row, i) => i === originalIdx ? { ...row, [field]: value } : row));
   }
   function addRow() {
-    onChange([...library, blankExercise()]);
+    onChange([blankExercise(), ...library]);
+    // Clear any active sort so the new row stays visible at the top.
+    setSort({ col: '', dir: 'asc' });
   }
   function removeRow(originalIdx) {
     const ex = library[originalIdx];
