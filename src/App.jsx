@@ -535,7 +535,7 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
     } else if (item.action === 'daily-tracker') {
       navigateTo('daily-tracker');
     } else if (item.action === 'weight-tracker') {
-      setModalView('weight-tracker');
+      navigateTo('weight-tracker');
     } else if (item.action === 'barcode-scanner') {
       navigateTo('barcode-scanner');
     } else if (item.id) {
