@@ -1287,7 +1287,7 @@ export function WeightTracker({ onClose, user, isOnboarding = false }) {
 
       <div className={styles.mainWithCal}>
       <div className={styles.mainLeft}>
-      {chartData.length >= 2 && (
+      {log.length >= 2 && (
         <div className={styles.chartCard}>
           <div className={styles.chartTitleRow}>
             <h3 className={styles.chartTitle}>Your Weight</h3>
@@ -1320,6 +1320,14 @@ export function WeightTracker({ onClose, user, isOnboarding = false }) {
             )}
           </div>
           <div className={styles.chartWrap}>
+            {chartData.length < 2 ? (
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', color: 'var(--color-text-muted)', textAlign: 'center', padding: '1rem', gap: '0.5rem' }}>
+                <span style={{ fontSize: '0.95rem', fontWeight: 600 }}>No weigh-ins in this range</span>
+                <span style={{ fontSize: '0.85rem' }}>
+                  Your most recent entry is {log[log.length - 1]?.date}. Widen the range above to see your trend.
+                </span>
+              </div>
+            ) : (
             <ResponsiveContainer width="100%" height="100%">
               <LineChart data={chartData} margin={{ top: 10, right: 30, left: 10, bottom: 5 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" vertical={false} />
@@ -1368,6 +1376,7 @@ export function WeightTracker({ onClose, user, isOnboarding = false }) {
                 }} activeDot={false} />
               </LineChart>
             </ResponsiveContainer>
+            )}
           </div>
         </div>
       )}
