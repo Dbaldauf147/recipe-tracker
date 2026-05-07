@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useRef } from 'react';
 import { ComposedChart, Area, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
 import { saveField, loadWorkoutLogFromFirestore, saveWorkoutDraft, clearWorkoutDraft } from '../utils/firestoreSync';
 import { exportWorkoutHistoryToCSV } from '../utils/exportData';
-import { ExerciseLibrary } from './ExerciseLibrary';
+import { ExerciseLibrary, lookupMuscleGroup } from './ExerciseLibrary';
 import { BodyHeatmap } from './BodyHeatmap';
 import styles from './WorkoutPage.module.css';
 
@@ -22,7 +22,7 @@ function isWarmUp(name) {
 
 const MUSCLE_GROUPS = ['Chest', 'Back', 'Legs', 'Shoulders', 'Biceps', 'Triceps', 'Abs', 'Forearms', 'Cardio', 'Yoga', 'Heat', 'Whole Body'];
 
-const EXERCISES_BY_GROUP = {
+const Group = {
   Chest: ['Warm up', 'Butterfly', 'Cable crossover low to high', 'Cable flys declined', 'Chest press', 'Close grip bench press', 'Decline Barbell Press', 'Decline press', 'Decline push-up', 'Dips', 'Dumbbell flys', 'Dumbbell press', 'Dumbbell press inclined', 'Dumbbell squeeze press', 'Incline press', 'Incline push-up', 'Inclined Barbell Press', 'Inclined machine press', 'Inclined smith machine press'],
   Back: ['Warm up', 'Back extensions', 'Back extensions - machine', 'Bent-over dumbbell row', 'Bent-over smith machine row', 'Cable lat pullover', 'Chin ups', 'Face pulls', 'Lat pull down (wide grip)', 'Lat pull downs (bar)', 'Lat pull downs (bar) underhand grip', 'Lat pull downs (machine)', 'Lat pulldown (vbar grip)', 'Middle grip row', 'One arm rows', 'Plate-loaded low row', 'Pull-ups', 'Seated cable row', 'Seated neutral grip row', 'Seated pronated machine row', 'Seated vertical row machine', 'Single arm cable row', 'Single arm lat pulldown', 'Standing bent-over dumbbell row', 'T bar machine', 'Two arm cable row', 'Weighted pull-up', 'Wide grip row'],
   Legs: ['Warm up', 'Air squats', 'Barbell squats', 'Bulgarian split squat', 'Calf raise', 'Curtsey lunges', 'Deadlifts', 'Dumbbell deadlift', 'Glute bridges', 'Good mornings', 'Hamstring curls', 'Hip thrust_barbell', 'Jump rope', 'Leg extensions', 'Leg press', 'Leg press calf raise', 'Romanian deadlifts - barbell', 'Romanian deadlifts - dumbbell', 'Seated abductors', 'Single leg extension', 'Single leg press', 'Squats - Barbell', 'Squats - Smith machine', 'Sumo squat', 'Sumo squat cable machine', 'Walk', 'Wall squats'],
@@ -1465,6 +1465,30 @@ export function WorkoutPage({ onBack, user }) {
     return map;
   }, [exerciseLibrary]);
 
+  // Options for the workout-log exercise dropdown: merge the hardcoded
+  // Group map with library exercises whose user-set group or computed
+  // muscle group matches.
+  const optionsByGroup = useMemo(() => {
+    const map = {};
+    for (const [g, list] of Object.entries(Group)) map[g] = new Set(list);
+    for (const item of exerciseLibrary || []) {
+      if (!item?.exercise || item.retired) continue;
+      const tags = new Set();
+      if (item.group) tags.add(item.group);
+      const computed = lookupMuscleGroup(item.exercise);
+      if (computed) tags.add(computed);
+      for (const g of tags) {
+        if (!map[g]) map[g] = new Set();
+        map[g].add(item.exercise);
+      }
+    }
+    const out = {};
+    for (const [g, set] of Object.entries(map)) {
+      out[g] = Array.from(set).sort((a, b) => a.localeCompare(b));
+    }
+    return out;
+  }, [exerciseLibrary]);
+
   // Build the list of muscle groups + exercises that actually appear in the
   // saved workouts. Used as a fallback when no library is imported yet.
   const groupsWithHistory = useMemo(() => {
@@ -1898,7 +1922,7 @@ export function WorkoutPage({ onBack, user }) {
                       <td>
                         <select className={`${styles.logCell} ${styles.logExerciseSelect} ${editedCls('exercise')}`} value={entry.exercise} onChange={e => pickExercise(i, e.target.value)} disabled={!entry.group}>
                           <option value="">—</option>
-                          {(EXERCISES_BY_GROUP[entry.group] || []).map(ex => <option key={ex} value={ex}>{ex}</option>)}
+                          {(optionsByGroup[entry.group] || []).map(ex => <option key={ex} value={ex}>{ex}</option>)}
                         </select>
                       </td>
                       <td>
@@ -2057,7 +2081,7 @@ export function WorkoutPage({ onBack, user }) {
                       onChange={ev => { if (ev.target.value) bulkUpdateField('exercise', ev.target.value); }}
                     >
                       <option value="">Set exercise…</option>
-                      {Array.from(new Set(Object.values(EXERCISES_BY_GROUP).flat()))
+                      {Array.from(new Set(Object.values(optionsByGroup).flat()))
                         .sort((a, b) => a.localeCompare(b))
                         .map(ex => <option key={ex} value={ex}>{ex}</option>)}
                     </select>
@@ -2225,7 +2249,7 @@ export function WorkoutPage({ onBack, user }) {
                               disabled={!e.group}
                             >
                               <option value="">—</option>
-                              {(EXERCISES_BY_GROUP[e.group] || (e.exercise ? [e.exercise] : [])).map(ex => (
+                              {(optionsByGroup[e.group] || (e.exercise ? [e.exercise] : [])).map(ex => (
                                 <option key={ex} value={ex}>{ex}</option>
                               ))}
                             </select>

@@ -137,7 +137,7 @@ const MUSCLE_GROUP_BY_EXERCISE = (() => {
   return map;
 })();
 
-function lookupMuscleGroup(exerciseName) {
+export function lookupMuscleGroup(exerciseName) {
   return MUSCLE_GROUP_BY_EXERCISE[String(exerciseName || '').trim().toLowerCase()] || '';
 }
 
