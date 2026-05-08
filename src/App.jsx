@@ -28,6 +28,7 @@ import { RecipeSetupPage } from './components/RecipeSetupPage';
 import { ProfilePage } from './components/ProfilePage';
 import { WorkoutPage } from './components/WorkoutPage';
 import { FeaturesPage } from './components/FeaturesPage';
+import { EatingOutPage } from './components/EatingOutPage';
 import { UpdatePill } from './components/UpdatePill';
 import { NutritionOnboarding } from './components/NutritionOnboarding';
 import React from 'react';
@@ -514,6 +515,7 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
       ...(showRotateHealthy ? [{ label: 'Healthy Foods', action: 'key-ingredients' }] : []),
     ] }] : []),
     { label: 'Shopping List', action: 'shopping', icon: 'shopping_cart' },
+    { label: 'Eating Out', action: 'eating-out', icon: 'restaurant' },
     ...((user?.email === 'baldaufdan@gmail.com' || localStorage.getItem('sunday-workout-enabled') === 'true') ? [{ label: 'Workout', action: 'workout', icon: 'fitness_center' }] : []),
   ];
 
@@ -524,6 +526,8 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
       navigateTo('workout');
     } else if (item.action === 'shopping') {
       navigateTo('shopping');
+    } else if (item.action === 'eating-out') {
+      navigateTo('eating-out');
     } else if (item.action === 'history') {
       navigateTo('history');
     } else if (item.action === 'key-ingredients') {
@@ -885,6 +889,8 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
           <SeasonalGuidePage onClose={goBack} />
         ) : view === 'sources' ? (
           <SourcesPage onClose={goBack} />
+        ) : view === 'eating-out' ? (
+          <EatingOutPage user={user} onClose={goBack} />
         ) : view === 'history' ? (
           <HistoryPage
             getRecipe={getRecipe}
