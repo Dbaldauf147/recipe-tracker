@@ -919,6 +919,9 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
               user={user}
               ingredientsVersion={ingredientsVersion}
               onViewSources={() => navigateTo('sources')}
+              onPersistFields={(updates) => {
+                if (!transientViewRecipe && selectedId) updateRecipe(selectedId, updates);
+              }}
             />
           </ErrorBoundary>
         ) : view === 'add' ? (
@@ -990,6 +993,7 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
                 onAddToWeek={() => handleAddToWeek(viewRecipeId)}
                 weeklyPlan={weeklyPlan}
                 user={user}
+                onPersistFields={(updates) => updateRecipe(viewRecipeId, updates)}
               />
             </div>
           </div>

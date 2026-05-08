@@ -431,8 +431,19 @@ export function NutritionPanel({ recipeId, ingredients, servings = 1, portionLab
   }
 
   useEffect(() => {
-    if (data && onNutritionData) onNutritionData(data);
-  }, [data]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (!data || !onNutritionData) return;
+    const safeServings = Number(servings) > 0 ? Number(servings) : 1;
+    const perServing = {};
+    for (const k of Object.keys(data.totals || {})) {
+      perServing[k] = data.totals[k] / safeServings;
+    }
+    onNutritionData({
+      ...data,
+      perServing,
+      fingerprint: ingredientFingerprint,
+      servings: safeServings,
+    });
+  }, [data, servings, ingredientFingerprint]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const goals = useMemo(() => {
     try {

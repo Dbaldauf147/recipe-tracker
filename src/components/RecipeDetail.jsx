@@ -471,7 +471,7 @@ function initFields(recipe) {
   };
 }
 
-export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, weeklyPlan, user, ingredientsVersion, onViewSources }) {
+export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, weeklyPlan, user, ingredientsVersion, onViewSources, onPersistFields }) {
   const [aiData, setAiData] = useState(null);
   const [aiLoading, setAiLoading] = useState(false);
   const [fields, setFields] = useState(() => recipe ? initFields(recipe) : null);
@@ -1863,7 +1863,39 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
           return null;
         })()}
         onViewSources={onViewSources}
-        onNutritionData={(d) => setNutritionTotals(d?.totals || null)}
+        onNutritionData={(d) => {
+          setNutritionTotals(d?.totals || null);
+          // Persist the computed nutrition to Firestore so the mobile app
+          // (and any other consumer) can mirror this data instead of
+          // recomputing it. Skip when nothing changed by comparing the
+          // ingredient fingerprint we last persisted.
+          if (
+            d &&
+            recipe?.id &&
+            onPersistFields &&
+            d.fingerprint &&
+            d.fingerprint !== recipe.macrosFingerprint
+          ) {
+            onPersistFields({
+              macrosPerServing: d.perServing,
+              macrosTotals: d.totals,
+              // Persist a flat list of matches keyed by the original
+              // ingredient string (matchedTo) so consumers like the mobile
+              // app can map by name without depending on array indices —
+              // those drift when the user edits ingredients.
+              ingredientsNutrition: (d.items || []).map(it => ({
+                name: it?.matchedTo || it?.name || '',
+                matchedAs: it?.name || '',
+                nutrition: it?.nutrients || {},
+                grams: it?.grams || null,
+                source: it?.source || '',
+              })),
+              macrosSource: 'website-v1',
+              macrosFingerprint: d.fingerprint,
+              macrosUpdatedAt: new Date().toISOString(),
+            });
+          }
+        }}
         weighPortionContent={showWeighFood ?
           <details className={styles.weightDetails}>
             <summary>Weigh portion size</summary>
