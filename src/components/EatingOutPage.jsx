@@ -854,7 +854,8 @@ export function EatingOutPage({ user, onClose }) {
       await saveField(user.uid, 'restaurants', next);
     } catch (err) {
       console.error('Failed to save restaurants:', err);
-      alert('Save failed — your changes are local only. Try refreshing.');
+      const reason = err?.message || 'unknown error';
+      alert(`Save failed — your changes are local only.\n\n${reason}\n\nTry refreshing.`);
     }
   }, [user?.uid]);
 
