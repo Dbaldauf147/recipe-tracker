@@ -427,11 +427,13 @@ export default async function handler(req, res) {
 
   try {
     if (ingredients && Array.isArray(ingredients)) {
-      // Multiple ingredients passed as array
+      // Multiple ingredients passed as array. Preserve input ordering by
+      // pushing null for unmatched entries — the caller may need to
+      // align rows back to original ingredient indices.
       const results = [];
       for (const ing of ingredients) {
         const result = await lookupIngredient(ing);
-        if (result) results.push(result);
+        results.push(result || null);
       }
       return res.status(200).json(results);
     }
