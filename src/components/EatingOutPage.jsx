@@ -785,6 +785,37 @@ export function EatingOutPage({ user, onClose }) {
     return Array.from(set).sort();
   }, [restaurants]);
 
+  // Counts respect all *other* active filters so the sidebar reflects what
+  // the user would actually see if they clicked. Each side ignores its own
+  // active selection so unselecting is always reachable.
+  const cuisineEntries = useMemo(() => {
+    const counts = new Map();
+    for (const r of restaurants) {
+      if (!showRetired && r.frequency === 'retired') continue;
+      if (filter !== 'all' && r.status !== filter) continue;
+      if (activeLocation && !(r.locations || []).some(l => l.toLowerCase() === activeLocation.toLowerCase())) continue;
+      if (activeMealType && r.mealType !== activeMealType) continue;
+      for (const c of (r.cuisines || [])) {
+        counts.set(c, (counts.get(c) || 0) + 1);
+      }
+    }
+    return cuisineSuggestions.map(c => ({ name: c, count: counts.get(c) || 0 }));
+  }, [restaurants, cuisineSuggestions, filter, activeLocation, activeMealType, showRetired]);
+
+  const locationEntries = useMemo(() => {
+    const counts = new Map();
+    for (const r of restaurants) {
+      if (!showRetired && r.frequency === 'retired') continue;
+      if (filter !== 'all' && r.status !== filter) continue;
+      if (activeCuisine && !(r.cuisines || []).some(c => c.toLowerCase() === activeCuisine.toLowerCase())) continue;
+      if (activeMealType && r.mealType !== activeMealType) continue;
+      for (const l of (r.locations || [])) {
+        counts.set(l, (counts.get(l) || 0) + 1);
+      }
+    }
+    return locationSuggestions.map(l => ({ name: l, count: counts.get(l) || 0 }));
+  }, [restaurants, locationSuggestions, filter, activeCuisine, activeMealType, showRetired]);
+
   const visible = useMemo(() => {
     const q = search.trim().toLowerCase();
     let list = restaurants.filter(r => {
@@ -901,138 +932,179 @@ export function EatingOutPage({ user, onClose }) {
         </button>
       </div>
 
-      <div className={styles.toolbar}>
-        <input
-          type="search"
-          className={styles.searchInput}
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-          placeholder="Search restaurants, cuisines, places, dishes…"
-        />
-        <div className={styles.filterRow}>
-          {FILTERS.map(f => (
-            <button
-              key={f.key}
-              type="button"
-              className={`${styles.filterBtn} ${filter === f.key ? styles.filterBtnActive : ''}`}
-              onClick={() => setFilter(f.key)}
-            >
-              {f.label}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      <form className={styles.proximityRow} onSubmit={handleProximity}>
-        <input
-          type="text"
-          className={styles.searchInput}
-          value={proximityQuery}
-          onChange={e => setProximityQuery(e.target.value)}
-          placeholder="Near… (type an address and press Enter)"
-        />
-        <button type="submit" className={styles.secondaryBtn} disabled={proximityResolving}>
-          {proximityResolving ? 'Locating…' : 'Find nearby'}
-        </button>
-        {proximityCenter && (
-          <button
-            type="button"
-            className={styles.linkBtn}
-            onClick={() => { setProximityCenter(null); setProximityQuery(''); }}
-          >
-            Clear
-          </button>
-        )}
-        {proximityCenter && geocodedCount === 0 && (
-          <span className={styles.warn}>
-            None of your restaurants have addresses yet — bulk import didn't include addresses, and Lookup wasn't run.
-          </span>
-        )}
-      </form>
-
-      <div className={styles.tagFilterRow}>
-        {MEAL_TYPES.map(m => (
-          <button
-            key={`m-${m.key}`}
-            type="button"
-            className={`${styles.tagFilter} ${activeMealType === m.key ? styles.tagFilterActive : ''}`}
-            onClick={() => setActiveMealType(activeMealType === m.key ? null : m.key)}
-          >
-            {m.label}
-          </button>
-        ))}
-        {retiredCount > 0 && (
-          <button
-            type="button"
-            className={`${styles.tagFilter} ${showRetired ? styles.tagFilterActive : ''}`}
-            onClick={() => setShowRetired(v => !v)}
-          >
-            {showRetired ? `Hide retired (${retiredCount})` : `Show retired (${retiredCount})`}
-          </button>
-        )}
-      </div>
-
-      {(cuisineSuggestions.length > 0 || locationSuggestions.length > 0) && (
-        <div className={styles.tagFilterRow}>
-          {cuisineSuggestions.map(c => (
-            <button
-              key={`c-${c}`}
-              type="button"
-              className={`${styles.tagFilter} ${activeCuisine === c ? styles.tagFilterActive : ''}`}
-              onClick={() => setActiveCuisine(activeCuisine === c ? null : c)}
-            >
-              {c}
-            </button>
-          ))}
-          {locationSuggestions.map(l => (
-            <button
-              key={`l-${l}`}
-              type="button"
-              className={`${styles.tagFilter} ${activeLocation === l ? styles.tagFilterActive : ''}`}
-              onClick={() => setActiveLocation(activeLocation === l ? null : l)}
-            >
-              📍 {l}
-            </button>
-          ))}
-        </div>
-      )}
-
-      {loading ? (
-        <div className={styles.empty}>Loading…</div>
-      ) : visible.length === 0 ? (
-        <div className={styles.empty}>
-          {restaurants.length === 0 ? (
-            <>
-              <p className={styles.emptyTitle}>No restaurants yet</p>
-              <p className={styles.emptyText}>
-                Save Instagram videos and websites for places you want to eat at,
-                or paste your spreadsheet via Bulk import. The mobile app syncs both ways.
-              </p>
-              <div style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>
-                <button type="button" className={styles.secondaryBtn} onClick={() => setBulkOpen(true)}>
-                  Bulk import
-                </button>
-                <button type="button" className={styles.primaryBtn} onClick={() => setAdding(true)}>
-                  + Add your first
-                </button>
+      <div className={styles.layout}>
+        <aside className={styles.sidebar}>
+          <div className={styles.sidebarColumns}>
+            <div className={styles.sidebarPanel}>
+              <div className={styles.sidebarHeader}>
+                <span className={styles.sidebarTitle}>Cuisines</span>
+                <span className={styles.sidebarCount}>{cuisineEntries.length}</span>
               </div>
-            </>
-          ) : (
-            <p className={styles.emptyText}>Nothing matches. Try clearing filters or the search box.</p>
-          )}
-        </div>
-      ) : (
-        <div className={styles.grid}>
-          {visible.map(r => (
-            <RestaurantCard
-              key={r.id}
-              r={r}
-              distanceMiles={r._distance}
-              onClick={() => setEditing(r)}
+              <button
+                type="button"
+                className={`${styles.sidebarItem} ${!activeCuisine ? styles.sidebarItemActive : ''}`}
+                onClick={() => setActiveCuisine(null)}
+              >
+                <span className={styles.sidebarItemName}>All cuisines</span>
+              </button>
+              {cuisineEntries.length === 0 ? (
+                <div className={styles.sidebarEmpty}>No cuisines yet.</div>
+              ) : (
+                cuisineEntries.map(c => (
+                  <button
+                    key={`c-${c.name}`}
+                    type="button"
+                    className={`${styles.sidebarItem} ${activeCuisine === c.name ? styles.sidebarItemActive : ''} ${c.count === 0 ? styles.sidebarItemDim : ''}`}
+                    onClick={() => setActiveCuisine(activeCuisine === c.name ? null : c.name)}
+                  >
+                    <span className={styles.sidebarItemName}>{c.name}</span>
+                    <span className={styles.sidebarItemCount}>{c.count}</span>
+                  </button>
+                ))
+              )}
+            </div>
+
+            <div className={styles.sidebarPanel}>
+              <div className={styles.sidebarHeader}>
+                <span className={styles.sidebarTitle}>Locations</span>
+                <span className={styles.sidebarCount}>{locationEntries.length}</span>
+              </div>
+              <button
+                type="button"
+                className={`${styles.sidebarItem} ${!activeLocation ? styles.sidebarItemActive : ''}`}
+                onClick={() => setActiveLocation(null)}
+              >
+                <span className={styles.sidebarItemName}>All locations</span>
+              </button>
+              {locationEntries.length === 0 ? (
+                <div className={styles.sidebarEmpty}>No locations yet.</div>
+              ) : (
+                locationEntries.map(l => (
+                  <button
+                    key={`l-${l.name}`}
+                    type="button"
+                    className={`${styles.sidebarItem} ${activeLocation === l.name ? styles.sidebarItemActive : ''} ${l.count === 0 ? styles.sidebarItemDim : ''}`}
+                    onClick={() => setActiveLocation(activeLocation === l.name ? null : l.name)}
+                  >
+                    <span className={styles.sidebarItemName}>📍 {l.name}</span>
+                    <span className={styles.sidebarItemCount}>{l.count}</span>
+                  </button>
+                ))
+              )}
+            </div>
+          </div>
+        </aside>
+
+        <main className={styles.main}>
+          <div className={styles.toolbar}>
+            <input
+              type="search"
+              className={styles.searchInput}
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              placeholder="Search restaurants, cuisines, places, dishes…"
             />
-          ))}
-        </div>
-      )}
+            <div className={styles.filterRow}>
+              {FILTERS.map(f => (
+                <button
+                  key={f.key}
+                  type="button"
+                  className={`${styles.filterBtn} ${filter === f.key ? styles.filterBtnActive : ''}`}
+                  onClick={() => setFilter(f.key)}
+                >
+                  {f.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <form className={styles.proximityRow} onSubmit={handleProximity}>
+            <input
+              type="text"
+              className={styles.searchInput}
+              value={proximityQuery}
+              onChange={e => setProximityQuery(e.target.value)}
+              placeholder="Near… (type an address and press Enter)"
+            />
+            <button type="submit" className={styles.secondaryBtn} disabled={proximityResolving}>
+              {proximityResolving ? 'Locating…' : 'Find nearby'}
+            </button>
+            {proximityCenter && (
+              <button
+                type="button"
+                className={styles.linkBtn}
+                onClick={() => { setProximityCenter(null); setProximityQuery(''); }}
+              >
+                Clear
+              </button>
+            )}
+            {proximityCenter && geocodedCount === 0 && (
+              <span className={styles.warn}>
+                None of your restaurants have addresses yet — bulk import didn't include addresses, and Lookup wasn't run.
+              </span>
+            )}
+          </form>
+
+          <div className={styles.tagFilterRow}>
+            {MEAL_TYPES.map(m => (
+              <button
+                key={`m-${m.key}`}
+                type="button"
+                className={`${styles.tagFilter} ${activeMealType === m.key ? styles.tagFilterActive : ''}`}
+                onClick={() => setActiveMealType(activeMealType === m.key ? null : m.key)}
+              >
+                {m.label}
+              </button>
+            ))}
+            {retiredCount > 0 && (
+              <button
+                type="button"
+                className={`${styles.tagFilter} ${showRetired ? styles.tagFilterActive : ''}`}
+                onClick={() => setShowRetired(v => !v)}
+              >
+                {showRetired ? `Hide retired (${retiredCount})` : `Show retired (${retiredCount})`}
+              </button>
+            )}
+          </div>
+
+          {loading ? (
+            <div className={styles.empty}>Loading…</div>
+          ) : visible.length === 0 ? (
+            <div className={styles.empty}>
+              {restaurants.length === 0 ? (
+                <>
+                  <p className={styles.emptyTitle}>No restaurants yet</p>
+                  <p className={styles.emptyText}>
+                    Save Instagram videos and websites for places you want to eat at,
+                    or paste your spreadsheet via Bulk import. The mobile app syncs both ways.
+                  </p>
+                  <div style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>
+                    <button type="button" className={styles.secondaryBtn} onClick={() => setBulkOpen(true)}>
+                      Bulk import
+                    </button>
+                    <button type="button" className={styles.primaryBtn} onClick={() => setAdding(true)}>
+                      + Add your first
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <p className={styles.emptyText}>Nothing matches. Try clearing filters or the search box.</p>
+              )}
+            </div>
+          ) : (
+            <div className={styles.grid}>
+              {visible.map(r => (
+                <RestaurantCard
+                  key={r.id}
+                  r={r}
+                  distanceMiles={r._distance}
+                  onClick={() => setEditing(r)}
+                />
+              ))}
+            </div>
+          )}
+        </main>
+      </div>
 
       {adding && (
         <EditModal
