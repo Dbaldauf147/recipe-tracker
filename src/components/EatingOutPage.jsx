@@ -2,16 +2,28 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { doc, onSnapshot } from 'firebase/firestore';
 import { db } from '../firebase';
 import { saveField } from '../utils/firestoreSync';
+import { parseRestaurantTsv, partitionDuplicates, ratingLabelToStars } from '../utils/restaurantImport';
 import styles from './EatingOutPage.module.css';
-
-// Backend mirror of the mobile Eating Out tab. Reads & writes the same
-// `restaurants` field on the user's Firestore doc, so changes on either
-// platform sync live.
 
 const FILTERS = [
   { key: 'all', label: 'All' },
   { key: 'want-to-try', label: 'Want to try' },
   { key: 'visited', label: 'Visited' },
+];
+
+const MEAL_TYPES = [
+  { key: 'breakfast', label: 'Breakfast' },
+  { key: 'lunch-dinner', label: 'Lunch / Dinner' },
+  { key: 'drinking', label: 'Drinking' },
+  { key: 'coffee', label: 'Coffee' },
+  { key: 'other', label: 'Other' },
+  { key: 'all', label: 'Anytime' },
+];
+
+const FREQUENCIES = [
+  { key: 'regular', label: 'Regular' },
+  { key: 'special', label: 'Special' },
+  { key: 'retired', label: 'Retired' },
 ];
 
 function generateId() {
@@ -20,6 +32,25 @@ function generateId() {
     const v = c === 'x' ? r : (r & 0x3) | 0x8;
     return v.toString(16);
   });
+}
+
+function haversineMiles(a, b) {
+  if (!a || !b) return null;
+  const toRad = (deg) => (deg * Math.PI) / 180;
+  const R = 3958.8;
+  const dLat = toRad(b.lat - a.lat);
+  const dLng = toRad(b.lng - a.lng);
+  const lat1 = toRad(a.lat);
+  const lat2 = toRad(b.lat);
+  const x = Math.sin(dLat / 2) ** 2 + Math.sin(dLng / 2) ** 2 * Math.cos(lat1) * Math.cos(lat2);
+  return 2 * R * Math.asin(Math.sqrt(x));
+}
+
+function formatDate(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return '';
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
 function StarRating({ value, onChange, size = 22 }) {
@@ -117,8 +148,18 @@ function EditModal({ initial, onSave, onClose, onDelete, cuisineSuggestions, loc
   const [cuisines, setCuisines] = useState(initial.cuisines || []);
   const [locations, setLocations] = useState(initial.locations || []);
   const [rating, setRating] = useState(initial.rating ?? null);
+  const [ratingLabel, setRatingLabel] = useState(initial.ratingLabel || '');
   const [status, setStatus] = useState(initial.status || 'want-to-try');
+  const [mealType, setMealType] = useState(initial.mealType || '');
+  const [frequency, setFrequency] = useState(initial.frequency || '');
+  const [dish, setDish] = useState(initial.dish || '');
+  const [address, setAddress] = useState(initial.address || '');
+  const [coords, setCoords] = useState(
+    initial.lat != null && initial.lng != null ? { lat: initial.lat, lng: initial.lng } : null,
+  );
+  const [lastVisit, setLastVisit] = useState(initial.lastVisit ? initial.lastVisit.slice(0, 10) : '');
   const [extracting, setExtracting] = useState(false);
+  const [geocoding, setGeocoding] = useState(false);
 
   async function handleExtract() {
     const trimmed = (url || '').trim();
@@ -143,6 +184,32 @@ function EditModal({ initial, onSave, onClose, onDelete, cuisineSuggestions, loc
     }
   }
 
+  async function handleGeocode() {
+    const a = (address || '').trim();
+    if (!a) {
+      alert('Type an address first.');
+      return;
+    }
+    setGeocoding(true);
+    try {
+      const res = await fetch(`/api/geocode?q=${encodeURIComponent(a)}`);
+      const data = await res.json();
+      if (res.ok && typeof data.lat === 'number' && typeof data.lng === 'number') {
+        setCoords({ lat: data.lat, lng: data.lng });
+        if (data.displayName && data.displayName !== a) {
+          // Don't overwrite the user's typed string, but show what we matched.
+          alert(`Matched: ${data.displayName}`);
+        }
+      } else {
+        alert(data.error || 'No results for that address.');
+      }
+    } catch (err) {
+      alert(`Geocode failed: ${err.message || 'try again'}`);
+    } finally {
+      setGeocoding(false);
+    }
+  }
+
   function handleSave() {
     const cleanedName = name.trim();
     if (!cleanedName) {
@@ -160,7 +227,17 @@ function EditModal({ initial, onSave, onClose, onDelete, cuisineSuggestions, loc
       cuisines,
       locations,
       rating,
+      ratingLabel: ratingLabel.trim() || undefined,
       status,
+      mealType: mealType || undefined,
+      frequency: frequency || undefined,
+      dish: dish.trim() || undefined,
+      address: address.trim() || undefined,
+      lat: coords?.lat,
+      lng: coords?.lng,
+      lastVisit: lastVisit ? new Date(lastVisit + 'T12:00:00').toISOString() : undefined,
+      dietTags: initial.dietTags,
+      meatTags: initial.meatTags,
       createdAt: initial.createdAt || now,
       updatedAt: now,
     });
@@ -204,6 +281,25 @@ function EditModal({ initial, onSave, onClose, onDelete, cuisineSuggestions, loc
             placeholder="Restaurant name"
           />
 
+          <label className={styles.fieldLabel}>Address</label>
+          <div className={styles.urlRow}>
+            <input
+              type="text"
+              className={styles.input}
+              value={address}
+              onChange={e => { setAddress(e.target.value); setCoords(null); }}
+              placeholder="123 Main St, Brooklyn, NY"
+            />
+            <button type="button" className={styles.fetchBtn} onClick={handleGeocode} disabled={geocoding}>
+              {geocoding ? 'Locating…' : 'Lookup'}
+            </button>
+          </div>
+          {coords && (
+            <p className={styles.hintText}>
+              ✓ Geocoded — {coords.lat.toFixed(4)}, {coords.lng.toFixed(4)}
+            </p>
+          )}
+
           <label className={styles.fieldLabel}>Cuisines / food types</label>
           <TagChips
             values={cuisines}
@@ -212,13 +308,55 @@ function EditModal({ initial, onSave, onClose, onDelete, cuisineSuggestions, loc
             placeholder="Type a cuisine and press Enter"
           />
 
-          <label className={styles.fieldLabel}>Locations</label>
+          <label className={styles.fieldLabel}>Neighborhoods / cities</label>
           <TagChips
             values={locations}
             onChange={setLocations}
             suggestions={locationSuggestions}
             placeholder="Type a location and press Enter"
           />
+
+          <label className={styles.fieldLabel}>Meal type</label>
+          <div className={styles.statusRow}>
+            <button
+              type="button"
+              className={`${styles.statusBtn} ${!mealType ? styles.statusBtnActive : ''}`}
+              onClick={() => setMealType('')}
+            >
+              —
+            </button>
+            {MEAL_TYPES.map(m => (
+              <button
+                key={m.key}
+                type="button"
+                className={`${styles.statusBtn} ${mealType === m.key ? styles.statusBtnActive : ''}`}
+                onClick={() => setMealType(m.key)}
+              >
+                {m.label}
+              </button>
+            ))}
+          </div>
+
+          <label className={styles.fieldLabel}>Frequency</label>
+          <div className={styles.statusRow}>
+            <button
+              type="button"
+              className={`${styles.statusBtn} ${!frequency ? styles.statusBtnActive : ''}`}
+              onClick={() => setFrequency('')}
+            >
+              —
+            </button>
+            {FREQUENCIES.map(f => (
+              <button
+                key={f.key}
+                type="button"
+                className={`${styles.statusBtn} ${frequency === f.key ? styles.statusBtnActive : ''}`}
+                onClick={() => setFrequency(f.key)}
+              >
+                {f.label}
+              </button>
+            ))}
+          </div>
 
           <label className={styles.fieldLabel}>Status</label>
           <div className={styles.statusRow}>
@@ -236,6 +374,35 @@ function EditModal({ initial, onSave, onClose, onDelete, cuisineSuggestions, loc
 
           <label className={styles.fieldLabel}>Rating</label>
           <StarRating value={rating} onChange={setRating} />
+          <input
+            type="text"
+            className={styles.input}
+            value={ratingLabel}
+            onChange={e => {
+              const v = e.target.value;
+              setRatingLabel(v);
+              const stars = ratingLabelToStars(v);
+              if (stars != null) setRating(stars);
+            }}
+            placeholder='Optional label: "great", "incredible", "try next", "closed"…'
+          />
+
+          <label className={styles.fieldLabel}>What to order</label>
+          <input
+            type="text"
+            className={styles.input}
+            value={dish}
+            onChange={e => setDish(e.target.value)}
+            placeholder='e.g., "Spinach and Feta Pizza"'
+          />
+
+          <label className={styles.fieldLabel}>Last visit</label>
+          <input
+            type="date"
+            className={styles.input}
+            value={lastVisit}
+            onChange={e => setLastVisit(e.target.value)}
+          />
 
           <label className={styles.fieldLabel}>Notes</label>
           <textarea
@@ -274,9 +441,115 @@ function EditModal({ initial, onSave, onClose, onDelete, cuisineSuggestions, loc
   );
 }
 
-function RestaurantCard({ r, onClick }) {
+function BulkImportModal({ onClose, onImport, existing }) {
+  const [text, setText] = useState('');
+  const [strategy, setStrategy] = useState('skip-duplicates');
+
+  const parsed = useMemo(() => parseRestaurantTsv(text), [text]);
+  const { fresh, duplicates } = useMemo(() => partitionDuplicates(parsed, existing), [parsed, existing]);
+
+  function handleImport() {
+    let toAdd = parsed;
+    if (strategy === 'skip-duplicates') toAdd = fresh;
+    if (toAdd.length === 0) {
+      alert('Nothing to import.');
+      return;
+    }
+    onImport(toAdd, strategy);
+  }
+
   return (
-    <button type="button" className={styles.card} onClick={onClick}>
+    <div className={styles.modalOverlay} onClick={onClose}>
+      <div className={`${styles.modal} ${styles.bulkModal}`} onClick={e => e.stopPropagation()}>
+        <div className={styles.modalHeader}>
+          <h2 className={styles.modalTitle}>Bulk import restaurants</h2>
+          <button type="button" className={styles.iconBtn} onClick={onClose}>✕</button>
+        </div>
+        <div className={styles.modalBody}>
+          <p className={styles.hintText}>
+            Paste tab-separated rows from your spreadsheet. Expected column order:&nbsp;
+            <strong>Place · Meal · Cat · Meal/Drink · Rating · Combine · Days · Notes · Healthy? · Meat? · Area · Last Time</strong>.
+            Empty rows and the "Combine"/"Days" derived columns are ignored.
+          </p>
+          <textarea
+            className={styles.textarea}
+            value={text}
+            onChange={e => setText(e.target.value)}
+            placeholder="Place\tMeal\tCat\t..."
+            rows={10}
+            style={{ fontFamily: 'ui-monospace, SFMono-Regular, monospace', fontSize: '0.78rem' }}
+          />
+
+          <div className={styles.importStats}>
+            <div><strong>{parsed.length}</strong> rows parsed</div>
+            <div><strong>{fresh.length}</strong> new</div>
+            <div><strong>{duplicates.length}</strong> duplicate name{duplicates.length === 1 ? '' : 's'}</div>
+          </div>
+
+          {duplicates.length > 0 && (
+            <>
+              <label className={styles.fieldLabel}>For duplicate names</label>
+              <div className={styles.statusRow}>
+                <button
+                  type="button"
+                  className={`${styles.statusBtn} ${strategy === 'skip-duplicates' ? styles.statusBtnActive : ''}`}
+                  onClick={() => setStrategy('skip-duplicates')}
+                >
+                  Skip duplicates
+                </button>
+                <button
+                  type="button"
+                  className={`${styles.statusBtn} ${strategy === 'replace-duplicates' ? styles.statusBtnActive : ''}`}
+                  onClick={() => setStrategy('replace-duplicates')}
+                >
+                  Replace existing
+                </button>
+              </div>
+            </>
+          )}
+
+          {parsed.length > 0 && (
+            <>
+              <label className={styles.fieldLabel}>Preview (first 8)</label>
+              <div className={styles.previewList}>
+                {parsed.slice(0, 8).map((r, i) => (
+                  <div key={i} className={styles.previewRow}>
+                    <strong>{r.name}</strong>
+                    <span className={styles.previewMeta}>
+                      {[r.cuisines?.[0], r.locations?.[0], r.ratingLabel, r.frequency].filter(Boolean).join(' · ')}
+                    </span>
+                  </div>
+                ))}
+                {parsed.length > 8 && (
+                  <div className={styles.previewRow}>
+                    <span className={styles.previewMeta}>… and {parsed.length - 8} more</span>
+                  </div>
+                )}
+              </div>
+            </>
+          )}
+        </div>
+        <div className={styles.modalFooter}>
+          <div className={styles.footerSpacer} />
+          <button type="button" className={styles.secondaryBtn} onClick={onClose}>Cancel</button>
+          <button
+            type="button"
+            className={styles.primaryBtn}
+            onClick={handleImport}
+            disabled={parsed.length === 0}
+          >
+            Import {strategy === 'skip-duplicates' ? fresh.length : parsed.length}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function RestaurantCard({ r, distanceMiles, onClick }) {
+  const isRetired = r.frequency === 'retired';
+  return (
+    <button type="button" className={`${styles.card} ${isRetired ? styles.cardRetired : ''}`} onClick={onClick}>
       {r.imageUrl
         ? <img src={r.imageUrl} alt="" className={styles.cardImage} />
         : <div className={`${styles.cardImage} ${styles.cardImagePlaceholder}`}>🍽️</div>}
@@ -284,20 +557,35 @@ function RestaurantCard({ r, onClick }) {
         <div className={styles.cardHeader}>
           <h3 className={styles.cardTitle}>{r.name}</h3>
           {r.status === 'want-to-try' && <span className={styles.wantBadge}>Want to try</span>}
+          {isRetired && <span className={styles.retiredBadge}>Retired</span>}
         </div>
-        {r.rating != null && (
+        {(r.rating != null || r.ratingLabel) && (
           <div className={styles.cardStars}>
-            {[1, 2, 3, 4, 5].map(n => (
+            {r.rating != null && [1, 2, 3, 4, 5].map(n => (
               <span key={n} className={n <= r.rating ? styles.starFilled : styles.starEmpty}>
                 {n <= r.rating ? '★' : '☆'}
               </span>
             ))}
+            {r.ratingLabel && <span className={styles.cardRatingLabel}>{r.ratingLabel}</span>}
           </div>
         )}
-        {(r.cuisines?.length > 0 || r.locations?.length > 0) && (
+        {(r.cuisines?.length > 0 || r.locations?.length > 0 || r.frequency) && (
           <div className={styles.cardMeta}>
-            {[...(r.cuisines || []), ...(r.locations || [])].join(' · ')}
+            {[
+              ...(r.cuisines || []),
+              ...(r.locations || []),
+              r.frequency === 'special' ? 'Special' : null,
+              r.frequency === 'regular' ? 'Regular' : null,
+            ].filter(Boolean).join(' · ')}
           </div>
+        )}
+        {r.dish && <div className={styles.cardDish}>🍴 {r.dish}</div>}
+        {r.address && <div className={styles.cardAddress}>📍 {r.address}</div>}
+        {distanceMiles != null && (
+          <div className={styles.cardDistance}>{distanceMiles.toFixed(1)} mi away</div>
+        )}
+        {r.lastVisit && (
+          <div className={styles.cardLastVisit}>Last visit: {formatDate(r.lastVisit)}</div>
         )}
         {r.url && (
           <a
@@ -322,11 +610,15 @@ export function EatingOutPage({ user, onClose }) {
   const [filter, setFilter] = useState('all');
   const [activeCuisine, setActiveCuisine] = useState(null);
   const [activeLocation, setActiveLocation] = useState(null);
+  const [activeMealType, setActiveMealType] = useState(null);
+  const [showRetired, setShowRetired] = useState(false);
+  const [proximityQuery, setProximityQuery] = useState('');
+  const [proximityCenter, setProximityCenter] = useState(null);
+  const [proximityResolving, setProximityResolving] = useState(false);
   const [editing, setEditing] = useState(null);
   const [adding, setAdding] = useState(false);
+  const [bulkOpen, setBulkOpen] = useState(false);
 
-  // Subscribe to the user doc — keeps the website list in sync with the
-  // mobile app, since both write the same `restaurants` field.
   useEffect(() => {
     if (!user?.uid) {
       setRestaurants([]);
@@ -366,17 +658,34 @@ export function EatingOutPage({ user, onClose }) {
 
   const visible = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return restaurants.filter(r => {
+    let list = restaurants.filter(r => {
+      if (!showRetired && r.frequency === 'retired') return false;
       if (filter !== 'all' && r.status !== filter) return false;
       if (activeCuisine && !(r.cuisines || []).some(c => c.toLowerCase() === activeCuisine.toLowerCase())) return false;
       if (activeLocation && !(r.locations || []).some(l => l.toLowerCase() === activeLocation.toLowerCase())) return false;
+      if (activeMealType && r.mealType !== activeMealType) return false;
       if (q) {
-        const hay = [r.name, ...(r.cuisines || []), ...(r.locations || []), r.notes || '', r.description || ''].join(' ').toLowerCase();
+        const hay = [
+          r.name, r.dish, r.address, r.notes, r.description, r.ratingLabel,
+          ...(r.cuisines || []), ...(r.locations || []),
+        ].filter(Boolean).join(' ').toLowerCase();
         if (!hay.includes(q)) return false;
       }
       return true;
     });
-  }, [restaurants, filter, activeCuisine, activeLocation, search]);
+
+    if (proximityCenter) {
+      list = list
+        .map(r => {
+          if (typeof r.lat !== 'number' || typeof r.lng !== 'number') return { r, d: null };
+          return { r, d: haversineMiles(proximityCenter, { lat: r.lat, lng: r.lng }) };
+        })
+        .filter(x => x.d != null)
+        .sort((a, b) => a.d - b.d)
+        .map(x => ({ ...x.r, _distance: x.d }));
+    }
+    return list;
+  }, [restaurants, filter, activeCuisine, activeLocation, activeMealType, showRetired, search, proximityCenter]);
 
   const persist = useCallback(async (next) => {
     setRestaurants(next);
@@ -404,11 +713,60 @@ export function EatingOutPage({ user, onClose }) {
     setEditing(null);
   }
 
+  function handleBulkImport(rows, strategy) {
+    let next;
+    if (strategy === 'replace-duplicates') {
+      const incomingByName = new Map(rows.map(r => [(r.name || '').toLowerCase().trim(), r]));
+      const filtered = restaurants.filter(r => !incomingByName.has((r.name || '').toLowerCase().trim()));
+      next = [...rows, ...filtered];
+    } else {
+      next = [...rows, ...restaurants];
+    }
+    persist(next);
+    setBulkOpen(false);
+    alert(`Imported ${rows.length} restaurant${rows.length === 1 ? '' : 's'}.`);
+  }
+
+  async function handleProximity(e) {
+    if (e) e.preventDefault();
+    const q = proximityQuery.trim();
+    if (!q) {
+      setProximityCenter(null);
+      return;
+    }
+    setProximityResolving(true);
+    try {
+      const res = await fetch(`/api/geocode?q=${encodeURIComponent(q)}`);
+      const data = await res.json();
+      if (res.ok && typeof data.lat === 'number' && typeof data.lng === 'number') {
+        setProximityCenter({ lat: data.lat, lng: data.lng });
+      } else {
+        alert(data.error || 'Could not find that address.');
+      }
+    } catch (err) {
+      alert(`Geocode failed: ${err.message || 'try again'}`);
+    } finally {
+      setProximityResolving(false);
+    }
+  }
+
+  const retiredCount = useMemo(
+    () => restaurants.filter(r => r.frequency === 'retired').length,
+    [restaurants],
+  );
+  const geocodedCount = useMemo(
+    () => restaurants.filter(r => typeof r.lat === 'number' && typeof r.lng === 'number').length,
+    [restaurants],
+  );
+
   return (
     <div className={styles.page}>
       <div className={styles.header}>
         <button type="button" className={styles.backBtn} onClick={onClose}>← Back</button>
         <h1 className={styles.title}>Eating Out</h1>
+        <button type="button" className={styles.secondaryBtn} onClick={() => setBulkOpen(true)}>
+          Bulk import
+        </button>
         <button type="button" className={styles.primaryBtn} onClick={() => setAdding(true)}>
           + Add restaurant
         </button>
@@ -420,7 +778,7 @@ export function EatingOutPage({ user, onClose }) {
           className={styles.searchInput}
           value={search}
           onChange={e => setSearch(e.target.value)}
-          placeholder="Search restaurants, cuisines, places…"
+          placeholder="Search restaurants, cuisines, places, dishes…"
         />
         <div className={styles.filterRow}>
           {FILTERS.map(f => (
@@ -434,6 +792,55 @@ export function EatingOutPage({ user, onClose }) {
             </button>
           ))}
         </div>
+      </div>
+
+      <form className={styles.proximityRow} onSubmit={handleProximity}>
+        <input
+          type="text"
+          className={styles.searchInput}
+          value={proximityQuery}
+          onChange={e => setProximityQuery(e.target.value)}
+          placeholder="Near… (type an address and press Enter)"
+        />
+        <button type="submit" className={styles.secondaryBtn} disabled={proximityResolving}>
+          {proximityResolving ? 'Locating…' : 'Find nearby'}
+        </button>
+        {proximityCenter && (
+          <button
+            type="button"
+            className={styles.linkBtn}
+            onClick={() => { setProximityCenter(null); setProximityQuery(''); }}
+          >
+            Clear
+          </button>
+        )}
+        {proximityCenter && geocodedCount === 0 && (
+          <span className={styles.warn}>
+            None of your restaurants have addresses yet — bulk import didn't include addresses, and Lookup wasn't run.
+          </span>
+        )}
+      </form>
+
+      <div className={styles.tagFilterRow}>
+        {MEAL_TYPES.map(m => (
+          <button
+            key={`m-${m.key}`}
+            type="button"
+            className={`${styles.tagFilter} ${activeMealType === m.key ? styles.tagFilterActive : ''}`}
+            onClick={() => setActiveMealType(activeMealType === m.key ? null : m.key)}
+          >
+            {m.label}
+          </button>
+        ))}
+        {retiredCount > 0 && (
+          <button
+            type="button"
+            className={`${styles.tagFilter} ${showRetired ? styles.tagFilterActive : ''}`}
+            onClick={() => setShowRetired(v => !v)}
+          >
+            {showRetired ? `Hide retired (${retiredCount})` : `Show retired (${retiredCount})`}
+          </button>
+        )}
       </div>
 
       {(cuisineSuggestions.length > 0 || locationSuggestions.length > 0) && (
@@ -469,12 +876,17 @@ export function EatingOutPage({ user, onClose }) {
             <>
               <p className={styles.emptyTitle}>No restaurants yet</p>
               <p className={styles.emptyText}>
-                Save Instagram videos and websites for places you want to eat at.
-                The mobile app syncs both ways.
+                Save Instagram videos and websites for places you want to eat at,
+                or paste your spreadsheet via Bulk import. The mobile app syncs both ways.
               </p>
-              <button type="button" className={styles.primaryBtn} onClick={() => setAdding(true)}>
-                + Add your first
-              </button>
+              <div style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>
+                <button type="button" className={styles.secondaryBtn} onClick={() => setBulkOpen(true)}>
+                  Bulk import
+                </button>
+                <button type="button" className={styles.primaryBtn} onClick={() => setAdding(true)}>
+                  + Add your first
+                </button>
+              </div>
             </>
           ) : (
             <p className={styles.emptyText}>Nothing matches. Try clearing filters or the search box.</p>
@@ -483,7 +895,12 @@ export function EatingOutPage({ user, onClose }) {
       ) : (
         <div className={styles.grid}>
           {visible.map(r => (
-            <RestaurantCard key={r.id} r={r} onClick={() => setEditing(r)} />
+            <RestaurantCard
+              key={r.id}
+              r={r}
+              distanceMiles={r._distance}
+              onClick={() => setEditing(r)}
+            />
           ))}
         </div>
       )}
@@ -505,6 +922,13 @@ export function EatingOutPage({ user, onClose }) {
           onSave={handleSave}
           onClose={() => setEditing(null)}
           onDelete={() => handleDelete(editing.id)}
+        />
+      )}
+      {bulkOpen && (
+        <BulkImportModal
+          existing={restaurants}
+          onClose={() => setBulkOpen(false)}
+          onImport={handleBulkImport}
         />
       )}
     </div>

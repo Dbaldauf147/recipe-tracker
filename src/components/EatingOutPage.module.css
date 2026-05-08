@@ -486,3 +486,116 @@
   font-family: inherit;
 }
 .deleteBtn:hover { background: #fecaca; }
+
+/* Proximity / address row */
+.proximityRow {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+  flex-wrap: wrap;
+}
+.linkBtn {
+  background: none;
+  border: none;
+  color: var(--color-accent);
+  cursor: pointer;
+  font-size: 0.85rem;
+  padding: 0;
+  font-family: inherit;
+}
+.linkBtn:hover { text-decoration: underline; }
+.warn {
+  color: #92400E;
+  background: #FEF3C7;
+  border-radius: 6px;
+  padding: 0.3rem 0.6rem;
+  font-size: 0.75rem;
+}
+
+/* Card additions */
+.cardRetired { opacity: 0.65; }
+
+.retiredBadge {
+  background: var(--color-surface-alt);
+  color: var(--color-text-muted);
+  font-size: 0.7rem;
+  font-weight: 700;
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+  flex-shrink: 0;
+}
+
+.cardRatingLabel {
+  margin-left: 6px;
+  color: var(--color-text-muted);
+  font-size: 0.75rem;
+  font-style: italic;
+}
+
+.cardDish {
+  font-size: 0.78rem;
+  color: var(--color-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cardAddress,
+.cardLastVisit,
+.cardDistance {
+  font-size: 0.72rem;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cardDistance {
+  color: var(--color-accent);
+  font-weight: 600;
+}
+
+/* Bulk modal */
+.bulkModal {
+  max-width: 720px;
+}
+
+.importStats {
+  display: flex;
+  gap: 1rem;
+  padding: 0.6rem 0.8rem;
+  background: var(--color-surface-alt);
+  border-radius: 8px;
+  font-size: 0.85rem;
+  color: var(--color-text-muted);
+  margin-top: 0.5rem;
+}
+.importStats strong {
+  color: var(--color-text);
+}
+
+.previewList {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 220px;
+  overflow-y: auto;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  padding: 0.5rem;
+}
+.previewRow {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  font-size: 0.82rem;
+  padding: 0.2rem 0.3rem;
+}
+.previewRow strong {
+  color: var(--color-text);
+}
+.previewMeta {
+  color: var(--color-text-muted);
+  font-size: 0.75rem;
+  text-align: right;
+}
