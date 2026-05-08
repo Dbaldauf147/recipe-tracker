@@ -236,11 +236,10 @@ export async function lookupFromSheet(ingredient) {
   const rawQty = parseFloat(quantity);
   const qty = isNaN(rawQty) ? 1 : rawQty;
 
-  // Determine multiplier by converting the recipe's qty+measurement into
-  // total grams of ingredient, then dividing by the sheet's per-serving grams.
-  // This avoids the old "UNIT_TO_GRAMS[sheetMeasNorm]" trick, which produced
-  // massively inflated values whenever the sheet was stored in grams (since
-  // UNIT_TO_GRAMS['g'] is 1 but the real per-serving size was match.grams).
+  // Sheet nutrient values are stored per the row's listed measurement
+  // (e.g. "1 cup of siggis" → protein=25.3g). When the recipe's measurement
+  // matches the sheet's, we can use those values directly × qty. Only when
+  // units differ do we need to convert via grams.
   const recipeMeasNorm = normalizeMeasurement(measurement || '');
   const sheetMeasNorm = normalizeMeasurement(match.measurement || '');
 
@@ -258,19 +257,17 @@ export async function lookupFromSheet(ingredient) {
   }
 
   let multiplier;
-  if (recipeTotalGrams != null && match.grams > 0) {
-    multiplier = recipeTotalGrams / match.grams;
-  } else if (recipeTotalGrams != null && (!match.grams || match.grams <= 0)) {
-    // Sheet row has no per-serving gram weight, but the recipe uses grams
-    // (or is convertible to grams). USDA-style nutrition data is per 100g,
-    // so treat the sheet's "per serving" as per 100g to avoid the 100x-too-
-    // large values we used to emit when falling back to raw qty.
-    multiplier = recipeTotalGrams / 100;
-  } else if (recipeMeasNorm && sheetMeasNorm && recipeMeasNorm === sheetMeasNorm) {
-    // Same unit (e.g. both in "cup" with no grams info) — use qty ratio directly.
+  if (recipeMeasNorm && sheetMeasNorm && recipeMeasNorm === sheetMeasNorm) {
+    // Same unit — sheet row IS the per-listed-measurement value. Just × qty.
     multiplier = qty;
+  } else if (recipeTotalGrams != null && match.grams > 0) {
+    // Different units — convert: total recipe grams ÷ sheet's per-row grams.
+    multiplier = recipeTotalGrams / match.grams;
+  } else if (recipeTotalGrams != null) {
+    // Different units and sheet has no per-row grams — assume per-100g.
+    multiplier = recipeTotalGrams / 100;
   } else {
-    // Unknown recipe measurement / no gram info in sheet. Fall back to raw qty.
+    // Unknown recipe measurement and units don't match. Last resort.
     multiplier = qty;
   }
 
