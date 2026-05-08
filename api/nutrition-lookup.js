@@ -245,12 +245,61 @@ function buildRowFromUSDA(food, grams, scaleFactor, quantity, unit) {
 }
 
 async function lookupFromUSDA(ingredient, grams, scaleFactor, quantity, unit, dataTypes) {
-  const url = `${USDA_SEARCH_URL}?api_key=${USDA_API_KEY}&query=${encodeURIComponent(ingredient)}&pageSize=3&dataType=${dataTypes}`;
+  const url = `${USDA_SEARCH_URL}?api_key=${USDA_API_KEY}&query=${encodeURIComponent(ingredient)}&pageSize=10&dataType=${dataTypes}`;
   const res = await fetch(url);
   if (!res.ok) return null;
   const data = await res.json();
   if (!data.foods || data.foods.length === 0) return null;
-  return buildRowFromUSDA(data.foods[0], grams, scaleFactor, quantity, unit);
+
+  // USDA's first hit is often a heavily-processed variant (dried,
+  // sweetened, juice, pickle...) which has wildly different nutrition
+  // from the fresh ingredient the user typed. Score every result and
+  // prefer raw/fresh forms unless the user explicitly asked for the
+  // processed form.
+  const ingLower = ingredient.toLowerCase();
+  const userTokens = {
+    dried: /\bdried\b/.test(ingLower),
+    frozen: /\bfrozen\b/.test(ingLower),
+    canned: /\bcanned\b/.test(ingLower),
+    sweetened: /\bsweet(ened)?\b/.test(ingLower),
+    juice: /\bjuice\b/.test(ingLower),
+    pickle: /\bpickled?\b/.test(ingLower),
+    cooked: /\bcooked\b|\bboiled\b|\broasted\b|\bgrilled\b/.test(ingLower),
+    rawAsked: /\braw\b|\bfresh\b/.test(ingLower),
+  };
+
+  function scoreFood(food) {
+    const desc = (food.description || '').toLowerCase();
+    let s = 0;
+    // Exact match or starts-with bonus.
+    if (desc === ingLower) s += 200;
+    else if (desc.startsWith(ingLower + ',') || desc.startsWith(ingLower + ' ')) s += 80;
+    // Token-overlap bonus: how many input words appear in the description.
+    const inputWords = ingLower.split(/\s+/).filter(w => w.length > 2);
+    const overlap = inputWords.filter(w => desc.includes(w)).length;
+    s += overlap * 10;
+
+    // Prefer raw/fresh by default — but only penalize processed forms
+    // when the user didn't ask for them.
+    if (/\braw\b/.test(desc)) s += userTokens.rawAsked ? 40 : 25;
+    if (/\bfresh\b/.test(desc)) s += 15;
+
+    if (!userTokens.dried && /\bdried\b/.test(desc)) s -= 80;
+    if (!userTokens.frozen && /\bfrozen\b/.test(desc)) s -= 25;
+    if (!userTokens.canned && /\bcanned\b/.test(desc)) s -= 50;
+    if (!userTokens.sweetened && /\bsweetened\b|\bin syrup\b|\bcandied\b/.test(desc)) s -= 70;
+    if (!userTokens.juice && /\bjuice\b/.test(desc)) s -= 60;
+    if (!userTokens.pickle && /\bpickled?\b/.test(desc)) s -= 120;
+    if (!userTokens.cooked && /\b(cooked|boiled|roasted|grilled|fried|baked|stewed)\b/.test(desc)) s -= 30;
+
+    // Foundation / SR Legacy data is more reliable than Branded.
+    if (food.dataType === 'Foundation' || food.dataType === 'SR Legacy') s += 15;
+
+    return s;
+  }
+
+  const ranked = data.foods.slice().sort((a, b) => scoreFood(b) - scoreFood(a));
+  return buildRowFromUSDA(ranked[0], grams, scaleFactor, quantity, unit);
 }
 
 // Open Food Facts name-based search
