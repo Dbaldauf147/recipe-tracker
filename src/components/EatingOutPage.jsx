@@ -2,7 +2,15 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { doc, onSnapshot } from 'firebase/firestore';
 import { db } from '../firebase';
 import { saveField } from '../utils/firestoreSync';
-import { parseRestaurantTsv, partitionDuplicates, ratingLabelToStars } from '../utils/restaurantImport';
+import {
+  splitTsv,
+  detectHasHeader,
+  autoDetectMapping,
+  applyMapping,
+  partitionDuplicates,
+  ratingLabelToStars,
+  IMPORT_FIELDS,
+} from '../utils/restaurantImport';
 import styles from './EatingOutPage.module.css';
 
 const FILTERS = [
@@ -444,9 +452,68 @@ function EditModal({ initial, onSave, onClose, onDelete, cuisineSuggestions, loc
 function BulkImportModal({ onClose, onImport, existing }) {
   const [text, setText] = useState('');
   const [strategy, setStrategy] = useState('skip-duplicates');
+  const [hasHeader, setHasHeader] = useState(true);
+  const [mapping, setMapping] = useState({});
+  // Track whether the user manually edited the mapping so we don't clobber
+  // their choices when they tweak the textarea.
+  const [mappingTouched, setMappingTouched] = useState(false);
 
-  const parsed = useMemo(() => parseRestaurantTsv(text), [text]);
-  const { fresh, duplicates } = useMemo(() => partitionDuplicates(parsed, existing), [parsed, existing]);
+  const rows = useMemo(() => splitTsv(text), [text]);
+  const columnCount = useMemo(() => {
+    let max = 0;
+    for (const r of rows) if (r.length > max) max = r.length;
+    return max;
+  }, [rows]);
+
+  const detectedHeader = useMemo(() => detectHasHeader(rows), [rows]);
+
+  // When the pasted text changes, refresh auto-detection (header + mapping)
+  // unless the user has already tweaked the mapping by hand.
+  useEffect(() => {
+    if (rows.length === 0) {
+      setMapping({});
+      setMappingTouched(false);
+      return;
+    }
+    setHasHeader(detectedHeader);
+    if (!mappingTouched) {
+      setMapping(autoDetectMapping(rows));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [text]);
+
+  const headerRow = hasHeader && rows.length > 0 ? rows[0] : null;
+  const sampleRow = (hasHeader ? rows[1] : rows[0]) || [];
+
+  const parsed = useMemo(
+    () => applyMapping(rows, mapping, { hasHeader }),
+    [rows, mapping, hasHeader],
+  );
+  const { fresh, duplicates } = useMemo(
+    () => partitionDuplicates(parsed, existing),
+    [parsed, existing],
+  );
+
+  const dataRowCount = Math.max(0, rows.length - (hasHeader ? 1 : 0));
+  const nameMapped = Object.values(mapping).includes('name');
+
+  function setColumnMapping(idx, key) {
+    setMappingTouched(true);
+    setMapping(prev => {
+      const next = { ...prev };
+      if (key === 'ignore' || !key) {
+        delete next[idx];
+      } else {
+        next[idx] = key;
+      }
+      return next;
+    });
+  }
+
+  function resetMapping() {
+    setMappingTouched(false);
+    setMapping(autoDetectMapping(rows));
+  }
 
   function handleImport() {
     let toAdd = parsed;
@@ -458,6 +525,12 @@ function BulkImportModal({ onClose, onImport, existing }) {
     onImport(toAdd, strategy);
   }
 
+  function previewMeta(r) {
+    return [r.cuisines?.[0], r.locations?.[0], r.ratingLabel, r.frequency]
+      .filter(Boolean)
+      .join(' · ');
+  }
+
   return (
     <div className={styles.modalOverlay} onClick={onClose}>
       <div className={`${styles.modal} ${styles.bulkModal}`} onClick={e => e.stopPropagation()}>
@@ -467,65 +540,121 @@ function BulkImportModal({ onClose, onImport, existing }) {
         </div>
         <div className={styles.modalBody}>
           <p className={styles.hintText}>
-            Paste tab-separated rows from your spreadsheet. Expected column order:&nbsp;
-            <strong>Place · Meal · Cat · Meal/Drink · Rating · Combine · Days · Notes · Healthy? · Meat? · Area · Last Time</strong>.
-            Empty rows and the "Combine"/"Days" derived columns are ignored.
+            Paste tab-separated or CSV rows. Once pasted, map each column to a Restaurant
+            field. We'll auto-detect a mapping when the first row looks like headers.
           </p>
           <textarea
             className={styles.textarea}
             value={text}
             onChange={e => setText(e.target.value)}
-            placeholder="Place\tMeal\tCat\t..."
-            rows={10}
+            placeholder={'Place\\tMeal\\tCat\\tRating\\t...\\nDig In\\tLunch/Dinner - Regular\\tBowls\\tgreat\\t...'}
+            rows={6}
             style={{ fontFamily: 'ui-monospace, SFMono-Regular, monospace', fontSize: '0.78rem' }}
           />
 
-          <div className={styles.importStats}>
-            <div><strong>{parsed.length}</strong> rows parsed</div>
-            <div><strong>{fresh.length}</strong> new</div>
-            <div><strong>{duplicates.length}</strong> duplicate name{duplicates.length === 1 ? '' : 's'}</div>
-          </div>
-
-          {duplicates.length > 0 && (
+          {columnCount > 0 && (
             <>
-              <label className={styles.fieldLabel}>For duplicate names</label>
-              <div className={styles.statusRow}>
-                <button
-                  type="button"
-                  className={`${styles.statusBtn} ${strategy === 'skip-duplicates' ? styles.statusBtnActive : ''}`}
-                  onClick={() => setStrategy('skip-duplicates')}
-                >
-                  Skip duplicates
-                </button>
-                <button
-                  type="button"
-                  className={`${styles.statusBtn} ${strategy === 'replace-duplicates' ? styles.statusBtnActive : ''}`}
-                  onClick={() => setStrategy('replace-duplicates')}
-                >
-                  Replace existing
-                </button>
-              </div>
-            </>
-          )}
-
-          {parsed.length > 0 && (
-            <>
-              <label className={styles.fieldLabel}>Preview (first 8)</label>
-              <div className={styles.previewList}>
-                {parsed.slice(0, 8).map((r, i) => (
-                  <div key={i} className={styles.previewRow}>
-                    <strong>{r.name}</strong>
-                    <span className={styles.previewMeta}>
-                      {[r.cuisines?.[0], r.locations?.[0], r.ratingLabel, r.frequency].filter(Boolean).join(' · ')}
-                    </span>
-                  </div>
-                ))}
-                {parsed.length > 8 && (
-                  <div className={styles.previewRow}>
-                    <span className={styles.previewMeta}>… and {parsed.length - 8} more</span>
-                  </div>
+              <div className={styles.importStats}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.85rem', cursor: 'pointer' }}>
+                  <input
+                    type="checkbox"
+                    checked={hasHeader}
+                    onChange={e => setHasHeader(e.target.checked)}
+                  />
+                  First row is column names
+                </label>
+                <div><strong>{columnCount}</strong> column{columnCount === 1 ? '' : 's'}</div>
+                <div><strong>{dataRowCount}</strong> data row{dataRowCount === 1 ? '' : 's'}</div>
+                {mappingTouched && (
+                  <button type="button" className={styles.linkBtn} onClick={resetMapping}>
+                    Reset mapping
+                  </button>
                 )}
               </div>
+
+              <label className={styles.fieldLabel}>Map columns</label>
+              <div className={styles.mappingGrid}>
+                {Array.from({ length: columnCount }).map((_, i) => {
+                  const headerText = headerRow ? (headerRow[i] || '').trim() : '';
+                  const sample = (sampleRow[i] || '').trim();
+                  const value = mapping[i] || 'ignore';
+                  return (
+                    <div key={i} className={styles.mappingRow}>
+                      <div className={styles.mappingColInfo}>
+                        <div className={styles.mappingColTitle}>
+                          {headerText || `Column ${i + 1}`}
+                        </div>
+                        {sample && (
+                          <div className={styles.mappingColSample} title={sample}>
+                            e.g. {sample.length > 60 ? sample.slice(0, 60) + '…' : sample}
+                          </div>
+                        )}
+                      </div>
+                      <select
+                        className={styles.mappingSelect}
+                        value={value}
+                        onChange={e => setColumnMapping(i, e.target.value)}
+                      >
+                        {IMPORT_FIELDS.map(f => (
+                          <option key={f.key} value={f.key}>{f.label}</option>
+                        ))}
+                      </select>
+                    </div>
+                  );
+                })}
+              </div>
+              {!nameMapped && (
+                <p className={styles.warn} style={{ marginTop: 8 }}>
+                  Map at least one column to <strong>Place / Name</strong> — that's required.
+                </p>
+              )}
+
+              <div className={styles.importStats}>
+                <div><strong>{parsed.length}</strong> rows parsed</div>
+                <div><strong>{fresh.length}</strong> new</div>
+                <div><strong>{duplicates.length}</strong> duplicate name{duplicates.length === 1 ? '' : 's'}</div>
+              </div>
+
+              {duplicates.length > 0 && (
+                <>
+                  <label className={styles.fieldLabel}>For duplicate names</label>
+                  <div className={styles.statusRow}>
+                    <button
+                      type="button"
+                      className={`${styles.statusBtn} ${strategy === 'skip-duplicates' ? styles.statusBtnActive : ''}`}
+                      onClick={() => setStrategy('skip-duplicates')}
+                    >
+                      Skip duplicates
+                    </button>
+                    <button
+                      type="button"
+                      className={`${styles.statusBtn} ${strategy === 'replace-duplicates' ? styles.statusBtnActive : ''}`}
+                      onClick={() => setStrategy('replace-duplicates')}
+                    >
+                      Replace existing
+                    </button>
+                  </div>
+                </>
+              )}
+
+              {parsed.length > 0 && (
+                <>
+                  <label className={styles.fieldLabel}>Preview (first 8)</label>
+                  <div className={styles.previewList}>
+                    {parsed.slice(0, 8).map((r, i) => (
+                      <div key={i} className={styles.previewRow}>
+                        <strong>{r.name}</strong>
+                        <span className={styles.previewMeta}>{previewMeta(r)}</span>
+                      </div>
+                    ))}
+                    {parsed.length > 8 && (
+                      <div className={styles.previewRow}>
+                        <span className={styles.previewMeta}>… and {parsed.length - 8} more</span>
+                      </div>
+                    )}
+                  </div>
+                </>
+              )}
             </>
           )}
         </div>
@@ -536,7 +665,7 @@ function BulkImportModal({ onClose, onImport, existing }) {
             type="button"
             className={styles.primaryBtn}
             onClick={handleImport}
-            disabled={parsed.length === 0}
+            disabled={parsed.length === 0 || !nameMapped}
           >
             Import {strategy === 'skip-duplicates' ? fresh.length : parsed.length}
           </button>

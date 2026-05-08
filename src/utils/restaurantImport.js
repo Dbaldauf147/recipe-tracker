@@ -1,20 +1,52 @@
-// Parse the user's spreadsheet TSV into Restaurant objects matching the
-// schema both the website and the mobile app share.
+// Mapping-driven importer for the Eating Out page.
 //
-// Expected column order (tab-separated):
-//   0  Place
-//   1  Meal       (e.g., "Lunch/Dinner - Regular", "Drinking", "Coffee", "All")
-//   2  Cat        (e.g., "Bowls", "Sushi", "Cocktail, Dance")
-//   3  Meal/Drink (specific dish recommendation OR a URL)
-//   4  Rating     ("bad" | "ok" | "good" | "great" | "top" | "incredible"
-//                  | "try next" | "closed" | "")
-//   5  Combine    (concatenated derived field — IGNORED)
-//   6  Days       (days-since-visit derived field — IGNORED)
-//   7  Notes
-//   8  Healthy?   ("Healthy, Workout", "Unhealthy", etc.)
-//   9  Meat?      ("Meat, Vegetarian", "Pescatarian", etc.)
-//  10  Area       (Williamsburg, Manhattan, …)
-//  11  Last Time  (M/D/YYYY)
+// Flow:
+//   1. splitTsv(text)               -> string[][] of rows/cells
+//   2. autoDetectMapping(rows, ...) -> { columnIndex: fieldKey }
+//   3. applyMapping(rows, mapping)  -> Restaurant[]
+//
+// The UI lets the user override the detected mapping before applying.
+// Field keys are listed in IMPORT_FIELDS and matched to header text via
+// the regex table in HEADER_HINTS.
+
+export const IMPORT_FIELDS = [
+  { key: 'ignore', label: 'Ignore' },
+  { key: 'name', label: 'Place / Name' },
+  { key: 'mealAndFrequency', label: 'Meal context (e.g., "Lunch/Dinner - Regular")' },
+  { key: 'mealType', label: 'Meal type only' },
+  { key: 'frequency', label: 'Frequency (Regular / Special / Retired)' },
+  { key: 'cuisine', label: 'Cuisine / category' },
+  { key: 'dish', label: 'What to order' },
+  { key: 'url', label: 'URL / link' },
+  { key: 'rating', label: 'Rating (text or stars)' },
+  { key: 'notes', label: 'Notes' },
+  { key: 'diet', label: 'Diet tags (Healthy / Unhealthy / Workout)' },
+  { key: 'meat', label: 'Diet preferences (Meat / Vegetarian / Pescatarian)' },
+  { key: 'location', label: 'Neighborhood / city' },
+  { key: 'lastVisit', label: 'Last visit date' },
+  { key: 'address', label: 'Address' },
+];
+
+const FIELD_KEYS = new Set(IMPORT_FIELDS.map(f => f.key));
+
+// Regex hints used to auto-detect mapping from header text. Order matters —
+// the first match wins.
+const HEADER_HINTS = [
+  [/^place$|name|restaurant|spot/i, 'name'],
+  [/^meal$|^when$|when to eat/i, 'mealAndFrequency'],
+  [/^cat$|category|cuisine|type$|food.?type/i, 'cuisine'],
+  [/dish|order|meal\/?drink|drink/i, 'dish'],
+  [/url|link|website|instagram|insta/i, 'url'],
+  [/rating|score|stars/i, 'rating'],
+  [/combine/i, 'ignore'],   // user-derived concat column
+  [/days/i, 'ignore'],       // user-derived "days since visit"
+  [/notes?/i, 'notes'],
+  [/healthy/i, 'diet'],
+  [/meat\??$|diet preference/i, 'meat'],
+  [/area|neighborhood|city|location/i, 'location'],
+  [/last[\s_-]?(time|visit)|visited|when last/i, 'lastVisit'],
+  [/address|street|line ?1|addr/i, 'address'],
+];
 
 const RATING_TO_STARS = {
   bad: 1,
@@ -37,24 +69,11 @@ export function ratingLabelToStars(label) {
 }
 
 function parseMeal(raw) {
-  // Returns { mealType, frequency } from values like:
-  //   "Lunch/Dinner - Regular"  -> { mealType: 'lunch-dinner', frequency: 'regular' }
-  //   "Lunch/Dinner - Special"
-  //   "Lunch/Dinner - Retired"
-  //   "Breakfast - Regular"
-  //   "Drinking"                -> { mealType: 'drinking' }
-  //   "Drinking - Retired"
-  //   "Coffee"                  -> { mealType: 'coffee' }
-  //   "Other"                   -> { mealType: 'other' }
-  //   "All" / "All Day"         -> { mealType: 'all' }
-  //   "Dinner/Lunch"            -> { mealType: 'lunch-dinner' }
-  //   "Lunch/Dinner Breakfast"  -> { mealType: 'all' }
-  //   "Retired"                 -> { frequency: 'retired' }
+  // "Lunch/Dinner - Regular" -> { mealType: 'lunch-dinner', frequency: 'regular' }
   const out = {};
   if (!raw) return out;
   const v = String(raw).trim();
   if (!v) return out;
-
   const lower = v.toLowerCase();
   if (lower === 'retired') return { frequency: 'retired' };
 
@@ -79,7 +98,6 @@ function parseMeal(raw) {
   if (tail === 'regular' || tail === 'special' || tail === 'retired') {
     out.frequency = tail;
   }
-
   return out;
 }
 
@@ -123,6 +141,83 @@ function generateId() {
   });
 }
 
+/**
+ * Split pasted text into a 2-D grid of strings. Tabs preferred; falls back
+ * to a CSV-ish split when no tabs are present in any row. Trailing blank
+ * rows are dropped but interior blanks are kept so column indexes stay
+ * stable across rows.
+ */
+export function splitTsv(text) {
+  if (!text) return [];
+  const lines = String(text).replace(/\r/g, '').split('\n');
+  // Trim trailing fully-empty lines.
+  while (lines.length && !lines[lines.length - 1].trim()) lines.pop();
+  if (lines.length === 0) return [];
+
+  const hasTab = lines.some(l => l.includes('\t'));
+  return lines.map(line => {
+    if (hasTab) return line.split('\t');
+    // Naive CSV split that respects quoted commas.
+    return line.split(/,(?=(?:[^"]*"[^"]*")*[^"]*$)/).map(c =>
+      c.replace(/^\s*"(.*)"\s*$/, '$1'),
+    );
+  });
+}
+
+/**
+ * Heuristic header detection. Treats the first row as headers when most of
+ * its cells look like field names rather than values.
+ */
+export function detectHasHeader(rows) {
+  if (!rows.length) return false;
+  const first = rows[0];
+  if (first.length < 2) return false;
+
+  let nameLike = 0;
+  let valueLike = 0;
+  for (const cell of first) {
+    const v = (cell || '').trim();
+    if (!v) continue;
+    if (/^https?:\/\//i.test(v) || /^\d/.test(v) || /^\d{1,2}\/\d{1,2}\/\d{2,4}$/.test(v)) {
+      valueLike++;
+    } else if (/^[A-Za-z][A-Za-z\s/?\-]{0,30}$/.test(v)) {
+      nameLike++;
+    }
+  }
+  return nameLike >= 2 && nameLike >= valueLike;
+}
+
+/**
+ * Auto-detect a column→field mapping. Uses the header row when present
+ * (matches against HEADER_HINTS); otherwise leaves columns as 'ignore'.
+ *
+ * Returns an object: { [columnIndex]: fieldKey }.
+ */
+export function autoDetectMapping(rows) {
+  const mapping = {};
+  if (!rows.length) return mapping;
+  const hasHeader = detectHasHeader(rows);
+  if (!hasHeader) return mapping;
+  const header = rows[0];
+  const used = new Set();
+  for (let i = 0; i < header.length; i++) {
+    const text = String(header[i] || '').trim();
+    if (!text) continue;
+    for (const [re, key] of HEADER_HINTS) {
+      if (re.test(text) && !used.has(key)) {
+        mapping[i] = key;
+        // Allow array fields to repeat (cuisine, location, diet, meat) but
+        // de-dupe scalar fields.
+        if (!['cuisine', 'location', 'diet', 'meat', 'ignore'].includes(key)) {
+          used.add(key);
+        }
+        break;
+      }
+    }
+  }
+  return mapping;
+}
+
 function inferStatus({ ratingLabel, lastVisit, frequency }) {
   if (ratingLabel === 'try next') return 'want-to-try';
   if (lastVisit) return 'visited';
@@ -131,96 +226,145 @@ function inferStatus({ ratingLabel, lastVisit, frequency }) {
   return 'want-to-try';
 }
 
+function isUsefulValue(v) {
+  if (v == null) return false;
+  const s = String(v).trim();
+  return s.length > 0;
+}
+
 /**
- * Parse one TSV row into a Restaurant. Returns null when the row has no
- * usable place name.
+ * Build a Restaurant from a single row using the user-confirmed mapping.
+ * Returns null if the row has no usable name.
  */
-export function parseTsvRow(cells, now = new Date().toISOString()) {
-  const place = (cells[0] || '').trim();
-  if (!place) return null;
+function buildRestaurantFromRow(cells, mapping, now) {
+  // Collect values per field key.
+  const collected = {}; // key -> string[] (multi) or first non-empty (scalar)
+  for (const idxStr of Object.keys(mapping)) {
+    const idx = Number(idxStr);
+    const key = mapping[idxStr];
+    if (key === 'ignore' || !FIELD_KEYS.has(key)) continue;
+    const raw = (cells[idx] || '').trim();
+    if (!isUsefulValue(raw)) continue;
+    if (!collected[key]) collected[key] = [];
+    collected[key].push(raw);
+  }
 
-  const meal = (cells[1] || '').trim();
-  const cat = (cells[2] || '').trim();
-  const dishRaw = (cells[3] || '').trim();
-  const rating = (cells[4] || '').trim().toLowerCase();
-  const notes = (cells[7] || '').trim();
-  const healthy = (cells[8] || '').trim();
-  const meat = (cells[9] || '').trim();
-  const area = (cells[10] || '').trim();
-  const lastTime = (cells[11] || '').trim();
+  const nameVal = (collected.name || [])[0];
+  if (!nameVal) return null;
 
-  const { mealType, frequency } = parseMeal(meal);
-  const ratingLabel = rating || undefined;
-  const stars = ratingLabelToStars(rating);
-  const lastVisit = parseDate(lastTime);
-
-  // Sometimes the dish column actually holds a link (the user pasted IG URLs
-  // there). Promote those to the URL field.
+  // Dish / URL: dish columns sometimes hold a URL (the user pasted IG URLs
+  // there). Promote to URL when it looks like one.
   let dish;
   let url;
-  if (dishRaw) {
-    if (isUrlLike(dishRaw)) url = dishRaw;
-    else dish = dishRaw;
+  for (const v of collected.dish || []) {
+    if (isUrlLike(v) && !url) url = v;
+    else if (!dish) dish = v;
   }
-  // Notes column may also contain a link.
-  let cleanedNotes = notes;
-  if (notes && isUrlLike(notes) && !url) {
-    url = notes;
-    cleanedNotes = '';
+  if (!url) {
+    const explicit = (collected.url || [])[0];
+    if (explicit) url = explicit;
+  }
+  // Notes column may also hold a URL.
+  let notes;
+  for (const v of collected.notes || []) {
+    if (isUrlLike(v) && !url) url = v;
+    else if (!notes) notes = v;
   }
 
-  const cuisines = splitTags(cat);
-  const locations = area ? [area] : [];
-  const dietTags = splitTags(healthy);
-  const meatTags = splitTags(meat);
+  let mealType, frequency;
+  for (const v of collected.mealAndFrequency || []) {
+    const parsed = parseMeal(v);
+    if (parsed.mealType && !mealType) mealType = parsed.mealType;
+    if (parsed.frequency && !frequency) frequency = parsed.frequency;
+  }
+  if (!mealType && (collected.mealType || []).length) {
+    mealType = parseMeal((collected.mealType || [])[0]).mealType;
+  }
+  if (!frequency && (collected.frequency || []).length) {
+    const f = String((collected.frequency || [])[0]).toLowerCase();
+    if (f === 'regular' || f === 'special' || f === 'retired') frequency = f;
+  }
+
+  const ratingLabelRaw = (collected.rating || [])[0];
+  const ratingLabel = ratingLabelRaw ? ratingLabelRaw.toLowerCase() : undefined;
+  // If the rating column contains a number, take it directly as stars.
+  let stars = null;
+  if (ratingLabelRaw && /^\d+(?:\.\d+)?$/.test(ratingLabelRaw)) {
+    const n = Math.round(parseFloat(ratingLabelRaw));
+    if (n >= 1 && n <= 5) stars = n;
+  }
+  if (stars == null) stars = ratingLabelToStars(ratingLabelRaw);
+
+  const lastVisitRaw = (collected.lastVisit || [])[0];
+  const lastVisit = parseDate(lastVisitRaw);
+
+  const cuisines = [];
+  for (const v of collected.cuisine || []) cuisines.push(...splitTags(v));
+  const locations = [];
+  for (const v of collected.location || []) locations.push(...splitTags(v));
+  const dietTags = [];
+  for (const v of collected.diet || []) dietTags.push(...splitTags(v));
+  const meatTags = [];
+  for (const v of collected.meat || []) meatTags.push(...splitTags(v));
+
+  const address = (collected.address || []).join(', ') || undefined;
+
   const status = inferStatus({ ratingLabel, lastVisit, frequency });
 
   return {
     id: generateId(),
-    name: place,
-    url,
-    cuisines,
-    locations,
+    name: nameVal,
+    url: url || undefined,
+    cuisines: dedupe(cuisines),
+    locations: dedupe(locations),
     rating: stars,
-    ratingLabel,
+    ratingLabel: ratingLabelRaw ? ratingLabelRaw : undefined,
     status,
-    mealType,
-    frequency,
-    dish,
-    notes: cleanedNotes || undefined,
-    dietTags: dietTags.length ? dietTags : undefined,
-    meatTags: meatTags.length ? meatTags : undefined,
+    mealType: mealType || undefined,
+    frequency: frequency || undefined,
+    dish: dish || undefined,
+    notes: notes || undefined,
+    dietTags: dietTags.length ? dedupe(dietTags) : undefined,
+    meatTags: meatTags.length ? dedupe(meatTags) : undefined,
     lastVisit: lastVisit || undefined,
+    address,
     createdAt: now,
     updatedAt: now,
   };
 }
 
-/**
- * Parse pasted TSV / spreadsheet rows. Returns an array of Restaurant
- * objects, skipping unusable rows. Tolerates blank rows, missing columns,
- * and the "46,150" placeholder Days values from the source sheet.
- */
-export function parseRestaurantTsv(text) {
-  if (!text) return [];
-  const lines = String(text).split(/\r?\n/);
+function dedupe(arr) {
+  const seen = new Set();
   const out = [];
-  for (const line of lines) {
-    if (!line.trim()) continue;
-    const cells = line.split('\t');
-    // If the user pasted with comma separators by accident, fall back to
-    // a CSV split — but only when there are no tabs at all.
-    const cellList = cells.length === 1 ? line.split(/,(?=(?:[^"]*"[^"]*")*[^"]*$)/) : cells;
-    const row = parseTsvRow(cellList);
-    if (row) out.push(row);
+  for (const v of arr) {
+    const key = v.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(v);
+  }
+  return out;
+}
+
+/**
+ * Apply a column mapping to a 2-D grid. `hasHeader` controls whether the
+ * first row is skipped. Returns a Restaurant[].
+ */
+export function applyMapping(rows, mapping, { hasHeader = false, now } = {}) {
+  if (!rows.length) return [];
+  const out = [];
+  const ts = now || new Date().toISOString();
+  const start = hasHeader ? 1 : 0;
+  for (let i = start; i < rows.length; i++) {
+    const cells = rows[i];
+    if (!cells || cells.every(c => !((c || '').trim()))) continue;
+    const r = buildRestaurantFromRow(cells, mapping, ts);
+    if (r) out.push(r);
   }
   return out;
 }
 
 /**
  * Detect duplicates against the existing list (case-insensitive name match).
- * Returns { fresh, duplicates } so the UI can let the user decide whether to
- * merge or skip.
  */
 export function partitionDuplicates(parsed, existing) {
   const existingNames = new Set((existing || []).map(r => (r.name || '').toLowerCase().trim()));
