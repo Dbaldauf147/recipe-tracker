@@ -83,7 +83,13 @@ const LEUCINE_PROTEIN_RATIOS = {
 // Common portion sizes in grams
 const PORTION_WEIGHTS = {
   slice: { bread: 50, cheese: 28, pizza: 107, cake: 80, default: 30 },
-  cup: { milk: 244, flour: 125, rice: 185, oats: 80, sugar: 200, default: 140 },
+  cup: {
+    milk: 244, flour: 125, rice: 185, oats: 80, sugar: 200,
+    // Leafy greens are mostly air — chopped/torn ~30g per cup.
+    kale: 30, spinach: 30, lettuce: 30, arugula: 30, chard: 30,
+    cabbage: 70, romaine: 47, watercress: 34, 'collard greens': 36,
+    default: 140,
+  },
   tbsp: { default: 15 },
   tsp: { default: 5 },
   oz: { default: 28.35 },
@@ -180,6 +186,18 @@ function extractNutrient(foodNutrients, nutrientId) {
   return match ? match.value : null;
 }
 
+// USDA stores energy under id 1008 ("Energy", kcal). Branded/Survey records
+// often omit it and only carry 2047 (Atwater general factors) or 2048
+// (Atwater specific factors). Fall back through them so almond milk, chia
+// seeds, etc. don't come back as 0 calories.
+function extractEnergyKcal(foodNutrients) {
+  for (const id of [1008, 2047, 2048]) {
+    const v = extractNutrient(foodNutrients, id);
+    if (v != null) return v;
+  }
+  return null;
+}
+
 function fmtVal(val) {
   if (val == null || val === 0) return '';
   const s = String(Math.round(val * 100) / 100);
@@ -194,6 +212,7 @@ function buildRowFromUSDA(food, grams, scaleFactor, quantity, unit) {
   for (const [key, nid] of Object.entries(NUTRIENT_IDS)) {
     per100[key] = extractNutrient(nutrients, nid);
   }
+  if (per100.calories == null) per100.calories = extractEnergyKcal(nutrients);
 
   const row = {
     ingredient: food.description,
