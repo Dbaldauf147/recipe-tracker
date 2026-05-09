@@ -880,7 +880,14 @@ function SleepTab({ user }) {
 
       <div style={{ width: '100%', height: 320, background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: '12px', padding: '1rem 0.5rem 0.75rem' }}>
         <ResponsiveContainer width="100%" height="100%">
-          <BarChart data={chartData} margin={{ top: 10, right: 12, left: -8, bottom: 5 }}>
+          <BarChart
+            data={chartData}
+            margin={{ top: 10, right: 12, left: -8, bottom: 5 }}
+            onClick={(e) => {
+              const iso = e?.activePayload?.[0]?.payload?.iso;
+              if (iso) setExpandedDate(prev => (prev === iso ? null : iso));
+            }}
+          >
             <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" vertical={false} />
             <XAxis dataKey="date" tick={{ fontSize: 11, fill: '#9ca3af' }} axisLine={{ stroke: '#e5e7eb' }} tickLine={false} />
             <YAxis tick={{ fontSize: 11, fill: '#9ca3af' }} axisLine={false} tickLine={false} width={36} unit="h" />
@@ -896,10 +903,76 @@ function SleepTab({ user }) {
               strokeWidth={1.5}
               label={{ value: `${target}h goal`, position: 'insideTopRight', fontSize: 10, fill: '#7c3aed' }}
             />
-            <Bar dataKey="hours" fill="#8b5cf6" radius={[4, 4, 0, 0]} />
+            <Bar dataKey="hours" fill="#8b5cf6" radius={[4, 4, 0, 0]} cursor="pointer" />
           </BarChart>
         </ResponsiveContainer>
       </div>
+      <p style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', marginTop: '0.4rem', fontStyle: 'italic' }}>
+        Tap a bar — or any night below — to see REM, Core, Deep, and Awake.
+      </p>
+
+      {(() => {
+        if (!expandedDate) return null;
+        const breakdown = breakdownByDate[expandedDate];
+        if (!breakdown) return null;
+        const total = sleepByDate[expandedDate];
+        const stages = [
+          { key: 'rem',   label: 'REM',   value: breakdown.remHours,   color: '#7c3aed' },
+          { key: 'core',  label: 'Core',  value: breakdown.coreHours,  color: '#3b82f6' },
+          { key: 'deep',  label: 'Deep',  value: breakdown.deepHours,  color: '#0e7490' },
+          { key: 'awake', label: 'Awake', value: breakdown.awakeHours, color: '#9ca3af' },
+        ].filter(s => typeof s.value === 'number' && s.value > 0);
+        const stageTotal = stages.reduce((a, s) => a + s.value, 0);
+        const inBed = breakdown.inBedHours;
+        return (
+          <div style={{
+            marginTop: '0.75rem',
+            padding: '0.85rem 1rem',
+            background: 'var(--color-surface)',
+            border: '1px solid var(--color-border)',
+            borderRadius: 12,
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+              <strong style={{ fontSize: '0.95rem' }}>
+                {new Date(expandedDate + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}
+              </strong>
+              <span style={{ fontSize: '0.85rem', color: 'var(--color-text-muted)' }}>
+                {total != null ? `${total}h asleep` : ''}
+              </span>
+            </div>
+            {stageTotal > 0 ? (
+              <>
+                <div style={{ display: 'flex', height: 10, borderRadius: 5, overflow: 'hidden', marginTop: '0.6rem', marginBottom: '0.5rem' }}>
+                  {stages.map(s => (
+                    <div key={s.key} title={`${s.label}: ${s.value}h`} style={{ flex: s.value, background: s.color }} />
+                  ))}
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(110px, 1fr))', gap: '0.4rem 1rem', fontSize: '0.82rem' }}>
+                  {stages.map(s => (
+                    <div key={s.key} style={{ display: 'flex', justifyContent: 'space-between', gap: '0.5rem' }}>
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: 'var(--color-text-muted)' }}>
+                        <span style={{ width: 10, height: 10, borderRadius: 2, background: s.color }} />
+                        {s.label}
+                      </span>
+                      <span style={{ fontVariant: 'tabular-nums', fontWeight: 600 }}>{s.value}h</span>
+                    </div>
+                  ))}
+                  {typeof inBed === 'number' && inBed > 0 && (
+                    <div style={{ gridColumn: '1 / -1', display: 'flex', justifyContent: 'space-between', paddingTop: 6, borderTop: '1px dashed var(--color-border)', color: 'var(--color-text-muted)' }}>
+                      <span>In bed</span>
+                      <span style={{ fontVariant: 'tabular-nums' }}>{inBed}h</span>
+                    </div>
+                  )}
+                </div>
+              </>
+            ) : (
+              <p style={{ marginTop: '0.5rem', fontSize: '0.82rem', color: 'var(--color-text-muted)' }}>
+                No per-stage data was recorded for this night — only a total.
+              </p>
+            )}
+          </div>
+        );
+      })()}
 
       <div style={{ marginTop: '1.25rem' }}>
         <h4 style={{ margin: '0 0 0.5rem', fontSize: '0.95rem' }}>Recent nights</h4>
