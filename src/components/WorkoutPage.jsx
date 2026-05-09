@@ -2114,25 +2114,25 @@ export function WorkoutPage({ onBack, user }) {
                       {entry.sets.map((s, si) => {
                         const done = !!(entry.setDone || [])[si];
                         return (
-                          <td key={si} className={done ? styles.logSetCellDone : ''}>
-                            <div className={styles.logSetCellWrap}>
-                              <input className={`${styles.logCell} ${styles.logSetInput} ${editedCls(`set${si}`)}`} type="number" value={s} onChange={e => updateSet(i, si, e.target.value)} />
-                              <button
-                                type="button"
-                                className={`${styles.logSetDoneBtn} ${done ? styles.logSetDoneBtnActive : ''}`}
-                                onClick={() => toggleSetDone(i, si)}
-                                title={done ? 'Mark this set not done' : 'Mark this set complete'}
-                                aria-pressed={done}
-                              >
-                                {done ? '✓' : ''}
-                              </button>
-                            </div>
+                          <td
+                            key={si}
+                            className={done ? styles.logSetCellDone : styles.logSetCell}
+                            onClick={() => toggleSetDone(i, si)}
+                            title={done ? 'Click to un-mark this set' : 'Click to mark this set complete'}
+                          >
+                            <input
+                              className={`${styles.logCell} ${styles.logSetInput} ${editedCls(`set${si}`)}`}
+                              type="number"
+                              value={s}
+                              onChange={e => updateSet(i, si, e.target.value)}
+                            />
                             {entry.useSetWeights && (
                               <input
                                 className={`${styles.logCell} ${styles.logSetWeightInput} ${editedCls(`setWeight${si}`)}`}
                                 type="number"
                                 value={(entry.setWeights || [])[si] ?? ''}
                                 onChange={e => updateSetWeight(i, si, e.target.value)}
+                                onClick={e => e.stopPropagation()}
                                 placeholder="lb"
                                 title={`Set ${si + 1} weight`}
                               />

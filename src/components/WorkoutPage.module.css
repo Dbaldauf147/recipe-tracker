@@ -426,49 +426,25 @@ td.logPerCell.manuallyEdited {
   -moz-appearance: textfield;
 }
 
-/* Click-to-complete: clicking the small ✓ button next to a rep input
-   toggles the set as done, turning the cell green so a partially-finished
-   row is easy to scan mid-workout. */
-.logSetCellWrap {
-  display: flex;
-  align-items: center;
-  gap: 3px;
-}
-.logSetDoneBtn {
-  flex-shrink: 0;
-  width: 18px;
-  height: 18px;
-  border: 1px solid var(--color-border);
-  border-radius: 4px;
-  background: var(--color-surface);
-  color: var(--color-text-muted);
-  font-size: 0.7rem;
-  font-weight: 700;
-  line-height: 1;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
+/* Click-to-complete: clicking anywhere in a rep cell (including the
+   number itself) toggles the set as done, turning the cell green so a
+   partially-finished row is easy to scan mid-workout. The reps stay
+   visible inside the green cell — editing is unchanged: click into the
+   input, type, blur. */
+.logSetCell {
   cursor: pointer;
-  padding: 0;
-  transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
+  transition: background-color 0.12s ease;
 }
-.logSetDoneBtn:hover {
-  border-color: #16a34a;
-  color: #16a34a;
-  background: rgba(22, 163, 74, 0.08);
-}
-.logSetDoneBtnActive {
-  background: #16a34a;
-  border-color: #16a34a;
-  color: #fff;
-}
-.logSetDoneBtnActive:hover {
-  background: #15803d;
-  border-color: #15803d;
-  color: #fff;
+.logSetCell:hover {
+  background-color: rgba(22, 163, 74, 0.06);
 }
 .logSetCellDone {
-  background-color: rgba(22, 163, 74, 0.12);
+  cursor: pointer;
+  background-color: rgba(22, 163, 74, 0.18);
+  transition: background-color 0.12s ease;
+}
+.logSetCellDone:hover {
+  background-color: rgba(22, 163, 74, 0.28);
 }
 .logSetCellDone .logSetInput {
   color: #166534;
