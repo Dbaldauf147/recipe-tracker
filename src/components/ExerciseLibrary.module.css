@@ -108,6 +108,12 @@
 .colMuscles { width: 14%; }
 .colVideos { width: 13%; }
 .colAlt { width: 14%; }
+.colAddedAt { width: 110px; white-space: nowrap; }
+.addedAtText {
+  font-size: 0.78rem;
+  color: var(--color-text-muted);
+  font-variant-numeric: tabular-nums;
+}
 .colActions { width: 40px; text-align: center; }
 
 .sortHeaderBtn {

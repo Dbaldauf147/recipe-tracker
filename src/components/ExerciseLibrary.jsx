@@ -161,7 +161,15 @@ function blankExercise() {
     nickname: '',
     retired: false,
     videos: [],
+    addedAt: new Date().toISOString(),
   };
+}
+
+function formatAddedDate(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return '';
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
 function videoSourceLabel(url) {
@@ -191,6 +199,7 @@ export function ExerciseLibrary({ library, onChange }) {
     { key: 'secondary', label: 'Secondary', cls: 'colMuscles', searchable: true, sortable: true, get: e => e.secondaryMuscles },
     { key: 'videos', label: 'Videos', cls: 'colVideos', searchable: false, sortable: true, get: e => e.videos.length },
     { key: 'alternative', label: 'Alternative', cls: 'colAlt', searchable: true, sortable: true, get: e => e.alternative },
+    { key: 'addedAt', label: 'Date Added', cls: 'colAddedAt', searchable: false, sortable: true, get: e => e.addedAt || '' },
     { key: 'actions', label: '', cls: 'colActions', searchable: false, sortable: false, get: () => '' },
   ], []);
 
@@ -465,6 +474,11 @@ export function ExerciseLibrary({ library, onChange }) {
                     value={e.alternative || ''}
                     onChange={ev => updateRow(originalIdx, 'alternative', ev.target.value)}
                   />
+                </td>
+                <td className={styles.colAddedAt} title={e.addedAt || ''}>
+                  <span className={styles.addedAtText}>
+                    {e.addedAt ? formatAddedDate(e.addedAt) : '—'}
+                  </span>
                 </td>
                 <td className={styles.colActions}>
                   <button

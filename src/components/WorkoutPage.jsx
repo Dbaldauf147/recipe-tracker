@@ -1,5 +1,7 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
-import { ComposedChart, Area, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
+import { ComposedChart, Area, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, BarChart, Bar, ReferenceLine } from 'recharts';
+import { doc, onSnapshot } from 'firebase/firestore';
+import { db } from '../firebase';
 import { saveField, loadWorkoutLogFromFirestore, saveWorkoutDraft, clearWorkoutDraft } from '../utils/firestoreSync';
 import { exportWorkoutHistoryToCSV } from '../utils/exportData';
 import { ExerciseLibrary, effectiveMuscleGroup } from './ExerciseLibrary';
@@ -585,6 +587,172 @@ function buildCleanedCsv(workouts) {
     }
   }
   return rows.join('\n');
+}
+
+// Reads daily step counts that the mobile app pulled from Apple Health
+// and saved into the dailyLog subcollection. Pure read-only on the web —
+// you set up HealthKit syncing in the iOS app.
+function StepsTab({ user }) {
+  const [stepsByDate, setStepsByDate] = useState({});
+  const [loading, setLoading] = useState(true);
+  const [range, setRange] = useState(30);
+
+  useEffect(() => {
+    if (!user?.uid) {
+      setStepsByDate({});
+      setLoading(false);
+      return;
+    }
+    const ref = doc(db, 'users', user.uid, 'data', 'dailyLog');
+    const unsub = onSnapshot(
+      ref,
+      snap => {
+        const log = (snap.exists() && snap.data().log) || {};
+        const map = {};
+        for (const [date, day] of Object.entries(log)) {
+          const s = (day || {}).steps;
+          if (typeof s === 'number' && !isNaN(s)) map[date] = s;
+        }
+        setStepsByDate(map);
+        setLoading(false);
+      },
+      err => { console.error('StepsTab subscription error:', err); setLoading(false); },
+    );
+    return () => unsub();
+  }, [user?.uid]);
+
+  const chartData = useMemo(() => {
+    const out = [];
+    const today = new Date();
+    today.setHours(12, 0, 0, 0);
+    for (let i = range - 1; i >= 0; i--) {
+      const d = new Date(today);
+      d.setDate(d.getDate() - i);
+      const iso = d.toISOString().slice(0, 10);
+      const steps = stepsByDate[iso];
+      out.push({
+        date: d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+        iso,
+        steps: typeof steps === 'number' ? Math.round(steps) : null,
+      });
+    }
+    return out;
+  }, [stepsByDate, range]);
+
+  const recentValues = chartData.map(d => d.steps).filter(s => s != null);
+  const total = recentValues.reduce((a, b) => a + b, 0);
+  const avg = recentValues.length ? Math.round(total / recentValues.length) : 0;
+  const best = recentValues.length ? Math.max(...recentValues) : 0;
+  const target = 10000;
+
+  if (loading) {
+    return <div className={styles.statsSection}><p style={{ color: 'var(--color-text-muted)' }}>Loading…</p></div>;
+  }
+
+  if (recentValues.length === 0) {
+    return (
+      <div className={styles.statsSection}>
+        <h3 style={{ marginTop: 0 }}>Steps</h3>
+        <p style={{ color: 'var(--color-text-muted)', lineHeight: 1.5 }}>
+          No step counts have synced yet. To start tracking:
+        </p>
+        <ol style={{ color: 'var(--color-text-muted)', lineHeight: 1.6, paddingLeft: '1.25rem' }}>
+          <li>Open Prep Day on iPhone.</li>
+          <li>Profile → enable <strong>Apple Health sync</strong>, allow Steps access.</li>
+          <li>Open the Track Meals tab; the day's step count syncs in the background.</li>
+        </ol>
+        <p style={{ color: 'var(--color-text-muted)', fontStyle: 'italic' }}>
+          Once it's enabled, this tab will show your trend.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className={styles.statsSection}>
+      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: '0.75rem', flexWrap: 'wrap', gap: '0.5rem' }}>
+        <h3 style={{ margin: 0 }}>Steps</h3>
+        <div className={styles.tabs} style={{ marginBottom: 0 }}>
+          {[7, 14, 30, 90, 365].map(r => (
+            <button
+              key={r}
+              type="button"
+              className={`${styles.tab} ${range === r ? styles.tabActive : ''}`}
+              onClick={() => setRange(r)}
+            >
+              {r === 365 ? '1y' : `${r}d`}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className={styles.statCards} style={{ marginBottom: '1rem' }}>
+        <div className={styles.statCard}>
+          <div className={styles.statValue}>{avg.toLocaleString()}</div>
+          <div className={styles.statLabel}>Daily average</div>
+        </div>
+        <div className={styles.statCard}>
+          <div className={styles.statValue}>{best.toLocaleString()}</div>
+          <div className={styles.statLabel}>Best day</div>
+        </div>
+        <div className={styles.statCard}>
+          <div className={styles.statValue}>{total.toLocaleString()}</div>
+          <div className={styles.statLabel}>Total · {recentValues.length}d</div>
+        </div>
+      </div>
+
+      <div style={{ width: '100%', height: 320, background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: '12px', padding: '1rem 0.5rem 0.75rem' }}>
+        <ResponsiveContainer width="100%" height="100%">
+          <BarChart data={chartData} margin={{ top: 10, right: 12, left: -8, bottom: 5 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" vertical={false} />
+            <XAxis dataKey="date" tick={{ fontSize: 11, fill: '#9ca3af' }} axisLine={{ stroke: '#e5e7eb' }} tickLine={false} />
+            <YAxis tick={{ fontSize: 11, fill: '#9ca3af' }} axisLine={false} tickLine={false} width={48} />
+            <Tooltip
+              formatter={(v) => [`${(v ?? 0).toLocaleString()} steps`, '']}
+              labelStyle={{ fontWeight: 600 }}
+              contentStyle={{ background: 'rgba(255,255,255,0.95)', border: '1px solid #e5e7eb', borderRadius: 8, fontSize: 12 }}
+            />
+            <ReferenceLine
+              y={target}
+              stroke="#16a34a"
+              strokeDasharray="6 3"
+              strokeWidth={1.5}
+              label={{ value: `${target.toLocaleString()}`, position: 'insideTopRight', fontSize: 10, fill: '#16a34a' }}
+            />
+            <Bar dataKey="steps" fill="#3B6B9C" radius={[4, 4, 0, 0]} />
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+
+      <div style={{ marginTop: '1.25rem' }}>
+        <h4 style={{ margin: '0 0 0.5rem', fontSize: '0.95rem' }}>Recent days</h4>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          {chartData.slice().reverse().filter(d => d.steps != null).slice(0, 14).map(d => (
+            <div
+              key={d.iso}
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                padding: '0.5rem 0.75rem',
+                background: 'var(--color-surface)',
+                border: '1px solid var(--color-border)',
+                borderRadius: 8,
+                fontSize: '0.85rem',
+              }}
+            >
+              <span style={{ color: 'var(--color-text)' }}>
+                {new Date(d.iso + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
+              </span>
+              <span style={{ fontWeight: 700, color: d.steps >= target ? '#16a34a' : 'var(--color-text)' }}>
+                {d.steps.toLocaleString()}
+              </span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
 }
 
 export function WorkoutPage({ onBack, user }) {
@@ -1653,9 +1821,15 @@ export function WorkoutPage({ onBack, user }) {
       </div>
 
       <div className={styles.tabs}>
-        {['log', 'history', 'charts', 'body', 'exercises', 'stats'].map(tab => (
+        {['log', 'history', 'charts', 'body', 'exercises', 'steps', 'stats'].map(tab => (
           <button key={tab} className={`${styles.tab} ${viewMode === tab ? styles.tabActive : ''}`} onClick={() => setViewMode(tab)}>
-            {tab === 'log' ? 'Log Workout' : tab === 'history' ? 'History' : tab === 'charts' ? 'Charts' : tab === 'body' ? 'Body Map' : tab === 'exercises' ? 'Exercises' : 'Stats & PRs'}
+            {tab === 'log' ? 'Log Workout'
+              : tab === 'history' ? 'History'
+              : tab === 'charts' ? 'Charts'
+              : tab === 'body' ? 'Body Map'
+              : tab === 'exercises' ? 'Exercises'
+              : tab === 'steps' ? 'Steps'
+              : 'Stats & PRs'}
           </button>
         ))}
       </div>
@@ -2574,6 +2748,10 @@ export function WorkoutPage({ onBack, user }) {
           library={exerciseLibrary}
           onChange={(next) => { setExerciseLibrary(next); saveLibrary(next, user?.uid); }}
         />
+      )}
+
+      {viewMode === 'steps' && (
+        <StepsTab user={user} />
       )}
 
       {viewMode === 'stats' && (
