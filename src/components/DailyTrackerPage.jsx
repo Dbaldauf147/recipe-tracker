@@ -165,6 +165,18 @@ function loadGoals() {
   }
 }
 
+function saveGoalField(key, value) {
+  try {
+    const raw = localStorage.getItem(GOALS_KEY);
+    const goals = raw ? JSON.parse(raw) : {};
+    goals[key] = value;
+    localStorage.setItem(GOALS_KEY, JSON.stringify(goals));
+    window.dispatchEvent(new Event('goals-updated'));
+  } catch {
+    // Best-effort — quota errors etc. just drop the change.
+  }
+}
+
 function loadNutritionCache() {
   try {
     return JSON.parse(localStorage.getItem(NUTRITION_CACHE_KEY) || '{}');
@@ -2974,6 +2986,32 @@ function HistoryChart({ dailyLog }) {
 // as 100% tracked — the day was deliberately accounted for.
 function MealsTrackedChart({ dailyLog }) {
   const [range, setRange] = useState(7);
+  const [goalVersion, setGoalVersion] = useState(0);
+  const [editingGoal, setEditingGoal] = useState(false);
+  const [goalDraft, setGoalDraft] = useState('');
+
+  // Reload the goal whenever any other surface (setup guide, etc.) updates it.
+  useEffect(() => {
+    const onUpdate = () => setGoalVersion(v => v + 1);
+    window.addEventListener('goals-updated', onUpdate);
+    return () => window.removeEventListener('goals-updated', onUpdate);
+  }, []);
+
+  const goal = useMemo(() => {
+    const g = loadGoals();
+    const v = g?.dailyMealsTrackedPct;
+    if (v == null || isNaN(Number(v))) return null;
+    return Math.max(0, Math.min(100, Number(v)));
+  }, [goalVersion]);
+
+  function commitGoal() {
+    const num = Number(goalDraft);
+    if (!isNaN(num)) {
+      saveGoalField('dailyMealsTrackedPct', Math.max(0, Math.min(100, num)));
+      setGoalVersion(v => v + 1);
+    }
+    setEditingGoal(false);
+  }
 
   const chartData = useMemo(() => {
     const today = todayStr();
@@ -3026,47 +3064,79 @@ function MealsTrackedChart({ dailyLog }) {
             </button>
           ))}
         </div>
+        <div style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.78rem', color: 'var(--color-text-muted)' }}>
+          Goal:
+          {editingGoal ? (
+            <>
+              <input
+                type="number"
+                min={0}
+                max={100}
+                autoFocus
+                value={goalDraft}
+                onChange={e => setGoalDraft(e.target.value)}
+                onBlur={commitGoal}
+                onKeyDown={e => { if (e.key === 'Enter') commitGoal(); if (e.key === 'Escape') setEditingGoal(false); }}
+                style={{ width: '4rem', padding: '0.2rem 0.3rem', border: '1px solid var(--color-border)', borderRadius: '6px', fontSize: '0.78rem', textAlign: 'right' }}
+              />
+              %
+            </>
+          ) : (
+            <button
+              type="button"
+              onClick={() => { setGoalDraft(goal == null ? '' : String(goal)); setEditingGoal(true); }}
+              style={{ background: 'none', border: 'none', padding: '0.15rem 0.35rem', borderRadius: '6px', cursor: 'pointer', color: 'var(--color-text)', fontSize: '0.78rem' }}
+              title="Edit daily meals-tracked goal"
+            >
+              {goal == null ? 'Set' : `${goal}%`} ✎
+            </button>
+          )}
+        </div>
       </div>
 
-      {!hasData ? (
-        <div className={styles.noChartData}>Log a meal or mark one skipped to start the trend.</div>
-      ) : (
-        <div className={styles.chartWrap}>
-          <ResponsiveContainer width="100%" height="100%">
-            <ComposedChart data={chartData} margin={{ top: 10, right: 12, left: -8, bottom: 5 }}>
-              <defs>
-                <linearGradient id="grad-tracked" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#3B6B9C" stopOpacity={0.25} />
-                  <stop offset="100%" stopColor="#3B6B9C" stopOpacity={0} />
-                </linearGradient>
-              </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" vertical={false} />
-              <XAxis dataKey="date" tick={{ fontSize: 11, fill: '#9ca3af' }} axisLine={{ stroke: '#e5e7eb' }} tickLine={false} />
-              <YAxis
-                tick={{ fontSize: 11, fill: '#9ca3af' }}
-                unit="%"
-                axisLine={false}
-                tickLine={false}
-                domain={[0, 100]}
-                ticks={[0, 33, 67, 100]}
-                width={36}
-              />
-              <Tooltip content={<MealsTrackedTooltip />} />
-              <ReferenceLine y={100} stroke="#d1d5db" strokeDasharray="6 3" strokeWidth={1.5} label={{ value: '100%', position: 'insideTopRight', fontSize: 10, fill: '#9ca3af' }} />
-              <Area type="monotone" dataKey="tracked" fill="url(#grad-tracked)" stroke="none" name="Tracked" legendType="none" tooltipType="none" />
-              <Line
-                type="monotone"
-                dataKey="tracked"
-                stroke="#3B6B9C"
-                strokeWidth={2.5}
-                dot={{ r: 3, fill: '#fff', stroke: '#3B6B9C', strokeWidth: 2 }}
-                activeDot={{ r: 5, fill: '#3B6B9C', stroke: '#fff', strokeWidth: 2 }}
-                name="Tracked"
-              />
-            </ComposedChart>
-          </ResponsiveContainer>
-        </div>
-      )}
+      <div className={styles.chartWrap}>
+        <ResponsiveContainer width="100%" height="100%">
+          <ComposedChart data={chartData} margin={{ top: 10, right: 12, left: -8, bottom: 5 }}>
+            <defs>
+              <linearGradient id="grad-tracked" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor="#3B6B9C" stopOpacity={0.25} />
+                <stop offset="100%" stopColor="#3B6B9C" stopOpacity={0} />
+              </linearGradient>
+            </defs>
+            <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" vertical={false} />
+            <XAxis dataKey="date" tick={{ fontSize: 11, fill: '#9ca3af' }} axisLine={{ stroke: '#e5e7eb' }} tickLine={false} />
+            <YAxis
+              tick={{ fontSize: 11, fill: '#9ca3af' }}
+              unit="%"
+              axisLine={false}
+              tickLine={false}
+              domain={[0, 100]}
+              ticks={[0, 33, 67, 100]}
+              width={36}
+            />
+            <Tooltip content={<MealsTrackedTooltip />} />
+            <ReferenceLine y={100} stroke="#d1d5db" strokeDasharray="6 3" strokeWidth={1.5} label={{ value: '100%', position: 'insideTopRight', fontSize: 10, fill: '#9ca3af' }} />
+            {goal != null && goal !== 100 && (
+              <ReferenceLine y={goal} stroke="#3B6B9C" strokeDasharray="6 3" strokeWidth={1.5} label={{ value: `Goal ${goal}%`, position: 'insideBottomRight', fontSize: 10, fill: '#3B6B9C' }} />
+            )}
+            <Area type="monotone" dataKey="tracked" fill="url(#grad-tracked)" stroke="none" name="Tracked" legendType="none" tooltipType="none" />
+            <Line
+              type="monotone"
+              dataKey="tracked"
+              stroke="#3B6B9C"
+              strokeWidth={2.5}
+              dot={{ r: 3, fill: '#fff', stroke: '#3B6B9C', strokeWidth: 2 }}
+              activeDot={{ r: 5, fill: '#3B6B9C', stroke: '#fff', strokeWidth: 2 }}
+              name="Tracked"
+            />
+          </ComposedChart>
+        </ResponsiveContainer>
+        {!hasData && (
+          <div className={styles.noChartData} style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none', background: 'rgba(255,255,255,0.4)' }}>
+            Log a meal or mark one skipped to start the trend.
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -3167,25 +3237,34 @@ function DailySupplementsPanel({ date, supplements, onChange }) {
       <div className={styles.supplementsList}>
         {supplements.map(s => (
           <div key={s.id} className={styles.supplementsRow}>
-            <select
-              className={styles.supplementsSelect}
-              value={s.nutrientKey || '__custom'}
-              onChange={e => updateRow(s.id, { nutrientKey: e.target.value })}
-              title="Nutrient"
-            >
-              {COMMON_SUPPLEMENTS.map(c => (
-                <option key={c.key} value={c.key}>{c.label}</option>
-              ))}
-            </select>
-            {s.nutrientKey === '__custom' && (
-              <input
-                type="text"
-                className={styles.supplementsInput}
-                value={s.name || ''}
-                onChange={e => updateRow(s.id, { name: e.target.value })}
-                placeholder="Name"
-              />
-            )}
+            <div className={styles.supplementsRowTop}>
+              <select
+                className={styles.supplementsSelect}
+                value={s.nutrientKey || '__custom'}
+                onChange={e => updateRow(s.id, { nutrientKey: e.target.value })}
+                title="Nutrient"
+              >
+                {COMMON_SUPPLEMENTS.map(c => (
+                  <option key={c.key} value={c.key}>{c.label}</option>
+                ))}
+              </select>
+              {s.nutrientKey === '__custom' && (
+                <input
+                  type="text"
+                  className={styles.supplementsInput}
+                  value={s.name || ''}
+                  onChange={e => updateRow(s.id, { name: e.target.value })}
+                  placeholder="Name"
+                />
+              )}
+              <button
+                type="button"
+                className={styles.supplementsRemoveBtn}
+                onClick={() => removeRow(s.id)}
+                title="Remove"
+                aria-label="Remove supplement"
+              >&times;</button>
+            </div>
             <div className={styles.supplementsAmountAndUnit}>
               <input
                 type="number"
@@ -3205,13 +3284,6 @@ function DailySupplementsPanel({ date, supplements, onChange }) {
                 list="supplement-unit-opts"
               />
             </div>
-            <button
-              type="button"
-              className={styles.supplementsRemoveBtn}
-              onClick={() => removeRow(s.id)}
-              title="Remove"
-              aria-label="Remove supplement"
-            >&times;</button>
           </div>
         ))}
         {supplements.length === 0 && (
@@ -3308,37 +3380,38 @@ function ServingsChart({ dailyLog }) {
         </div>
       </div>
 
-      {!hasData ? (
-        <div className={styles.noChartData}>No fruit or vegetable servings tracked yet.</div>
-      ) : (
-        <div className={styles.chartWrap}>
-          <ResponsiveContainer width="100%" height="100%">
-            <ComposedChart data={chartData} margin={{ top: 10, right: 12, left: -8, bottom: 5 }}>
-              <defs>
-                <linearGradient id="grad-veg" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#22c55e" stopOpacity={0.2} />
-                  <stop offset="100%" stopColor="#22c55e" stopOpacity={0} />
-                </linearGradient>
-                <linearGradient id="grad-fruit" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#f59e0b" stopOpacity={0.2} />
-                  <stop offset="100%" stopColor="#f59e0b" stopOpacity={0} />
-                </linearGradient>
-              </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" vertical={false} />
-              <XAxis dataKey="date" tick={{ fontSize: 11, fill: '#9ca3af' }} axisLine={{ stroke: '#e5e7eb' }} tickLine={false} />
-              <YAxis tick={{ fontSize: 11, fill: '#9ca3af' }} axisLine={false} tickLine={false} width={28} />
-              <Tooltip content={<ServingsTooltip />} />
-              <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: '0.78rem', paddingTop: '0.5rem', textAlign: 'center' }} align="center" />
-              <ReferenceLine y={vegTarget} stroke="#22c55e" strokeDasharray="6 3" strokeWidth={1.5} label={{ value: `Veg ${vegTarget}`, position: 'insideTopRight', fontSize: 10, fill: '#22c55e' }} />
-              <ReferenceLine y={fruitTarget} stroke="#f59e0b" strokeDasharray="6 3" strokeWidth={1.5} label={{ value: `Fruit ${fruitTarget}`, position: 'insideBottomRight', fontSize: 10, fill: '#f59e0b' }} />
-              <Area type="monotone" dataKey="veg" fill="url(#grad-veg)" stroke="none" name="Vegetables" legendType="none" tooltipType="none" />
-              <Area type="monotone" dataKey="fruit" fill="url(#grad-fruit)" stroke="none" name="Fruit" legendType="none" tooltipType="none" />
-              <Line type="monotone" dataKey="veg" stroke="#22c55e" strokeWidth={2.5} dot={{ r: 3, fill: '#fff', stroke: '#22c55e', strokeWidth: 2 }} activeDot={{ r: 5, fill: '#22c55e', stroke: '#fff', strokeWidth: 2 }} name="Vegetables" />
-              <Line type="monotone" dataKey="fruit" stroke="#f59e0b" strokeWidth={2.5} dot={{ r: 3, fill: '#fff', stroke: '#f59e0b', strokeWidth: 2 }} activeDot={{ r: 5, fill: '#f59e0b', stroke: '#fff', strokeWidth: 2 }} name="Fruit" />
-            </ComposedChart>
-          </ResponsiveContainer>
-        </div>
-      )}
+      <div className={styles.chartWrap}>
+        <ResponsiveContainer width="100%" height="100%">
+          <ComposedChart data={chartData} margin={{ top: 10, right: 12, left: -8, bottom: 5 }}>
+            <defs>
+              <linearGradient id="grad-veg" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor="#22c55e" stopOpacity={0.2} />
+                <stop offset="100%" stopColor="#22c55e" stopOpacity={0} />
+              </linearGradient>
+              <linearGradient id="grad-fruit" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor="#f59e0b" stopOpacity={0.2} />
+                <stop offset="100%" stopColor="#f59e0b" stopOpacity={0} />
+              </linearGradient>
+            </defs>
+            <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" vertical={false} />
+            <XAxis dataKey="date" tick={{ fontSize: 11, fill: '#9ca3af' }} axisLine={{ stroke: '#e5e7eb' }} tickLine={false} />
+            <YAxis tick={{ fontSize: 11, fill: '#9ca3af' }} axisLine={false} tickLine={false} width={28} domain={[0, (dataMax) => Math.max(dataMax || 0, vegTarget, fruitTarget) + 1]} />
+            <Tooltip content={<ServingsTooltip />} />
+            <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: '0.78rem', paddingTop: '0.5rem', textAlign: 'center' }} align="center" />
+            <ReferenceLine y={vegTarget} stroke="#22c55e" strokeDasharray="6 3" strokeWidth={1.5} label={{ value: `Veg ${vegTarget}`, position: 'insideTopRight', fontSize: 10, fill: '#22c55e' }} />
+            <ReferenceLine y={fruitTarget} stroke="#f59e0b" strokeDasharray="6 3" strokeWidth={1.5} label={{ value: `Fruit ${fruitTarget}`, position: 'insideBottomRight', fontSize: 10, fill: '#f59e0b' }} />
+            <Area type="monotone" dataKey="veg" fill="url(#grad-veg)" stroke="none" name="Vegetables" legendType="none" tooltipType="none" />
+            <Area type="monotone" dataKey="fruit" fill="url(#grad-fruit)" stroke="none" name="Fruit" legendType="none" tooltipType="none" />
+            <Line type="monotone" dataKey="veg" stroke="#22c55e" strokeWidth={2.5} dot={{ r: 3, fill: '#fff', stroke: '#22c55e', strokeWidth: 2 }} activeDot={{ r: 5, fill: '#22c55e', stroke: '#fff', strokeWidth: 2 }} name="Vegetables" />
+            <Line type="monotone" dataKey="fruit" stroke="#f59e0b" strokeWidth={2.5} dot={{ r: 3, fill: '#fff', stroke: '#f59e0b', strokeWidth: 2 }} activeDot={{ r: 5, fill: '#f59e0b', stroke: '#fff', strokeWidth: 2 }} name="Fruit" />
+          </ComposedChart>
+        </ResponsiveContainer>
+        {!hasData && (
+          <div className={styles.noChartData} style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none', background: 'rgba(255,255,255,0.4)' }}>
+            No fruit or vegetable servings tracked yet.
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -4225,13 +4298,34 @@ export function DailyTrackerPage({ recipes, getRecipe, onClose, user, weeklyPlan
       if (!remote || Object.keys(remote).length === 0) return;
       setDailyLog(prev => {
         const merged = { ...remote };
-        // Keep any local entries that are newer/more complete than remote
+        // Per-day field merge. Remote wins for `entries` (when remote
+        // has at least as many) but ALL OTHER fields from the local
+        // copy are preserved if remote doesn't have them yet — this is
+        // the path that lets just-typed `supplements` / `skippedMeals`
+        // / `daySkipped` survive a refresh that lands before Firestore
+        // confirms the write.
         for (const date of Object.keys(prev)) {
-          const localEntries = prev[date]?.entries || [];
-          const remoteEntries = merged[date]?.entries || [];
-          if (localEntries.length > remoteEntries.length) {
-            merged[date] = prev[date];
+          const localDay = prev[date] || {};
+          const remoteDay = merged[date];
+          if (!remoteDay) {
+            merged[date] = localDay;
+            continue;
           }
+          const localEntries = localDay.entries || [];
+          const remoteEntries = remoteDay.entries || [];
+          // Spread local first, then overlay remote — so any field
+          // present locally that's missing remotely is preserved, but
+          // remote values still win for shared keys (entries, etc).
+          // When local has MORE entries than remote, we instead keep
+          // local entries (the user just logged a meal).
+          merged[date] = {
+            ...localDay,
+            ...remoteDay,
+            entries:
+              localEntries.length > remoteEntries.length
+                ? localEntries
+                : remoteEntries,
+          };
         }
         try { localStorage.setItem(DAILY_LOG_KEY, JSON.stringify(merged)); } catch {}
         return merged;
@@ -4431,7 +4525,20 @@ export function DailyTrackerPage({ recipes, getRecipe, onClose, user, weeklyPlan
           <button className={styles.todayBtn} onClick={() => setDate(todayStr())} disabled={date === todayStr()}>Today</button>
           <DailySupplementsPanel
             date={date}
-            supplements={dailyLog[date]?.supplements || []}
+            supplements={(() => {
+              // If today's supplements haven't been touched yet (the field is
+              // undefined, not an empty array the user explicitly cleared),
+              // carry forward the most recent prior day's list. The first
+              // edit on this day persists it under `dailyLog[date].supplements`,
+              // which then sticks regardless of what later days do.
+              if (dailyLog[date]?.supplements !== undefined) return dailyLog[date].supplements;
+              const priorDates = Object.keys(dailyLog).filter(d => d < date).sort().reverse();
+              for (const d of priorDates) {
+                const sups = dailyLog[d]?.supplements;
+                if (Array.isArray(sups)) return sups;
+              }
+              return [];
+            })()}
             onChange={(next) => {
               setDailyLog(prev => {
                 const all = { ...prev };
@@ -4446,8 +4553,8 @@ export function DailyTrackerPage({ recipes, getRecipe, onClose, user, weeklyPlan
       </div>
       <div className={styles.belowFoodLog}>
         <div className={styles.threeColRow}>
-          <HistoryChart dailyLog={dailyLog} />
           <MealsTrackedChart dailyLog={dailyLog} />
+          <HistoryChart dailyLog={dailyLog} />
           <ServingsChart dailyLog={dailyLog} />
         </div>
         <KpiAlerts dailyLog={dailyLog} recipes={recipes} onImportRecipe={onImportRecipe} cacheVersion={cacheVersion} onViewRecipe={(id) => setViewRecipeId(id)} selectedDate={date} user={user} />

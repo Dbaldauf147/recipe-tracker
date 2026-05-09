@@ -1869,17 +1869,31 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
           // (and any other consumer) can mirror this data instead of
           // recomputing it. Re-persist when:
           //   - the ingredient fingerprint changed (recipe edited), OR
-          //   - the saved snapshot came from somewhere other than the
-          //     website (e.g. mobile's compute-v2 path), so the website
-          //     reasserts itself as canonical for the recipe.
+          //   - the saved snapshot came from a non-website source (e.g.
+          //     mobile's compute-v2 path), OR
+          //   - the per-serving values themselves drifted (e.g. the user
+          //     updated their My Ingredients sheet, so the same ingredient
+          //     list now resolves to different macros). The fingerprint
+          //     alone wouldn't catch that case.
+          const macrosKey = (m) => {
+            if (!m || typeof m !== 'object') return '';
+            return ['calories', 'protein', 'carbs', 'fat']
+              .map((k) => {
+                const v = m[k];
+                const n = typeof v === 'number' ? v : parseFloat(v);
+                return isNaN(n) ? '' : Math.round(n * 10) / 10;
+              })
+              .join('|');
+          };
           const fingerprintChanged = d?.fingerprint && d.fingerprint !== recipe?.macrosFingerprint;
           const sourceIsStale = recipe?.macrosSource !== 'website-v1';
+          const valuesChanged = macrosKey(d?.perServing) !== macrosKey(recipe?.macrosPerServing);
           if (
             d &&
             recipe?.id &&
             onPersistFields &&
             d.fingerprint &&
-            (fingerprintChanged || sourceIsStale)
+            (fingerprintChanged || sourceIsStale || valuesChanged)
           ) {
             onPersistFields({
               macrosPerServing: d.perServing,

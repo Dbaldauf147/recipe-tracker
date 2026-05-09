@@ -1997,6 +1997,7 @@
 .chartWrap {
   width: 100%;
   height: 320px;
+  position: relative;
 }
 
 .noChartData {
@@ -2758,9 +2759,18 @@
 }
 .supplementsRow {
   display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+  padding: 0.4rem 0.5rem;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: var(--color-surface);
+}
+.supplementsRowTop {
+  display: flex;
   align-items: center;
   gap: 4px;
-  flex-wrap: nowrap;
 }
 .supplementsSelect {
   flex: 1 1 0;
@@ -2825,6 +2835,13 @@
   /* Free-text unit; let the user type any abbreviation without it
      getting clipped by an inline border-radius. */
   min-width: 0;
+}
+/* Chrome/Edge render a small chevron for inputs paired with <datalist>;
+   it eats the visible text inside the narrow unit cell. Hide it so the
+   typed unit ("mg" / "mcg" / "IU") shows in full. */
+.supplementsUnitInput::-webkit-calendar-picker-indicator {
+  display: none !important;
+  opacity: 0;
 }
 .supplementsRemoveBtn {
   width: 22px;
