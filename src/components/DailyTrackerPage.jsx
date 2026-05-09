@@ -2892,6 +2892,130 @@ function HistoryChart({ dailyLog }) {
   );
 }
 
+/* ── % of Meals Tracked Chart ── */
+// Each day has three main meal slots (breakfast / lunch / dinner). A slot
+// counts as "tracked" if either (a) at least one entry was logged in it,
+// or (b) the user explicitly marked it skipped. A whole-day skip counts
+// as 100% tracked — the day was deliberately accounted for.
+function MealsTrackedChart({ dailyLog }) {
+  const [range, setRange] = useState(7);
+
+  const chartData = useMemo(() => {
+    const today = todayStr();
+    const data = [];
+    for (let i = range - 1; i >= 0; i--) {
+      const dateStr = shiftDate(today, -i);
+      const dayData = dailyLog[dateStr] || {};
+      const entries = dayData.entries || [];
+      const daySkipped = !!dayData.daySkipped;
+      const skippedMeals = dayData.skippedMeals || [];
+
+      const row = { date: chartDateLabel(dateStr) };
+      if (daySkipped) {
+        row.tracked = 100;
+        data.push(row);
+        continue;
+      }
+
+      const mainSlots = ['breakfast', 'lunch', 'dinner'];
+      const accounted = new Set();
+      for (const e of entries) {
+        if (mainSlots.includes(e.mealSlot)) accounted.add(e.mealSlot);
+      }
+      for (const s of skippedMeals) {
+        if (mainSlots.includes(s)) accounted.add(s);
+      }
+      row.tracked = Math.round((accounted.size / mainSlots.length) * 100);
+      data.push(row);
+    }
+    return data;
+  }, [dailyLog, range]);
+
+  const hasData = chartData.some(d => d.tracked != null && d.tracked > 0);
+  const avg = chartData.length > 0
+    ? Math.round(chartData.reduce((s, d) => s + (d.tracked || 0), 0) / chartData.length)
+    : 0;
+
+  return (
+    <div className={styles.chartCard}>
+      <h3>% of Meals Tracked{hasData ? ` · avg ${avg}%` : ''}</h3>
+      <div className={styles.chartControls}>
+        <div className={styles.rangeToggle}>
+          {[{ days: 7, label: '7d' }, { days: 14, label: '14d' }, { days: 30, label: '30d' }, { days: 90, label: '3mo' }, { days: 365, label: '1yr' }].map(r => (
+            <button
+              key={r.days}
+              className={range === r.days ? styles.rangeBtnActive : styles.rangeBtn}
+              onClick={() => setRange(r.days)}
+            >
+              {r.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {!hasData ? (
+        <div className={styles.noChartData}>Log a meal or mark one skipped to start the trend.</div>
+      ) : (
+        <div className={styles.chartWrap}>
+          <ResponsiveContainer width="100%" height="100%">
+            <ComposedChart data={chartData} margin={{ top: 10, right: 55, left: 20, bottom: 5 }}>
+              <defs>
+                <linearGradient id="grad-tracked" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="#3B6B9C" stopOpacity={0.25} />
+                  <stop offset="100%" stopColor="#3B6B9C" stopOpacity={0} />
+                </linearGradient>
+              </defs>
+              <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" vertical={false} />
+              <XAxis dataKey="date" tick={{ fontSize: 11, fill: '#9ca3af' }} axisLine={{ stroke: '#e5e7eb' }} tickLine={false} />
+              <YAxis
+                tick={{ fontSize: 11, fill: '#9ca3af' }}
+                unit="%"
+                axisLine={false}
+                tickLine={false}
+                domain={[0, 100]}
+                ticks={[0, 33, 67, 100]}
+              />
+              <Tooltip content={<MealsTrackedTooltip />} />
+              <ReferenceLine y={100} stroke="#d1d5db" strokeDasharray="6 3" strokeWidth={1.5} label={{ value: '100%', position: 'right', fontSize: 10, fill: '#9ca3af' }} />
+              <Area type="monotone" dataKey="tracked" fill="url(#grad-tracked)" stroke="none" name="Tracked" legendType="none" tooltipType="none" />
+              <Line
+                type="monotone"
+                dataKey="tracked"
+                stroke="#3B6B9C"
+                strokeWidth={2.5}
+                dot={{ r: 3, fill: '#fff', stroke: '#3B6B9C', strokeWidth: 2 }}
+                activeDot={{ r: 5, fill: '#3B6B9C', stroke: '#fff', strokeWidth: 2 }}
+                name="Tracked"
+              />
+            </ComposedChart>
+          </ResponsiveContainer>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function MealsTrackedTooltip({ active, payload, label }) {
+  if (!active || !payload?.length) return null;
+  const value = payload[0]?.value;
+  if (value == null) return null;
+  return (
+    <div style={{
+      background: 'rgba(255,255,255,0.95)',
+      border: '1px solid #e5e7eb',
+      borderRadius: '8px',
+      padding: '0.5rem 0.75rem',
+      fontSize: '0.8rem',
+      boxShadow: '0 4px 12px rgba(0,0,0,0.08)',
+    }}>
+      <div style={{ fontWeight: 600, marginBottom: 2 }}>{label}</div>
+      <div style={{ color: '#3B6B9C' }}>
+        Meals tracked: <strong>{value}%</strong>
+      </div>
+    </div>
+  );
+}
+
 /* ── Fruit & Veg Servings Chart ── */
 function ServingsChart({ dailyLog }) {
   const [range, setRange] = useState(7);
@@ -4043,8 +4167,9 @@ export function DailyTrackerPage({ recipes, getRecipe, onClose, user, weeklyPlan
         </div>
       </div>
       <div className={styles.belowFoodLog}>
-        <div className={styles.twoColRow}>
+        <div className={styles.threeColRow}>
           <HistoryChart dailyLog={dailyLog} />
+          <MealsTrackedChart dailyLog={dailyLog} />
           <ServingsChart dailyLog={dailyLog} />
         </div>
         <KpiAlerts dailyLog={dailyLog} recipes={recipes} onImportRecipe={onImportRecipe} cacheVersion={cacheVersion} onViewRecipe={(id) => setViewRecipeId(id)} selectedDate={date} user={user} />
