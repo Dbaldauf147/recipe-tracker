@@ -755,6 +755,174 @@ function StepsTab({ user }) {
   );
 }
 
+// Reads daily sleep totals (in hours) that the mobile app pulled from
+// Apple Health and saved into the dailyLog subcollection. Read-only on
+// the web — the mobile tracker writes the snapshot whenever HealthKit
+// returns a fresh sleep total for the active day.
+function SleepTab({ user }) {
+  const [sleepByDate, setSleepByDate] = useState({});
+  const [loading, setLoading] = useState(true);
+  const [range, setRange] = useState(30);
+
+  useEffect(() => {
+    if (!user?.uid) {
+      setSleepByDate({});
+      setLoading(false);
+      return;
+    }
+    const ref = doc(db, 'users', user.uid, 'data', 'dailyLog');
+    const unsub = onSnapshot(
+      ref,
+      snap => {
+        const log = (snap.exists() && snap.data().log) || {};
+        const map = {};
+        for (const [date, day] of Object.entries(log)) {
+          const s = (day || {}).sleep;
+          if (typeof s === 'number' && !isNaN(s)) map[date] = s;
+        }
+        setSleepByDate(map);
+        setLoading(false);
+      },
+      err => { console.error('SleepTab subscription error:', err); setLoading(false); },
+    );
+    return () => unsub();
+  }, [user?.uid]);
+
+  const chartData = useMemo(() => {
+    const out = [];
+    const today = new Date();
+    today.setHours(12, 0, 0, 0);
+    for (let i = range - 1; i >= 0; i--) {
+      const d = new Date(today);
+      d.setDate(d.getDate() - i);
+      const iso = d.toISOString().slice(0, 10);
+      const hours = sleepByDate[iso];
+      out.push({
+        date: d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+        iso,
+        hours: typeof hours === 'number' ? Math.round(hours * 10) / 10 : null,
+      });
+    }
+    return out;
+  }, [sleepByDate, range]);
+
+  const recentValues = chartData.map(d => d.hours).filter(s => s != null);
+  const total = recentValues.reduce((a, b) => a + b, 0);
+  const avg = recentValues.length ? Math.round((total / recentValues.length) * 10) / 10 : 0;
+  const best = recentValues.length ? Math.max(...recentValues) : 0;
+  const worst = recentValues.length ? Math.min(...recentValues) : 0;
+  const target = 8;
+
+  if (loading) {
+    return <div className={styles.statsSection}><p style={{ color: 'var(--color-text-muted)' }}>Loading…</p></div>;
+  }
+
+  if (recentValues.length === 0) {
+    return (
+      <div className={styles.statsSection}>
+        <h3 style={{ marginTop: 0 }}>Sleep</h3>
+        <p style={{ color: 'var(--color-text-muted)', lineHeight: 1.5 }}>
+          No sleep data has synced yet. To start tracking:
+        </p>
+        <ol style={{ color: 'var(--color-text-muted)', lineHeight: 1.6, paddingLeft: '1.25rem' }}>
+          <li>Make sure your iPhone or Apple Watch is recording sleep (or your sleep tracker writes to Apple Health).</li>
+          <li>Open Prep Day on iPhone → Profile → enable <strong>Apple Health sync</strong> and grant Sleep Analysis access.</li>
+          <li>Open the Track Meals tab; the last 30 days of sleep totals sync in the background.</li>
+        </ol>
+        <p style={{ color: 'var(--color-text-muted)', fontStyle: 'italic' }}>
+          Once it's enabled, this tab will show your trend.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className={styles.statsSection}>
+      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: '0.75rem', flexWrap: 'wrap', gap: '0.5rem' }}>
+        <h3 style={{ margin: 0 }}>Sleep</h3>
+        <div className={styles.tabs} style={{ marginBottom: 0 }}>
+          {[7, 14, 30, 90, 365].map(r => (
+            <button
+              key={r}
+              type="button"
+              className={`${styles.tab} ${range === r ? styles.tabActive : ''}`}
+              onClick={() => setRange(r)}
+            >
+              {r === 365 ? '1y' : `${r}d`}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className={styles.statCards} style={{ marginBottom: '1rem' }}>
+        <div className={styles.statCard}>
+          <div className={styles.statValue}>{avg}h</div>
+          <div className={styles.statLabel}>Daily average</div>
+        </div>
+        <div className={styles.statCard}>
+          <div className={styles.statValue}>{best}h</div>
+          <div className={styles.statLabel}>Best night</div>
+        </div>
+        <div className={styles.statCard}>
+          <div className={styles.statValue}>{worst}h</div>
+          <div className={styles.statLabel}>Worst night</div>
+        </div>
+      </div>
+
+      <div style={{ width: '100%', height: 320, background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: '12px', padding: '1rem 0.5rem 0.75rem' }}>
+        <ResponsiveContainer width="100%" height="100%">
+          <BarChart data={chartData} margin={{ top: 10, right: 12, left: -8, bottom: 5 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" vertical={false} />
+            <XAxis dataKey="date" tick={{ fontSize: 11, fill: '#9ca3af' }} axisLine={{ stroke: '#e5e7eb' }} tickLine={false} />
+            <YAxis tick={{ fontSize: 11, fill: '#9ca3af' }} axisLine={false} tickLine={false} width={36} unit="h" />
+            <Tooltip
+              formatter={(v) => [`${v}h`, '']}
+              labelStyle={{ fontWeight: 600 }}
+              contentStyle={{ background: 'rgba(255,255,255,0.95)', border: '1px solid #e5e7eb', borderRadius: 8, fontSize: 12 }}
+            />
+            <ReferenceLine
+              y={target}
+              stroke="#7c3aed"
+              strokeDasharray="6 3"
+              strokeWidth={1.5}
+              label={{ value: `${target}h goal`, position: 'insideTopRight', fontSize: 10, fill: '#7c3aed' }}
+            />
+            <Bar dataKey="hours" fill="#8b5cf6" radius={[4, 4, 0, 0]} />
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+
+      <div style={{ marginTop: '1.25rem' }}>
+        <h4 style={{ margin: '0 0 0.5rem', fontSize: '0.95rem' }}>Recent nights</h4>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          {chartData.slice().reverse().filter(d => d.hours != null).slice(0, 14).map(d => (
+            <div
+              key={d.iso}
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                padding: '0.5rem 0.75rem',
+                background: 'var(--color-surface)',
+                border: '1px solid var(--color-border)',
+                borderRadius: 8,
+                fontSize: '0.85rem',
+              }}
+            >
+              <span style={{ color: 'var(--color-text)' }}>
+                {new Date(d.iso + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
+              </span>
+              <span style={{ fontWeight: 700, color: d.hours >= target ? '#16a34a' : d.hours < 6 ? '#dc2626' : 'var(--color-text)' }}>
+                {d.hours}h
+              </span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function WorkoutPage({ onBack, user }) {
   const [workouts, setWorkouts] = useState(loadWorkouts);
   const [selectedDate, setSelectedDate] = useState(todayStr());
@@ -1821,7 +1989,7 @@ export function WorkoutPage({ onBack, user }) {
       </div>
 
       <div className={styles.tabs}>
-        {['log', 'history', 'charts', 'body', 'exercises', 'steps', 'stats'].map(tab => (
+        {['log', 'history', 'charts', 'body', 'exercises', 'steps', 'sleep', 'stats'].map(tab => (
           <button key={tab} className={`${styles.tab} ${viewMode === tab ? styles.tabActive : ''}`} onClick={() => setViewMode(tab)}>
             {tab === 'log' ? 'Log Workout'
               : tab === 'history' ? 'History'
@@ -1829,6 +1997,7 @@ export function WorkoutPage({ onBack, user }) {
               : tab === 'body' ? 'Body Map'
               : tab === 'exercises' ? 'Exercises'
               : tab === 'steps' ? 'Steps'
+              : tab === 'sleep' ? 'Sleep'
               : 'Stats & PRs'}
           </button>
         ))}
@@ -2759,6 +2928,10 @@ export function WorkoutPage({ onBack, user }) {
 
       {viewMode === 'steps' && (
         <StepsTab user={user} />
+      )}
+
+      {viewMode === 'sleep' && (
+        <SleepTab user={user} />
       )}
 
       {viewMode === 'stats' && (
