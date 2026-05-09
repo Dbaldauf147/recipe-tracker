@@ -2895,7 +2895,7 @@ function HistoryChart({ dailyLog }) {
       ) : (
         <div className={styles.chartWrap}>
           <ResponsiveContainer width="100%" height="100%">
-            <ComposedChart data={chartData} margin={{ top: 10, right: 55, left: 20, bottom: 5 }}>
+            <ComposedChart data={chartData} margin={{ top: 10, right: 12, left: -8, bottom: 5 }}>
               <defs>
                 {selectedNutrients.filter(k => goals[k] > 0).map((key, i) => (
                   <linearGradient key={key} id={`grad-${key}`} x1="0" y1="0" x2="0" y2="1">
@@ -2906,10 +2906,10 @@ function HistoryChart({ dailyLog }) {
               </defs>
               <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" vertical={false} />
               <XAxis dataKey="date" tick={{ fontSize: 11, fill: '#9ca3af' }} axisLine={{ stroke: '#e5e7eb' }} tickLine={false} />
-              <YAxis tick={{ fontSize: 11, fill: '#9ca3af' }} unit="%" axisLine={false} tickLine={false} />
+              <YAxis tick={{ fontSize: 11, fill: '#9ca3af' }} unit="%" axisLine={false} tickLine={false} width={36} />
               <Tooltip content={<ChartTooltip />} />
               <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: '0.78rem', paddingTop: '0.5rem', textAlign: 'center' }} align="center" />
-              <ReferenceLine y={100} stroke="#d1d5db" strokeDasharray="6 3" strokeWidth={1.5} label={{ value: '100%', position: 'right', fontSize: 10, fill: '#9ca3af' }} />
+              <ReferenceLine y={100} stroke="#d1d5db" strokeDasharray="6 3" strokeWidth={1.5} label={{ value: '100%', position: 'insideTopRight', fontSize: 10, fill: '#9ca3af' }} />
               {selectedNutrients.filter(k => goals[k] > 0).map((key, i) => (
                 <Area key={`area-${key}`} type="monotone" dataKey={key} fill={`url(#grad-${key})`} stroke="none" name={NUTRIENTS.find(n => n.key === key)?.label || key} legendType="none" tooltipType="none" />
               ))}
@@ -2990,7 +2990,7 @@ function MealsTrackedChart({ dailyLog }) {
       ) : (
         <div className={styles.chartWrap}>
           <ResponsiveContainer width="100%" height="100%">
-            <ComposedChart data={chartData} margin={{ top: 10, right: 55, left: 20, bottom: 5 }}>
+            <ComposedChart data={chartData} margin={{ top: 10, right: 12, left: -8, bottom: 5 }}>
               <defs>
                 <linearGradient id="grad-tracked" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="0%" stopColor="#3B6B9C" stopOpacity={0.25} />
@@ -3006,9 +3006,10 @@ function MealsTrackedChart({ dailyLog }) {
                 tickLine={false}
                 domain={[0, 100]}
                 ticks={[0, 33, 67, 100]}
+                width={36}
               />
               <Tooltip content={<MealsTrackedTooltip />} />
-              <ReferenceLine y={100} stroke="#d1d5db" strokeDasharray="6 3" strokeWidth={1.5} label={{ value: '100%', position: 'right', fontSize: 10, fill: '#9ca3af' }} />
+              <ReferenceLine y={100} stroke="#d1d5db" strokeDasharray="6 3" strokeWidth={1.5} label={{ value: '100%', position: 'insideTopRight', fontSize: 10, fill: '#9ca3af' }} />
               <Area type="monotone" dataKey="tracked" fill="url(#grad-tracked)" stroke="none" name="Tracked" legendType="none" tooltipType="none" />
               <Line
                 type="monotone"
@@ -3124,7 +3125,7 @@ function ServingsChart({ dailyLog }) {
       ) : (
         <div className={styles.chartWrap}>
           <ResponsiveContainer width="100%" height="100%">
-            <ComposedChart data={chartData} margin={{ top: 10, right: 55, left: 20, bottom: 5 }}>
+            <ComposedChart data={chartData} margin={{ top: 10, right: 12, left: -8, bottom: 5 }}>
               <defs>
                 <linearGradient id="grad-veg" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="0%" stopColor="#22c55e" stopOpacity={0.2} />
@@ -3137,11 +3138,11 @@ function ServingsChart({ dailyLog }) {
               </defs>
               <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" vertical={false} />
               <XAxis dataKey="date" tick={{ fontSize: 11, fill: '#9ca3af' }} axisLine={{ stroke: '#e5e7eb' }} tickLine={false} />
-              <YAxis tick={{ fontSize: 11, fill: '#9ca3af' }} axisLine={false} tickLine={false} />
+              <YAxis tick={{ fontSize: 11, fill: '#9ca3af' }} axisLine={false} tickLine={false} width={28} />
               <Tooltip content={<ServingsTooltip />} />
               <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: '0.78rem', paddingTop: '0.5rem', textAlign: 'center' }} align="center" />
-              <ReferenceLine y={vegTarget} stroke="#22c55e" strokeDasharray="6 3" strokeWidth={1.5} label={{ value: `Veg ${vegTarget}`, position: 'right', fontSize: 10, fill: '#22c55e' }} />
-              <ReferenceLine y={fruitTarget} stroke="#f59e0b" strokeDasharray="6 3" strokeWidth={1.5} label={{ value: `Fruit ${fruitTarget}`, position: 'right', fontSize: 10, fill: '#f59e0b' }} />
+              <ReferenceLine y={vegTarget} stroke="#22c55e" strokeDasharray="6 3" strokeWidth={1.5} label={{ value: `Veg ${vegTarget}`, position: 'insideTopRight', fontSize: 10, fill: '#22c55e' }} />
+              <ReferenceLine y={fruitTarget} stroke="#f59e0b" strokeDasharray="6 3" strokeWidth={1.5} label={{ value: `Fruit ${fruitTarget}`, position: 'insideBottomRight', fontSize: 10, fill: '#f59e0b' }} />
               <Area type="monotone" dataKey="veg" fill="url(#grad-veg)" stroke="none" name="Vegetables" legendType="none" tooltipType="none" />
               <Area type="monotone" dataKey="fruit" fill="url(#grad-fruit)" stroke="none" name="Fruit" legendType="none" tooltipType="none" />
               <Line type="monotone" dataKey="veg" stroke="#22c55e" strokeWidth={2.5} dot={{ r: 3, fill: '#fff', stroke: '#22c55e', strokeWidth: 2 }} activeDot={{ r: 5, fill: '#22c55e', stroke: '#fff', strokeWidth: 2 }} name="Vegetables" />

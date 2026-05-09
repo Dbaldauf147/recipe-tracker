@@ -1918,9 +1918,16 @@
   background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
-  padding: 1.25rem;
+  /* Tight horizontal padding so the chart inside hugs the card edges and
+     the visualisation gets the most pixels on the page. */
+  padding: 1.25rem 0.5rem 0.75rem;
   box-shadow: var(--shadow-sm);
   margin-bottom: 1.5rem;
+}
+.chartCard h3 + .chartControls,
+.chartCard h3 {
+  padding-left: 0.5rem;
+  padding-right: 0.5rem;
 }
 
 .chartCard h3 {
