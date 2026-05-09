@@ -1082,7 +1082,7 @@ function CustomMealInline({ onAdd, onBack }) {
 }
 
 /* ── Multi Snack Tracker (direct search, add multiple) ── */
-function SnackTrackerInline({ onAdd, onClose }) {
+function SnackTrackerInline({ onAdd, onClose, recentSnacks }) {
   const [items, setItems] = useState([]);
   const [ingredientName, setIngredientName] = useState('');
   const [quantity, setQuantity] = useState('');
@@ -1093,6 +1093,19 @@ function SnackTrackerInline({ onAdd, onClose }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
+
+  // Click-to-readd a previously tracked snack/dessert/drink. Drops it into
+  // the staged items list with a fresh id; the user still confirms via the
+  // "Add to Log" button below.
+  function addRecent(snack) {
+    setItems(prev => [...prev, {
+      id: uuid(),
+      ingredientName: snack.ingredientName,
+      quantity: snack.quantity || 1,
+      measurement: snack.measurement || 'g',
+      nutrition: snack.nutrition || {},
+    }]);
+  }
 
   // Auto-match ingredient name to DB when typing (not just on select)
   useEffect(() => {
@@ -1181,6 +1194,25 @@ function SnackTrackerInline({ onAdd, onClose }) {
 
   return (
     <div>
+      {recentSnacks && recentSnacks.length > 0 && (
+        <div className={styles.recentSnacks}>
+          <span className={styles.formLabel}>Recently tracked</span>
+          <div className={styles.recentSnackList}>
+            {recentSnacks.map((s, i) => (
+              <button
+                key={`${s.ingredientName}-${i}`}
+                type="button"
+                className={styles.recentSnackBtn}
+                onClick={() => addRecent(s)}
+                title={`Add ${Math.round(s.nutrition?.calories || 0)} cal · ${s.quantity || 1} ${s.measurement || ''}`}
+              >
+                <span className={styles.recentSnackName}>{s.ingredientName}</span>
+                <span className={styles.recentSnackCal}>{Math.round(s.nutrition?.calories || 0)} cal</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
       <div className={styles.formRow}>
         <div className={styles.formField}>
           <span className={styles.formLabel}>Search ingredient</span>
@@ -4214,6 +4246,33 @@ export function DailyTrackerPage({ recipes, getRecipe, onClose, user, weeklyPlan
                 <SnackTrackerInline
                   onAdd={(entry) => { addEntry(entry, addModal.targetDate, addModal.targetSlot); }}
                   onClose={() => setAddModal(null)}
+                  recentSnacks={(() => {
+                    // 5 most recent unique custom snack/dessert/drink entries
+                    // logged across all days, newest first.
+                    const seen = new Set();
+                    const out = [];
+                    const dates = Object.keys(dailyLog).sort().reverse();
+                    for (const d of dates) {
+                      if (out.length >= 5) break;
+                      const entries = dailyLog[d]?.entries || [];
+                      for (let i = entries.length - 1; i >= 0; i--) {
+                        if (out.length >= 5) break;
+                        const e = entries[i];
+                        if ((e.mealSlot || 'snack') !== 'snack') continue;
+                        if (e.type !== 'custom' || !e.ingredientName) continue;
+                        const key = e.ingredientName.toLowerCase().trim();
+                        if (seen.has(key)) continue;
+                        seen.add(key);
+                        out.push({
+                          ingredientName: e.ingredientName,
+                          quantity: e.quantity,
+                          measurement: e.measurement,
+                          nutrition: e.nutrition,
+                        });
+                      }
+                    }
+                    return out;
+                  })()}
                 />
                 <div className={styles.trackMenuDivider}><span>or</span></div>
                 <button className={styles.trackMenuBtn} onClick={() => setAddModal(prev => ({ ...prev, mode: 'ai-estimate' }))}>
