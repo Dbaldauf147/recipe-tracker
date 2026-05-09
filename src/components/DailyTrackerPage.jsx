@@ -3049,6 +3049,149 @@ function MealsTrackedTooltip({ active, payload, label }) {
   );
 }
 
+/* ── Daily Supplements Panel ──
+ * A lightweight day-scoped tracker for vitamins, minerals, and other
+ * supplements. Each row stores { id, name, nutrientKey, amount, unit }
+ * on `dailyLog[date].supplements`. The panel lives under the calendar so
+ * the user can log the day's supplements alongside their meals; the
+ * captured amounts will show in this panel and can later be folded into
+ * the totals card. */
+const COMMON_SUPPLEMENTS = [
+  { key: 'vitaminA',     label: 'Vitamin A',     unit: 'mcg' },
+  { key: 'vitaminB6',    label: 'Vitamin B6',    unit: 'mg'  },
+  { key: 'vitaminB9',    label: 'Folate (B9)',   unit: 'mcg' },
+  { key: 'vitaminB12',   label: 'Vitamin B12',   unit: 'mcg' },
+  { key: 'vitaminC',     label: 'Vitamin C',     unit: 'mg'  },
+  { key: 'vitaminD',     label: 'Vitamin D',     unit: 'mcg' },
+  { key: 'vitaminE',     label: 'Vitamin E',     unit: 'mg'  },
+  { key: 'vitaminK',     label: 'Vitamin K',     unit: 'mcg' },
+  { key: 'calcium',      label: 'Calcium',       unit: 'mg'  },
+  { key: 'iron',         label: 'Iron',          unit: 'mg'  },
+  { key: 'magnesium',    label: 'Magnesium',     unit: 'mg'  },
+  { key: 'zinc',         label: 'Zinc',          unit: 'mg'  },
+  { key: 'potassium',    label: 'Potassium',     unit: 'mg'  },
+  { key: 'omega3',       label: 'Omega-3',       unit: 'g'   },
+  { key: '__custom',     label: 'Other / Custom', unit: ''   },
+];
+
+function DailySupplementsPanel({ date, supplements, onChange }) {
+  function addRow() {
+    const id = (typeof crypto !== 'undefined' && crypto.randomUUID)
+      ? crypto.randomUUID()
+      : `sup-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    onChange([
+      ...supplements,
+      { id, nutrientKey: 'vitaminD', name: 'Vitamin D', amount: '', unit: 'mcg' },
+    ]);
+  }
+
+  function updateRow(id, patch) {
+    const next = supplements.map(s => {
+      if (s.id !== id) return s;
+      const merged = { ...s, ...patch };
+      // Auto-fill the human label + default unit when picking a known
+      // nutrient so the row stays self-explanatory.
+      if (patch.nutrientKey && patch.nutrientKey !== '__custom') {
+        const def = COMMON_SUPPLEMENTS.find(c => c.key === patch.nutrientKey);
+        if (def) {
+          if (!merged.name || COMMON_SUPPLEMENTS.some(c => c.label === merged.name)) {
+            merged.name = def.label;
+          }
+          if (def.unit) merged.unit = def.unit;
+        }
+      }
+      return merged;
+    });
+    onChange(next);
+  }
+
+  function removeRow(id) {
+    onChange(supplements.filter(s => s.id !== id));
+  }
+
+  return (
+    <div className={styles.supplementsPanel}>
+      <div className={styles.supplementsHeader}>
+        <span className={styles.supplementsTitle}>Daily Supplements</span>
+        <span className={styles.supplementsCount}>
+          {supplements.length > 0 ? `${supplements.length} item${supplements.length === 1 ? '' : 's'}` : 'none yet'}
+        </span>
+      </div>
+      <p className={styles.supplementsHint}>
+        Track the vitamins and minerals you took today.
+      </p>
+
+      <div className={styles.supplementsList}>
+        {supplements.map(s => (
+          <div key={s.id} className={styles.supplementsRow}>
+            <select
+              className={styles.supplementsSelect}
+              value={s.nutrientKey || '__custom'}
+              onChange={e => updateRow(s.id, { nutrientKey: e.target.value })}
+              title="Nutrient"
+            >
+              {COMMON_SUPPLEMENTS.map(c => (
+                <option key={c.key} value={c.key}>{c.label}</option>
+              ))}
+            </select>
+            {s.nutrientKey === '__custom' && (
+              <input
+                type="text"
+                className={styles.supplementsInput}
+                value={s.name || ''}
+                onChange={e => updateRow(s.id, { name: e.target.value })}
+                placeholder="Name"
+              />
+            )}
+            <input
+              type="number"
+              className={styles.supplementsAmountInput}
+              value={s.amount}
+              onChange={e => updateRow(s.id, { amount: e.target.value })}
+              placeholder="0"
+              min="0"
+              step="0.1"
+            />
+            <input
+              type="text"
+              className={styles.supplementsUnitInput}
+              value={s.unit || ''}
+              onChange={e => updateRow(s.id, { unit: e.target.value })}
+              placeholder="mg"
+              list="supplement-unit-opts"
+            />
+            <button
+              type="button"
+              className={styles.supplementsRemoveBtn}
+              onClick={() => removeRow(s.id)}
+              title="Remove"
+              aria-label="Remove supplement"
+            >&times;</button>
+          </div>
+        ))}
+        {supplements.length === 0 && (
+          <p className={styles.supplementsEmpty}>
+            No supplements logged for {formatDate(date)}.
+          </p>
+        )}
+      </div>
+
+      <datalist id="supplement-unit-opts">
+        <option value="mg" />
+        <option value="mcg" />
+        <option value="g" />
+        <option value="IU" />
+        <option value="capsule" />
+        <option value="tablet" />
+      </datalist>
+
+      <button type="button" className={styles.supplementsAddBtn} onClick={addRow}>
+        + Add supplement
+      </button>
+    </div>
+  );
+}
+
 /* ── Fruit & Veg Servings Chart ── */
 function ServingsChart({ dailyLog }) {
   const [range, setRange] = useState(7);
@@ -4223,6 +4366,19 @@ export function DailyTrackerPage({ recipes, getRecipe, onClose, user, weeklyPlan
         <div className={styles.weeklyWithCalRight}>
           <MiniCalendar date={date} setDate={setDate} dailyLog={dailyLog} />
           <button className={styles.todayBtn} onClick={() => setDate(todayStr())} disabled={date === todayStr()}>Today</button>
+          <DailySupplementsPanel
+            date={date}
+            supplements={dailyLog[date]?.supplements || []}
+            onChange={(next) => {
+              setDailyLog(prev => {
+                const all = { ...prev };
+                if (!all[date]) all[date] = { entries: [] };
+                all[date] = { ...all[date], supplements: next };
+                saveDailyLog(all, user);
+                return all;
+              });
+            }}
+          />
         </div>
       </div>
       <div className={styles.belowFoodLog}>
