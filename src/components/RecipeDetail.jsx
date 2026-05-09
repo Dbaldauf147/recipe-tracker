@@ -1867,14 +1867,19 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
           setNutritionTotals(d?.totals || null);
           // Persist the computed nutrition to Firestore so the mobile app
           // (and any other consumer) can mirror this data instead of
-          // recomputing it. Skip when nothing changed by comparing the
-          // ingredient fingerprint we last persisted.
+          // recomputing it. Re-persist when:
+          //   - the ingredient fingerprint changed (recipe edited), OR
+          //   - the saved snapshot came from somewhere other than the
+          //     website (e.g. mobile's compute-v2 path), so the website
+          //     reasserts itself as canonical for the recipe.
+          const fingerprintChanged = d?.fingerprint && d.fingerprint !== recipe?.macrosFingerprint;
+          const sourceIsStale = recipe?.macrosSource !== 'website-v1';
           if (
             d &&
             recipe?.id &&
             onPersistFields &&
             d.fingerprint &&
-            d.fingerprint !== recipe.macrosFingerprint
+            (fingerprintChanged || sourceIsStale)
           ) {
             onPersistFields({
               macrosPerServing: d.perServing,
