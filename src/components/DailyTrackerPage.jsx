@@ -3325,104 +3325,130 @@ function WeeklyView({ dailyLog, date, recipes, onDayClick, onMoveEntry, onAddToS
         </div>
       </div>
       <div className={styles.weeklyColsWrap}>
-        <div className={styles.weeklyCols}>
+        <div
+          className={styles.weeklyGrid}
+          style={{ gridTemplateColumns: `120px repeat(${days.length}, minmax(0, 1fr))` }}
+        >
+          {/* Header row: empty corner + day headers */}
+          <div className={styles.weeklyGridCorner} aria-hidden />
           {days.map(day => (
-            <div key={day.dateStr} className={`${styles.weeklyCol} ${day.dateStr === date ? styles.weeklyColActive : ''}`} onClick={() => onDayClick(day.dateStr)} style={{ cursor: 'pointer' }}>
-              <div className={styles.weeklyColHeader}>
-                {day.fullDay && <span className={styles.weeklyColStar}>&#x2B50;</span>}
-                <span className={styles.weeklyColDay}>{day.label}</span>
-                <span className={styles.weeklyColNum}>{day.dayNum}<sup className={styles.weeklyColOrd}>{ordinal(day.dayNum)}</sup></span>
+            <div
+              key={`hdr-${day.dateStr}`}
+              className={`${styles.weeklyGridDayHeader} ${day.dateStr === date ? styles.weeklyGridDayHeaderActive : ''}`}
+              onClick={() => onDayClick(day.dateStr)}
+            >
+              {day.fullDay && <span className={styles.weeklyColStar}>&#x2B50;</span>}
+              <span className={styles.weeklyColDay}>{day.label}</span>
+              <span className={styles.weeklyColNum}>
+                {day.dayNum}<sup className={styles.weeklyColOrd}>{ordinal(day.dayNum)}</sup>
+              </span>
+            </div>
+          ))}
+
+          {/* One row per meal slot: label cell + day cells */}
+          {MEAL_SLOTS.map((slot, slotIdx) => (
+            <React.Fragment key={`row-${slot}`}>
+              <div
+                className={`${styles.weeklyGridSlotLabel} ${slotIdx > 0 ? styles.weeklyGridRowDivider : ''}`}
+              >
+                {MEAL_LABELS[slot]}
               </div>
-              <div className={styles.weeklyColBody}>
-                {day.daySkipped ? (
-                  <span className={styles.weeklyColSkipped}>Not Tracked</span>
-                ) : (
-                  MEAL_SLOTS.map(slot => {
-                    const isDragTarget = dragOver?.dateStr === day.dateStr && dragOver?.slot === slot;
-                    return (
+              {days.map(day => {
+                const isDragTarget = dragOver?.dateStr === day.dateStr && dragOver?.slot === slot;
+                const isActive = day.dateStr === date;
+                const cellClass = [
+                  styles.weeklyGridCell,
+                  isActive ? styles.weeklyGridCellActive : '',
+                  slotIdx > 0 ? styles.weeklyGridRowDivider : '',
+                  isDragTarget ? styles.weeklySlotDragOver : '',
+                ].filter(Boolean).join(' ');
+                return (
+                  <div
+                    key={`${day.dateStr}-${slot}`}
+                    className={cellClass}
+                    onClick={() => onDayClick(day.dateStr)}
+                    onDragOver={e => { e.preventDefault(); setDragOver({ dateStr: day.dateStr, slot }); }}
+                    onDragLeave={() => setDragOver(null)}
+                    onDrop={e => {
+                      e.preventDefault();
+                      setDragOver(null);
+                      try {
+                        const data = JSON.parse(e.dataTransfer.getData('text/plain'));
+                        onMoveEntry(data.sourceDate, data.entryId, day.dateStr, slot);
+                      } catch {}
+                    }}
+                  >
+                    <div className={styles.weeklyGridCellHeader}>
+                      <div className={styles.weeklySlotBtns}>
+                        <button
+                          className={styles.weeklySlotRemoveBtn}
+                          onClick={e => {
+                            e.stopPropagation();
+                            const slotItems = day.bySlot[slot];
+                            if (slotItems.length > 0) {
+                              const lastItem = slotItems[slotItems.length - 1];
+                              onRemoveLastEntry(day.dateStr, slot, lastItem.id, lastItem.entryIndex);
+                            }
+                          }}
+                          title={`Remove from ${MEAL_LABELS[slot]}`}
+                        >&minus;</button>
+                        <button
+                          className={styles.weeklySlotAddBtn}
+                          onClick={e => { e.stopPropagation(); onAddToSlot(day.dateStr, slot); }}
+                          title={`Add to ${MEAL_LABELS[slot]}`}
+                        >+</button>
+                      </div>
+                    </div>
+                    {day.daySkipped ? (
+                      <span className={styles.weeklyColSkipped}>Not Tracked</span>
+                    ) : day.skippedMeals.includes(slot) ? (
+                      <span className={styles.weeklyColSkippedMeal}>Skipped</span>
+                    ) : day.bySlot[slot].length > 0 ? day.bySlot[slot].map((item) => (
                       <div
-                        key={slot}
-                        className={`${styles.weeklyColSlot} ${isDragTarget ? styles.weeklySlotDragOver : ''}`}
-                        onDragOver={e => { e.preventDefault(); setDragOver({ dateStr: day.dateStr, slot }); }}
-                        onDragLeave={() => setDragOver(null)}
-                        onDrop={e => {
-                          e.preventDefault();
-                          setDragOver(null);
-                          try {
-                            const data = JSON.parse(e.dataTransfer.getData('text/plain'));
-                            onMoveEntry(data.sourceDate, data.entryId, day.dateStr, slot);
-                          } catch {}
+                        key={item.id}
+                        className={styles.weeklyColMealWrap}
+                        draggable
+                        onDragStart={e => {
+                          e.dataTransfer.setData('text/plain', JSON.stringify({ sourceDate: item.sourceDate, entryId: item.id }));
+                          e.stopPropagation();
+                        }}
+                        onClick={e => {
+                          e.stopPropagation();
+                          if (item.editable && onEditEntry) {
+                            onEditEntry(item.id, item.sourceDate);
+                          } else if (item.recipeId && onViewRecipe) {
+                            onViewRecipe(item.recipeId);
+                          } else if (item.entry) {
+                            onSelectDate && onSelectDate(item.sourceDate);
+                          }
                         }}
                       >
-                        <div className={styles.weeklySlotHeader}>
-                          <span className={styles.weeklyColSlotLabel}>{MEAL_LABELS[slot]}</span>
-                          <div className={styles.weeklySlotBtns}>
-                            <button
-                              className={styles.weeklySlotRemoveBtn}
-                              onClick={e => {
-                                e.stopPropagation();
-                                const slotItems = day.bySlot[slot];
-                                if (slotItems.length > 0) {
-                                  const lastItem = slotItems[slotItems.length - 1];
-                                  onRemoveLastEntry(day.dateStr, slot, lastItem.id, lastItem.entryIndex);
-                                }
-                              }}
-                              title={`Remove from ${MEAL_LABELS[slot]}`}
-                            >&minus;</button>
-                            <button
-                              className={styles.weeklySlotAddBtn}
-                              onClick={e => { e.stopPropagation(); onAddToSlot(day.dateStr, slot); }}
-                              title={`Add to ${MEAL_LABELS[slot]}`}
-                            >+</button>
-                          </div>
-                        </div>
-                        {day.skippedMeals.includes(slot) ? (
-                          <span className={styles.weeklyColSkippedMeal}>Skipped</span>
-                        ) : day.bySlot[slot].length > 0 ? day.bySlot[slot].map((item) => (
-                          <div
-                            key={item.id}
-                            className={`${styles.weeklyColMealWrap}`}
-                            draggable
-                            onDragStart={e => {
-                              e.dataTransfer.setData('text/plain', JSON.stringify({ sourceDate: item.sourceDate, entryId: item.id }));
-                              e.stopPropagation();
-                            }}
-                            onClick={e => {
-                              e.stopPropagation();
-                              if (item.editable && onEditEntry) {
-                                onEditEntry(item.id, item.sourceDate);
-                              } else if (item.recipeId && onViewRecipe) {
-                                onViewRecipe(item.recipeId);
-                              } else if (item.entry) {
-                                // For single ingredients — navigate to daily view for that date
-                                onSelectDate && onSelectDate(item.sourceDate);
-                              }
-                            }}
-                          >
-                            <span className={`${styles.weeklyColMeal} ${styles.weeklyColMealClickable}`}>{item.name}</span>
-                            {item.nutrition && item.nutrition.calories > 0 && (
-                              <span className={styles.weeklyColMealNutrition}>
-                                {Math.round(item.nutrition.calories)} cal &middot; {Math.round(item.nutrition.protein || 0)}p &middot; {Math.round(item.nutrition.carbs || 0)}c &middot; {Math.round(item.nutrition.fat || 0)}f
-                              </span>
-                            )}
-                          </div>
-                        )) : (day.isPast && slot !== 'snack') ? (
-                          <span className={styles.weeklyColNotTracked}>Not Tracked</span>
-                        ) : (
-                          <span className={styles.weeklyColEmpty}></span>
+                        <span className={`${styles.weeklyColMeal} ${styles.weeklyColMealClickable}`}>{item.name}</span>
+                        {item.nutrition && item.nutrition.calories > 0 && (
+                          <span className={styles.weeklyColMealNutrition}>
+                            {Math.round(item.nutrition.calories)} cal &middot; {Math.round(item.nutrition.protein || 0)}p &middot; {Math.round(item.nutrition.carbs || 0)}c &middot; {Math.round(item.nutrition.fat || 0)}f
+                          </span>
                         )}
                       </div>
-                    );
-                  })
-                )}
-              </div>
-            </div>
+                    )) : (day.isPast && slot !== 'snack') ? (
+                      <span className={styles.weeklyColNotTracked}>Not Tracked</span>
+                    ) : (
+                      <span className={styles.weeklyColEmpty}></span>
+                    )}
+                  </div>
+                );
+              })}
+            </React.Fragment>
           ))}
         </div>
       </div>
       {goals && (
         <div className={styles.weeklyColsWrap} style={{ marginTop: '0.75rem' }}>
-          <div className={styles.weeklyCols}>
+          <div
+            className={styles.weeklyMacroGrid}
+            style={{ gridTemplateColumns: `120px repeat(${days.length}, minmax(0, 1fr))` }}
+          >
+            <div className={styles.weeklyGridSlotLabel}>Daily macros</div>
             {days.map(day => (
               <div key={day.dateStr} className={`${styles.weeklyMacroCol} ${day.dateStr === date ? styles.weeklyMacroColActive : ''}`}>
                 <div className={styles.weeklyMacroBody}>

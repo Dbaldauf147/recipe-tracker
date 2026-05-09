@@ -2340,6 +2340,89 @@
   min-width: 700px;
 }
 
+/* New row-by-meal grid: meal labels on the left, days across the top.
+   Column count is set inline via grid-template-columns so this scales
+   with however many days the parent renders (currently 7). */
+.weeklyGrid {
+  display: grid;
+  gap: 0;
+  min-width: 820px;
+  background: var(--color-surface-alt, #f9f7f4);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  align-items: stretch;
+}
+
+.weeklyGridCorner {
+  background: #1A2F4A;
+}
+
+.weeklyGridDayHeader {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.25rem;
+  padding: 0.5rem;
+  background: #1A2F4A;
+  color: #fff;
+  cursor: pointer;
+}
+.weeklyGridDayHeaderActive {
+  background: var(--color-accent);
+}
+
+.weeklyGridSlotLabel {
+  display: flex;
+  align-items: center;
+  padding: 0.6rem 0.75rem;
+  background: var(--color-surface, #fff);
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-accent);
+  border-right: 1px solid var(--color-border-light, #e7e3de);
+}
+
+.weeklyGridCell {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: 0.5rem 0.55rem;
+  cursor: pointer;
+  position: relative;
+  background: var(--color-surface, #fff);
+}
+.weeklyGridCell + .weeklyGridCell,
+.weeklyGridCell:not(:first-of-type) {
+  border-left: 1px solid var(--color-border-light, #e7e3de);
+}
+.weeklyGridCellActive {
+  background: rgba(201, 100, 66, 0.06);
+  outline: 2px solid var(--color-accent);
+  outline-offset: -2px;
+  z-index: 1;
+}
+
+.weeklyGridRowDivider {
+  border-top: 1px solid var(--color-border, #d4cec5);
+}
+
+.weeklyGridCellHeader {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  min-height: 22px;
+}
+
+/* Macro summary row uses the same column tracks so days line up below. */
+.weeklyMacroGrid {
+  display: grid;
+  gap: 0.6rem;
+  min-width: 820px;
+  align-items: stretch;
+}
+
 .weeklyCol {
   background: var(--color-surface-alt, #f9f7f4);
   border-radius: var(--radius-md);
