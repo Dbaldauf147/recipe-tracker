@@ -1058,6 +1058,19 @@ export function WorkoutPage({ onBack, user }) {
     }));
   }
 
+  // Click a set cell's checkmark to mark that set as completed — turns the
+  // cell green so you can glance at the row and see what's left to do mid
+  // workout. The flag persists with the workout when saved.
+  function toggleSetDone(entryIdx, setIdx) {
+    setEntries(prev => prev.map((e, i) => {
+      if (i !== entryIdx) return e;
+      const setDone = Array.isArray(e.setDone) ? [...e.setDone] : [false, false, false, false];
+      while (setDone.length < 4) setDone.push(false);
+      setDone[setIdx] = !setDone[setIdx];
+      return { ...e, setDone };
+    }));
+  }
+
   function updateSetWeight(entryIdx, setIdx, value) {
     setEntries(prev => prev.map((e, i) => {
       if (i !== entryIdx) return e;
@@ -1924,21 +1937,35 @@ export function WorkoutPage({ onBack, user }) {
                       <td>
                         <input className={`${styles.logCell} ${styles.logTimeInput} ${editedCls('time')}`} type="text" value={entry.time} onChange={e => updateEntry(i, 'time', e.target.value)} placeholder="2:00" />
                       </td>
-                      {entry.sets.map((s, si) => (
-                        <td key={si}>
-                          <input className={`${styles.logCell} ${styles.logSetInput} ${editedCls(`set${si}`)}`} type="number" value={s} onChange={e => updateSet(i, si, e.target.value)} />
-                          {entry.useSetWeights && (
-                            <input
-                              className={`${styles.logCell} ${styles.logSetWeightInput} ${editedCls(`setWeight${si}`)}`}
-                              type="number"
-                              value={(entry.setWeights || [])[si] ?? ''}
-                              onChange={e => updateSetWeight(i, si, e.target.value)}
-                              placeholder="lb"
-                              title={`Set ${si + 1} weight`}
-                            />
-                          )}
-                        </td>
-                      ))}
+                      {entry.sets.map((s, si) => {
+                        const done = !!(entry.setDone || [])[si];
+                        return (
+                          <td key={si} className={done ? styles.logSetCellDone : ''}>
+                            <div className={styles.logSetCellWrap}>
+                              <input className={`${styles.logCell} ${styles.logSetInput} ${editedCls(`set${si}`)}`} type="number" value={s} onChange={e => updateSet(i, si, e.target.value)} />
+                              <button
+                                type="button"
+                                className={`${styles.logSetDoneBtn} ${done ? styles.logSetDoneBtnActive : ''}`}
+                                onClick={() => toggleSetDone(i, si)}
+                                title={done ? 'Mark this set not done' : 'Mark this set complete'}
+                                aria-pressed={done}
+                              >
+                                {done ? '✓' : ''}
+                              </button>
+                            </div>
+                            {entry.useSetWeights && (
+                              <input
+                                className={`${styles.logCell} ${styles.logSetWeightInput} ${editedCls(`setWeight${si}`)}`}
+                                type="number"
+                                value={(entry.setWeights || [])[si] ?? ''}
+                                onChange={e => updateSetWeight(i, si, e.target.value)}
+                                placeholder="lb"
+                                title={`Set ${si + 1} weight`}
+                              />
+                            )}
+                          </td>
+                        );
+                      })}
                       <td>
                         {entry.useSetWeights ? (
                           <button
