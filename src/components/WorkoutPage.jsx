@@ -2456,26 +2456,33 @@ export function WorkoutPage({ onBack, user }) {
                               onChange={ev => updateHistoryField(w.date, originalIdx, 'notes', ev.target.value)}
                             />
                           </td>
-                          {setVals.map((reps, si) => (
-                            <td key={si}>
-                              <input
-                                className={`${styles.logCell} ${styles.logSetInput}`}
-                                type="number"
-                                value={reps}
-                                onChange={ev => updateHistorySetField(w.date, originalIdx, si, ev.target.value)}
-                              />
-                              {e.useSetWeights && (
+                          {setVals.map((reps, si) => {
+                            const done = !!(e.setDone || [])[si];
+                            return (
+                              <td
+                                key={si}
+                                className={done ? styles.logSetCellDone : styles.logSetCell}
+                                title={done ? 'Marked complete in the original workout' : undefined}
+                              >
                                 <input
-                                  className={`${styles.logCell} ${styles.logSetWeightInput}`}
+                                  className={`${styles.logCell} ${styles.logSetInput}`}
                                   type="number"
-                                  value={setWeightVals[si]}
-                                  onChange={ev => updateHistorySetWeight(w.date, originalIdx, si, ev.target.value)}
-                                  placeholder="lb"
-                                  title={`Set ${si + 1} weight`}
+                                  value={reps}
+                                  onChange={ev => updateHistorySetField(w.date, originalIdx, si, ev.target.value)}
                                 />
-                              )}
-                            </td>
-                          ))}
+                                {e.useSetWeights && (
+                                  <input
+                                    className={`${styles.logCell} ${styles.logSetWeightInput}`}
+                                    type="number"
+                                    value={setWeightVals[si]}
+                                    onChange={ev => updateHistorySetWeight(w.date, originalIdx, si, ev.target.value)}
+                                    placeholder="lb"
+                                    title={`Set ${si + 1} weight`}
+                                  />
+                                )}
+                              </td>
+                            );
+                          })}
                           <td>
                             {e.useSetWeights ? (
                               <button
