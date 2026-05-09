@@ -761,12 +761,15 @@ function StepsTab({ user }) {
 // returns a fresh sleep total for the active day.
 function SleepTab({ user }) {
   const [sleepByDate, setSleepByDate] = useState({});
+  const [breakdownByDate, setBreakdownByDate] = useState({});
   const [loading, setLoading] = useState(true);
   const [range, setRange] = useState(30);
+  const [expandedDate, setExpandedDate] = useState(null);
 
   useEffect(() => {
     if (!user?.uid) {
       setSleepByDate({});
+      setBreakdownByDate({});
       setLoading(false);
       return;
     }
@@ -775,12 +778,18 @@ function SleepTab({ user }) {
       ref,
       snap => {
         const log = (snap.exists() && snap.data().log) || {};
-        const map = {};
+        const sleepMap = {};
+        const breakdownMap = {};
         for (const [date, day] of Object.entries(log)) {
-          const s = (day || {}).sleep;
-          if (typeof s === 'number' && !isNaN(s)) map[date] = s;
+          const d = day || {};
+          const s = d.sleep;
+          if (typeof s === 'number' && !isNaN(s)) sleepMap[date] = s;
+          if (d.sleepBreakdown && typeof d.sleepBreakdown === 'object') {
+            breakdownMap[date] = d.sleepBreakdown;
+          }
         }
-        setSleepByDate(map);
+        setSleepByDate(sleepMap);
+        setBreakdownByDate(breakdownMap);
         setLoading(false);
       },
       err => { console.error('SleepTab subscription error:', err); setLoading(false); },
@@ -895,28 +904,80 @@ function SleepTab({ user }) {
       <div style={{ marginTop: '1.25rem' }}>
         <h4 style={{ margin: '0 0 0.5rem', fontSize: '0.95rem' }}>Recent nights</h4>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-          {chartData.slice().reverse().filter(d => d.hours != null).slice(0, 14).map(d => (
-            <div
-              key={d.iso}
-              style={{
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-                padding: '0.5rem 0.75rem',
-                background: 'var(--color-surface)',
-                border: '1px solid var(--color-border)',
-                borderRadius: 8,
-                fontSize: '0.85rem',
-              }}
-            >
-              <span style={{ color: 'var(--color-text)' }}>
-                {new Date(d.iso + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
-              </span>
-              <span style={{ fontWeight: 700, color: d.hours >= target ? '#16a34a' : d.hours < 6 ? '#dc2626' : 'var(--color-text)' }}>
-                {d.hours}h
-              </span>
-            </div>
-          ))}
+          {chartData.slice().reverse().filter(d => d.hours != null).slice(0, 14).map(d => {
+            const breakdown = breakdownByDate[d.iso] || null;
+            const isOpen = expandedDate === d.iso;
+            const stages = breakdown ? [
+              { key: 'rem',   label: 'REM',   value: breakdown.remHours,   color: '#7c3aed' },
+              { key: 'core',  label: 'Core',  value: breakdown.coreHours,  color: '#3b82f6' },
+              { key: 'deep',  label: 'Deep',  value: breakdown.deepHours,  color: '#0e7490' },
+              { key: 'awake', label: 'Awake', value: breakdown.awakeHours, color: '#9ca3af' },
+            ].filter(s => typeof s.value === 'number' && s.value > 0) : [];
+            const stageTotal = stages.reduce((a, s) => a + s.value, 0);
+            const inBed = breakdown?.inBedHours;
+            const canExpand = stages.length > 0 || (typeof inBed === 'number' && inBed > 0);
+
+            return (
+              <div key={d.iso} style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 8, overflow: 'hidden' }}>
+                <button
+                  type="button"
+                  onClick={() => canExpand && setExpandedDate(isOpen ? null : d.iso)}
+                  style={{
+                    width: '100%',
+                    background: 'transparent',
+                    border: 'none',
+                    cursor: canExpand ? 'pointer' : 'default',
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    padding: '0.5rem 0.75rem',
+                    fontSize: '0.85rem',
+                    fontFamily: 'inherit',
+                  }}
+                >
+                  <span style={{ color: 'var(--color-text)', textAlign: 'left' }}>
+                    {new Date(d.iso + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
+                    {canExpand && (
+                      <span style={{ fontSize: '0.7rem', color: 'var(--color-text-muted)', marginLeft: 6 }}>
+                        {isOpen ? '▾' : '▸'}
+                      </span>
+                    )}
+                  </span>
+                  <span style={{ fontWeight: 700, color: d.hours >= target ? '#16a34a' : d.hours < 6 ? '#dc2626' : 'var(--color-text)' }}>
+                    {d.hours}h
+                  </span>
+                </button>
+                {isOpen && breakdown && (
+                  <div style={{ padding: '0 0.75rem 0.75rem', borderTop: '1px solid var(--color-border)' }}>
+                    {stageTotal > 0 && (
+                      <div style={{ display: 'flex', height: 8, borderRadius: 4, overflow: 'hidden', marginTop: '0.5rem', marginBottom: '0.5rem' }}>
+                        {stages.map(s => (
+                          <div key={s.key} title={`${s.label}: ${s.value}h`} style={{ flex: s.value, background: s.color }} />
+                        ))}
+                      </div>
+                    )}
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '0.4rem 1rem', fontSize: '0.78rem' }}>
+                      {stages.map(s => (
+                        <div key={s.key} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.5rem' }}>
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: 'var(--color-text-muted)' }}>
+                            <span style={{ width: 8, height: 8, borderRadius: 2, background: s.color }} />
+                            {s.label}
+                          </span>
+                          <span style={{ fontVariant: 'tabular-nums', color: 'var(--color-text)', fontWeight: 600 }}>{s.value}h</span>
+                        </div>
+                      ))}
+                      {typeof inBed === 'number' && inBed > 0 && (
+                        <div style={{ display: 'flex', justifyContent: 'space-between', gridColumn: '1 / -1', paddingTop: 4, borderTop: '1px dashed var(--color-border)', color: 'var(--color-text-muted)' }}>
+                          <span>In bed</span>
+                          <span style={{ fontVariant: 'tabular-nums' }}>{inBed}h</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
       </div>
     </div>
