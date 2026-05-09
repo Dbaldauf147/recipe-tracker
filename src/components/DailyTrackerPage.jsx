@@ -2680,7 +2680,36 @@ function MealLog({ entries, onDelete, onEdit, onUpdateEntry, goalKeys, skippedMe
 }
 
 /* ── Daily Totals Progress Bars ── */
-function DailyTotalsBar({ entries, daySkipped, skippedMeals }) {
+// Returns the supplement's amount expressed in the canonical unit the
+// nutrient is tracked in (matches NUTRIENTS[*].unit on the website). Returns
+// null when the unit is unrecognized OR doesn't apply to the nutrient
+// (e.g. amount in "capsule" — we can't convert that to mg automatically).
+export function convertSupplementAmount(amount, fromUnit, nutrientKey) {
+  if (!isFinite(amount) || amount <= 0) return null;
+  const unit = (fromUnit || '').toLowerCase().trim();
+  const target = (NUTRIENTS.find(n => n.key === nutrientKey)?.unit || '').toLowerCase();
+  if (!target) return null;
+  if (!unit || unit === target) return amount;
+  // mg ↔ mcg ↔ g ↔ µg ↔ ug
+  const norm = (u) => (u === 'µg' || u === 'ug' || u === 'mcg') ? 'mcg' : u;
+  const u = norm(unit);
+  const t = norm(target);
+  if (u === t) return amount;
+  const factors = {
+    'g_mg': 1000,
+    'mg_g': 0.001,
+    'mg_mcg': 1000,
+    'mcg_mg': 0.001,
+    'g_mcg': 1_000_000,
+    'mcg_g': 0.000001,
+  };
+  const f = factors[`${u}_${t}`];
+  if (typeof f === 'number') return amount * f;
+  // IU and pill-count units don't have a clean conversion to mass.
+  return null;
+}
+
+function DailyTotalsBar({ entries, daySkipped, skippedMeals, supplements }) {
   const goals = useMemo(loadGoals, []);
 
   if (!goals) return null;
@@ -2707,6 +2736,20 @@ function DailyTotalsBar({ entries, daySkipped, skippedMeals }) {
   for (const entry of activeEntries) {
     for (const n of NUTRIENTS) {
       totals[n.key] += entry.nutrition?.[n.key] || 0;
+    }
+  }
+  // Fold supplement amounts into the day's totals. Each supplement row
+  // contributes `amount` (converted to the nutrient's display unit when
+  // it differs, e.g. mcg → mg) to its mapped nutrient. Custom rows with
+  // no nutrientKey are ignored — those are tracked but uncategorised.
+  if (Array.isArray(supplements) && supplements.length > 0) {
+    for (const s of supplements) {
+      if (!s.nutrientKey || s.nutrientKey === '__custom') continue;
+      const amount = parseFloat(s.amount);
+      if (!isFinite(amount) || amount <= 0) continue;
+      const converted = convertSupplementAmount(amount, s.unit, s.nutrientKey);
+      if (converted == null) continue;
+      totals[s.nutrientKey] = (totals[s.nutrientKey] || 0) + converted;
     }
   }
 
@@ -3143,23 +3186,25 @@ function DailySupplementsPanel({ date, supplements, onChange }) {
                 placeholder="Name"
               />
             )}
-            <input
-              type="number"
-              className={styles.supplementsAmountInput}
-              value={s.amount}
-              onChange={e => updateRow(s.id, { amount: e.target.value })}
-              placeholder="0"
-              min="0"
-              step="0.1"
-            />
-            <input
-              type="text"
-              className={styles.supplementsUnitInput}
-              value={s.unit || ''}
-              onChange={e => updateRow(s.id, { unit: e.target.value })}
-              placeholder="mg"
-              list="supplement-unit-opts"
-            />
+            <div className={styles.supplementsAmountAndUnit}>
+              <input
+                type="number"
+                className={styles.supplementsAmountInput}
+                value={s.amount}
+                onChange={e => updateRow(s.id, { amount: e.target.value })}
+                placeholder="0"
+                min="0"
+                step="0.1"
+              />
+              <input
+                type="text"
+                className={styles.supplementsUnitInput}
+                value={s.unit || ''}
+                onChange={e => updateRow(s.id, { unit: e.target.value })}
+                placeholder="mg"
+                list="supplement-unit-opts"
+              />
+            </div>
             <button
               type="button"
               className={styles.supplementsRemoveBtn}
@@ -3937,11 +3982,29 @@ function KpiAlerts({ dailyLog, recipes, onImportRecipe, cacheVersion, onViewReci
       const skippedMainMeals = skippedMeals.filter(s => ['breakfast', 'lunch', 'dinner'].includes(s)).length;
       const activeFraction = Math.max(0, 1 - (skippedMainMeals / 3));
 
+      // Fold in any supplements logged for this day, mapping each into
+      // the canonical unit for its nutrient. Supplements supplement
+      // (heh) the food intake — they should count toward the user's
+      // weekly totals, otherwise we'd be over-recommending things they
+      // already get from a daily multivitamin.
+      const dailySupp = (dayData.supplements || []);
+      const suppNutrientAdditions = {};
+      for (const s of dailySupp) {
+        if (!s.nutrientKey || s.nutrientKey === '__custom') continue;
+        const amount = parseFloat(s.amount);
+        if (!isFinite(amount) || amount <= 0) continue;
+        const converted = convertSupplementAmount(amount, s.unit, s.nutrientKey);
+        if (converted == null) continue;
+        suppNutrientAdditions[s.nutrientKey] =
+          (suppNutrientAdditions[s.nutrientKey] || 0) + converted;
+      }
+
       for (const key of Object.keys(nutrientTotals)) {
         let total = 0;
         for (const entry of activeEntries) {
           total += entry.nutrition?.[key] || 0;
         }
+        total += suppNutrientAdditions[key] || 0;
         const adjustedGoal = goals[key] * activeFraction;
         if (adjustedGoal > 0) {
           nutrientTotals[key] += total / adjustedGoal;

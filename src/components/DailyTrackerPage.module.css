@@ -2760,18 +2760,25 @@
   display: flex;
   align-items: center;
   gap: 4px;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
 }
 .supplementsSelect {
-  flex: 1 1 110px;
+  flex: 1 1 0;
   min-width: 0;
   padding: 0.3rem 0.4rem;
+  /* Native dropdown chevron eats horizontal space; remove it so the
+     longer labels (e.g. "Vitamin B12") fit without truncation. */
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  background-image: none;
   border: 1px solid var(--color-border);
   border-radius: 6px;
   font-size: 0.75rem;
   font-family: inherit;
-  background: var(--color-surface);
+  background-color: var(--color-surface);
   color: var(--color-text);
+  text-overflow: ellipsis;
 }
 .supplementsInput {
   flex: 1 1 90px;
@@ -2783,11 +2790,18 @@
   font-family: inherit;
   background: var(--color-surface);
 }
+.supplementsAmountAndUnit {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+}
 .supplementsAmountInput {
-  width: 56px;
+  width: 52px;
   padding: 0.3rem 0.4rem;
   border: 1px solid var(--color-border);
-  border-radius: 6px;
+  border-right: 0;
+  border-radius: 6px 0 0 6px;
   font-size: 0.78rem;
   font-family: inherit;
   background: var(--color-surface);
@@ -2800,14 +2814,17 @@
   margin: 0;
 }
 .supplementsUnitInput {
-  width: 50px;
-  padding: 0.3rem 0.4rem;
+  width: 48px;
+  padding: 0.3rem 0.3rem;
   border: 1px solid var(--color-border);
-  border-radius: 6px;
-  font-size: 0.75rem;
+  border-radius: 0 6px 6px 0;
+  font-size: 0.72rem;
   font-family: inherit;
   background: var(--color-surface);
   text-align: center;
+  /* Free-text unit; let the user type any abbreviation without it
+     getting clipped by an inline border-radius. */
+  min-width: 0;
 }
 .supplementsRemoveBtn {
   width: 22px;
