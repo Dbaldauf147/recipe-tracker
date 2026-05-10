@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useRef } from 'react';
 import { ComposedChart, Area, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, BarChart, Bar, ReferenceLine } from 'recharts';
 import { doc, onSnapshot } from 'firebase/firestore';
 import { db } from '../firebase';
-import { saveField, loadWorkoutLogFromFirestore, saveWorkoutDraft, clearWorkoutDraft } from '../utils/firestoreSync';
+import { saveField, saveWorkoutDraft, clearWorkoutDraft } from '../utils/firestoreSync';
 import { exportWorkoutHistoryToCSV } from '../utils/exportData';
 import { ExerciseLibrary, effectiveMuscleGroup } from './ExerciseLibrary';
 import { BodyHeatmap } from './BodyHeatmap';
@@ -1361,28 +1361,29 @@ export function WorkoutPage({ onBack, user }) {
   const [workouts, setWorkouts] = useState(loadWorkouts);
   const [selectedDate, setSelectedDate] = useState(todayStr());
 
-  // Hydrate from Firestore on mount so workouts saved on the mobile app
-  // appear here. Merges with whatever is in localStorage — Firestore wins
-  // for dates that exist in both, local-only dates are preserved.
+  // Live-subscribe to the workoutLog Firestore doc so workouts saved on
+  // the mobile app appear here within a second. The remote doc is the
+  // source of truth — last write wins. Echoes from our own writes are
+  // skipped via JSON-equality so they don't cause re-renders.
   useEffect(() => {
     if (!user?.uid) return;
-    let cancelled = false;
-    (async () => {
-      try {
-        const remote = await loadWorkoutLogFromFirestore(user.uid);
-        if (cancelled || remote === null) return;
+    const ref = doc(db, 'users', user.uid, 'data', 'workoutLog');
+    const unsub = onSnapshot(
+      ref,
+      snap => {
+        const remote = snap.exists() ? snap.data().workouts : null;
+        if (!Array.isArray(remote) || remote.length === 0) return;
         setWorkouts(prev => {
-          const remoteDates = new Set(remote.map(w => w.date));
-          const localOnly = prev.filter(w => !remoteDates.has(w.date));
-          const merged = [...remote, ...localOnly].sort((a, b) => b.date.localeCompare(a.date));
-          try { localStorage.setItem(STORAGE_KEY, JSON.stringify(merged)); } catch {}
-          return merged;
+          const sorted = [...remote].sort((a, b) => b.date.localeCompare(a.date));
+          const sortedJson = JSON.stringify(sorted);
+          if (sortedJson === JSON.stringify(prev)) return prev;
+          try { localStorage.setItem(STORAGE_KEY, sortedJson); } catch { /* quota or disabled storage */ }
+          return sorted;
         });
-      } catch (err) {
-        console.error('Workout cloud hydrate error:', err);
-      }
-    })();
-    return () => { cancelled = true; };
+      },
+      err => { console.error('Workout live sync error:', err); },
+    );
+    return () => unsub();
   }, [user?.uid]);
   const [gyms, setGymsState] = useState(loadGyms);
   const [gym, setGym] = useState(() => loadGyms()[0] || '');
@@ -1391,6 +1392,30 @@ export function WorkoutPage({ onBack, user }) {
   const [entries, setEntries] = useState(() => blankEntries());
   const [viewMode, setViewMode] = useState('log'); // 'log' | 'history' | 'charts' | 'body' | 'exercises' | 'steps' | 'sleep' | 'stats' (Overview)
   const [exerciseLibrary, setExerciseLibrary] = useState(loadLibrary);
+
+  // Live-subscribe to the exerciseLibrary field on the user doc so
+  // exercises added or edited on the mobile app appear here within a
+  // second. Last write wins. Echoes from our own writes are skipped via
+  // JSON-equality so they don't trigger spurious re-renders.
+  useEffect(() => {
+    if (!user?.uid) return;
+    const ref = doc(db, 'users', user.uid);
+    const unsub = onSnapshot(
+      ref,
+      snap => {
+        const remote = snap.exists() ? snap.data().exerciseLibrary : null;
+        if (!Array.isArray(remote) || remote.length === 0) return;
+        setExerciseLibrary(prev => {
+          const remoteJson = JSON.stringify(remote);
+          if (remoteJson === JSON.stringify(prev)) return prev;
+          try { localStorage.setItem(LIBRARY_KEY, remoteJson); } catch { /* quota or disabled storage */ }
+          return remote;
+        });
+      },
+      err => { console.error('Exercise library live sync error:', err); },
+    );
+    return () => unsub();
+  }, [user?.uid]);
 
   // User's exercises grouped by their assigned muscle group. This is the
   // source of truth for the Log Workout exercise dropdown — pick a muscle
