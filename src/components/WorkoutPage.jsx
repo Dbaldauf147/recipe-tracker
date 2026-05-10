@@ -1240,7 +1240,7 @@ function OverviewBarCharts({ user, workouts }) {
         </div>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '1rem' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '1rem' }}>
         <div>
           <div style={{ fontSize: '0.85rem', fontWeight: 600, marginBottom: '0.35rem' }}>
             Workouts <span style={{ color: 'var(--color-text-muted)', fontWeight: 400 }}>· {workoutTotal} in range</span>
@@ -2363,40 +2363,12 @@ export function WorkoutPage({ onBack, user }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [workouts, exerciseLibrary]);
 
-  // Workout frequency stats
   const stats = useMemo(() => {
-    const groupCounts = {};
-    const exerciseCounts = {};
     const last30 = workouts.filter(w => {
       const diff = (Date.now() - new Date(w.date).getTime()) / (1000 * 60 * 60 * 24);
       return diff <= 30;
     });
-    for (const w of last30) {
-      for (const e of w.entries || []) {
-        groupCounts[e.group] = (groupCounts[e.group] || 0) + 1;
-        exerciseCounts[e.exercise] = (exerciseCounts[e.exercise] || 0) + 1;
-      }
-    }
-    return {
-      totalWorkouts: last30.length,
-      groupCounts: Object.entries(groupCounts).sort((a, b) => b[1] - a[1]),
-      exerciseCounts: Object.entries(exerciseCounts).sort((a, b) => b[1] - a[1]).slice(0, 10),
-    };
-  }, [workouts]);
-
-  // Personal records
-  const prs = useMemo(() => {
-    const map = {};
-    for (const w of workouts) {
-      for (const e of w.entries || []) {
-        const key = e.exercise;
-        if (!key || !e.maxWeight) continue;
-        if (!map[key] || e.maxWeight > map[key].weight) {
-          map[key] = { weight: e.maxWeight, reps: e.maxReps, date: w.date };
-        }
-      }
-    }
-    return Object.entries(map).sort((a, b) => b[1].weight - a[1].weight).slice(0, 15);
+    return { totalWorkouts: last30.length };
   }, [workouts]);
 
   return (
@@ -3382,38 +3354,6 @@ export function WorkoutPage({ onBack, user }) {
           </div>
 
           <OverviewBarCharts user={user} workouts={workouts} />
-
-          <h3 className={styles.statsHeading}>Muscle Groups (30d)</h3>
-          <div className={styles.barChart}>
-            {stats.groupCounts.map(([group, count]) => (
-              <div key={group} className={styles.barRow}>
-                <span className={styles.barLabel}>{group}</span>
-                <div className={styles.barTrack}>
-                  <div className={styles.barFill} style={{ width: `${(count / (stats.groupCounts[0]?.[1] || 1)) * 100}%` }} />
-                </div>
-                <span className={styles.barValue}>{count}</span>
-              </div>
-            ))}
-          </div>
-
-          <h3 className={styles.statsHeading}>Top Exercises (30d)</h3>
-          {stats.exerciseCounts.map(([ex, count], i) => (
-            <div key={i} className={styles.topExRow}>
-              <span className={styles.topExRank}>{i + 1}</span>
-              <span className={styles.topExName}>{ex}</span>
-              <span className={styles.topExCount}>{count}x</span>
-            </div>
-          ))}
-
-          <h3 className={styles.statsHeading}>Personal Records</h3>
-          {prs.length > 0 ? prs.map(([ex, pr], i) => (
-            <div key={i} className={styles.prRow}>
-              <span className={styles.prExercise}>{ex}</span>
-              <span className={styles.prWeight}>{pr.weight} lbs</span>
-              <span className={styles.prReps}>{pr.reps} reps</span>
-              <span className={styles.prDate}>{formatDate(pr.date)}</span>
-            </div>
-          )) : <div className={styles.empty}>Log workouts with weights to track PRs</div>}
         </div>
       )}
 
