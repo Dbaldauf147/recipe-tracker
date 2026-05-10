@@ -78,6 +78,23 @@ export function loadIngredients() {
   }
 }
 
+// 32-bit FNV-1a hash of the nutrient-bearing fields. Any edit to a row's
+// nutrition values produces a new hash, which downstream caches (e.g. the
+// NutritionPanel localStorage cache) include in their fingerprint so a sheet
+// edit invalidates every recipe's cached macros automatically.
+export function ingredientsDbSignature(rows) {
+  const data = rows || loadIngredients() || [];
+  let h = 0x811c9dc5;
+  for (const r of data) {
+    const s = `${r.ingredient}|${r.grams}|${r.calories}|${r.protein}|${r.carbs}|${r.fat}|${r.fiber}|${r.sugar}|${r.sodium}|${r.saturatedFat}`;
+    for (let i = 0; i < s.length; i++) {
+      h ^= s.charCodeAt(i);
+      h = Math.imul(h, 0x01000193) >>> 0;
+    }
+  }
+  return h.toString(36);
+}
+
 export function saveIngredients(data) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
 }

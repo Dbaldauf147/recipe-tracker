@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { fetchNutritionForRecipe, NUTRIENTS } from '../utils/nutrition';
+import { ingredientsDbSignature } from '../utils/ingredientsStore';
 import styles from './NutritionPanel.module.css';
 
 const GOALS_KEY = 'sunday-nutrition-goals';
@@ -269,7 +270,7 @@ function NutrientGroup({ title, keys, totals, perServing, showPerServing, select
 
 const NUTRITION_CACHE_KEY = 'sunday-nutrition-cache';
 const CACHE_VERSION_KEY = 'sunday-nutrition-cache-version';
-const CACHE_VERSION = 7; // bump to invalidate all cached nutrition
+const CACHE_VERSION = 8; // bump to invalidate all cached nutrition
 
 // One-time cache bust when version changes
 try {
@@ -408,13 +409,21 @@ export function NutritionPanel({ recipeId, ingredients, servings = 1, portionLab
   const debounceRef = useRef(null);
   const mountedRef = useRef(false);
 
+  // Signature of the user's My Ingredients DB at mount time. Including this
+  // in the cache fingerprint means any edit to the sheet (e.g. updating the
+  // protein on "black beans") invalidates every recipe's cached macros, so
+  // the panel recomputes via fetchNutritionForRecipe and re-persists the
+  // fresh result to Firestore — keeping mobile in sync.
+  const dbSignature = useMemo(() => ingredientsDbSignature(), []);
+
   const ingredientFingerprint = useMemo(() => {
     if (!ingredients || ingredients.length === 0) return '';
-    return ingredients
+    const rows = ingredients
       .filter(row => (row.ingredient || '').trim())
       .map(row => `${row.quantity}|${row.measurement}|${row.ingredient}`)
       .join(';;');
-  }, [ingredients]);
+    return `${rows}@db:${dbSignature}`;
+  }, [ingredients, dbSignature]);
 
   async function calculate() {
     setLoading(true);
