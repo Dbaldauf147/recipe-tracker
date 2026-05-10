@@ -1057,6 +1057,306 @@ function SleepTab({ user }) {
   );
 }
 
+const OVERVIEW_CORE_KEYS = ['calories', 'protein', 'carbs', 'fat'];
+const OVERVIEW_MAIN_SLOTS = ['breakfast', 'lunch', 'dinner'];
+
+// Bar charts shown at the top of the Overview tab. Pulls daily metrics
+// (steps, sleep, meals tracked, % of daily targets, veg/fruit servings)
+// from the dailyLog Firestore doc that the iOS app writes, and counts
+// workouts directly from the in-memory workouts list. A single range
+// selector drives every chart so the day axis stays aligned.
+function OverviewBarCharts({ user, workouts }) {
+  const [log, setLog] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('sunday-daily-log') || '{}') || {}; }
+    catch { return {}; }
+  });
+  const [range, setRange] = useState(30);
+
+  useEffect(() => {
+    if (!user?.uid) return;
+    const ref = doc(db, 'users', user.uid, 'data', 'dailyLog');
+    const unsub = onSnapshot(
+      ref,
+      snap => {
+        const remote = (snap.exists() && snap.data().log) || {};
+        setLog(prev => ({ ...prev, ...remote }));
+      },
+      err => { console.error('Overview subscription error:', err); },
+    );
+    return () => unsub();
+  }, [user?.uid]);
+
+  const goals = useMemo(() => {
+    try { return JSON.parse(localStorage.getItem('sunday-nutrition-goals') || 'null'); }
+    catch { return null; }
+  }, []);
+
+  // Workouts indexed by ISO date, counting one per day rather than per entry.
+  const workoutDates = useMemo(() => {
+    const set = new Set();
+    for (const w of workouts || []) {
+      if (w?.date) set.add(w.date);
+    }
+    return set;
+  }, [workouts]);
+
+  const rows = useMemo(() => {
+    const out = [];
+    const today = new Date();
+    today.setHours(12, 0, 0, 0);
+    for (let i = range - 1; i >= 0; i--) {
+      const d = new Date(today);
+      d.setDate(d.getDate() - i);
+      const iso = d.toISOString().slice(0, 10);
+      const day = log[iso] || {};
+      const entries = day.entries || [];
+      const daySkipped = !!day.daySkipped;
+      const skippedMeals = day.skippedMeals || [];
+
+      const label = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+
+      // Steps & sleep are direct numbers from HealthKit sync.
+      const steps = typeof day.steps === 'number' ? Math.round(day.steps) : null;
+      const sleep = typeof day.sleep === 'number' ? Math.round(day.sleep * 10) / 10 : null;
+
+      // Meals tracked: fraction of breakfast/lunch/dinner that were either
+      // logged or explicitly skipped. Whole-day skip counts as 100%.
+      let mealsPct = null;
+      if (daySkipped) {
+        mealsPct = 100;
+      } else if (entries.length > 0 || skippedMeals.length > 0) {
+        const accounted = new Set();
+        for (const e of entries) {
+          if (OVERVIEW_MAIN_SLOTS.includes(e.mealSlot)) accounted.add(e.mealSlot);
+        }
+        for (const s of skippedMeals) {
+          if (OVERVIEW_MAIN_SLOTS.includes(s)) accounted.add(s);
+        }
+        mealsPct = Math.round((accounted.size / OVERVIEW_MAIN_SLOTS.length) * 100);
+      }
+
+      // % of daily targets: average of macro % toward goal (capped at 100)
+      // across whatever core nutrients the user has goals set for.
+      let targetPct = null;
+      if (!daySkipped && goals && entries.length > 0) {
+        const activeEntries = skippedMeals.length > 0
+          ? entries.filter(e => !skippedMeals.includes(e.mealSlot))
+          : entries;
+        const skippedMain = skippedMeals.filter(s => OVERVIEW_MAIN_SLOTS.includes(s)).length;
+        const activeFraction = Math.max(0, 1 - (skippedMain / 3));
+        const totals = {};
+        for (const k of OVERVIEW_CORE_KEYS) totals[k] = 0;
+        for (const e of activeEntries) {
+          for (const k of OVERVIEW_CORE_KEYS) totals[k] += e.nutrition?.[k] || 0;
+        }
+        const pcts = [];
+        for (const k of OVERVIEW_CORE_KEYS) {
+          const adj = (goals[k] || 0) * activeFraction;
+          if (adj > 0) pcts.push(Math.min(100, (totals[k] / adj) * 100));
+        }
+        if (pcts.length > 0) {
+          targetPct = Math.round(pcts.reduce((a, b) => a + b, 0) / pcts.length);
+        }
+      }
+
+      // Vegetables / fruit servings — null when the day has no entries so
+      // missed days don't read as a real zero.
+      let veg = null;
+      let fruit = null;
+      if (!daySkipped && entries.length > 0) {
+        const activeEntries = skippedMeals.length > 0
+          ? entries.filter(e => !skippedMeals.includes(e.mealSlot))
+          : entries;
+        if (activeEntries.length > 0) {
+          let v = 0;
+          let f = 0;
+          for (const e of activeEntries) {
+            v += e.nutrition?.vegServings || 0;
+            f += e.nutrition?.fruitServings || 0;
+          }
+          veg = Math.round(v * 10) / 10;
+          fruit = Math.round(f * 10) / 10;
+        }
+      }
+
+      out.push({
+        date: label,
+        iso,
+        workouts: workoutDates.has(iso) ? 1 : 0,
+        steps,
+        sleep,
+        mealsPct,
+        targetPct,
+        veg,
+        fruit,
+      });
+    }
+    return out;
+  }, [log, range, workoutDates, goals]);
+
+  const workoutTotal = rows.reduce((s, r) => s + r.workouts, 0);
+  const stepsAvg = (() => {
+    const vals = rows.map(r => r.steps).filter(v => v != null);
+    return vals.length ? Math.round(vals.reduce((a, b) => a + b, 0) / vals.length) : 0;
+  })();
+  const sleepAvg = (() => {
+    const vals = rows.map(r => r.sleep).filter(v => v != null);
+    return vals.length ? Math.round((vals.reduce((a, b) => a + b, 0) / vals.length) * 10) / 10 : 0;
+  })();
+  const mealsAvg = (() => {
+    const vals = rows.map(r => r.mealsPct).filter(v => v != null);
+    return vals.length ? Math.round(vals.reduce((a, b) => a + b, 0) / vals.length) : 0;
+  })();
+  const targetAvg = (() => {
+    const vals = rows.map(r => r.targetPct).filter(v => v != null);
+    return vals.length ? Math.round(vals.reduce((a, b) => a + b, 0) / vals.length) : 0;
+  })();
+
+  const chartHeight = 200;
+  const chartWrapStyle = {
+    width: '100%',
+    height: chartHeight,
+    background: 'var(--color-surface)',
+    border: '1px solid var(--color-border)',
+    borderRadius: 12,
+    padding: '0.75rem 0.5rem 0.5rem',
+  };
+
+  return (
+    <div style={{ marginBottom: '1.5rem' }}>
+      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: '0.75rem', flexWrap: 'wrap', gap: '0.5rem' }}>
+        <h3 className={styles.statsHeading} style={{ margin: 0 }}>Daily metrics</h3>
+        <div className={styles.tabs} style={{ marginBottom: 0 }}>
+          {[7, 14, 30, 90, 365].map(r => (
+            <button
+              key={r}
+              type="button"
+              className={`${styles.tab} ${range === r ? styles.tabActive : ''}`}
+              onClick={() => setRange(r)}
+            >
+              {r === 365 ? '1y' : `${r}d`}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '1rem' }}>
+        <div>
+          <div style={{ fontSize: '0.85rem', fontWeight: 600, marginBottom: '0.35rem' }}>
+            Workouts <span style={{ color: 'var(--color-text-muted)', fontWeight: 400 }}>· {workoutTotal} in range</span>
+          </div>
+          <div style={chartWrapStyle}>
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={rows} margin={{ top: 8, right: 8, left: -12, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" vertical={false} />
+                <XAxis dataKey="date" tick={{ fontSize: 10, fill: '#9ca3af' }} axisLine={{ stroke: '#e5e7eb' }} tickLine={false} />
+                <YAxis allowDecimals={false} domain={[0, 1]} ticks={[0, 1]} tick={{ fontSize: 10, fill: '#9ca3af' }} axisLine={false} tickLine={false} width={28} />
+                <Tooltip formatter={(v) => [v ? 'Logged' : 'Rest', '']} contentStyle={{ background: 'rgba(255,255,255,0.95)', border: '1px solid #e5e7eb', borderRadius: 8, fontSize: 12 }} />
+                <Bar dataKey="workouts" fill="#3B6B9C" radius={[3, 3, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+
+        <div>
+          <div style={{ fontSize: '0.85rem', fontWeight: 600, marginBottom: '0.35rem' }}>
+            Steps <span style={{ color: 'var(--color-text-muted)', fontWeight: 400 }}>· avg {stepsAvg.toLocaleString()}</span>
+          </div>
+          <div style={chartWrapStyle}>
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={rows} margin={{ top: 8, right: 8, left: -8, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" vertical={false} />
+                <XAxis dataKey="date" tick={{ fontSize: 10, fill: '#9ca3af' }} axisLine={{ stroke: '#e5e7eb' }} tickLine={false} />
+                <YAxis tick={{ fontSize: 10, fill: '#9ca3af' }} axisLine={false} tickLine={false} width={42} />
+                <Tooltip formatter={(v) => [`${(v ?? 0).toLocaleString()} steps`, '']} contentStyle={{ background: 'rgba(255,255,255,0.95)', border: '1px solid #e5e7eb', borderRadius: 8, fontSize: 12 }} />
+                <ReferenceLine y={10000} stroke="#16a34a" strokeDasharray="5 3" strokeWidth={1.25} />
+                <Bar dataKey="steps" fill="#16a34a" radius={[3, 3, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+
+        <div>
+          <div style={{ fontSize: '0.85rem', fontWeight: 600, marginBottom: '0.35rem' }}>
+            Sleep <span style={{ color: 'var(--color-text-muted)', fontWeight: 400 }}>· avg {sleepAvg}h</span>
+          </div>
+          <div style={chartWrapStyle}>
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={rows} margin={{ top: 8, right: 8, left: -12, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" vertical={false} />
+                <XAxis dataKey="date" tick={{ fontSize: 10, fill: '#9ca3af' }} axisLine={{ stroke: '#e5e7eb' }} tickLine={false} />
+                <YAxis tick={{ fontSize: 10, fill: '#9ca3af' }} unit="h" axisLine={false} tickLine={false} width={32} />
+                <Tooltip formatter={(v) => [`${v ?? 0}h`, '']} contentStyle={{ background: 'rgba(255,255,255,0.95)', border: '1px solid #e5e7eb', borderRadius: 8, fontSize: 12 }} />
+                <ReferenceLine y={8} stroke="#6366f1" strokeDasharray="5 3" strokeWidth={1.25} />
+                <Bar dataKey="sleep" fill="#6366f1" radius={[3, 3, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+
+        <div>
+          <div style={{ fontSize: '0.85rem', fontWeight: 600, marginBottom: '0.35rem' }}>
+            Meals tracked <span style={{ color: 'var(--color-text-muted)', fontWeight: 400 }}>· avg {mealsAvg}%</span>
+          </div>
+          <div style={chartWrapStyle}>
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={rows} margin={{ top: 8, right: 8, left: -8, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" vertical={false} />
+                <XAxis dataKey="date" tick={{ fontSize: 10, fill: '#9ca3af' }} axisLine={{ stroke: '#e5e7eb' }} tickLine={false} />
+                <YAxis tick={{ fontSize: 10, fill: '#9ca3af' }} unit="%" domain={[0, 100]} ticks={[0, 33, 67, 100]} axisLine={false} tickLine={false} width={36} />
+                <Tooltip formatter={(v) => [v == null ? '—' : `${v}%`, '']} contentStyle={{ background: 'rgba(255,255,255,0.95)', border: '1px solid #e5e7eb', borderRadius: 8, fontSize: 12 }} />
+                <ReferenceLine y={100} stroke="#d1d5db" strokeDasharray="5 3" strokeWidth={1.25} />
+                <Bar dataKey="mealsPct" fill="#c96442" radius={[3, 3, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+
+        <div>
+          <div style={{ fontSize: '0.85rem', fontWeight: 600, marginBottom: '0.35rem' }}>
+            % of daily targets <span style={{ color: 'var(--color-text-muted)', fontWeight: 400 }}>
+              · {goals ? `avg ${targetAvg}%` : 'set goals to enable'}
+            </span>
+          </div>
+          <div style={chartWrapStyle}>
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={rows} margin={{ top: 8, right: 8, left: -8, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" vertical={false} />
+                <XAxis dataKey="date" tick={{ fontSize: 10, fill: '#9ca3af' }} axisLine={{ stroke: '#e5e7eb' }} tickLine={false} />
+                <YAxis tick={{ fontSize: 10, fill: '#9ca3af' }} unit="%" domain={[0, 100]} ticks={[0, 50, 100]} axisLine={false} tickLine={false} width={36} />
+                <Tooltip formatter={(v) => [v == null ? '—' : `${v}%`, '']} contentStyle={{ background: 'rgba(255,255,255,0.95)', border: '1px solid #e5e7eb', borderRadius: 8, fontSize: 12 }} />
+                <ReferenceLine y={100} stroke="#d1d5db" strokeDasharray="5 3" strokeWidth={1.25} />
+                <Bar dataKey="targetPct" fill="#ec4899" radius={[3, 3, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+
+        <div>
+          <div style={{ fontSize: '0.85rem', fontWeight: 600, marginBottom: '0.35rem' }}>
+            Vegetables &amp; fruit <span style={{ color: 'var(--color-text-muted)', fontWeight: 400 }}>· servings/day</span>
+          </div>
+          <div style={chartWrapStyle}>
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={rows} margin={{ top: 8, right: 8, left: -16, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" vertical={false} />
+                <XAxis dataKey="date" tick={{ fontSize: 10, fill: '#9ca3af' }} axisLine={{ stroke: '#e5e7eb' }} tickLine={false} />
+                <YAxis tick={{ fontSize: 10, fill: '#9ca3af' }} axisLine={false} tickLine={false} width={28} allowDecimals={false} />
+                <Tooltip
+                  formatter={(v, name) => [v == null ? '—' : `${v} servings`, name]}
+                  contentStyle={{ background: 'rgba(255,255,255,0.95)', border: '1px solid #e5e7eb', borderRadius: 8, fontSize: 12 }}
+                />
+                <Bar dataKey="veg" name="Vegetables" fill="#22c55e" radius={[3, 3, 0, 0]} />
+                <Bar dataKey="fruit" name="Fruit" fill="#f59e0b" radius={[3, 3, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function WorkoutPage({ onBack, user }) {
   const [workouts, setWorkouts] = useState(loadWorkouts);
   const [selectedDate, setSelectedDate] = useState(todayStr());
@@ -1089,7 +1389,7 @@ export function WorkoutPage({ onBack, user }) {
   const [locationEditorOpen, setLocationEditorOpen] = useState(false);
   const [workoutType, setWorkoutType] = useState('');
   const [entries, setEntries] = useState(() => blankEntries());
-  const [viewMode, setViewMode] = useState('log'); // 'log' | 'history' | 'charts' | 'body' | 'exercises' | 'stats'
+  const [viewMode, setViewMode] = useState('log'); // 'log' | 'history' | 'charts' | 'body' | 'exercises' | 'steps' | 'sleep' | 'stats' (Overview)
   const [exerciseLibrary, setExerciseLibrary] = useState(loadLibrary);
 
   // User's exercises grouped by their assigned muscle group. This is the
@@ -2132,7 +2432,7 @@ export function WorkoutPage({ onBack, user }) {
               : tab === 'exercises' ? 'Exercises'
               : tab === 'steps' ? 'Steps'
               : tab === 'sleep' ? 'Sleep'
-              : 'Stats & PRs'}
+              : 'Overview'}
           </button>
         ))}
       </div>
@@ -3080,6 +3380,8 @@ export function WorkoutPage({ onBack, user }) {
               <div className={styles.statLabel}>Total Workouts</div>
             </div>
           </div>
+
+          <OverviewBarCharts user={user} workouts={workouts} />
 
           <h3 className={styles.statsHeading}>Muscle Groups (30d)</h3>
           <div className={styles.barChart}>
