@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { ComposedChart, Area, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, BarChart, Bar, ReferenceLine } from 'recharts';
 import { doc, onSnapshot } from 'firebase/firestore';
 import { db } from '../firebase';
@@ -1357,6 +1358,124 @@ function OverviewBarCharts({ user, workouts }) {
   );
 }
 
+// Custom exercise picker for the Log Workout table. A native <select> can't
+// hold a button, which is why the in-row "+ Add new exercise" affordance has
+// to live in a portal-rendered popover anchored to the trigger.
+function ExerciseSelector({ value, options, disabled, muscleGroup, onChange, onAddNew, className }) {
+  const [open, setOpen] = useState(false);
+  const [adding, setAdding] = useState(false);
+  const [newName, setNewName] = useState('');
+  const [pos, setPos] = useState({ top: 0, left: 0, width: 0 });
+  const triggerRef = useRef(null);
+  const menuRef = useRef(null);
+
+  function close() {
+    setOpen(false);
+    setAdding(false);
+    setNewName('');
+  }
+
+  useEffect(() => {
+    if (!open) return undefined;
+    function updatePos() {
+      const r = triggerRef.current?.getBoundingClientRect();
+      if (r) setPos({ top: r.bottom + 2, left: r.left, width: Math.max(r.width, 220) });
+    }
+    updatePos();
+    function onDocMouseDown(e) {
+      if (menuRef.current?.contains(e.target)) return;
+      if (triggerRef.current?.contains(e.target)) return;
+      close();
+    }
+    function onScroll(e) {
+      if (menuRef.current?.contains(e.target)) return;
+      close();
+    }
+    document.addEventListener('mousedown', onDocMouseDown);
+    window.addEventListener('scroll', onScroll, true);
+    window.addEventListener('resize', updatePos);
+    return () => {
+      document.removeEventListener('mousedown', onDocMouseDown);
+      window.removeEventListener('scroll', onScroll, true);
+      window.removeEventListener('resize', updatePos);
+    };
+  }, [open]);
+
+  function commitNew() {
+    const name = newName.trim();
+    if (!name) return;
+    onAddNew(name);
+    close();
+  }
+
+  const menu = (
+    <div
+      ref={menuRef}
+      className={styles.exSelectMenu}
+      style={{ top: pos.top, left: pos.left, minWidth: pos.width }}
+    >
+      <div className={styles.exSelectOptions}>
+        {options.length === 0 ? (
+          <div className={styles.exSelectEmpty}>
+            No exercises in {muscleGroup || 'this group'} yet.
+          </div>
+        ) : (
+          options.map(ex => (
+            <button
+              key={ex}
+              type="button"
+              className={`${styles.exSelectOption} ${ex === value ? styles.exSelectOptionActive : ''}`}
+              onClick={() => { onChange(ex); close(); }}
+            >{ex}</button>
+          ))
+        )}
+      </div>
+      {adding ? (
+        <div className={styles.exSelectAddRow}>
+          <input
+            type="text"
+            autoFocus
+            placeholder={`New ${muscleGroup || ''} exercise`.trim()}
+            value={newName}
+            onChange={e => setNewName(e.target.value)}
+            onKeyDown={e => {
+              if (e.key === 'Enter') { e.preventDefault(); commitNew(); }
+              else if (e.key === 'Escape') { e.preventDefault(); setAdding(false); setNewName(''); }
+            }}
+            className={styles.exSelectAddInput}
+          />
+          <button type="button" className={styles.exSelectAddConfirm} onClick={commitNew}>Add</button>
+          <button type="button" className={styles.exSelectAddCancel} onClick={() => { setAdding(false); setNewName(''); }}>Cancel</button>
+        </div>
+      ) : (
+        <button
+          type="button"
+          className={styles.exSelectAddNew}
+          disabled={!muscleGroup}
+          onClick={() => setAdding(true)}
+          title={!muscleGroup ? 'Pick a muscle group first' : `Add a new exercise to ${muscleGroup}`}
+        >+ Add new exercise</button>
+      )}
+    </div>
+  );
+
+  return (
+    <>
+      <button
+        ref={triggerRef}
+        type="button"
+        className={`${styles.logCell} ${styles.logExerciseSelect} ${styles.exSelectTrigger} ${className || ''}`}
+        disabled={disabled}
+        onClick={() => setOpen(o => !o)}
+      >
+        <span className={styles.exSelectValue}>{value || '—'}</span>
+        <span className={styles.exSelectCaret} aria-hidden="true">▾</span>
+      </button>
+      {open && createPortal(menu, document.body)}
+    </>
+  );
+}
+
 export function WorkoutPage({ onBack, user }) {
   const [workouts, setWorkouts] = useState(loadWorkouts);
   const [selectedDate, setSelectedDate] = useState(todayStr());
@@ -1790,6 +1909,40 @@ export function WorkoutPage({ onBack, user }) {
       const withExercise = { ...e, exercise: exerciseName, editedFields: { ...e.editedFields, exercise: true } };
       return applyLastFromLocation(withExercise, gym);
     }));
+  }
+
+  // Creates a new exercise in the library, tagged to `muscleGroup` so it
+  // shows up in that group's dropdown on the very next render.
+  function addExerciseToLibrary(name, muscleGroup) {
+    const trimmed = String(name || '').trim();
+    if (!trimmed) return false;
+    const lower = trimmed.toLowerCase();
+    const dup = (exerciseLibrary || []).find(
+      e => e?.exercise && e.exercise.trim().toLowerCase() === lower
+    );
+    if (dup) {
+      alert(`"${dup.exercise}" already exists in your exercises.`);
+      return false;
+    }
+    const newEx = {
+      exercise: trimmed,
+      primaryMuscles: '',
+      secondaryMuscles: '',
+      group: '',
+      muscleGroup: muscleGroup || '',
+      thisWeek: 0,
+      lastWeek: 0,
+      alternative: '',
+      top: false,
+      nickname: '',
+      retired: false,
+      videos: [],
+      addedAt: new Date().toISOString(),
+    };
+    const next = [newEx, ...(exerciseLibrary || [])];
+    setExerciseLibrary(next);
+    saveLibrary(next, user?.uid);
+    return true;
   }
 
   // Switching the location refills every row that has an exercise selected
@@ -2700,10 +2853,19 @@ export function WorkoutPage({ onBack, user }) {
                         </select>
                       </td>
                       <td>
-                        <select className={`${styles.logCell} ${styles.logExerciseSelect} ${editedCls('exercise')}`} value={entry.exercise} onChange={e => pickExercise(i, e.target.value)} disabled={!entry.group}>
-                          <option value="">—</option>
-                          {(exercisesByMuscleGroup[entry.group] || []).map(ex => <option key={ex} value={ex}>{ex}</option>)}
-                        </select>
+                        <ExerciseSelector
+                          value={entry.exercise}
+                          options={exercisesByMuscleGroup[entry.group] || []}
+                          disabled={!entry.group}
+                          muscleGroup={entry.group}
+                          className={editedCls('exercise')}
+                          onChange={(name) => pickExercise(i, name)}
+                          onAddNew={(name) => {
+                            if (addExerciseToLibrary(name, entry.group)) {
+                              pickExercise(i, name);
+                            }
+                          }}
+                        />
                       </td>
                       <td>
                         <input className={`${styles.logCell} ${editedCls('notes')}`} type="text" value={entry.notes} onChange={e => updateEntry(i, 'notes', e.target.value)} placeholder="" />
