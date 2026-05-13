@@ -334,7 +334,9 @@ const WEIGHT_KEY = 'sunday-weight-log';
 
 function loadWeightLog() {
   try {
-    return JSON.parse(localStorage.getItem(WEIGHT_KEY) || '[]');
+    const raw = JSON.parse(localStorage.getItem(WEIGHT_KEY) || '[]');
+    if (!Array.isArray(raw)) return [];
+    return [...raw].sort((a, b) => a.date.localeCompare(b.date));
   } catch { return []; }
 }
 
@@ -1514,7 +1516,7 @@ export function WeightTracker({ onClose, user, isOnboarding = false }) {
               const ws = getWeighSettings();
               const today = new Date(); today.setHours(0, 0, 0, 0);
               const merged = [];
-              const reversedLog = [...log].reverse();
+              const reversedLog = [...log].sort((a, b) => b.date.localeCompare(a.date));
 
               // Build sets for week/month coverage from actual log entries
               const logWeeks = new Set(); // "YYYY-WW" for each logged entry
