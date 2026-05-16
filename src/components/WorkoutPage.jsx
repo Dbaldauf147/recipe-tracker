@@ -2555,6 +2555,31 @@ export function WorkoutPage({ onBack, user }) {
     return suggested;
   }, [effectiveLastByType, workoutTypes]);
 
+  // Long-press / right-click on a workout-type pill (normal mode) brings
+  // up a Skip confirm. Mirrors the mobile onLongPress behavior so users
+  // don't have to flip into Edit mode just to skip.
+  const pillLongPressTimerRef = useRef(null);
+  const pillLongPressFiredRef = useRef(false);
+  function startPillLongPress(t) {
+    pillLongPressFiredRef.current = false;
+    if (pillLongPressTimerRef.current) clearTimeout(pillLongPressTimerRef.current);
+    pillLongPressTimerRef.current = setTimeout(() => {
+      pillLongPressFiredRef.current = true;
+      promptSkipWorkoutType(t);
+    }, 500);
+  }
+  function cancelPillLongPress() {
+    if (pillLongPressTimerRef.current) {
+      clearTimeout(pillLongPressTimerRef.current);
+      pillLongPressTimerRef.current = null;
+    }
+  }
+  function promptSkipWorkoutType(t) {
+    if (window.confirm(`Skip "${t}" for today? Resets the "days ago" counter without logging a workout.`)) {
+      skipWorkoutType(t);
+    }
+  }
+
   function skipWorkoutType(t) {
     const today = todayStr();
     const next = { ...typeSkipDates, [t]: today };
@@ -2983,8 +3008,21 @@ export function WorkoutPage({ onBack, user }) {
                 <button
                   key={t}
                   className={`${styles.workoutTypePill} ${isActive ? styles.workoutTypePillActive : ''} ${isSuggested ? styles.workoutTypePillSuggested : ''}`}
-                  onClick={() => handleTypeClick(t)}
-                  title={lastReal ? `Last ${t}: ${daysSince(lastReal.date)} day${daysSince(lastReal.date) === 1 ? '' : 's'} ago (${formatDate(lastReal.date)})` : `Never done ${t}`}
+                  onClick={() => {
+                    if (pillLongPressFiredRef.current) {
+                      pillLongPressFiredRef.current = false;
+                      return; // long-press already prompted; don't also load the type
+                    }
+                    handleTypeClick(t);
+                  }}
+                  onMouseDown={() => startPillLongPress(t)}
+                  onMouseUp={cancelPillLongPress}
+                  onMouseLeave={cancelPillLongPress}
+                  onTouchStart={() => startPillLongPress(t)}
+                  onTouchEnd={cancelPillLongPress}
+                  onTouchCancel={cancelPillLongPress}
+                  onContextMenu={(e) => { e.preventDefault(); cancelPillLongPress(); promptSkipWorkoutType(t); }}
+                  title={lastReal ? `Last ${t}: ${daysSince(lastReal.date)} day${daysSince(lastReal.date) === 1 ? '' : 's'} ago (${formatDate(lastReal.date)}) — long-press / right-click to skip today` : `Never done ${t} — long-press / right-click to skip today`}
                   type="button"
                 >
                   <span className={styles.workoutTypePillName}>
