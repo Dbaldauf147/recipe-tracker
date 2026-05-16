@@ -2854,14 +2854,6 @@ export function WorkoutPage({ onBack, user }) {
         <button
           className={styles.backBtn}
           style={{ marginLeft: 'auto' }}
-          onClick={handlePushToCloud}
-          title="Re-push all local workouts to Firestore (rescue if the mobile app shows 0 workouts)"
-          disabled={!user?.uid}
-        >
-          ⬆ Push to Cloud ({workouts.length})
-        </button>
-        <button
-          className={styles.backBtn}
           onClick={() => setShowImport(true)}
           title="Import historical workouts from a CSV"
         >
