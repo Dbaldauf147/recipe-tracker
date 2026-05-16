@@ -1,6 +1,8 @@
 // Vercel serverless function: parses nutrition label photos via Claude Vision
 // Auto-routed at /api/parse-nutrition-label
 
+import heicConvert from 'heic-convert';
+
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
@@ -23,6 +25,25 @@ export default async function handler(req, res) {
   if (dataUriMatch) {
     mediaType = dataUriMatch[1];
     base64Data = image.replace(/^data:image\/\w+;base64,/, '');
+  }
+  base64Data = base64Data.replace(/\s+/g, '');
+
+  // Detect media type from the first few bytes so mobile clients that send raw
+  // base64 still get the correct mime — Claude rejects mime/bytes mismatches.
+  const head = base64Data.slice(0, 24);
+  if (head.startsWith('/9j/')) mediaType = 'image/jpeg';
+  else if (head.startsWith('iVBORw0KGgo')) mediaType = 'image/png';
+  else if (head.startsWith('R0lGOD')) mediaType = 'image/gif';
+  else if (head.startsWith('UklGR')) mediaType = 'image/webp';
+  else if (head.startsWith('AAAAFGZ0eXBoZWlj') || head.startsWith('AAAAGGZ0eXBoZWlj') || head.includes('ftypheic') || head.includes('ftypheix') || head.includes('ftypmif1')) {
+    try {
+      const heicBuffer = Buffer.from(base64Data, 'base64');
+      const jpegArrayBuffer = await heicConvert({ buffer: heicBuffer, format: 'JPEG', quality: 0.85 });
+      base64Data = Buffer.from(jpegArrayBuffer).toString('base64');
+      mediaType = 'image/jpeg';
+    } catch (err) {
+      return res.status(500).json({ error: `HEIC decode failed: ${err.message}` });
+    }
   }
 
   const prompt = `You are reading a nutrition facts label from a food product photo.

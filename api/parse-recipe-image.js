@@ -1,6 +1,8 @@
 // Vercel serverless function: parses recipe screenshots/photos via Claude Vision
 // Auto-routed at /api/parse-recipe-image
 
+import heicConvert from 'heic-convert';
+
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
@@ -22,6 +24,61 @@ export default async function handler(req, res) {
   if (dataUriMatch) {
     mediaType = dataUriMatch[1];
     base64Data = image.replace(/^data:image\/\w+;base64,/, '');
+  }
+  base64Data = base64Data.replace(/\s+/g, '');
+
+  const invalidCharMatch = base64Data.match(/[^A-Za-z0-9+/=]/);
+  if (invalidCharMatch) {
+    return res.status(400).json({
+      error: `Base64 contains invalid character "${invalidCharMatch[0]}" (code ${invalidCharMatch[0].charCodeAt(0)}) at position ${invalidCharMatch.index}`,
+    });
+  }
+
+  let decodedBuffer;
+  try {
+    decodedBuffer = Buffer.from(base64Data, 'base64');
+  } catch (err) {
+    return res.status(400).json({ error: `Base64 decode failed: ${err.message}` });
+  }
+  const firstBytes = decodedBuffer.slice(0, 16).toString('hex');
+  const lastBytes = decodedBuffer.slice(-8).toString('hex');
+
+  let detectedFormat = 'unknown';
+  if (decodedBuffer[0] === 0xff && decodedBuffer[1] === 0xd8 && decodedBuffer[2] === 0xff) {
+    detectedFormat = 'jpeg';
+    mediaType = 'image/jpeg';
+  } else if (decodedBuffer.slice(0, 8).toString('hex') === '89504e470d0a1a0a') {
+    detectedFormat = 'png';
+    mediaType = 'image/png';
+  } else if (decodedBuffer.slice(0, 4).toString('ascii') === 'GIF8') {
+    detectedFormat = 'gif';
+    mediaType = 'image/gif';
+  } else if (decodedBuffer.slice(0, 4).toString('ascii') === 'RIFF' && decodedBuffer.slice(8, 12).toString('ascii') === 'WEBP') {
+    detectedFormat = 'webp';
+    mediaType = 'image/webp';
+  } else if (decodedBuffer.slice(4, 12).toString('ascii') === 'ftypheic' || decodedBuffer.slice(4, 12).toString('ascii') === 'ftypheix' || decodedBuffer.slice(4, 12).toString('ascii') === 'ftypmif1') {
+    try {
+      const jpegArrayBuffer = await heicConvert({ buffer: decodedBuffer, format: 'JPEG', quality: 0.85 });
+      decodedBuffer = Buffer.from(jpegArrayBuffer);
+      base64Data = decodedBuffer.toString('base64');
+      detectedFormat = 'jpeg';
+      mediaType = 'image/jpeg';
+    } catch (err) {
+      return res.status(500).json({ error: `HEIC decode failed: ${err.message}` });
+    }
+  } else {
+    return res.status(400).json({ error: `Unrecognized image format. First 16 bytes (hex): ${firstBytes}`, decodedLength: decodedBuffer.length });
+  }
+
+  // JPEG sanity: must end with FFD9 (EOI marker). Truncated JPEGs cause Claude
+  // to return "Could not process image" with no specific reason.
+  if (detectedFormat === 'jpeg') {
+    const tail = decodedBuffer.slice(-2).toString('hex');
+    if (tail !== 'ffd9') {
+      return res.status(400).json({
+        error: `JPEG appears truncated — missing EOI marker. Last 8 bytes: ${lastBytes}, length: ${decodedBuffer.length}, base64 length: ${base64Data.length}`,
+      });
+    }
   }
 
   const prompt = `You are reading a recipe from an image. The layout could be ANY of:

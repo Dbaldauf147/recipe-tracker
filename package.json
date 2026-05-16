@@ -12,6 +12,7 @@
   "dependencies": {
     "cheerio": "^1.2.0",
     "firebase": "^12.9.0",
+    "heic-convert": "^2.1.0",
     "html5-qrcode": "^2.3.8",
     "jszip": "^3.10.1",
     "mammoth": "^1.11.0",

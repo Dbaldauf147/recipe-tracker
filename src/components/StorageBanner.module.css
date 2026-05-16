@@ -1,0 +1,38 @@
+.banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem;
+  border-radius: var(--radius-md, 8px);
+  margin-bottom: 1rem;
+  border: 1px solid;
+  font-size: 0.9rem;
+  line-height: 1.4;
+}
+
+.warn {
+  background: #fff8e6;
+  border-color: #f0c040;
+  color: #735200;
+}
+
+.high {
+  background: #fde8e8;
+  border-color: #e53e3e;
+  color: #7a1818;
+}
+
+.text { flex: 1; }
+.detail { font-weight: 400; opacity: 0.9; }
+
+.dismiss {
+  background: transparent;
+  border: none;
+  font-size: 1.25rem;
+  line-height: 1;
+  cursor: pointer;
+  color: inherit;
+  opacity: 0.6;
+  padding: 0 0.25rem;
+}
+.dismiss:hover { opacity: 1; }

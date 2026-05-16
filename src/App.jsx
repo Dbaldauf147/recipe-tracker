@@ -27,6 +27,7 @@ import { BarcodeScannerPage } from './components/BarcodeScannerPage';
 import { RecipeSetupPage } from './components/RecipeSetupPage';
 import { ProfilePage } from './components/ProfilePage';
 import { WorkoutPage } from './components/WorkoutPage';
+import { StorageBanner } from './components/StorageBanner';
 import { FeaturesPage } from './components/FeaturesPage';
 import { EatingOutPage } from './components/EatingOutPage';
 import { UpdatePill } from './components/UpdatePill';
@@ -746,6 +747,10 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
       </aside>
 
       <main className={styles.main}>
+        {/* Per-doc storage warning. Renders only if any Firestore doc is
+            within ~25% of the 1 MB hard limit; otherwise null. */}
+        <StorageBanner user={user} />
+
         {/* Soft-delete recovery banner — shows when an account is scheduled
             for permanent deletion. Always rendered above other banners since
             data loss prevention takes priority. */}

@@ -210,32 +210,134 @@ function snapshotAllAppLocalStorage() {
   return data;
 }
 
+// Maps a localStorage key to the Firestore doc it ends up in. Anything not
+// listed lives inline on the main user doc and is bound by its 1 MB limit.
+const KEY_TO_DOC = {
+  'recipe-tracker-recipes': 'recipes',
+  'sunday-daily-log': 'dailyLog',
+  'sunday-workout-log': 'workoutLog',
+  'sunday-workout-draft': 'workoutDraft',
+};
+
+/**
+ * Estimate how many bytes each Firestore doc would weigh based on what we have
+ * in localStorage. Used to drive the storage warning banner.
+ * Returns { docs: { user, recipes, dailyLog, workoutLog, workoutDraft }, total }.
+ * Sizes are upper bounds — actual Firestore serialization may be smaller, but
+ * the figures are accurate enough for a soft per-doc cap warning.
+ */
+export function computeStorageBreakdown() {
+  const docs = { user: 0, recipes: 0, dailyLog: 0, workoutLog: 0, workoutDraft: 0 };
+  if (typeof localStorage === 'undefined') return { docs, total: 0 };
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i);
+    if (!key) continue;
+    if (BACKUP_EXCLUDE.has(key)) continue;
+    if (key.startsWith('sunday-backup-full-')) continue;
+    if (!APP_STORAGE_PREFIXES.some(p => key.startsWith(p))) continue;
+    const raw = localStorage.getItem(key) || '';
+    const docName = KEY_TO_DOC[key] || 'user';
+    docs[docName] += raw.length;
+  }
+  const total = Object.values(docs).reduce((a, b) => a + b, 0);
+  return { docs, total };
+}
+
+/**
+ * Persist the latest storage estimate on the user doc so other sessions /
+ * devices see consistent data and we don't recompute on every render.
+ */
+export async function saveStorageEstimate(uid) {
+  if (!uid) return null;
+  const breakdown = computeStorageBreakdown();
+  try {
+    await updateDoc(doc(db, 'users', uid), {
+      storageEstimate: { ...breakdown, asOf: new Date().toISOString() },
+    });
+  } catch (err) {
+    console.warn('saveStorageEstimate failed:', err);
+  }
+  return breakdown;
+}
+
+// Pack { key: value } pairs into chunks whose serialized JSON stays under the
+// Firestore 1 MB per-doc limit. Target 700 KB per chunk to leave headroom for
+// metadata fields, base64 escaping, and Firestore wire overhead.
+function packIntoChunks(snapshot, targetBytes = 700 * 1024) {
+  const chunks = [];
+  let current = {};
+  let currentSize = 2; // for "{}"
+  for (const key of Object.keys(snapshot)) {
+    const piece = JSON.stringify({ [key]: snapshot[key] });
+    const pieceSize = piece.length;
+    if (currentSize + pieceSize > targetBytes && Object.keys(current).length > 0) {
+      chunks.push(current);
+      current = {};
+      currentSize = 2;
+    }
+    current[key] = snapshot[key];
+    currentSize += pieceSize;
+  }
+  if (Object.keys(current).length > 0) chunks.push(current);
+  return chunks;
+}
+
 /**
  * Save a daily snapshot of *all* app-owned data — every localStorage key
- * matching APP_STORAGE_PREFIXES, regardless of whether the field existed
- * when this code was written. Stored at users/{uid}/backups/full-YYYY-MM-DD.
+ * matching APP_STORAGE_PREFIXES.
  *
- * Auto-discovery model: new features that follow the naming convention are
- * captured automatically. No per-feature backup wiring needed. The previous
- * approach (hardcoded field list) is what caused weight log to be missed —
- * that mistake can't recur with this approach as long as new features use
- * one of the established prefixes.
+ * Layout (v3): manifest at `users/{uid}/backups/full-YYYY-MM-DD` with
+ *   { date, timestamp, keyCount, chunkCount, chunkIds, version: 3 }
+ * and N chunk docs at `users/{uid}/backups/full-YYYY-MM-DD-c{N}` each holding
+ *   { data: { key: value, ... }, parentId, chunkIndex }
+ * This sidesteps Firestore's 1 MB per-doc limit which silently killed v2 once
+ * users accumulated enough recipes/history.
  *
- * Same-day calls overwrite (one snapshot per day, latest wins).
+ * Backward compatible: v2 manifests (single inline `data` field) still read.
  */
 export async function backupAllUserData(uid) {
   if (!uid) return;
   const today = new Date().toISOString().slice(0, 10);
   const snapshot = snapshotAllAppLocalStorage();
+  const manifestRef = doc(db, 'users', uid, 'backups', `full-${today}`);
   try {
-    const ref = doc(db, 'users', uid, 'backups', `full-${today}`);
-    await setDoc(ref, {
-      data: snapshot,
+    // Clean up any chunks from an earlier same-day backup so we don't leak
+    // orphans when the new snapshot needs fewer chunks than the previous one.
+    try {
+      const existing = await getDoc(manifestRef);
+      if (existing.exists()) {
+        const ids = existing.data().chunkIds;
+        if (Array.isArray(ids)) {
+          await Promise.all(ids.map(id =>
+            deleteDoc(doc(db, 'users', uid, 'backups', id)).catch(() => {})
+          ));
+        }
+      }
+    } catch { /* best-effort cleanup */ }
+
+    const chunks = packIntoChunks(snapshot);
+    const chunkIds = chunks.map((_, i) => `full-${today}-c${i}`);
+
+    await Promise.all(chunks.map((chunk, i) =>
+      setDoc(doc(db, 'users', uid, 'backups', chunkIds[i]), {
+        data: chunk,
+        parentId: `full-${today}`,
+        chunkIndex: i,
+      }, { merge: false })
+    ));
+
+    await setDoc(manifestRef, {
       date: today,
       timestamp: new Date().toISOString(),
       keyCount: Object.keys(snapshot).length,
-      version: 2,
+      chunkCount: chunks.length,
+      chunkIds,
+      version: 3,
     }, { merge: false });
+
+    // Refresh the per-user storage estimate so the warning banner reflects
+    // current data size. Best-effort — failure here shouldn't fail the backup.
+    saveStorageEstimate(uid).catch(() => {});
   } catch (err) {
     // Don't break the app if the backup write fails — user-facing operations
     // shouldn't error because of a background safety mechanism.
@@ -258,7 +360,19 @@ export async function listFullBackups(uid) {
   snap.forEach(d => {
     const id = d.id;
     if (!id.startsWith('full-')) return; // skip 'recipes-*' and others
+    if (/^full-.*-c\d+$/.test(id)) return; // skip v3 chunk docs
     const data = d.data();
+    // v3 manifests don't carry inline data — counts unknown without chunk fetch
+    if (data.version === 3) {
+      out.push({
+        id,
+        date: data.date || id.replace(/^full-/, ''),
+        source: 'client',
+        chunkCount: data.chunkCount || 0,
+        keyCount: data.keyCount || 0,
+      });
+      return;
+    }
     const inner = data.data || data;
     const planHistory = inner['sunday-plan-history'] || inner.planHistory;
     const weightLog = inner['sunday-weight-log'] || inner.weightLog;
@@ -283,7 +397,6 @@ export async function restoreFieldFromBackup(uid, backupId, field) {
   const snap = await getDoc(ref);
   if (!snap.exists()) throw new Error('Backup not found');
   const data = snap.data();
-  const inner = data.data || data;
   // Map our field name → both possible storage keys.
   const FIELD_KEYS = {
     planHistory: ['sunday-plan-history', 'planHistory'],
@@ -291,12 +404,34 @@ export async function restoreFieldFromBackup(uid, backupId, field) {
     weeklyPlan: ['sunday-weekly-plan', 'weeklyPlan'],
     weeklyServings: ['sunday-weekly-servings', 'weeklyServings'],
     workoutLog: ['sunday-workout-log', 'workoutLog'],
+    groceryStaples: ['sunday-grocery-staples', 'groceryStaples'],
+    pantrySpices: ['sunday-pantry-spices', 'pantrySpices'],
+    pantrySauces: ['sunday-pantry-sauces', 'pantrySauces'],
+    pantrySnacks: ['sunday-pantry-snacks', 'pantrySnacks'],
+    pantryFruit: ['sunday-pantry-fruit', 'pantryFruit'],
   };
   const keys = FIELD_KEYS[field] || [field];
   let value = null;
-  for (const k of keys) {
-    if (inner[k] != null) { value = inner[k]; break; }
+
+  // v3 manifest: scan chunk docs
+  if (data.version === 3 && Array.isArray(data.chunkIds)) {
+    for (const chunkId of data.chunkIds) {
+      const chunkSnap = await getDoc(doc(db, 'users', uid, 'backups', chunkId));
+      if (!chunkSnap.exists()) continue;
+      const inner = chunkSnap.data().data || {};
+      for (const k of keys) {
+        if (inner[k] != null) { value = inner[k]; break; }
+      }
+      if (value != null) break;
+    }
+  } else {
+    // v2 inline backup or legacy server-side doc
+    const inner = data.data || data;
+    for (const k of keys) {
+      if (inner[k] != null) { value = inner[k]; break; }
+    }
   }
+
   if (value == null) throw new Error(`Backup has no ${field}`);
   // Persist back. saveField writes to Firestore main doc; localStorage
   // makes the change immediately visible to the current page.
@@ -654,11 +789,11 @@ export function hydrateLocalStorage(userData, uid) {
 
   hydrateArrayWithDefense('sunday-weekly-plan', userData.weeklyPlan, 'weeklyPlan');
   hydrateArrayWithDefense('sunday-plan-history', userData.planHistory, 'planHistory');
-  localStorage.setItem('sunday-grocery-staples', JSON.stringify(userData.groceryStaples || []));
-  localStorage.setItem('sunday-pantry-spices', JSON.stringify(userData.pantrySpices || []));
-  localStorage.setItem('sunday-pantry-sauces', JSON.stringify(userData.pantrySauces || []));
-  localStorage.setItem('sunday-pantry-snacks', JSON.stringify(userData.pantrySnacks || []));
-  localStorage.setItem('sunday-pantry-fruit', JSON.stringify(userData.pantryFruit || []));
+  hydrateArrayWithDefense('sunday-grocery-staples', userData.groceryStaples, 'groceryStaples');
+  hydrateArrayWithDefense('sunday-pantry-spices', userData.pantrySpices, 'pantrySpices');
+  hydrateArrayWithDefense('sunday-pantry-sauces', userData.pantrySauces, 'pantrySauces');
+  hydrateArrayWithDefense('sunday-pantry-snacks', userData.pantrySnacks, 'pantrySnacks');
+  hydrateArrayWithDefense('sunday-pantry-fruit', userData.pantryFruit, 'pantryFruit');
   localStorage.setItem('sunday-shop-extras', JSON.stringify(userData.shopExtras || []));
   localStorage.setItem('sunday-shopping-selection', JSON.stringify(userData.shoppingSelection || []));
   hydrateObjectWithDefense('sunday-weekly-servings', userData.weeklyServings, 'weeklyServings');
@@ -722,6 +857,10 @@ export function hydrateLocalStorage(userData, uid) {
 
   if (Array.isArray(userData.workoutTypes) && userData.workoutTypes.length > 0) {
     localStorage.setItem('sunday-workout-types', JSON.stringify(userData.workoutTypes));
+  }
+
+  if (userData.workoutTypeSkipDates && typeof userData.workoutTypeSkipDates === 'object') {
+    localStorage.setItem('sunday-workout-type-skip-dates', JSON.stringify(userData.workoutTypeSkipDates));
   }
 
   // Workout tab gating: anyone with this flag set on their user doc sees

@@ -4,5 +4,9 @@
   "outputDirectory": "dist",
   "rewrites": [
     { "source": "/((?!api/).*)", "destination": "/index.html" }
-  ]
+  ],
+  "functions": {
+    "api/parse-recipe-image.js": { "maxDuration": 60 },
+    "api/parse-nutrition-label.js": { "maxDuration": 60 }
+  }
 }

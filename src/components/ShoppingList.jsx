@@ -1,6 +1,7 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { loadIngredients, saveIngredientsToFirestore } from '../utils/ingredientsStore.js';
 import { saveField } from '../utils/firestoreSync';
+import { SIZE_GRAMS, WEIGHT_TO_G } from '../utils/units.js';
 import styles from './ShoppingList.module.css';
 
 function parseFraction(str) {
@@ -595,22 +596,51 @@ function groupBySection(items, dbSections) {
   return groups;
 }
 
+// Convert (qty, measurement) into grams when possible. Returns null if the unit
+// can't be expressed in grams without knowing density (cups, tbsp, etc).
+function toGrams(qty, measurement, ingredient) {
+  if (!qty) return 0;
+  const m = (measurement || '').toLowerCase().trim();
+  const ing = (ingredient || '').toLowerCase().trim();
+  if (WEIGHT_TO_G[m] != null) return qty * WEIGHT_TO_G[m];
+  const sg = SIZE_GRAMS[ing];
+  if (sg) {
+    if (sg[m] != null) return qty * sg[m];
+    if (!m) return qty * sg.regular; // "2 avocados" with empty unit = 2 regular
+  }
+  return null;
+}
+
+function addToEntry(entry, scaledQty, ing, recipeTitle) {
+  const grams = toGrams(scaledQty, ing.measurement, ing.ingredient);
+  if (entry.grams != null && grams != null) {
+    entry.grams += grams;
+  } else if (entry.grams != null && grams == null) {
+    // Existing entry is gram-normalized; this new instance isn't convertible.
+    // Park the leftover so we don't silently merge incompatible units.
+    if (!entry.unconverted) entry.unconverted = [];
+    entry.unconverted.push({ quantity: scaledQty, measurement: ing.measurement || '' });
+  } else {
+    // Both null OR existing already null — fall back to plain numeric sum.
+    entry.quantity += scaledQty;
+    if (!entry.measurement && ing.measurement) entry.measurement = ing.measurement;
+  }
+  if (recipeTitle && !entry.recipes.includes(recipeTitle)) entry.recipes.push(recipeTitle);
+}
+
 function mergeIntoMap(map, ingredient, measurement, quantity) {
   const name = ingredient.toLowerCase().trim();
   if (!name) return;
   const qty = parseFraction(quantity);
+  const grams = toGrams(qty, measurement, ingredient);
   if (map.has(name)) {
-    const entry = map.get(name);
-    entry.quantity += qty;
-    // Keep the first non-empty measurement
-    if (!entry.measurement && measurement) {
-      entry.measurement = measurement;
-    }
+    addToEntry(map.get(name), qty, { ingredient, measurement, quantity }, null);
   } else {
     map.set(name, {
       ingredient: ingredient.trim(),
       measurement: measurement || '',
       quantity: qty,
+      grams,
       recipes: [],
     });
   }
@@ -628,24 +658,34 @@ function buildShoppingList(recipes, weeklyServings = {}) {
       const scaledQty = qty * scale;
       const name = (ing.ingredient || '').toLowerCase().trim();
       if (!name) continue;
-      const meas = (ing.measurement || '').toLowerCase().trim();
       if (map.has(name)) {
-        const entry = map.get(name);
-        entry.quantity += scaledQty;
-        if (!entry.measurement && ing.measurement) {
-          entry.measurement = ing.measurement;
-        }
-        if (!entry.recipes.includes(recipe.title)) {
-          entry.recipes.push(recipe.title);
-        }
+        addToEntry(map.get(name), scaledQty, ing, recipe.title);
       } else {
         map.set(name, {
           ingredient: ing.ingredient.trim(),
           measurement: ing.measurement || '',
           quantity: scaledQty,
+          grams: toGrams(scaledQty, ing.measurement, ing.ingredient),
           recipes: [recipe.title],
         });
       }
+    }
+  }
+  // Post-process: for entries with non-null grams, render in a canonical unit.
+  // Items with SIZE_GRAMS (avocado, egg, bell pepper, ...) display as
+  // "N regular"; weight-only items display as grams.
+  for (const entry of map.values()) {
+    if (entry.grams == null) continue;
+    const key = entry.ingredient.toLowerCase().trim();
+    const sg = SIZE_GRAMS[key];
+    if (sg) {
+      const pieces = entry.grams / sg.regular;
+      // Show one decimal unless it's a clean integer
+      entry.quantity = Math.round(pieces * 10) / 10;
+      entry.measurement = 'regular';
+    } else {
+      entry.quantity = Math.round(entry.grams);
+      entry.measurement = 'g';
     }
   }
   return map;
@@ -653,7 +693,6 @@ function buildShoppingList(recipes, weeklyServings = {}) {
 
 // Unit conversion tables
 const VOLUME_TO_ML = { ml: 1, tsp: 4.93, tbsp: 14.79, 'fl oz': 29.57, cup: 236.59, pt: 473.18, qt: 946.35, gal: 3785.41, l: 1000 };
-const WEIGHT_TO_G = { g: 1, mg: 0.001, oz: 28.35, lb: 453.59, kg: 1000 };
 const VOLUME_UNITS = ['tsp', 'tbsp', 'fl oz', 'cup', 'pt', 'qt', 'gal', 'ml', 'l'];
 const WEIGHT_UNITS = ['g', 'oz', 'lb', 'kg'];
 const SIZE_UNITS = ['small', 'medium', 'large', 'piece', 'slice', 'whole', 'can'];

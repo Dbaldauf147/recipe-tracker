@@ -82,6 +82,7 @@ const DEFAULT_TARGETS = {
   plateProtein: 30,
   plateCarbs: 45,
   plateFat: 25,
+  dailyMealsTrackedPct: 100,
 };
 
 const DEFAULT_SELECTED = new Set();
@@ -516,16 +517,36 @@ export function NutritionGoalsPage({ onComplete, onBack, onSkip, initialSelected
                         {[{ key: 'trackDaily', label: 'Daily' }, { key: 'trackWeekly', label: 'Weekly' }].map(g => (
                           <button key={g.key} type="button" className={mealTrackingGoals.has(g.key) ? styles.goalBtnActive : styles.goalBtn} onClick={() => {
                             setMealTrackingGoals(prev => { const next = new Set(prev); if (next.has(g.key)) { next.delete(g.key); } else { next.delete('trackDaily'); next.delete('trackWeekly'); next.add(g.key); } return next; });
-                            // Auto-select core macros when enabling meal tracking
+                            // Auto-select core macros when enabling meal tracking; include
+                            // the daily-tracked-pct target only when picking Daily.
                             if (!mealTrackingGoals.has(g.key)) {
                               setSelected(prev => {
                                 const next = new Set(prev);
                                 ['calories', 'protein', 'carbs', 'fat', 'sodium'].forEach(k => next.add(k));
+                                if (g.key === 'trackDaily') next.add('dailyMealsTrackedPct');
                                 return next;
                               });
                             }
                           }}>{g.label}</button>
                         ))}
+                        {mealTrackingGoals.has('trackDaily') && (
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', marginLeft: '0.6rem', fontSize: '0.85rem', color: 'var(--color-text-muted)' }}>
+                            Goal:
+                            <input
+                              type="number"
+                              min={0}
+                              max={100}
+                              value={targets.dailyMealsTrackedPct ?? 100}
+                              onChange={e => {
+                                const v = e.target.value === '' ? '' : Math.max(0, Math.min(100, Number(e.target.value)));
+                                setTarget('dailyMealsTrackedPct', v);
+                                setSelected(prev => { const next = new Set(prev); next.add('dailyMealsTrackedPct'); return next; });
+                              }}
+                              style={{ width: '4.5rem', padding: '0.3rem 0.4rem', border: '1px solid var(--color-border)', borderRadius: '6px', fontSize: '0.85rem', textAlign: 'right' }}
+                            />
+                            % of meals
+                          </span>
+                        )}
                       </td>
                     ),
                   },

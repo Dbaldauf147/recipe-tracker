@@ -5,6 +5,7 @@ import { doc, onSnapshot } from 'firebase/firestore';
 import { db } from '../firebase';
 import { saveField, saveWorkoutDraft, clearWorkoutDraft } from '../utils/firestoreSync';
 import { exportWorkoutHistoryToCSV } from '../utils/exportData';
+import { parseSetValue, formatSeconds, computeSetStats } from '../utils/setValue';
 import { ExerciseLibrary, effectiveMuscleGroup } from './ExerciseLibrary';
 import { BodyHeatmap } from './BodyHeatmap';
 import styles from './WorkoutPage.module.css';
@@ -134,6 +135,24 @@ function saveWorkoutTypes(data, uid) {
   if (uid) saveField(uid, 'workoutTypes', data);
 }
 
+const SKIP_DATES_KEY = 'sunday-workout-type-skip-dates';
+
+function loadSkipDates() {
+  try {
+    const raw = localStorage.getItem(SKIP_DATES_KEY);
+    if (raw) {
+      const obj = JSON.parse(raw);
+      if (obj && typeof obj === 'object') return obj;
+    }
+  } catch { /* fall through */ }
+  return {};
+}
+
+function saveSkipDates(map, uid) {
+  localStorage.setItem(SKIP_DATES_KEY, JSON.stringify(map));
+  if (uid) saveField(uid, 'workoutTypeSkipDates', map);
+}
+
 function todayStr() {
   return new Date().toISOString().slice(0, 10);
 }
@@ -150,14 +169,14 @@ function emptyEntry() {
 
 // Recompute derived fields from the user-editable fields. Used by both
 // the Log Workout save path and the History inline-edit path so cell
-// edits keep totalReps/maxReps/avgReps/totalWeight/maxWeight in sync.
+// edits keep totalReps/maxReps/avgReps/totalSeconds/maxSeconds/
+// totalWeight/maxWeight in sync. Rep stats sum only rep cells; time
+// stats sum only time cells (30s, 2m, 1:30 — see utils/setValue).
 function enrichEntry(e) {
   const { editedFields: _editedFields, ...rest } = e;
   const sets = Array.isArray(rest.sets) ? rest.sets : [];
-  const reps = sets.filter(s => s !== '' && s != null).map(Number).filter(n => !isNaN(n));
-  const totalReps = reps.reduce((s, r) => s + r, 0);
-  const maxReps = reps.length > 0 ? Math.max(...reps) : 0;
-  const avgReps = reps.length > 0 ? parseFloat((totalReps / reps.length).toFixed(1)) : 0;
+  const stats = computeSetStats(sets);
+  const { totalReps, maxReps, avgReps, totalSeconds, maxSeconds } = stats;
 
   // Compute representative weight + max for stats. When per-set mode is
   // on, derive `weight` from the first non-empty setWeights value so any
@@ -187,6 +206,8 @@ function enrichEntry(e) {
     totalReps,
     maxReps,
     avgReps,
+    totalSeconds,
+    maxSeconds,
     totalWeight,
     maxWeight: totalWeight,
   };
@@ -519,13 +540,10 @@ function parseWorkoutCsv(text, overrideMap = null) {
   const workouts = [];
   for (const w of byDate.values()) {
     const enriched = w.entries.map(e => {
-      const reps = e.sets.filter(s => s !== '').map(Number).filter(n => !isNaN(n));
-      const totalReps = reps.reduce((s, r) => s + r, 0);
-      const maxReps = reps.length > 0 ? Math.max(...reps) : 0;
-      const avgReps = reps.length > 0 ? parseFloat((totalReps / reps.length).toFixed(1)) : 0;
+      const { totalReps, maxReps, avgReps, totalSeconds, maxSeconds } = computeSetStats(e.sets);
       const wt = parseFloat(e.weight) || 0;
       const totalWeight = e.perArm ? wt * 2 : wt;
-      return { ...e, totalReps, maxReps, avgReps, totalWeight, maxWeight: totalWeight };
+      return { ...e, totalReps, maxReps, avgReps, totalSeconds, maxSeconds, totalWeight, maxWeight: totalWeight };
     });
     workouts.push({ ...w, entries: enriched, savedAt: new Date().toISOString() });
   }
@@ -914,8 +932,7 @@ function SleepTab({ user }) {
 
       {(() => {
         if (!expandedDate) return null;
-        const breakdown = breakdownByDate[expandedDate];
-        if (!breakdown) return null;
+        const breakdown = breakdownByDate[expandedDate] || {};
         const total = sleepByDate[expandedDate];
         const stages = [
           { key: 'rem',   label: 'REM',   value: breakdown.remHours,   color: '#7c3aed' },
@@ -925,6 +942,13 @@ function SleepTab({ user }) {
         ].filter(s => typeof s.value === 'number' && s.value > 0);
         const stageTotal = stages.reduce((a, s) => a + s.value, 0);
         const inBed = breakdown.inBedHours;
+        const asleepLegacy = breakdown.asleepLegacyHours;
+        const awake = breakdown.awakeHours;
+        const hasAnyDetail =
+          stageTotal > 0 ||
+          (typeof inBed === 'number' && inBed > 0) ||
+          (typeof asleepLegacy === 'number' && asleepLegacy > 0) ||
+          (typeof awake === 'number' && awake > 0);
         return (
           <div style={{
             marginTop: '0.75rem',
@@ -941,34 +965,49 @@ function SleepTab({ user }) {
                 {total != null ? `${total}h asleep` : ''}
               </span>
             </div>
-            {stageTotal > 0 ? (
-              <>
-                <div style={{ display: 'flex', height: 10, borderRadius: 5, overflow: 'hidden', marginTop: '0.6rem', marginBottom: '0.5rem' }}>
-                  {stages.map(s => (
-                    <div key={s.key} title={`${s.label}: ${s.value}h`} style={{ flex: s.value, background: s.color }} />
-                  ))}
-                </div>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(110px, 1fr))', gap: '0.4rem 1rem', fontSize: '0.82rem' }}>
-                  {stages.map(s => (
-                    <div key={s.key} style={{ display: 'flex', justifyContent: 'space-between', gap: '0.5rem' }}>
-                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: 'var(--color-text-muted)' }}>
-                        <span style={{ width: 10, height: 10, borderRadius: 2, background: s.color }} />
-                        {s.label}
-                      </span>
-                      <span style={{ fontVariant: 'tabular-nums', fontWeight: 600 }}>{s.value}h</span>
-                    </div>
-                  ))}
-                  {typeof inBed === 'number' && inBed > 0 && (
-                    <div style={{ gridColumn: '1 / -1', display: 'flex', justifyContent: 'space-between', paddingTop: 6, borderTop: '1px dashed var(--color-border)', color: 'var(--color-text-muted)' }}>
-                      <span>In bed</span>
-                      <span style={{ fontVariant: 'tabular-nums' }}>{inBed}h</span>
-                    </div>
-                  )}
-                </div>
-              </>
+            {stageTotal > 0 && (
+              <div style={{ display: 'flex', height: 10, borderRadius: 5, overflow: 'hidden', marginTop: '0.6rem', marginBottom: '0.5rem' }}>
+                {stages.map(s => (
+                  <div key={s.key} title={`${s.label}: ${s.value}h`} style={{ flex: s.value, background: s.color }} />
+                ))}
+              </div>
+            )}
+            {hasAnyDetail ? (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(110px, 1fr))', gap: '0.4rem 1rem', fontSize: '0.82rem', marginTop: stageTotal > 0 ? 0 : '0.5rem' }}>
+                {stages.map(s => (
+                  <div key={s.key} style={{ display: 'flex', justifyContent: 'space-between', gap: '0.5rem' }}>
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: 'var(--color-text-muted)' }}>
+                      <span style={{ width: 10, height: 10, borderRadius: 2, background: s.color }} />
+                      {s.label}
+                    </span>
+                    <span style={{ fontVariant: 'tabular-nums', fontWeight: 600 }}>{s.value}h</span>
+                  </div>
+                ))}
+                {stageTotal === 0 && typeof asleepLegacy === 'number' && asleepLegacy > 0 && (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.5rem' }}>
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: 'var(--color-text-muted)' }}>
+                      <span style={{ width: 10, height: 10, borderRadius: 2, background: '#8b5cf6' }} />
+                      Asleep
+                    </span>
+                    <span style={{ fontVariant: 'tabular-nums', fontWeight: 600 }}>{Math.round(asleepLegacy * 10) / 10}h</span>
+                  </div>
+                )}
+                {typeof inBed === 'number' && inBed > 0 && (
+                  <div style={{ gridColumn: '1 / -1', display: 'flex', justifyContent: 'space-between', paddingTop: 6, borderTop: '1px dashed var(--color-border)', color: 'var(--color-text-muted)' }}>
+                    <span>In bed</span>
+                    <span style={{ fontVariant: 'tabular-nums' }}>{Math.round(inBed * 10) / 10}h</span>
+                  </div>
+                )}
+              </div>
             ) : (
               <p style={{ marginTop: '0.5rem', fontSize: '0.82rem', color: 'var(--color-text-muted)' }}>
-                No per-stage data was recorded for this night — only a total.
+                Per-stage detail wasn't recorded for this night — only the total{total != null ? ` (${total}h)` : ''} synced.
+                Apple Watch records REM/Core/Deep; older devices or third-party sleep apps may only log a single asleep total.
+              </p>
+            )}
+            {stageTotal === 0 && !hasAnyDetail && (
+              <p style={{ marginTop: '0.5rem', fontSize: '0.75rem', color: 'var(--color-text-muted)', fontStyle: 'italic' }}>
+                To get stage detail, wear an Apple Watch overnight (Sleep mode enabled in Settings → Sleep) and re-sync from the mobile app.
               </p>
             )}
           </div>
@@ -989,18 +1028,21 @@ function SleepTab({ user }) {
             ].filter(s => typeof s.value === 'number' && s.value > 0) : [];
             const stageTotal = stages.reduce((a, s) => a + s.value, 0);
             const inBed = breakdown?.inBedHours;
-            const canExpand = stages.length > 0 || (typeof inBed === 'number' && inBed > 0);
+            const asleepLegacy = breakdown?.asleepLegacyHours;
+            const hasDetail = stages.length > 0 ||
+              (typeof inBed === 'number' && inBed > 0) ||
+              (typeof asleepLegacy === 'number' && asleepLegacy > 0);
 
             return (
               <div key={d.iso} style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 8, overflow: 'hidden' }}>
                 <button
                   type="button"
-                  onClick={() => canExpand && setExpandedDate(isOpen ? null : d.iso)}
+                  onClick={() => setExpandedDate(isOpen ? null : d.iso)}
                   style={{
                     width: '100%',
                     background: 'transparent',
                     border: 'none',
-                    cursor: canExpand ? 'pointer' : 'default',
+                    cursor: 'pointer',
                     display: 'flex',
                     justifyContent: 'space-between',
                     alignItems: 'center',
@@ -1011,17 +1053,15 @@ function SleepTab({ user }) {
                 >
                   <span style={{ color: 'var(--color-text)', textAlign: 'left' }}>
                     {new Date(d.iso + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
-                    {canExpand && (
-                      <span style={{ fontSize: '0.7rem', color: 'var(--color-text-muted)', marginLeft: 6 }}>
-                        {isOpen ? '▾' : '▸'}
-                      </span>
-                    )}
+                    <span style={{ fontSize: '0.7rem', color: 'var(--color-text-muted)', marginLeft: 6 }}>
+                      {isOpen ? '▾' : '▸'}
+                    </span>
                   </span>
                   <span style={{ fontWeight: 700, color: d.hours >= target ? '#16a34a' : d.hours < 6 ? '#dc2626' : 'var(--color-text)' }}>
                     {d.hours}h
                   </span>
                 </button>
-                {isOpen && breakdown && (
+                {isOpen && (
                   <div style={{ padding: '0 0.75rem 0.75rem', borderTop: '1px solid var(--color-border)' }}>
                     {stageTotal > 0 && (
                       <div style={{ display: 'flex', height: 8, borderRadius: 4, overflow: 'hidden', marginTop: '0.5rem', marginBottom: '0.5rem' }}>
@@ -1030,23 +1070,38 @@ function SleepTab({ user }) {
                         ))}
                       </div>
                     )}
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '0.4rem 1rem', fontSize: '0.78rem' }}>
-                      {stages.map(s => (
-                        <div key={s.key} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.5rem' }}>
-                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: 'var(--color-text-muted)' }}>
-                            <span style={{ width: 8, height: 8, borderRadius: 2, background: s.color }} />
-                            {s.label}
-                          </span>
-                          <span style={{ fontVariant: 'tabular-nums', color: 'var(--color-text)', fontWeight: 600 }}>{s.value}h</span>
-                        </div>
-                      ))}
-                      {typeof inBed === 'number' && inBed > 0 && (
-                        <div style={{ display: 'flex', justifyContent: 'space-between', gridColumn: '1 / -1', paddingTop: 4, borderTop: '1px dashed var(--color-border)', color: 'var(--color-text-muted)' }}>
-                          <span>In bed</span>
-                          <span style={{ fontVariant: 'tabular-nums' }}>{inBed}h</span>
-                        </div>
-                      )}
-                    </div>
+                    {hasDetail ? (
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '0.4rem 1rem', fontSize: '0.78rem' }}>
+                        {stages.map(s => (
+                          <div key={s.key} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.5rem' }}>
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: 'var(--color-text-muted)' }}>
+                              <span style={{ width: 8, height: 8, borderRadius: 2, background: s.color }} />
+                              {s.label}
+                            </span>
+                            <span style={{ fontVariant: 'tabular-nums', color: 'var(--color-text)', fontWeight: 600 }}>{s.value}h</span>
+                          </div>
+                        ))}
+                        {stageTotal === 0 && typeof asleepLegacy === 'number' && asleepLegacy > 0 && (
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.5rem' }}>
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: 'var(--color-text-muted)' }}>
+                              <span style={{ width: 8, height: 8, borderRadius: 2, background: '#8b5cf6' }} />
+                              Asleep
+                            </span>
+                            <span style={{ fontVariant: 'tabular-nums', color: 'var(--color-text)', fontWeight: 600 }}>{Math.round(asleepLegacy * 10) / 10}h</span>
+                          </div>
+                        )}
+                        {typeof inBed === 'number' && inBed > 0 && (
+                          <div style={{ display: 'flex', justifyContent: 'space-between', gridColumn: '1 / -1', paddingTop: 4, borderTop: '1px dashed var(--color-border)', color: 'var(--color-text-muted)' }}>
+                            <span>In bed</span>
+                            <span style={{ fontVariant: 'tabular-nums' }}>{Math.round(inBed * 10) / 10}h</span>
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <p style={{ margin: '0.5rem 0 0', fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>
+                        No per-stage detail synced for this night — wear an Apple Watch with Sleep tracking to capture REM/Core/Deep.
+                      </p>
+                    )}
                   </div>
                 )}
               </div>
@@ -1196,6 +1251,43 @@ function OverviewBarCharts({ user, workouts }) {
   }, [log, range, workoutDates, goals]);
 
   const workoutTotal = rows.reduce((s, r) => s + r.workouts, 0);
+
+  // Aggregate daily workout flags into weekly totals. Weeks are ISO-style
+  // Monday-based so the bar label always points at the Monday of that week.
+  const workoutsByWeek = useMemo(() => {
+    const map = new Map();
+    for (const r of rows) {
+      if (!r.workouts) continue;
+      const d = new Date(`${r.iso}T12:00:00`);
+      const dow = (d.getDay() + 6) % 7; // 0 = Mon
+      d.setDate(d.getDate() - dow);
+      const key = d.toISOString().slice(0, 10);
+      map.set(key, (map.get(key) || 0) + 1);
+    }
+    // Build a continuous series so empty weeks render as zero bars.
+    const out = [];
+    if (rows.length === 0) return out;
+    const startIso = rows[0].iso;
+    const endIso = rows[rows.length - 1].iso;
+    const startD = new Date(`${startIso}T12:00:00`);
+    startD.setDate(startD.getDate() - ((startD.getDay() + 6) % 7));
+    const endD = new Date(`${endIso}T12:00:00`);
+    const cur = new Date(startD);
+    while (cur <= endD) {
+      const key = cur.toISOString().slice(0, 10);
+      out.push({
+        weekStart: key,
+        label: cur.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+        count: map.get(key) || 0,
+      });
+      cur.setDate(cur.getDate() + 7);
+    }
+    return out;
+  }, [rows]);
+  const weeksWithWorkouts = workoutsByWeek.filter(w => w.count > 0).length;
+  const weeklyAvg = workoutsByWeek.length
+    ? Math.round((workoutTotal / workoutsByWeek.length) * 10) / 10
+    : 0;
   const stepsAvg = (() => {
     const vals = rows.map(r => r.steps).filter(v => v != null);
     return vals.length ? Math.round(vals.reduce((a, b) => a + b, 0) / vals.length) : 0;
@@ -1244,16 +1336,23 @@ function OverviewBarCharts({ user, workouts }) {
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '1rem' }}>
         <div>
           <div style={{ fontSize: '0.85rem', fontWeight: 600, marginBottom: '0.35rem' }}>
-            Workouts <span style={{ color: 'var(--color-text-muted)', fontWeight: 400 }}>· {workoutTotal} in range</span>
+            Workouts per week <span style={{ color: 'var(--color-text-muted)', fontWeight: 400 }}>· {workoutTotal} total · avg {weeklyAvg}/wk · {weeksWithWorkouts}/{workoutsByWeek.length} active</span>
           </div>
           <div style={chartWrapStyle}>
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={rows} margin={{ top: 8, right: 8, left: -12, bottom: 0 }}>
+              <BarChart data={workoutsByWeek} margin={{ top: 8, right: 8, left: -12, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" vertical={false} />
-                <XAxis dataKey="date" tick={{ fontSize: 10, fill: '#9ca3af' }} axisLine={{ stroke: '#e5e7eb' }} tickLine={false} />
-                <YAxis allowDecimals={false} domain={[0, 1]} ticks={[0, 1]} tick={{ fontSize: 10, fill: '#9ca3af' }} axisLine={false} tickLine={false} width={28} />
-                <Tooltip formatter={(v) => [v ? 'Logged' : 'Rest', '']} contentStyle={{ background: 'rgba(255,255,255,0.95)', border: '1px solid #e5e7eb', borderRadius: 8, fontSize: 12 }} />
-                <Bar dataKey="workouts" fill="#3B6B9C" radius={[3, 3, 0, 0]} />
+                <XAxis dataKey="label" tick={{ fontSize: 10, fill: '#9ca3af' }} axisLine={{ stroke: '#e5e7eb' }} tickLine={false} />
+                <YAxis allowDecimals={false} tick={{ fontSize: 10, fill: '#9ca3af' }} axisLine={false} tickLine={false} width={28} />
+                <Tooltip
+                  labelFormatter={(label, payload) => {
+                    const ws = payload?.[0]?.payload?.weekStart;
+                    return ws ? `Week of ${label}` : label;
+                  }}
+                  formatter={(v) => [`${v} workout${v === 1 ? '' : 's'}`, '']}
+                  contentStyle={{ background: 'rgba(255,255,255,0.95)', border: '1px solid #e5e7eb', borderRadius: 8, fontSize: 12 }}
+                />
+                <Bar dataKey="count" fill="#3B6B9C" radius={[3, 3, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           </div>
@@ -1480,6 +1579,27 @@ export function WorkoutPage({ onBack, user }) {
   const [workouts, setWorkouts] = useState(loadWorkouts);
   const [selectedDate, setSelectedDate] = useState(todayStr());
 
+  // Long-open tabs drift: selectedDate is set once at mount, so a tab opened
+  // yesterday and used today would save against yesterday's date. Refresh it
+  // to today every time the tab regains focus, but only if the user hasn't
+  // explicitly chosen a date for this session.
+  const userPickedDateRef = useRef(false);
+  useEffect(() => {
+    function refreshIfStale() {
+      if (document.hidden) return;
+      if (userPickedDateRef.current) return;
+      const today = todayStr();
+      setSelectedDate(prev => (prev === today ? prev : today));
+    }
+    document.addEventListener('visibilitychange', refreshIfStale);
+    window.addEventListener('focus', refreshIfStale);
+    refreshIfStale();
+    return () => {
+      document.removeEventListener('visibilitychange', refreshIfStale);
+      window.removeEventListener('focus', refreshIfStale);
+    };
+  }, []);
+
   // Live-subscribe to the workoutLog Firestore doc so workouts saved on
   // the mobile app appear here within a second. The remote doc is the
   // source of truth — last write wins. Echoes from our own writes are
@@ -1511,6 +1631,46 @@ export function WorkoutPage({ onBack, user }) {
   const [entries, setEntries] = useState(() => blankEntries());
   const [viewMode, setViewMode] = useState('log'); // 'log' | 'history' | 'charts' | 'body' | 'exercises' | 'steps' | 'sleep' | 'stats' (Overview)
   const [exerciseLibrary, setExerciseLibrary] = useState(loadLibrary);
+  // Mirror the mobile app: per-user custom exercises and hidden defaults
+  // live on the user doc so the picker matches across web + iOS.
+  const [customExercises, setCustomExercises] = useState([]);
+  const [hiddenExercises, setHiddenExercises] = useState([]);
+
+  // Resolve the visible exercise list for a muscle group, merging every place
+  // an exercise can live so the web stays in sync with the mobile app:
+  //   - EXERCISES_BY_GROUP defaults
+  //   - user's exerciseLibrary entries effectively in this group
+  //   - user's customExercises (the mobile-only field) for this group
+  //   - minus anything in hiddenExercises (defaults the user hid on mobile)
+  // Deduped case-insensitively and sorted alphabetically.
+  function exercisesForGroup(group) {
+    if (!group) return [];
+    const groupLc = group.toLowerCase();
+    const builtin = EXERCISES_BY_GROUP[group] || [];
+    const libraryForGroup = [];
+    for (const item of exerciseLibrary || []) {
+      if (item?.retired || !item?.exercise) continue;
+      if (effectiveMuscleGroup(item)?.toLowerCase() === groupLc) {
+        libraryForGroup.push(item.exercise);
+      }
+    }
+    const custom = (customExercises || [])
+      .filter(e => (e?.muscleGroup || '').toLowerCase() === groupLc)
+      .map(e => e?.name)
+      .filter(Boolean);
+    const hiddenLc = new Set((hiddenExercises || []).map(n => String(n).toLowerCase()));
+    const seen = new Set();
+    const merged = [];
+    for (const name of [...builtin, ...libraryForGroup, ...custom]) {
+      const key = name.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      if (hiddenLc.has(key)) continue;
+      merged.push(name);
+    }
+    merged.sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+    return merged;
+  }
 
   // Live-subscribe to the exerciseLibrary field on the user doc so
   // exercises added or edited on the mobile app appear here within a
@@ -1522,14 +1682,59 @@ export function WorkoutPage({ onBack, user }) {
     const unsub = onSnapshot(
       ref,
       snap => {
-        const remote = snap.exists() ? snap.data().exerciseLibrary : null;
-        if (!Array.isArray(remote) || remote.length === 0) return;
-        setExerciseLibrary(prev => {
-          const remoteJson = JSON.stringify(remote);
-          if (remoteJson === JSON.stringify(prev)) return prev;
-          try { localStorage.setItem(LIBRARY_KEY, remoteJson); } catch { /* quota or disabled storage */ }
-          return remote;
-        });
+        const data = snap.exists() ? snap.data() : null;
+        const remoteLibrary = Array.isArray(data?.exerciseLibrary) ? data.exerciseLibrary : [];
+        const remoteCustom = Array.isArray(data?.customExercises) ? data.customExercises : [];
+        if (remoteLibrary.length > 0) {
+          setExerciseLibrary(prev => {
+            const remoteJson = JSON.stringify(remoteLibrary);
+            if (remoteJson === JSON.stringify(prev)) return prev;
+            try { localStorage.setItem(LIBRARY_KEY, remoteJson); } catch { /* quota or disabled storage */ }
+            return remoteLibrary;
+          });
+        }
+        setCustomExercises(remoteCustom);
+        setHiddenExercises(Array.isArray(data?.hiddenExercises) ? data.hiddenExercises : []);
+
+        // Backfill: the mobile app historically only wrote `customExercises`.
+        // Promote any custom entries that aren't already in `exerciseLibrary`
+        // so the Exercises tab (which only renders `exerciseLibrary`) shows
+        // them. After this write the next snapshot will find no missing
+        // entries, so no infinite loop.
+        if (remoteCustom.length > 0) {
+          const haveLc = new Set(
+            remoteLibrary
+              .map(e => (e?.exercise || '').trim().toLowerCase())
+              .filter(Boolean),
+          );
+          const missing = remoteCustom.filter(c => {
+            const n = String(c?.name || '').trim().toLowerCase();
+            return n && !haveLc.has(n);
+          });
+          if (missing.length > 0) {
+            const promoted = missing.map(c => ({
+              exercise: c.name,
+              primaryMuscles: '',
+              secondaryMuscles: '',
+              group: '',
+              muscleGroup: c.muscleGroup || '',
+              thisWeek: 0,
+              lastWeek: 0,
+              alternative: '',
+              top: false,
+              nickname: '',
+              retired: false,
+              videos: [],
+              addedAt: new Date().toISOString(),
+            }));
+            const merged = [...promoted, ...remoteLibrary];
+            setExerciseLibrary(merged);
+            try { localStorage.setItem(LIBRARY_KEY, JSON.stringify(merged)); } catch { /* quota */ }
+            saveField(user.uid, 'exerciseLibrary', merged).catch(err => {
+              console.warn('exerciseLibrary backfill from customExercises failed:', err);
+            });
+          }
+        }
       },
       err => { console.error('Exercise library live sync error:', err); },
     );
@@ -1553,6 +1758,7 @@ export function WorkoutPage({ onBack, user }) {
     return map;
   }, [exerciseLibrary]);
   const [workoutTypes, setWorkoutTypes] = useState(loadWorkoutTypes);
+  const [typeSkipDates, setTypeSkipDates] = useState(loadSkipDates);
   const [editingTypes, setEditingTypes] = useState(false);
   const [addingType, setAddingType] = useState(false);
   const [newTypeName, setNewTypeName] = useState('');
@@ -1942,6 +2148,19 @@ export function WorkoutPage({ onBack, user }) {
     const next = [newEx, ...(exerciseLibrary || [])];
     setExerciseLibrary(next);
     saveLibrary(next, user?.uid);
+    // Also mirror to customExercises so the mobile picker (which reads that
+    // field rather than exerciseLibrary) shows the new exercise immediately.
+    if (muscleGroup && user?.uid) {
+      const customNext = [...(customExercises || [])];
+      const dupCustom = customNext.some(
+        e => e?.name && e.name.trim().toLowerCase() === lower
+      );
+      if (!dupCustom) {
+        customNext.push({ name: trimmed, muscleGroup });
+        setCustomExercises(customNext);
+        saveField(user.uid, 'customExercises', customNext).catch(() => {});
+      }
+    }
     return true;
   }
 
@@ -2064,6 +2283,10 @@ export function WorkoutPage({ onBack, user }) {
     saveWorkouts(next, user?.uid);
     // Clear the in-progress draft so mobile stops showing the unsaved version.
     if (user?.uid) clearWorkoutDraft(user.uid).catch(() => {});
+    // After a save, allow auto-refresh to pull the date back to today on the
+    // next visibility change — the user is unlikely to want to keep logging
+    // against a past date once they've committed one.
+    userPickedDateRef.current = false;
     alert('Workout saved!');
   }
 
@@ -2275,12 +2498,30 @@ export function WorkoutPage({ onBack, user }) {
     return m;
   }, [workouts]);
 
+  // Effective last-activity date per type — the newer of an actual saved
+  // workout and a manual "skip" recorded by the user. wasSkipped lets the
+  // pill differentiate when the most recent activity is a skip vs a real
+  // session. Mirror of the mobile app's effectiveLastByType.
+  const effectiveLastByType = useMemo(() => {
+    const m = {};
+    for (const t of workoutTypes) {
+      const workoutDate = lastByType[t]?.date || '';
+      const skipDate = typeSkipDates?.[t] || '';
+      if (skipDate && skipDate > workoutDate) {
+        m[t] = { date: skipDate, wasSkipped: true };
+      } else if (workoutDate) {
+        m[t] = { date: workoutDate, wasSkipped: false };
+      }
+    }
+    return m;
+  }, [lastByType, typeSkipDates, workoutTypes]);
+
   const suggestedType = useMemo(() => {
     if (workoutTypes.length === 0) return '';
     let suggested = workoutTypes[0];
-    let suggestedDate = lastByType[suggested]?.date || '';
+    let suggestedDate = effectiveLastByType[suggested]?.date || '';
     for (const t of workoutTypes) {
-      const d = lastByType[t]?.date || '';
+      const d = effectiveLastByType[t]?.date || '';
       if (!d) return t; // never done yet — suggest immediately
       if (suggestedDate && d < suggestedDate) {
         suggested = t;
@@ -2288,7 +2529,14 @@ export function WorkoutPage({ onBack, user }) {
       }
     }
     return suggested;
-  }, [lastByType, workoutTypes]);
+  }, [effectiveLastByType, workoutTypes]);
+
+  function skipWorkoutType(t) {
+    const today = todayStr();
+    const next = { ...typeSkipDates, [t]: today };
+    setTypeSkipDates(next);
+    saveSkipDates(next, user?.uid);
+  }
 
   function fillFromLast(t) {
     const last = lastByType[t];
@@ -2590,7 +2838,7 @@ export function WorkoutPage({ onBack, user }) {
       {viewMode === 'log' && (
         <div className={styles.logSection}>
           <div className={styles.dateRow}>
-            <input type="date" className={styles.dateInput} value={selectedDate} onChange={e => setSelectedDate(e.target.value)} />
+            <input type="date" className={styles.dateInput} value={selectedDate} onChange={e => { userPickedDateRef.current = true; setSelectedDate(e.target.value); }} />
             <select className={styles.gymSelect} value={gym} onChange={e => handleGymChange(e.target.value)}>
               {gyms.map(g => <option key={g} value={g}>{g}</option>)}
               {gym && !gyms.includes(gym) && <option value={gym}>{gym}</option>}
@@ -2644,37 +2892,82 @@ export function WorkoutPage({ onBack, user }) {
           <div className={styles.workoutTypeRow}>
             <span className={styles.workoutTypeLabel}>Workout type:</span>
             {workoutTypes.map(t => {
-              const last = lastByType[t];
-              const days = daysSince(last?.date);
+              const effective = effectiveLastByType[t];
+              const days = daysSince(effective?.date);
               const isSuggested = t === suggestedType && !workoutType;
               const isActive = workoutType === t;
+              const lastReal = lastByType[t];
+              const subLabel = effective
+                ? (days === 0
+                    ? (effective.wasSkipped ? 'skipped today' : 'today')
+                    : `${days}d ago${effective.wasSkipped ? ' (skipped)' : ''}`)
+                : 'never';
+              if (editingTypes) {
+                return (
+                  <span
+                    key={t}
+                    className={`${styles.workoutTypePill} ${styles.workoutTypePillEditing || ''}`}
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', cursor: 'default' }}
+                  >
+                    <span className={styles.workoutTypePillName}>{t}</span>
+                    <button
+                      type="button"
+                      onClick={() => skipWorkoutType(t)}
+                      title={`Skip ${t} today — resets the days-ago counter without logging a workout`}
+                      style={{
+                        border: '1px solid currentColor',
+                        background: 'transparent',
+                        color: 'inherit',
+                        borderRadius: '0.4rem',
+                        padding: '0.1rem 0.4rem',
+                        fontSize: '0.7rem',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      ⏭ Skip
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (workoutTypes.length <= 1) {
+                          window.alert('Keep at least one workout type. Add a new one before removing this.');
+                          return;
+                        }
+                        if (!window.confirm(`Remove "${t}"? Past workouts tagged "${t}" stay tagged.`)) return;
+                        const next = workoutTypes.filter(x => x !== t);
+                        setWorkoutTypes(next);
+                        saveWorkoutTypes(next, user?.uid);
+                        if (workoutType === t) setWorkoutType('');
+                      }}
+                      title={`Remove "${t}" from your workout types`}
+                      style={{
+                        border: '1px solid currentColor',
+                        background: 'transparent',
+                        color: 'inherit',
+                        borderRadius: '0.4rem',
+                        padding: '0.1rem 0.4rem',
+                        fontSize: '0.7rem',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      × Remove
+                    </button>
+                  </span>
+                );
+              }
               return (
                 <button
                   key={t}
                   className={`${styles.workoutTypePill} ${isActive ? styles.workoutTypePillActive : ''} ${isSuggested ? styles.workoutTypePillSuggested : ''}`}
-                  onClick={() => {
-                    if (editingTypes) {
-                      if (workoutTypes.length <= 1) {
-                        window.alert('Keep at least one workout type. Add a new one before removing this.');
-                        return;
-                      }
-                      if (!window.confirm(`Remove "${t}" from your workout types? Past workouts tagged "${t}" stay tagged.`)) return;
-                      const next = workoutTypes.filter(x => x !== t);
-                      setWorkoutTypes(next);
-                      saveWorkoutTypes(next, user?.uid);
-                      if (workoutType === t) setWorkoutType('');
-                    } else {
-                      handleTypeClick(t);
-                    }
-                  }}
-                  title={editingTypes ? `Click to remove "${t}"` : (last ? `Last ${t}: ${days} day${days === 1 ? '' : 's'} ago (${formatDate(last.date)})` : `Never done ${t}`)}
+                  onClick={() => handleTypeClick(t)}
+                  title={lastReal ? `Last ${t}: ${daysSince(lastReal.date)} day${daysSince(lastReal.date) === 1 ? '' : 's'} ago (${formatDate(lastReal.date)})` : `Never done ${t}`}
                   type="button"
                 >
                   <span className={styles.workoutTypePillName}>
-                    {editingTypes ? '× ' : (isSuggested && '⭐ ')}{t}
+                    {isSuggested && '⭐ '}{t}
                   </span>
                   <span className={styles.workoutTypePillSub}>
-                    {editingTypes ? 'click to remove' : (last ? `${days}d ago` : 'never')}
+                    {subLabel}
                   </span>
                 </button>
               );
@@ -2855,7 +3148,7 @@ export function WorkoutPage({ onBack, user }) {
                       <td>
                         <ExerciseSelector
                           value={entry.exercise}
-                          options={exercisesByMuscleGroup[entry.group] || []}
+                          options={exercisesForGroup(entry.group)}
                           disabled={!entry.group}
                           muscleGroup={entry.group}
                           className={editedCls('exercise')}
@@ -2884,9 +3177,12 @@ export function WorkoutPage({ onBack, user }) {
                           >
                             <input
                               className={`${styles.logCell} ${styles.logSetInput} ${editedCls(`set${si}`)}`}
-                              type="number"
+                              type="text"
+                              inputMode="text"
                               value={s}
                               onChange={e => updateSet(i, si, e.target.value)}
+                              onClick={e => e.stopPropagation()}
+                              title="Reps (12), seconds (30s), minutes (2m), hours (1h), or m:ss (1:30)"
                             />
                             {entry.useSetWeights && (
                               <input
@@ -3037,9 +3333,17 @@ export function WorkoutPage({ onBack, user }) {
                       onChange={ev => { if (ev.target.value) bulkUpdateField('exercise', ev.target.value); }}
                     >
                       <option value="">Set exercise…</option>
-                      {Array.from(new Set(Object.values(EXERCISES_BY_GROUP).flat()))
-                        .sort((a, b) => a.localeCompare(b))
-                        .map(ex => <option key={ex} value={ex}>{ex}</option>)}
+                      {(() => {
+                        // Aggregate every group's visible list (defaults + customs - hidden)
+                        // so bulk-edit choices match the mobile picker exactly.
+                        const all = new Set();
+                        for (const g of MUSCLE_GROUPS) {
+                          for (const ex of exercisesForGroup(g)) all.add(ex);
+                        }
+                        return Array.from(all)
+                          .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }))
+                          .map(ex => <option key={ex} value={ex}>{ex}</option>);
+                      })()}
                     </select>
                     <select
                       className={styles.bulkSelect}
@@ -3205,9 +3509,19 @@ export function WorkoutPage({ onBack, user }) {
                               disabled={!e.group}
                             >
                               <option value="">—</option>
-                              {(EXERCISES_BY_GROUP[e.group] || (e.exercise ? [e.exercise] : [])).map(ex => (
-                                <option key={ex} value={ex}>{ex}</option>
-                              ))}
+                              {(() => {
+                                const list = e.group ? exercisesForGroup(e.group) : [];
+                                // Keep the currently-selected exercise visible even if it
+                                // differs only in casing/whitespace from a list entry —
+                                // <select> matches value case-sensitively, so a near-miss
+                                // would render as blank instead of the saved exercise.
+                                if (e.exercise && !list.includes(e.exercise)) {
+                                  list.unshift(e.exercise);
+                                }
+                                return list.map(ex => (
+                                  <option key={ex} value={ex}>{ex}</option>
+                                ));
+                              })()}
                             </select>
                           </td>
                           <td>
@@ -3228,9 +3542,11 @@ export function WorkoutPage({ onBack, user }) {
                               >
                                 <input
                                   className={`${styles.logCell} ${styles.logSetInput}`}
-                                  type="number"
+                                  type="text"
+                                  inputMode="text"
                                   value={reps}
                                   onChange={ev => updateHistorySetField(w.date, originalIdx, si, ev.target.value)}
+                                  title="Reps (12), seconds (30s), minutes (2m), hours (1h), or m:ss (1:30)"
                                 />
                                 {e.useSetWeights && (
                                   <input
@@ -3515,7 +3831,34 @@ export function WorkoutPage({ onBack, user }) {
       {viewMode === 'exercises' && (
         <ExerciseLibrary
           library={exerciseLibrary}
-          onChange={(next) => { setExerciseLibrary(next); saveLibrary(next, user?.uid); }}
+          onChange={(next) => {
+            // Diff to detect deletions so we can also drop the matching
+            // customExercises entry — otherwise the snapshot backfill
+            // (which promotes customExercises into exerciseLibrary) would
+            // immediately resurrect anything the user just removed here.
+            const nextNames = new Set(
+              (next || [])
+                .map(e => (e?.exercise || '').trim().toLowerCase())
+                .filter(Boolean),
+            );
+            const removed = new Set(
+              (exerciseLibrary || [])
+                .map(e => (e?.exercise || '').trim().toLowerCase())
+                .filter(n => n && !nextNames.has(n)),
+            );
+            setExerciseLibrary(next);
+            saveLibrary(next, user?.uid);
+            if (removed.size > 0 && user?.uid) {
+              const trimmedCustom = (customExercises || []).filter(c => {
+                const n = String(c?.name || '').trim().toLowerCase();
+                return !(n && removed.has(n));
+              });
+              if (trimmedCustom.length !== (customExercises || []).length) {
+                setCustomExercises(trimmedCustom);
+                saveField(user.uid, 'customExercises', trimmedCustom).catch(() => {});
+              }
+            }
+          }}
         />
       )}
 
