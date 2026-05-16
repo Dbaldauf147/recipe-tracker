@@ -1,4 +1,4 @@
-import { doc, getDoc, setDoc, addDoc, deleteDoc, updateDoc, collection, query, where, getDocs, arrayUnion, arrayRemove, increment, onSnapshot } from 'firebase/firestore';
+import { doc, getDoc, setDoc, addDoc, deleteDoc, updateDoc, collection, query, where, getDocs, arrayUnion, arrayRemove, increment, onSnapshot, writeBatch } from 'firebase/firestore';
 import { db, auth } from '../firebase';
 
 /**
@@ -50,25 +50,144 @@ export async function saveField(uid, field, value) {
     return saveRecipesToFirestore(uid, value);
   }
   if (field === 'workoutLog') {
+    // v2: route to per-workout subcollection. Diff-aware: only upserts
+    // workouts whose payload changed, only deletes ones that disappeared.
     return saveWorkoutLogToFirestore(uid, value);
   }
   const ref = doc(db, 'users', uid);
   await setDoc(ref, { [field]: value }, { merge: true });
 }
 
-/** Save workout log to a separate Firestore document (avoids 1 MB user doc limit).
- *  Refuses to overwrite a non-empty remote with an empty/non-array — this
- *  was the data-loss kill path on 2026-05-04 where a stray hydrate-with-[]
- *  caused subsequent saves to wipe Firestore. */
+// ── Workout v2: per-day subcollection ───────────────────────────────────
+// Storage: users/{uid}/workouts/{id} → one doc per workout. Mirrors the
+// mobile app's schema in PrepDay/src/services/firestoreSync.ts so the same
+// per-user collection is the source of truth on both clients.
+//
+// Schema flag at users/{uid}/data/workoutSchema.version === 'v2' marks the
+// per-day migration as done; until then, loadWorkoutLogFromFirestore reads
+// from legacy v1 (users/{uid}/data/workoutLog.workouts[]) or v0
+// (users/{uid}.workoutLog[]) and fans out into the subcollection.
+
+/** Generate a stable workout id. crypto.randomUUID where available;
+ *  entropy-from-Math.random fallback otherwise. */
+export function newWorkoutId() {
+  try {
+    if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+      return crypto.randomUUID();
+    }
+  } catch {}
+  return `w-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}-${Math.random().toString(36).slice(2, 6)}`;
+}
+
+async function getWorkoutSchemaVersion(uid) {
+  try {
+    const ref = doc(db, 'users', uid, 'data', 'workoutSchema');
+    const snap = await getDoc(ref);
+    return snap.exists() ? (snap.data().version || null) : null;
+  } catch {
+    return null;
+  }
+}
+
+async function setWorkoutSchemaVersion(uid, version) {
+  const ref = doc(db, 'users', uid, 'data', 'workoutSchema');
+  await setDoc(ref, { version, migratedAt: new Date().toISOString() }, { merge: true });
+}
+
+/** Upsert one workout doc. workout.id required (call newWorkoutId() when
+ *  minting). Re-saving with the same id replaces that workout in place. */
+export async function saveWorkoutDay(uid, workout) {
+  if (!workout?.id) throw new Error('saveWorkoutDay: workout.id required');
+  const ref = doc(db, 'users', uid, 'workouts', workout.id);
+  await setDoc(ref, workout, { merge: false });
+}
+
+export async function deleteWorkoutDay(uid, id) {
+  if (!id) return;
+  const ref = doc(db, 'users', uid, 'workouts', id);
+  await deleteDoc(ref);
+}
+
+/** Batched per-workout writer. Firestore writeBatch caps at 500 ops; chunk
+ *  at 450 for headroom. */
+export async function batchSaveWorkoutDays(uid, workouts) {
+  if (!Array.isArray(workouts) || workouts.length === 0) return;
+  for (let i = 0; i < workouts.length; i += 450) {
+    const chunk = workouts.slice(i, i + 450);
+    const batch = writeBatch(db);
+    for (const w of chunk) {
+      if (!w?.id) continue;
+      const ref = doc(db, 'users', uid, 'workouts', w.id);
+      batch.set(ref, w);
+    }
+    await batch.commit();
+  }
+}
+
+async function batchDeleteWorkoutDays(uid, ids) {
+  if (!Array.isArray(ids) || ids.length === 0) return;
+  for (let i = 0; i < ids.length; i += 450) {
+    const chunk = ids.slice(i, i + 450);
+    const batch = writeBatch(db);
+    for (const id of chunk) {
+      if (!id) continue;
+      const ref = doc(db, 'users', uid, 'workouts', id);
+      batch.delete(ref);
+    }
+    await batch.commit();
+  }
+}
+
+async function loadAllWorkoutsFromSubcollection(uid) {
+  const colRef = collection(db, 'users', uid, 'workouts');
+  const snap = await getDocs(colRef);
+  const out = [];
+  snap.forEach(d => out.push(d.data()));
+  return out.sort((a, b) =>
+    (b.date || '').localeCompare(a.date || '') ||
+    (a.savedAt || '').localeCompare(b.savedAt || '')
+  );
+}
+
+/** Compare prev vs next workout arrays (by id) and apply only the deltas
+ *  to Firestore. Skips workouts whose JSON payload is unchanged — typical
+ *  saves touch one row in one entry, so this collapses to ~1 write. */
+async function syncWorkoutsDiffToFirestore(uid, prev, next) {
+  const prevById = new Map((prev || []).filter(w => w?.id).map(w => [w.id, w]));
+  const nextById = new Map((next || []).filter(w => w?.id).map(w => [w.id, w]));
+  const upserts = [];
+  for (const [id, w] of nextById) {
+    const before = prevById.get(id);
+    if (!before) { upserts.push(w); continue; }
+    if (JSON.stringify(before) !== JSON.stringify(w)) upserts.push(w);
+  }
+  const deletes = [];
+  for (const id of prevById.keys()) {
+    if (!nextById.has(id)) deletes.push(id);
+  }
+  if (upserts.length > 0) await batchSaveWorkoutDays(uid, upserts);
+  if (deletes.length > 0) await batchDeleteWorkoutDays(uid, deletes);
+}
+
+/** In-memory snapshot of the last workouts array we synced to Firestore
+ *  for each uid. Lets saveWorkoutLogToFirestore compute a diff without the
+ *  caller threading prev through every commit site. */
+const _lastSyncedWorkouts = new Map();
+
+/** v2 single-doc-shaped writer kept for back-compat with callers that pass
+ *  the full array. Computes the diff against the last in-memory snapshot
+ *  and writes only the deltas to the per-workout subcollection. */
 export async function saveWorkoutLogToFirestore(uid, workouts) {
-  const ref = doc(db, 'users', uid, 'data', 'workoutLog');
   if (!Array.isArray(workouts) || workouts.length === 0) {
+    // Safety: refuse to nuke a healthy remote with an empty payload —
+    // same data-loss kill path the legacy writer guarded against on
+    // 2026-05-04 (stray hydrate-with-[] from a transient empty load).
     try {
-      const existing = await getDoc(ref);
-      const existingCount = existing.exists() ? (existing.data().workouts || []).length : 0;
-      if (existingCount > 0) {
+      const colRef = collection(db, 'users', uid, 'workouts');
+      const snap = await getDocs(colRef);
+      if (snap.size > 0) {
         console.warn(
-          `[saveWorkoutLogToFirestore] About to write ${Array.isArray(workouts) ? workouts.length : 'non-array'} workouts; remote has ${existingCount}. Refusing to overwrite. uid=${uid}`,
+          `[saveWorkoutLogToFirestore] About to write ${Array.isArray(workouts) ? workouts.length : 'non-array'} workouts; remote subcollection has ${snap.size}. Refusing to overwrite. uid=${uid}`,
         );
         return;
       }
@@ -76,23 +195,77 @@ export async function saveWorkoutLogToFirestore(uid, workouts) {
       console.error('[saveWorkoutLogToFirestore] safety pre-read failed:', err);
       return;
     }
+    _lastSyncedWorkouts.set(uid, []);
+    return;
   }
-  await setDoc(ref, { workouts: workouts || [] }, { merge: false });
+  // Mint ids for any rows that don't have one yet (legacy data being
+  // saved for the first time via the new code path).
+  const withIds = workouts.map(w => (w?.id ? w : { ...w, id: newWorkoutId() }));
+  const prev = _lastSyncedWorkouts.get(uid) || [];
+  await syncWorkoutsDiffToFirestore(uid, prev, withIds);
+  _lastSyncedWorkouts.set(uid, withIds);
 }
 
-/** Load workout log from the separate subcollection doc. Returns null when
- *  the subcollection doc doesn't exist OR holds an empty/missing workouts
- *  array — empty is treated as "no data" so the migration block can fall
- *  through to the legacy main-doc field if needed, instead of letting a
- *  stray `{workouts: []}` mask healthy legacy data on every load. */
+/** Load the workout log. v2-aware: checks the schema flag and either reads
+ *  the per-workout subcollection directly or runs the one-time migration
+ *  first.
+ *
+ *  Migration sources (priority order):
+ *    1. users/{uid}/data/workoutLog (legacy v1 — single doc)
+ *    2. users/{uid}.workoutLog       (legacy v0 — field on main user doc)
+ *
+ *  Legacy workouts get UUIDs minted before the fan-out to subcollection
+ *  docs. Idempotent: re-running the migration finds the schema flag and
+ *  just reads from the subcollection.
+ *
+ *  Returns the workouts array, or null on hard error. */
 export async function loadWorkoutLogFromFirestore(uid) {
   try {
-    const ref = doc(db, 'users', uid, 'data', 'workoutLog');
-    const snap = await getDoc(ref);
-    if (!snap.exists()) return null;
-    const workouts = snap.data().workouts;
-    if (!Array.isArray(workouts) || workouts.length === 0) return null;
-    return workouts;
+    const schemaVersion = await getWorkoutSchemaVersion(uid);
+    if (schemaVersion === 'v2') {
+      const next = await loadAllWorkoutsFromSubcollection(uid);
+      _lastSyncedWorkouts.set(uid, next);
+      return next.length > 0 ? next : null;
+    }
+
+    let legacy = [];
+    try {
+      const legacyDocRef = doc(db, 'users', uid, 'data', 'workoutLog');
+      const snap = await getDoc(legacyDocRef);
+      if (snap.exists() && Array.isArray(snap.data().workouts)) {
+        legacy = snap.data().workouts;
+      }
+    } catch {}
+    if (legacy.length === 0) {
+      try {
+        const userRef = doc(db, 'users', uid);
+        const snap = await getDoc(userRef);
+        if (snap.exists() && Array.isArray(snap.data().workoutLog)) {
+          legacy = snap.data().workoutLog;
+        }
+      } catch {}
+    }
+
+    const withIds = legacy.map(w => (w?.id ? w : { ...w, id: newWorkoutId() }));
+    if (withIds.length > 0) {
+      await batchSaveWorkoutDays(uid, withIds);
+    }
+    await setWorkoutSchemaVersion(uid, 'v2');
+    // Drop the legacy data so the storage-banner stops counting it. Best
+    // effort: a partial cleanup still leaves the subcollection as truth.
+    try {
+      await setDoc(doc(db, 'users', uid, 'data', 'workoutLog'), { workouts: [] }, { merge: false });
+    } catch (err) {
+      console.warn('[loadWorkoutLogFromFirestore] could not clear legacy v1 doc:', err);
+    }
+    try {
+      await updateDoc(doc(db, 'users', uid), { workoutLog: null });
+    } catch (err) {
+      // Field may not exist on doc — ignore.
+    }
+    const fresh = await loadAllWorkoutsFromSubcollection(uid);
+    _lastSyncedWorkouts.set(uid, fresh);
+    return fresh.length > 0 ? fresh : null;
   } catch (err) {
     console.error('loadWorkoutLogFromFirestore:', err);
     return null;
@@ -215,19 +388,22 @@ function snapshotAllAppLocalStorage() {
 const KEY_TO_DOC = {
   'recipe-tracker-recipes': 'recipes',
   'sunday-daily-log': 'dailyLog',
-  'sunday-workout-log': 'workoutLog',
   'sunday-workout-draft': 'workoutDraft',
+  // 'sunday-workout-log' intentionally excluded: workouts are stored as
+  // one Firestore doc per workout (users/{uid}/workouts/{id}), so the
+  // localStorage array doesn't correspond to any single Firestore doc and
+  // counting it against the 1 MB per-doc cap would mislead the banner.
 };
 
 /**
  * Estimate how many bytes each Firestore doc would weigh based on what we have
  * in localStorage. Used to drive the storage warning banner.
- * Returns { docs: { user, recipes, dailyLog, workoutLog, workoutDraft }, total }.
+ * Returns { docs: { user, recipes, dailyLog, workoutDraft }, total }.
  * Sizes are upper bounds — actual Firestore serialization may be smaller, but
  * the figures are accurate enough for a soft per-doc cap warning.
  */
 export function computeStorageBreakdown() {
-  const docs = { user: 0, recipes: 0, dailyLog: 0, workoutLog: 0, workoutDraft: 0 };
+  const docs = { user: 0, recipes: 0, dailyLog: 0, workoutDraft: 0 };
   if (typeof localStorage === 'undefined') return { docs, total: 0 };
   for (let i = 0; i < localStorage.length; i++) {
     const key = localStorage.key(i);
@@ -235,6 +411,9 @@ export function computeStorageBreakdown() {
     if (BACKUP_EXCLUDE.has(key)) continue;
     if (key.startsWith('sunday-backup-full-')) continue;
     if (!APP_STORAGE_PREFIXES.some(p => key.startsWith(p))) continue;
+    // workoutLog lives in a subcollection now — skip rather than fold its
+    // size into the main user doc (would falsely trip the per-doc warning).
+    if (key === 'sunday-workout-log') continue;
     const raw = localStorage.getItem(key) || '';
     const docName = KEY_TO_DOC[key] || 'user';
     docs[docName] += raw.length;
@@ -507,19 +686,14 @@ export async function loadUserData(uid) {
       }
     }
 
-    // Load workoutLog from subcollection (or migrate from main doc).
-    // Uses the same pattern — separate doc avoids the 1 MB user-doc cap.
+    // Load workoutLog from the v2 per-workout subcollection. The loader
+    // handles legacy v1 (data/workoutLog) and legacy v0 (workoutLog field
+    // on the user doc) migrations internally, gated on the workoutSchema
+    // flag, so we don't need a fallback path here. data.workoutLog from
+    // the snapshot above could be stale legacy data — overwrite either
+    // way to keep callers reading the canonical subcollection result.
     const subWorkouts = await loadWorkoutLogFromFirestore(uid);
-    if (subWorkouts !== null) {
-      data.workoutLog = subWorkouts;
-    } else if (Array.isArray(data.workoutLog) && data.workoutLog.length > 0) {
-      try {
-        await saveWorkoutLogToFirestore(uid, data.workoutLog);
-        await setDoc(ref, { workoutLog: [] }, { merge: true });
-      } catch (migErr) {
-        console.error('Workout migration error:', migErr);
-      }
-    }
+    data.workoutLog = subWorkouts || [];
 
     return data;
   } catch (err) {

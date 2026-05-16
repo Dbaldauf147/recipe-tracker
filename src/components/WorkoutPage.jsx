@@ -1,9 +1,9 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { ComposedChart, Area, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, BarChart, Bar, ReferenceLine } from 'recharts';
-import { doc, onSnapshot } from 'firebase/firestore';
+import { doc, collection, onSnapshot } from 'firebase/firestore';
 import { db } from '../firebase';
-import { saveField, saveWorkoutDraft, clearWorkoutDraft } from '../utils/firestoreSync';
+import { saveField, saveWorkoutDraft, clearWorkoutDraft, newWorkoutId } from '../utils/firestoreSync';
 import { exportWorkoutHistoryToCSV } from '../utils/exportData';
 import { parseSetValue, formatSeconds, computeSetStats } from '../utils/setValue';
 import { ExerciseLibrary, effectiveMuscleGroup } from './ExerciseLibrary';
@@ -101,8 +101,16 @@ const STORAGE_KEY = 'sunday-workout-log';
 const LIBRARY_KEY = 'sunday-exercise-library';
 const WORKOUT_TYPES_KEY = 'sunday-workout-types';
 
+// Ensure every workout has a stable id. Legacy localStorage data + CSV
+// imports may not. The diff-aware Firestore writer needs an id per
+// workout to route writes/deletes to the correct subcollection doc.
+function ensureWorkoutIds(workouts) {
+  if (!Array.isArray(workouts)) return [];
+  return workouts.map(w => (w?.id ? w : { ...w, id: newWorkoutId() }));
+}
+
 function loadWorkouts() {
-  try { return JSON.parse(localStorage.getItem(STORAGE_KEY)) || []; } catch { return []; }
+  try { return ensureWorkoutIds(JSON.parse(localStorage.getItem(STORAGE_KEY)) || []); } catch { return []; }
 }
 
 function saveWorkouts(data, uid) {
@@ -1600,20 +1608,25 @@ export function WorkoutPage({ onBack, user }) {
     };
   }, []);
 
-  // Live-subscribe to the workoutLog Firestore doc so workouts saved on
-  // the mobile app appear here within a second. The remote doc is the
-  // source of truth — last write wins. Echoes from our own writes are
-  // skipped via JSON-equality so they don't cause re-renders.
+  // Live-subscribe to the per-workout subcollection so workouts saved on
+  // the mobile app appear here within a second. Each workout is its own
+  // doc under users/{uid}/workouts/{id} (v2 schema — mirrors mobile).
+  // Echoes from our own writes are skipped via JSON-equality so they
+  // don't cause re-renders.
   useEffect(() => {
     if (!user?.uid) return;
-    const ref = doc(db, 'users', user.uid, 'data', 'workoutLog');
+    const colRef = collection(db, 'users', user.uid, 'workouts');
     const unsub = onSnapshot(
-      ref,
+      colRef,
       snap => {
-        const remote = snap.exists() ? snap.data().workouts : null;
-        if (!Array.isArray(remote) || remote.length === 0) return;
+        const remote = [];
+        snap.forEach(d => remote.push(d.data()));
+        if (remote.length === 0) return;
         setWorkouts(prev => {
-          const sorted = [...remote].sort((a, b) => b.date.localeCompare(a.date));
+          const sorted = remote.sort((a, b) =>
+            (b.date || '').localeCompare(a.date || '') ||
+            (a.savedAt || '').localeCompare(b.savedAt || '')
+          );
           const sortedJson = JSON.stringify(sorted);
           if (sortedJson === JSON.stringify(prev)) return prev;
           try { localStorage.setItem(STORAGE_KEY, sortedJson); } catch { /* quota or disabled storage */ }
@@ -1962,13 +1975,13 @@ export function WorkoutPage({ onBack, user }) {
       if (existingDays > 0 && !window.confirm(
         `This will REPLACE all ${existingDays} existing workout day${existingDays === 1 ? '' : 's'} with ${importPreview.workouts.length} day${importPreview.workouts.length === 1 ? '' : 's'} from the CSV. This can't be undone. Continue?`
       )) return;
-      next = [...importPreview.workouts].sort((a, b) => b.date.localeCompare(a.date));
+      next = ensureWorkoutIds([...importPreview.workouts]).sort((a, b) => b.date.localeCompare(a.date));
     } else {
       const importedDates = new Set(importPreview.workouts.map(w => w.date));
-      next = [
+      next = ensureWorkoutIds([
         ...importPreview.workouts,
         ...workouts.filter(w => !importedDates.has(w.date)),
-      ].sort((a, b) => b.date.localeCompare(a.date));
+      ]).sort((a, b) => b.date.localeCompare(a.date));
     }
     setWorkouts(next);
     saveWorkouts(next, user?.uid);
@@ -2277,7 +2290,18 @@ export function WorkoutPage({ onBack, user }) {
 
     const enriched = validEntries.map(enrichEntry);
 
-    const workout = { date: selectedDate, gym, workoutType, entries: enriched, savedAt: new Date().toISOString() };
+    // Preserve the existing workout id for this date so the per-day
+    // Firestore writer updates that doc in place rather than treating it
+    // as a brand-new workout + orphaning the old one.
+    const existingForDate = workouts.find(w => w.date === selectedDate);
+    const workout = {
+      id: existingForDate?.id || newWorkoutId(),
+      date: selectedDate,
+      gym,
+      workoutType,
+      entries: enriched,
+      savedAt: new Date().toISOString(),
+    };
     const next = [workout, ...workouts.filter(w => w.date !== selectedDate)].sort((a, b) => b.date.localeCompare(a.date));
     setWorkouts(next);
     saveWorkouts(next, user?.uid);

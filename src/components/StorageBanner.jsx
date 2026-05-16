@@ -15,8 +15,9 @@ const DOC_LABELS = {
   user: 'main profile',
   recipes: 'recipes',
   dailyLog: 'daily log',
-  workoutLog: 'workout log',
   workoutDraft: 'workout draft',
+  // workoutLog is stored as one doc per workout in a subcollection —
+  // not bound by the 1 MB per-doc cap, so it's omitted from the breakdown.
 };
 
 function severityFor(ratio) {
