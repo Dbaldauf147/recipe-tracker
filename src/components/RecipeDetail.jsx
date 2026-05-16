@@ -1888,7 +1888,23 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
           const fingerprintChanged = d?.fingerprint && d.fingerprint !== recipe?.macrosFingerprint;
           const sourceIsStale = recipe?.macrosSource !== 'website-v1';
           const valuesChanged = macrosKey(d?.perServing) !== macrosKey(recipe?.macrosPerServing);
+          // Sanity guard: never persist absurd per-serving values. This is
+          // typically a unit-mismatch bug (per-kg row treated as per-g, etc.).
+          // Refusing to write keeps the snapshot from poisoning downstream
+          // consumers (mobile reads this as canonical 'website-v1' data).
+          const perServingCals = d?.perServing?.calories;
+          const isAbsurd = typeof perServingCals === 'number' && perServingCals > 10000;
+          if (isAbsurd) {
+            console.warn(
+              '[NutritionPanel] Refusing to persist absurd per-serving macros for recipe',
+              recipe?.id,
+              '— calories =',
+              perServingCals,
+              '— check ingredient rows for unit/grams mismatches',
+            );
+          }
           if (
+            !isAbsurd &&
             d &&
             recipe?.id &&
             onPersistFields &&
