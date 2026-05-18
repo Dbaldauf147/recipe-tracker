@@ -1135,6 +1135,27 @@ export async function setUsername(uid, username) {
 }
 
 /**
+ * Swap a user from `oldUsername` to `newUsername` atomically. Frees the old
+ * `usernames/{oldLower}` doc, claims the new one, and updates the user record.
+ * Throws if the new name is already taken by someone else.
+ */
+export async function changeUsername(uid, oldUsername, newUsername) {
+  const newLower = newUsername.toLowerCase();
+  const oldLower = (oldUsername || '').toLowerCase();
+  if (newLower === oldLower) return; // no-op
+  const newRef = doc(db, 'usernames', newLower);
+  const existing = await getDoc(newRef);
+  if (existing.exists() && existing.data().uid !== uid) {
+    throw new Error('Username already taken');
+  }
+  const batch = writeBatch(db);
+  if (oldLower) batch.delete(doc(db, 'usernames', oldLower));
+  batch.set(newRef, { uid });
+  batch.set(doc(db, 'users', uid), { username: newLower }, { merge: true });
+  await batch.commit();
+}
+
+/**
  * Look up a user by exact username. Returns { uid, username } or null.
  */
 export async function searchByUsername(username) {

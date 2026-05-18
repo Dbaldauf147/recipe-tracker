@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { useRecipes } from './hooks/useRecipes';
 import { useAuth } from './contexts/AuthContext';
-import { saveField, getPendingRequests, getPendingSharedRecipes, loadFriends, loadFriendShoppingList } from './utils/firestoreSync';
+import { saveField, getPendingRequests, getPendingSharedRecipes, loadFriends, loadFriendShoppingList, getUsername } from './utils/firestoreSync';
 import { RecipeList } from './components/RecipeList';
 import { RecipeDetail } from './components/RecipeDetail';
 import { WeightTracker, checkWeighReminder } from './components/WeightTracker';
@@ -251,7 +251,19 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
   })();
   const [pendingCount, setPendingCount] = useState(0);
   const [ingredientsVersion, setIngredientsVersion] = useState(0);
+  const [myUsername, setMyUsername] = useState(null);
   const settingsRef = useRef(null);
+
+  // Load the current user's @username so we can show it under the avatar
+  // in the gear-icon dropdown — the Friends page already loads it the same way.
+  useEffect(() => {
+    if (!user?.uid) { setMyUsername(null); return; }
+    let cancelled = false;
+    getUsername(user.uid)
+      .then(u => { if (!cancelled) setMyUsername(u || null); })
+      .catch(() => { /* no username set yet — render falls back gracefully */ });
+    return () => { cancelled = true; };
+  }, [user?.uid]);
 
   // Post-onboarding redirect (e.g., to Nutrition Goals if user selected Track Nutrition)
   useEffect(() => {
@@ -707,7 +719,10 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
                   {user?.photoURL && (
                     <img className={styles.avatar} src={user.photoURL} alt="" referrerPolicy="no-referrer" />
                   )}
-                  <span>{user?.displayName || 'Guest'}</span>
+                  <div className={styles.settingsUserInfo}>
+                    <span>{user?.displayName || 'Guest'}</span>
+                    {myUsername && <span className={styles.settingsUserHandle}>@{myUsername}</span>}
+                  </div>
                 </div>
                 <button className={styles.settingsMenuItem} onClick={() => { navigateTo('profile'); setSettingsOpen(false); }}>My Profile</button>
                 <button className={styles.settingsMenuItem} onClick={() => { navigateTo('account-settings'); setSettingsOpen(false); }}>Account Settings</button>

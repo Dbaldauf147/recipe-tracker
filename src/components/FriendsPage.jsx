@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import {
   setUsername,
+  changeUsername,
   searchByUsername,
   searchByEmail,
   searchByName,
@@ -34,6 +35,7 @@ export function FriendsPage({ onClose, addRecipe, importRecipes }) {
   const [myUsername, setMyUsername] = useState(null);
   const [usernameInput, setUsernameInput] = useState('');
   const [usernameStatus, setUsernameStatus] = useState(null); // { type, msg }
+  const [editingUsername, setEditingUsername] = useState(false);
 
   const [searchInput, setSearchInput] = useState('');
   const [searchResult, setSearchResult] = useState(null); // { uid, username } | 'none'
@@ -72,7 +74,7 @@ export function FriendsPage({ onClose, addRecipe, importRecipes }) {
 
   useEffect(() => { refresh(); }, [refresh]);
 
-  /* ── Claim username ── */
+  /* ── Claim username (first time) ── */
   async function handleSetUsername() {
     const val = usernameInput.trim();
     if (!USERNAME_RE.test(val)) {
@@ -82,9 +84,34 @@ export function FriendsPage({ onClose, addRecipe, importRecipes }) {
     try {
       await setUsername(uid, val);
       setMyUsername(val.toLowerCase());
+      setUsernameInput('');
       setUsernameStatus({ type: 'success', msg: 'Username saved!' });
     } catch (err) {
       setUsernameStatus({ type: 'error', msg: err.message || 'Failed to set username.' });
+    }
+  }
+
+  /* ── Change existing username ── */
+  async function handleChangeUsername() {
+    const val = usernameInput.trim();
+    if (!USERNAME_RE.test(val)) {
+      setUsernameStatus({ type: 'error', msg: 'Must be 3-20 chars: letters, numbers, underscores.' });
+      return;
+    }
+    if (val.toLowerCase() === (myUsername || '').toLowerCase()) {
+      setEditingUsername(false);
+      setUsernameInput('');
+      setUsernameStatus(null);
+      return;
+    }
+    try {
+      await changeUsername(uid, myUsername, val);
+      setMyUsername(val.toLowerCase());
+      setEditingUsername(false);
+      setUsernameInput('');
+      setUsernameStatus({ type: 'success', msg: 'Username updated!' });
+    } catch (err) {
+      setUsernameStatus({ type: 'error', msg: err.message || 'Failed to change username.' });
     }
   }
 
@@ -271,22 +298,50 @@ export function FriendsPage({ onClose, addRecipe, importRecipes }) {
       {/* ── Your Username ── */}
       <div className={styles.section}>
         <h3 className={styles.sectionTitle}>Your Username</h3>
-        {myUsername ? (
-          <span className={styles.usernameDisplay}>@{myUsername}</span>
+        {myUsername && !editingUsername ? (
+          <div className={styles.searchRow}>
+            <span className={styles.usernameDisplay}>@{myUsername}</span>
+            <button
+              className={styles.searchBtn}
+              onClick={() => {
+                setUsernameInput(myUsername);
+                setUsernameStatus(null);
+                setEditingUsername(true);
+              }}
+            >
+              Change
+            </button>
+          </div>
         ) : (
           <>
             <div className={styles.searchRow}>
               <input
                 className={styles.input}
                 type="text"
-                placeholder="Choose a username"
+                placeholder={myUsername ? 'New username' : 'Choose a username'}
                 value={usernameInput}
                 onChange={e => setUsernameInput(e.target.value)}
-                onKeyDown={e => e.key === 'Enter' && handleSetUsername()}
+                onKeyDown={e => e.key === 'Enter' && (myUsername ? handleChangeUsername() : handleSetUsername())}
+                autoFocus={editingUsername}
               />
-              <button className={styles.searchBtn} onClick={handleSetUsername}>
+              <button
+                className={styles.searchBtn}
+                onClick={myUsername ? handleChangeUsername : handleSetUsername}
+              >
                 Save
               </button>
+              {editingUsername && (
+                <button
+                  className={styles.searchBtn}
+                  onClick={() => {
+                    setEditingUsername(false);
+                    setUsernameInput('');
+                    setUsernameStatus(null);
+                  }}
+                >
+                  Cancel
+                </button>
+              )}
             </div>
             {usernameStatus && (
               <p className={usernameStatus.type === 'error' ? styles.statusError : styles.statusSuccess}>

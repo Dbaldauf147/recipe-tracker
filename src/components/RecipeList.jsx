@@ -1692,7 +1692,7 @@ export function RecipeList({
                     <tr>
                       <th>Meal</th>
                       <th>Days Since</th>
-                      {suggestCols.overdue && <th>Overdue Ingredients</th>}
+                      {suggestCols.overdue && <th title="Overdue Ingredients">Overdue</th>}
                       {suggestCols.seasonal && <th>Seasonal</th>}
                       <th></th>
                     </tr>
@@ -1767,7 +1767,7 @@ export function RecipeList({
                     <tr>
                       <th>Meal</th>
                       <th>Days Since</th>
-                      {suggestCols.overdue && <th>Overdue Ingredients</th>}
+                      {suggestCols.overdue && <th title="Overdue Ingredients">Overdue</th>}
                       {suggestCols.seasonal && <th>Seasonal</th>}
                       <th></th>
                     </tr>
