@@ -1264,6 +1264,14 @@ function OverviewBarCharts({ user, workouts }) {
   // so the calendar can render an × on each worked-out day and a goal-met
   // indicator above each week.
   const WORKOUT_WEEKLY_GOAL = 3;
+  // ISO 8601 week number for a JS Date — used to label each calendar column.
+  const isoWeekNumber = (d) => {
+    const dt = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+    const dayNum = dt.getUTCDay() || 7;
+    dt.setUTCDate(dt.getUTCDate() + 4 - dayNum);
+    const yearStart = new Date(Date.UTC(dt.getUTCFullYear(), 0, 1));
+    return Math.ceil((((dt - yearStart) / 86400000) + 1) / 7);
+  };
   const workoutCalendar = useMemo(() => {
     if (rows.length === 0) return [];
     const inRange = new Set(rows.map(r => r.iso));
@@ -1284,7 +1292,12 @@ function OverviewBarCharts({ user, workouts }) {
         if (workedOut) total += 1;
         days.push({ iso, workedOut, within });
       }
-      weeks.push({ weekStart: cur.toISOString().slice(0, 10), days, total });
+      weeks.push({
+        weekStart: cur.toISOString().slice(0, 10),
+        weekNumber: isoWeekNumber(cur),
+        days,
+        total,
+      });
       cur.setDate(cur.getDate() + 7);
     }
     return weeks;
@@ -1389,6 +1402,25 @@ function OverviewBarCharts({ user, workouts }) {
                   })}
                 </div>
               ))}
+              {/* ISO week number under each column */}
+              <div style={{ display: 'flex', gap: 2, marginLeft: 18, marginTop: 2 }}>
+                {workoutCalendar.map(w => (
+                  <div
+                    key={`weeknum-${w.weekStart}`}
+                    style={{
+                      width: 14,
+                      fontSize: 8,
+                      color: '#9ca3af',
+                      textAlign: 'center',
+                      fontWeight: 500,
+                      lineHeight: 1.1,
+                    }}
+                    title={`ISO week ${w.weekNumber}, starting ${w.weekStart}`}
+                  >
+                    {w.weekNumber}
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
         </div>
