@@ -678,6 +678,34 @@
   font-weight: 600;
 }
 
+/* Bulk geocode progress banner */
+.geocodingBanner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  background: var(--color-accent);
+  color: #fff;
+  padding: 0.55rem 0.85rem;
+  border-radius: 8px;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+.geocodingBannerStop {
+  background: rgba(255, 255, 255, 0.18);
+  color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  border-radius: 6px;
+  padding: 0.25rem 0.7rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+  cursor: pointer;
+  font-family: inherit;
+}
+.geocodingBannerStop:hover {
+  background: rgba(255, 255, 255, 0.28);
+}
+
 /* Map view */
 .mapWrap {
   display: flex;

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { doc, onSnapshot } from 'firebase/firestore';
 import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
 import L from 'leaflet';
@@ -881,6 +881,8 @@ export function EatingOutPage({ user, onClose }) {
   const [adding, setAdding] = useState(false);
   const [bulkOpen, setBulkOpen] = useState(false);
   const [viewMode, setViewMode] = useState('list');
+  const [geocodingProgress, setGeocodingProgress] = useState(null);
+  const cancelGeocodeRef = useRef(false);
 
   useEffect(() => {
     if (!user?.uid) {
@@ -1088,6 +1090,85 @@ export function EatingOutPage({ user, onClose }) {
     () => restaurants.filter(r => typeof r.lat === 'number' && typeof r.lng === 'number').length,
     [restaurants],
   );
+  const ungeocodedWithAddress = useMemo(
+    () => restaurants.filter(r =>
+      typeof r.address === 'string' && r.address.trim() &&
+      !(typeof r.lat === 'number' && typeof r.lng === 'number'),
+    ),
+    [restaurants],
+  );
+
+  const handleBulkGeocode = useCallback(async () => {
+    const candidates = restaurants.filter(r =>
+      typeof r.address === 'string' && r.address.trim() &&
+      !(typeof r.lat === 'number' && typeof r.lng === 'number'),
+    );
+    if (candidates.length === 0) {
+      alert('Nothing to geocode — all restaurants with addresses already have coordinates.');
+      return;
+    }
+    const mins = Math.max(1, Math.ceil((candidates.length * 1.2) / 60));
+    const ok = confirm(
+      `Geocode ${candidates.length} restaurant${candidates.length === 1 ? '' : 's'}?\n\n` +
+      `This will take about ${mins} minute${mins === 1 ? '' : 's'} (Nominatim rate-limits us to ~1 request per second). ` +
+      `Progress is saved as we go, and you can Stop at any time.`,
+    );
+    if (!ok) return;
+
+    cancelGeocodeRef.current = false;
+    let succeeded = 0;
+    let notFound = 0;
+    let failed = 0;
+    setGeocodingProgress({ current: 0, total: candidates.length, succeeded, notFound, failed });
+
+    // Mutating snapshot we persist after each success — keeps progress
+    // recoverable if the user closes the tab mid-loop.
+    let working = [...restaurants];
+
+    for (let i = 0; i < candidates.length; i++) {
+      if (cancelGeocodeRef.current) break;
+      const candidate = candidates[i];
+      setGeocodingProgress({ current: i + 1, total: candidates.length, succeeded, notFound, failed });
+      try {
+        const res = await fetch(`/api/geocode?q=${encodeURIComponent(candidate.address)}`);
+        const data = await res.json().catch(() => ({}));
+        if (res.ok && typeof data.lat === 'number' && typeof data.lng === 'number') {
+          const idx = working.findIndex(r => r.id === candidate.id);
+          if (idx >= 0) {
+            working[idx] = {
+              ...working[idx],
+              lat: data.lat,
+              lng: data.lng,
+              updatedAt: new Date().toISOString(),
+            };
+            await persist(working);
+          }
+          succeeded++;
+        } else if (res.status === 404) {
+          notFound++;
+        } else {
+          failed++;
+        }
+      } catch {
+        failed++;
+      }
+      setGeocodingProgress({ current: i + 1, total: candidates.length, succeeded, notFound, failed });
+      // Throttle ~1.2s before next request to stay under Nominatim's 1 req/s.
+      if (i < candidates.length - 1 && !cancelGeocodeRef.current) {
+        await new Promise(resolve => setTimeout(resolve, 1200));
+      }
+    }
+
+    const wasCancelled = cancelGeocodeRef.current;
+    setGeocodingProgress(null);
+    cancelGeocodeRef.current = false;
+    alert(
+      `${wasCancelled ? 'Geocoding stopped' : 'Geocoding done'}.\n\n` +
+      `✓ ${succeeded} geocoded\n` +
+      `? ${notFound} not found (Nominatim couldn't match the address)\n` +
+      `✗ ${failed} failed (network / other error)`,
+    );
+  }, [restaurants, persist]);
 
   return (
     <div className={styles.page}>
@@ -1102,6 +1183,19 @@ export function EatingOutPage({ user, onClose }) {
           disabled={visible.length === 0}
         >
           Export ({visible.length})
+        </button>
+        <button
+          type="button"
+          className={styles.secondaryBtn}
+          onClick={handleBulkGeocode}
+          disabled={ungeocodedWithAddress.length === 0 || !!geocodingProgress}
+          title={
+            ungeocodedWithAddress.length === 0
+              ? 'All restaurants with addresses already have coordinates'
+              : `Geocode ${ungeocodedWithAddress.length} restaurant${ungeocodedWithAddress.length === 1 ? '' : 's'} missing coordinates`
+          }
+        >
+          Geocode ({ungeocodedWithAddress.length})
         </button>
         <button type="button" className={styles.secondaryBtn} onClick={() => setBulkOpen(true)}>
           Bulk import
@@ -1175,6 +1269,23 @@ export function EatingOutPage({ user, onClose }) {
         </aside>
 
         <main className={styles.main}>
+          {geocodingProgress && (
+            <div className={styles.geocodingBanner}>
+              <span>
+                Geocoding {geocodingProgress.current} of {geocodingProgress.total}…
+                {' '}✓ {geocodingProgress.succeeded}
+                {geocodingProgress.notFound > 0 && ` · ? ${geocodingProgress.notFound}`}
+                {geocodingProgress.failed > 0 && ` · ✗ ${geocodingProgress.failed}`}
+              </span>
+              <button
+                type="button"
+                className={styles.geocodingBannerStop}
+                onClick={() => { cancelGeocodeRef.current = true; }}
+              >
+                Stop
+              </button>
+            </div>
+          )}
           <div className={styles.toolbar}>
             <input
               type="search"
