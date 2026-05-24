@@ -22,6 +22,7 @@ const COLUMNS = [
   { key: 'imageUrl', header: 'imageUrl', get: r => r.imageUrl || '' },
   { key: 'description', header: 'description', get: r => r.description || '' },
   { key: 'lastVisit', header: 'lastVisit', get: r => r.lastVisit ? r.lastVisit.slice(0, 10) : '' },
+  { key: 'takenJoanne', header: 'takenJoanne', get: r => r.takenJoanne ? 'true' : '' },
   { key: 'dietTags', header: 'dietTags', get: r => (r.dietTags || []).join(', ') },
   { key: 'meatTags', header: 'meatTags', get: r => (r.meatTags || []).join(', ') },
 ];

@@ -31,6 +31,7 @@ export const IMPORT_FIELDS = [
   { key: 'address', label: 'Address' },
   { key: 'lat', label: 'Latitude' },
   { key: 'lng', label: 'Longitude' },
+  { key: 'takenJoanne', label: 'Taken Joanne (true/false)' },
 ];
 
 const FIELD_KEYS = new Set(IMPORT_FIELDS.map(f => f.key));
@@ -46,6 +47,7 @@ const HEADER_HINTS = [
   [/^lng$|^lon$|longitude/i, 'lng'],
   [/image[\s_-]?url|^image$/i, 'imageUrl'],
   [/^description$|scraped/i, 'description'],
+  [/^takenJoanne$|taken[\s_-]?joanne/i, 'takenJoanne'],
 
   [/^place$|name|restaurant|spot/i, 'name'],
   [/^meal$|^when$|when to eat/i, 'mealAndFrequency'],
@@ -339,6 +341,8 @@ function buildRestaurantFromRow(cells, mapping, now) {
   const lng = Number.isFinite(lngNum) ? lngNum : undefined;
   const imageUrl = (collected.imageUrl || [])[0] || undefined;
   const description = (collected.description || [])[0] || undefined;
+  const takenJoanneRaw = ((collected.takenJoanne || [])[0] || '').toString().toLowerCase().trim();
+  const takenJoanne = takenJoanneRaw === 'true' || takenJoanneRaw === 'yes' || takenJoanneRaw === '1' ? true : undefined;
 
   return {
     id: explicitId || generateId(),
@@ -361,6 +365,7 @@ function buildRestaurantFromRow(cells, mapping, now) {
     address,
     lat,
     lng,
+    takenJoanne,
     createdAt: now,
     updatedAt: now,
   };

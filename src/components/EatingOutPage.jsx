@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { doc, onSnapshot } from 'firebase/firestore';
-import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
+import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { db } from '../firebase';
@@ -19,6 +19,12 @@ import styles from './EatingOutPage.module.css';
 
 const VISITED_COLOR = '#10b981';
 const WANT_COLOR = '#f59e0b';
+const JOANNE_COLOR = '#ec4899';
+// Default starting view for the map — Williamsburg, Brooklyn at a
+// neighborhood-level zoom. Used regardless of geocoded points so the
+// view feels personal instead of auto-fitting to outliers.
+const DEFAULT_MAP_CENTER = [40.7081, -73.9571];
+const DEFAULT_MAP_ZOOM = 13;
 
 // Coerce lat/lng to a finite number. Older records (CSV imports, manual
 // Firestore edits) sometimes stored coordinates as strings — accept both
@@ -45,6 +51,13 @@ function makeMarkerIcon(color) {
 
 const visitedIcon = makeMarkerIcon(VISITED_COLOR);
 const wantIcon = makeMarkerIcon(WANT_COLOR);
+const joanneIcon = makeMarkerIcon(JOANNE_COLOR);
+
+// Marker color priority: Joanne overrides visited/want-to-try when set.
+function markerIconFor(r) {
+  if (r.takenJoanne) return joanneIcon;
+  return r.status === 'visited' ? visitedIcon : wantIcon;
+}
 
 const FILTERS = [
   { key: 'all', label: 'All' },
@@ -191,6 +204,7 @@ function EditModal({ initial, onSave, onClose, onDelete, cuisineSuggestions, loc
   const [rating, setRating] = useState(initial.rating ?? null);
   const [ratingLabel, setRatingLabel] = useState(initial.ratingLabel || '');
   const [status, setStatus] = useState(initial.status || 'want-to-try');
+  const [takenJoanne, setTakenJoanne] = useState(!!initial.takenJoanne);
   const [mealType, setMealType] = useState(initial.mealType || '');
   const [frequency, setFrequency] = useState(initial.frequency || '');
   const [dish, setDish] = useState(initial.dish || '');
@@ -277,6 +291,7 @@ function EditModal({ initial, onSave, onClose, onDelete, cuisineSuggestions, loc
       lat: coords?.lat,
       lng: coords?.lng,
       lastVisit: lastVisit ? new Date(lastVisit + 'T12:00:00').toISOString() : undefined,
+      takenJoanne: takenJoanne || undefined,
       dietTags: initial.dietTags,
       meatTags: initial.meatTags,
       createdAt: initial.createdAt || now,
@@ -412,6 +427,40 @@ function EditModal({ initial, onSave, onClose, onDelete, cuisineSuggestions, loc
               </button>
             ))}
           </div>
+
+          <label
+            className={styles.fieldLabel}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              marginTop: '0.6rem',
+              cursor: 'pointer',
+              textTransform: 'none',
+              letterSpacing: 0,
+              fontSize: '0.9rem',
+              color: 'var(--color-text)',
+              fontWeight: 600,
+            }}
+          >
+            <input
+              type="checkbox"
+              checked={takenJoanne}
+              onChange={e => setTakenJoanne(e.target.checked)}
+            />
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              <span
+                style={{
+                  width: 10,
+                  height: 10,
+                  borderRadius: '50%',
+                  background: JOANNE_COLOR,
+                  display: 'inline-block',
+                }}
+              />
+              Taken Joanne here
+            </span>
+          </label>
 
           <label className={styles.fieldLabel}>Rating</label>
           <StarRating value={rating} onChange={setRating} />
@@ -793,20 +842,6 @@ function RestaurantCard({ r, distanceMiles, onClick }) {
   );
 }
 
-function FitBounds({ points }) {
-  const map = useMap();
-  useEffect(() => {
-    if (!points || points.length === 0) return;
-    if (points.length === 1) {
-      map.setView([points[0].lat, points[0].lng], 14);
-      return;
-    }
-    const bounds = L.latLngBounds(points.map(p => [p.lat, p.lng]));
-    map.fitBounds(bounds, { padding: [40, 40] });
-  }, [map, points]);
-  return null;
-}
-
 function RestaurantMapView({ items, onSelect }) {
   const mapPoints = useMemo(() => {
     const out = [];
@@ -832,8 +867,6 @@ function RestaurantMapView({ items, onSelect }) {
     return out;
   }, [items]);
   const missing = items.length - mapPoints.length;
-  const fallbackCenter = [40.7128, -74.0060];
-  const center = mapPoints[0] ? [mapPoints[0].lat, mapPoints[0].lng] : fallbackCenter;
 
   return (
     <div className={styles.mapWrap}>
@@ -843,56 +876,57 @@ function RestaurantMapView({ items, onSelect }) {
           Open one and tap <strong>Lookup</strong> to geocode it.
         </div>
       )}
-      {mapPoints.length === 0 ? (
-        <div className={styles.empty}>
-          <p className={styles.emptyTitle}>Nothing to plot</p>
-          <p className={styles.emptyText}>
-            None of the {items.length} restaurant{items.length === 1 ? '' : 's'} in this view have map
-            coordinates yet. Use <strong>Geocode</strong> in the toolbar to add them, or open one and
-            tap <strong>Lookup</strong> next to its address.
-          </p>
-        </div>
-      ) : (
-        <div className={styles.mapContainer}>
-          <MapContainer center={center} zoom={12} scrollWheelZoom style={{ height: '100%', width: '100%' }}>
-            <TileLayer
-              attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-              url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-            />
-            <FitBounds points={mapPoints} />
-            {mapPoints.map(r => (
-              <Marker
-                key={r.id}
-                position={[r.lat, r.lng]}
-                icon={r.status === 'visited' ? visitedIcon : wantIcon}
-              >
-                <Popup>
-                  <div className={styles.mapPopup}>
-                    <strong>{r.name}</strong>
-                    {r.address && <div className={styles.mapPopupMeta}>{r.address}</div>}
-                    {r.cuisines?.length > 0 && (
-                      <div className={styles.mapPopupMeta}>{r.cuisines.join(' · ')}</div>
-                    )}
-                    <button
-                      type="button"
-                      className={styles.mapPopupBtn}
-                      onClick={() => onSelect(r)}
-                    >
-                      Open
-                    </button>
-                  </div>
-                </Popup>
-              </Marker>
-            ))}
-          </MapContainer>
-        </div>
-      )}
+      <div className={styles.mapContainer}>
+        <MapContainer
+          center={DEFAULT_MAP_CENTER}
+          zoom={DEFAULT_MAP_ZOOM}
+          scrollWheelZoom
+          style={{ height: '100%', width: '100%' }}
+        >
+          <TileLayer
+            attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+          />
+          {mapPoints.map(r => (
+            <Marker
+              key={r.id}
+              position={[r.lat, r.lng]}
+              icon={markerIconFor(r)}
+            >
+              <Popup>
+                <div className={styles.mapPopup}>
+                  <strong>{r.name}</strong>
+                  {r.takenJoanne && (
+                    <div className={styles.mapPopupMeta} style={{ color: JOANNE_COLOR, fontWeight: 600 }}>
+                      Taken Joanne here
+                    </div>
+                  )}
+                  {r.address && <div className={styles.mapPopupMeta}>{r.address}</div>}
+                  {r.cuisines?.length > 0 && (
+                    <div className={styles.mapPopupMeta}>{r.cuisines.join(' · ')}</div>
+                  )}
+                  <button
+                    type="button"
+                    className={styles.mapPopupBtn}
+                    onClick={() => onSelect(r)}
+                  >
+                    Open
+                  </button>
+                </div>
+              </Popup>
+            </Marker>
+          ))}
+        </MapContainer>
+      </div>
       <div className={styles.mapLegend}>
         <span className={styles.mapLegendItem}>
           <span className={styles.mapLegendDot} style={{ background: VISITED_COLOR }} /> Visited
         </span>
         <span className={styles.mapLegendItem}>
           <span className={styles.mapLegendDot} style={{ background: WANT_COLOR }} /> Want to try
+        </span>
+        <span className={styles.mapLegendItem}>
+          <span className={styles.mapLegendDot} style={{ background: JOANNE_COLOR }} /> Taken Joanne
         </span>
       </div>
     </div>
