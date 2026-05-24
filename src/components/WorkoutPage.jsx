@@ -1260,42 +1260,36 @@ function OverviewBarCharts({ user, workouts }) {
 
   const workoutTotal = rows.reduce((s, r) => s + r.workouts, 0);
 
-  // Aggregate daily workout flags into weekly totals. Weeks are ISO-style
-  // Monday-based so the bar label always points at the Monday of that week.
-  const workoutsByWeek = useMemo(() => {
-    const map = new Map();
-    for (const r of rows) {
-      if (!r.workouts) continue;
-      const d = new Date(`${r.iso}T12:00:00`);
-      const dow = (d.getDay() + 6) % 7; // 0 = Mon
-      d.setDate(d.getDate() - dow);
-      const key = d.toISOString().slice(0, 10);
-      map.set(key, (map.get(key) || 0) + 1);
-    }
-    // Build a continuous series so empty weeks render as zero bars.
-    const out = [];
-    if (rows.length === 0) return out;
-    const startIso = rows[0].iso;
-    const endIso = rows[rows.length - 1].iso;
-    const startD = new Date(`${startIso}T12:00:00`);
+  // Group daily workout flags into Mon-based weeks, retaining per-day status
+  // so the calendar can render an × on each worked-out day and a goal-met
+  // indicator above each week.
+  const WORKOUT_WEEKLY_GOAL = 3;
+  const workoutCalendar = useMemo(() => {
+    if (rows.length === 0) return [];
+    const inRange = new Set(rows.map(r => r.iso));
+    const startD = new Date(`${rows[0].iso}T12:00:00`);
     startD.setDate(startD.getDate() - ((startD.getDay() + 6) % 7));
-    const endD = new Date(`${endIso}T12:00:00`);
+    const endD = new Date(`${rows[rows.length - 1].iso}T12:00:00`);
+    const weeks = [];
     const cur = new Date(startD);
     while (cur <= endD) {
-      const key = cur.toISOString().slice(0, 10);
-      out.push({
-        weekStart: key,
-        label: cur.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
-        count: map.get(key) || 0,
-      });
+      const days = [];
+      let total = 0;
+      for (let d = 0; d < 7; d++) {
+        const dt = new Date(cur);
+        dt.setDate(dt.getDate() + d);
+        const iso = dt.toISOString().slice(0, 10);
+        const within = inRange.has(iso);
+        const workedOut = within && workoutDates.has(iso);
+        if (workedOut) total += 1;
+        days.push({ iso, workedOut, within });
+      }
+      weeks.push({ weekStart: cur.toISOString().slice(0, 10), days, total });
       cur.setDate(cur.getDate() + 7);
     }
-    return out;
-  }, [rows]);
-  const weeksWithWorkouts = workoutsByWeek.filter(w => w.count > 0).length;
-  const weeklyAvg = workoutsByWeek.length
-    ? Math.round((workoutTotal / workoutsByWeek.length) * 10) / 10
-    : 0;
+    return weeks;
+  }, [rows, workoutDates]);
+  const weeksHittingGoal = workoutCalendar.filter(w => w.total >= WORKOUT_WEEKLY_GOAL).length;
   const stepsAvg = (() => {
     const vals = rows.map(r => r.steps).filter(v => v != null);
     return vals.length ? Math.round(vals.reduce((a, b) => a + b, 0) / vals.length) : 0;
@@ -1344,25 +1338,58 @@ function OverviewBarCharts({ user, workouts }) {
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '1rem' }}>
         <div>
           <div style={{ fontSize: '0.85rem', fontWeight: 600, marginBottom: '0.35rem' }}>
-            Workouts per week <span style={{ color: 'var(--color-text-muted)', fontWeight: 400 }}>· {workoutTotal} total · avg {weeklyAvg}/wk · {weeksWithWorkouts}/{workoutsByWeek.length} active</span>
+            Workouts <span style={{ color: 'var(--color-text-muted)', fontWeight: 400 }}>· {workoutTotal} total · {weeksHittingGoal}/{workoutCalendar.length} weeks ≥{WORKOUT_WEEKLY_GOAL}</span>
           </div>
-          <div style={chartWrapStyle}>
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={workoutsByWeek} margin={{ top: 8, right: 8, left: -12, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" vertical={false} />
-                <XAxis dataKey="label" tick={{ fontSize: 10, fill: '#9ca3af' }} axisLine={{ stroke: '#e5e7eb' }} tickLine={false} />
-                <YAxis allowDecimals={false} tick={{ fontSize: 10, fill: '#9ca3af' }} axisLine={false} tickLine={false} width={28} />
-                <Tooltip
-                  labelFormatter={(label, payload) => {
-                    const ws = payload?.[0]?.payload?.weekStart;
-                    return ws ? `Week of ${label}` : label;
-                  }}
-                  formatter={(v) => [`${v} workout${v === 1 ? '' : 's'}`, '']}
-                  contentStyle={{ background: 'rgba(255,255,255,0.95)', border: '1px solid #e5e7eb', borderRadius: 8, fontSize: 12 }}
-                />
-                <Bar dataKey="count" fill="#3B6B9C" radius={[3, 3, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
+          <div style={{ ...chartWrapStyle, overflowX: 'auto', overflowY: 'hidden', padding: '0.7rem 0.6rem' }}>
+            <div style={{ display: 'inline-flex', flexDirection: 'column', gap: 3 }}>
+              {/* Goal-met indicator per week column */}
+              <div style={{ display: 'flex', gap: 2, marginLeft: 18 }}>
+                {workoutCalendar.map(w => (
+                  <div
+                    key={`goal-${w.weekStart}`}
+                    style={{
+                      width: 14,
+                      height: 3,
+                      borderRadius: 2,
+                      background: w.total >= WORKOUT_WEEKLY_GOAL ? '#16a34a' : '#e5e7eb',
+                    }}
+                    title={`Week of ${w.weekStart}: ${w.total} workout${w.total === 1 ? '' : 's'}${w.total >= WORKOUT_WEEKLY_GOAL ? ' — goal hit' : ''}`}
+                  />
+                ))}
+              </div>
+              {/* 7 day-of-week rows, Mon top */}
+              {['M', 'T', 'W', 'T', 'F', 'S', 'S'].map((label, dayIdx) => (
+                <div key={dayIdx} style={{ display: 'flex', gap: 2, alignItems: 'center' }}>
+                  <span style={{ width: 16, fontSize: 9, color: '#9ca3af', fontWeight: 600, textAlign: 'right', paddingRight: 2 }}>
+                    {label}
+                  </span>
+                  {workoutCalendar.map(w => {
+                    const d = w.days[dayIdx];
+                    return (
+                      <div
+                        key={`${w.weekStart}-${dayIdx}`}
+                        style={{
+                          width: 14,
+                          height: 14,
+                          borderRadius: 3,
+                          background: d.within ? '#f3f4f6' : 'transparent',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          color: d.workedOut ? '#3B6B9C' : 'transparent',
+                          fontSize: 13,
+                          fontWeight: 700,
+                          lineHeight: 1,
+                        }}
+                        title={d.within ? `${d.iso}${d.workedOut ? ' — workout' : ''}` : ''}
+                      >
+                        ×
+                      </div>
+                    );
+                  })}
+                </div>
+              ))}
+            </div>
           </div>
         </div>
 
