@@ -1272,22 +1272,30 @@ function OverviewBarCharts({ user, workouts }) {
     const yearStart = new Date(Date.UTC(dt.getUTCFullYear(), 0, 1));
     return Math.ceil((((dt - yearStart) / 86400000) + 1) / 7);
   };
+  // Calendar always shows a rolling 52 weeks + current week — independent of
+  // the day-range tabs above (which still drive the other charts). Gives a
+  // stable year-at-a-glance view for the 3/week goal.
   const workoutCalendar = useMemo(() => {
-    if (rows.length === 0) return [];
-    const inRange = new Set(rows.map(r => r.iso));
-    const startD = new Date(`${rows[0].iso}T12:00:00`);
-    startD.setDate(startD.getDate() - ((startD.getDay() + 6) % 7));
-    const endD = new Date(`${rows[rows.length - 1].iso}T12:00:00`);
+    const today = new Date();
+    today.setHours(12, 0, 0, 0);
+    const todayIso = today.toISOString().slice(0, 10);
+    const thisMonday = new Date(today);
+    thisMonday.setDate(thisMonday.getDate() - ((thisMonday.getDay() + 6) % 7));
+    const startD = new Date(thisMonday);
+    startD.setDate(startD.getDate() - 52 * 7);
+    const rangeStart = new Date(today);
+    rangeStart.setDate(rangeStart.getDate() - 364);
+    const rangeStartIso = rangeStart.toISOString().slice(0, 10);
     const weeks = [];
     const cur = new Date(startD);
-    while (cur <= endD) {
+    while (cur <= today) {
       const days = [];
       let total = 0;
       for (let d = 0; d < 7; d++) {
         const dt = new Date(cur);
         dt.setDate(dt.getDate() + d);
         const iso = dt.toISOString().slice(0, 10);
-        const within = inRange.has(iso);
+        const within = iso >= rangeStartIso && iso <= todayIso;
         const workedOut = within && workoutDates.has(iso);
         if (workedOut) total += 1;
         days.push({ iso, workedOut, within });
@@ -1301,8 +1309,9 @@ function OverviewBarCharts({ user, workouts }) {
       cur.setDate(cur.getDate() + 7);
     }
     return weeks;
-  }, [rows, workoutDates]);
+  }, [workoutDates]);
   const weeksHittingGoal = workoutCalendar.filter(w => w.total >= WORKOUT_WEEKLY_GOAL).length;
+  const calendarWorkoutTotal = workoutCalendar.reduce((s, w) => s + w.total, 0);
   const stepsAvg = (() => {
     const vals = rows.map(r => r.steps).filter(v => v != null);
     return vals.length ? Math.round(vals.reduce((a, b) => a + b, 0) / vals.length) : 0;
@@ -1351,7 +1360,7 @@ function OverviewBarCharts({ user, workouts }) {
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '1rem' }}>
         <div>
           <div style={{ fontSize: '0.85rem', fontWeight: 600, marginBottom: '0.35rem' }}>
-            Workouts <span style={{ color: 'var(--color-text-muted)', fontWeight: 400 }}>· {workoutTotal} total · {weeksHittingGoal}/{workoutCalendar.length} weeks ≥{WORKOUT_WEEKLY_GOAL}</span>
+            Workouts <span style={{ color: 'var(--color-text-muted)', fontWeight: 400 }}>· {calendarWorkoutTotal} in past year · {weeksHittingGoal}/{workoutCalendar.length} weeks ≥{WORKOUT_WEEKLY_GOAL}</span>
           </div>
           <div style={{ ...chartWrapStyle, overflowX: 'auto', overflowY: 'hidden', padding: '0.7rem 0.6rem' }}>
             <div style={{ display: 'inline-flex', flexDirection: 'column', gap: 3 }}>
