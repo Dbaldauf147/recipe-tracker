@@ -81,21 +81,29 @@ export function TrackedItemsList({ storageKey, firestoreField, hideHeader, title
     try { localStorage.setItem(storageKey, JSON.stringify(items)); } catch {}
     const user = auth.currentUser;
     if (user && firestoreField) saveField(user.uid, firestoreField, items);
+    // Let parents that cache this list (e.g. ShoppingListPage's snacksList
+    // used by Reset's lastPurchased bump) re-read the fresh data instead
+    // of operating on a stale snapshot from initial mount.
+    try { window.dispatchEvent(new Event('firestore-sync')); } catch { /* ignore */ }
   }, [items, loading, storageKey, firestoreField]);
 
   // Re-read from localStorage when Firestore pushes a sync (cross-device or
-  // after first-mount user resolution).
+  // after first-mount user resolution). The content compare prevents a
+  // dispatch-rehydrate loop: this component now dispatches firestore-sync
+  // after every save, and without the compare we'd setItems → useEffect →
+  // save → dispatch → onSync → setItems forever.
   useEffect(() => {
     function onSync() {
       try {
         const data = localStorage.getItem(storageKey);
         const parsed = data ? JSON.parse(data) : null;
-        if (Array.isArray(parsed)) setItems(parsed);
+        if (!Array.isArray(parsed)) return;
+        if (JSON.stringify(parsed) !== JSON.stringify(items)) setItems(parsed);
       } catch { /* ignore */ }
     }
     window.addEventListener('firestore-sync', onSync);
     return () => window.removeEventListener('firestore-sync', onSync);
-  }, [storageKey]);
+  }, [storageKey, items]);
 
   function commitAdd(name) {
     const trimmed = (name || newName).trim();

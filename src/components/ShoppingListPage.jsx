@@ -632,13 +632,30 @@ export function ShoppingListPage({ weeklyRecipes, weeklyServings = {}, getRecipe
                 });
                 return { next, changed };
               }
-              const sBump = bumpMatches(snacksList);
+              // Re-read snacks/fruit from localStorage right before bumping.
+              // The parent's state is loaded once on mount and only refreshed
+              // via firestore-sync events; child edits in TrackedItemsList
+              // save to localStorage but historically didn't dispatch one, so
+              // snacksList up here can be stale — which would silently
+              // overwrite the user's recent edits with the stale list when
+              // we save here.
+              let freshSnacks = snacksList;
+              let freshFruit = fruitList;
+              try {
+                const raw = localStorage.getItem('sunday-pantry-snacks');
+                if (raw) freshSnacks = JSON.parse(raw);
+              } catch { /* keep stale */ }
+              try {
+                const raw = localStorage.getItem('sunday-pantry-fruit');
+                if (raw) freshFruit = JSON.parse(raw);
+              } catch { /* keep stale */ }
+              const sBump = bumpMatches(freshSnacks);
               if (sBump.changed) {
                 setSnacksList(sBump.next);
                 try { localStorage.setItem('sunday-pantry-snacks', JSON.stringify(sBump.next)); } catch {}
                 if (user) saveField(user.uid, 'pantrySnacks', sBump.next);
               }
-              const fBump = bumpMatches(fruitList);
+              const fBump = bumpMatches(freshFruit);
               if (fBump.changed) {
                 setFruitList(fBump.next);
                 try { localStorage.setItem('sunday-pantry-fruit', JSON.stringify(fBump.next)); } catch {}
