@@ -1737,7 +1737,14 @@ export function RecipeList({
                           <tr key={recipe.id} className={seasonalMatches.length > 0 ? styles.seasonalRow : ''} draggable onDragStart={e => e.dataTransfer.setData('text/plain', recipe.id)} style={{ cursor: 'grab' }}>
                             <td><button className={styles.suggestName} onClick={() => onSelect(recipe.id)}>{recipe.title}</button></td>
                             <td className={styles.suggestDays}>{recipeDays === 9999 ? 'Never' : recipeDays}</td>
-                            {suggestCols.overdue && <td className={styles.suggestOverdue}>{neglectedIngredients.length > 0 ? neglectedIngredients.slice(0, 3).join(', ') : '—'}</td>}
+                            {suggestCols.overdue && (
+                              <td
+                                className={styles.suggestOverdue}
+                                title={neglectedIngredients.length > 0 ? neglectedIngredients.join(', ') : undefined}
+                              >
+                                {neglectedIngredients.length > 0 ? neglectedIngredients.slice(0, 3).join(', ') : '—'}
+                              </td>
+                            )}
                             {suggestCols.seasonal && <td className={styles.suggestSeasonal}>{seasonalMatches.length > 0 ? seasonalMatches.slice(0, 3).join(', ') : '—'}</td>}
                             <td><button className={styles.suggestAddBtn} onClick={() => handleAddToWeekWithPulse(recipe.id)} aria-label={`Add ${recipe.title} to this week`}>+</button></td>
                           </tr>
@@ -1811,7 +1818,14 @@ export function RecipeList({
                           <tr key={recipe.id} className={seasonalMatches.length > 0 ? styles.seasonalRow : ''} draggable onDragStart={e => e.dataTransfer.setData('text/plain', recipe.id)} style={{ cursor: 'grab' }}>
                             <td><button className={styles.suggestName} onClick={() => onSelect(recipe.id)}>{recipe.title}</button></td>
                             <td className={styles.suggestDays}>{recipeDays === 9999 ? 'Never' : recipeDays}</td>
-                            {suggestCols.overdue && <td className={styles.suggestOverdue}>{neglectedIngredients.length > 0 ? neglectedIngredients.slice(0, 3).join(', ') : '—'}</td>}
+                            {suggestCols.overdue && (
+                              <td
+                                className={styles.suggestOverdue}
+                                title={neglectedIngredients.length > 0 ? neglectedIngredients.join(', ') : undefined}
+                              >
+                                {neglectedIngredients.length > 0 ? neglectedIngredients.slice(0, 3).join(', ') : '—'}
+                              </td>
+                            )}
                             {suggestCols.seasonal && <td className={styles.suggestSeasonal}>{seasonalMatches.length > 0 ? seasonalMatches.slice(0, 3).join(', ') : '—'}</td>}
                             <td><button className={styles.suggestAddBtn} onClick={() => handleAddToWeekWithPulse(recipe.id)} aria-label={`Add ${recipe.title} to this week`}>+</button></td>
                           </tr>
