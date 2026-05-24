@@ -14,6 +14,7 @@ import {
   ratingLabelToStars,
   IMPORT_FIELDS,
 } from '../utils/restaurantImport';
+import { downloadRestaurantsCsv } from '../utils/restaurantExport';
 import styles from './EatingOutPage.module.css';
 
 const VISITED_COLOR = '#10b981';
@@ -982,8 +983,13 @@ export function EatingOutPage({ user, onClose }) {
   function handleBulkImport(rows, strategy) {
     let next;
     if (strategy === 'replace-duplicates') {
-      const incomingByName = new Map(rows.map(r => [(r.name || '').toLowerCase().trim(), r]));
-      const filtered = restaurants.filter(r => !incomingByName.has((r.name || '').toLowerCase().trim()));
+      // Match by id when the incoming row carries one (CSV round-trip from
+      // the exporter), otherwise fall back to name match.
+      const incomingIds = new Set(rows.map(r => r.id).filter(Boolean));
+      const incomingNames = new Map(rows.map(r => [(r.name || '').toLowerCase().trim(), r]));
+      const filtered = restaurants.filter(r =>
+        !incomingIds.has(r.id) && !incomingNames.has((r.name || '').toLowerCase().trim()),
+      );
       next = [...rows, ...filtered];
     } else {
       next = [...rows, ...restaurants];
@@ -991,6 +997,14 @@ export function EatingOutPage({ user, onClose }) {
     persist(next);
     setBulkOpen(false);
     alert(`Imported ${rows.length} restaurant${rows.length === 1 ? '' : 's'}.`);
+  }
+
+  function handleExport() {
+    if (visible.length === 0) {
+      alert('Nothing to export — adjust your filters first.');
+      return;
+    }
+    downloadRestaurantsCsv(visible);
   }
 
   async function handleProximity(e) {
@@ -1030,6 +1044,15 @@ export function EatingOutPage({ user, onClose }) {
       <div className={styles.header}>
         <button type="button" className={styles.backBtn} onClick={onClose}>← Back</button>
         <h1 className={styles.title}>Eating Out</h1>
+        <button
+          type="button"
+          className={styles.secondaryBtn}
+          onClick={handleExport}
+          title={`Download ${visible.length} restaurant${visible.length === 1 ? '' : 's'} as CSV`}
+          disabled={visible.length === 0}
+        >
+          Export ({visible.length})
+        </button>
         <button type="button" className={styles.secondaryBtn} onClick={() => setBulkOpen(true)}>
           Bulk import
         </button>

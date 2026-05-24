@@ -11,13 +11,17 @@
 
 export const IMPORT_FIELDS = [
   { key: 'ignore', label: 'Ignore' },
+  { key: 'id', label: 'ID (round-trip)' },
   { key: 'name', label: 'Place / Name' },
+  { key: 'status', label: 'Status (want-to-try / visited)' },
   { key: 'mealAndFrequency', label: 'Meal context (e.g., "Lunch/Dinner - Regular")' },
   { key: 'mealType', label: 'Meal type only' },
   { key: 'frequency', label: 'Frequency (Regular / Special / Retired)' },
   { key: 'cuisine', label: 'Cuisine / category' },
   { key: 'dish', label: 'What to order' },
   { key: 'url', label: 'URL / link' },
+  { key: 'imageUrl', label: 'Image URL (preview)' },
+  { key: 'description', label: 'Description (scraped from URL)' },
   { key: 'rating', label: 'Rating (text or stars)' },
   { key: 'notes', label: 'Notes' },
   { key: 'diet', label: 'Diet tags (Healthy / Unhealthy / Workout)' },
@@ -25,6 +29,8 @@ export const IMPORT_FIELDS = [
   { key: 'location', label: 'Neighborhood / city' },
   { key: 'lastVisit', label: 'Last visit date' },
   { key: 'address', label: 'Address' },
+  { key: 'lat', label: 'Latitude' },
+  { key: 'lng', label: 'Longitude' },
 ];
 
 const FIELD_KEYS = new Set(IMPORT_FIELDS.map(f => f.key));
@@ -32,6 +38,15 @@ const FIELD_KEYS = new Set(IMPORT_FIELDS.map(f => f.key));
 // Regex hints used to auto-detect mapping from header text. Order matters —
 // the first match wins.
 const HEADER_HINTS = [
+  // Round-trip fields produced by the exporter — check these first so the
+  // names ("status", "id") don't get swallowed by broader patterns below.
+  [/^id$|^uuid$/i, 'id'],
+  [/^status$/i, 'status'],
+  [/^lat$|latitude/i, 'lat'],
+  [/^lng$|^lon$|longitude/i, 'lng'],
+  [/image[\s_-]?url|^image$/i, 'imageUrl'],
+  [/^description$|scraped/i, 'description'],
+
   [/^place$|name|restaurant|spot/i, 'name'],
   [/^meal$|^when$|when to eat/i, 'mealAndFrequency'],
   [/^cat$|category|cuisine|type$|food.?type/i, 'cuisine'],
@@ -309,12 +324,28 @@ function buildRestaurantFromRow(cells, mapping, now) {
 
   const address = (collected.address || []).join(', ') || undefined;
 
-  const status = inferStatus({ ratingLabel, lastVisit, frequency });
+  const explicitId = (collected.id || [])[0];
+  const explicitStatusRaw = ((collected.status || [])[0] || '').toLowerCase().trim();
+  const explicitStatus = (explicitStatusRaw === 'want-to-try' || explicitStatusRaw === 'visited')
+    ? explicitStatusRaw
+    : null;
+  const status = explicitStatus || inferStatus({ ratingLabel, lastVisit, frequency });
+
+  const latRaw = (collected.lat || [])[0];
+  const lngRaw = (collected.lng || [])[0];
+  const latNum = latRaw != null && latRaw !== '' ? parseFloat(latRaw) : NaN;
+  const lngNum = lngRaw != null && lngRaw !== '' ? parseFloat(lngRaw) : NaN;
+  const lat = Number.isFinite(latNum) ? latNum : undefined;
+  const lng = Number.isFinite(lngNum) ? lngNum : undefined;
+  const imageUrl = (collected.imageUrl || [])[0] || undefined;
+  const description = (collected.description || [])[0] || undefined;
 
   return {
-    id: generateId(),
+    id: explicitId || generateId(),
     name: nameVal,
     url: url || undefined,
+    imageUrl,
+    description,
     cuisines: dedupe(cuisines),
     locations: dedupe(locations),
     rating: stars,
@@ -328,6 +359,8 @@ function buildRestaurantFromRow(cells, mapping, now) {
     meatTags: meatTags.length ? dedupe(meatTags) : undefined,
     lastVisit: lastVisit || undefined,
     address,
+    lat,
+    lng,
     createdAt: now,
     updatedAt: now,
   };
@@ -364,18 +397,20 @@ export function applyMapping(rows, mapping, { hasHeader = false, now } = {}) {
 }
 
 /**
- * Detect duplicates against the existing list (case-insensitive name match).
+ * Detect duplicates against the existing list. Matches by `id` when the
+ * incoming row carries one (round-trip from the exporter), otherwise falls
+ * back to case-insensitive name match.
  */
 export function partitionDuplicates(parsed, existing) {
+  const existingIds = new Set((existing || []).map(r => r.id).filter(Boolean));
   const existingNames = new Set((existing || []).map(r => (r.name || '').toLowerCase().trim()));
   const fresh = [];
   const duplicates = [];
   for (const r of parsed) {
-    if (existingNames.has((r.name || '').toLowerCase().trim())) {
-      duplicates.push(r);
-    } else {
-      fresh.push(r);
-    }
+    const idHit = r.id && existingIds.has(r.id);
+    const nameHit = existingNames.has((r.name || '').toLowerCase().trim());
+    if (idHit || nameHit) duplicates.push(r);
+    else fresh.push(r);
   }
   return { fresh, duplicates };
 }
