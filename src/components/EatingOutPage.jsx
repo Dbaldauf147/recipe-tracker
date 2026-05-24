@@ -1,5 +1,8 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { doc, onSnapshot } from 'firebase/firestore';
+import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
+import L from 'leaflet';
+import 'leaflet/dist/leaflet.css';
 import { db } from '../firebase';
 import { saveField } from '../utils/firestoreSync';
 import {
@@ -12,6 +15,22 @@ import {
   IMPORT_FIELDS,
 } from '../utils/restaurantImport';
 import styles from './EatingOutPage.module.css';
+
+const VISITED_COLOR = '#10b981';
+const WANT_COLOR = '#f59e0b';
+
+function makeMarkerIcon(color) {
+  return L.divIcon({
+    className: 'restaurant-marker',
+    html: `<span style="display:block;width:18px;height:18px;border-radius:50%;background:${color};border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,0.4);"></span>`,
+    iconSize: [18, 18],
+    iconAnchor: [9, 9],
+    popupAnchor: [0, -10],
+  });
+}
+
+const visitedIcon = makeMarkerIcon(VISITED_COLOR);
+const wantIcon = makeMarkerIcon(WANT_COLOR);
 
 const FILTERS = [
   { key: 'all', label: 'All' },
@@ -732,6 +751,91 @@ function RestaurantCard({ r, distanceMiles, onClick }) {
   );
 }
 
+function FitBounds({ points }) {
+  const map = useMap();
+  useEffect(() => {
+    if (!points || points.length === 0) return;
+    if (points.length === 1) {
+      map.setView([points[0].lat, points[0].lng], 14);
+      return;
+    }
+    const bounds = L.latLngBounds(points.map(p => [p.lat, p.lng]));
+    map.fitBounds(bounds, { padding: [40, 40] });
+  }, [map, points]);
+  return null;
+}
+
+function RestaurantMapView({ items, onSelect }) {
+  const mapPoints = useMemo(
+    () => items.filter(r => typeof r.lat === 'number' && typeof r.lng === 'number'),
+    [items],
+  );
+  const missing = items.length - mapPoints.length;
+  const fallbackCenter = [40.7128, -74.0060];
+  const center = mapPoints[0] ? [mapPoints[0].lat, mapPoints[0].lng] : fallbackCenter;
+
+  return (
+    <div className={styles.mapWrap}>
+      {missing > 0 && (
+        <div className={styles.mapHint}>
+          {missing} restaurant{missing === 1 ? '' : 's'} without an address {missing === 1 ? "isn't" : "aren't"} shown.
+          Open one and tap <strong>Lookup</strong> to geocode it.
+        </div>
+      )}
+      {mapPoints.length === 0 ? (
+        <div className={styles.empty}>
+          <p className={styles.emptyTitle}>Nothing to plot</p>
+          <p className={styles.emptyText}>
+            No restaurants in this filter have an address yet. Add one and tap Lookup.
+          </p>
+        </div>
+      ) : (
+        <div className={styles.mapContainer}>
+          <MapContainer center={center} zoom={12} scrollWheelZoom style={{ height: '100%', width: '100%' }}>
+            <TileLayer
+              attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+              url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+            />
+            <FitBounds points={mapPoints} />
+            {mapPoints.map(r => (
+              <Marker
+                key={r.id}
+                position={[r.lat, r.lng]}
+                icon={r.status === 'visited' ? visitedIcon : wantIcon}
+              >
+                <Popup>
+                  <div className={styles.mapPopup}>
+                    <strong>{r.name}</strong>
+                    {r.address && <div className={styles.mapPopupMeta}>{r.address}</div>}
+                    {r.cuisines?.length > 0 && (
+                      <div className={styles.mapPopupMeta}>{r.cuisines.join(' · ')}</div>
+                    )}
+                    <button
+                      type="button"
+                      className={styles.mapPopupBtn}
+                      onClick={() => onSelect(r)}
+                    >
+                      Open
+                    </button>
+                  </div>
+                </Popup>
+              </Marker>
+            ))}
+          </MapContainer>
+        </div>
+      )}
+      <div className={styles.mapLegend}>
+        <span className={styles.mapLegendItem}>
+          <span className={styles.mapLegendDot} style={{ background: VISITED_COLOR }} /> Visited
+        </span>
+        <span className={styles.mapLegendItem}>
+          <span className={styles.mapLegendDot} style={{ background: WANT_COLOR }} /> Want to try
+        </span>
+      </div>
+    </div>
+  );
+}
+
 export function EatingOutPage({ user, onClose }) {
   const [restaurants, setRestaurants] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -747,6 +851,7 @@ export function EatingOutPage({ user, onClose }) {
   const [editing, setEditing] = useState(null);
   const [adding, setAdding] = useState(false);
   const [bulkOpen, setBulkOpen] = useState(false);
+  const [viewMode, setViewMode] = useState('list');
 
   useEffect(() => {
     if (!user?.uid) {
@@ -1017,6 +1122,22 @@ export function EatingOutPage({ user, onClose }) {
                 </button>
               ))}
             </div>
+            <div className={styles.filterRow}>
+              <button
+                type="button"
+                className={`${styles.filterBtn} ${viewMode === 'list' ? styles.filterBtnActive : ''}`}
+                onClick={() => setViewMode('list')}
+              >
+                List
+              </button>
+              <button
+                type="button"
+                className={`${styles.filterBtn} ${viewMode === 'map' ? styles.filterBtnActive : ''}`}
+                onClick={() => setViewMode('map')}
+              >
+                Map
+              </button>
+            </div>
           </div>
 
           <form className={styles.proximityRow} onSubmit={handleProximity}>
@@ -1070,6 +1191,8 @@ export function EatingOutPage({ user, onClose }) {
 
           {loading ? (
             <div className={styles.empty}>Loading…</div>
+          ) : viewMode === 'map' ? (
+            <RestaurantMapView items={visible} onSelect={setEditing} />
           ) : visible.length === 0 ? (
             <div className={styles.empty}>
               {restaurants.length === 0 ? (
