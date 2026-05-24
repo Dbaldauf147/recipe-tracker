@@ -20,6 +20,19 @@ import styles from './EatingOutPage.module.css';
 const VISITED_COLOR = '#10b981';
 const WANT_COLOR = '#f59e0b';
 
+// Coerce lat/lng to a finite number. Older records (CSV imports, manual
+// Firestore edits) sometimes stored coordinates as strings — accept both
+// so the map and the geocode-candidate count agree on "has coords".
+function coerceCoord(v) {
+  if (typeof v === 'number') return Number.isFinite(v) ? v : NaN;
+  if (v == null || v === '') return NaN;
+  const n = parseFloat(v);
+  return Number.isFinite(n) ? n : NaN;
+}
+function hasValidCoords(r) {
+  return Number.isFinite(coerceCoord(r?.lat)) && Number.isFinite(coerceCoord(r?.lng));
+}
+
 function makeMarkerIcon(color) {
   return L.divIcon({
     className: 'restaurant-marker',
@@ -795,10 +808,29 @@ function FitBounds({ points }) {
 }
 
 function RestaurantMapView({ items, onSelect }) {
-  const mapPoints = useMemo(
-    () => items.filter(r => typeof r.lat === 'number' && typeof r.lng === 'number'),
-    [items],
-  );
+  const mapPoints = useMemo(() => {
+    const out = [];
+    for (const r of items) {
+      const lat = coerceCoord(r.lat);
+      const lng = coerceCoord(r.lng);
+      if (Number.isFinite(lat) && Number.isFinite(lng)) {
+        out.push({ ...r, lat, lng });
+      }
+    }
+    if (out.length === 0 && items.length > 0) {
+      // Surfaces type/value of the first few records when nothing plots —
+      // helps diagnose "coords stored as something weird" cases.
+      // eslint-disable-next-line no-console
+      console.warn('[Map] no plottable points from', items.length, 'items. Sample:',
+        items.slice(0, 3).map(r => ({
+          name: r.name,
+          lat: r.lat, latType: typeof r.lat,
+          lng: r.lng, lngType: typeof r.lng,
+        })),
+      );
+    }
+    return out;
+  }, [items]);
   const missing = items.length - mapPoints.length;
   const fallbackCenter = [40.7128, -74.0060];
   const center = mapPoints[0] ? [mapPoints[0].lat, mapPoints[0].lng] : fallbackCenter;
@@ -815,7 +847,9 @@ function RestaurantMapView({ items, onSelect }) {
         <div className={styles.empty}>
           <p className={styles.emptyTitle}>Nothing to plot</p>
           <p className={styles.emptyText}>
-            No restaurants in this filter have an address yet. Add one and tap Lookup.
+            None of the {items.length} restaurant{items.length === 1 ? '' : 's'} in this view have map
+            coordinates yet. Use <strong>Geocode</strong> in the toolbar to add them, or open one and
+            tap <strong>Lookup</strong> next to its address.
           </p>
         </div>
       ) : (
@@ -973,8 +1007,10 @@ export function EatingOutPage({ user, onClose }) {
     if (proximityCenter) {
       list = list
         .map(r => {
-          if (typeof r.lat !== 'number' || typeof r.lng !== 'number') return { r, d: null };
-          return { r, d: haversineMiles(proximityCenter, { lat: r.lat, lng: r.lng }) };
+          const lat = coerceCoord(r.lat);
+          const lng = coerceCoord(r.lng);
+          if (!Number.isFinite(lat) || !Number.isFinite(lng)) return { r, d: null };
+          return { r, d: haversineMiles(proximityCenter, { lat, lng }) };
         })
         .filter(x => x.d != null)
         .sort((a, b) => a.d - b.d)
@@ -1087,21 +1123,19 @@ export function EatingOutPage({ user, onClose }) {
     [restaurants],
   );
   const geocodedCount = useMemo(
-    () => restaurants.filter(r => typeof r.lat === 'number' && typeof r.lng === 'number').length,
+    () => restaurants.filter(hasValidCoords).length,
     [restaurants],
   );
   const ungeocodedWithAddress = useMemo(
     () => restaurants.filter(r =>
-      typeof r.address === 'string' && r.address.trim() &&
-      !(typeof r.lat === 'number' && typeof r.lng === 'number'),
+      typeof r.address === 'string' && r.address.trim() && !hasValidCoords(r),
     ),
     [restaurants],
   );
 
   const handleBulkGeocode = useCallback(async () => {
     const candidates = restaurants.filter(r =>
-      typeof r.address === 'string' && r.address.trim() &&
-      !(typeof r.lat === 'number' && typeof r.lng === 'number'),
+      typeof r.address === 'string' && r.address.trim() && !hasValidCoords(r),
     );
     if (candidates.length === 0) {
       alert('Nothing to geocode — all restaurants with addresses already have coordinates.');
