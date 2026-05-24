@@ -471,7 +471,7 @@ function EditModal({ initial, onSave, onClose, onDelete, cuisineSuggestions, loc
 
 function BulkImportModal({ onClose, onImport, existing }) {
   const [text, setText] = useState('');
-  const [strategy, setStrategy] = useState('skip-duplicates');
+  const [strategy, setStrategy] = useState('replace-all');
   const [hasHeader, setHasHeader] = useState(true);
   const [mapping, setMapping] = useState({});
   // Track whether the user manually edited the mapping so we don't clobber
@@ -513,6 +513,17 @@ function BulkImportModal({ onClose, onImport, existing }) {
     () => partitionDuplicates(parsed, existing),
     [parsed, existing],
   );
+
+  // For "Replace all", figure out which existing restaurants would be
+  // wiped (those not present in the incoming CSV by id or name).
+  const willDelete = useMemo(() => {
+    if (!existing || existing.length === 0) return [];
+    const incomingIds = new Set(parsed.map(r => r.id).filter(Boolean));
+    const incomingNames = new Set(parsed.map(r => (r.name || '').toLowerCase().trim()));
+    return existing.filter(r =>
+      !incomingIds.has(r.id) && !incomingNames.has((r.name || '').toLowerCase().trim()),
+    );
+  }, [parsed, existing]);
 
   const dataRowCount = Math.max(0, rows.length - (hasHeader ? 1 : 0));
   const nameMapped = Object.values(mapping).includes('name');
@@ -635,26 +646,39 @@ function BulkImportModal({ onClose, onImport, existing }) {
                 <div><strong>{duplicates.length}</strong> duplicate name{duplicates.length === 1 ? '' : 's'}</div>
               </div>
 
-              {duplicates.length > 0 && (
-                <>
-                  <label className={styles.fieldLabel}>For duplicate names</label>
-                  <div className={styles.statusRow}>
-                    <button
-                      type="button"
-                      className={`${styles.statusBtn} ${strategy === 'skip-duplicates' ? styles.statusBtnActive : ''}`}
-                      onClick={() => setStrategy('skip-duplicates')}
-                    >
-                      Skip duplicates
-                    </button>
-                    <button
-                      type="button"
-                      className={`${styles.statusBtn} ${strategy === 'replace-duplicates' ? styles.statusBtnActive : ''}`}
-                      onClick={() => setStrategy('replace-duplicates')}
-                    >
-                      Replace existing
-                    </button>
-                  </div>
-                </>
+              <label className={styles.fieldLabel}>Import strategy</label>
+              <div className={styles.statusRow}>
+                <button
+                  type="button"
+                  className={`${styles.statusBtn} ${strategy === 'replace-all' ? styles.statusBtnActive : ''}`}
+                  onClick={() => setStrategy('replace-all')}
+                >
+                  Replace all
+                </button>
+                <button
+                  type="button"
+                  className={`${styles.statusBtn} ${strategy === 'replace-duplicates' ? styles.statusBtnActive : ''}`}
+                  onClick={() => setStrategy('replace-duplicates')}
+                  disabled={duplicates.length === 0}
+                >
+                  Replace duplicates only
+                </button>
+                <button
+                  type="button"
+                  className={`${styles.statusBtn} ${strategy === 'skip-duplicates' ? styles.statusBtnActive : ''}`}
+                  onClick={() => setStrategy('skip-duplicates')}
+                  disabled={duplicates.length === 0}
+                >
+                  Skip duplicates
+                </button>
+              </div>
+              {strategy === 'replace-all' && willDelete.length > 0 && (
+                <p className={styles.warn} style={{ marginTop: 8 }}>
+                  ⚠ This will <strong>delete {willDelete.length}</strong> existing restaurant{willDelete.length === 1 ? '' : 's'} not in this CSV
+                  {willDelete.length <= 8
+                    ? `: ${willDelete.map(r => r.name).join(', ')}.`
+                    : '. You\'ll see the full list to confirm before it happens.'}
+                </p>
               )}
 
               {parsed.length > 0 && (
@@ -687,7 +711,11 @@ function BulkImportModal({ onClose, onImport, existing }) {
             onClick={handleImport}
             disabled={parsed.length === 0 || !nameMapped}
           >
-            Import {strategy === 'skip-duplicates' ? fresh.length : parsed.length}
+            {strategy === 'replace-all'
+              ? `Replace all (${parsed.length})`
+              : strategy === 'skip-duplicates'
+                ? `Import ${fresh.length}`
+                : `Import ${parsed.length}`}
           </button>
         </div>
       </div>
@@ -982,7 +1010,27 @@ export function EatingOutPage({ user, onClose }) {
 
   function handleBulkImport(rows, strategy) {
     let next;
-    if (strategy === 'replace-duplicates') {
+    let summary;
+    if (strategy === 'replace-all') {
+      const incomingIds = new Set(rows.map(r => r.id).filter(Boolean));
+      const incomingNames = new Set(rows.map(r => (r.name || '').toLowerCase().trim()));
+      const willDelete = restaurants.filter(r =>
+        !incomingIds.has(r.id) && !incomingNames.has((r.name || '').toLowerCase().trim()),
+      );
+      if (willDelete.length > 0) {
+        const preview = willDelete.slice(0, 20).map(r => `  • ${r.name}`).join('\n');
+        const more = willDelete.length > 20 ? `\n  …and ${willDelete.length - 20} more` : '';
+        const ok = confirm(
+          `Replace ALL restaurants with the ${rows.length} from this CSV?\n\n` +
+          `${willDelete.length} existing restaurant${willDelete.length === 1 ? '' : 's'} will be DELETED:\n\n` +
+          preview + more +
+          `\n\nThis cannot be undone.`,
+        );
+        if (!ok) return;
+      }
+      next = [...rows];
+      summary = `Replaced your list with ${rows.length} restaurant${rows.length === 1 ? '' : 's'}.`;
+    } else if (strategy === 'replace-duplicates') {
       // Match by id when the incoming row carries one (CSV round-trip from
       // the exporter), otherwise fall back to name match.
       const incomingIds = new Set(rows.map(r => r.id).filter(Boolean));
@@ -991,12 +1039,14 @@ export function EatingOutPage({ user, onClose }) {
         !incomingIds.has(r.id) && !incomingNames.has((r.name || '').toLowerCase().trim()),
       );
       next = [...rows, ...filtered];
+      summary = `Imported ${rows.length} restaurant${rows.length === 1 ? '' : 's'}.`;
     } else {
       next = [...rows, ...restaurants];
+      summary = `Imported ${rows.length} restaurant${rows.length === 1 ? '' : 's'}.`;
     }
     persist(next);
     setBulkOpen(false);
-    alert(`Imported ${rows.length} restaurant${rows.length === 1 ? '' : 's'}.`);
+    alert(summary);
   }
 
   function handleExport() {
