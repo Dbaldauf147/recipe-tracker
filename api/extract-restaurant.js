@@ -121,6 +121,78 @@ async function extractFromGenericUrl(url) {
   };
 }
 
+// Google Maps share URLs: name + coords parsed from the resolved long URL.
+// Shapes we handle:
+//   maps.app.goo.gl/XXXX  → 302 redirect to long URL
+//   goo.gl/maps/XXXX      → 302 redirect (older short form)
+//   www.google.com/maps/place/Place+Name/@40.7128,-74.0060,15z/data=...
+//   maps.google.com/?q=...
+function isGoogleMapsUrl(url) {
+  return /(?:^|\.)(?:google\.com\/maps|maps\.google\.com|maps\.app\.goo\.gl|goo\.gl\/maps)/i.test(url);
+}
+
+async function resolveRedirect(url) {
+  try {
+    const r = await fetch(url, {
+      method: 'GET',
+      redirect: 'follow',
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15',
+      },
+    });
+    return r.url || url;
+  } catch {
+    return url;
+  }
+}
+
+async function extractFromGoogleMaps(url) {
+  // Short forms need to redirect to the canonical /maps/place/... URL first.
+  const isShort = /maps\.app\.goo\.gl|goo\.gl\/maps/i.test(url);
+  const longUrl = isShort ? await resolveRedirect(url) : url;
+
+  // Name: the segment immediately after /maps/place/ — URL-encoded, with
+  // + standing in for spaces.
+  let name = '';
+  const placeMatch = longUrl.match(/\/maps\/place\/([^/?#@]+)/i);
+  if (placeMatch) {
+    try {
+      name = decodeURIComponent(placeMatch[1].replace(/\+/g, ' ')).trim();
+    } catch {
+      name = placeMatch[1].replace(/\+/g, ' ').trim();
+    }
+  } else {
+    // /?q=Place+Name or /?query=... variant.
+    const qMatch = longUrl.match(/[?&](?:q|query)=([^&]+)/i);
+    if (qMatch) {
+      try { name = decodeURIComponent(qMatch[1].replace(/\+/g, ' ')).trim(); } catch { /* ignore */ }
+    }
+  }
+
+  // Coordinates: @lat,lng,zoomz segment. lat/lng are signed floats.
+  let lat = null;
+  let lng = null;
+  const atMatch = longUrl.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/);
+  if (atMatch) {
+    const a = parseFloat(atMatch[1]);
+    const b = parseFloat(atMatch[2]);
+    if (Number.isFinite(a) && Number.isFinite(b)) { lat = a; lng = b; }
+  }
+
+  if (!name && lat == null) return null;
+
+  return {
+    name,
+    description: '',
+    imageUrl: null,
+    address: undefined, // Google Maps URLs don't reliably carry the address; user can Lookup.
+    lat: lat ?? undefined,
+    lng: lng ?? undefined,
+    sourceUrl: longUrl,
+    source: 'google-maps',
+  };
+}
+
 export default async function handler(req, res) {
   const url = req.query?.url || req.body?.url;
   if (!url) {
@@ -129,9 +201,19 @@ export default async function handler(req, res) {
 
   try {
     const isInstagram = /(^|\.)instagram\.com\//i.test(url);
-    const result = isInstagram
-      ? await extractFromInstagram(url)
-      : await extractFromGenericUrl(url);
+    const isGoogleMaps = isGoogleMapsUrl(url);
+    let result;
+    let source;
+    if (isGoogleMaps) {
+      result = await extractFromGoogleMaps(url);
+      source = 'google-maps';
+    } else if (isInstagram) {
+      result = await extractFromInstagram(url);
+      source = 'instagram';
+    } else {
+      result = await extractFromGenericUrl(url);
+      source = 'web';
+    }
 
     if (!result) {
       return res.status(200).json({
@@ -139,7 +221,7 @@ export default async function handler(req, res) {
         description: '',
         imageUrl: null,
         sourceUrl: url,
-        source: isInstagram ? 'instagram' : 'web',
+        source,
       });
     }
     return res.status(200).json(result);

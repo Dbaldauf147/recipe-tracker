@@ -299,7 +299,15 @@ function EditModal({ initial, onSave, onClose, onDelete, cuisineSuggestions, loc
       if (data?.name && !name.trim()) setName(data.name);
       if (data?.imageUrl && !imageUrl) setImageUrl(data.imageUrl);
       if (data?.description && !description) setDescription(data.description);
-      if (!data?.name && !data?.imageUrl) {
+      if (data?.address && !address.trim()) setAddress(data.address);
+      // Google Maps extraction returns lat/lng — populate coords so we can
+      // skip the Lookup step entirely.
+      if (typeof data?.lat === 'number' && typeof data?.lng === 'number' && !coords) {
+        setCoords({ lat: data.lat, lng: data.lng });
+      }
+      const hasAnything = data?.name || data?.imageUrl || data?.address
+        || (typeof data?.lat === 'number' && typeof data?.lng === 'number');
+      if (!hasAnything) {
         alert("Couldn't find anything — type a name in.");
       }
     } catch (err) {
