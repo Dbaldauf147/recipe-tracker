@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { useRecipes } from './hooks/useRecipes';
 import { useAuth } from './contexts/AuthContext';
-import { saveField, getPendingRequests, getPendingSharedRecipes, loadFriends, loadFriendShoppingList, getUsername } from './utils/firestoreSync';
+import { saveField, getPendingRequests, getPendingSharedRecipes, loadFriends, loadFriendShoppingList, loadFriendEatingOut, getUsername } from './utils/firestoreSync';
 import { RecipeList } from './components/RecipeList';
 import { RecipeDetail } from './components/RecipeDetail';
 import { WeightTracker, checkWeighReminder } from './components/WeightTracker';
@@ -210,22 +210,43 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
   // Each entry: { uid, username, meals: [<full recipe objects>] }.
   // Loaded once per session here so both ShoppingList and RecipeList can use it.
   const [sharedFromFriends, setSharedFromFriends] = useState([]);
+  // Friends who have toggled "Share my eating out" on for this user.
+  // Each entry: { uid, username, restaurants: [...] }.
+  const [sharedEatingOutFromFriends, setSharedEatingOutFromFriends] = useState([]);
   useEffect(() => {
-    if (!user?.uid) { setSharedFromFriends([]); return; }
+    if (!user?.uid) {
+      setSharedFromFriends([]);
+      setSharedEatingOutFromFriends([]);
+      return;
+    }
     let cancelled = false;
     (async () => {
       try {
         const friends = await loadFriends(user.uid);
-        const sharers = friends.filter(f => f.hasSharedShoppingWithMe);
-        const lists = await Promise.all(sharers.map(async f => {
-          const data = await loadFriendShoppingList(f.uid);
-          return {
-            uid: f.uid,
-            username: data.username || f.username || f.displayName || 'friend',
-            meals: data.meals || [],
-          };
-        }));
-        if (!cancelled) setSharedFromFriends(lists.filter(l => l.meals.length > 0));
+        const shoppingSharers = friends.filter(f => f.hasSharedShoppingWithMe);
+        const eatingOutSharers = friends.filter(f => f.hasSharedEatingOutWithMe);
+        const [shoppingLists, eatingOutLists] = await Promise.all([
+          Promise.all(shoppingSharers.map(async f => {
+            const data = await loadFriendShoppingList(f.uid);
+            return {
+              uid: f.uid,
+              username: data.username || f.username || f.displayName || 'friend',
+              meals: data.meals || [],
+            };
+          })),
+          Promise.all(eatingOutSharers.map(async f => {
+            const data = await loadFriendEatingOut(f.uid);
+            return {
+              uid: f.uid,
+              username: data.username || f.username || f.displayName || 'friend',
+              restaurants: data.restaurants || [],
+            };
+          })),
+        ]);
+        if (!cancelled) {
+          setSharedFromFriends(shoppingLists.filter(l => l.meals.length > 0));
+          setSharedEatingOutFromFriends(eatingOutLists.filter(l => l.restaurants.length > 0));
+        }
       } catch { /* ignore */ }
     })();
     return () => { cancelled = true; };
@@ -910,7 +931,7 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
         ) : view === 'sources' ? (
           <SourcesPage onClose={goBack} />
         ) : view === 'eating-out' ? (
-          <EatingOutPage user={user} onClose={goBack} />
+          <EatingOutPage user={user} sharedFromFriends={sharedEatingOutFromFriends} onClose={goBack} />
         ) : view === 'history' ? (
           <HistoryPage
             getRecipe={getRecipe}

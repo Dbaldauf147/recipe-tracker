@@ -678,6 +678,65 @@
   font-weight: 600;
 }
 
+/* Shared-from-friends section (read-only restaurants from other users) */
+.sharedWrap {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+.sharedSection {
+  background: rgba(236, 72, 153, 0.06);
+  border: 1px solid rgba(236, 72, 153, 0.25);
+  border-radius: 12px;
+  overflow: hidden;
+}
+.sharedHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.6rem 0.9rem;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-family: inherit;
+  text-align: left;
+}
+.sharedHeader:hover {
+  background: rgba(236, 72, 153, 0.08);
+}
+.sharedHeading {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--color-text);
+}
+.sharedMeta {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.78rem;
+  color: var(--color-text-muted);
+}
+.sharedCaret {
+  color: var(--color-text-muted);
+  font-size: 0.7rem;
+}
+.sharedGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 0.75rem;
+  padding: 0 0.85rem 0.85rem;
+}
+.sharedCard {
+  display: flex;
+  gap: 0.75rem;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  padding: 0.7rem;
+}
+
 /* Table view */
 .tableWrap {
   display: flex;

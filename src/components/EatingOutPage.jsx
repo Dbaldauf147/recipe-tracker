@@ -1189,7 +1189,88 @@ function RestaurantTable({ items, onRowClick }) {
   );
 }
 
-export function EatingOutPage({ user, onClose }) {
+function SharedFromFriendsSection({ lists }) {
+  // Track which friend sections are expanded — collapsed by default to avoid
+  // dominating the page when many friends share long lists.
+  const [openUids, setOpenUids] = useState(() => new Set());
+  if (!lists || lists.length === 0) return null;
+  function toggle(uid) {
+    setOpenUids(prev => {
+      const next = new Set(prev);
+      if (next.has(uid)) next.delete(uid); else next.add(uid);
+      return next;
+    });
+  }
+  return (
+    <div className={styles.sharedWrap}>
+      {lists.map(s => {
+        const isOpen = openUids.has(s.uid);
+        return (
+          <div key={s.uid} className={styles.sharedSection}>
+            <button
+              type="button"
+              className={styles.sharedHeader}
+              onClick={() => toggle(s.uid)}
+            >
+              <span className={styles.sharedHeading}>
+                Shared with you · from <strong>@{s.username}</strong>
+              </span>
+              <span className={styles.sharedMeta}>
+                {s.restaurants.length} restaurant{s.restaurants.length === 1 ? '' : 's'}
+                <span className={styles.sharedCaret}>{isOpen ? '▲' : '▼'}</span>
+              </span>
+            </button>
+            {isOpen && (
+              <div className={styles.sharedGrid}>
+                {s.restaurants.map(r => (
+                  <div key={r.id} className={styles.sharedCard}>
+                    {r.imageUrl
+                      ? <img src={r.imageUrl} alt="" className={styles.cardImage} />
+                      : <div className={`${styles.cardImage} ${styles.cardImagePlaceholder}`}>🍽️</div>}
+                    <div className={styles.cardBody}>
+                      <div className={styles.cardHeader}>
+                        <h3 className={styles.cardTitle}>{r.name}</h3>
+                        {r.status === 'want-to-try' && <span className={styles.wantBadge}>Want to try</span>}
+                      </div>
+                      {r.rating != null && (
+                        <div className={styles.cardStars}>
+                          {[1, 2, 3, 4, 5].map(n => (
+                            <span key={n} className={n <= r.rating ? styles.starFilled : styles.starEmpty}>
+                              {n <= r.rating ? '★' : '☆'}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                      {(r.cuisines?.length > 0 || r.locations?.length > 0) && (
+                        <div className={styles.cardMeta}>
+                          {[...(r.cuisines || []), ...(r.locations || [])].join(' · ')}
+                        </div>
+                      )}
+                      {r.dish && <div className={styles.cardDish}>🍴 {r.dish}</div>}
+                      {r.address && <div className={styles.cardAddress}>📍 {r.address}</div>}
+                      {r.url && (
+                        <a
+                          href={r.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className={styles.cardLink}
+                        >
+                          {r.url}
+                        </a>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+export function EatingOutPage({ user, sharedFromFriends = [], onClose }) {
   const [restaurants, setRestaurants] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -1593,6 +1674,9 @@ export function EatingOutPage({ user, onClose }) {
         </aside>
 
         <main className={styles.main}>
+          {sharedFromFriends.length > 0 && (
+            <SharedFromFriendsSection lists={sharedFromFriends} />
+          )}
           {geocodingProgress && (
             <div className={styles.geocodingBanner}>
               <span>

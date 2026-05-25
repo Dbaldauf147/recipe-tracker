@@ -1302,6 +1302,7 @@ export async function loadFriends(uid) {
   const friendUids = userData.friends || [];
   const mySharedAccess = userData.sharedAccess || [];
   const mySharedShopping = userData.sharedShoppingWith || [];
+  const mySharedEatingOut = userData.sharedEatingOutWith || [];
   const friends = [];
   for (const fid of friendUids) {
     const fSnap = await getDoc(doc(db, 'users', fid));
@@ -1316,6 +1317,8 @@ export async function loadFriends(uid) {
         iGrantedAccess: mySharedAccess.includes(fid), // I shared with them
         hasSharedShoppingWithMe: (data.sharedShoppingWith || []).includes(uid),
         iSharedShopping: mySharedShopping.includes(fid),
+        hasSharedEatingOutWithMe: (data.sharedEatingOutWith || []).includes(uid),
+        iSharedEatingOut: mySharedEatingOut.includes(fid),
       });
     }
   }
@@ -1345,6 +1348,38 @@ export async function toggleShoppingShare(uid, friendUid, grant) {
     await updateDoc(ref, { sharedShoppingWith: arrayUnion(friendUid) });
   } else {
     await updateDoc(ref, { sharedShoppingWith: arrayRemove(friendUid) });
+  }
+}
+
+/**
+ * Toggle sharing your Eating Out list (restaurants) with a friend.
+ * When enabled, the friend can see your restaurants read-only on their
+ * Eating Out page.
+ */
+export async function toggleEatingOutShare(uid, friendUid, grant) {
+  const ref = doc(db, 'users', uid);
+  if (grant) {
+    await updateDoc(ref, { sharedEatingOutWith: arrayUnion(friendUid) });
+  } else {
+    await updateDoc(ref, { sharedEatingOutWith: arrayRemove(friendUid) });
+  }
+}
+
+/**
+ * Read a friend's Eating Out (restaurants) list. Returns empty when the
+ * friend hasn't shared with us — Firestore rules will block the read.
+ */
+export async function loadFriendEatingOut(friendUid) {
+  try {
+    const snap = await getDoc(doc(db, 'users', friendUid));
+    if (!snap.exists()) return { restaurants: [], username: '' };
+    const data = snap.data();
+    return {
+      restaurants: Array.isArray(data.restaurants) ? data.restaurants : [],
+      username: data.username || data.displayName || '',
+    };
+  } catch {
+    return { restaurants: [], username: '' };
   }
 }
 

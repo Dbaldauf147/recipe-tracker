@@ -21,6 +21,7 @@ import {
   declineSharedRecipe,
   toggleRecipeAccess,
   toggleShoppingShare,
+  toggleEatingOutShare,
   loadFriendRecipes,
 } from '../utils/firestoreSync';
 import styles from './FriendsPage.module.css';
@@ -416,12 +417,14 @@ export function FriendsPage({ onClose, addRecipe, importRecipes }) {
               <div className={styles.friendInfo}>
                 <span className={styles.friendUsername}>@{f.username}</span>
                 {f.displayName && <span className={styles.friendDisplayName}>{f.displayName}</span>}
-                {(f.hasGrantedAccess || f.hasSharedShoppingWithMe) && (
+                {(f.hasGrantedAccess || f.hasSharedShoppingWithMe || f.hasSharedEatingOutWithMe) && (
                   <span className={styles.friendDisplayName}>
-                    sharing with you:
-                    {f.hasGrantedAccess ? ' recipes' : ''}
-                    {f.hasGrantedAccess && f.hasSharedShoppingWithMe ? ',' : ''}
-                    {f.hasSharedShoppingWithMe ? ' shopping list' : ''}
+                    sharing with you:{' '}
+                    {[
+                      f.hasGrantedAccess && 'recipes',
+                      f.hasSharedShoppingWithMe && 'shopping list',
+                      f.hasSharedEatingOutWithMe && 'eating out',
+                    ].filter(Boolean).join(', ')}
                   </span>
                 )}
                 <div className={styles.friendAccessRow}>
@@ -448,6 +451,18 @@ export function FriendsPage({ onClose, addRecipe, importRecipes }) {
                       }}
                     />
                     Share my shopping list
+                  </label>
+                  <label className={styles.shareToggle}>
+                    <input
+                      type="checkbox"
+                      checked={f.iSharedEatingOut}
+                      onChange={async (e) => {
+                        const grant = e.target.checked;
+                        await toggleEatingOutShare(uid, f.uid, grant);
+                        setFriends(prev => prev.map(fr => fr.uid === f.uid ? { ...fr, iSharedEatingOut: grant } : fr));
+                      }}
+                    />
+                    Share my eating out
                   </label>
                   {f.hasGrantedAccess && (
                     <button
