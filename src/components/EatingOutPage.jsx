@@ -80,6 +80,76 @@ const FREQUENCIES = [
   { key: 'retired', label: 'Retired' },
 ];
 
+// Table view: column registry, defaults, and per-user width/visibility prefs.
+const TABLE_COLUMNS = [
+  { key: 'name', label: 'Name', width: 220, visible: true },
+  { key: 'status', label: 'Status', width: 110, visible: true },
+  { key: 'takenJoanne', label: 'Joanne', width: 70, visible: true },
+  { key: 'rating', label: 'Rating', width: 120, visible: true },
+  { key: 'cuisines', label: 'Cuisines', width: 180, visible: true },
+  { key: 'locations', label: 'Locations', width: 180, visible: true },
+  { key: 'address', label: 'Address', width: 260, visible: true },
+  { key: 'mealType', label: 'Meal Type', width: 110, visible: true },
+  { key: 'frequency', label: 'Frequency', width: 100, visible: true },
+  { key: 'dish', label: 'What to order', width: 200, visible: true },
+  { key: 'lastVisit', label: 'Last Visit', width: 120, visible: true },
+  { key: 'notes', label: 'Notes', width: 320, visible: false },
+  { key: 'url', label: 'URL', width: 240, visible: false },
+];
+const TABLE_PREFS_KEY = 'sunday-eating-out-table-prefs';
+
+function loadTablePrefs() {
+  try {
+    const raw = localStorage.getItem(TABLE_PREFS_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch { return {}; }
+}
+function saveTablePrefs(prefs) {
+  try { localStorage.setItem(TABLE_PREFS_KEY, JSON.stringify(prefs)); } catch { /* ignore */ }
+}
+
+function cellValueFor(r, key) {
+  switch (key) {
+    case 'name': return r.name || '';
+    case 'status': return r.status === 'visited' ? 'Visited' : 'Want to try';
+    case 'takenJoanne': return r.takenJoanne ? '✓' : '';
+    case 'rating':
+      if (r.rating != null) return '★'.repeat(r.rating) + '☆'.repeat(5 - r.rating);
+      return r.ratingLabel || '';
+    case 'cuisines': return (r.cuisines || []).join(', ');
+    case 'locations': return (r.locations || []).join(', ');
+    case 'address': return r.address || '';
+    case 'mealType': return MEAL_TYPES.find(m => m.key === r.mealType)?.label || '';
+    case 'frequency': return r.frequency
+      ? r.frequency.charAt(0).toUpperCase() + r.frequency.slice(1)
+      : '';
+    case 'dish': return r.dish || '';
+    case 'lastVisit': return r.lastVisit ? formatDate(r.lastVisit) : '';
+    case 'notes': return r.notes || '';
+    case 'url': return r.url || '';
+    default: return '';
+  }
+}
+
+function compareValues(a, b, key) {
+  if (key === 'rating') {
+    const av = typeof a.rating === 'number' ? a.rating : -1;
+    const bv = typeof b.rating === 'number' ? b.rating : -1;
+    return av - bv;
+  }
+  if (key === 'takenJoanne') {
+    return (a.takenJoanne ? 1 : 0) - (b.takenJoanne ? 1 : 0);
+  }
+  if (key === 'lastVisit') {
+    const ad = a.lastVisit ? new Date(a.lastVisit).getTime() : 0;
+    const bd = b.lastVisit ? new Date(b.lastVisit).getTime() : 0;
+    return ad - bd;
+  }
+  return String(cellValueFor(a, key)).localeCompare(String(cellValueFor(b, key)), undefined, { sensitivity: 'base' });
+}
+
 function generateId() {
   return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
     const r = (Math.random() * 16) | 0;
@@ -933,6 +1003,192 @@ function RestaurantMapView({ items, onSelect }) {
   );
 }
 
+function RestaurantTable({ items, onRowClick }) {
+  // Merge stored prefs over column defaults so columns added later keep their
+  // built-in defaults while user preferences override visibility + width.
+  const [prefs, setPrefs] = useState(loadTablePrefs);
+  const [showSettings, setShowSettings] = useState(false);
+  const [sort, setSort] = useState({ key: 'name', dir: 'asc' });
+  const resizingRef = useRef(null);
+
+  const columns = useMemo(() => TABLE_COLUMNS.map(c => {
+    const p = prefs[c.key] || {};
+    return {
+      ...c,
+      visible: typeof p.visible === 'boolean' ? p.visible : c.visible,
+      width: typeof p.width === 'number' && p.width >= 60 ? p.width : c.width,
+    };
+  }), [prefs]);
+  const visibleColumns = useMemo(() => columns.filter(c => c.visible), [columns]);
+
+  const updatePref = useCallback((key, patch) => {
+    setPrefs(prev => {
+      const next = { ...prev, [key]: { ...(prev[key] || {}), ...patch } };
+      saveTablePrefs(next);
+      return next;
+    });
+  }, []);
+
+  const sortedItems = useMemo(() => {
+    const arr = [...items];
+    arr.sort((a, b) => compareValues(a, b, sort.key));
+    if (sort.dir === 'desc') arr.reverse();
+    return arr;
+  }, [items, sort]);
+
+  // Column resize: pointer-down on the handle starts a drag, listeners on
+  // window pick up the rest so the drag continues outside the header cell.
+  function startResize(e, colKey, startWidth) {
+    e.preventDefault();
+    resizingRef.current = { colKey, startWidth, startX: e.clientX };
+    function onMove(ev) {
+      const r = resizingRef.current;
+      if (!r) return;
+      const delta = ev.clientX - r.startX;
+      const next = Math.max(60, Math.round(r.startWidth + delta));
+      updatePref(r.colKey, { width: next });
+    }
+    function onUp() {
+      resizingRef.current = null;
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      document.body.style.userSelect = '';
+    }
+    document.body.style.userSelect = 'none';
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+  }
+
+  function toggleSort(key) {
+    setSort(prev => prev.key === key
+      ? { key, dir: prev.dir === 'asc' ? 'desc' : 'asc' }
+      : { key, dir: 'asc' });
+  }
+
+  function resetColumns() {
+    setPrefs({});
+    saveTablePrefs({});
+  }
+
+  const totalWidth = visibleColumns.reduce((s, c) => s + c.width, 0);
+
+  return (
+    <div className={styles.tableWrap}>
+      <div className={styles.tableToolbar}>
+        <span className={styles.tableCount}>{items.length} restaurant{items.length === 1 ? '' : 's'}</span>
+        <div className={styles.tableSpacer} />
+        <button
+          type="button"
+          className={styles.linkBtn}
+          onClick={() => setShowSettings(v => !v)}
+        >
+          ⚙ Columns ({visibleColumns.length}/{columns.length})
+        </button>
+      </div>
+      {showSettings && (
+        <div className={styles.tableSettingsPopover}>
+          <div className={styles.tableSettingsHeader}>
+            <span>Show columns</span>
+            <button type="button" className={styles.linkBtn} onClick={resetColumns}>
+              Reset
+            </button>
+          </div>
+          <div className={styles.tableSettingsGrid}>
+            {columns.map(c => (
+              <label key={c.key} className={styles.tableSettingsItem}>
+                <input
+                  type="checkbox"
+                  checked={c.visible}
+                  onChange={() => updatePref(c.key, { visible: !c.visible })}
+                />
+                {c.label}
+              </label>
+            ))}
+          </div>
+        </div>
+      )}
+      {items.length === 0 ? (
+        <div className={styles.empty}>
+          <p className={styles.emptyText}>Nothing matches the current filters.</p>
+        </div>
+      ) : (
+        <div className={styles.tableScroll}>
+          <table className={styles.dataTable} style={{ width: totalWidth }}>
+            <colgroup>
+              {visibleColumns.map(c => (
+                <col key={c.key} style={{ width: c.width }} />
+              ))}
+            </colgroup>
+            <thead>
+              <tr>
+                {visibleColumns.map(c => {
+                  const isSorted = sort.key === c.key;
+                  return (
+                    <th key={c.key} style={{ width: c.width }}>
+                      <button
+                        type="button"
+                        className={styles.tableHeaderBtn}
+                        onClick={() => toggleSort(c.key)}
+                      >
+                        <span>{c.label}</span>
+                        <span className={styles.tableSortIndicator}>
+                          {isSorted ? (sort.dir === 'asc' ? '▲' : '▼') : ''}
+                        </span>
+                      </button>
+                      <span
+                        className={styles.tableColResizer}
+                        onPointerDown={e => startResize(e, c.key, c.width)}
+                        title="Drag to resize column"
+                      />
+                    </th>
+                  );
+                })}
+              </tr>
+            </thead>
+            <tbody>
+              {sortedItems.map(r => (
+                <tr key={r.id} className={styles.tableRow} onClick={() => onRowClick(r)}>
+                  {visibleColumns.map(c => {
+                    const value = cellValueFor(r, c.key);
+                    if (c.key === 'takenJoanne' && r.takenJoanne) {
+                      return (
+                        <td key={c.key} style={{ width: c.width, color: JOANNE_COLOR, fontWeight: 700, textAlign: 'center' }}>
+                          ✓
+                        </td>
+                      );
+                    }
+                    if (c.key === 'rating' && r.rating != null) {
+                      return (
+                        <td key={c.key} style={{ width: c.width, color: '#F5A623' }}>
+                          {value}
+                        </td>
+                      );
+                    }
+                    if (c.key === 'url' && r.url) {
+                      return (
+                        <td key={c.key} style={{ width: c.width }}>
+                          <a href={r.url} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()}>
+                            {value}
+                          </a>
+                        </td>
+                      );
+                    }
+                    return (
+                      <td key={c.key} style={{ width: c.width }} title={value && value.length > 60 ? value : undefined}>
+                        {value}
+                      </td>
+                    );
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function EatingOutPage({ user, onClose }) {
   const [restaurants, setRestaurants] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -1384,6 +1640,13 @@ export function EatingOutPage({ user, onClose }) {
               </button>
               <button
                 type="button"
+                className={`${styles.filterBtn} ${viewMode === 'table' ? styles.filterBtnActive : ''}`}
+                onClick={() => setViewMode('table')}
+              >
+                Table
+              </button>
+              <button
+                type="button"
                 className={`${styles.filterBtn} ${viewMode === 'map' ? styles.filterBtnActive : ''}`}
                 onClick={() => setViewMode('map')}
               >
@@ -1445,6 +1708,8 @@ export function EatingOutPage({ user, onClose }) {
             <div className={styles.empty}>Loading…</div>
           ) : viewMode === 'map' ? (
             <RestaurantMapView items={visible} onSelect={setEditing} />
+          ) : viewMode === 'table' ? (
+            <RestaurantTable items={visible} onRowClick={setEditing} />
           ) : visible.length === 0 ? (
             <div className={styles.empty}>
               {restaurants.length === 0 ? (
