@@ -737,6 +737,60 @@
   padding: 0.7rem;
 }
 
+/* Rank picker on each shared-restaurant card. */
+.rankRow {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+  margin-top: 0.4rem;
+}
+.rankRowLabel {
+  font-size: 0.72rem;
+  color: var(--color-text-muted);
+  margin-right: 0.15rem;
+}
+.rankBtn {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  padding: 0.15rem 0.55rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--color-text);
+  cursor: pointer;
+  font-family: inherit;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+.rankBtn:hover {
+  border-color: var(--color-accent);
+}
+.rankBtnActive {
+  background: rgba(236, 72, 153, 0.12);
+  border-color: rgba(236, 72, 153, 0.5);
+  color: var(--color-text);
+}
+
+/* Vote indicator row on the owner's own restaurant cards. */
+.voteRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  margin: 0.2rem 0 0.1rem;
+}
+.voteChip {
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--color-text);
+  background: rgba(236, 72, 153, 0.1);
+  border: 1px solid rgba(236, 72, 153, 0.3);
+  border-radius: 999px;
+  padding: 0.05rem 0.5rem;
+  white-space: nowrap;
+}
+
 /* Table view */
 .tableWrap {
   display: flex;

@@ -1319,10 +1319,57 @@ export async function loadFriends(uid) {
         iSharedShopping: mySharedShopping.includes(fid),
         hasSharedEatingOutWithMe: (data.sharedEatingOutWith || []).includes(uid),
         iSharedEatingOut: mySharedEatingOut.includes(fid),
+        // How this friend has ranked MY restaurants (their top-3 of my
+        // shared eating-out list). Array of restaurant ids in rank order;
+        // null entries mean that rank slot is unfilled. Empty if they
+        // haven't voted.
+        votesOnMyEatingOut: Array.isArray(data.eatingOutVotes?.[uid])
+          ? data.eatingOutVotes[uid].slice(0, 3)
+          : [],
       });
     }
   }
   return friends;
+}
+
+/**
+ * Read my own eating-out votes — a map of ownerUid → [r1, r2, r3] (rank
+ * order, null entries allowed).
+ */
+export async function loadMyEatingOutVotes(uid) {
+  try {
+    const snap = await getDoc(doc(db, 'users', uid));
+    if (!snap.exists()) return {};
+    const data = snap.data();
+    const v = data.eatingOutVotes;
+    return (v && typeof v === 'object') ? v : {};
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * Set my rank (1, 2, 3, or null to clear) for a single restaurant on a
+ * friend's shared eating-out list. Setting a rank that another restaurant
+ * already holds bumps that other restaurant out of the slot.
+ */
+export async function setEatingOutVote(uid, ownerUid, restaurantId, rank) {
+  const ref = doc(db, 'users', uid);
+  const snap = await getDoc(ref);
+  const data = snap.exists() ? snap.data() : {};
+  const allVotes = (data.eatingOutVotes && typeof data.eatingOutVotes === 'object') ? { ...data.eatingOutVotes } : {};
+  const current = Array.isArray(allVotes[ownerUid]) ? allVotes[ownerUid].slice(0, 3) : [null, null, null];
+  while (current.length < 3) current.push(null);
+  for (let i = 0; i < 3; i++) {
+    if (current[i] === restaurantId) current[i] = null;
+  }
+  if (rank === 1 || rank === 2 || rank === 3) {
+    current[rank - 1] = restaurantId;
+  }
+  const compact = current.every(v => v == null) ? [] : current;
+  if (compact.length === 0) delete allVotes[ownerUid];
+  else allVotes[ownerUid] = compact;
+  await updateDoc(ref, { eatingOutVotes: allVotes });
 }
 
 /**

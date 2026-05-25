@@ -213,10 +213,14 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
   // Friends who have toggled "Share my eating out" on for this user.
   // Each entry: { uid, username, restaurants: [...] }.
   const [sharedEatingOutFromFriends, setSharedEatingOutFromFriends] = useState([]);
+  // Friends who have voted on MY eating-out list (their top-3 picks).
+  // Each entry: { uid, username, votes: [r1, r2, r3] }.
+  const [eatingOutVotesFromFriends, setEatingOutVotesFromFriends] = useState([]);
   useEffect(() => {
     if (!user?.uid) {
       setSharedFromFriends([]);
       setSharedEatingOutFromFriends([]);
+      setEatingOutVotesFromFriends([]);
       return;
     }
     let cancelled = false;
@@ -246,6 +250,15 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
         if (!cancelled) {
           setSharedFromFriends(shoppingLists.filter(l => l.meals.length > 0));
           setSharedEatingOutFromFriends(eatingOutLists.filter(l => l.restaurants.length > 0));
+          setEatingOutVotesFromFriends(
+            friends
+              .filter(f => Array.isArray(f.votesOnMyEatingOut) && f.votesOnMyEatingOut.some(v => v != null))
+              .map(f => ({
+                uid: f.uid,
+                username: f.username || f.displayName || 'friend',
+                votes: f.votesOnMyEatingOut,
+              })),
+          );
         }
       } catch { /* ignore */ }
     })();
@@ -931,7 +944,12 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
         ) : view === 'sources' ? (
           <SourcesPage onClose={goBack} />
         ) : view === 'eating-out' ? (
-          <EatingOutPage user={user} sharedFromFriends={sharedEatingOutFromFriends} onClose={goBack} />
+          <EatingOutPage
+            user={user}
+            sharedFromFriends={sharedEatingOutFromFriends}
+            votesFromFriends={eatingOutVotesFromFriends}
+            onClose={goBack}
+          />
         ) : view === 'history' ? (
           <HistoryPage
             getRecipe={getRecipe}

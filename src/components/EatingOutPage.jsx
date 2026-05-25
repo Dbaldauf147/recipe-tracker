@@ -15,7 +15,11 @@ import {
   IMPORT_FIELDS,
 } from '../utils/restaurantImport';
 import { downloadRestaurantsCsv } from '../utils/restaurantExport';
+import { loadMyEatingOutVotes, setEatingOutVote } from '../utils/firestoreSync';
 import styles from './EatingOutPage.module.css';
+
+// Medal characters keyed by rank (1, 2, 3).
+const RANK_MEDAL = { 1: '🥇', 2: '🥈', 3: '🥉' };
 
 const VISITED_COLOR = '#10b981';
 const WANT_COLOR = '#f59e0b';
@@ -863,7 +867,7 @@ function BulkImportModal({ onClose, onImport, existing }) {
   );
 }
 
-function RestaurantCard({ r, distanceMiles, onClick }) {
+function RestaurantCard({ r, distanceMiles, votes, onClick }) {
   const isRetired = r.frequency === 'retired';
   return (
     <button type="button" className={`${styles.card} ${isRetired ? styles.cardRetired : ''}`} onClick={onClick}>
@@ -876,6 +880,18 @@ function RestaurantCard({ r, distanceMiles, onClick }) {
           {r.status === 'want-to-try' && <span className={styles.wantBadge}>Want to try</span>}
           {isRetired && <span className={styles.retiredBadge}>Retired</span>}
         </div>
+        {votes && votes.length > 0 && (
+          <div className={styles.voteRow}>
+            {votes
+              .slice()
+              .sort((a, b) => a.rank - b.rank)
+              .map((v, i) => (
+                <span key={`${v.username}-${i}`} className={styles.voteChip} title={`@${v.username} ranked this #${v.rank}`}>
+                  {RANK_MEDAL[v.rank]} @{v.username}
+                </span>
+              ))}
+          </div>
+        )}
         {(r.rating != null || r.ratingLabel) && (
           <div className={styles.cardStars}>
             {r.rating != null && [1, 2, 3, 4, 5].map(n => (
@@ -1197,7 +1213,7 @@ function RestaurantTable({ items, onRowClick }) {
   );
 }
 
-function SharedFromFriendsSection({ lists }) {
+function SharedFromFriendsSection({ lists, myVotes, onVote }) {
   // Track which friend sections are expanded — collapsed by default to avoid
   // dominating the page when many friends share long lists.
   const [openUids, setOpenUids] = useState(() => new Set());
@@ -1208,6 +1224,12 @@ function SharedFromFriendsSection({ lists }) {
       if (next.has(uid)) next.delete(uid); else next.add(uid);
       return next;
     });
+  }
+  function rankOf(ownerUid, restaurantId) {
+    const arr = myVotes?.[ownerUid];
+    if (!Array.isArray(arr)) return null;
+    const idx = arr.indexOf(restaurantId);
+    return idx >= 0 ? idx + 1 : null;
   }
   return (
     <div className={styles.sharedWrap}>
@@ -1230,45 +1252,65 @@ function SharedFromFriendsSection({ lists }) {
             </button>
             {isOpen && (
               <div className={styles.sharedGrid}>
-                {s.restaurants.map(r => (
-                  <div key={r.id} className={styles.sharedCard}>
-                    {r.imageUrl
-                      ? <img src={r.imageUrl} alt="" className={styles.cardImage} />
-                      : <div className={`${styles.cardImage} ${styles.cardImagePlaceholder}`}>🍽️</div>}
-                    <div className={styles.cardBody}>
-                      <div className={styles.cardHeader}>
-                        <h3 className={styles.cardTitle}>{r.name}</h3>
-                        {r.status === 'want-to-try' && <span className={styles.wantBadge}>Want to try</span>}
+                {s.restaurants.map(r => {
+                  const myRank = rankOf(s.uid, r.id);
+                  return (
+                    <div key={r.id} className={styles.sharedCard}>
+                      {r.imageUrl
+                        ? <img src={r.imageUrl} alt="" className={styles.cardImage} />
+                        : <div className={`${styles.cardImage} ${styles.cardImagePlaceholder}`}>🍽️</div>}
+                      <div className={styles.cardBody}>
+                        <div className={styles.cardHeader}>
+                          <h3 className={styles.cardTitle}>{r.name}</h3>
+                          {r.status === 'want-to-try' && <span className={styles.wantBadge}>Want to try</span>}
+                        </div>
+                        {r.rating != null && (
+                          <div className={styles.cardStars}>
+                            {[1, 2, 3, 4, 5].map(n => (
+                              <span key={n} className={n <= r.rating ? styles.starFilled : styles.starEmpty}>
+                                {n <= r.rating ? '★' : '☆'}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                        {(r.cuisines?.length > 0 || r.locations?.length > 0) && (
+                          <div className={styles.cardMeta}>
+                            {[...(r.cuisines || []), ...(r.locations || [])].join(' · ')}
+                          </div>
+                        )}
+                        {r.dish && <div className={styles.cardDish}>🍴 {r.dish}</div>}
+                        {r.address && <div className={styles.cardAddress}>📍 {r.address}</div>}
+                        {r.url && (
+                          <a
+                            href={r.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className={styles.cardLink}
+                          >
+                            {r.url}
+                          </a>
+                        )}
+                        <div className={styles.rankRow}>
+                          <span className={styles.rankRowLabel}>My pick:</span>
+                          {[1, 2, 3].map(rank => {
+                            const isMine = myRank === rank;
+                            return (
+                              <button
+                                key={rank}
+                                type="button"
+                                className={`${styles.rankBtn} ${isMine ? styles.rankBtnActive : ''}`}
+                                onClick={() => onVote(s.uid, r.id, isMine ? null : rank)}
+                                title={isMine ? 'Clear my rank' : `Set as my #${rank} pick`}
+                              >
+                                {RANK_MEDAL[rank]} {rank}
+                              </button>
+                            );
+                          })}
+                        </div>
                       </div>
-                      {r.rating != null && (
-                        <div className={styles.cardStars}>
-                          {[1, 2, 3, 4, 5].map(n => (
-                            <span key={n} className={n <= r.rating ? styles.starFilled : styles.starEmpty}>
-                              {n <= r.rating ? '★' : '☆'}
-                            </span>
-                          ))}
-                        </div>
-                      )}
-                      {(r.cuisines?.length > 0 || r.locations?.length > 0) && (
-                        <div className={styles.cardMeta}>
-                          {[...(r.cuisines || []), ...(r.locations || [])].join(' · ')}
-                        </div>
-                      )}
-                      {r.dish && <div className={styles.cardDish}>🍴 {r.dish}</div>}
-                      {r.address && <div className={styles.cardAddress}>📍 {r.address}</div>}
-                      {r.url && (
-                        <a
-                          href={r.url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className={styles.cardLink}
-                        >
-                          {r.url}
-                        </a>
-                      )}
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>
@@ -1278,7 +1320,7 @@ function SharedFromFriendsSection({ lists }) {
   );
 }
 
-export function EatingOutPage({ user, sharedFromFriends = [], onClose }) {
+export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends = [], onClose }) {
   const [restaurants, setRestaurants] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -1296,6 +1338,9 @@ export function EatingOutPage({ user, sharedFromFriends = [], onClose }) {
   const [viewMode, setViewMode] = useState('list');
   const [geocodingProgress, setGeocodingProgress] = useState(null);
   const cancelGeocodeRef = useRef(false);
+  // My own ranked top-3 picks per friend-shared list.
+  // Shape: { [ownerUid]: [restaurantId1, restaurantId2, restaurantId3] }.
+  const [myEatingOutVotes, setMyEatingOutVotes] = useState({});
 
   useEffect(() => {
     if (!user?.uid) {
@@ -1409,6 +1454,54 @@ export function EatingOutPage({ user, sharedFromFriends = [], onClose }) {
       alert(`Save failed — your changes are local only.\n\n${reason}\n\nTry refreshing.`);
     }
   }, [user?.uid]);
+
+  // Pull my eating-out votes once when the user is known. Subsequent
+  // updates use the local handleVote which writes through to Firestore.
+  useEffect(() => {
+    if (!user?.uid) { setMyEatingOutVotes({}); return; }
+    let cancelled = false;
+    loadMyEatingOutVotes(user.uid)
+      .then(v => { if (!cancelled) setMyEatingOutVotes(v || {}); })
+      .catch(() => { /* keep empty */ });
+    return () => { cancelled = true; };
+  }, [user?.uid]);
+
+  const handleVoteOnSharedRestaurant = useCallback(async (ownerUid, restaurantId, rank) => {
+    if (!user?.uid) return;
+    setMyEatingOutVotes(prev => {
+      const next = { ...prev };
+      const current = Array.isArray(next[ownerUid]) ? [...next[ownerUid]] : [null, null, null];
+      while (current.length < 3) current.push(null);
+      for (let i = 0; i < 3; i++) if (current[i] === restaurantId) current[i] = null;
+      if (rank === 1 || rank === 2 || rank === 3) current[rank - 1] = restaurantId;
+      const compact = current.every(v => v == null) ? [] : current;
+      if (compact.length === 0) delete next[ownerUid];
+      else next[ownerUid] = compact;
+      return next;
+    });
+    try {
+      await setEatingOutVote(user.uid, ownerUid, restaurantId, rank);
+    } catch (err) {
+      console.error('Failed to save vote:', err);
+      alert(`Couldn't save your vote — ${err?.message || 'try again'}`);
+    }
+  }, [user?.uid]);
+
+  // Friends' votes indexed by restaurantId so RestaurantCard can show a
+  // small badge: { [restaurantId]: [{ username, rank }, ...] }
+  const friendVotesByRestaurant = useMemo(() => {
+    const map = new Map();
+    for (const f of votesFromFriends) {
+      const votes = Array.isArray(f.votes) ? f.votes : [];
+      for (let i = 0; i < votes.length; i++) {
+        const rid = votes[i];
+        if (!rid) continue;
+        if (!map.has(rid)) map.set(rid, []);
+        map.get(rid).push({ username: f.username, rank: i + 1 });
+      }
+    }
+    return map;
+  }, [votesFromFriends]);
 
   function handleSave(restaurant) {
     const exists = restaurants.some(r => r.id === restaurant.id);
@@ -1683,7 +1776,11 @@ export function EatingOutPage({ user, sharedFromFriends = [], onClose }) {
 
         <main className={styles.main}>
           {sharedFromFriends.length > 0 && (
-            <SharedFromFriendsSection lists={sharedFromFriends} />
+            <SharedFromFriendsSection
+              lists={sharedFromFriends}
+              myVotes={myEatingOutVotes}
+              onVote={handleVoteOnSharedRestaurant}
+            />
           )}
           {geocodingProgress && (
             <div className={styles.geocodingBanner}>
@@ -1831,6 +1928,7 @@ export function EatingOutPage({ user, sharedFromFriends = [], onClose }) {
                   key={r.id}
                   r={r}
                   distanceMiles={r._distance}
+                  votes={friendVotesByRestaurant.get(r.id)}
                   onClick={() => setEditing(r)}
                 />
               ))}
