@@ -146,30 +146,64 @@ async function resolveRedirect(url) {
   }
 }
 
+async function fetchGoogleMapsHtml(url) {
+  try {
+    const r = await fetch(url, {
+      method: 'GET',
+      redirect: 'follow',
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.5',
+      },
+    });
+    return { html: await r.text(), finalUrl: r.url || url };
+  } catch {
+    return { html: '', finalUrl: url };
+  }
+}
+
 async function extractFromGoogleMaps(url) {
   // Short forms need to redirect to the canonical /maps/place/... URL first.
   const isShort = /maps\.app\.goo\.gl|goo\.gl\/maps/i.test(url);
-  const longUrl = isShort ? await resolveRedirect(url) : url;
 
-  // Name: the segment immediately after /maps/place/ — URL-encoded, with
-  // + standing in for spaces.
+  // Always fetch the HTML — that's the most reliable source for the place
+  // name (og:title) regardless of URL shape, and resolves the redirect at
+  // the same time.
+  const { html, finalUrl } = await fetchGoogleMapsHtml(isShort ? url : url);
+  const longUrl = finalUrl || url;
+
+  // Name candidates, in priority order:
+  //   1. /maps/place/<Name>/ segment of the resolved URL
+  //   2. og:title / twitter:title from the page (handles CID URLs, /search,
+  //      and any future URL shape Google introduces)
+  //   3. ?q=Name / ?query=Name fallback
   let name = '';
   const placeMatch = longUrl.match(/\/maps\/place\/([^/?#@]+)/i);
   if (placeMatch) {
-    try {
-      name = decodeURIComponent(placeMatch[1].replace(/\+/g, ' ')).trim();
-    } catch {
-      name = placeMatch[1].replace(/\+/g, ' ').trim();
+    try { name = decodeURIComponent(placeMatch[1].replace(/\+/g, ' ')).trim(); }
+    catch { name = placeMatch[1].replace(/\+/g, ' ').trim(); }
+  }
+  if (!name && html) {
+    const ogTitle = metaContent(html, 'og:title') || metaContent(html, 'twitter:title');
+    if (ogTitle) {
+      // Google formats og:title as "Place Name · Address" or "Place Name -
+      // Google Maps". Strip the trailing separator + tail.
+      name = ogTitle
+        .replace(/\s+[-·–|]\s+Google\s+Maps\s*$/i, '')
+        .split(/\s+[·•]\s+/)[0]
+        .trim();
     }
-  } else {
-    // /?q=Place+Name or /?query=... variant.
+  }
+  if (!name) {
     const qMatch = longUrl.match(/[?&](?:q|query)=([^&]+)/i);
     if (qMatch) {
-      try { name = decodeURIComponent(qMatch[1].replace(/\+/g, ' ')).trim(); } catch { /* ignore */ }
+      try { name = decodeURIComponent(qMatch[1].replace(/\+/g, ' ')).trim(); }
+      catch { /* ignore */ }
     }
   }
 
-  // Coordinates: @lat,lng,zoomz segment. lat/lng are signed floats.
+  // Coordinates: @lat,lng,zoom segment of the resolved URL.
   let lat = null;
   let lng = null;
   const atMatch = longUrl.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/);
@@ -179,13 +213,29 @@ async function extractFromGoogleMaps(url) {
     if (Number.isFinite(a) && Number.isFinite(b)) { lat = a; lng = b; }
   }
 
+  // Address: og:description on Google Maps place pages is often
+  // "Address · Phone · Rating" — take the leading address chunk.
+  let address;
+  if (html) {
+    const ogDesc = metaContent(html, 'og:description');
+    if (ogDesc) {
+      const first = ogDesc.split(/\s+[·•]\s+/)[0].trim();
+      // Heuristic: looks like an address if it contains a digit (street #).
+      if (first && /\d/.test(first)) address = first;
+    }
+  }
+
+  // og:image fallback for the card preview.
+  let imageUrl;
+  if (html) imageUrl = metaContent(html, 'og:image') || null;
+
   if (!name && lat == null) return null;
 
   return {
     name,
     description: '',
-    imageUrl: null,
-    address: undefined, // Google Maps URLs don't reliably carry the address; user can Lookup.
+    imageUrl: imageUrl || null,
+    address,
     lat: lat ?? undefined,
     lng: lng ?? undefined,
     sourceUrl: longUrl,
