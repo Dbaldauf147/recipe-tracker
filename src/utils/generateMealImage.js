@@ -198,6 +198,12 @@ export async function syncMealImages(uid) {
     }
 
     console.log('[mealImage] synced', Object.keys(remote).length, 'images from Firestore');
+
+    // Tell render-time consumers (e.g. This Week's Meals thumbnails) that
+    // the cache is now populated, so they can re-render. Without this,
+    // components that called getCachedMealImage() before sync completed
+    // would silently keep showing the empty placeholder.
+    try { window.dispatchEvent(new Event('meal-images-synced')); } catch { /* SSR / no window */ }
   } catch (err) {
     console.error('syncMealImages:', err);
   }

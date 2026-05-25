@@ -527,6 +527,15 @@ export function RecipeList({
   const [suggestCols, setSuggestCols] = useState({ overdue: true, seasonal: true });
   const [myRecipesOpen, setMyRecipesOpen] = useState(true);
   const [lastAdded, setLastAdded] = useState(null);
+  // Bumped whenever syncMealImages finishes loading from Firestore. Used
+  // purely as a re-render trigger so the "This Week's Meals" thumbnails
+  // pick up images that landed in the cache after our initial render.
+  const [, setImageCacheVersion] = useState(0);
+  useEffect(() => {
+    const bump = () => setImageCacheVersion(v => v + 1);
+    window.addEventListener('meal-images-synced', bump);
+    return () => window.removeEventListener('meal-images-synced', bump);
+  }, []);
   const [weeklyGoals, setWeeklyGoals] = useState(() => {
     try {
       const data = localStorage.getItem(WEEKLY_GOALS_KEY);
@@ -1488,12 +1497,22 @@ export function RecipeList({
               <div className={styles.weekList}>
                 {filteredWeeklyRecipes.map(recipe => {
                   const planned = getPlannedServings(recipe);
-                  const shelfDays = getRecipeMinShelfDays(recipe);
+                  const mealImage = getCachedMealImage(recipe.id);
                   return (
                     <div
                       key={recipe.id}
                       className={`${styles.weekItem}${lastAdded === recipe.id ? ` ${styles.weekItemNew}` : ''}`}
                     >
+                      {mealImage ? (
+                        <img className={styles.weekItemThumb} src={mealImage} alt="" />
+                      ) : (
+                        <div
+                          className={`${styles.weekItemThumb} ${styles.weekItemThumbEmpty}`}
+                          aria-hidden="true"
+                        >
+                          <span className={styles.weekItemThumbIcon}>🍽</span>
+                        </div>
+                      )}
                       <div className={styles.weekItemContent}>
                         <button
                           className={styles.weekItemName}
@@ -1501,9 +1520,6 @@ export function RecipeList({
                         >
                           {recipe.title}
                         </button>
-                        {shelfDays < Infinity && (
-                          <span className={styles.weekShelfBadge}>{shelfDays}d shelf</span>
-                        )}
                         <span className={styles.weekItemServingsControl}>
                           <button
                             className={styles.weekServingBtn}
