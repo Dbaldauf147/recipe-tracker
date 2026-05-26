@@ -526,7 +526,7 @@ function categoryToSlot(category) {
 
 /* ── Custom Meal Modal ── */
 function CustomMealModal({ onAdd, onClose }) {
-  const [mealName, setMealName] = useState('');
+  const [mealName, setMealName] = useState('Custom meal');
   const [mealSlotChoice, setMealSlotChoice] = useState('lunch');
   const [mealIngredients, setMealIngredients] = useState([]);
   const [mealIngName, setMealIngName] = useState('');
@@ -986,8 +986,8 @@ function AddEntrySection({ recipes, getRecipe, onAdd, weeklyPlan }) {
 }
 
 /* ── Custom Meal Inline (no overlay) ── */
-function CustomMealInline({ onAdd, onBack }) {
-  const [mealName, setMealName] = useState('');
+function CustomMealInline({ onAdd, onBack, recentIngredients = [] }) {
+  const [mealName, setMealName] = useState('Custom meal');
   const [mealSlotChoice, setMealSlotChoice] = useState('lunch');
   const [mealIngredients, setMealIngredients] = useState([]);
   const [mealIngName, setMealIngName] = useState('');
@@ -1000,6 +1000,17 @@ function CustomMealInline({ onAdd, onBack }) {
     if (!mealIngName.trim()) return;
     setMealIngredients(prev => [...prev, { id: uuid(), ingredient: mealIngName.trim(), quantity: mealIngQty || '1', measurement: mealIngUnit }]);
     setMealIngName(''); setMealIngQty(''); setMealIngUnit('g');
+  }
+
+  // Append a previously-used ingredient straight into the meal-in-progress
+  // with its last quantity/measurement. User can still edit/remove the row.
+  function addRecentToMeal(rec) {
+    setMealIngredients(prev => [...prev, {
+      id: uuid(),
+      ingredient: rec.ingredient,
+      quantity: rec.quantity || '1',
+      measurement: rec.measurement || 'g',
+    }]);
   }
 
   function removeMealIngredient(id) { setMealIngredients(prev => prev.filter(i => i.id !== id)); }
@@ -1056,6 +1067,27 @@ function CustomMealInline({ onAdd, onBack }) {
           </select>
         </div>
       </div>
+      {recentIngredients.length > 0 && (
+        <div className={styles.recentSnacks}>
+          <span className={styles.mealIngHeading}>Recent</span>
+          <div className={styles.recentSnackList}>
+            {recentIngredients.map((rec, i) => (
+              <button
+                key={`${rec.ingredient}-${i}`}
+                type="button"
+                className={styles.recentSnackBtn}
+                onClick={() => addRecentToMeal(rec)}
+                aria-label={`Add ${rec.ingredient} to meal`}
+              >
+                <span className={styles.recentSnackName}>{rec.ingredient}</span>
+                <span className={styles.recentSnackCal}>{rec.quantity} {rec.measurement}</span>
+                <span style={{ fontWeight: 700, color: 'var(--color-accent)' }}>+</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div className={styles.mealIngSection}>
         <span className={styles.mealIngHeading}>Ingredients</span>
         {mealIngredients.length > 0 && (
@@ -4291,6 +4323,60 @@ export function DailyTrackerPage({ recipes, getRecipe, onClose, user, weeklyPlan
   const [dailyLog, setDailyLog] = useState(loadDailyLog);
   const [cacheVersion, setCacheVersion] = useState(0);
 
+  // Most-recently-used picks for the Custom Meal panel. Two passes so
+  // standalone ingredient entries (the user picking single ingredients
+  // directly into a slot) outrank ingredients only seen as sub-items of
+  // past custom meals.
+  const recentCustomIngredients = useMemo(() => {
+    const seen = new Set();
+    const out = [];
+    const cap = 12;
+    const dateKeys = Object.keys(dailyLog || {}).sort().reverse();
+
+    const collect = (entryFilter, extract) => {
+      for (const d of dateKeys) {
+        if (out.length >= cap) return;
+        const dayEntries = (dailyLog[d]?.entries || []);
+        for (let i = dayEntries.length - 1; i >= 0; i--) {
+          if (out.length >= cap) return;
+          const e = dayEntries[i];
+          if (!entryFilter(e)) continue;
+          for (const ing of extract(e)) {
+            if (out.length >= cap) break;
+            const name = String(ing.name || '').trim();
+            if (!name) continue;
+            const key = name.toLowerCase();
+            if (seen.has(key)) continue;
+            seen.add(key);
+            out.push({
+              ingredient: name,
+              quantity: String(ing.quantity ?? '1'),
+              measurement: String(ing.measurement || 'g'),
+            });
+          }
+        }
+      }
+    };
+
+    // Pass 1: standalone ingredient entries (highest priority).
+    collect(
+      e => e?.type === 'ingredient' && !!e?.ingredientName,
+      e => [{ name: e.ingredientName, quantity: e.quantity, measurement: e.measurement }],
+    );
+
+    // Pass 2: ingredients nested inside past custom_meal entries (backfill).
+    collect(
+      e => e?.type === 'custom_meal' && Array.isArray(e?.ingredientNutrition),
+      e => (e.ingredientNutrition || []).map(ing => ({
+        name: ing?.ingredient || ing?.name,
+        quantity: ing?.quantity,
+        measurement: ing?.measurement,
+      })),
+    );
+
+    return out;
+  }, [dailyLog]);
+
   // On mount: load daily log from Firestore subcollection and merge with local
   useEffect(() => {
     if (!user) return;
@@ -4750,6 +4836,7 @@ export function DailyTrackerPage({ recipes, getRecipe, onClose, user, weeklyPlan
               <CustomMealInline
                 onAdd={(entry) => { addEntry(entry, addModal.targetDate, addModal.targetSlot); setAddModal(null); }}
                 onBack={() => setAddModal(prev => ({ ...prev, mode: null }))}
+                recentIngredients={recentCustomIngredients}
               />
             ) : addModal.mode === 'ingredient' ? (
               <TrackIngredientInline
