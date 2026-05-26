@@ -970,6 +970,7 @@ export function hydrateLocalStorage(userData, uid) {
   hydrateArrayWithDefense('sunday-pantry-fruit', userData.pantryFruit, 'pantryFruit');
   localStorage.setItem('sunday-shop-extras', JSON.stringify(userData.shopExtras || []));
   localStorage.setItem('sunday-shopping-selection', JSON.stringify(userData.shoppingSelection || []));
+  hydrateArrayWithDefense('sunday-shopping-lists', userData.shoppingLists, 'shoppingLists');
   hydrateObjectWithDefense('sunday-weekly-servings', userData.weeklyServings, 'weeklyServings');
 
   if (userData.keyIngredients) {
@@ -1319,46 +1320,89 @@ export async function loadFriends(uid) {
         iSharedShopping: mySharedShopping.includes(fid),
         hasSharedEatingOutWithMe: (data.sharedEatingOutWith || []).includes(uid),
         iSharedEatingOut: mySharedEatingOut.includes(fid),
-        // How this friend has ranked MY restaurants (their top-3 of my
-        // shared eating-out list). Array of restaurant ids in rank order;
-        // null entries mean that rank slot is unfilled. Empty if they
-        // haven't voted.
-        votesOnMyEatingOut: Array.isArray(data.eatingOutVotes?.[uid])
-          ? data.eatingOutVotes[uid].slice(0, 3)
-          : [],
+        // How this friend has ranked MY restaurants — per-category top-3.
+        // Shape: { [category]: [r1, r2, r3] }. Legacy `[r1, r2, r3]` is
+        // bucketed under `__all` for backward compat.
+        votesOnMyEatingOutByCategory: (() => {
+          const raw = data.eatingOutVotes?.[uid];
+          if (Array.isArray(raw)) {
+            const trimmed = raw.slice(0, 3);
+            while (trimmed.length < 3) trimmed.push(null);
+            return trimmed.some(x => x != null) ? { __all: trimmed } : {};
+          }
+          if (raw && typeof raw === 'object') {
+            const out = {};
+            for (const [cat, arr] of Object.entries(raw)) {
+              if (!Array.isArray(arr)) continue;
+              const t = arr.slice(0, 3);
+              while (t.length < 3) t.push(null);
+              if (t.some(x => x != null)) out[cat] = t;
+            }
+            return out;
+          }
+          return {};
+        })(),
       });
     }
   }
   return friends;
 }
 
+// Legacy votes were stored as `{ [ownerUid]: [r1,r2,r3] }`. New shape is
+// `{ [ownerUid]: { [category]: [r1,r2,r3] } }`. Reading auto-migrates the
+// old shape under a synthetic `__all` category so prior picks aren't lost.
+export const LEGACY_VOTE_CATEGORY = '__all';
+
+function normalizeVotesMap(raw) {
+  if (!raw || typeof raw !== 'object') return {};
+  const out = {};
+  for (const [ownerUid, v] of Object.entries(raw)) {
+    if (Array.isArray(v)) {
+      // Legacy: bucket under __all
+      const trimmed = v.slice(0, 3);
+      while (trimmed.length < 3) trimmed.push(null);
+      if (trimmed.some(x => x != null)) out[ownerUid] = { [LEGACY_VOTE_CATEGORY]: trimmed };
+    } else if (v && typeof v === 'object') {
+      const byCat = {};
+      for (const [cat, arr] of Object.entries(v)) {
+        if (!Array.isArray(arr)) continue;
+        const trimmed = arr.slice(0, 3);
+        while (trimmed.length < 3) trimmed.push(null);
+        if (trimmed.some(x => x != null)) byCat[cat] = trimmed;
+      }
+      if (Object.keys(byCat).length > 0) out[ownerUid] = byCat;
+    }
+  }
+  return out;
+}
+
 /**
- * Read my own eating-out votes — a map of ownerUid → [r1, r2, r3] (rank
- * order, null entries allowed).
+ * Read my own eating-out votes — `{ [ownerUid]: { [category]: [r1,r2,r3] } }`.
+ * Used to populate the rank picker on shared lists and to drive the Next
+ * Spots dashboard. Auto-migrates legacy `{ ownerUid: [...] }` shape.
  */
 export async function loadMyEatingOutVotes(uid) {
   try {
     const snap = await getDoc(doc(db, 'users', uid));
     if (!snap.exists()) return {};
-    const data = snap.data();
-    const v = data.eatingOutVotes;
-    return (v && typeof v === 'object') ? v : {};
+    return normalizeVotesMap(snap.data().eatingOutVotes);
   } catch {
     return {};
   }
 }
 
 /**
- * Set my rank (1, 2, 3, or null to clear) for a single restaurant on a
- * friend's shared eating-out list. Setting a rank that another restaurant
+ * Set my rank (1, 2, 3, or null to clear) for a single restaurant within
+ * a (ownerUid, category) bucket. Replacing a rank that another restaurant
  * already holds bumps that other restaurant out of the slot.
  */
-export async function setEatingOutVote(uid, ownerUid, restaurantId, rank) {
+export async function setEatingOutVote(uid, ownerUid, category, restaurantId, rank) {
   const ref = doc(db, 'users', uid);
   const snap = await getDoc(ref);
   const data = snap.exists() ? snap.data() : {};
-  const allVotes = (data.eatingOutVotes && typeof data.eatingOutVotes === 'object') ? { ...data.eatingOutVotes } : {};
-  const current = Array.isArray(allVotes[ownerUid]) ? allVotes[ownerUid].slice(0, 3) : [null, null, null];
+  const allVotes = normalizeVotesMap(data.eatingOutVotes);
+  const byCat = { ...(allVotes[ownerUid] || {}) };
+  const current = Array.isArray(byCat[category]) ? byCat[category].slice(0, 3) : [null, null, null];
   while (current.length < 3) current.push(null);
   for (let i = 0; i < 3; i++) {
     if (current[i] === restaurantId) current[i] = null;
@@ -1366,10 +1410,28 @@ export async function setEatingOutVote(uid, ownerUid, restaurantId, rank) {
   if (rank === 1 || rank === 2 || rank === 3) {
     current[rank - 1] = restaurantId;
   }
-  const compact = current.every(v => v == null) ? [] : current;
-  if (compact.length === 0) delete allVotes[ownerUid];
-  else allVotes[ownerUid] = compact;
+  if (current.every(v => v == null)) {
+    delete byCat[category];
+  } else {
+    byCat[category] = current;
+  }
+  if (Object.keys(byCat).length === 0) {
+    delete allVotes[ownerUid];
+  } else {
+    allVotes[ownerUid] = byCat;
+  }
   await updateDoc(ref, { eatingOutVotes: allVotes });
+}
+
+/**
+ * Write a `restaurants` array onto any user's doc — used for the shared
+ * Eating Out list where viewers (anyone in `sharedEatingOutWith`) can also
+ * edit. Firestore rules must allow this; otherwise the write will reject.
+ */
+export async function saveOwnerRestaurants(ownerUid, restaurants) {
+  if (!ownerUid) throw new Error('saveOwnerRestaurants: ownerUid required');
+  const ref = doc(db, 'users', ownerUid);
+  await setDoc(ref, { restaurants }, { merge: true });
 }
 
 /**
@@ -1413,7 +1475,7 @@ export async function toggleEatingOutShare(uid, friendUid, grant) {
 }
 
 /**
- * Read a friend's Eating Out (restaurants) list. Returns empty when the
+ * Read a friend's Eating Out (restaurants) list. Returns {} when the
  * friend hasn't shared with us — Firestore rules will block the read.
  */
 export async function loadFriendEatingOut(friendUid) {
@@ -1624,6 +1686,98 @@ export async function acceptSharedRecipe(docId) {
  */
 export async function declineSharedRecipe(docId) {
   await deleteDoc(doc(db, 'sharedRecipes', docId));
+}
+
+/* ── Share a logged meal with a friend ── */
+
+// Map current hour-of-day to a meal slot. Mirrors DailyTrackerPage's
+// categoryToSlot for the "no category hint" case so an accepted share
+// lands in a sensible slot for the recipient's local time.
+function slotForCurrentHour() {
+  const h = new Date().getHours();
+  if (h < 11) return 'breakfast';
+  if (h < 15) return 'lunch';
+  if (h < 21) return 'dinner';
+  return 'snack';
+}
+
+// Strip the original entry of fields that only make sense for the sender
+// (sender's id, sender's mealSlot/timestamp) and keep the nutrition
+// snapshot so recipients see correct macros even if their ingredient DB
+// differs. The recipient gets a fresh id, timestamp, and slot at accept
+// time.
+function snapshotMealForShare(entry) {
+  if (!entry || typeof entry !== 'object') return null;
+  const {
+    id: _id,
+    timestamp: _ts,
+    mealSlot: _ms,
+    ...rest
+  } = entry;
+  return JSON.parse(JSON.stringify(rest));
+}
+
+/**
+ * Share a logged meal entry with a friend. Writes to sharedMeals/{docId}.
+ * Works for any entry type (recipe / custom_meal / ingredient) — on accept
+ * the recipient gets it as a custom_meal copy with the nutrition snapshot
+ * baked in.
+ */
+export async function shareMeal(fromUid, toUid, fromUsername, mealEntry) {
+  const snapshot = snapshotMealForShare(mealEntry);
+  if (!snapshot) throw new Error('shareMeal: no meal entry provided');
+  await addDoc(collection(db, 'sharedMeals'), {
+    from: fromUid,
+    to: toUid,
+    fromUsername,
+    meal: snapshot,
+    sharedAt: new Date().toISOString(),
+  });
+}
+
+/**
+ * Get all pending shared meals addressed to a user.
+ */
+export async function getPendingSharedMeals(uid) {
+  const q = query(collection(db, 'sharedMeals'), where('to', '==', uid));
+  const snap = await getDocs(q);
+  return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+}
+
+/**
+ * Accept a shared meal: append a custom_meal entry to the recipient's
+ * dailyLog for today (in their local tz), then delete the share doc.
+ * Returns the dateKey (YYYY-MM-DD) it was added to.
+ */
+export async function acceptSharedMeal(docId, meal, recipientUid) {
+  const today = (() => {
+    const d = new Date();
+    const yyyy = d.getFullYear();
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    return `${yyyy}-${mm}-${dd}`;
+  })();
+  const entry = {
+    ...meal,
+    id: (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+    type: 'custom_meal',
+    mealSlot: slotForCurrentHour(),
+    timestamp: new Date().toISOString(),
+  };
+  const log = (await loadDailyLogFromFirestore(recipientUid)) || {};
+  const day = log[today] || { entries: [] };
+  const nextDay = { ...day, entries: [...(day.entries || []), entry] };
+  const nextLog = { ...log, [today]: nextDay };
+  await saveDailyLogToFirestore(recipientUid, nextLog);
+  await deleteDoc(doc(db, 'sharedMeals', docId));
+  return today;
+}
+
+/**
+ * Decline a shared meal by deleting the share doc.
+ */
+export async function declineSharedMeal(docId) {
+  await deleteDoc(doc(db, 'sharedMeals', docId));
 }
 
 /* ── Share-via-link functions ── */

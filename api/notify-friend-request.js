@@ -7,7 +7,7 @@ export default async function handler(req, res) {
     return res.status(405).send('Method not allowed');
   }
 
-  const { toEmail, toName, fromUsername, message, type, recipeName, toPhone, smsBody } = req.body || {};
+  const { toEmail, toName, fromUsername, message, type, recipeName, mealName, toPhone, smsBody } = req.body || {};
 
   // SMS reminder
   if (type === 'sms-reminder' && toPhone) {
@@ -58,6 +58,9 @@ export default async function handler(req, res) {
   } else if (type === 'shared-recipe') {
     subject = `${fromUsername || 'Someone'} shared a recipe with you on Prep Day`;
     text = `Hi${toName ? ` ${toName}` : ''}!\n\n@${fromUsername || 'A user'} shared a recipe with you on Prep Day: "${recipeName || 'Untitled'}"\n\nLog in to view and accept it: https://prep-day.com\n\n— Prep Day`;
+  } else if (type === 'shared-meal') {
+    subject = `${fromUsername || 'Someone'} shared a meal with you on Prep Day`;
+    text = `Hi${toName ? ` ${toName}` : ''}!\n\n@${fromUsername || 'A user'} shared a meal with you on Prep Day: "${mealName || 'Untitled meal'}"\n\nLog in to add it to your daily log: https://prep-day.com\n\n— Prep Day`;
   } else {
     const msgLine = message ? `\nMessage: "${message}"\n` : '';
     subject = `${fromUsername || 'Someone'} sent you a friend request on Prep Day`;

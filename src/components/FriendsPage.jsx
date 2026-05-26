@@ -19,6 +19,9 @@ import {
   getPendingSharedRecipes,
   acceptSharedRecipe,
   declineSharedRecipe,
+  getPendingSharedMeals,
+  acceptSharedMeal,
+  declineSharedMeal,
   toggleRecipeAccess,
   toggleShoppingShare,
   toggleEatingOutShare,
@@ -47,6 +50,7 @@ export function FriendsPage({ onClose, addRecipe, importRecipes }) {
   const [sentRequests, setSentRequests] = useState([]);
   const [friends, setFriends] = useState([]);
   const [sharedRecipes, setSharedRecipes] = useState([]);
+  const [sharedMeals, setSharedMeals] = useState([]);
   const [browseFriend, setBrowseFriend] = useState(null); // { uid, username, loading, recipes }
   const [loading, setLoading] = useState(true);
 
@@ -54,18 +58,20 @@ export function FriendsPage({ onClose, addRecipe, importRecipes }) {
   const refresh = useCallback(async () => {
     if (!uid) return;
     try {
-      const [name, reqs, sent, frs, shared] = await Promise.all([
+      const [name, reqs, sent, frs, shared, meals] = await Promise.all([
         getUsername(uid),
         getPendingRequests(uid),
         getSentRequests(uid),
         loadFriends(uid),
         getPendingSharedRecipes(uid),
+        getPendingSharedMeals(uid),
       ]);
       setMyUsername(name);
       setRequests(reqs);
       setSentRequests(sent);
       setFriends(frs);
       setSharedRecipes(shared);
+      setSharedMeals(meals);
     } catch (err) {
       console.error('FriendsPage load error:', err);
     } finally {
@@ -274,6 +280,25 @@ export function FriendsPage({ onClose, addRecipe, importRecipes }) {
       setSharedRecipes(prev => prev.filter(s => s.id !== share.id));
     } catch (err) {
       console.error('Decline shared recipe error:', err);
+    }
+  }
+
+  /* ── Accept / Decline shared meal ── */
+  async function handleAcceptMeal(share) {
+    try {
+      await acceptSharedMeal(share.id, share.meal, uid);
+      setSharedMeals(prev => prev.filter(s => s.id !== share.id));
+    } catch (err) {
+      console.error('Accept shared meal error:', err);
+    }
+  }
+
+  async function handleDeclineMeal(share) {
+    try {
+      await declineSharedMeal(share.id);
+      setSharedMeals(prev => prev.filter(s => s.id !== share.id));
+    } catch (err) {
+      console.error('Decline shared meal error:', err);
     }
   }
 
@@ -616,6 +641,34 @@ export function FriendsPage({ onClose, addRecipe, importRecipes }) {
                   </div>
                 </div>
               ))
+            )}
+          </div>
+
+          <div className={styles.section}>
+            <h3 className={styles.sectionTitle}>Shared Meals</h3>
+            {sharedMeals.length === 0 ? (
+              <p className={styles.emptyText}>No shared meals.</p>
+            ) : (
+              sharedMeals.map(share => {
+                const mealName = share.meal?.recipeName || share.meal?.ingredientName || 'Untitled meal';
+                const cal = Math.round(share.meal?.nutrition?.calories || 0);
+                return (
+                  <div key={share.id} className={styles.requestRow}>
+                    <div className={styles.friendInfo}>
+                      <span className={styles.friendUsername}>
+                        {mealName}{cal > 0 ? ` · ${cal} cal` : ''}
+                      </span>
+                      <span className={styles.friendDisplayName}>
+                        from @{share.fromUsername}
+                      </span>
+                    </div>
+                    <div className={styles.requestActions}>
+                      <button className={styles.actionBtn} onClick={() => handleAcceptMeal(share)} title="Add to today's log">Add to Today</button>
+                      <button className={styles.dangerBtn} onClick={() => handleDeclineMeal(share)}>Decline</button>
+                    </div>
+                  </div>
+                );
+              })
             )}
           </div>
         </div>

@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { NUTRIENTS, fetchNutritionForIngredient, fetchNutritionForRecipe } from '../utils/nutrition';
 import { loadIngredients } from '../utils/ingredientsStore';
 import { getSizeGrams } from '../utils/units';
-import { saveField, saveDailyLogToFirestore, loadDailyLogFromFirestore } from '../utils/firestoreSync';
+import { saveField, saveDailyLogToFirestore, loadDailyLogFromFirestore, loadFriends, getUsername, shareMeal } from '../utils/firestoreSync';
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, ReferenceLine, Legend, CartesianGrid, Area, ComposedChart } from 'recharts';
 import { RecipeDetail } from './RecipeDetail';
 import styles from './DailyTrackerPage.module.css';
@@ -3790,7 +3790,63 @@ function WeeklyView({ dailyLog, date, recipes, onDayClick, onMoveEntry, onAddToS
 const WEEKLY_PLAN_KEY = 'sunday-weekly-plan';
 
 /* ── Edit Estimated Meal Modal ── */
-function EditEstimateModal({ entry, onSave, onClose, getRecipe }) {
+function EditEstimateModal({ entry, user, onSave, onClose, getRecipe }) {
+  // Friend-share state. friendsList is lazy-loaded on first Share click so
+  // we don't pay the round-trip for every edit-modal open.
+  const [showShareDropdown, setShowShareDropdown] = useState(false);
+  const [friendsList, setFriendsList] = useState(null);
+  const [shareMsg, setShareMsg] = useState(null);
+  const [sharing, setSharing] = useState(false);
+
+  async function handleShareClick() {
+    if (showShareDropdown) { setShowShareDropdown(false); return; }
+    if (!user) return;
+    if (!friendsList) {
+      try {
+        const frs = await loadFriends(user.uid);
+        setFriendsList(frs);
+      } catch {
+        setFriendsList([]);
+      }
+    }
+    setShareMsg(null);
+    setShowShareDropdown(true);
+  }
+
+  async function handleShareWith(friend) {
+    if (!user || sharing) return;
+    setSharing(true);
+    try {
+      const myUsername = await getUsername(user.uid);
+      await shareMeal(user.uid, friend.uid, myUsername || user.displayName || '', entry);
+
+      // Fire-and-forget email notification — failure here shouldn't block
+      // the share. The Firestore doc is the source of truth.
+      if (friend.email) {
+        fetch('/api/notify-friend-request', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            type: 'shared-meal',
+            toEmail: friend.email,
+            toName: friend.displayName || friend.username || '',
+            fromUsername: myUsername || user.displayName || '',
+            mealName: entry.recipeName || entry.ingredientName || 'Untitled meal',
+          }),
+        }).catch(() => {});
+      }
+
+      setShowShareDropdown(false);
+      setShareMsg(`Shared with @${friend.username}!`);
+      setTimeout(() => setShareMsg(null), 3000);
+    } catch (err) {
+      console.error('Share meal error:', err);
+      setShareMsg('Failed to share.');
+      setTimeout(() => setShareMsg(null), 3000);
+    } finally {
+      setSharing(false);
+    }
+  }
   const [items, setItems] = useState(() => {
     if (entry.ingredientData && entry.ingredientData.length > 0) {
       return entry.ingredientData.map(i => ({ ...i }));
@@ -3903,8 +3959,88 @@ function EditEstimateModal({ entry, onSave, onClose, getRecipe }) {
       <div className={styles.modalContent} onClick={e => e.stopPropagation()}>
         <div className={styles.modalHeader}>
           <h3 className={styles.modalTitle}>Edit: {entry.recipeName}</h3>
-          <button className={styles.modalClose} onClick={onClose}>&times;</button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', position: 'relative' }}>
+            {user && (
+              <button
+                type="button"
+                onClick={handleShareClick}
+                disabled={sharing}
+                style={{
+                  padding: '0.3rem 0.7rem',
+                  border: '1px solid #CBD5E1',
+                  borderRadius: '6px',
+                  background: showShareDropdown ? '#EFF6FF' : '#fff',
+                  color: '#3B7DDD',
+                  fontSize: '0.78rem',
+                  fontWeight: 600,
+                  cursor: sharing ? 'wait' : 'pointer',
+                  fontFamily: 'inherit',
+                }}
+              >
+                {sharing ? '…' : 'Share'}
+              </button>
+            )}
+            <button className={styles.modalClose} onClick={onClose}>&times;</button>
+            {showShareDropdown && (
+              <div
+                onClick={e => e.stopPropagation()}
+                style={{
+                  position: 'absolute',
+                  top: 'calc(100% + 6px)',
+                  right: 0,
+                  zIndex: 30,
+                  minWidth: 220,
+                  maxHeight: 280,
+                  overflowY: 'auto',
+                  background: '#fff',
+                  border: '1px solid #E2E8F0',
+                  borderRadius: '8px',
+                  boxShadow: '0 8px 24px rgba(0,0,0,0.12)',
+                  padding: '0.4rem 0',
+                }}
+              >
+                {!friendsList ? (
+                  <div style={{ padding: '0.6rem 0.9rem', fontSize: '0.78rem', color: '#64748B' }}>Loading…</div>
+                ) : friendsList.length === 0 ? (
+                  <div style={{ padding: '0.6rem 0.9rem', fontSize: '0.78rem', color: '#64748B' }}>
+                    No friends yet. Add some on the Friends page.
+                  </div>
+                ) : (
+                  friendsList.map(friend => (
+                    <button
+                      key={friend.uid}
+                      type="button"
+                      onClick={() => handleShareWith(friend)}
+                      disabled={sharing}
+                      style={{
+                        display: 'block',
+                        width: '100%',
+                        textAlign: 'left',
+                        padding: '0.5rem 0.9rem',
+                        border: 'none',
+                        background: 'transparent',
+                        color: '#1E293B',
+                        fontSize: '0.84rem',
+                        fontWeight: 500,
+                        cursor: sharing ? 'wait' : 'pointer',
+                        fontFamily: 'inherit',
+                      }}
+                      onMouseEnter={e => (e.currentTarget.style.background = '#F1F5F9')}
+                      onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+                    >
+                      @{friend.username}{friend.displayName ? ` · ${friend.displayName}` : ''}
+                    </button>
+                  ))
+                )}
+              </div>
+            )}
+          </div>
         </div>
+        {shareMsg && (
+          <div style={{ padding: '0.4rem 0.7rem', marginBottom: '0.5rem', borderRadius: '6px', background: shareMsg.startsWith('Failed') ? '#FEF2F2' : '#ECFDF5', color: shareMsg.startsWith('Failed') ? '#B91C1C' : '#047857', fontSize: '0.78rem', fontWeight: 600 }}>
+            {shareMsg}
+          </div>
+        )}
 
         {/* Nutrition totals summary */}
         {existingNutrition.calories > 0 && (
@@ -4652,6 +4788,7 @@ export function DailyTrackerPage({ recipes, getRecipe, onClose, user, weeklyPlan
         return (
           <EditEstimateModal
             entry={entry}
+            user={user}
             getRecipe={getRecipe}
             onSave={(updates) => {
               updateEntry(editModal.entryId, editModal.dateStr, updates);
