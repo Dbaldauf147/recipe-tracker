@@ -16,7 +16,7 @@ const ADMIN_UID = import.meta.env.VITE_ADMIN_UID;
 
 // Display order of columns (by field key)
 const DISPLAY_KEYS = [
-  'ingredient', 'grams', 'measurement', 'calories', 'protein', 'carbs', 'fat',
+  'ingredient', 'brand', 'grams', 'measurement', 'calories', 'protein', 'carbs', 'fat',
   'fiber', 'sugar', 'saturatedFat', 'addedSugar', 'sodium', 'potassium',
   'vitaminB12', 'vitaminC', 'magnesium', 'zinc', 'iron', 'calcium',
   'leucine', 'omega3', 'proteinPerCal', 'fiberPerCal', 'notes',
@@ -70,6 +70,7 @@ function loadColWidths() {
 
 const MANUAL_FIELDS = [
   { key: 'ingredient', label: 'Ingredient Name', type: 'text', required: true },
+  { key: 'brand', label: 'Brand (optional)', type: 'text', placeholder: 'e.g. Siggi\'s, Chobani' },
   { key: 'grams', label: 'Serving Size (g)', type: 'number' },
   { key: 'measurement', label: 'Measurement', type: 'text', placeholder: 'e.g. cup, oz, piece' },
   { key: 'calories', label: 'Calories', type: 'number' },

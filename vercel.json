@@ -8,5 +8,8 @@
   "functions": {
     "api/parse-recipe-image.js": { "maxDuration": 60 },
     "api/parse-nutrition-label.js": { "maxDuration": 60 }
-  }
+  },
+  "crons": [
+    { "path": "/api/send-meal-prompt", "schedule": "0 * * * *" }
+  ]
 }

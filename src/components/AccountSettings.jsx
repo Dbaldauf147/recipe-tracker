@@ -14,8 +14,11 @@ export function AccountSettings({ user, onClose }) {
   const [deleting, setDeleting] = useState(false);
   const [showDelete, setShowDelete] = useState(false);
   const [phone, setPhone] = useState('');
+  // Comma-separated emails in a single input. Parsed into an array on save.
+  const [reminderEmails, setReminderEmails] = useState('');
   const [foodLogReminder, setFoodLogReminder] = useState(false);
-  const [foodLogTime, setFoodLogTime] = useState('20:00');
+  const [foodLogTime, setFoodLogTime] = useState('17:00');
+  const [foodLogDays, setFoodLogDays] = useState([0, 1, 2, 3, 4, 5, 6]);
   const [weightReminder, setWeightReminder] = useState(false);
   const [weightTime, setWeightTime] = useState('08:00');
   const [reminderSaved, setReminderSaved] = useState(false);
@@ -24,14 +27,52 @@ export function AccountSettings({ user, onClose }) {
   useEffect(() => {
     const s = loadReminderSettings();
     if (s.phone) setPhone(s.phone);
+    if (Array.isArray(s.emails) && s.emails.length > 0) {
+      setReminderEmails(s.emails.join(', '));
+    } else if (s.email) {
+      setReminderEmails(s.email);
+    }
     if (s.foodLogReminder) setFoodLogReminder(s.foodLogReminder);
     if (s.foodLogTime) setFoodLogTime(s.foodLogTime);
+    if (Array.isArray(s.foodLogDays)) setFoodLogDays(s.foodLogDays);
     if (s.weightReminder) setWeightReminder(s.weightReminder);
     if (s.weightTime) setWeightTime(s.weightTime);
   }, []);
 
+  function toggleDay(d) {
+    setFoodLogDays(prev => prev.includes(d) ? prev.filter(x => x !== d) : [...prev, d].sort());
+  }
+
+  // Accept comma / semicolon / whitespace separators so paste-from-anywhere
+  // works, lowercase + dedupe, and drop anything that doesn't look like an
+  // address so a stray comma or trailing space doesn't get sent to Resend.
+  function parseEmails(raw) {
+    return Array.from(new Set(
+      String(raw || '')
+        .split(/[,;\s]+/)
+        .map(s => s.trim().toLowerCase())
+        .filter(s => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s))
+    ));
+  }
+
+  function effectiveEmails() {
+    const parsed = parseEmails(reminderEmails);
+    if (parsed.length > 0) return parsed;
+    if (user?.email) return [user.email.toLowerCase()];
+    return [];
+  }
+
   function saveReminders() {
-    const settings = { phone, foodLogReminder, foodLogTime, weightReminder, weightTime };
+    const emails = effectiveEmails();
+    const settings = {
+      phone,
+      // `emails` is the new authoritative field; `email` kept as the first
+      // address so older readers / debug tools that only know about the
+      // singular field still see a valid recipient.
+      emails,
+      email: emails[0] || '',
+      foodLogReminder, foodLogTime, foodLogDays, weightReminder, weightTime,
+    };
     localStorage.setItem(REMINDER_KEY, JSON.stringify(settings));
     if (user) saveField(user.uid, 'reminderSettings', settings);
     setReminderSaved(true);
@@ -39,21 +80,23 @@ export function AccountSettings({ user, onClose }) {
   }
 
   async function sendTestReminder() {
-    if (!user?.email) { alert('No email on file.'); return; }
+    const emails = effectiveEmails();
+    if (emails.length === 0) { alert('No email on file — type a destination email above first.'); return; }
     setTestSending(true);
     try {
-      const res = await fetch('/api/notify-friend-request', {
+      const res = await fetch('/api/send-test-reminder', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          type: 'sms-reminder',
-          toEmail: user.email,
-          smsBody: 'This is a test reminder from Prep Day! Your email notifications are working.',
-        }),
+        body: JSON.stringify({ emails }),
       });
-      alert(res.ok ? 'Test email sent! Check your inbox.' : 'Failed to send.');
-    } catch {
-      alert('Failed to send test email.');
+      if (res.ok) {
+        alert('Test email sent! Check your inbox.');
+      } else {
+        const data = await res.json().catch(() => ({}));
+        alert(`Failed to send: ${data.error || res.status}`);
+      }
+    } catch (err) {
+      alert(`Failed to send: ${err.message || err}`);
     } finally {
       setTestSending(false);
     }
@@ -120,8 +163,26 @@ export function AccountSettings({ user, onClose }) {
       <div className={styles.section}>
         <h3 className={styles.sectionTitle}>Email Reminders</h3>
         <p className={styles.reminderHint} style={{ marginBottom: '0.75rem' }}>
-          Get email reminders when you forget to log meals or weigh yourself. Emails go to {user?.email || 'your account email'}.
+          Get email reminders when you forget to log meals or weigh yourself.
         </p>
+
+        <div className={styles.reminderRow} style={{ flexDirection: 'column', alignItems: 'stretch', gap: '0.35rem' }}>
+          <label className={styles.reminderToggle} style={{ cursor: 'default' }}>
+            Send reminders to
+          </label>
+          <input
+            type="text"
+            className={styles.reminderTimeInput}
+            style={{ width: '100%', maxWidth: 360 }}
+            value={reminderEmails}
+            onChange={e => setReminderEmails(e.target.value)}
+            placeholder={user?.email ? `${user.email}, partner@example.com` : 'you@example.com, partner@example.com'}
+            autoComplete="email"
+          />
+          <p className={styles.reminderHint} style={{ marginTop: 0 }}>
+            Separate multiple addresses with commas. Leave blank to use your account email ({user?.email || 'unset'}). Save after changing.
+          </p>
+        </div>
 
         <div className={styles.reminderRow}>
           <label className={styles.reminderToggle}>
@@ -133,9 +194,35 @@ export function AccountSettings({ user, onClose }) {
           )}
         </div>
         {foodLogReminder && (
-          <p className={styles.reminderHint}>
-            If your food log has fewer than 3 meals by {new Date(`2000-01-01T${foodLogTime}`).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}, you'll get a reminder email.
-          </p>
+          <>
+            <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap', margin: '0.5rem 0 0.25rem' }}>
+              {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((label, idx) => {
+                const on = foodLogDays.includes(idx);
+                return (
+                  <button
+                    key={idx}
+                    type="button"
+                    onClick={() => toggleDay(idx)}
+                    style={{
+                      padding: '0.35rem 0.6rem',
+                      borderRadius: 6,
+                      border: '1px solid ' + (on ? '#111' : '#ccc'),
+                      background: on ? '#111' : '#fff',
+                      color: on ? '#fff' : '#666',
+                      fontSize: '0.8rem',
+                      cursor: 'pointer',
+                      minWidth: 42,
+                    }}
+                  >
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
+            <p className={styles.reminderHint}>
+              If you have fewer than 3 meals logged by {new Date(`2000-01-01T${foodLogTime}`).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })} (Eastern Time, rounded to the hour) on a selected day, you'll get a reminder email.
+            </p>
+          </>
         )}
 
         <div className={styles.reminderRow}>

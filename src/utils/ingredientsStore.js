@@ -9,6 +9,10 @@ const CSV_URL =
 // Maps CSV column indices to named object keys.
 export const INGREDIENT_FIELDS = [
   { key: 'ingredient',    csvIdx: 7,  label: 'Ingredient' },
+  // Optional brand tag — lets "Siggi's plain yogurt" and "Chobani plain
+  // yogurt" coexist as separate entries with different nutrition. Not in
+  // the legacy CSV (csvIdx omitted) — purely client-side / Firestore.
+  { key: 'brand',         label: 'Brand' },
   { key: 'grams',         csvIdx: 8,  label: 'Grams' },
   { key: 'measurement',   csvIdx: 9,  label: 'Measurement' },
   { key: 'protein',       csvIdx: 10, label: 'Protein (g)' },

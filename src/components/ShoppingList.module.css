@@ -378,6 +378,39 @@
   transition: opacity 0.15s ease;
 }
 
+.instacartBtn {
+  background: #006a4e;
+  border: 1px solid #00563f;
+  color: #fff;
+  font-size: 0.78rem;
+  font-weight: 600;
+  font-family: inherit;
+  padding: 0.3rem 0.7rem;
+  border-radius: var(--radius-sm, 4px);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s ease, opacity 0.15s ease;
+}
+
+.instacartBtn:hover:not(:disabled) {
+  background: #00563f;
+}
+
+.instacartBtn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.instacartError {
+  margin: 0.4rem 0 0.6rem;
+  padding: 0.5rem 0.7rem;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: var(--radius-sm, 4px);
+  color: #991b1b;
+  font-size: 0.8rem;
+}
+
 .addToggle:hover {
   opacity: 0.8;
 }

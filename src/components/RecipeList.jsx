@@ -1729,11 +1729,11 @@ export function RecipeList({
                           return (
                             <tr key={`ai-b-${item._aiIdx}`} className={styles.aiSuggestRow}>
                               <td>
-                                <button className={styles.suggestName} style={{ color: '#7C3AED' }} onClick={() => setAiPreview({ ...m, _category: 'breakfast' })}>
+                                <button className={styles.suggestName} style={{ color: '#1D4ED8' }} onClick={() => setAiPreview({ ...m, _category: 'breakfast' })}>
                                   ✨ {m.title}
                                 </button>
                               </td>
-                              <td className={styles.suggestDays} style={{ color: '#7C3AED' }}>AI</td>
+                              <td className={styles.suggestDays} style={{ color: '#1D4ED8' }}>AI</td>
                               {suggestCols.overdue && <td>—</td>}
                               {suggestCols.seasonal && <td>—</td>}
                               <td style={{ display: 'flex', gap: '0.25rem', alignItems: 'center' }}>
@@ -1770,7 +1770,7 @@ export function RecipeList({
                     {aiSkipping === 'breakfast' && (
                       <tr className={styles.aiSuggestRow}>
                         <td colSpan={2 + (suggestCols.overdue ? 1 : 0) + (suggestCols.seasonal ? 1 : 0) + 1}>
-                          <span style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.25rem 0', color: '#7C3AED', fontSize: 'var(--font-size-sm)', fontWeight: 500 }}>
+                          <span style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.25rem 0', color: '#1D4ED8', fontSize: 'var(--font-size-sm)', fontWeight: 500 }}>
                             <span className={styles.aiLoadingDot}>●</span> Finding another suggestion...
                           </span>
                         </td>
@@ -1810,11 +1810,11 @@ export function RecipeList({
                           return (
                             <tr key={`ai-l-${item._aiIdx}`} className={styles.aiSuggestRow}>
                               <td>
-                                <button className={styles.suggestName} style={{ color: '#7C3AED' }} onClick={() => setAiPreview({ ...m, _category: m.category || 'lunch-dinner' })}>
+                                <button className={styles.suggestName} style={{ color: '#1D4ED8' }} onClick={() => setAiPreview({ ...m, _category: m.category || 'lunch-dinner' })}>
                                   ✨ {m.title}
                                 </button>
                               </td>
-                              <td className={styles.suggestDays} style={{ color: '#7C3AED' }}>AI</td>
+                              <td className={styles.suggestDays} style={{ color: '#1D4ED8' }}>AI</td>
                               {suggestCols.overdue && <td>—</td>}
                               {suggestCols.seasonal && <td>—</td>}
                               <td style={{ display: 'flex', gap: '0.25rem', alignItems: 'center' }}>
@@ -1851,7 +1851,7 @@ export function RecipeList({
                     {aiSkipping && aiSkipping !== 'breakfast' && (
                       <tr className={styles.aiSuggestRow}>
                         <td colSpan={2 + (suggestCols.overdue ? 1 : 0) + (suggestCols.seasonal ? 1 : 0) + 1}>
-                          <span style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.25rem 0', color: '#7C3AED', fontSize: 'var(--font-size-sm)', fontWeight: 500 }}>
+                          <span style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.25rem 0', color: '#1D4ED8', fontSize: 'var(--font-size-sm)', fontWeight: 500 }}>
                             <span className={styles.aiLoadingDot}>●</span> Finding another suggestion...
                           </span>
                         </td>
@@ -2098,7 +2098,7 @@ export function RecipeList({
             <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
               <div>
                 <h2 style={{ margin: 0, fontSize: '1.3rem', fontWeight: 700, color: 'var(--color-text)' }}>✨ {aiPreview.title}</h2>
-                {aiPreview.cuisine && <span style={{ fontSize: '0.78rem', fontWeight: 600, color: '#7C3AED', background: '#EDE9FE', padding: '2px 8px', borderRadius: '999px', marginTop: '0.25rem', display: 'inline-block' }}>{aiPreview.cuisine}</span>}
+                {aiPreview.cuisine && <span style={{ fontSize: '0.78rem', fontWeight: 600, color: '#1D4ED8', background: '#DBEAFE', padding: '2px 8px', borderRadius: '999px', marginTop: '0.25rem', display: 'inline-block' }}>{aiPreview.cuisine}</span>}
               </div>
               <button onClick={() => setAiPreview(null)} style={{ background: 'none', border: 'none', fontSize: '1.3rem', color: 'var(--color-text-muted)', cursor: 'pointer' }}>×</button>
             </div>

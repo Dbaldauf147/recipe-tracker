@@ -1651,6 +1651,131 @@ function ExerciseSelector({ value, options, disabled, muscleGroup, onChange, onA
   );
 }
 
+// Centered modal that picks (muscleGroup, exercise) in two steps.
+// Step 1 shows the muscle-group grid. Step 2 shows that group's exercises
+// plus an inline "Add new" affordance. Confirming step 2 fires onPick with
+// both fields so the row gets group + exercise atomically.
+function GroupExercisePicker({ initialGroup, exercisesForGroup, addExerciseToLibrary, onPick, onClose }) {
+  const [group, setGroup] = useState(initialGroup || '');
+  const [adding, setAdding] = useState(false);
+  const [newName, setNewName] = useState('');
+  const [query, setQuery] = useState('');
+
+  useEffect(() => {
+    function onKey(e) {
+      if (e.key === 'Escape') onClose();
+      else if (e.key === 'Backspace' && group && !adding && !query) {
+        // Quick back-step from step 2 → step 1 when nothing's typed.
+        setGroup('');
+      }
+    }
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [group, adding, query, onClose]);
+
+  const options = group ? exercisesForGroup(group) : [];
+  const filtered = query
+    ? options.filter(o => o.toLowerCase().includes(query.toLowerCase()))
+    : options;
+
+  function pickExercise(name) {
+    onPick(group, name);
+  }
+
+  function commitNew() {
+    const name = newName.trim();
+    if (!name) return;
+    if (addExerciseToLibrary(name, group)) {
+      onPick(group, name);
+    }
+  }
+
+  return createPortal(
+    <div className={styles.pickerOverlay} onMouseDown={onClose}>
+      <div className={styles.pickerModal} onMouseDown={e => e.stopPropagation()}>
+        <div className={styles.pickerHeader}>
+          {group ? (
+            <button type="button" className={styles.pickerBack} onClick={() => { setGroup(''); setAdding(false); setNewName(''); setQuery(''); }}>
+              ← Groups
+            </button>
+          ) : <span />}
+          <h3 className={styles.pickerTitle}>
+            {group ? `${group} — pick an exercise` : 'Pick a muscle group'}
+          </h3>
+          <button type="button" className={styles.pickerClose} onClick={onClose} aria-label="Close">✕</button>
+        </div>
+
+        {!group ? (
+          <div className={styles.pickerGroupGrid}>
+            {MUSCLE_GROUPS.map(g => (
+              <button
+                key={g}
+                type="button"
+                className={styles.pickerGroupBtn}
+                onClick={() => setGroup(g)}
+              >
+                {g}
+              </button>
+            ))}
+          </div>
+        ) : (
+          <>
+            <input
+              autoFocus
+              type="text"
+              className={styles.pickerSearch}
+              placeholder={`Search ${group} exercises…`}
+              value={query}
+              onChange={e => setQuery(e.target.value)}
+            />
+            <div className={styles.pickerExerciseList}>
+              {filtered.length === 0 && !adding ? (
+                <div className={styles.pickerEmpty}>
+                  No exercises {query ? `matching "${query}"` : `in ${group}`} yet.
+                </div>
+              ) : (
+                filtered.map(ex => (
+                  <button
+                    key={ex}
+                    type="button"
+                    className={styles.pickerExerciseBtn}
+                    onClick={() => pickExercise(ex)}
+                  >
+                    {ex}
+                  </button>
+                ))
+              )}
+            </div>
+            {adding ? (
+              <div className={styles.pickerAddRow}>
+                <input
+                  type="text"
+                  autoFocus
+                  className={styles.pickerAddInput}
+                  placeholder={`New ${group} exercise`}
+                  value={newName}
+                  onChange={e => setNewName(e.target.value)}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter') { e.preventDefault(); commitNew(); }
+                    else if (e.key === 'Escape') { e.preventDefault(); setAdding(false); setNewName(''); }
+                  }}
+                />
+                <button type="button" className={styles.pickerAddBtn} onClick={commitNew}>Add</button>
+                <button type="button" className={styles.pickerAddCancel} onClick={() => { setAdding(false); setNewName(''); }}>Cancel</button>
+              </div>
+            ) : (
+              <button type="button" className={styles.pickerAddNew} onClick={() => setAdding(true)}>
+                + Add new {group} exercise
+              </button>
+            )}
+          </>
+        )}
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
 export function WorkoutPage({ onBack, user }) {
   const [workouts, setWorkouts] = useState(loadWorkouts);
   const [selectedDate, setSelectedDate] = useState(todayStr());
@@ -1710,6 +1835,9 @@ export function WorkoutPage({ onBack, user }) {
   const [locationEditorOpen, setLocationEditorOpen] = useState(false);
   const [workoutType, setWorkoutType] = useState('');
   const [entries, setEntries] = useState(() => blankEntries());
+  // Row index whose group/exercise picker modal is currently open.
+  // null = closed. Set by + Add Exercise and by clicking an empty row.
+  const [pickerIdx, setPickerIdx] = useState(null);
   const [viewMode, setViewMode] = useState('log'); // 'log' | 'history' | 'charts' | 'body' | 'exercises' | 'steps' | 'sleep' | 'stats' (Overview)
   const [exerciseLibrary, setExerciseLibrary] = useState(loadLibrary);
   // Mirror the mobile app: per-user custom exercises and hidden defaults
@@ -2345,7 +2473,13 @@ export function WorkoutPage({ onBack, user }) {
   }
 
   function addEntry() {
-    setEntries(prev => [...prev, emptyEntry()]);
+    setEntries(prev => {
+      const next = [...prev, emptyEntry()];
+      // Open the muscle-group picker on the row we just added so the user
+      // doesn't have to click again to start filling it.
+      setPickerIdx(next.length - 1);
+      return next;
+    });
   }
 
   function removeEntry(idx) {
@@ -3259,6 +3393,30 @@ export function WorkoutPage({ onBack, user }) {
                   const total = entry.perArm ? baseW * 2 : baseW;
                   const ed = entry.editedFields || {};
                   const editedCls = (field) => ed[field] ? styles.manuallyEdited : '';
+                  // Empty row: render a single clickable placeholder that opens
+                  // the muscle-group picker. Saves the user from hunting the
+                  // group select + exercise select on a brand-new row.
+                  if (!entry.group && !entry.exercise) {
+                    // 11 = group + exercise + notes + time + 4 sets + weight + per + total
+                    return (
+                      <tr key={i} className={styles.emptyEntryRow}>
+                        <td colSpan={11} className={styles.emptyEntryCell}>
+                          <button
+                            type="button"
+                            className={styles.emptyEntryBtn}
+                            onClick={() => setPickerIdx(i)}
+                          >
+                            + Click to add an exercise
+                          </button>
+                        </td>
+                        <td className={styles.logRemoveCell}>
+                          {entries.length > 1 && (
+                            <button className={styles.logRemoveBtn} onClick={() => removeEntry(i)} title="Remove row">×</button>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  }
                   return (
                     <tr key={i}>
                       <td>
@@ -3362,6 +3520,34 @@ export function WorkoutPage({ onBack, user }) {
             <button className={styles.addExerciseBtn} onClick={addEntry}>+ Add Exercise</button>
             <button className={styles.saveBtn} onClick={saveWorkout}>Save Workout</button>
           </div>
+
+          {pickerIdx != null && entries[pickerIdx] && (
+            <GroupExercisePicker
+              initialGroup={entries[pickerIdx].group}
+              exercisesForGroup={exercisesForGroup}
+              addExerciseToLibrary={addExerciseToLibrary}
+              onPick={(group, exercise) => {
+                setEntries(prev => prev.map((e, i) => i === pickerIdx
+                  ? enrichEntry({ ...e, group, exercise })
+                  : e,
+                ));
+                setPickerIdx(null);
+              }}
+              onClose={() => {
+                // If the user bailed without picking and the row is still
+                // empty, drop it so we don't litter the table with blanks —
+                // but only if there are other rows to keep.
+                setEntries(prev => {
+                  const target = prev[pickerIdx];
+                  if (target && !target.group && !target.exercise && prev.length > 1) {
+                    return prev.filter((_, i) => i !== pickerIdx);
+                  }
+                  return prev;
+                });
+                setPickerIdx(null);
+              }}
+            />
+          )}
         </div>
       )}
 

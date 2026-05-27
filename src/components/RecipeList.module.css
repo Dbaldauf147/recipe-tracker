@@ -1159,13 +1159,13 @@
 
 /* AI Suggested Meals */
 .aiSuggestRow {
-  background: #F5F3FF;
-  border-left: 3px solid #7C3AED;
+  background: #EFF6FF;
+  border-left: 3px solid #1D4ED8;
 }
 .aiSuggestAddBtn {
   background: none;
-  border: 1px solid #7C3AED;
-  color: #7C3AED;
+  border: 1px solid #1D4ED8;
+  color: #1D4ED8;
   font-size: 1rem;
   font-weight: 600;
   width: 28px;
@@ -1178,7 +1178,7 @@
   font-family: inherit;
 }
 .aiSuggestAddBtn:hover {
-  background: #7C3AED;
+  background: #1D4ED8;
   color: #fff;
 }
 .aiSkipBtn {

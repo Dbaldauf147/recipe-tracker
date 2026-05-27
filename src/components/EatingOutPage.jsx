@@ -4,7 +4,7 @@ import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { db } from '../firebase';
-import { saveField } from '../utils/firestoreSync';
+import { saveOwnerRestaurants } from '../utils/firestoreSync';
 import {
   splitTsv,
   detectHasHeader,
@@ -267,7 +267,7 @@ function TagChips({ values, onChange, suggestions, placeholder }) {
   );
 }
 
-function EditModal({ initial, onSave, onClose, onDelete, cuisineSuggestions, locationSuggestions }) {
+function EditModal({ initial, onSave, onClose, onDelete, cuisineSuggestions, locationSuggestions, categorySuggestions = [] }) {
   const [name, setName] = useState(initial.name || '');
   const [url, setUrl] = useState(initial.url || '');
   const [imageUrl, setImageUrl] = useState(initial.imageUrl || '');
@@ -275,6 +275,7 @@ function EditModal({ initial, onSave, onClose, onDelete, cuisineSuggestions, loc
   const [notes, setNotes] = useState(initial.notes || '');
   const [cuisines, setCuisines] = useState(initial.cuisines || []);
   const [locations, setLocations] = useState(initial.locations || []);
+  const [categories, setCategories] = useState(initial.categories || []);
   const [rating, setRating] = useState(initial.rating ?? null);
   const [ratingLabel, setRatingLabel] = useState(initial.ratingLabel || '');
   const [status, setStatus] = useState(initial.status || 'want-to-try');
@@ -363,6 +364,7 @@ function EditModal({ initial, onSave, onClose, onDelete, cuisineSuggestions, loc
       notes: notes.trim() || undefined,
       cuisines,
       locations,
+      categories,
       rating,
       ratingLabel: ratingLabel.trim() || undefined,
       status,
@@ -452,6 +454,14 @@ function EditModal({ initial, onSave, onClose, onDelete, cuisineSuggestions, loc
             onChange={setLocations}
             suggestions={locationSuggestions}
             placeholder="Type a location and press Enter"
+          />
+
+          <label className={styles.fieldLabel}>Categories (for voting)</label>
+          <TagChips
+            values={categories}
+            onChange={setCategories}
+            suggestions={categorySuggestions}
+            placeholder="e.g., coffee shops, date spots — press Enter"
           />
 
           <label className={styles.fieldLabel}>Meal type</label>
@@ -867,8 +877,10 @@ function BulkImportModal({ onClose, onImport, existing }) {
   );
 }
 
-function RestaurantCard({ r, distanceMiles, votes, onClick }) {
+function RestaurantCard({ r, distanceMiles, votes, voteCategory, myRankInCategory, onClick, onVote }) {
   const isRetired = r.frequency === 'retired';
+  // Stop card click from firing when the user taps a vote button.
+  function stop(e) { e.stopPropagation(); }
   return (
     <button type="button" className={`${styles.card} ${isRetired ? styles.cardRetired : ''}`} onClick={onClick}>
       {r.imageUrl
@@ -879,6 +891,11 @@ function RestaurantCard({ r, distanceMiles, votes, onClick }) {
           <h3 className={styles.cardTitle}>{r.name}</h3>
           {r.status === 'want-to-try' && <span className={styles.wantBadge}>Want to try</span>}
           {isRetired && <span className={styles.retiredBadge}>Retired</span>}
+          {!r._isMine && r._ownerUsername && (
+            <span className={styles.ownerChip} title={`Shared by @${r._ownerUsername}`}>
+              @{r._ownerUsername}
+            </span>
+          )}
         </div>
         {votes && votes.length > 0 && (
           <div className={styles.voteRow}>
@@ -886,10 +903,36 @@ function RestaurantCard({ r, distanceMiles, votes, onClick }) {
               .slice()
               .sort((a, b) => a.rank - b.rank)
               .map((v, i) => (
-                <span key={`${v.username}-${i}`} className={styles.voteChip} title={`@${v.username} ranked this #${v.rank}`}>
+                <span
+                  key={`${v.username}-${i}`}
+                  className={styles.voteChip}
+                  title={v.category && v.category !== '__all'
+                    ? `@${v.username} ranked this #${v.rank} in ${v.category}`
+                    : `@${v.username} ranked this #${v.rank}`}
+                >
                   {RANK_MEDAL[v.rank]} @{v.username}
+                  {v.category && v.category !== '__all' ? ` · ${v.category}` : ''}
                 </span>
               ))}
+          </div>
+        )}
+        {voteCategory && onVote && (
+          <div className={styles.rankRow} onClick={stop}>
+            <span className={styles.rankRowLabel}>My pick in {voteCategory}:</span>
+            {[1, 2, 3].map(rank => {
+              const isMine = myRankInCategory === rank;
+              return (
+                <button
+                  key={rank}
+                  type="button"
+                  className={`${styles.rankBtn} ${isMine ? styles.rankBtnActive : ''}`}
+                  onClick={(e) => { stop(e); onVote(isMine ? null : rank); }}
+                  title={isMine ? 'Clear my rank' : `Set as my #${rank} pick in ${voteCategory}`}
+                >
+                  {RANK_MEDAL[rank]} {rank}
+                </button>
+              );
+            })}
           </div>
         )}
         {(r.rating != null || r.ratingLabel) && (
@@ -1213,121 +1256,19 @@ function RestaurantTable({ items, onRowClick }) {
   );
 }
 
-function SharedFromFriendsSection({ lists, myVotes, onVote }) {
-  // Track which friend sections are expanded — collapsed by default to avoid
-  // dominating the page when many friends share long lists.
-  const [openUids, setOpenUids] = useState(() => new Set());
-  if (!lists || lists.length === 0) return null;
-  function toggle(uid) {
-    setOpenUids(prev => {
-      const next = new Set(prev);
-      if (next.has(uid)) next.delete(uid); else next.add(uid);
-      return next;
-    });
-  }
-  function rankOf(ownerUid, restaurantId) {
-    const arr = myVotes?.[ownerUid];
-    if (!Array.isArray(arr)) return null;
-    const idx = arr.indexOf(restaurantId);
-    return idx >= 0 ? idx + 1 : null;
-  }
-  return (
-    <div className={styles.sharedWrap}>
-      {lists.map(s => {
-        const isOpen = openUids.has(s.uid);
-        return (
-          <div key={s.uid} className={styles.sharedSection}>
-            <button
-              type="button"
-              className={styles.sharedHeader}
-              onClick={() => toggle(s.uid)}
-            >
-              <span className={styles.sharedHeading}>
-                Shared with you · from <strong>@{s.username}</strong>
-              </span>
-              <span className={styles.sharedMeta}>
-                {s.restaurants.length} restaurant{s.restaurants.length === 1 ? '' : 's'}
-                <span className={styles.sharedCaret}>{isOpen ? '▲' : '▼'}</span>
-              </span>
-            </button>
-            {isOpen && (
-              <div className={styles.sharedGrid}>
-                {s.restaurants.map(r => {
-                  const myRank = rankOf(s.uid, r.id);
-                  return (
-                    <div key={r.id} className={styles.sharedCard}>
-                      {r.imageUrl
-                        ? <img src={r.imageUrl} alt="" className={styles.cardImage} />
-                        : <div className={`${styles.cardImage} ${styles.cardImagePlaceholder}`}>🍽️</div>}
-                      <div className={styles.cardBody}>
-                        <div className={styles.cardHeader}>
-                          <h3 className={styles.cardTitle}>{r.name}</h3>
-                          {r.status === 'want-to-try' && <span className={styles.wantBadge}>Want to try</span>}
-                        </div>
-                        {r.rating != null && (
-                          <div className={styles.cardStars}>
-                            {[1, 2, 3, 4, 5].map(n => (
-                              <span key={n} className={n <= r.rating ? styles.starFilled : styles.starEmpty}>
-                                {n <= r.rating ? '★' : '☆'}
-                              </span>
-                            ))}
-                          </div>
-                        )}
-                        {(r.cuisines?.length > 0 || r.locations?.length > 0) && (
-                          <div className={styles.cardMeta}>
-                            {[...(r.cuisines || []), ...(r.locations || [])].join(' · ')}
-                          </div>
-                        )}
-                        {r.dish && <div className={styles.cardDish}>🍴 {r.dish}</div>}
-                        {r.address && <div className={styles.cardAddress}>📍 {r.address}</div>}
-                        {r.url && (
-                          <a
-                            href={r.url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className={styles.cardLink}
-                          >
-                            {r.url}
-                          </a>
-                        )}
-                        <div className={styles.rankRow}>
-                          <span className={styles.rankRowLabel}>My pick:</span>
-                          {[1, 2, 3].map(rank => {
-                            const isMine = myRank === rank;
-                            return (
-                              <button
-                                key={rank}
-                                type="button"
-                                className={`${styles.rankBtn} ${isMine ? styles.rankBtnActive : ''}`}
-                                onClick={() => onVote(s.uid, r.id, isMine ? null : rank)}
-                                title={isMine ? 'Clear my rank' : `Set as my #${rank} pick`}
-                              >
-                                {RANK_MEDAL[rank]} {rank}
-                              </button>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends = [], onClose }) {
-  const [restaurants, setRestaurants] = useState([]);
+export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends = [], onClose, initialCategory = null }) {
+  // Per-owner restaurant arrays. Shape:
+  //   { [ownerUid]: { username, restaurants } }
+  // `user.uid` is always present (my own list). Each entry from
+  // `sharedFromFriends` adds an owner whose list I can also see/edit.
+  const [ownerData, setOwnerData] = useState({});
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState('all');
   const [activeCuisine, setActiveCuisine] = useState(null);
   const [activeLocation, setActiveLocation] = useState(null);
   const [activeMealType, setActiveMealType] = useState(null);
+  const [activeCategory, setActiveCategory] = useState(initialCategory);
   const [showRetired, setShowRetired] = useState(false);
   const [proximityQuery, setProximityQuery] = useState('');
   const [proximityCenter, setProximityCenter] = useState(null);
@@ -1338,34 +1279,72 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
   const [viewMode, setViewMode] = useState('list');
   const [geocodingProgress, setGeocodingProgress] = useState(null);
   const cancelGeocodeRef = useRef(false);
-  // My own ranked top-3 picks per friend-shared list.
-  // Shape: { [ownerUid]: [restaurantId1, restaurantId2, restaurantId3] }.
+  // My ranked top-3 picks, keyed by (ownerUid, category).
+  // Shape: { [ownerUid]: { [category]: [restaurantId1, restaurantId2, restaurantId3] } }.
   const [myEatingOutVotes, setMyEatingOutVotes] = useState({});
 
+  // Subscribe to my own doc + every friend who has shared their list with me.
+  // Each subscription updates only its slice of ownerData so changes by either
+  // party (truly shared list) propagate live.
+  const sharerUids = useMemo(
+    () => sharedFromFriends.map(s => s.uid).filter(Boolean).join('|'),
+    [sharedFromFriends],
+  );
+  const sharerMeta = useMemo(() => {
+    const m = {};
+    for (const s of sharedFromFriends) m[s.uid] = s.username || 'friend';
+    return m;
+  }, [sharedFromFriends]);
   useEffect(() => {
     if (!user?.uid) {
-      setRestaurants([]);
+      setOwnerData({});
       setLoading(false);
       return;
     }
-    const ref = doc(db, 'users', user.uid);
-    const unsub = onSnapshot(
-      ref,
-      (snap) => {
-        if (!snap.metadata.hasPendingWrites) {
+    const ownerUids = [user.uid, ...sharerUids.split('|').filter(Boolean)];
+    const unsubs = ownerUids.map(uid => {
+      const ref = doc(db, 'users', uid);
+      return onSnapshot(
+        ref,
+        (snap) => {
+          if (snap.metadata.hasPendingWrites && uid === user.uid) return;
           const data = snap.data() || {};
-          const arr = Array.isArray(data.restaurants) ? data.restaurants : [];
-          setRestaurants(arr);
-        }
-        setLoading(false);
-      },
-      (err) => {
-        console.error('EatingOutPage subscription error:', err);
-        setLoading(false);
-      },
-    );
-    return () => unsub();
-  }, [user?.uid]);
+          const restaurants = Array.isArray(data.restaurants) ? data.restaurants : [];
+          const username = uid === user.uid ? null : (sharerMeta[uid] || data.username || 'friend');
+          setOwnerData(prev => ({
+            ...prev,
+            [uid]: { username, restaurants },
+          }));
+          setLoading(false);
+        },
+        (err) => {
+          // Friends without share-grant will reject on the listener; ignore.
+          if (uid !== user.uid) return;
+          console.error('EatingOutPage subscription error:', err);
+          setLoading(false);
+        },
+      );
+    });
+    return () => { unsubs.forEach(u => u && u()); };
+  }, [user?.uid, sharerUids, sharerMeta]);
+
+  // Tag each restaurant with the owner so downstream logic (persist, badges,
+  // voting) knows where each row came from.
+  const restaurants = useMemo(() => {
+    const out = [];
+    for (const [ownerUid, entry] of Object.entries(ownerData)) {
+      if (!entry || !Array.isArray(entry.restaurants)) continue;
+      for (const r of entry.restaurants) {
+        out.push({
+          ...r,
+          _ownerUid: ownerUid,
+          _ownerUsername: entry.username,
+          _isMine: ownerUid === user?.uid,
+        });
+      }
+    }
+    return out;
+  }, [ownerData, user?.uid]);
 
   const cuisineSuggestions = useMemo(() => {
     const set = new Set();
@@ -1379,6 +1358,12 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
     return Array.from(set).sort();
   }, [restaurants]);
 
+  const categorySuggestions = useMemo(() => {
+    const set = new Set();
+    for (const r of restaurants) for (const c of (r.categories || [])) set.add(c);
+    return Array.from(set).sort();
+  }, [restaurants]);
+
   // Counts respect all *other* active filters so the sidebar reflects what
   // the user would actually see if they clicked. Each side ignores its own
   // active selection so unselecting is always reachable.
@@ -1389,12 +1374,13 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
       if (filter !== 'all' && r.status !== filter) continue;
       if (activeLocation && !(r.locations || []).some(l => l.toLowerCase() === activeLocation.toLowerCase())) continue;
       if (activeMealType && r.mealType !== activeMealType) continue;
+      if (activeCategory && !(r.categories || []).some(c => c.toLowerCase() === activeCategory.toLowerCase())) continue;
       for (const c of (r.cuisines || [])) {
         counts.set(c, (counts.get(c) || 0) + 1);
       }
     }
     return cuisineSuggestions.map(c => ({ name: c, count: counts.get(c) || 0 }));
-  }, [restaurants, cuisineSuggestions, filter, activeLocation, activeMealType, showRetired]);
+  }, [restaurants, cuisineSuggestions, filter, activeLocation, activeMealType, activeCategory, showRetired]);
 
   const locationEntries = useMemo(() => {
     const counts = new Map();
@@ -1403,12 +1389,28 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
       if (filter !== 'all' && r.status !== filter) continue;
       if (activeCuisine && !(r.cuisines || []).some(c => c.toLowerCase() === activeCuisine.toLowerCase())) continue;
       if (activeMealType && r.mealType !== activeMealType) continue;
+      if (activeCategory && !(r.categories || []).some(c => c.toLowerCase() === activeCategory.toLowerCase())) continue;
       for (const l of (r.locations || [])) {
         counts.set(l, (counts.get(l) || 0) + 1);
       }
     }
     return locationSuggestions.map(l => ({ name: l, count: counts.get(l) || 0 }));
-  }, [restaurants, locationSuggestions, filter, activeCuisine, activeMealType, showRetired]);
+  }, [restaurants, locationSuggestions, filter, activeCuisine, activeMealType, activeCategory, showRetired]);
+
+  const categoryEntries = useMemo(() => {
+    const counts = new Map();
+    for (const r of restaurants) {
+      if (!showRetired && r.frequency === 'retired') continue;
+      if (filter !== 'all' && r.status !== filter) continue;
+      if (activeCuisine && !(r.cuisines || []).some(c => c.toLowerCase() === activeCuisine.toLowerCase())) continue;
+      if (activeLocation && !(r.locations || []).some(l => l.toLowerCase() === activeLocation.toLowerCase())) continue;
+      if (activeMealType && r.mealType !== activeMealType) continue;
+      for (const c of (r.categories || [])) {
+        counts.set(c, (counts.get(c) || 0) + 1);
+      }
+    }
+    return categorySuggestions.map(c => ({ name: c, count: counts.get(c) || 0 }));
+  }, [restaurants, categorySuggestions, filter, activeCuisine, activeLocation, activeMealType, showRetired]);
 
   const visible = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -1418,10 +1420,11 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
       if (activeCuisine && !(r.cuisines || []).some(c => c.toLowerCase() === activeCuisine.toLowerCase())) return false;
       if (activeLocation && !(r.locations || []).some(l => l.toLowerCase() === activeLocation.toLowerCase())) return false;
       if (activeMealType && r.mealType !== activeMealType) return false;
+      if (activeCategory && !(r.categories || []).some(c => c.toLowerCase() === activeCategory.toLowerCase())) return false;
       if (q) {
         const hay = [
           r.name, r.dish, r.address, r.notes, r.description, r.ratingLabel,
-          ...(r.cuisines || []), ...(r.locations || []),
+          ...(r.cuisines || []), ...(r.locations || []), ...(r.categories || []),
         ].filter(Boolean).join(' ').toLowerCase();
         if (!hay.includes(q)) return false;
       }
@@ -1441,19 +1444,26 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
         .map(x => ({ ...x.r, _distance: x.d }));
     }
     return list;
-  }, [restaurants, filter, activeCuisine, activeLocation, activeMealType, showRetired, search, proximityCenter]);
+  }, [restaurants, filter, activeCuisine, activeLocation, activeMealType, activeCategory, showRetired, search, proximityCenter]);
 
-  const persist = useCallback(async (next) => {
-    setRestaurants(next);
-    if (!user?.uid) return;
+  // Persist the full restaurants array for a single owner. Updates local
+  // state optimistically (the snapshot listener will reconcile on success
+  // or surface an error if Firestore rejects).
+  const persistOwner = useCallback(async (ownerUid, nextRestaurants) => {
+    if (!ownerUid) return;
+    setOwnerData(prev => ({
+      ...prev,
+      [ownerUid]: { ...(prev[ownerUid] || {}), restaurants: nextRestaurants },
+    }));
     try {
-      await saveField(user.uid, 'restaurants', next);
+      await saveOwnerRestaurants(ownerUid, nextRestaurants);
     } catch (err) {
       console.error('Failed to save restaurants:', err);
       const reason = err?.message || 'unknown error';
-      alert(`Save failed — your changes are local only.\n\n${reason}\n\nTry refreshing.`);
+      const whose = ownerUid === user?.uid ? 'your list' : `@${ownerData[ownerUid]?.username || 'friend'}'s list`;
+      alert(`Save to ${whose} failed — changes are local only.\n\n${reason}\n\nFirestore rules may not allow edits to a friend's shared list yet.`);
     }
-  }, [user?.uid]);
+  }, [user?.uid, ownerData]);
 
   // Pull my eating-out votes once when the user is known. Subsequent
   // updates use the local handleVote which writes through to Firestore.
@@ -1466,65 +1476,83 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
     return () => { cancelled = true; };
   }, [user?.uid]);
 
-  const handleVoteOnSharedRestaurant = useCallback(async (ownerUid, restaurantId, rank) => {
-    if (!user?.uid) return;
+  const handleVoteOnRestaurant = useCallback(async (ownerUid, category, restaurantId, rank) => {
+    if (!user?.uid || !category) return;
     setMyEatingOutVotes(prev => {
       const next = { ...prev };
-      const current = Array.isArray(next[ownerUid]) ? [...next[ownerUid]] : [null, null, null];
+      const byCat = { ...(next[ownerUid] || {}) };
+      const current = Array.isArray(byCat[category]) ? [...byCat[category]] : [null, null, null];
       while (current.length < 3) current.push(null);
       for (let i = 0; i < 3; i++) if (current[i] === restaurantId) current[i] = null;
       if (rank === 1 || rank === 2 || rank === 3) current[rank - 1] = restaurantId;
-      const compact = current.every(v => v == null) ? [] : current;
-      if (compact.length === 0) delete next[ownerUid];
-      else next[ownerUid] = compact;
+      if (current.every(v => v == null)) delete byCat[category];
+      else byCat[category] = current;
+      if (Object.keys(byCat).length === 0) delete next[ownerUid];
+      else next[ownerUid] = byCat;
       return next;
     });
     try {
-      await setEatingOutVote(user.uid, ownerUid, restaurantId, rank);
+      await setEatingOutVote(user.uid, ownerUid, category, restaurantId, rank);
     } catch (err) {
       console.error('Failed to save vote:', err);
       alert(`Couldn't save your vote — ${err?.message || 'try again'}`);
     }
   }, [user?.uid]);
 
-  // Friends' votes indexed by restaurantId so RestaurantCard can show a
-  // small badge: { [restaurantId]: [{ username, rank }, ...] }
+  // Friends' votes on MY restaurants, indexed by restaurantId. Flattens
+  // per-category votes into a list of { username, rank, category }.
   const friendVotesByRestaurant = useMemo(() => {
     const map = new Map();
     for (const f of votesFromFriends) {
-      const votes = Array.isArray(f.votes) ? f.votes : [];
-      for (let i = 0; i < votes.length; i++) {
-        const rid = votes[i];
-        if (!rid) continue;
-        if (!map.has(rid)) map.set(rid, []);
-        map.get(rid).push({ username: f.username, rank: i + 1 });
+      const byCat = f.votesByCategory || {};
+      for (const [category, arr] of Object.entries(byCat)) {
+        const votes = Array.isArray(arr) ? arr : [];
+        for (let i = 0; i < votes.length; i++) {
+          const rid = votes[i];
+          if (!rid) continue;
+          if (!map.has(rid)) map.set(rid, []);
+          map.get(rid).push({ username: f.username, rank: i + 1, category });
+        }
       }
     }
     return map;
   }, [votesFromFriends]);
 
   function handleSave(restaurant) {
-    const exists = restaurants.some(r => r.id === restaurant.id);
-    const next = exists
-      ? restaurants.map(r => (r.id === restaurant.id ? restaurant : r))
-      : [restaurant, ...restaurants];
-    persist(next);
+    // Adds default to MY list; edits go to the original owner's list.
+    const ownerUid = restaurant._ownerUid || user?.uid;
+    if (!ownerUid) return;
+    const ownerList = ownerData[ownerUid]?.restaurants || [];
+    const exists = ownerList.some(r => r.id === restaurant.id);
+    // Strip our annotation fields so they don't get persisted.
+    const { _ownerUid, _ownerUsername, _isMine, ...clean } = restaurant;
+    const nextList = exists
+      ? ownerList.map(r => (r.id === clean.id ? clean : r))
+      : [clean, ...ownerList];
+    persistOwner(ownerUid, nextList);
     setEditing(null);
     setAdding(false);
   }
 
-  function handleDelete(id) {
-    persist(restaurants.filter(r => r.id !== id));
+  function handleDelete(restaurant) {
+    const ownerUid = restaurant?._ownerUid;
+    if (!ownerUid) return;
+    const ownerList = ownerData[ownerUid]?.restaurants || [];
+    const nextList = ownerList.filter(r => r.id !== restaurant.id);
+    persistOwner(ownerUid, nextList);
     setEditing(null);
   }
 
   function handleBulkImport(rows, strategy) {
+    // Bulk operations only target MY own list — shared rows are excluded.
+    if (!user?.uid) return;
+    const myList = ownerData[user.uid]?.restaurants || [];
     let next;
     let summary;
     if (strategy === 'replace-all') {
       const incomingIds = new Set(rows.map(r => r.id).filter(Boolean));
       const incomingNames = new Set(rows.map(r => (r.name || '').toLowerCase().trim()));
-      const willDelete = restaurants.filter(r =>
+      const willDelete = myList.filter(r =>
         !incomingIds.has(r.id) && !incomingNames.has((r.name || '').toLowerCase().trim()),
       );
       if (willDelete.length > 0) {
@@ -1545,16 +1573,16 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
       // the exporter), otherwise fall back to name match.
       const incomingIds = new Set(rows.map(r => r.id).filter(Boolean));
       const incomingNames = new Map(rows.map(r => [(r.name || '').toLowerCase().trim(), r]));
-      const filtered = restaurants.filter(r =>
+      const filtered = myList.filter(r =>
         !incomingIds.has(r.id) && !incomingNames.has((r.name || '').toLowerCase().trim()),
       );
       next = [...rows, ...filtered];
       summary = `Imported ${rows.length} restaurant${rows.length === 1 ? '' : 's'}.`;
     } else {
-      next = [...rows, ...restaurants];
+      next = [...rows, ...myList];
       summary = `Imported ${rows.length} restaurant${rows.length === 1 ? '' : 's'}.`;
     }
-    persist(next);
+    persistOwner(user.uid, next);
     setBulkOpen(false);
     alert(summary);
   }
@@ -1606,11 +1634,15 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
   );
 
   const handleBulkGeocode = useCallback(async () => {
-    const candidates = restaurants.filter(r =>
+    if (!user?.uid) return;
+    // Only geocode my own list — shared rows are owned by friends and would
+    // require their permission to mass-edit.
+    const myList = ownerData[user.uid]?.restaurants || [];
+    const candidates = myList.filter(r =>
       typeof r.address === 'string' && r.address.trim() && !hasValidCoords(r),
     );
     if (candidates.length === 0) {
-      alert('Nothing to geocode — all restaurants with addresses already have coordinates.');
+      alert('Nothing to geocode — all your restaurants with addresses already have coordinates.');
       return;
     }
     const mins = Math.max(1, Math.ceil((candidates.length * 1.2) / 60));
@@ -1627,9 +1659,7 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
     let failed = 0;
     setGeocodingProgress({ current: 0, total: candidates.length, succeeded, notFound, failed });
 
-    // Mutating snapshot we persist after each success — keeps progress
-    // recoverable if the user closes the tab mid-loop.
-    let working = [...restaurants];
+    let working = [...myList];
 
     for (let i = 0; i < candidates.length; i++) {
       if (cancelGeocodeRef.current) break;
@@ -1647,7 +1677,7 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
               lng: data.lng,
               updatedAt: new Date().toISOString(),
             };
-            await persist(working);
+            await persistOwner(user.uid, working);
           }
           succeeded++;
         } else if (res.status === 404) {
@@ -1659,7 +1689,6 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
         failed++;
       }
       setGeocodingProgress({ current: i + 1, total: candidates.length, succeeded, notFound, failed });
-      // Throttle ~1.2s before next request to stay under Nominatim's 1 req/s.
       if (i < candidates.length - 1 && !cancelGeocodeRef.current) {
         await new Promise(resolve => setTimeout(resolve, 1200));
       }
@@ -1674,7 +1703,7 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
       `? ${notFound} not found (Nominatim couldn't match the address)\n` +
       `✗ ${failed} failed (network / other error)`,
     );
-  }, [restaurants, persist]);
+  }, [user?.uid, ownerData, persistOwner]);
 
   return (
     <div className={styles.page}>
@@ -1771,17 +1800,41 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
                 ))
               )}
             </div>
+
+            <div className={styles.sidebarPanel}>
+              <div className={styles.sidebarHeader}>
+                <span className={styles.sidebarTitle}>Categories</span>
+                <span className={styles.sidebarCount}>{categoryEntries.length}</span>
+              </div>
+              <button
+                type="button"
+                className={`${styles.sidebarItem} ${!activeCategory ? styles.sidebarItemActive : ''}`}
+                onClick={() => setActiveCategory(null)}
+              >
+                <span className={styles.sidebarItemName}>All categories</span>
+              </button>
+              {categoryEntries.length === 0 ? (
+                <div className={styles.sidebarEmpty}>
+                  No categories yet. Add one in the edit modal — pick a category, then vote your top 3.
+                </div>
+              ) : (
+                categoryEntries.map(c => (
+                  <button
+                    key={`cat-${c.name}`}
+                    type="button"
+                    className={`${styles.sidebarItem} ${activeCategory === c.name ? styles.sidebarItemActive : ''} ${c.count === 0 ? styles.sidebarItemDim : ''}`}
+                    onClick={() => setActiveCategory(activeCategory === c.name ? null : c.name)}
+                  >
+                    <span className={styles.sidebarItemName}>🏷 {c.name}</span>
+                    <span className={styles.sidebarItemCount}>{c.count}</span>
+                  </button>
+                ))
+              )}
+            </div>
           </div>
         </aside>
 
         <main className={styles.main}>
-          {sharedFromFriends.length > 0 && (
-            <SharedFromFriendsSection
-              lists={sharedFromFriends}
-              myVotes={myEatingOutVotes}
-              onVote={handleVoteOnSharedRestaurant}
-            />
-          )}
           {geocodingProgress && (
             <div className={styles.geocodingBanner}>
               <span>
@@ -1923,15 +1976,28 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
             </div>
           ) : (
             <div className={styles.grid}>
-              {visible.map(r => (
-                <RestaurantCard
-                  key={r.id}
-                  r={r}
-                  distanceMiles={r._distance}
-                  votes={friendVotesByRestaurant.get(r.id)}
-                  onClick={() => setEditing(r)}
-                />
-              ))}
+              {visible.map(r => {
+                const myCatVotes = activeCategory
+                  ? (myEatingOutVotes[r._ownerUid]?.[activeCategory] || [])
+                  : null;
+                const myRank = myCatVotes
+                  ? (myCatVotes.indexOf(r.id) >= 0 ? myCatVotes.indexOf(r.id) + 1 : null)
+                  : null;
+                return (
+                  <RestaurantCard
+                    key={`${r._ownerUid}:${r.id}`}
+                    r={r}
+                    distanceMiles={r._distance}
+                    votes={friendVotesByRestaurant.get(r.id)}
+                    voteCategory={activeCategory}
+                    myRankInCategory={myRank}
+                    onVote={activeCategory
+                      ? (rank) => handleVoteOnRestaurant(r._ownerUid, activeCategory, r.id, rank)
+                      : null}
+                    onClick={() => setEditing(r)}
+                  />
+                );
+              })}
             </div>
           )}
         </main>
@@ -1939,9 +2005,10 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
 
       {adding && (
         <EditModal
-          initial={{ status: 'want-to-try', cuisines: [], locations: [], rating: null }}
+          initial={{ status: 'want-to-try', cuisines: [], locations: [], categories: [], rating: null }}
           cuisineSuggestions={cuisineSuggestions}
           locationSuggestions={locationSuggestions}
+          categorySuggestions={categorySuggestions}
           onSave={handleSave}
           onClose={() => setAdding(false)}
         />
@@ -1951,14 +2018,15 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
           initial={editing}
           cuisineSuggestions={cuisineSuggestions}
           locationSuggestions={locationSuggestions}
+          categorySuggestions={categorySuggestions}
           onSave={handleSave}
           onClose={() => setEditing(null)}
-          onDelete={() => handleDelete(editing.id)}
+          onDelete={() => handleDelete(editing)}
         />
       )}
       {bulkOpen && (
         <BulkImportModal
-          existing={restaurants}
+          existing={ownerData[user?.uid]?.restaurants || []}
           onClose={() => setBulkOpen(false)}
           onImport={handleBulkImport}
         />

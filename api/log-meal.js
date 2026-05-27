@@ -78,7 +78,7 @@ async function estimateNutrition(description) {
 
 export default async function handler(req, res) {
   const params = req.method === 'GET' ? req.query : req.body;
-  const { uid, token, description, slot: rawSlot } = params || {};
+  const { uid, token, description, slot: rawSlot, date: rawDate } = params || {};
 
   if (!uid) return res.status(400).json({ error: 'Missing uid' });
   if (!token) return res.status(401).json({ error: 'Missing token' });
@@ -102,7 +102,9 @@ export default async function handler(req, res) {
 
   const desc = String(description).trim();
   const slot = VALID_SLOTS.has(rawSlot) ? rawSlot : pickSlotFromHour(new Date().getHours());
-  const today = new Date().toISOString().slice(0, 10);
+  const today = /^\d{4}-\d{2}-\d{2}$/.test(String(rawDate || ''))
+    ? String(rawDate)
+    : new Date().toISOString().slice(0, 10);
   const timestamp = new Date().toISOString();
 
   // Try AI estimate; fall back to zero-macro placeholder.

@@ -3,6 +3,7 @@ import { ShoppingList } from './ShoppingList';
 import { GroceryStaples } from './GroceryStaples';
 import { PantryList } from './PantryList';
 import { TrackedItemsList } from './TrackedItemsList';
+import { SavedShoppingLists } from './SavedShoppingLists';
 import { useAuth } from '../contexts/AuthContext';
 import { saveField, loadDailyLogFromFirestore } from '../utils/firestoreSync';
 import GridLayoutLib, { WidthProvider } from 'react-grid-layout';
@@ -194,6 +195,7 @@ export function ShoppingListPage({ weeklyRecipes, weeklyServings = {}, getRecipe
   const [dismissed, setDismissed] = useState(loadDismissed);
   const [resetKey, setResetKey] = useState(0);
   const [saved, setSaved] = useState(false);
+  const [activeTab, setActiveTab] = useState('current'); // 'current' | 'saved'
 
   // --- Resizable grid for spices/sauces/custom widgets ---
   const GRID_LAYOUT_KEY = user ? `sunday-shop-grid-layout-${user.uid}` : 'sunday-shop-grid-layout';
@@ -558,7 +560,7 @@ export function ShoppingListPage({ weeklyRecipes, weeklyServings = {}, getRecipe
       <div className={styles.header}>
         <div className={styles.titleRow}>
           <h2 className={styles.title}>Shopping List</h2>
-          {weeklyRecipes.length > 0 && (
+          {weeklyRecipes.length > 0 && activeTab === 'current' && (
             <div className={styles.mealBubbles}>
               {weeklyRecipes.map(r => (
                 <span key={r.id} className={styles.mealBubble}>{r.title}</span>
@@ -567,6 +569,27 @@ export function ShoppingListPage({ weeklyRecipes, weeklyServings = {}, getRecipe
           )}
         </div>
       </div>
+
+      <div className={styles.shopTabStrip}>
+        <button
+          type="button"
+          className={`${styles.shopTab} ${activeTab === 'current' ? styles.shopTabActive : ''}`}
+          onClick={() => setActiveTab('current')}
+        >
+          This Week
+        </button>
+        <button
+          type="button"
+          className={`${styles.shopTab} ${activeTab === 'saved' ? styles.shopTabActive : ''}`}
+          onClick={() => setActiveTab('saved')}
+        >
+          My Store Lists
+        </button>
+      </div>
+
+      {activeTab === 'saved' ? (
+        <SavedShoppingLists user={user} />
+      ) : (<>
 
       {sharedFromFriends.length > 0 && (
         <div className={styles.sharedSection}>
@@ -635,10 +658,9 @@ export function ShoppingListPage({ weeklyRecipes, weeklyServings = {}, getRecipe
               // Re-read snacks/fruit from localStorage right before bumping.
               // The parent's state is loaded once on mount and only refreshed
               // via firestore-sync events; child edits in TrackedItemsList
-              // save to localStorage but historically didn't dispatch one, so
-              // snacksList up here can be stale — which would silently
-              // overwrite the user's recent edits with the stale list when
-              // we save here.
+              // save to localStorage but don't dispatch one, so snacksList up
+              // here can be stale — which would silently overwrite the user's
+              // recent edits with the stale list when we save here.
               let freshSnacks = snacksList;
               let freshFruit = fruitList;
               try {
@@ -904,6 +926,7 @@ export function ShoppingListPage({ weeklyRecipes, weeklyServings = {}, getRecipe
         </div>
       </div>
 
+      </>)}
     </div>
   );
 }

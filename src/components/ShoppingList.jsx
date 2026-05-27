@@ -933,6 +933,46 @@ export function ShoppingList({ weeklyRecipes, weeklyServings = {}, extraItems = 
   }, [weeklyRecipes]);
   const [showMeals, setShowMeals] = useState(false);
 
+  // Instacart deep-link state. Posts the current shopping list to our proxy,
+  // which calls Instacart's Create Recipe Page API; we then pop the returned
+  // URL in a new tab. Whole Foods appears on Instacart's retailer chooser.
+  const [instacartLoading, setInstacartLoading] = useState(false);
+  const [instacartError, setInstacartError] = useState('');
+
+  async function handleSendToInstacart() {
+    setInstacartError('');
+    const ingredients = displayItems.map(item => {
+      const qty = parseFloat(item.quantity);
+      return {
+        name: item.ingredient,
+        quantity: Number.isFinite(qty) && qty > 0 ? qty : undefined,
+        unit: (item.measurement || '').trim() || undefined,
+      };
+    });
+    if (ingredients.length === 0) {
+      setInstacartError('Nothing on the shopping list to send.');
+      return;
+    }
+    setInstacartLoading(true);
+    try {
+      const today = new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+      const res = await fetch('/api/instacart-recipe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title: `Prep Day Shopping List — ${today}`, ingredients }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.url) {
+        throw new Error(data?.error || `HTTP ${res.status}`);
+      }
+      window.open(data.url, '_blank', 'noopener,noreferrer');
+    } catch (err) {
+      setInstacartError(err?.message || 'Failed to build Instacart link.');
+    } finally {
+      setInstacartLoading(false);
+    }
+  }
+
   // toggleItem defined above with debounce protection
 
   function handleAddSubmit() {
@@ -965,6 +1005,14 @@ export function ShoppingList({ weeklyRecipes, weeklyServings = {}, extraItems = 
           {onAddCustomItem && !adding && (
             <button className={styles.addToggle} onClick={() => setAdding(true)}>+ Add item</button>
           )}
+          <button
+            className={styles.instacartBtn}
+            onClick={handleSendToInstacart}
+            disabled={instacartLoading || displayItems.length === 0}
+            title="Build a pre-populated Instacart cart (Whole Foods + other retailers)"
+          >
+            {instacartLoading ? 'Building link…' : 'Send to Whole Foods'}
+          </button>
           {extraItems.length > 0 && (
             <button className={styles.clearBtn} onClick={onClearExtras}>
               {extraItems.length} Grocery Staples Added
@@ -972,6 +1020,9 @@ export function ShoppingList({ weeklyRecipes, weeklyServings = {}, extraItems = 
           )}
         </div>
       </div>
+      {instacartError && (
+        <div className={styles.instacartError}>{instacartError}</div>
+      )}
       {adding && onAddCustomItem && (
         <div className={styles.addRow} onBlur={e => { if (!e.currentTarget.contains(e.relatedTarget)) { setAdding(false); setNewItem(''); } }}>
           <div className={styles.addInputWrap}>
