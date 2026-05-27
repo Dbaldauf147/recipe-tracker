@@ -4884,10 +4884,13 @@ export function DailyTrackerPage({ recipes, getRecipe, onClose, user, weeklyPlan
         }
         const nutrition = perServing ? scaleNutrition(perServing, 1) : {};
 
-        const slotsToFill = category === 'breakfast' ? ['breakfast'] : ['lunch', 'dinner'];
-        let placed = 0;
-        for (const slot of slotsToFill) {
-          for (let i = startIdx; i < days.length && placed < servingsToPlace; i++) {
+        // A single recipe instance is confined to ONE meal slot category —
+        // breakfast for breakfast recipes, OR lunch OR dinner for lunch-dinner
+        // recipes, never split across both. Prefer lunch; fall back to dinner
+        // only if lunch couldn't take any servings.
+        const placeIntoSlot = (slot) => {
+          let placedHere = 0;
+          for (let i = startIdx; i < days.length && placedHere < servingsToPlace; i++) {
             const d = days[i];
             if (!next[d]) next[d] = { entries: [] };
             const dayData = next[d];
@@ -4910,8 +4913,16 @@ export function DailyTrackerPage({ recipes, getRecipe, onClose, user, weeklyPlan
               autoSuggested: true,
               cookDate: cookDay,
             }];
-            placed++;
+            placedHere++;
           }
+          return placedHere;
+        };
+
+        if (category === 'breakfast') {
+          placeIntoSlot('breakfast');
+        } else {
+          const intoLunch = placeIntoSlot('lunch');
+          if (intoLunch === 0) placeIntoSlot('dinner');
         }
       }
     }
