@@ -3477,21 +3477,118 @@ function ServingsTooltip({ active, payload, label }) {
   );
 }
 
+/* ── Cook Picker (per-day, Prepare mode) ── */
+// Buffers picks in local state so toggling a checkbox doesn't immediately
+// rebuild the week. Commit on Done click or on click-outside; Cancel
+// discards. Auto-suggest only runs after the resulting setCookRecipes call.
+function CookPicker({ date, weeklyPlan, recipes, selected, onCommit }) {
+  const [open, setOpen] = useState(false);
+  const [pending, setPending] = useState(() => [...(selected || [])]);
+  const rootRef = useRef(null);
+
+  // Reset pending whenever the popover opens, or when the committed list
+  // changes externally while it's closed.
+  useEffect(() => {
+    if (!open) setPending([...(selected || [])]);
+  }, [open, selected]);
+
+  function commit(latest) {
+    onCommit(date, latest);
+    setOpen(false);
+  }
+
+  useEffect(() => {
+    if (!open) return;
+    function handleDocClick(e) {
+      if (rootRef.current && !rootRef.current.contains(e.target)) {
+        // Commit on click-outside so accidental dismissals still save picks.
+        commit(pending);
+      }
+    }
+    document.addEventListener('mousedown', handleDocClick);
+    return () => document.removeEventListener('mousedown', handleDocClick);
+  }, [open, pending]);
+
+  const items = weeklyPlan
+    .map(id => recipes.find(r => r.id === id))
+    .filter(Boolean);
+  const count = (selected || []).length;
+
+  function toggleLocal(recipeId) {
+    setPending(prev => prev.includes(recipeId)
+      ? prev.filter(id => id !== recipeId)
+      : [...prev, recipeId]);
+  }
+
+  return (
+    <div className={styles.cookPicker} ref={rootRef} onClick={e => e.stopPropagation()}>
+      <button
+        type="button"
+        className={open ? `${styles.cookPickerSummary} ${styles.cookPickerSummaryOpen}` : styles.cookPickerSummary}
+        onClick={() => setOpen(o => !o)}
+      >
+        {count > 0 ? `Cooking (${count})` : 'Cooking…'}
+      </button>
+      {open && (
+        <div className={styles.cookPickerMenu}>
+          {items.length === 0 ? (
+            <div className={styles.cookPickerEmpty}>No recipes in this week’s menu.</div>
+          ) : (
+            <>
+              {items.map(r => {
+                const isChecked = pending.includes(r.id);
+                return (
+                  <label key={r.id} className={styles.cookPickerOption}>
+                    <input
+                      type="checkbox"
+                      checked={isChecked}
+                      onChange={() => toggleLocal(r.id)}
+                    />
+                    <span>{r.title}</span>
+                  </label>
+                );
+              })}
+              <div className={styles.cookPickerActions}>
+                <button
+                  type="button"
+                  className={styles.cookPickerCancel}
+                  onClick={() => { setPending([...(selected || [])]); setOpen(false); }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className={styles.cookPickerDone}
+                  onClick={() => commit(pending)}
+                >
+                  Done
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* ── Main Page ── */
 /* ── Weekly View ── */
-function WeeklyView({ dailyLog, date, recipes, onDayClick, onMoveEntry, onAddToSlot, onViewRecipe, onRemoveLastEntry, onEditEntry, onSelectDate }) {
+function WeeklyView({ dailyLog, date, recipes, onDayClick, onMoveEntry, onAddToSlot, onViewRecipe, onRemoveLastEntry, onEditEntry, onSelectDate, mode = 'log', weeklyPlan = [], onSetCookRecipes }) {
   const goals = loadGoals();
   const macroKeys = ['calories', 'protein', 'carbs', 'fat'];
   const [dragOver, setDragOver] = useState(null); // { dateStr, slot }
 
-  // Show 7 days ending with the selected date (rightmost)
-  const [sy, sm, sd] = date.split('-').map(Number);
-  const selectedDay = new Date(sy, sm - 1, sd);
+  // Anchor day: log mode = selected date (rightmost), prepare mode = today (leftmost).
+  const anchorStr = mode === 'prepare' ? todayStr() : date;
+  const [sy, sm, sd] = anchorStr.split('-').map(Number);
+  const anchorDay = new Date(sy, sm - 1, sd);
 
   const days = [];
   for (let i = 6; i >= 0; i--) {
-    const day = new Date(selectedDay);
-    day.setDate(selectedDay.getDate() - i);
+    const day = new Date(anchorDay);
+    // prepare: today, today+1, …, today+6 ; log: anchor-6, …, anchor
+    day.setDate(anchorDay.getDate() + (mode === 'prepare' ? (6 - i) : -i));
     const dateStr = `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, '0')}-${String(day.getDate()).padStart(2, '0')}`;
     const dayData = dailyLog[dateStr] || {};
     const entries = dayData.entries || [];
@@ -3533,6 +3630,7 @@ function WeeklyView({ dailyLog, date, recipes, onDayClick, onMoveEntry, onAddToS
       hasEntries: entries.length > 0,
       fullDay: mainMealEntries >= 3,
       isPast: dateStr < todayStr(),
+      cookRecipes: Array.isArray(dayData.cookRecipes) ? dayData.cookRecipes : [],
     });
   }
 
@@ -3608,15 +3706,23 @@ function WeeklyView({ dailyLog, date, recipes, onDayClick, onMoveEntry, onAddToS
   return (
     <div className={styles.weeklyView}>
       <div className={styles.weeklyTitleRow}>
-        <h3 className={styles.weeklyTitle}>Food Log</h3>
-        <div className={styles.streakRow}>
-          <span className={styles.streakBadge}>
-            <span className={styles.streakFire}>&#x1F525;</span> {streak} day streak
+        <h3 className={styles.weeklyTitle}>{mode === 'prepare' ? 'Prepare — Next 7 Days' : 'Food Log'}</h3>
+        {mode === 'prepare' ? (
+          <span className={styles.prepareHint}>
+            {weeklyPlan.length === 0
+              ? 'Add recipes to This Week’s Menu to enable auto-fill.'
+              : 'Pick what you’re cooking each day — meals fill forward from that day.'}
           </span>
-          <span className={styles.streakBest}>
-            Best: {longestStreak} days
-          </span>
-        </div>
+        ) : (
+          <div className={styles.streakRow}>
+            <span className={styles.streakBadge}>
+              <span className={styles.streakFire}>&#x1F525;</span> {streak} day streak
+            </span>
+            <span className={styles.streakBest}>
+              Best: {longestStreak} days
+            </span>
+          </div>
+        )}
       </div>
       <div className={styles.weeklyColsWrap}>
         <div
@@ -3636,6 +3742,15 @@ function WeeklyView({ dailyLog, date, recipes, onDayClick, onMoveEntry, onAddToS
               <span className={styles.weeklyColNum}>
                 {day.dayNum}<sup className={styles.weeklyColOrd}>{ordinal(day.dayNum)}</sup>
               </span>
+              {mode === 'prepare' && weeklyPlan.length > 0 && onSetCookRecipes && (
+                <CookPicker
+                  date={day.dateStr}
+                  weeklyPlan={weeklyPlan}
+                  recipes={recipes}
+                  selected={day.cookRecipes}
+                  onCommit={onSetCookRecipes}
+                />
+              )}
             </div>
           ))}
 
@@ -3717,7 +3832,10 @@ function WeeklyView({ dailyLog, date, recipes, onDayClick, onMoveEntry, onAddToS
                           }
                         }}
                       >
-                        <span className={`${styles.weeklyColMeal} ${styles.weeklyColMealClickable}`}>{item.name}</span>
+                        <span className={`${styles.weeklyColMeal} ${styles.weeklyColMealClickable} ${item.entry?.autoSuggested ? styles.weeklyColMealSuggested : ''}`}>
+                          {item.name}
+                          {item.entry?.autoSuggested && <span className={styles.suggestedTag}>auto</span>}
+                        </span>
                         {item.nutrition && item.nutrition.calories > 0 && (
                           <span className={styles.weeklyColMealNutrition}>
                             {Math.round(item.nutrition.calories)} cal &middot; {Math.round(item.nutrition.protein || 0)}p &middot; {Math.round(item.nutrition.carbs || 0)}c &middot; {Math.round(item.nutrition.fat || 0)}f
@@ -4451,13 +4569,14 @@ function KpiAlerts({ dailyLog, recipes, onImportRecipe, cacheVersion, onViewReci
   );
 }
 
-export function DailyTrackerPage({ recipes, getRecipe, onClose, user, weeklyPlan, onViewRecipe, onImportRecipe }) {
+export function DailyTrackerPage({ recipes, getRecipe, onClose, user, weeklyPlan, weeklyServings = {}, onViewRecipe, onImportRecipe }) {
   const [date, setDate] = useState(todayStr);
   const [addModal, setAddModal] = useState(null); // { targetDate, targetSlot, mode } or null
   const [quickPickRecipeId, setQuickPickRecipeId] = useState('');
   const [viewRecipeId, setViewRecipeId] = useState(null);
   const [dailyLog, setDailyLog] = useState(loadDailyLog);
   const [cacheVersion, setCacheVersion] = useState(0);
+  const [viewMode, setViewMode] = useState('log'); // 'log' (past 7 ending at selected) | 'prepare' (today + next 6)
 
   // Most-recently-used picks for the Custom Meal panel. Two passes so
   // standalone ingredient entries (the user picking single ingredients
@@ -4647,6 +4766,154 @@ export function DailyTrackerPage({ recipes, getRecipe, onClose, user, weeklyPlan
     });
   }
 
+  // Replace the "cooking on this day" list for the given date. Called by
+  // the CookPicker's Done button / click-outside — auto-rebuild runs from
+  // the resulting dailyLog change. We intentionally don't expose a per-tick
+  // toggle so the rebuild only fires once when the user is done choosing.
+  function setCookRecipes(d, recipeIds) {
+    setDailyLog(prev => {
+      const day = prev[d] || { entries: [] };
+      const current = Array.isArray(day.cookRecipes) ? day.cookRecipes : [];
+      // No-op if list is functionally the same.
+      if (current.length === recipeIds.length && current.every((id, i) => id === recipeIds[i])) {
+        return prev;
+      }
+      const next = { ...prev };
+      next[d] = { ...day, cookRecipes: [...recipeIds] };
+      saveDailyLog(next, user);
+      return next;
+    });
+  }
+
+  // Auto-rebuild auto-suggested entries whenever the user changes which
+  // recipes they're cooking on each day. Logic: wipe all `autoSuggested:true`
+  // entries in the next 7 days, then for each cook-day (chronological), drop
+  // each recipe's servings into empty slots starting on that day — breakfast
+  // recipes fill breakfasts, lunch-dinner recipes fill lunches first, then
+  // dinners. Manually-added entries and skipped slots are never touched.
+  // Idempotent: stable IDs let us no-op when nothing meaningfully changed.
+  const lastRebuildKeyRef = useRef('');
+  useEffect(() => {
+    if (viewMode !== 'prepare') return;
+    const today = todayStr();
+    const days = [];
+    for (let i = 0; i < 7; i++) days.push(shiftDate(today, i));
+
+    const cookSchedule = {};
+    for (const d of days) {
+      const ids = dailyLog[d]?.cookRecipes || [];
+      if (ids.length > 0) cookSchedule[d] = ids;
+    }
+
+    const key = JSON.stringify({
+      cookSchedule,
+      ws: weeklyServings,
+      // Track manual entries so a freshly added manual entry triggers a
+      // re-distribution (its slot is no longer eligible for auto-fill).
+      manual: days.map(d => ({
+        d,
+        skipped: dailyLog[d]?.daySkipped ? 'y' : '',
+        slots: dailyLog[d]?.skippedMeals || [],
+        entries: (dailyLog[d]?.entries || []).filter(e => !e.autoSuggested).map(e => ({ id: e.id, slot: e.mealSlot, r: e.recipeId, n: e.ingredientName })),
+      })),
+      recipeKeys: recipes.map(r => `${r.id}:${r.servings}:${r.category}`).join('|'),
+    });
+    if (key === lastRebuildKeyRef.current) return;
+    lastRebuildKeyRef.current = key;
+
+    const next = {};
+    for (const [k, v] of Object.entries(dailyLog)) {
+      next[k] = { ...v, entries: [...(v.entries || [])] };
+    }
+
+    // 1. Drop existing auto-suggested entries in the 7-day window.
+    for (const d of days) {
+      if (next[d]?.entries) {
+        next[d].entries = next[d].entries.filter(e => !e.autoSuggested);
+      }
+    }
+
+    // 2. Re-distribute fresh.
+    const cache = loadNutritionCache();
+    const cookDays = Object.keys(cookSchedule).sort();
+    for (const cookDay of cookDays) {
+      const recipeIds = cookSchedule[cookDay] || [];
+      const startIdx = days.indexOf(cookDay);
+      if (startIdx < 0) continue;
+
+      let ordinalCounter = 0;
+      for (const recipeId of recipeIds) {
+        // Skip stale picks — recipe no longer in this week's menu.
+        if (!Array.isArray(weeklyPlan) || !weeklyPlan.includes(recipeId)) continue;
+        const recipe = recipes.find(r => r.id === recipeId);
+        if (!recipe) continue;
+        const servingsToPlace = Math.max(
+          1,
+          Number.isFinite(weeklyServings[recipeId])
+            ? weeklyServings[recipeId]
+            : (parseInt(recipe.servings) || 1)
+        );
+        const category = recipe.category || 'lunch-dinner';
+        const recipeServings = parseInt(recipe.servings) || 1;
+
+        let perServing = null;
+        const totals = getCachedTotals(cache[recipeId]);
+        if (totals) {
+          perServing = computePerServing(cache[recipeId], recipe.ingredients, recipeServings);
+          if (!perServing) {
+            perServing = {};
+            for (const n of NUTRIENTS) perServing[n.key] = (totals[n.key] || 0) / recipeServings;
+          }
+        }
+        const nutrition = perServing ? scaleNutrition(perServing, 1) : {};
+
+        const slotsToFill = category === 'breakfast' ? ['breakfast'] : ['lunch', 'dinner'];
+        let placed = 0;
+        for (const slot of slotsToFill) {
+          for (let i = startIdx; i < days.length && placed < servingsToPlace; i++) {
+            const d = days[i];
+            if (!next[d]) next[d] = { entries: [] };
+            const dayData = next[d];
+            if (dayData.daySkipped) continue;
+            const skipped = dayData.skippedMeals || [];
+            if (skipped.includes(slot)) continue;
+            if ((dayData.entries || []).some(e => (e.mealSlot || 'snack') === slot)) continue;
+
+            const stableId = `auto-${cookDay}-${recipeId}-${slot}-${ordinalCounter++}`;
+            dayData.entries = [...(dayData.entries || []), {
+              id: stableId,
+              type: 'recipe',
+              recipeId,
+              recipeName: recipe.title,
+              servings: 1,
+              customWeight: null,
+              mealSlot: slot,
+              timestamp: new Date().toISOString(),
+              nutrition,
+              autoSuggested: true,
+              cookDate: cookDay,
+            }];
+            placed++;
+          }
+        }
+      }
+    }
+
+    // 3. Only commit if the auto-suggested set actually changed.
+    let changed = false;
+    for (const d of days) {
+      const a = (dailyLog[d]?.entries || []).filter(e => e.autoSuggested);
+      const b = (next[d]?.entries || []).filter(e => e.autoSuggested);
+      if (a.length !== b.length || a.some((e, i) => e.id !== b[i].id)) {
+        changed = true;
+        break;
+      }
+    }
+    if (!changed) return;
+    setDailyLog(next);
+    saveDailyLog(next, user);
+  }, [viewMode, dailyLog, weeklyPlan, weeklyServings, recipes, user]);
+
   const [editModal, setEditModal] = useState(null); // { entryId, dateStr } or null
 
   function updateEntry(entryId, dateStr, updatedEntry) {
@@ -4737,10 +5004,28 @@ export function DailyTrackerPage({ recipes, getRecipe, onClose, user, weeklyPlan
     <div className={styles.container}>
       <div className={styles.topBar}>
         <button className={styles.backBtn} onClick={onClose}>&larr; Back</button>
+        <div className={styles.viewToggle} role="tablist">
+          <button
+            role="tab"
+            aria-selected={viewMode === 'log'}
+            className={viewMode === 'log' ? `${styles.viewToggleBtn} ${styles.viewToggleActive}` : styles.viewToggleBtn}
+            onClick={() => setViewMode('log')}
+          >
+            Log
+          </button>
+          <button
+            role="tab"
+            aria-selected={viewMode === 'prepare'}
+            className={viewMode === 'prepare' ? `${styles.viewToggleBtn} ${styles.viewToggleActive}` : styles.viewToggleBtn}
+            onClick={() => setViewMode('prepare')}
+          >
+            Prepare
+          </button>
+        </div>
       </div>
       <div className={styles.weeklyWithCal}>
         <div className={styles.weeklyWithCalLeft}>
-          <WeeklyView dailyLog={dailyLog} date={date} recipes={recipes} onDayClick={(d) => setDate(d)} onMoveEntry={moveEntry} onAddToSlot={handleAddToSlot} onViewRecipe={(id) => setViewRecipeId(id)} onRemoveLastEntry={removeLastEntry} onEditEntry={(entryId, dateStr) => setEditModal({ entryId, dateStr })} onSelectDate={(d) => setDate(d)} />
+          <WeeklyView dailyLog={dailyLog} date={date} recipes={recipes} onDayClick={(d) => setDate(d)} onMoveEntry={moveEntry} onAddToSlot={handleAddToSlot} onViewRecipe={(id) => setViewRecipeId(id)} onRemoveLastEntry={removeLastEntry} onEditEntry={(entryId, dateStr) => setEditModal({ entryId, dateStr })} onSelectDate={(d) => setDate(d)} mode={viewMode} weeklyPlan={weeklyPlan} onSetCookRecipes={setCookRecipes} />
         </div>
         <div className={styles.weeklyWithCalRight}>
           <MiniCalendar date={date} setDate={setDate} dailyLog={dailyLog} />
@@ -4773,14 +5058,16 @@ export function DailyTrackerPage({ recipes, getRecipe, onClose, user, weeklyPlan
           />
         </div>
       </div>
-      <div className={styles.belowFoodLog}>
-        <div className={styles.threeColRow}>
-          <MealsTrackedChart dailyLog={dailyLog} />
-          <HistoryChart dailyLog={dailyLog} />
-          <ServingsChart dailyLog={dailyLog} />
+      {viewMode === 'log' && (
+        <div className={styles.belowFoodLog}>
+          <div className={styles.threeColRow}>
+            <MealsTrackedChart dailyLog={dailyLog} />
+            <HistoryChart dailyLog={dailyLog} />
+            <ServingsChart dailyLog={dailyLog} />
+          </div>
+          <KpiAlerts dailyLog={dailyLog} recipes={recipes} onImportRecipe={onImportRecipe} cacheVersion={cacheVersion} onViewRecipe={(id) => setViewRecipeId(id)} selectedDate={date} user={user} />
         </div>
-        <KpiAlerts dailyLog={dailyLog} recipes={recipes} onImportRecipe={onImportRecipe} cacheVersion={cacheVersion} onViewRecipe={(id) => setViewRecipeId(id)} selectedDate={date} user={user} />
-      </div>
+      )}
       {editModal && (() => {
         const dayData = dailyLog[editModal.dateStr];
         const entry = dayData?.entries?.find(e => e.id === editModal.entryId);

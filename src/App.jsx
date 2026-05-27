@@ -23,6 +23,7 @@ import { SeasonalGuidePage } from './components/SeasonalGuidePage';
 import { SourcesPage } from './components/SourcesPage';
 import { NutritionGoalsPage } from './components/NutritionGoalsPage';
 import { DailyTrackerPage } from './components/DailyTrackerPage';
+import { DesignMealPage } from './components/DesignMealPage';
 import { BarcodeScannerPage } from './components/BarcodeScannerPage';
 import { RecipeSetupPage } from './components/RecipeSetupPage';
 import { ProfilePage } from './components/ProfilePage';
@@ -30,6 +31,7 @@ import { WorkoutPage } from './components/WorkoutPage';
 import { StorageBanner } from './components/StorageBanner';
 import { FeaturesPage } from './components/FeaturesPage';
 import { EatingOutPage } from './components/EatingOutPage';
+import { NextSpotsPage } from './components/NextSpotsPage';
 import { UpdatePill } from './components/UpdatePill';
 import { NutritionOnboarding } from './components/NutritionOnboarding';
 import React from 'react';
@@ -201,6 +203,9 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
   });
   const [viewHistory, setViewHistory] = useState([]);
   const [modalView, setModalView] = useState(null);
+  // When Next Spots → "Open in Eating Out" is clicked, this carries the
+  // chosen category across the navigation so the page can pre-filter.
+  const [pendingEatingOutCategory, setPendingEatingOutCategory] = useState(null);
   // Holds a friend-shared recipe being viewed inline (without persisting it
   // to the user's own library). Cleared when the user navigates away.
   const [transientViewRecipe, setTransientViewRecipe] = useState(null);
@@ -252,11 +257,11 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
           setSharedEatingOutFromFriends(eatingOutLists.filter(l => l.restaurants.length > 0));
           setEatingOutVotesFromFriends(
             friends
-              .filter(f => Array.isArray(f.votesOnMyEatingOut) && f.votesOnMyEatingOut.some(v => v != null))
+              .filter(f => f.votesOnMyEatingOutByCategory && Object.keys(f.votesOnMyEatingOutByCategory).length > 0)
               .map(f => ({
                 uid: f.uid,
                 username: f.username || f.displayName || 'friend',
-                votes: f.votesOnMyEatingOut,
+                votesByCategory: f.votesOnMyEatingOutByCategory,
               })),
           );
         }
@@ -558,11 +563,13 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
     ...(showNutrition ? [{ label: 'Nutrition', icon: 'clinical_notes', submenu: [
       { label: 'Goals', action: 'nutrition-goals' },
       ...(showTrackMeals ? [{ label: 'Track Meals', action: 'daily-tracker' }] : []),
+      { label: 'Design a Meal', action: 'design-meal' },
       ...(showWeightTab ? [{ label: 'Weight', action: 'weight-tracker' }] : []),
       ...(showRotateHealthy ? [{ label: 'Healthy Foods', action: 'key-ingredients' }] : []),
     ] }] : []),
     { label: 'Shopping List', action: 'shopping', icon: 'shopping_cart' },
     { label: 'Eating Out', action: 'eating-out', icon: 'restaurant' },
+    { label: 'Next Spots', action: 'next-spots', icon: 'star' },
     ...((user?.email === 'baldaufdan@gmail.com' || localStorage.getItem('sunday-workout-enabled') === 'true') ? [{ label: 'Workout', action: 'workout', icon: 'fitness_center' }] : []),
   ];
 
@@ -575,6 +582,8 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
       navigateTo('shopping');
     } else if (item.action === 'eating-out') {
       navigateTo('eating-out');
+    } else if (item.action === 'next-spots') {
+      navigateTo('next-spots');
     } else if (item.action === 'history') {
       navigateTo('history');
     } else if (item.action === 'key-ingredients') {
@@ -585,6 +594,8 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
       setModalView('nutrition-goals');
     } else if (item.action === 'daily-tracker') {
       navigateTo('daily-tracker');
+    } else if (item.action === 'design-meal') {
+      navigateTo('design-meal');
     } else if (item.action === 'weight-tracker') {
       navigateTo('weight-tracker');
     } else if (item.action === 'barcode-scanner') {
@@ -854,8 +865,22 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
         {view === 'barcode-scanner' ? (
           <BarcodeScannerPage onClose={goBack} user={user} />
         ) : view === 'daily-tracker' ? (
-          <DailyTrackerPage recipes={recipes} getRecipe={getRecipe} onClose={goBack} user={user} weeklyPlan={weeklyPlan} onViewRecipe={(id) => navigateTo('detail', id)} onImportRecipe={() => navigateTo('import')} />
-        ) : view === 'account-settings' ? (
+          <DailyTrackerPage recipes={recipes} getRecipe={getRecipe} onClose={goBack} user={user} weeklyPlan={weeklyPlan} weeklyServings={weeklyServings} onViewRecipe={(id) => navigateTo('detail', id)} onImportRecipe={() => navigateTo('import')} />
+        ) : view === 'design-meal' ? (() => {
+          let savedGoals = null;
+          try {
+            const raw = localStorage.getItem('sunday-nutrition-goals');
+            if (raw) savedGoals = JSON.parse(raw);
+          } catch {}
+          return (
+            <DesignMealPage
+              recipes={recipes}
+              savedGoals={savedGoals}
+              onBack={goBack}
+              onSelect={id => navigateTo('detail', id)}
+            />
+          );
+        })() : view === 'account-settings' ? (
           <AccountSettings user={user} onClose={goBack} />
         ) : view === 'weight-tracker' ? (
           <WeightTracker onClose={goBack} user={user} />
@@ -948,7 +973,18 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
             user={user}
             sharedFromFriends={sharedEatingOutFromFriends}
             votesFromFriends={eatingOutVotesFromFriends}
+            initialCategory={pendingEatingOutCategory}
+            onClose={() => { setPendingEatingOutCategory(null); goBack(); }}
+          />
+        ) : view === 'next-spots' ? (
+          <NextSpotsPage
+            user={user}
+            sharedFromFriends={sharedEatingOutFromFriends}
             onClose={goBack}
+            onOpenCategory={(category) => {
+              setPendingEatingOutCategory(category);
+              navigateTo('eating-out');
+            }}
           />
         ) : view === 'history' ? (
           <HistoryPage
@@ -1169,10 +1205,14 @@ function App() {
     return (
       <div className={styles.app}>
         <div className={styles.loadingScreen}>
-          <div className={styles.loadingAnimation}>
-            <span className={styles.loadingKnife}>🔪</span>
-            <span className={styles.loadingCarrot}>🥕</span>
-          </div>
+          <video
+            className={styles.loadingVideo}
+            src="/loading-bg.mp4"
+            autoPlay
+            muted
+            playsInline
+            preload="auto"
+          />
         </div>
       </div>
     );

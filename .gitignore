@@ -45,3 +45,6 @@ firebase-key*.json
 # Firebase Functions / CLI build cache
 .firebase/
 functions/lib/
+
+# Local dailyLog snapshots from one-off cleanup scripts
+dailyLog.backup.*.json
