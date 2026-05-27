@@ -1503,16 +1503,23 @@ export function RecipeList({
                       key={recipe.id}
                       className={`${styles.weekItem}${lastAdded === recipe.id ? ` ${styles.weekItemNew}` : ''}`}
                     >
-                      {mealImage ? (
-                        <img className={styles.weekItemThumb} src={mealImage} alt="" />
-                      ) : (
-                        <div
-                          className={`${styles.weekItemThumb} ${styles.weekItemThumbEmpty}`}
-                          aria-hidden="true"
-                        >
-                          <span className={styles.weekItemThumbIcon}>🍽</span>
-                        </div>
-                      )}
+                      <button
+                        type="button"
+                        className={styles.weekItemThumbBtn}
+                        onClick={() => onSelect(recipe.id)}
+                        aria-label={`Open ${recipe.title}`}
+                      >
+                        {mealImage ? (
+                          <img className={styles.weekItemThumb} src={mealImage} alt="" />
+                        ) : (
+                          <div
+                            className={`${styles.weekItemThumb} ${styles.weekItemThumbEmpty}`}
+                            aria-hidden="true"
+                          >
+                            <span className={styles.weekItemThumbIcon}>🍽</span>
+                          </div>
+                        )}
+                      </button>
                       <div className={styles.weekItemContent}>
                         <button
                           className={styles.weekItemName}

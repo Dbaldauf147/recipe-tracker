@@ -728,6 +728,23 @@
   min-width: 0;
 }
 
+.weekItemThumbBtn {
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  width: 100%;
+  cursor: pointer;
+  display: block;
+  font: inherit;
+  color: inherit;
+}
+
+.weekItemThumbBtn:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
 .weekItemThumb {
   width: 100%;
   aspect-ratio: 4 / 3;
