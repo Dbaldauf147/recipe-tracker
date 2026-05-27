@@ -4847,10 +4847,16 @@ export function DailyTrackerPage({ recipes, getRecipe, onClose, user, weeklyPlan
       next[k] = { ...v, entries: [...(v.entries || [])] };
     }
 
-    // 1. Drop existing auto-suggested entries in the 7-day window.
+    // 1. Drop existing auto-suggested entries in the 7-day window — but only
+    // for cookDates that are part of THIS rebuild's schedule. Auto entries
+    // whose cookDate has fallen off the visible window are orphans from
+    // an earlier cook day; leaving them untouched lets the rebuild keep
+    // its hands off them rather than wipe-and-not-replace.
     for (const d of days) {
       if (next[d]?.entries) {
-        next[d].entries = next[d].entries.filter(e => !e.autoSuggested);
+        next[d].entries = next[d].entries.filter(e =>
+          !(e.autoSuggested && e.cookDate && cookSchedule[e.cookDate])
+        );
       }
     }
 
