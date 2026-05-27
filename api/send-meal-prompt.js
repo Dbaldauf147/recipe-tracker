@@ -12,6 +12,7 @@
 import { initializeApp, cert, getApps } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
 import { sendMail } from '../lib/mailer.js';
+import { renderMealReminder } from '../lib/mealReminderEmail.js';
 
 if (getApps().length === 0) {
   const serviceAccount = process.env.FIREBASE_SERVICE_ACCOUNT
@@ -83,9 +84,10 @@ export default async function handler(req, res) {
           let mainMeals = 0;
           let skipped = 0;
           let daySkipped = false;
+          let log = {};
           try {
             const logSnap = await db.doc(`users/${uid}/data/dailyLog`).get();
-            const log = logSnap.exists ? (logSnap.data().log || {}) : {};
+            log = logSnap.exists ? (logSnap.data().log || {}) : {};
             const day = log[dateKey] || {};
             mainMeals = (day.entries || []).filter(e => ['breakfast','lunch','dinner'].includes(e.mealSlot)).length;
             skipped = (day.skippedMeals || []).length;
@@ -93,13 +95,13 @@ export default async function handler(req, res) {
           } catch { /* treat as zero */ }
           if (!daySkipped && (mainMeals + skipped) < 3) {
             const remaining = 3 - mainMeals - skipped;
+            const { subject, text, html } = renderMealReminder({ remaining, log, dateKey });
             try {
               await sendMail({
                 to,
-                subject: 'Prep Day — log your meals',
-                text:
-                  `You have ${remaining} meal${remaining > 1 ? 's' : ''} left to log today.\n\n` +
-                  `Log now: https://prep-day.com\n\n— Prep Day`,
+                subject,
+                text,
+                html,
               });
               await docSnap.ref.update({ 'reminderSettings.lastFoodSent': dateKey });
               summary.foodSent++;
