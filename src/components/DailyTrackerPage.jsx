@@ -4632,40 +4632,57 @@ export function DailyTrackerPage({ recipes, getRecipe, onClose, user, weeklyPlan
     return out;
   }, [dailyLog]);
 
-  // On mount: load daily log from Firestore subcollection and merge with local
+  // On mount: load daily log from Firestore subcollection and merge with local.
+  //
+  // Merge policy for entries: remote is authoritative — local entries are
+  // dropped UNLESS they were just typed (timestamp newer than FRESH_WINDOW_MS).
+  // That covers the legitimate race (user adds an entry, then refreshes before
+  // the Firestore write returns) without resurrecting entries that another
+  // device, the user, or a server-side cleanup just deleted. Non-entry fields
+  // (supplements, skippedMeals, cookRecipes, daySkipped) still use remote-wins
+  // when remote has the field and local-wins as a fallback when it doesn't.
   useEffect(() => {
     if (!user) return;
     loadDailyLogFromFirestore(user.uid).then(remote => {
       if (!remote || Object.keys(remote).length === 0) return;
       setDailyLog(prev => {
+        const FRESH_WINDOW_MS = 30_000;
+        const now = Date.now();
+        const isFresh = (entry) => {
+          const t = entry?.timestamp ? Date.parse(entry.timestamp) : NaN;
+          return Number.isFinite(t) && (now - t) < FRESH_WINDOW_MS;
+        };
+
         const merged = { ...remote };
-        // Per-day field merge. Remote wins for `entries` (when remote
-        // has at least as many) but ALL OTHER fields from the local
-        // copy are preserved if remote doesn't have them yet — this is
-        // the path that lets just-typed `supplements` / `skippedMeals`
-        // / `daySkipped` survive a refresh that lands before Firestore
-        // confirms the write.
         for (const date of Object.keys(prev)) {
           const localDay = prev[date] || {};
           const remoteDay = merged[date];
+          const localEntries = localDay.entries || [];
+          const remoteEntries = (remoteDay && remoteDay.entries) || [];
+
+          // Authoritative entries come from remote; layer on any local entry
+          // typed in the last 30s that hasn't synced yet (by id).
+          const remoteIds = new Set(remoteEntries.map(e => e.id));
+          const pendingLocal = localEntries.filter(e => isFresh(e) && !remoteIds.has(e.id));
+          const finalEntries = [...remoteEntries, ...pendingLocal];
+
           if (!remoteDay) {
-            merged[date] = localDay;
+            // Server has nothing for this date. Keep local metadata only if
+            // there's actually something worth keeping (recent entries or
+            // non-entry fields like skippedMeals/supplements/cookRecipes).
+            const hasNonEntryMeta = Object.keys(localDay).some(k => k !== 'entries');
+            if (finalEntries.length === 0 && !hasNonEntryMeta) {
+              delete merged[date];
+            } else {
+              merged[date] = { ...localDay, entries: finalEntries };
+            }
             continue;
           }
-          const localEntries = localDay.entries || [];
-          const remoteEntries = remoteDay.entries || [];
-          // Spread local first, then overlay remote — so any field
-          // present locally that's missing remotely is preserved, but
-          // remote values still win for shared keys (entries, etc).
-          // When local has MORE entries than remote, we instead keep
-          // local entries (the user just logged a meal).
+
           merged[date] = {
             ...localDay,
             ...remoteDay,
-            entries:
-              localEntries.length > remoteEntries.length
-                ? localEntries
-                : remoteEntries,
+            entries: finalEntries,
           };
         }
         try { localStorage.setItem(DAILY_LOG_KEY, JSON.stringify(merged)); } catch {}
