@@ -4817,13 +4817,17 @@ export function DailyTrackerPage({ recipes, getRecipe, onClose, user, weeklyPlan
     for (let i = 0; i < 7; i++) days.push(shiftDate(today, i));
 
     const cookSchedule = {};
+    const autoSkips = {}; // [cookDay] -> [{ recipeId, date, slot }, ...]
     for (const d of days) {
       const ids = dailyLog[d]?.cookRecipes || [];
       if (ids.length > 0) cookSchedule[d] = ids;
+      const skips = dailyLog[d]?.autoSkip || [];
+      if (skips.length > 0) autoSkips[d] = skips;
     }
 
     const key = JSON.stringify({
       cookSchedule,
+      autoSkips,
       ws: weeklyServings,
       // Track manual entries so a freshly added manual entry triggers a
       // re-distribution (its slot is no longer eligible for auto-fill).
@@ -4888,6 +4892,7 @@ export function DailyTrackerPage({ recipes, getRecipe, onClose, user, weeklyPlan
         // breakfast for breakfast recipes, OR lunch OR dinner for lunch-dinner
         // recipes, never split across both. Prefer lunch; fall back to dinner
         // only if lunch couldn't take any servings.
+        const cookDaySkips = autoSkips[cookDay] || [];
         const placeIntoSlot = (slot) => {
           let placedHere = 0;
           for (let i = startIdx; i < days.length && placedHere < servingsToPlace; i++) {
@@ -4898,6 +4903,9 @@ export function DailyTrackerPage({ recipes, getRecipe, onClose, user, weeklyPlan
             const skipped = dayData.skippedMeals || [];
             if (skipped.includes(slot)) continue;
             if ((dayData.entries || []).some(e => (e.mealSlot || 'snack') === slot)) continue;
+            // Honor user vacates: the user removed or moved an auto entry out
+            // of this exact (recipe, date, slot) — don't refill it.
+            if (cookDaySkips.some(s => s.recipeId === recipeId && s.date === d && s.slot === slot)) continue;
 
             const stableId = `auto-${cookDay}-${recipeId}-${slot}-${ordinalCounter++}`;
             dayData.entries = [...(dayData.entries || []), {
@@ -4968,37 +4976,58 @@ export function DailyTrackerPage({ recipes, getRecipe, onClose, user, weeklyPlan
     });
   }
 
+  // Record a skip marker so the auto-rebuild leaves the given (date, slot)
+  // alone the next time it places servings for `recipeId` from `cookDate`.
+  // Stored on dailyLog[cookDate].autoSkip = [{ recipeId, date, slot }, ...].
+  function appendAutoSkip(day, recipeId, date, slot) {
+    const list = Array.isArray(day.autoSkip) ? day.autoSkip : [];
+    if (list.some(s => s.recipeId === recipeId && s.date === date && s.slot === slot)) return list;
+    return [...list, { recipeId, date, slot }];
+  }
+
   function moveEntry(sourceDate, entryId, targetDate, targetSlot) {
-    if (sourceDate === targetDate) {
-      // Just change the slot
-      setDailyLog(prev => {
-        const next = { ...prev };
-        if (!next[sourceDate]) return prev;
+    setDailyLog(prev => {
+      const next = { ...prev };
+      const sourceDay = next[sourceDate];
+      if (!sourceDay) return prev;
+      const entry = (sourceDay.entries || []).find(e => e.id === entryId);
+      if (!entry) return prev;
+
+      // If we're moving an auto-suggested entry, mark its original slot so
+      // the rebuild doesn't refill it, and demote the entry to a regular
+      // one so the rebuild leaves it where the user dropped it.
+      const isAuto = entry.autoSuggested && entry.cookDate;
+      if (isAuto) {
+        const cookDay = entry.cookDate;
+        const cookDayData = next[cookDay] || { entries: [] };
+        next[cookDay] = {
+          ...cookDayData,
+          autoSkip: appendAutoSkip(cookDayData, entry.recipeId, sourceDate, entry.mealSlot),
+        };
+      }
+      const movedEntry = isAuto
+        ? (() => { const { autoSuggested, cookDate, ...rest } = entry; return { ...rest, mealSlot: targetSlot }; })()
+        : { ...entry, mealSlot: targetSlot };
+
+      if (sourceDate === targetDate) {
         next[sourceDate] = {
           ...next[sourceDate],
-          entries: next[sourceDate].entries.map(e =>
-            e.id === entryId ? { ...e, mealSlot: targetSlot } : e
-          ),
+          entries: next[sourceDate].entries.map(e => e.id === entryId ? movedEntry : e),
         };
-        saveDailyLog(next, user);
-        return next;
-      });
-    } else {
-      // Move between days
-      setDailyLog(prev => {
-        const next = { ...prev };
-        if (!next[sourceDate]) return prev;
-        const entry = next[sourceDate].entries.find(e => e.id === entryId);
-        if (!entry) return prev;
-        const movedEntry = { ...entry, mealSlot: targetSlot };
-        next[sourceDate] = { ...next[sourceDate], entries: next[sourceDate].entries.filter(e => e.id !== entryId) };
-        if (next[sourceDate].entries.length === 0 && !next[sourceDate].daySkipped) delete next[sourceDate];
+      } else {
+        next[sourceDate] = {
+          ...next[sourceDate],
+          entries: next[sourceDate].entries.filter(e => e.id !== entryId),
+        };
+        if (next[sourceDate].entries.length === 0 && !next[sourceDate].daySkipped && !(Array.isArray(next[sourceDate].cookRecipes) && next[sourceDate].cookRecipes.length) && !(Array.isArray(next[sourceDate].autoSkip) && next[sourceDate].autoSkip.length)) {
+          delete next[sourceDate];
+        }
         if (!next[targetDate]) next[targetDate] = { entries: [] };
         next[targetDate] = { ...next[targetDate], entries: [...next[targetDate].entries, movedEntry] };
-        saveDailyLog(next, user);
-        return next;
-      });
-    }
+      }
+      saveDailyLog(next, user);
+      return next;
+    });
   }
 
   function removeLastEntry(targetDate, targetSlot, entryId, entryIndex) {
@@ -5006,18 +5035,41 @@ export function DailyTrackerPage({ recipes, getRecipe, onClose, user, weeklyPlan
       const next = JSON.parse(JSON.stringify(prev));
       if (!next[targetDate]) return prev;
       const entries = next[targetDate].entries || [];
-      // Remove by index (most reliable)
+
+      // Find the entry first so we can record a skip if it was auto-suggested.
+      let entry = null;
+      if (typeof entryIndex === 'number' && entryIndex >= 0 && entryIndex < entries.length) {
+        entry = entries[entryIndex];
+      } else if (entryId) {
+        entry = entries.find(e => e.id === entryId) || null;
+      }
+
       if (typeof entryIndex === 'number' && entryIndex >= 0 && entryIndex < entries.length) {
         next[targetDate].entries = entries.filter((_, i) => i !== entryIndex);
       } else if (entryId) {
-        // Fallback: remove by ID
         const filtered = entries.filter(e => e.id !== entryId);
         if (filtered.length === entries.length) return prev; // ID not found
         next[targetDate].entries = filtered;
       } else {
         return prev;
       }
-      if (next[targetDate].entries.length === 0 && !next[targetDate].daySkipped) delete next[targetDate];
+
+      // Record skip so the rebuild doesn't bring the auto entry back.
+      if (entry?.autoSuggested && entry?.cookDate) {
+        const cookDay = entry.cookDate;
+        if (!next[cookDay]) next[cookDay] = { entries: [] };
+        next[cookDay] = {
+          ...next[cookDay],
+          autoSkip: appendAutoSkip(next[cookDay], entry.recipeId, targetDate, entry.mealSlot || targetSlot),
+        };
+      }
+
+      if (next[targetDate].entries.length === 0
+        && !next[targetDate].daySkipped
+        && !(Array.isArray(next[targetDate].cookRecipes) && next[targetDate].cookRecipes.length)
+        && !(Array.isArray(next[targetDate].autoSkip) && next[targetDate].autoSkip.length)) {
+        delete next[targetDate];
+      }
       saveDailyLog(next, user);
       return next;
     });
