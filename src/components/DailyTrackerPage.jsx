@@ -4874,12 +4874,18 @@ export function DailyTrackerPage({ recipes, getRecipe, onClose, user, weeklyPlan
         if (!Array.isArray(weeklyPlan) || !weeklyPlan.includes(recipeId)) continue;
         const recipe = recipes.find(r => r.id === recipeId);
         if (!recipe) continue;
-        const servingsToPlace = Math.max(
+        const plannedServings = Math.max(
           1,
           Number.isFinite(weeklyServings[recipeId])
             ? weeklyServings[recipeId]
             : (parseInt(recipe.servings) || 1)
         );
+        // Each removed (consume) skip permanently takes a serving off the
+        // budget. Without this, the placement loop would just re-home the
+        // removed serving to the next empty day.
+        const consumedSkips = (autoSkips[cookDay] || [])
+          .filter(s => s.recipeId === recipeId && s.consume).length;
+        const servingsToPlace = Math.max(0, plannedServings - consumedSkips);
         const category = recipe.category || 'lunch-dinner';
         const recipeServings = parseInt(recipe.servings) || 1;
 
@@ -4984,11 +4990,21 @@ export function DailyTrackerPage({ recipes, getRecipe, onClose, user, weeklyPlan
 
   // Record a skip marker so the auto-rebuild leaves the given (date, slot)
   // alone the next time it places servings for `recipeId` from `cookDate`.
-  // Stored on dailyLog[cookDate].autoSkip = [{ recipeId, date, slot }, ...].
-  function appendAutoSkip(day, recipeId, date, slot) {
+  // Stored on dailyLog[cookDate].autoSkip = [{ recipeId, date, slot, consume? }, ...].
+  // `consume: true` means the user removed the serving entirely (decrement the
+  // recipe's placement budget); omitted means the serving was moved elsewhere
+  // (block this slot only — recipe still owes the same number of placements).
+  function appendAutoSkip(day, recipeId, date, slot, consume = false) {
     const list = Array.isArray(day.autoSkip) ? day.autoSkip : [];
-    if (list.some(s => s.recipeId === recipeId && s.date === date && s.slot === slot)) return list;
-    return [...list, { recipeId, date, slot }];
+    const existing = list.find(s => s.recipeId === recipeId && s.date === date && s.slot === slot);
+    if (existing) {
+      // Promote a move-skip to a consume-skip if the user later removes it.
+      if (consume && !existing.consume) {
+        return list.map(s => s === existing ? { ...s, consume: true } : s);
+      }
+      return list;
+    }
+    return [...list, consume ? { recipeId, date, slot, consume: true } : { recipeId, date, slot }];
   }
 
   function moveEntry(sourceDate, entryId, targetDate, targetSlot) {
@@ -5060,13 +5076,15 @@ export function DailyTrackerPage({ recipes, getRecipe, onClose, user, weeklyPlan
         return prev;
       }
 
-      // Record skip so the rebuild doesn't bring the auto entry back.
+      // Record a consume-skip so the rebuild both leaves this slot alone AND
+      // decrements the recipe's placement budget — otherwise the removed
+      // serving would just get pushed to the next empty day.
       if (entry?.autoSuggested && entry?.cookDate) {
         const cookDay = entry.cookDate;
         if (!next[cookDay]) next[cookDay] = { entries: [] };
         next[cookDay] = {
           ...next[cookDay],
-          autoSkip: appendAutoSkip(next[cookDay], entry.recipeId, targetDate, entry.mealSlot || targetSlot),
+          autoSkip: appendAutoSkip(next[cookDay], entry.recipeId, targetDate, entry.mealSlot || targetSlot, true),
         };
       }
 
