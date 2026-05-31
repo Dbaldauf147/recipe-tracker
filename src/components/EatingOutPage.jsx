@@ -1070,13 +1070,67 @@ function RestaurantMapView({ items, onSelect }) {
   );
 }
 
-function RestaurantTable({ items, onRowClick }) {
+function RestaurantTable({ items, onRowClick, myRestaurantIds, bulkUpdate, bulkDelete, cuisineSuggestions = [], locationSuggestions = [] }) {
   // Merge stored prefs over column defaults so columns added later keep their
   // built-in defaults while user preferences override visibility + width.
   const [prefs, setPrefs] = useState(loadTablePrefs);
   const [showSettings, setShowSettings] = useState(false);
   const [sort, setSort] = useState({ key: 'name', dir: 'asc' });
   const resizingRef = useRef(null);
+
+  // Bulk-edit selection (only restaurants on my own list are selectable).
+  const [selectedIds, setSelectedIds] = useState(() => new Set());
+  const [tagField, setTagField] = useState('cuisines');
+  const [tagValue, setTagValue] = useState('');
+  const canSelect = !!myRestaurantIds && !!bulkUpdate;
+
+  const selectableItems = useMemo(
+    () => (canSelect ? items.filter(r => myRestaurantIds.has(r.id)) : []),
+    [items, myRestaurantIds, canSelect],
+  );
+  // Act only on selections that are currently visible — a filter change hides
+  // rows but keeps the selection, so we intersect with visible at apply time
+  // (no effect needed to prune stale ids).
+  const selectedVisibleIds = useMemo(
+    () => selectableItems.filter(r => selectedIds.has(r.id)).map(r => r.id),
+    [selectableItems, selectedIds],
+  );
+  const selectedCount = selectedVisibleIds.length;
+  const allSelected = selectableItems.length > 0 && selectedCount === selectableItems.length;
+
+  function toggleRow(id) {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+  function toggleAll() {
+    setSelectedIds(allSelected ? new Set() : new Set(selectableItems.map(r => r.id)));
+  }
+  function clearSelection() { setSelectedIds(new Set()); }
+
+  function applyUpdate(updater) {
+    if (selectedCount === 0) return;
+    bulkUpdate(new Set(selectedVisibleIds), updater);
+  }
+  function applyTag(remove) {
+    const value = tagValue.trim();
+    if (!value) return;
+    applyUpdate(r => {
+      const arr = r[tagField] || [];
+      if (remove) return { [tagField]: arr.filter(x => x.toLowerCase() !== value.toLowerCase()) };
+      if (arr.some(x => x.toLowerCase() === value.toLowerCase())) return null;
+      return { [tagField]: [...arr, value] };
+    });
+    setTagValue('');
+  }
+  function handleBulkDelete() {
+    if (selectedCount === 0) return;
+    if (!window.confirm(`Delete ${selectedCount} selected place${selectedCount === 1 ? '' : 's'}? This can't be undone.`)) return;
+    bulkDelete(new Set(selectedVisibleIds));
+    clearSelection();
+  }
 
   const columns = useMemo(() => TABLE_COLUMNS.map(c => {
     const p = prefs[c.key] || {};
@@ -1137,7 +1191,8 @@ function RestaurantTable({ items, onRowClick }) {
     saveTablePrefs({});
   }
 
-  const totalWidth = visibleColumns.reduce((s, c) => s + c.width, 0);
+  const SELECT_COL_W = 40;
+  const totalWidth = visibleColumns.reduce((s, c) => s + c.width, 0) + (canSelect ? SELECT_COL_W : 0);
 
   return (
     <div className={styles.tableWrap}>
@@ -1152,6 +1207,67 @@ function RestaurantTable({ items, onRowClick }) {
           ⚙ Columns ({visibleColumns.length}/{columns.length})
         </button>
       </div>
+
+      {canSelect && selectedCount > 0 && (
+        <div className={styles.bulkBar}>
+          <span className={styles.bulkCount}>{selectedCount} selected</span>
+
+          <div className={styles.bulkGroup}>
+            <span className={styles.bulkLabel}>Status</span>
+            {FILTERS.filter(f => f.key !== 'all').map(f => (
+              <button key={f.key} type="button" className={styles.bulkBtn}
+                onClick={() => applyUpdate(() => ({ status: f.key }))}>{f.label}</button>
+            ))}
+          </div>
+
+          <div className={styles.bulkGroup}>
+            <span className={styles.bulkLabel}>Frequency</span>
+            {FREQUENCIES.map(f => (
+              <button key={f.key} type="button" className={styles.bulkBtn}
+                onClick={() => applyUpdate(() => ({ frequency: f.key }))}>{f.label}</button>
+            ))}
+          </div>
+
+          <div className={styles.bulkGroup}>
+            <span className={styles.bulkLabel}>Rating</span>
+            {[1, 2, 3, 4, 5].map(n => (
+              <button key={n} type="button" className={styles.bulkBtn}
+                onClick={() => applyUpdate(() => ({ rating: n }))}>{n}★</button>
+            ))}
+            <button type="button" className={styles.bulkBtn}
+              onClick={() => applyUpdate(() => ({ rating: null }))}>✕</button>
+          </div>
+
+          <div className={styles.bulkGroup}>
+            <span className={styles.bulkLabel}>Meal type</span>
+            <select className={styles.bulkSelect} value=""
+              onChange={e => { if (e.target.value) applyUpdate(() => ({ mealType: e.target.value })); }}>
+              <option value="">Set…</option>
+              {MEAL_TYPES.map(m => <option key={m.key} value={m.key}>{m.label}</option>)}
+            </select>
+          </div>
+
+          <div className={styles.bulkGroup}>
+            <span className={styles.bulkLabel}>Tag</span>
+            <select className={styles.bulkSelect} value={tagField} onChange={e => setTagField(e.target.value)}>
+              <option value="cuisines">Cuisine</option>
+              <option value="locations">Location</option>
+            </select>
+            <input className={styles.bulkInput} list="bulk-tag-suggestions" value={tagValue}
+              onChange={e => setTagValue(e.target.value)} placeholder="value"
+              onKeyDown={e => { if (e.key === 'Enter') applyTag(false); }} />
+            <datalist id="bulk-tag-suggestions">
+              {(tagField === 'cuisines' ? cuisineSuggestions : locationSuggestions).map(s => <option key={s} value={s} />)}
+            </datalist>
+            <button type="button" className={styles.bulkBtn} onClick={() => applyTag(false)}>+ Add</button>
+            <button type="button" className={styles.bulkBtn} onClick={() => applyTag(true)}>− Remove</button>
+          </div>
+
+          <div className={styles.tableSpacer} />
+          <button type="button" className={styles.bulkDeleteBtn} onClick={handleBulkDelete}>Delete</button>
+          <button type="button" className={styles.linkBtn} onClick={clearSelection}>Clear</button>
+        </div>
+      )}
       {showSettings && (
         <div className={styles.tableSettingsPopover}>
           <div className={styles.tableSettingsHeader}>
@@ -1182,12 +1298,23 @@ function RestaurantTable({ items, onRowClick }) {
         <div className={styles.tableScroll}>
           <table className={styles.dataTable} style={{ width: totalWidth }}>
             <colgroup>
+              {canSelect && <col style={{ width: SELECT_COL_W }} />}
               {visibleColumns.map(c => (
                 <col key={c.key} style={{ width: c.width }} />
               ))}
             </colgroup>
             <thead>
               <tr>
+                {canSelect && (
+                  <th style={{ width: SELECT_COL_W, textAlign: 'center' }}>
+                    <input
+                      type="checkbox"
+                      checked={allSelected}
+                      onChange={toggleAll}
+                      title={allSelected ? 'Deselect all' : 'Select all'}
+                    />
+                  </th>
+                )}
                 {visibleColumns.map(c => {
                   const isSorted = sort.key === c.key;
                   return (
@@ -1215,6 +1342,17 @@ function RestaurantTable({ items, onRowClick }) {
             <tbody>
               {sortedItems.map(r => (
                 <tr key={r.id} className={styles.tableRow} onClick={() => onRowClick(r)}>
+                  {canSelect && (
+                    <td style={{ width: SELECT_COL_W, textAlign: 'center' }} onClick={e => e.stopPropagation()}>
+                      {myRestaurantIds.has(r.id) ? (
+                        <input
+                          type="checkbox"
+                          checked={selectedIds.has(r.id)}
+                          onChange={() => toggleRow(r.id)}
+                        />
+                      ) : null}
+                    </td>
+                  )}
                   {visibleColumns.map(c => {
                     const value = cellValueFor(r, c.key);
                     if (c.key === 'takenJoanne' && r.takenJoanne) {
@@ -1407,6 +1545,13 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
     return set;
   }, [ownerData, user?.uid]);
 
+  // Ids of restaurants on MY own list — only these are bulk-editable (a
+  // friend's shared list is never mutated, matching bulk-import/rename).
+  const myRestaurantIds = useMemo(
+    () => new Set((ownerData[user?.uid]?.restaurants || []).map(r => r.id)),
+    [ownerData, user?.uid],
+  );
+
   const categoryEntries = useMemo(() => {
     const counts = new Map();
     for (const r of restaurants) {
@@ -1598,6 +1743,30 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
       setActiveLocation(newName);
     }
   }
+
+  // Apply a patch to every selected restaurant on MY list. `updater(r)` returns
+  // a partial object to merge (or null to skip that row). Scoped to my list.
+  const bulkUpdate = useCallback((ids, updater) => {
+    if (!user?.uid) return;
+    const idSet = ids instanceof Set ? ids : new Set(ids);
+    const myList = ownerData[user.uid]?.restaurants || [];
+    let changed = 0;
+    const next = myList.map(r => {
+      if (!idSet.has(r.id)) return r;
+      const patch = updater(r);
+      if (!patch) return r;
+      changed++;
+      return { ...r, ...patch, updatedAt: new Date().toISOString() };
+    });
+    if (changed) persistOwner(user.uid, next);
+  }, [ownerData, user?.uid, persistOwner]);
+
+  const bulkDelete = useCallback((ids) => {
+    if (!user?.uid) return;
+    const idSet = ids instanceof Set ? ids : new Set(ids);
+    const myList = ownerData[user.uid]?.restaurants || [];
+    persistOwner(user.uid, myList.filter(r => !idSet.has(r.id)));
+  }, [ownerData, user?.uid, persistOwner]);
 
   function handleBulkImport(rows, strategy) {
     // Bulk operations only target MY own list — shared rows are excluded.
@@ -2019,7 +2188,15 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
           ) : viewMode === 'map' ? (
             <RestaurantMapView items={visible} onSelect={setEditing} />
           ) : viewMode === 'table' ? (
-            <RestaurantTable items={visible} onRowClick={setEditing} />
+            <RestaurantTable
+              items={visible}
+              onRowClick={setEditing}
+              myRestaurantIds={myRestaurantIds}
+              bulkUpdate={bulkUpdate}
+              bulkDelete={bulkDelete}
+              cuisineSuggestions={cuisineSuggestions}
+              locationSuggestions={locationSuggestions}
+            />
           ) : visible.length === 0 ? (
             <div className={styles.empty}>
               {restaurants.length === 0 ? (
