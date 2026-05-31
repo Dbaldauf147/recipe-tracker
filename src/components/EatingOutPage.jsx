@@ -84,6 +84,17 @@ const FREQUENCIES = [
   { key: 'retired', label: 'Retired' },
 ];
 
+// A restaurant matches a meal-type filter if its Meal type equals the key, OR
+// any of its free-text Categories contains the meal type's label as text — so a
+// place with a "coffee shops" category is caught by the Coffee filter even when
+// its Meal type field was never set.
+function restaurantMatchesMealType(r, mealTypeKey) {
+  if (!mealTypeKey) return true;
+  if (r.mealType === mealTypeKey) return true;
+  const term = (MEAL_TYPES.find(m => m.key === mealTypeKey)?.label || mealTypeKey).toLowerCase();
+  return (r.categories || []).some(c => (c || '').toLowerCase().includes(term));
+}
+
 // Table view: column registry, defaults, and per-user width/visibility prefs.
 const TABLE_COLUMNS = [
   { key: 'name', label: 'Name', width: 220, visible: true },
@@ -1522,7 +1533,7 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
       if (!showRetired && r.frequency === 'retired') continue;
       if (filter !== 'all' && r.status !== filter) continue;
       if (activeLocation && !(r.locations || []).some(l => l.toLowerCase() === activeLocation.toLowerCase())) continue;
-      if (activeMealType && r.mealType !== activeMealType) continue;
+      if (activeMealType && !restaurantMatchesMealType(r, activeMealType)) continue;
       if (activeCategory && !(r.categories || []).some(c => c.toLowerCase() === activeCategory.toLowerCase())) continue;
       for (const c of (r.cuisines || [])) {
         counts.set(c, (counts.get(c) || 0) + 1);
@@ -1537,7 +1548,7 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
       if (!showRetired && r.frequency === 'retired') continue;
       if (filter !== 'all' && r.status !== filter) continue;
       if (activeCuisine && !(r.cuisines || []).some(c => c.toLowerCase() === activeCuisine.toLowerCase())) continue;
-      if (activeMealType && r.mealType !== activeMealType) continue;
+      if (activeMealType && !restaurantMatchesMealType(r, activeMealType)) continue;
       if (activeCategory && !(r.categories || []).some(c => c.toLowerCase() === activeCategory.toLowerCase())) continue;
       for (const l of (r.locations || [])) {
         counts.set(l, (counts.get(l) || 0) + 1);
@@ -1570,7 +1581,7 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
       if (filter !== 'all' && r.status !== filter) continue;
       if (activeCuisine && !(r.cuisines || []).some(c => c.toLowerCase() === activeCuisine.toLowerCase())) continue;
       if (activeLocation && !(r.locations || []).some(l => l.toLowerCase() === activeLocation.toLowerCase())) continue;
-      if (activeMealType && r.mealType !== activeMealType) continue;
+      if (activeMealType && !restaurantMatchesMealType(r, activeMealType)) continue;
       for (const c of (r.categories || [])) {
         counts.set(c, (counts.get(c) || 0) + 1);
       }
@@ -1585,7 +1596,7 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
       if (filter !== 'all' && r.status !== filter) return false;
       if (activeCuisine && !(r.cuisines || []).some(c => c.toLowerCase() === activeCuisine.toLowerCase())) return false;
       if (activeLocation && !(r.locations || []).some(l => l.toLowerCase() === activeLocation.toLowerCase())) return false;
-      if (activeMealType && r.mealType !== activeMealType) return false;
+      if (activeMealType && !restaurantMatchesMealType(r, activeMealType)) return false;
       if (activeCategory && !(r.categories || []).some(c => c.toLowerCase() === activeCategory.toLowerCase())) return false;
       if (q) {
         const hay = [
