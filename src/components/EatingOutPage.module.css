@@ -931,6 +931,29 @@
   flex: 1;
 }
 
+/* Bulk-edit toggle button in the table toolbar */
+.bulkToggle,
+.bulkToggleActive {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  padding: 0.3rem 0.7rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--color-text);
+  cursor: pointer;
+  font-family: inherit;
+}
+.bulkToggle:hover {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+.bulkToggleActive {
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+  color: #fff;
+}
+
 /* Bulk-edit toolbar (table view, when rows are selected) */
 .bulkBar {
   display: flex;

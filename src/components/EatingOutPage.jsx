@@ -1083,6 +1083,8 @@ function RestaurantTable({ items, onRowClick, myRestaurantIds, bulkUpdate, bulkD
   const [tagField, setTagField] = useState('cuisines');
   const [tagValue, setTagValue] = useState('');
   const canSelect = !!myRestaurantIds && !!bulkUpdate;
+  const [bulkMode, setBulkMode] = useState(false);
+  const showSelect = canSelect && bulkMode;
 
   const selectableItems = useMemo(
     () => (canSelect ? items.filter(r => myRestaurantIds.has(r.id)) : []),
@@ -1192,13 +1194,22 @@ function RestaurantTable({ items, onRowClick, myRestaurantIds, bulkUpdate, bulkD
   }
 
   const SELECT_COL_W = 40;
-  const totalWidth = visibleColumns.reduce((s, c) => s + c.width, 0) + (canSelect ? SELECT_COL_W : 0);
+  const totalWidth = visibleColumns.reduce((s, c) => s + c.width, 0) + (showSelect ? SELECT_COL_W : 0);
 
   return (
     <div className={styles.tableWrap}>
       <div className={styles.tableToolbar}>
         <span className={styles.tableCount}>{items.length} restaurant{items.length === 1 ? '' : 's'}</span>
         <div className={styles.tableSpacer} />
+        {canSelect && (
+          <button
+            type="button"
+            className={bulkMode ? styles.bulkToggleActive : styles.bulkToggle}
+            onClick={() => { if (bulkMode) clearSelection(); setBulkMode(v => !v); }}
+          >
+            {bulkMode ? '✓ Bulk edit' : 'Bulk edit'}
+          </button>
+        )}
         <button
           type="button"
           className={styles.linkBtn}
@@ -1208,7 +1219,7 @@ function RestaurantTable({ items, onRowClick, myRestaurantIds, bulkUpdate, bulkD
         </button>
       </div>
 
-      {canSelect && selectedCount > 0 && (
+      {showSelect && selectedCount > 0 && (
         <div className={styles.bulkBar}>
           <span className={styles.bulkCount}>{selectedCount} selected</span>
 
@@ -1298,14 +1309,14 @@ function RestaurantTable({ items, onRowClick, myRestaurantIds, bulkUpdate, bulkD
         <div className={styles.tableScroll}>
           <table className={styles.dataTable} style={{ width: totalWidth }}>
             <colgroup>
-              {canSelect && <col style={{ width: SELECT_COL_W }} />}
+              {showSelect && <col style={{ width: SELECT_COL_W }} />}
               {visibleColumns.map(c => (
                 <col key={c.key} style={{ width: c.width }} />
               ))}
             </colgroup>
             <thead>
               <tr>
-                {canSelect && (
+                {showSelect && (
                   <th style={{ width: SELECT_COL_W, textAlign: 'center' }}>
                     <input
                       type="checkbox"
@@ -1342,7 +1353,7 @@ function RestaurantTable({ items, onRowClick, myRestaurantIds, bulkUpdate, bulkD
             <tbody>
               {sortedItems.map(r => (
                 <tr key={r.id} className={styles.tableRow} onClick={() => onRowClick(r)}>
-                  {canSelect && (
+                  {showSelect && (
                     <td style={{ width: SELECT_COL_W, textAlign: 'center' }} onClick={e => e.stopPropagation()}>
                       {myRestaurantIds.has(r.id) ? (
                         <input
