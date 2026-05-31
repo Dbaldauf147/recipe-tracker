@@ -49,9 +49,6 @@ export function UpdatePrompt() {
     return () => { cancelled = true; clearInterval(id); };
   }, []);
 
-  const show = (needRefresh || versionMismatch || forcePill) && !dismissed;
-  if (!show) return null;
-
   async function handleUpdate() {
     // Best-effort: tell the waiting SW to skip waiting so it takes over.
     try { await updateServiceWorker(true); } catch { /* ignore */ }
@@ -75,6 +72,32 @@ export function UpdatePrompt() {
     // ignore it, but the SW/cache purge above already did the real work.
     setTimeout(() => window.location.reload(), 200);
   }
+
+  // Auto-apply a stale build whenever the app regains focus (e.g. reopening
+  // the installed PWA). The user isn't mid-typing at that moment, so a silent
+  // refresh is safe — and it stops deployed fixes from getting stranded behind
+  // an ignored update pill, which is the usual "I still see the old behavior"
+  // cause. While the app stays focused we leave the pill for the user to click.
+  useEffect(() => {
+    if (!BUILD_VERSION) return;
+    async function onVisible() {
+      if (document.visibilityState !== 'visible') return;
+      try {
+        const res = await fetch(`/version.json?t=${Date.now()}`, { cache: 'no-store' });
+        if (!res.ok) return;
+        const data = await res.json();
+        if (data.version && data.version !== BUILD_VERSION) {
+          handleUpdate();
+        }
+      } catch { /* offline / 404 — ignore */ }
+    }
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const show = (needRefresh || versionMismatch || forcePill) && !dismissed;
+  if (!show) return null;
 
   return (
     <div className={styles.banner}>

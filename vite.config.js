@@ -275,7 +275,7 @@ export default defineConfig({
     tiktokCaptionProxy(),
     restaurantSearchProxy(),
     VitePWA({
-      registerType: 'prompt',
+      registerType: 'autoUpdate',
       manifest: {
         name: 'Prep Day',
         short_name: 'Prep Day',
@@ -305,9 +305,11 @@ export default defineConfig({
       workbox: {
         globPatterns: ['**/*.{ico,png,svg,woff2}'],
         maximumFileSizeToCacheInBytes: 4 * 1024 * 1024,
-        // skipWaiting intentionally left off so UpdatePrompt can surface the
-        // "new version available" pill (needRefresh only fires while the new
-        // SW is still waiting).
+        // Auto-update: take over as soon as a new SW installs and claim open
+        // clients, so a deploy reaches the user on their next load without
+        // needing to click the update pill (the recurring "I still see the old
+        // version" cause). The version.json pill remains as a visible backup.
+        skipWaiting: true,
         clientsClaim: true,
         cleanupOutdatedCaches: true,
         navigateFallback: null,

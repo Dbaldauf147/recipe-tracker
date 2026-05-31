@@ -757,6 +757,11 @@ export async function migrateToFirestore(uid) {
   } catch {}
 
   try {
+    const storeLists = localStorage.getItem('sunday-store-lists');
+    if (storeLists) data.storeLists = JSON.parse(storeLists);
+  } catch {}
+
+  try {
     const selection = localStorage.getItem('sunday-shopping-selection');
     if (selection) data.shoppingSelection = JSON.parse(selection);
   } catch {}
@@ -774,6 +779,11 @@ export async function migrateToFirestore(uid) {
   try {
     const nutritionGoals = localStorage.getItem('sunday-nutrition-goals');
     if (nutritionGoals) data.nutritionGoals = JSON.parse(nutritionGoals);
+  } catch {}
+
+  try {
+    const mealChartColors = localStorage.getItem('sunday-meal-chart-colors');
+    if (mealChartColors) data.mealChartColors = JSON.parse(mealChartColors);
   } catch {}
 
   try {
@@ -971,6 +981,7 @@ export function hydrateLocalStorage(userData, uid) {
   localStorage.setItem('sunday-shop-extras', JSON.stringify(userData.shopExtras || []));
   localStorage.setItem('sunday-shopping-selection', JSON.stringify(userData.shoppingSelection || []));
   hydrateArrayWithDefense('sunday-shopping-lists', userData.shoppingLists, 'shoppingLists');
+  hydrateArrayWithDefense('sunday-store-lists', userData.storeLists, 'storeLists');
   hydrateObjectWithDefense('sunday-weekly-servings', userData.weeklyServings, 'weeklyServings');
 
   if (userData.keyIngredients) {
@@ -981,8 +992,21 @@ export function hydrateLocalStorage(userData, uid) {
     localStorage.setItem('sunday-nutrition-goals', JSON.stringify(userData.nutritionGoals));
   }
 
+  if (userData.mealChartColors) {
+    localStorage.setItem('sunday-meal-chart-colors', JSON.stringify(userData.mealChartColors));
+  }
+
   if (userData.bodyStats) {
     localStorage.setItem('sunday-body-stats', JSON.stringify(userData.bodyStats));
+  }
+
+  // Whoop: per-day rollup (calories/strain/recovery/sleep) written by the
+  // server's /api/whoop/data fetch, plus the calorie-budget opt-in flag.
+  if (userData.whoopDaily) {
+    localStorage.setItem('sunday-whoop-daily', JSON.stringify(userData.whoopDaily));
+  }
+  if (userData.whoopAddCaloriesToBudget !== undefined) {
+    localStorage.setItem('sunday-whoop-budget', JSON.stringify(!!userData.whoopAddCaloriesToBudget));
   }
 
   // Daily log is now in a separate subcollection doc — do NOT hydrate from main user doc.
@@ -1186,9 +1210,20 @@ export async function searchByEmail(email) {
   const q = query(collection(db, 'users'), where('email', '==', lower));
   const snap = await getDocs(q);
   if (snap.empty) return null;
-  const d = snap.docs[0];
-  const data = d.data();
-  return { uid: d.id, username: data.username || '', email: lower, displayName: data.displayName || '' };
+  // A single email can map to multiple user docs (re-signups / duplicate
+  // accounts). Returning docs[0] could address a friend request to a stale
+  // uid the person no longer logs into — so the request would never appear
+  // for them. Prefer the doc most likely to be the active account: one with
+  // a username, then the most recent lastLogin.
+  const docs = snap.docs.map(d => ({ uid: d.id, data: d.data() || {} }));
+  docs.sort((a, b) => {
+    const au = a.data.username ? 1 : 0;
+    const bu = b.data.username ? 1 : 0;
+    if (au !== bu) return bu - au;
+    return String(b.data.lastLogin || '').localeCompare(String(a.data.lastLogin || ''));
+  });
+  const best = docs[0];
+  return { uid: best.uid, username: best.data.username || '', email: lower, displayName: best.data.displayName || '' };
 }
 
 /**
@@ -1210,16 +1245,39 @@ export async function searchByName(name) {
 
 /**
  * Send a friend request from one user to another.
+ *
+ * Guards enforced here at the data layer (not just in the UI) so no entry
+ * point or stale deploy can create anonymous/duplicate requests:
+ *  - requires a non-empty fromUsername, so the recipient never sees "@A user"
+ *  - dedupes: if a pending request from→to already exists, it's a no-op
+ *
+ * Returns true when a new request was created, false when an identical
+ * pending request already existed (so callers can skip the email).
  */
 export async function sendFriendRequest(fromUid, toUid, fromUsername, message) {
+  const username = (fromUsername || '').trim();
+  if (!username) {
+    throw new Error('Set a username before sending friend requests so your friend knows who it is from.');
+  }
+
+  // Don't pile up duplicate pending requests to the same person.
+  const existing = await getDocs(query(
+    collection(db, 'friendRequests'),
+    where('from', '==', fromUid),
+    where('to', '==', toUid),
+    where('status', '==', 'pending'),
+  ));
+  if (!existing.empty) return false;
+
   const data = {
     from: fromUid,
     to: toUid,
-    fromUsername,
+    fromUsername: username,
     status: 'pending',
   };
   if (message) data.message = message;
   await addDoc(collection(db, 'friendRequests'), data);
+  return true;
 }
 
 /**

@@ -53,11 +53,13 @@ export function FriendsPage({ onClose, addRecipe, importRecipes }) {
   const [sharedMeals, setSharedMeals] = useState([]);
   const [browseFriend, setBrowseFriend] = useState(null); // { uid, username, loading, recipes }
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(null);
 
   /* ── Load initial data ── */
   const refresh = useCallback(async () => {
     if (!uid) return;
     try {
+      setLoadError(null);
       const [name, reqs, sent, frs, shared, meals] = await Promise.all([
         getUsername(uid),
         getPendingRequests(uid),
@@ -74,6 +76,9 @@ export function FriendsPage({ onClose, addRecipe, importRecipes }) {
       setSharedMeals(meals);
     } catch (err) {
       console.error('FriendsPage load error:', err);
+      // Surface it — a silent failure here used to look identical to
+      // "no pending requests", which hid real problems.
+      setLoadError(err?.message || 'Could not load your friends data. Try again.');
     } finally {
       setLoading(false);
     }
@@ -153,9 +158,23 @@ export function FriendsPage({ onClose, addRecipe, importRecipes }) {
 
   /* ── Send request ── */
   async function handleSendRequest(toUid) {
+    // Block anonymous requests — without a username the recipient just sees
+    // "@A user" and can't tell who sent it.
+    if (!myUsername) {
+      setSearchStatus({ type: 'error', msg: 'Set a username first (in "Your Username" above) so your friend knows who the request is from.' });
+      return;
+    }
     try {
       const msg = requestMessage.trim();
-      await sendFriendRequest(uid, toUid, myUsername, msg || undefined);
+      const created = await sendFriendRequest(uid, toUid, myUsername, msg || undefined);
+
+      // Already-pending request — don't create a duplicate or re-email.
+      if (!created) {
+        setSearchStatus({ type: 'success', msg: 'You already have a pending request to this person.' });
+        setSearchResult(null);
+        setRequestMessage('');
+        return;
+      }
 
       // Send email notification and track result
       const toEmail = searchResult?.email;
@@ -318,8 +337,24 @@ export function FriendsPage({ onClose, addRecipe, importRecipes }) {
       <div className={styles.header}>
         <button className={styles.backBtn} onClick={onClose}>&larr; Back</button>
         <h2 className={styles.title}>Friends</h2>
-        {myUsername && <span className={styles.myUsernameBadge}>@{myUsername}</span>}
+        {myUsername
+          ? <span className={styles.myUsernameBadge}>@{myUsername}</span>
+          : <span className={styles.myUsernameBadge} style={{ opacity: 0.7 }}>no username set</span>}
       </div>
+
+      {/* Which account you're viewing — friend requests are addressed to a
+          specific account, so this makes a wrong-account mix-up obvious. */}
+      {user?.email && (
+        <p className={styles.signedInAs} style={{ fontSize: '0.82rem', opacity: 0.7, margin: '0 0 0.75rem' }}>
+          Signed in as <strong>{user.email}</strong>
+          {!myUsername && ' — set a username below so friends can find you and you can send requests.'}
+        </p>
+      )}
+      {loadError && (
+        <p className={styles.statusError} style={{ marginBottom: '0.75rem' }}>
+          {loadError}
+        </p>
+      )}
 
       {/* ── Your Username ── */}
       <div className={styles.section}>
@@ -589,7 +624,9 @@ export function FriendsPage({ onClose, addRecipe, importRecipes }) {
               requests.map(req => (
                 <div key={req.id} className={styles.requestRow}>
                   <div className={styles.friendInfo}>
-                    <span className={styles.friendUsername}>@{req.fromUsername}</span>
+                    <span className={styles.friendUsername}>
+                      {req.fromUsername ? `@${req.fromUsername}` : 'Someone (no username set)'}
+                    </span>
                     {req.message && <span className={styles.requestMsg}>"{req.message}"</span>}
                   </div>
                   <div className={styles.requestActions}>

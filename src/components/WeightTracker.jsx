@@ -1046,6 +1046,114 @@ export function WeightTracker({ onClose, user, isOnboarding = false }) {
     } catch {}
   }
 
+  // ── Target date + projection to goal weight ──────────────────────────────
+  const [targetDate, setTargetDate] = useState(() => {
+    try {
+      const stats = JSON.parse(localStorage.getItem('sunday-body-stats') || '{}');
+      return stats.targetDate || '';
+    } catch { return ''; }
+  });
+  const [showTarget, setShowTarget] = useState(false);
+
+  function saveTargetDate(val) {
+    setTargetDate(val);
+    try {
+      const stats = JSON.parse(localStorage.getItem('sunday-body-stats') || '{}');
+      if (val) stats.targetDate = val; else delete stats.targetDate;
+      localStorage.setItem('sunday-body-stats', JSON.stringify(stats));
+      if (user) saveField(user.uid, 'bodyStats', stats);
+    } catch {}
+  }
+
+  // Maintenance calories (base TDEE, no goal offset) via Mifflin-St Jeor —
+  // mirrors NutritionGoalsPage's computeTargets so the deficit math agrees with
+  // the rest of the app. Uses the most recent weigh-in as current weight.
+  // Returns null when body stats are too incomplete to compute.
+  const maintenanceCalories = useMemo(() => {
+    try {
+      const stats = JSON.parse(localStorage.getItem('sunday-body-stats') || '{}');
+      const gender = stats.gender || stats.sex;
+      const heightFt = Number(stats.heightFt);
+      const heightIn = Number(stats.heightIn) || 0;
+      const age = Number(stats.age);
+      const latestW = log.length ? log[log.length - 1].weight : Number(stats.weight);
+      if (!gender || !heightFt || !age || !latestW) return null;
+      const kg = latestW / 2.205;
+      const cm = (heightFt * 12 + heightIn) * 2.54;
+      const bmr = gender === 'male'
+        ? (10 * kg) + (6.25 * cm) - (5 * age) + 5
+        : (10 * kg) + (6.25 * cm) - (5 * age) - 161;
+      const mult = { sedentary: 1.2, light: 1.375, moderate: 1.55, active: 1.725 }[stats.activityLevel] || 1.2;
+      return Math.round(bmr * mult);
+    } catch { return null; }
+  }, [log]);
+
+  // Straight-line "required pace" projection from the latest visible weigh-in
+  // to (goalWeight @ targetDate). Generates waypoints so the line sits at a
+  // realistic horizontal distance on the categorical axis, plus the headline
+  // lbs/week and kcal/day numbers. Null when there's no future-dated target.
+  const projection = useMemo(() => {
+    const targetW = parseFloat(goalWeight);
+    if (!targetW || !targetDate || chartData.length < 1) return null;
+    const anchor = chartData[chartData.length - 1];
+    const anchorW = anchor.weight;
+    const anchorDate = new Date(anchor.rawDate + 'T00:00:00');
+    const targetD = new Date(targetDate + 'T00:00:00');
+    const daysToTarget = Math.round((targetD - anchorDate) / 86400000);
+    if (!isFinite(daysToTarget) || daysToTarget <= 0) return null;
+
+    const weeksToTarget = daysToTarget / 7;
+    const totalChange = targetW - anchorW;
+    const lbsPerWeek = totalChange / weeksToTarget;
+    const caloriesPerDay = Math.round((lbsPerWeek * 3500) / 7);
+
+    const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const ymd = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    const useMonthYear = daysToTarget > 70;
+    const label = (d) => useMonthYear
+      ? `${MONTH_NAMES[d.getMonth()]} '${String(d.getFullYear()).slice(2)}`
+      : `${d.getMonth() + 1}/${d.getDate()}`;
+
+    // Waypoints: weekly for short horizons, monthly for long ones (keeps the
+    // point count sane). They're collinear, so the line stays straight.
+    const stepDays = daysToTarget > 140 ? 30 : 7;
+    const points = [];
+    for (let dd = stepDays; dd < daysToTarget; dd += stepDays) {
+      const d = new Date(anchorDate.getTime() + dd * 86400000);
+      const frac = dd / daysToTarget;
+      points.push({ date: label(d), rawDate: ymd(d), projectedWeight: Math.round((anchorW + totalChange * frac) * 10) / 10, projected: true });
+    }
+    points.push({ date: label(targetD), rawDate: targetDate, projectedWeight: targetW, projected: true, isTarget: true });
+
+    return { points, lbsPerWeek, caloriesPerDay, weeksToTarget, daysToTarget, targetW, anchorW };
+  }, [goalWeight, targetDate, chartData]);
+
+  // When the target overlay is on, extend the chart with the projection points
+  // and bridge the last real point into the projection line.
+  const displayChartData = useMemo(() => {
+    if (!(showTarget && projection)) return chartData;
+    const base = chartData.map((d, i) => (
+      i === chartData.length - 1 ? { ...d, projectedWeight: d.weight } : { ...d }
+    ));
+    return [...base, ...projection.points];
+  }, [chartData, showTarget, projection]);
+
+  // Y ticks/domain spanning both real and projected weights so the axis
+  // "zooms out" to include the target.
+  const yAxis = useMemo(() => {
+    const vals = [];
+    for (const d of displayChartData) {
+      if (typeof d.weight === 'number') vals.push(d.weight);
+      if (typeof d.projectedWeight === 'number') vals.push(d.projectedWeight);
+    }
+    if (!vals.length) return { ticks: undefined, domain: ['auto', 'auto'] };
+    const min = Math.floor((Math.min(...vals) - 2) / 5) * 5;
+    const max = Math.ceil((Math.max(...vals) + 2) / 5) * 5;
+    const ticks = [];
+    for (let i = min; i <= max; i += 5) ticks.push(i);
+    return { ticks, domain: [min, max] };
+  }, [displayChartData]);
+
   // Skip the onboarding weight entry spotlight — weight is already captured in Your Info
   const showOnboardingSpotlight = false;
   const [onboardingWeight, setOnboardingWeight] = useState('');
@@ -1245,6 +1353,15 @@ export function WeightTracker({ onClose, user, isOnboarding = false }) {
           />
           <span className={styles.targetUnit}>lbs</span>
         </div>
+        <div className={styles.targetLeft}>
+          <span className={styles.targetLabel}>by</span>
+          <input
+            className={styles.targetDateInput}
+            type="date"
+            value={targetDate}
+            onChange={e => saveTargetDate(e.target.value)}
+          />
+        </div>
         {stats && stats.weekChange !== null && (
           <div className={styles.statCard}>
             <span className={styles.statValue} style={{ color: changeColor(stats.weekChange) }}>
@@ -1320,6 +1437,16 @@ export function WeightTracker({ onClose, user, isOnboarding = false }) {
                 <input type="date" className={styles.dateInput} value={customEnd} onChange={e => setCustomEnd(e.target.value)} />
               </div>
             )}
+            {goalWeight && targetDate && (
+              <button
+                className={showTarget ? styles.rangeBtnActive : styles.rangeBtn}
+                style={{ marginLeft: 'auto' }}
+                onClick={() => setShowTarget(v => !v)}
+                title="Zoom out to your target weight and date"
+              >
+                {showTarget ? '✓ ' : ''}Show target
+              </button>
+            )}
           </div>
           <div className={styles.chartWrap}>
             {chartData.length < 2 ? (
@@ -1331,10 +1458,10 @@ export function WeightTracker({ onClose, user, isOnboarding = false }) {
               </div>
             ) : (
             <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={chartData} margin={{ top: 10, right: 30, left: 10, bottom: 5 }}>
+              <LineChart data={displayChartData} margin={{ top: 10, right: 30, left: 10, bottom: 5 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" vertical={false} />
                 <XAxis dataKey="date" tick={{ fontSize: 11, fill: '#9ca3af' }} axisLine={{ stroke: '#e5e7eb' }} tickLine={false} />
-                <YAxis tick={{ fontSize: 11, fill: '#9ca3af' }} axisLine={false} tickLine={false} domain={[dataMin => Math.floor((dataMin - 2) / 5) * 5, dataMax => Math.ceil((dataMax + 2) / 5) * 5]} ticks={(() => { const vals = chartData.map(d => d.weight); const min = Math.floor((Math.min(...vals) - 2) / 5) * 5; const max = Math.ceil((Math.max(...vals) + 2) / 5) * 5; const t = []; for (let i = min; i <= max; i += 5) t.push(i); return t; })()} unit=" lbs" />
+                <YAxis tick={{ fontSize: 11, fill: '#9ca3af' }} axisLine={false} tickLine={false} domain={yAxis.domain} ticks={yAxis.ticks} unit=" lbs" />
                 <Tooltip content={({ active, payload }) => {
                   if (!active || !payload?.[0]) return null;
                   const d = payload[0].payload;
@@ -1350,6 +1477,13 @@ export function WeightTracker({ onClose, user, isOnboarding = false }) {
                 }} />
                 {goalWeight && (
                   <ReferenceLine y={goalWeight} stroke="#22c55e" strokeDasharray="6 3" strokeWidth={1.5} label={{ value: `Goal: ${goalWeight}`, position: 'right', fontSize: 10, fill: '#22c55e' }} />
+                )}
+                {showTarget && projection && (
+                  <Line type="linear" dataKey="projectedWeight" stroke="#f59e0b" strokeWidth={2} strokeDasharray="5 4" connectNulls activeDot={false} dot={(props) => {
+                    const { cx, cy, payload } = props;
+                    if (cx == null || cy == null || !payload.isTarget) return null;
+                    return <circle key="target-dot" cx={cx} cy={cy} r={5} fill="#f59e0b" stroke="#fff" strokeWidth={2} />;
+                  }} />
                 )}
                 <Line type="monotone" dataKey="gapWeight" stroke="var(--color-accent, #3B6B9C)" strokeWidth={1.5} strokeDasharray="6 4" strokeOpacity={0.4} dot={(props) => {
                   const { cx, cy, payload } = props;
@@ -1373,13 +1507,44 @@ export function WeightTracker({ onClose, user, isOnboarding = false }) {
                 {/* Dots for real data points at gap boundaries */}
                 <Line type="monotone" dataKey="weight" stroke="none" strokeWidth={0} dot={(props) => {
                   const { cx, cy, payload } = props;
-                  if (cx == null || cy == null || payload.estimated || payload.solidWeight !== null) return null;
+                  if (cx == null || cy == null || payload.estimated || payload.projected || payload.solidWeight !== null) return null;
                   return <circle key={`gap-${payload.rawDate}`} cx={cx} cy={cy} r={3} fill="#fff" stroke="#3B6B9C" strokeWidth={2} />;
                 }} activeDot={false} />
               </LineChart>
             </ResponsiveContainer>
             )}
           </div>
+          {showTarget && projection && (
+            <div className={styles.targetReadout}>
+              <div className={styles.targetReadoutMain}>
+                To reach <strong>{projection.targetW} lbs</strong> by{' '}
+                <strong>{new Date(targetDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</strong>:{' '}
+                <strong style={{ color: changeColor(projection.lbsPerWeek) }}>
+                  {projection.lbsPerWeek > 0 ? '+' : ''}{projection.lbsPerWeek.toFixed(2)} lbs/week
+                </strong>
+              </div>
+              <div className={styles.targetReadoutSub}>
+                {projection.caloriesPerDay === 0
+                  ? 'Maintain your current intake'
+                  : `≈ ${Math.abs(projection.caloriesPerDay).toLocaleString()} kcal/day ${projection.caloriesPerDay < 0 ? 'deficit' : 'surplus'}`}
+                {maintenanceCalories
+                  ? ` · Maintenance ~${maintenanceCalories.toLocaleString()} → eat ~${(maintenanceCalories + projection.caloriesPerDay).toLocaleString()}/day`
+                  : ''}
+              </div>
+              {Math.abs(projection.lbsPerWeek) > 2 && (
+                <div className={styles.targetReadoutWarn}>
+                  That's an aggressive pace (&gt;2 lbs/week) — consider a later target date.
+                </div>
+              )}
+            </div>
+          )}
+          {showTarget && !projection && goalWeight && targetDate && (
+            <div className={styles.targetReadout}>
+              <div className={styles.targetReadoutSub}>
+                Pick a future target date to see the pace and calories needed.
+              </div>
+            </div>
+          )}
         </div>
       )}
 

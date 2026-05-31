@@ -4,6 +4,9 @@ import { saveField } from '../utils/firestoreSync';
 import styles from './AccountSettings.module.css';
 
 const REMINDER_KEY = 'sunday-reminder-settings';
+const ALL_DAYS = [0, 1, 2, 3, 4, 5, 6];
+const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 function loadReminderSettings() {
   try { return JSON.parse(localStorage.getItem(REMINDER_KEY) || '{}'); } catch { return {}; }
@@ -14,64 +17,103 @@ export function AccountSettings({ user, onClose }) {
   const [deleting, setDeleting] = useState(false);
   const [showDelete, setShowDelete] = useState(false);
   const [phone, setPhone] = useState('');
-  // Comma-separated emails in a single input. Parsed into an array on save.
-  const [reminderEmails, setReminderEmails] = useState('');
+  // Per-email day routing: each row is { email, days[] }. A reminder due on a
+  // given weekday is sent to every row whose `days` includes that weekday.
+  const [emailSchedules, setEmailSchedules] = useState([{ email: '', days: [...ALL_DAYS] }]);
   const [foodLogReminder, setFoodLogReminder] = useState(false);
   const [foodLogTime, setFoodLogTime] = useState('17:00');
   const [foodLogDays, setFoodLogDays] = useState([0, 1, 2, 3, 4, 5, 6]);
   const [weightReminder, setWeightReminder] = useState(false);
   const [weightTime, setWeightTime] = useState('08:00');
+  const [weightDays, setWeightDays] = useState([0, 1, 2, 3, 4, 5, 6]);
   const [reminderSaved, setReminderSaved] = useState(false);
   const [testSending, setTestSending] = useState(false);
 
   useEffect(() => {
     const s = loadReminderSettings();
     if (s.phone) setPhone(s.phone);
-    if (Array.isArray(s.emails) && s.emails.length > 0) {
-      setReminderEmails(s.emails.join(', '));
+    // Hydrate per-email schedules, migrating from the legacy flat emails list
+    // (every address → all days) so existing setups keep working unchanged.
+    if (Array.isArray(s.emailSchedules) && s.emailSchedules.length > 0) {
+      setEmailSchedules(s.emailSchedules.map(r => ({
+        email: r?.email || '',
+        days: Array.isArray(r?.days) && r.days.length ? [...r.days].sort((a, b) => a - b) : [...ALL_DAYS],
+      })));
+    } else if (Array.isArray(s.emails) && s.emails.length > 0) {
+      setEmailSchedules(s.emails.map(e => ({ email: e, days: [...ALL_DAYS] })));
     } else if (s.email) {
-      setReminderEmails(s.email);
+      setEmailSchedules([{ email: s.email, days: [...ALL_DAYS] }]);
+    } else if (user?.email) {
+      setEmailSchedules([{ email: user.email.toLowerCase(), days: [...ALL_DAYS] }]);
     }
     if (s.foodLogReminder) setFoodLogReminder(s.foodLogReminder);
     if (s.foodLogTime) setFoodLogTime(s.foodLogTime);
     if (Array.isArray(s.foodLogDays)) setFoodLogDays(s.foodLogDays);
     if (s.weightReminder) setWeightReminder(s.weightReminder);
     if (s.weightTime) setWeightTime(s.weightTime);
+    if (Array.isArray(s.weightDays)) setWeightDays(s.weightDays);
   }, []);
 
   function toggleDay(d) {
     setFoodLogDays(prev => prev.includes(d) ? prev.filter(x => x !== d) : [...prev, d].sort());
   }
-
-  // Accept comma / semicolon / whitespace separators so paste-from-anywhere
-  // works, lowercase + dedupe, and drop anything that doesn't look like an
-  // address so a stray comma or trailing space doesn't get sent to Resend.
-  function parseEmails(raw) {
-    return Array.from(new Set(
-      String(raw || '')
-        .split(/[,;\s]+/)
-        .map(s => s.trim().toLowerCase())
-        .filter(s => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s))
-    ));
+  function toggleWeightDay(d) {
+    setWeightDays(prev => prev.includes(d) ? prev.filter(x => x !== d) : [...prev, d].sort());
   }
 
+  function updateScheduleEmail(i, email) {
+    setEmailSchedules(prev => prev.map((r, j) => (j === i ? { ...r, email } : r)));
+  }
+  function toggleScheduleDay(i, d) {
+    setEmailSchedules(prev => prev.map((r, j) => {
+      if (j !== i) return r;
+      const has = r.days.includes(d);
+      return { ...r, days: has ? r.days.filter(x => x !== d) : [...r.days, d].sort((a, b) => a - b) };
+    }));
+  }
+  function addScheduleRow() {
+    setEmailSchedules(prev => [...prev, { email: '', days: [...ALL_DAYS] }]);
+  }
+  function removeScheduleRow(i) {
+    setEmailSchedules(prev => (prev.length <= 1 ? prev : prev.filter((_, j) => j !== i)));
+  }
+
+  // Validated, deduped schedules (lowercased email + sorted days). Rows with an
+  // invalid/blank email or no days selected are dropped.
+  function buildSchedules() {
+    const out = [];
+    const seen = new Set();
+    for (const r of emailSchedules) {
+      const email = (r.email || '').trim().toLowerCase();
+      if (!EMAIL_RE.test(email) || seen.has(email)) continue;
+      const days = Array.isArray(r.days) && r.days.length ? [...r.days].sort((a, b) => a - b) : [];
+      if (days.length === 0) continue;
+      seen.add(email);
+      out.push({ email, days });
+    }
+    return out;
+  }
+
+  // Flat recipient list (for the test email + legacy `emails` field).
   function effectiveEmails() {
-    const parsed = parseEmails(reminderEmails);
-    if (parsed.length > 0) return parsed;
+    const sched = buildSchedules();
+    if (sched.length > 0) return sched.map(r => r.email);
     if (user?.email) return [user.email.toLowerCase()];
     return [];
   }
 
   function saveReminders() {
-    const emails = effectiveEmails();
+    const schedules = buildSchedules();
+    const emails = schedules.length > 0 ? schedules.map(r => r.email) : effectiveEmails();
     const settings = {
       phone,
-      // `emails` is the new authoritative field; `email` kept as the first
-      // address so older readers / debug tools that only know about the
-      // singular field still see a valid recipient.
+      // `emailSchedules` is the authoritative per-day routing. `emails`/`email`
+      // are derived (flat list) so the test endpoint and any older readers
+      // still see valid recipients.
+      emailSchedules: schedules,
       emails,
       email: emails[0] || '',
-      foodLogReminder, foodLogTime, foodLogDays, weightReminder, weightTime,
+      foodLogReminder, foodLogTime, foodLogDays, weightReminder, weightTime, weightDays,
     };
     localStorage.setItem(REMINDER_KEY, JSON.stringify(settings));
     if (user) saveField(user.uid, 'reminderSettings', settings);
@@ -166,21 +208,70 @@ export function AccountSettings({ user, onClose }) {
           Get email reminders when you forget to log meals or weigh yourself.
         </p>
 
-        <div className={styles.reminderRow} style={{ flexDirection: 'column', alignItems: 'stretch', gap: '0.35rem' }}>
+        <div className={styles.reminderRow} style={{ flexDirection: 'column', alignItems: 'stretch', gap: '0.6rem' }}>
           <label className={styles.reminderToggle} style={{ cursor: 'default' }}>
             Send reminders to
           </label>
-          <input
-            type="text"
-            className={styles.reminderTimeInput}
-            style={{ width: '100%', maxWidth: 360 }}
-            value={reminderEmails}
-            onChange={e => setReminderEmails(e.target.value)}
-            placeholder={user?.email ? `${user.email}, partner@example.com` : 'you@example.com, partner@example.com'}
-            autoComplete="email"
-          />
+          {emailSchedules.map((row, i) => (
+            <div key={i} style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+              <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center' }}>
+                <input
+                  type="email"
+                  className={styles.reminderTimeInput}
+                  style={{ flex: 1, minWidth: 0, maxWidth: 360 }}
+                  value={row.email}
+                  onChange={e => updateScheduleEmail(i, e.target.value)}
+                  placeholder={i === 0 ? (user?.email || 'you@example.com') : 'partner@example.com'}
+                  autoComplete="email"
+                />
+                {emailSchedules.length > 1 && (
+                  <button
+                    type="button"
+                    onClick={() => removeScheduleRow(i)}
+                    aria-label="Remove this email"
+                    style={{
+                      border: '1px solid #ccc', background: '#fff', color: '#888',
+                      borderRadius: 6, width: 30, height: 30, cursor: 'pointer', fontSize: '1rem', lineHeight: 1,
+                    }}
+                  >×</button>
+                )}
+              </div>
+              <div style={{ display: 'flex', gap: '0.3rem', flexWrap: 'wrap' }}>
+                {DAY_LABELS.map((label, idx) => {
+                  const on = row.days.includes(idx);
+                  return (
+                    <button
+                      key={idx}
+                      type="button"
+                      onClick={() => toggleScheduleDay(i, idx)}
+                      style={{
+                        padding: '0.3rem 0.5rem',
+                        borderRadius: 6,
+                        border: '1px solid ' + (on ? '#111' : '#ccc'),
+                        background: on ? '#111' : '#fff',
+                        color: on ? '#fff' : '#666',
+                        fontSize: '0.75rem',
+                        cursor: 'pointer',
+                        minWidth: 38,
+                      }}
+                    >
+                      {label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+          <button
+            type="button"
+            onClick={addScheduleRow}
+            className={styles.reminderTestBtn}
+            style={{ alignSelf: 'flex-start' }}
+          >
+            + Add another email
+          </button>
           <p className={styles.reminderHint} style={{ marginTop: 0 }}>
-            Separate multiple addresses with commas. Leave blank to use your account email ({user?.email || 'unset'}). Save after changing.
+            Each address only gets reminders on the days you highlight — e.g. send weekday reminders to one inbox and weekend ones to another. Applies to both meal and weight reminders. Save after changing.
           </p>
         </div>
 
@@ -235,9 +326,35 @@ export function AccountSettings({ user, onClose }) {
           )}
         </div>
         {weightReminder && (
-          <p className={styles.reminderHint}>
-            If you haven't logged your weight on a scheduled weigh-in day by {new Date(`2000-01-01T${weightTime}`).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}, you'll get a reminder.
-          </p>
+          <>
+            <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap', margin: '0.5rem 0 0.25rem' }}>
+              {DAY_LABELS.map((label, idx) => {
+                const on = weightDays.includes(idx);
+                return (
+                  <button
+                    key={idx}
+                    type="button"
+                    onClick={() => toggleWeightDay(idx)}
+                    style={{
+                      padding: '0.35rem 0.6rem',
+                      borderRadius: 6,
+                      border: '1px solid ' + (on ? '#111' : '#ccc'),
+                      background: on ? '#111' : '#fff',
+                      color: on ? '#fff' : '#666',
+                      fontSize: '0.8rem',
+                      cursor: 'pointer',
+                      minWidth: 42,
+                    }}
+                  >
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
+            <p className={styles.reminderHint}>
+              Only checked on these days, and only when you're due per your weigh-in schedule. If you haven't logged your weight by {new Date(`2000-01-01T${weightTime}`).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })} (Eastern Time) on a selected day, you'll get a reminder.
+            </p>
+          </>
         )}
 
         <div className={styles.reminderActions}>

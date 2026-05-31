@@ -542,3 +542,39 @@ export async function fetchNutritionForRecipe(ingredients) {
 
   return { items, totals };
 }
+
+// ── Whoop calorie-budget integration ───────────────────────────────────────
+// When the user opts in (Whoop page toggle), the calories Whoop measured them
+// burning on a given day are added to that day's calorie target on the tracker.
+// Both values are hydrated from Firestore into localStorage by firestoreSync.
+
+const WHOOP_DAILY_KEY = 'sunday-whoop-daily';
+const WHOOP_BUDGET_KEY = 'sunday-whoop-budget';
+
+export function whoopBudgetEnabled() {
+  try {
+    return JSON.parse(localStorage.getItem(WHOOP_BUDGET_KEY) || 'false') === true;
+  } catch {
+    return false;
+  }
+}
+
+// Whoop calories burned for a YYYY-MM-DD date, or 0 if unknown.
+export function whoopCaloriesForDate(dateKey) {
+  if (!dateKey) return 0;
+  try {
+    const map = JSON.parse(localStorage.getItem(WHOOP_DAILY_KEY) || '{}');
+    const cals = map?.[dateKey]?.calories;
+    return typeof cals === 'number' && cals > 0 ? Math.round(cals) : 0;
+  } catch {
+    return 0;
+  }
+}
+
+// The calorie target for a date, including Whoop calories burned when the
+// budget toggle is on. Returns { goal, base, whoop } so callers can annotate.
+export function effectiveCalorieGoal(baseCalories, dateKey) {
+  const base = Math.round(baseCalories || 0);
+  const whoop = whoopBudgetEnabled() ? whoopCaloriesForDate(dateKey) : 0;
+  return { goal: base + whoop, base, whoop };
+}

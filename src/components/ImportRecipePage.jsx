@@ -562,7 +562,7 @@ export function ImportRecipePage({ onSave, onAddWithoutClose, onCancel, userReci
         description: '',
         category: r.category.trim() || 'lunch-dinner',
         frequency: 'common',
-        servings: r.servings.trim() || '1',
+        servings: String(r.servings).trim() || '1',
         mealType: ingredients.length > 0 ? classifyMealType(ingredients) : '',
         ingredients,
         instructions,

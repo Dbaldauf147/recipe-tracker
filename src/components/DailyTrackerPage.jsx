@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { NUTRIENTS, fetchNutritionForIngredient, fetchNutritionForRecipe } from '../utils/nutrition';
+import { NUTRIENTS, fetchNutritionForIngredient, fetchNutritionForRecipe, effectiveCalorieGoal, whoopBudgetEnabled, whoopCaloriesForDate } from '../utils/nutrition';
 import { loadIngredients } from '../utils/ingredientsStore';
 import { getSizeGrams } from '../utils/units';
 import { saveField, saveDailyLogToFirestore, loadDailyLogFromFirestore, loadFriends, getUsername, shareMeal } from '../utils/firestoreSync';
@@ -174,6 +174,30 @@ function saveGoalField(key, value) {
     window.dispatchEvent(new Event('goals-updated'));
   } catch {
     // Best-effort — quota errors etc. just drop the change.
+  }
+}
+
+// Per-nutrient line colors for the "% of Daily Target" chart, keyed by
+// nutrient (e.g. { protein: '#dc2626' }). Synced to Firestore so the mobile
+// app shares the same palette.
+const MEAL_CHART_COLORS_KEY = 'sunday-meal-chart-colors';
+function loadMealChartColors() {
+  try {
+    const raw = localStorage.getItem(MEAL_CHART_COLORS_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+}
+function saveMealChartColors(colors, user) {
+  try {
+    localStorage.setItem(MEAL_CHART_COLORS_KEY, JSON.stringify(colors));
+    window.dispatchEvent(new Event('meal-colors-updated'));
+  } catch {
+    // Best-effort.
+  }
+  if (user) {
+    try { saveField(user.uid, 'mealChartColors', colors); } catch { /* ignore */ }
   }
 }
 
@@ -2839,12 +2863,32 @@ function DailyTotalsBar({ entries, daySkipped, skippedMeals, supplements }) {
 /* ── History Chart ── */
 const CORE_NUTRIENTS = ['calories', 'protein', 'carbs', 'fat'];
 
-function HistoryChart({ dailyLog }) {
+function HistoryChart({ dailyLog, user }) {
   const [range, setRange] = useState(7);
   const [selectedNutrients, setSelectedNutrients] = useState(['calories', 'protein', 'carbs', 'fat']);
   const [showMore, setShowMore] = useState(false);
   const moreRef = useRef(null);
   const goals = useMemo(loadGoals, []);
+
+  // Per-line color overrides. Re-read on cross-device sync or local edit.
+  const [mealColors, setMealColors] = useState(loadMealChartColors);
+  useEffect(() => {
+    const refresh = () => setMealColors(loadMealChartColors());
+    window.addEventListener('firestore-sync', refresh);
+    window.addEventListener('meal-colors-updated', refresh);
+    return () => {
+      window.removeEventListener('firestore-sync', refresh);
+      window.removeEventListener('meal-colors-updated', refresh);
+    };
+  }, []);
+  const colorFor = (key, i) => (mealColors && mealColors[key]) || CHART_COLORS[i % CHART_COLORS.length];
+  function setColor(key, value) {
+    const next = { ...(mealColors || {}) };
+    if (value) next[key] = value;
+    else delete next[key];
+    setMealColors(next);
+    saveMealChartColors(next, user);
+  }
 
   useEffect(() => {
     if (!showMore) return;
@@ -2980,14 +3024,40 @@ function HistoryChart({ dailyLog }) {
       ) : !hasData ? (
         <div className={styles.noChartData}>No data in the selected range. Add entries to see trends.</div>
       ) : (
+        <>
+        <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '0.75rem', margin: '0 0 0.5rem', fontSize: '0.78rem', color: 'var(--color-text-muted)' }}>
+          <span>Line colors:</span>
+          {selectedNutrients.filter(k => goals[k] > 0).map((key, i) => (
+            <label key={key} style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem', cursor: 'pointer' }}>
+              <input
+                type="color"
+                value={colorFor(key, i)}
+                onChange={e => setColor(key, e.target.value)}
+                style={{ width: 20, height: 20, padding: 0, border: 'none', background: 'none', cursor: 'pointer' }}
+                title={`${NUTRIENTS.find(n => n.key === key)?.label || key} line color`}
+              />
+              <span>{NUTRIENTS.find(n => n.key === key)?.label || key}</span>
+              {mealColors[key] && (
+                <button
+                  type="button"
+                  onClick={() => setColor(key, null)}
+                  title="Reset to default"
+                  style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--color-text-muted)', fontSize: '0.72rem', padding: 0, lineHeight: 1 }}
+                >
+                  ✕
+                </button>
+              )}
+            </label>
+          ))}
+        </div>
         <div className={styles.chartWrap}>
           <ResponsiveContainer width="100%" height="100%">
             <ComposedChart data={chartData} margin={{ top: 10, right: 12, left: -8, bottom: 5 }}>
               <defs>
                 {selectedNutrients.filter(k => goals[k] > 0).map((key, i) => (
                   <linearGradient key={key} id={`grad-${key}`} x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor={CHART_COLORS[i % CHART_COLORS.length]} stopOpacity={0.2} />
-                    <stop offset="100%" stopColor={CHART_COLORS[i % CHART_COLORS.length]} stopOpacity={0} />
+                    <stop offset="0%" stopColor={colorFor(key, i)} stopOpacity={0.2} />
+                    <stop offset="100%" stopColor={colorFor(key, i)} stopOpacity={0} />
                   </linearGradient>
                 ))}
               </defs>
@@ -3001,11 +3071,12 @@ function HistoryChart({ dailyLog }) {
                 <Area key={`area-${key}`} type="monotone" dataKey={key} fill={`url(#grad-${key})`} stroke="none" name={NUTRIENTS.find(n => n.key === key)?.label || key} legendType="none" tooltipType="none" />
               ))}
               {selectedNutrients.filter(k => goals[k] > 0).map((key, i) => (
-                <Line key={key} type="monotone" dataKey={key} stroke={CHART_COLORS[i % CHART_COLORS.length]} strokeWidth={2.5} dot={{ r: 3, fill: '#fff', stroke: CHART_COLORS[i % CHART_COLORS.length], strokeWidth: 2 }} activeDot={{ r: 5, fill: CHART_COLORS[i % CHART_COLORS.length], stroke: '#fff', strokeWidth: 2 }} name={NUTRIENTS.find(n => n.key === key)?.label || key} />
+                <Line key={key} type="monotone" dataKey={key} stroke={colorFor(key, i)} strokeWidth={2.5} dot={{ r: 3, fill: '#fff', stroke: colorFor(key, i), strokeWidth: 2 }} activeDot={{ r: 5, fill: colorFor(key, i), stroke: '#fff', strokeWidth: 2 }} name={NUTRIENTS.find(n => n.key === key)?.label || key} />
               ))}
             </ComposedChart>
           </ResponsiveContainer>
         </div>
+        </>
       )}
     </div>
   );
@@ -3869,7 +3940,15 @@ function WeeklyView({ dailyLog, date, recipes, onDayClick, onMoveEntry, onAddToS
                     const label = key === 'calories' ? 'Cal' : (n?.label || key);
                     const unit = key === 'calories' ? '' : 'g';
                     const val = Math.round(day.totals[key]);
-                    const goal = goals[key] || 0;
+                    // Calories: optionally fold in Whoop calories burned for
+                    // this day so the budget reflects activity (opt-in toggle).
+                    let goal = goals[key] || 0;
+                    let whoopAdd = 0;
+                    if (key === 'calories') {
+                      const eff = effectiveCalorieGoal(goals.calories, day.dateStr);
+                      goal = eff.goal;
+                      whoopAdd = eff.whoop;
+                    }
                     const pct = goal > 0 ? Math.round(val / goal * 100) : 0;
                     let color;
                     if (day.daySkipped || !day.hasEntries) {
@@ -3888,8 +3967,15 @@ function WeeklyView({ dailyLog, date, recipes, onDayClick, onMoveEntry, onAddToS
                       </React.Fragment>
                     ) : (
                       <React.Fragment key={key}>
-                        <span className={styles.weeklyMacroRowLabel}>{label}</span>
-                        <span className={styles.weeklyMacroVal}>{val}{unit}</span>
+                        <span className={styles.weeklyMacroRowLabel}>
+                          {label}{key === 'calories' && whoopAdd > 0 ? ' ⌚' : ''}
+                        </span>
+                        <span
+                          className={styles.weeklyMacroVal}
+                          title={key === 'calories' && whoopAdd > 0
+                            ? `Goal ${goals.calories} + ${whoopAdd} burned (Whoop) = ${goal} cal`
+                            : undefined}
+                        >{val}{unit}</span>
                         <span className={styles.weeklyMacroPct} style={{ color }}>{pct}%</span>
                       </React.Fragment>
                     );
@@ -3898,6 +3984,11 @@ function WeeklyView({ dailyLog, date, recipes, onDayClick, onMoveEntry, onAddToS
               </div>
             ))}
           </div>
+          {whoopBudgetEnabled() && whoopCaloriesForDate(date) > 0 && (
+            <div className={styles.weeklyWhoopNote}>
+              ⌚ Calorie goal includes <strong>+{whoopCaloriesForDate(date)} cal</strong> burned (Whoop) for the selected day.
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -5166,7 +5257,7 @@ export function DailyTrackerPage({ recipes, getRecipe, onClose, user, weeklyPlan
         <div className={styles.belowFoodLog}>
           <div className={styles.threeColRow}>
             <MealsTrackedChart dailyLog={dailyLog} />
-            <HistoryChart dailyLog={dailyLog} />
+            <HistoryChart dailyLog={dailyLog} user={user} />
             <ServingsChart dailyLog={dailyLog} />
           </div>
           <KpiAlerts dailyLog={dailyLog} recipes={recipes} onImportRecipe={onImportRecipe} cacheVersion={cacheVersion} onViewRecipe={(id) => setViewRecipeId(id)} selectedDate={date} user={user} />

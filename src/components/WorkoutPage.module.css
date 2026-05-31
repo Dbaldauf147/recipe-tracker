@@ -767,6 +767,15 @@ td.logPerCell.manuallyEdited {
   border-color: var(--color-danger);
   color: var(--color-danger);
 }
+
+/* Date / Location / Type are their own repeating columns (one value per
+   exercise row) so a single-exercise filter reads like a clean spreadsheet. */
+.historyMetaCol { width: 104px; }
+.historyMetaCell {
+  background: var(--color-surface-alt);
+  white-space: nowrap;
+  vertical-align: middle;
+}
 .historyExerciseCell { font-weight: 500; word-wrap: break-word; }
 .historySetCell {
   text-align: center;

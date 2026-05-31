@@ -434,7 +434,9 @@ function initFields(recipe) {
     customCuisine: (!isPresetCuisine && cuisineVal) ? cuisineVal : '',
     mealType: presets.includes(type) ? type : 'custom',
     customMealType: presets.includes(type) ? '' : type,
-    servings: recipe.servings || '1',
+    // Coerce to string: Discover/AI-added recipes can store servings as a
+    // number, which would later break the `.trim()` on save.
+    servings: String(recipe.servings || '1'),
     prepTime: recipe.prepTime || '',
     cookTime: recipe.cookTime || '',
     sourceUrl: recipe.sourceUrl || '',
@@ -471,10 +473,25 @@ function initFields(recipe) {
   };
 }
 
-export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, weeklyPlan, user, ingredientsVersion, onViewSources, onPersistFields }) {
+export function RecipeDetail({ recipe, allTags = [], onSave, onDelete, onBack, onAddToWeek, weeklyPlan, user, ingredientsVersion, onViewSources, onPersistFields }) {
   const [aiData, setAiData] = useState(null);
+  // Meal-tag autocomplete: typed text + whether the suggestion dropdown is open.
+  const [tagInput, setTagInput] = useState('');
+  const [tagFocused, setTagFocused] = useState(false);
   const [aiLoading, setAiLoading] = useState(false);
   const [fields, setFields] = useState(() => recipe ? initFields(recipe) : null);
+
+  // Add a meal tag (case-insensitive de-dupe) and clear the autocomplete box.
+  function addTag(raw) {
+    const tag = String(raw || '').trim();
+    if (!tag) return;
+    setFields(prev => {
+      const existing = prev.customTags || [];
+      if (existing.some(t => t.toLowerCase() === tag.toLowerCase())) return prev;
+      return { ...prev, customTags: [...existing, tag] };
+    });
+    setTagInput('');
+  }
   const [showShareDropdown, setShowShareDropdown] = useState(false);
   const [friendsList, setFriendsList] = useState(null);
   const [shareMsg, setShareMsg] = useState(null);
@@ -1205,7 +1222,7 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
         const ings = fields.ingredients.filter(row => row.ingredient.trim() !== '');
         return classifyMealType(ings);
       })(),
-      servings: fields.servings.trim() || '1',
+      servings: String(fields.servings).trim() || '1',
       prepTime: fields.prepTime.trim(),
       cookTime: fields.cookTime.trim(),
       sourceUrl: fields.sourceUrl.trim(),
@@ -1659,24 +1676,68 @@ export function RecipeDetail({ recipe, onSave, onDelete, onBack, onAddToWeek, we
                       }}>&times;</button>
                     </span>
                   ))}
-                  <input
-                    className={styles.tagInput}
-                    type="text"
-                    placeholder="+ Add tag"
-                    onKeyDown={e => {
-                      if (e.key === 'Enter' && e.target.value.trim()) {
-                        e.preventDefault();
-                        const tag = e.target.value.trim();
-                        if (!(fields.customTags || []).includes(tag)) {
-                          setFields(prev => ({
-                            ...prev,
-                            customTags: [...(prev.customTags || []), tag],
-                          }));
-                        }
-                        e.target.value = '';
-                      }
-                    }}
-                  />
+                  {(() => {
+                    const q = tagInput.trim().toLowerCase();
+                    const current = new Set((fields.customTags || []).map(t => t.toLowerCase()));
+                    const suggestions = (allTags || [])
+                      .filter(t => !current.has(t.toLowerCase()))
+                      .filter(t => !q || t.toLowerCase().includes(q))
+                      .slice(0, 8);
+                    const exactExists = (allTags || []).some(t => t.toLowerCase() === q);
+                    return (
+                      <div className={styles.tagInputWrap}>
+                        <input
+                          className={styles.tagInput}
+                          type="text"
+                          placeholder="+ Add tag"
+                          value={tagInput}
+                          onChange={e => setTagInput(e.target.value)}
+                          onFocus={() => setTagFocused(true)}
+                          // Delay so a suggestion's onMouseDown still registers.
+                          onBlur={() => setTimeout(() => setTagFocused(false), 120)}
+                          onKeyDown={e => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault();
+                              // Enter takes the lone suggestion if the box is
+                              // empty-ish; otherwise it adds exactly what's typed.
+                              if (!q && suggestions.length === 1) addTag(suggestions[0]);
+                              else addTag(tagInput);
+                            } else if (e.key === 'Escape') {
+                              setTagFocused(false);
+                            }
+                          }}
+                        />
+                        {tagFocused && suggestions.length > 0 && (
+                          <ul className={styles.tagSuggestions}>
+                            {suggestions.map(t => (
+                              <li key={t}>
+                                <button
+                                  type="button"
+                                  className={styles.tagSuggestion}
+                                  // onMouseDown (not onClick) so it fires before
+                                  // the input's onBlur closes the list.
+                                  onMouseDown={e => { e.preventDefault(); addTag(t); }}
+                                >
+                                  {t}
+                                </button>
+                              </li>
+                            ))}
+                            {q && !exactExists && (
+                              <li>
+                                <button
+                                  type="button"
+                                  className={`${styles.tagSuggestion} ${styles.tagSuggestionNew}`}
+                                  onMouseDown={e => { e.preventDefault(); addTag(tagInput); }}
+                                >
+                                  Add “{tagInput.trim()}”
+                                </button>
+                              </li>
+                            )}
+                          </ul>
+                        )}
+                      </div>
+                    );
+                  })()}
                 </div>
               </div>
 

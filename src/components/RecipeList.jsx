@@ -1746,7 +1746,7 @@ export function RecipeList({
                               <td style={{ display: 'flex', gap: '0.25rem', alignItems: 'center' }}>
                                 <button className={styles.aiSuggestAddBtn} onClick={() => {
                                   const id = crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36);
-                                  onAddRecipe({ id, title: m.title, category: 'breakfast', frequency: 'common', mealType: '', servings: m.servings || 2, prepTime: m.prepTime || '', cookTime: m.cookTime || '', sourceUrl: '', ingredients: m.ingredients || [], instructions: m.instructions || '', createdAt: new Date().toISOString(), source: 'discover', cuisine: m.cuisine || '' });
+                                  onAddRecipe({ id, title: m.title, category: 'breakfast', frequency: 'common', mealType: '', servings: String(m.servings || 2), prepTime: m.prepTime || '', cookTime: m.cookTime || '', sourceUrl: '', ingredients: m.ingredients || [], instructions: m.instructions || '', createdAt: new Date().toISOString(), source: 'discover', cuisine: m.cuisine || '' });
                                   handleAddToWeekWithPulse(id);
                                   setAiMeals(prev => prev.filter(p => p.title !== m.title));
                                 }}>+</button>
@@ -1827,7 +1827,7 @@ export function RecipeList({
                               <td style={{ display: 'flex', gap: '0.25rem', alignItems: 'center' }}>
                                 <button className={styles.aiSuggestAddBtn} onClick={() => {
                                   const id = crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36);
-                                  onAddRecipe({ id, title: m.title, category: m.category || 'lunch-dinner', frequency: 'common', mealType: '', servings: m.servings || 2, prepTime: m.prepTime || '', cookTime: m.cookTime || '', sourceUrl: '', ingredients: m.ingredients || [], instructions: m.instructions || '', createdAt: new Date().toISOString(), source: 'discover', cuisine: m.cuisine || '' });
+                                  onAddRecipe({ id, title: m.title, category: m.category || 'lunch-dinner', frequency: 'common', mealType: '', servings: String(m.servings || 2), prepTime: m.prepTime || '', cookTime: m.cookTime || '', sourceUrl: '', ingredients: m.ingredients || [], instructions: m.instructions || '', createdAt: new Date().toISOString(), source: 'discover', cuisine: m.cuisine || '' });
                                   handleAddToWeekWithPulse(id);
                                   setAiMeals(prev => prev.filter(p => p.title !== m.title));
                                 }}>+</button>
@@ -2147,7 +2147,7 @@ export function RecipeList({
               <button
                 onClick={() => {
                   const id = crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36);
-                  onAddRecipe({ id, title: aiPreview.title, category: aiPreview._category || 'lunch-dinner', frequency: 'common', mealType: '', servings: aiPreview.servings || 2, prepTime: aiPreview.prepTime || '', cookTime: aiPreview.cookTime || '', sourceUrl: '', ingredients: aiPreview.ingredients || [], instructions: aiPreview.instructions || '', createdAt: new Date().toISOString(), source: 'discover', cuisine: aiPreview.cuisine || '' });
+                  onAddRecipe({ id, title: aiPreview.title, category: aiPreview._category || 'lunch-dinner', frequency: 'common', mealType: '', servings: String(aiPreview.servings || 2), prepTime: aiPreview.prepTime || '', cookTime: aiPreview.cookTime || '', sourceUrl: '', ingredients: aiPreview.ingredients || [], instructions: aiPreview.instructions || '', createdAt: new Date().toISOString(), source: 'discover', cuisine: aiPreview.cuisine || '' });
                   handleAddToWeekWithPulse(id);
                   setAiMeals(prev => prev.filter(p => p.title !== aiPreview.title));
                   setAiPreview(null);

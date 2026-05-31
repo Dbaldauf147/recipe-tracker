@@ -2431,6 +2431,16 @@
   align-items: stretch;
 }
 
+.weeklyWhoopNote {
+  margin-top: 0.5rem;
+  font-size: 0.8rem;
+  color: var(--color-text-muted);
+}
+
+.weeklyWhoopNote strong {
+  color: var(--color-accent);
+}
+
 .weeklyCol {
   background: var(--color-surface-alt, #f9f7f4);
   border-radius: var(--radius-md);

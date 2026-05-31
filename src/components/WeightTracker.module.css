@@ -650,6 +650,50 @@
   font-weight: 500;
 }
 
+.targetDateInput {
+  padding: 0.3rem 0.4rem;
+  border: none;
+  border-bottom: 2px solid var(--color-border);
+  border-radius: 0;
+  font-size: 0.95rem;
+  font-weight: 600;
+  font-family: inherit;
+  color: var(--color-text);
+  background: transparent;
+}
+
+.targetDateInput:focus {
+  outline: none;
+  border-bottom-color: var(--color-accent);
+}
+
+.targetReadout {
+  margin-top: 0.75rem;
+  padding: 0.7rem 0.95rem;
+  background: var(--color-surface-alt, #f3f4f6);
+  border: 1px solid var(--color-border);
+  border-left: 3px solid #f59e0b;
+  border-radius: var(--radius-md);
+}
+
+.targetReadoutMain {
+  font-size: 0.95rem;
+  color: var(--color-text);
+}
+
+.targetReadoutSub {
+  font-size: 0.85rem;
+  color: var(--color-text-muted);
+  margin-top: 0.25rem;
+}
+
+.targetReadoutWarn {
+  font-size: 0.8rem;
+  color: #b45309;
+  margin-top: 0.35rem;
+  font-weight: 600;
+}
+
 .targetInput {
   width: 100px;
   padding: 0.6rem 0.85rem;

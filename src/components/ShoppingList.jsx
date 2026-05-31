@@ -760,10 +760,18 @@ function getConversions(qty, measurement) {
 
 const CHECKED_KEY = 'sunday-shopping-checked';
 
+// Canonical checked-item key = lowercased, trimmed ingredient name. The list
+// is built one-row-per-ingredient, so the old `ingredient|||measurement` key
+// was redundant. Normalizing (and stripping any legacy `|||measurement`
+// suffix) lets the web and mobile apps share the same Firestore set.
+function normalizeCheckedKey(k) {
+  return String(k).split('|||')[0].toLowerCase().trim();
+}
+
 function loadCheckedItems() {
   try {
     const raw = localStorage.getItem(CHECKED_KEY);
-    return raw ? new Set(JSON.parse(raw)) : new Set();
+    return raw ? new Set(JSON.parse(raw).map(normalizeCheckedKey)) : new Set();
   } catch { return new Set(); }
 }
 
@@ -933,46 +941,6 @@ export function ShoppingList({ weeklyRecipes, weeklyServings = {}, extraItems = 
   }, [weeklyRecipes]);
   const [showMeals, setShowMeals] = useState(false);
 
-  // Instacart deep-link state. Posts the current shopping list to our proxy,
-  // which calls Instacart's Create Recipe Page API; we then pop the returned
-  // URL in a new tab. Whole Foods appears on Instacart's retailer chooser.
-  const [instacartLoading, setInstacartLoading] = useState(false);
-  const [instacartError, setInstacartError] = useState('');
-
-  async function handleSendToInstacart() {
-    setInstacartError('');
-    const ingredients = displayItems.map(item => {
-      const qty = parseFloat(item.quantity);
-      return {
-        name: item.ingredient,
-        quantity: Number.isFinite(qty) && qty > 0 ? qty : undefined,
-        unit: (item.measurement || '').trim() || undefined,
-      };
-    });
-    if (ingredients.length === 0) {
-      setInstacartError('Nothing on the shopping list to send.');
-      return;
-    }
-    setInstacartLoading(true);
-    try {
-      const today = new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-      const res = await fetch('/api/instacart-recipe', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ title: `Prep Day Shopping List — ${today}`, ingredients }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok || !data.url) {
-        throw new Error(data?.error || `HTTP ${res.status}`);
-      }
-      window.open(data.url, '_blank', 'noopener,noreferrer');
-    } catch (err) {
-      setInstacartError(err?.message || 'Failed to build Instacart link.');
-    } finally {
-      setInstacartLoading(false);
-    }
-  }
-
   // toggleItem defined above with debounce protection
 
   function handleAddSubmit() {
@@ -982,47 +950,29 @@ export function ShoppingList({ weeklyRecipes, weeklyServings = {}, extraItems = 
     setNewItem('');
   }
 
-  if (displayItems.length === 0) {
-    return (
-      <div className={styles.panel}>
-        <h2 className={styles.heading}>Shopping List</h2>
-        <p className={styles.emptyMsg}>Shopping list is empty — add meals to populate</p>
-      </div>
-    );
-  }
-
   return (
     <div className={styles.panel}>
       <div className={styles.headingRow}>
         <h2 className={styles.heading}>Shopping List</h2>
         <div className={styles.headingActions}>
-          <button
-            className={`${styles.mealsToggle}${showMeals ? ` ${styles.mealsToggleActive}` : ''}`}
-            onClick={() => setShowMeals(v => !v)}
-          >
-            {showMeals ? 'Hide Meals' : 'Show Meals'}
-          </button>
+          {weeklyRecipes.length > 0 && (
+            <button
+              className={`${styles.mealsToggle}${showMeals ? ` ${styles.mealsToggleActive}` : ''}`}
+              onClick={() => setShowMeals(v => !v)}
+            >
+              {showMeals ? 'Hide Meals' : 'Show Meals'}
+            </button>
+          )}
           {onAddCustomItem && !adding && (
             <button className={styles.addToggle} onClick={() => setAdding(true)}>+ Add item</button>
           )}
-          <button
-            className={styles.instacartBtn}
-            onClick={handleSendToInstacart}
-            disabled={instacartLoading || displayItems.length === 0}
-            title="Build a pre-populated Instacart cart (Whole Foods + other retailers)"
-          >
-            {instacartLoading ? 'Building link…' : 'Send to Whole Foods'}
-          </button>
-          {extraItems.length > 0 && (
+          {onClearExtras && extraItems.length > 0 && (
             <button className={styles.clearBtn} onClick={onClearExtras}>
               {extraItems.length} Grocery Staples Added
             </button>
           )}
         </div>
       </div>
-      {instacartError && (
-        <div className={styles.instacartError}>{instacartError}</div>
-      )}
       {adding && onAddCustomItem && (
         <div className={styles.addRow} onBlur={e => { if (!e.currentTarget.contains(e.relatedTarget)) { setAdding(false); setNewItem(''); } }}>
           <div className={styles.addInputWrap}>
@@ -1067,7 +1017,14 @@ export function ShoppingList({ weeklyRecipes, weeklyServings = {}, extraItems = 
           <button className={styles.addBtn} onClick={() => { setAdding(false); setNewItem(''); }}>Cancel</button>
         </div>
       )}
-      {(() => {
+      {displayItems.length === 0 && (
+        <p className={styles.emptyMsg}>
+          {weeklyRecipes.length > 0
+            ? 'Shopping list is empty — add meals to populate'
+            : 'This list is empty — use “+ Add item” to add things'}
+        </p>
+      )}
+      {displayItems.length > 0 && (() => {
         const colCount = 5 + (showMeals ? 1 : 0) + (isAdmin ? 1 : 0) + (onDismissItem ? 1 : 0);
         const grouped = groupBySection(displayItems, ingredientSections);
         return (
@@ -1093,7 +1050,7 @@ export function ShoppingList({ weeklyRecipes, weeklyServings = {}, extraItems = 
                     </td>
                   </tr>,
                   ...sectionItems.map((item, i) => {
-                    const key = `${item.ingredient}|||${item.measurement}`;
+                    const key = item.ingredient.toLowerCase().trim();
                     const done = checked.has(key);
                     const ingKey = item.ingredient.toLowerCase().trim();
                     const link = customLinks[ingKey] || ingredientLinks[ingKey];

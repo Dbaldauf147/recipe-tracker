@@ -28,6 +28,7 @@ import { BarcodeScannerPage } from './components/BarcodeScannerPage';
 import { RecipeSetupPage } from './components/RecipeSetupPage';
 import { ProfilePage } from './components/ProfilePage';
 import { WorkoutPage } from './components/WorkoutPage';
+import { WhoopPage } from './components/WhoopPage';
 import { StorageBanner } from './components/StorageBanner';
 import { FeaturesPage } from './components/FeaturesPage';
 import { EatingOutPage } from './components/EatingOutPage';
@@ -189,6 +190,21 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
   const { recipes, addRecipe, updateRecipe, deleteRecipe, getRecipe, importRecipes, refreshLinkedRecipes } =
     useRecipes();
 
+  // Unique meal tags across all recipes, for the tag autocomplete in
+  // RecipeDetail. Case-insensitive de-dupe, keeping the first-seen casing.
+  const allTags = useMemo(() => {
+    const seen = new Map();
+    for (const r of recipes || []) {
+      for (const t of r.customTags || []) {
+        const key = String(t).trim().toLowerCase();
+        if (key && !seen.has(key)) seen.set(key, String(t).trim());
+      }
+    }
+    return Array.from(seen.values()).sort((a, b) =>
+      a.localeCompare(b, undefined, { sensitivity: 'base' }),
+    );
+  }, [recipes]);
+
   const [view, setView] = useState(() => {
     const hash = window.location.hash.replace('#', '');
     if (!hash) return 'list';
@@ -203,6 +219,19 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
   });
   const [viewHistory, setViewHistory] = useState([]);
   const [modalView, setModalView] = useState(null);
+
+  // Handle the Whoop OAuth return: /?whoop=connected|error → open the Whoop
+  // page and strip the query param so refreshes don't re-trigger it.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const whoop = params.get('whoop');
+    if (whoop === 'connected' || whoop === 'error') {
+      setView('whoop');
+      params.delete('whoop');
+      const qs = params.toString();
+      window.history.replaceState({}, '', window.location.pathname + (qs ? `?${qs}` : '') + window.location.hash);
+    }
+  }, []);
   // When Next Spots → "Open in Eating Out" is clicked, this carries the
   // chosen category across the navigation so the page can pre-filter.
   const [pendingEatingOutCategory, setPendingEatingOutCategory] = useState(null);
@@ -780,6 +809,7 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
                   <button className={styles.settingsMenuItem} onClick={() => { navigateTo('admin'); setSettingsOpen(false); }}>Admin Dashboard</button>
                 )}
                 <button className={styles.settingsMenuItem} onClick={() => { navigateTo('history'); setSettingsOpen(false); }}>Meal History</button>
+                <button className={styles.settingsMenuItem} onClick={() => { navigateTo('whoop'); setSettingsOpen(false); }}>Whoop</button>
                 <button className={styles.settingsMenuItem} onClick={() => { navigateTo('seasonal-guide'); setSettingsOpen(false); }}>Seasonal Guide</button>
                 <button className={styles.settingsMenuItem} onClick={() => { navigateTo('sources'); setSettingsOpen(false); }}>Sources</button>
                 <button className={styles.settingsMenuItem} onClick={() => { navigateTo('features'); setSettingsOpen(false); }}>Features</button>
@@ -882,6 +912,8 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
           );
         })() : view === 'account-settings' ? (
           <AccountSettings user={user} onClose={goBack} />
+        ) : view === 'whoop' ? (
+          <WhoopPage user={user} onClose={goBack} />
         ) : view === 'weight-tracker' ? (
           <WeightTracker onClose={goBack} user={user} />
         ) : view === 'nutrition-goals' ? (() => {
@@ -1012,6 +1044,7 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
           <ErrorBoundary>
             <RecipeDetail
               recipe={transientViewRecipe || getRecipe(selectedId)}
+              allTags={allTags}
               onSave={handleUpdate}
               onDelete={handleDelete}
               onBack={() => { setTransientViewRecipe(null); goBack(); }}
@@ -1088,6 +1121,7 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
               <button className={styles.importModalClose} onClick={() => setViewRecipeId(null)}>&times;</button>
               <RecipeDetail
                 recipe={recipe}
+                allTags={allTags}
                 onBack={() => setViewRecipeId(null)}
                 onSave={(data) => { updateRecipe(viewRecipeId, data); }}
                 onDelete={() => { handleDelete(viewRecipeId); setViewRecipeId(null); }}

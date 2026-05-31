@@ -51,6 +51,101 @@ function parseEmails(settings) {
   return [];
 }
 
+// Recipients due to receive a reminder on the given weekday (0=Sun..6=Sat).
+// Per-email `emailSchedules` [{ email, days[] }] take precedence: an address
+// only gets mail on the weekdays it lists. Falls back to the flat `emails`
+// list (all days) when no schedules are configured.
+function recipientsForDay(settings, dow) {
+  const sched = settings?.emailSchedules;
+  if (Array.isArray(sched) && sched.length > 0) {
+    const out = [];
+    for (const row of sched) {
+      const email = (row?.email || '').trim();
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) continue;
+      const days = Array.isArray(row.days) ? row.days : null;
+      // No days specified = every day (treat as unrestricted).
+      if (!days || days.length === 0 || days.includes(dow)) out.push(email);
+    }
+    return out;
+  }
+  return parseEmails(settings);
+}
+
+// ── Server-side mirror of WeightTracker.jsx's weigh-schedule logic ──
+// The client only prompts on scheduled weigh-in days; without this the cron
+// would email "log your weight" every single day a user with a weekly/monthly
+// cadence didn't log, which reads as spam even though they're on track.
+const DAY_NAMES = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+const DAY_MAP = { sunday: 0, monday: 1, tuesday: 2, wednesday: 3, thursday: 4, friday: 5, saturday: 6 };
+
+function getWeighSettings(bodyStats) {
+  const s = bodyStats || {};
+  return {
+    repeatEvery: s.weighRepeatEvery || 1,
+    repeatUnit: s.weighRepeatUnit || 'week',
+    weekDays: s.weighWeekDays || ['monday'],
+    monthOption: s.weighMonthOption || 'day',
+    monthDay: s.weighMonthDay || 1,
+    monthWeek: s.weighMonthWeek || '1st',
+    monthWeekday: s.weighMonthWeekday || 'monday',
+  };
+}
+
+// Day-of-week for a Y/M/D (m 1-based) computed in UTC so it's timezone-stable.
+function dowOf(y, m, d) {
+  return new Date(Date.UTC(y, m - 1, d)).getUTCDay();
+}
+
+function daysBetween(fromKey, toKey) {
+  const [y1, m1, d1] = fromKey.split('-').map(Number);
+  const [y2, m2, d2] = toKey.split('-').map(Number);
+  return Math.floor((Date.UTC(y2, m2 - 1, d2) - Date.UTC(y1, m1 - 1, d1)) / 86400000);
+}
+
+function isWeighDay(y, m, d, dow, settings) {
+  const { repeatUnit, weekDays, monthOption, monthDay, monthWeek, monthWeekday } = settings;
+  if (repeatUnit === 'day') return true;
+  if (repeatUnit === 'week') {
+    return (weekDays || ['monday']).includes(DAY_NAMES[dow]);
+  }
+  if (repeatUnit === 'month') {
+    if (monthOption === 'day') return d === (monthDay || 1);
+    const weekNum = { '1st': 1, '2nd': 2, '3rd': 3, '4th': 4, last: -1 };
+    const targetDow = DAY_MAP[monthWeekday || 'monday'];
+    if (weekNum[monthWeek] === -1) {
+      let dd = new Date(Date.UTC(y, m, 0)).getUTCDate(); // last day of month m
+      while (dowOf(y, m, dd) !== targetDow) dd--;
+      return d === dd;
+    }
+    const n = weekNum[monthWeek] || 1;
+    let count = 0;
+    for (let dd = 1; dd <= d; dd++) if (dowOf(y, m, dd) === targetDow) count++;
+    return count === n && dow === targetDow;
+  }
+  if (repeatUnit === 'year') return m === 1 && d === 1;
+  return false;
+}
+
+// True only if today is a scheduled weigh day AND the user is due (hasn't
+// logged within the cadence). Mirrors WeightTracker.jsx shouldWeighToday.
+function shouldWeighToday(weightLog, bodyStats, dateKey, dow) {
+  const settings = getWeighSettings(bodyStats);
+  const log = Array.isArray(weightLog)
+    ? weightLog.filter(e => e?.date).sort((a, b) => a.date.localeCompare(b.date))
+    : [];
+  if (log.length === 0) return true; // never logged → always due
+  const last = log[log.length - 1].date;
+  const days = daysBetween(last, dateKey);
+  const [y, m, d] = dateKey.split('-').map(Number);
+  if (!isWeighDay(y, m, d, dow, settings)) return false;
+  if (settings.repeatUnit === 'day') return days >= settings.repeatEvery;
+  if (settings.repeatUnit === 'week') return days >= settings.repeatEvery * 7 - 6;
+  if (settings.repeatUnit === 'month') {
+    return !log.some(e => e.date.startsWith(dateKey.slice(0, 7)));
+  }
+  return days >= 7;
+}
+
 export default async function handler(req, res) {
   const secret = process.env.CRON_SECRET;
   if (secret) {
@@ -71,7 +166,9 @@ export default async function handler(req, res) {
       const data = docSnap.data() || {};
       const s = data.reminderSettings;
       if (!s || (!s.foodLogReminder && !s.weightReminder)) continue;
-      const to = parseEmails(s);
+      // Day-aware recipients: an address only gets mail on its selected days.
+      // If nobody is scheduled for today, skip this user entirely.
+      const to = recipientsForDay(s, dayOfWeek);
       if (to.length === 0) continue;
 
       // --- Food log reminder ---
@@ -95,7 +192,8 @@ export default async function handler(req, res) {
           } catch { /* treat as zero */ }
           if (!daySkipped && (mainMeals + skipped) < 3) {
             const remaining = 3 - mainMeals - skipped;
-            const { subject, text, html } = renderMealReminder({ remaining, log, dateKey });
+            const goals = data.nutritionGoals || null;
+            const { subject, text, html } = renderMealReminder({ remaining, log, dateKey, goals });
             try {
               await sendMail({
                 to,
@@ -115,17 +213,17 @@ export default async function handler(req, res) {
       // --- Weight reminder ---
       if (s.weightReminder && s.weightTime) {
         const targetHour = parseInt(String(s.weightTime).slice(0, 2), 10);
+        const daysOk = Array.isArray(s.weightDays) ? s.weightDays.includes(dayOfWeek) : true;
         const alreadySent = s.lastWeightSent === dateKey;
-        if (Number.isFinite(targetHour) && hour === targetHour && !alreadySent) {
-          // The client's "shouldWeigh" check lives in localStorage we can't read
-          // server-side. Fall back to: always remind on the user's chosen time
-          // unless they've already logged a weight today.
-          let hasToday = false;
+        if (Number.isFinite(targetHour) && hour === targetHour && daysOk && !alreadySent) {
+          // Only remind when today is a scheduled weigh-in day AND the user is
+          // due per their cadence (bodyStats is synced to Firestore). This
+          // matches the client so weekly/monthly weighers aren't emailed daily.
+          let due = false;
           try {
-            const w = Array.isArray(data.weightLog) ? data.weightLog : [];
-            hasToday = w.some(e => e?.date === dateKey);
-          } catch { /* treat as missing */ }
-          if (!hasToday) {
+            due = shouldWeighToday(data.weightLog, data.bodyStats, dateKey, dayOfWeek);
+          } catch { /* if schedule can't be evaluated, skip rather than spam */ }
+          if (due) {
             try {
               await sendMail({
                 to,

@@ -824,6 +824,49 @@ function SleepTab({ user }) {
     return () => unsub();
   }, [user?.uid]);
 
+  // Whoop nightly totals — used to fill in nights Apple Health didn't sync.
+  // Seed from cache, then refresh from the server (no-ops when not connected).
+  const [whoopDaily, setWhoopDaily] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('sunday-whoop-daily') || '{}') || {}; }
+    catch { return {}; }
+  });
+  useEffect(() => {
+    if (!user?.uid) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const t = await user.getIdToken();
+        const res = await fetch(`/api/whoop/data?uid=${encodeURIComponent(user.uid)}&t=${encodeURIComponent(t)}&days=90`);
+        const json = await res.json().catch(() => ({}));
+        if (cancelled || !json?.connected || !json.daily) return;
+        setWhoopDaily(prev => {
+          const merged = { ...prev, ...json.daily };
+          try { localStorage.setItem('sunday-whoop-daily', JSON.stringify(merged)); } catch { /* ignore */ }
+          return merged;
+        });
+      } catch { /* ignore — falls back to Apple Health / cached data */ }
+    })();
+    return () => { cancelled = true; };
+  }, [user?.uid]);
+
+  // Apple Health is authoritative; Whoop fills any night it's missing.
+  const sleepHoursByDate = useMemo(() => {
+    const out = { ...sleepByDate };
+    for (const [iso, wd] of Object.entries(whoopDaily)) {
+      if (out[iso] == null && typeof wd?.sleepHours === 'number' && wd.sleepHours > 0) {
+        out[iso] = wd.sleepHours;
+      }
+    }
+    return out;
+  }, [sleepByDate, whoopDaily]);
+  const breakdownMerged = useMemo(() => {
+    const out = { ...breakdownByDate };
+    for (const [iso, wd] of Object.entries(whoopDaily)) {
+      if (!out[iso] && wd?.sleepBreakdown) out[iso] = wd.sleepBreakdown;
+    }
+    return out;
+  }, [breakdownByDate, whoopDaily]);
+
   const chartData = useMemo(() => {
     const out = [];
     const today = new Date();
@@ -832,7 +875,7 @@ function SleepTab({ user }) {
       const d = new Date(today);
       d.setDate(d.getDate() - i);
       const iso = d.toISOString().slice(0, 10);
-      const hours = sleepByDate[iso];
+      const hours = sleepHoursByDate[iso];
       out.push({
         date: d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
         iso,
@@ -840,7 +883,7 @@ function SleepTab({ user }) {
       });
     }
     return out;
-  }, [sleepByDate, range]);
+  }, [sleepHoursByDate, range]);
 
   const recentValues = chartData.map(d => d.hours).filter(s => s != null);
   const total = recentValues.reduce((a, b) => a + b, 0);
@@ -940,8 +983,8 @@ function SleepTab({ user }) {
 
       {(() => {
         if (!expandedDate) return null;
-        const breakdown = breakdownByDate[expandedDate] || {};
-        const total = sleepByDate[expandedDate];
+        const breakdown = breakdownMerged[expandedDate] || {};
+        const total = sleepHoursByDate[expandedDate];
         const stages = [
           { key: 'rem',   label: 'REM',   value: breakdown.remHours,   color: '#7c3aed' },
           { key: 'core',  label: 'Core',  value: breakdown.coreHours,  color: '#3b82f6' },
@@ -1026,7 +1069,7 @@ function SleepTab({ user }) {
         <h4 style={{ margin: '0 0 0.5rem', fontSize: '0.95rem' }}>Recent nights</h4>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
           {chartData.slice().reverse().filter(d => d.hours != null).slice(0, 14).map(d => {
-            const breakdown = breakdownByDate[d.iso] || null;
+            const breakdown = breakdownMerged[d.iso] || null;
             const isOpen = expandedDate === d.iso;
             const stages = breakdown ? [
               { key: 'rem',   label: 'REM',   value: breakdown.remHours,   color: '#7c3aed' },
@@ -1155,6 +1198,33 @@ function OverviewBarCharts({ user, workouts }) {
     catch { return null; }
   }, []);
 
+  // Whoop per-day metrics (recovery / strain / calories burned). Seed from the
+  // cached map, then refresh in the background from the server (which also
+  // re-persists to Firestore) so these charts populate without first visiting
+  // the Whoop page. Silently no-ops when Whoop isn't connected.
+  const [whoopDaily, setWhoopDaily] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('sunday-whoop-daily') || '{}') || {}; }
+    catch { return {}; }
+  });
+  useEffect(() => {
+    if (!user?.uid) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const t = await user.getIdToken();
+        const res = await fetch(`/api/whoop/data?uid=${encodeURIComponent(user.uid)}&t=${encodeURIComponent(t)}&days=90`);
+        const json = await res.json().catch(() => ({}));
+        if (cancelled || !json?.connected || !json.daily) return;
+        setWhoopDaily(prev => {
+          const merged = { ...prev, ...json.daily };
+          try { localStorage.setItem('sunday-whoop-daily', JSON.stringify(merged)); } catch { /* ignore */ }
+          return merged;
+        });
+      } catch { /* ignore — charts fall back to cached data */ }
+    })();
+    return () => { cancelled = true; };
+  }, [user?.uid]);
+
   // Workouts indexed by ISO date, counting one per day rather than per entry.
   const workoutDates = useMemo(() => {
     const set = new Set();
@@ -1179,9 +1249,17 @@ function OverviewBarCharts({ user, workouts }) {
 
       const label = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 
-      // Steps & sleep are direct numbers from HealthKit sync.
+      // Whoop per-day metrics for this date, when available.
+      const wd = whoopDaily[iso] || {};
+
+      // Steps & sleep are direct numbers from HealthKit sync. Sleep falls back
+      // to the Whoop nightly total when Apple Health hasn't synced this night,
+      // so Whoop-only users still see a full week of sleep.
       const steps = typeof day.steps === 'number' ? Math.round(day.steps) : null;
-      const sleep = typeof day.sleep === 'number' ? Math.round(day.sleep * 10) / 10 : null;
+      let sleep = typeof day.sleep === 'number' ? Math.round(day.sleep * 10) / 10 : null;
+      if (sleep == null && typeof wd.sleepHours === 'number' && wd.sleepHours > 0) {
+        sleep = wd.sleepHours;
+      }
 
       // Meals tracked: fraction of breakfast/lunch/dinner that were either
       // logged or explicitly skipped. Whole-day skip counts as 100%.
@@ -1243,6 +1321,11 @@ function OverviewBarCharts({ user, workouts }) {
         }
       }
 
+      // Whoop recovery / strain / calories for this day, when available.
+      const recovery = typeof wd.recovery === 'number' ? Math.round(wd.recovery) : null;
+      const strain = typeof wd.strain === 'number' ? Math.round(wd.strain * 10) / 10 : null;
+      const whoopCalories = typeof wd.calories === 'number' && wd.calories > 0 ? Math.round(wd.calories) : null;
+
       out.push({
         date: label,
         iso,
@@ -1253,10 +1336,13 @@ function OverviewBarCharts({ user, workouts }) {
         targetPct,
         veg,
         fruit,
+        recovery,
+        strain,
+        whoopCalories,
       });
     }
     return out;
-  }, [log, range, workoutDates, goals]);
+  }, [log, range, workoutDates, goals, whoopDaily]);
 
   const workoutTotal = rows.reduce((s, r) => s + r.workouts, 0);
 
@@ -1264,6 +1350,9 @@ function OverviewBarCharts({ user, workouts }) {
   // so the calendar can render an × on each worked-out day and a goal-met
   // indicator above each week.
   const WORKOUT_WEEKLY_GOAL = 3;
+  // Short ranges (a week or two) read better as one cell per day than as one
+  // or two week columns, so drop to a day strip below this threshold.
+  const showWorkoutDays = range <= 14;
   // ISO 8601 week number for a JS Date — used to label each calendar column.
   const isoWeekNumber = (d) => {
     const dt = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
@@ -1272,20 +1361,36 @@ function OverviewBarCharts({ user, workouts }) {
     const yearStart = new Date(Date.UTC(dt.getUTCFullYear(), 0, 1));
     return Math.ceil((((dt - yearStart) / 86400000) + 1) / 7);
   };
-  // Calendar always shows a rolling 52 weeks + current week — independent of
-  // the day-range tabs above (which still drive the other charts). Gives a
-  // stable year-at-a-glance view for the 3/week goal.
+  // Per-day strip for short ranges: one cell per day in the selected window.
+  const workoutDayStrip = useMemo(() => {
+    const today = new Date();
+    today.setHours(12, 0, 0, 0);
+    const out = [];
+    for (let i = range - 1; i >= 0; i--) {
+      const d = new Date(today);
+      d.setDate(d.getDate() - i);
+      const iso = d.toISOString().slice(0, 10);
+      out.push({
+        iso,
+        weekday: ['S', 'M', 'T', 'W', 'T', 'F', 'S'][d.getDay()],
+        dayNum: d.getDate(),
+        workedOut: workoutDates.has(iso),
+      });
+    }
+    return out;
+  }, [range, workoutDates]);
+  // Week-column calendar, scaled to the selected range: the number of Mon-based
+  // week columns grows with the range (≈ range/7 weeks, up to a year at 1y).
   const workoutCalendar = useMemo(() => {
     const today = new Date();
     today.setHours(12, 0, 0, 0);
     const todayIso = today.toISOString().slice(0, 10);
-    const thisMonday = new Date(today);
-    thisMonday.setDate(thisMonday.getDate() - ((thisMonday.getDay() + 6) % 7));
-    const startD = new Date(thisMonday);
-    startD.setDate(startD.getDate() - 52 * 7);
     const rangeStart = new Date(today);
-    rangeStart.setDate(rangeStart.getDate() - 364);
+    rangeStart.setDate(rangeStart.getDate() - (range - 1));
     const rangeStartIso = rangeStart.toISOString().slice(0, 10);
+    // Start the grid on the Monday of the week containing the range's first day.
+    const startD = new Date(rangeStart);
+    startD.setDate(startD.getDate() - ((startD.getDay() + 6) % 7));
     const weeks = [];
     const cur = new Date(startD);
     while (cur <= today) {
@@ -1309,9 +1414,12 @@ function OverviewBarCharts({ user, workouts }) {
       cur.setDate(cur.getDate() + 7);
     }
     return weeks;
-  }, [workoutDates]);
+  }, [workoutDates, range]);
   const weeksHittingGoal = workoutCalendar.filter(w => w.total >= WORKOUT_WEEKLY_GOAL).length;
-  const calendarWorkoutTotal = workoutCalendar.reduce((s, w) => s + w.total, 0);
+  const calendarWorkoutTotal = showWorkoutDays
+    ? workoutDayStrip.filter(d => d.workedOut).length
+    : workoutCalendar.reduce((s, w) => s + w.total, 0);
+  const rangeLabel = range === 365 ? 'past year' : `last ${range} days`;
   const stepsAvg = (() => {
     const vals = rows.map(r => r.steps).filter(v => v != null);
     return vals.length ? Math.round(vals.reduce((a, b) => a + b, 0) / vals.length) : 0;
@@ -1328,6 +1436,19 @@ function OverviewBarCharts({ user, workouts }) {
     const vals = rows.map(r => r.targetPct).filter(v => v != null);
     return vals.length ? Math.round(vals.reduce((a, b) => a + b, 0) / vals.length) : 0;
   })();
+  const recoveryAvg = (() => {
+    const vals = rows.map(r => r.recovery).filter(v => v != null);
+    return vals.length ? Math.round(vals.reduce((a, b) => a + b, 0) / vals.length) : 0;
+  })();
+  const strainAvg = (() => {
+    const vals = rows.map(r => r.strain).filter(v => v != null);
+    return vals.length ? Math.round((vals.reduce((a, b) => a + b, 0) / vals.length) * 10) / 10 : 0;
+  })();
+  const whoopCalAvg = (() => {
+    const vals = rows.map(r => r.whoopCalories).filter(v => v != null);
+    return vals.length ? Math.round(vals.reduce((a, b) => a + b, 0) / vals.length) : 0;
+  })();
+  const hasWhoop = rows.some(r => r.recovery != null || r.strain != null || r.whoopCalories != null);
 
   const chartHeight = 200;
   const chartWrapStyle = {
@@ -1360,9 +1481,37 @@ function OverviewBarCharts({ user, workouts }) {
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '1rem' }}>
         <div>
           <div style={{ fontSize: '0.85rem', fontWeight: 600, marginBottom: '0.35rem' }}>
-            Workouts <span style={{ color: 'var(--color-text-muted)', fontWeight: 400 }}>· {calendarWorkoutTotal} in past year · {weeksHittingGoal}/{workoutCalendar.length} weeks ≥{WORKOUT_WEEKLY_GOAL}</span>
+            Workouts <span style={{ color: 'var(--color-text-muted)', fontWeight: 400 }}>· {calendarWorkoutTotal} in {rangeLabel}{!showWorkoutDays && ` · ${weeksHittingGoal}/${workoutCalendar.length} weeks ≥${WORKOUT_WEEKLY_GOAL}`}</span>
           </div>
-          <div style={{ ...chartWrapStyle, overflowX: 'auto', overflowY: 'hidden', padding: '0.7rem 0.6rem' }}>
+          <div style={{ ...chartWrapStyle, overflowX: 'auto', overflowY: 'hidden', padding: '0.7rem 0.6rem', display: showWorkoutDays ? 'flex' : 'block', alignItems: 'center' }}>
+            {showWorkoutDays ? (
+              <div style={{ display: 'inline-flex', gap: 6 }}>
+                {workoutDayStrip.map(d => (
+                  <div key={d.iso} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
+                    <span style={{ fontSize: 9, color: '#9ca3af', fontWeight: 600 }}>{d.weekday}</span>
+                    <div
+                      style={{
+                        width: 24,
+                        height: 24,
+                        borderRadius: 5,
+                        background: '#f3f4f6',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        color: d.workedOut ? '#3B6B9C' : 'transparent',
+                        fontSize: 17,
+                        fontWeight: 700,
+                        lineHeight: 1,
+                      }}
+                      title={`${d.iso}${d.workedOut ? ' — workout' : ''}`}
+                    >
+                      ×
+                    </div>
+                    <span style={{ fontSize: 9, color: '#9ca3af' }}>{d.dayNum}</span>
+                  </div>
+                ))}
+              </div>
+            ) : (
             <div style={{ display: 'inline-flex', flexDirection: 'column', gap: 3 }}>
               {/* Goal-met indicator per week column */}
               <div style={{ display: 'flex', gap: 2, marginLeft: 18 }}>
@@ -1431,6 +1580,7 @@ function OverviewBarCharts({ user, workouts }) {
                 ))}
               </div>
             </div>
+            )}
           </div>
         </div>
 
@@ -1528,6 +1678,62 @@ function OverviewBarCharts({ user, workouts }) {
             </ResponsiveContainer>
           </div>
         </div>
+
+        {hasWhoop && (
+          <>
+            <div>
+              <div style={{ fontSize: '0.85rem', fontWeight: 600, marginBottom: '0.35rem' }}>
+                Recovery <span style={{ color: 'var(--color-text-muted)', fontWeight: 400 }}>· Whoop · avg {recoveryAvg}%</span>
+              </div>
+              <div style={chartWrapStyle}>
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={rows} margin={{ top: 8, right: 8, left: -8, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" vertical={false} />
+                    <XAxis dataKey="date" tick={{ fontSize: 10, fill: '#9ca3af' }} axisLine={{ stroke: '#e5e7eb' }} tickLine={false} />
+                    <YAxis tick={{ fontSize: 10, fill: '#9ca3af' }} unit="%" domain={[0, 100]} ticks={[0, 33, 67, 100]} axisLine={false} tickLine={false} width={36} />
+                    <Tooltip formatter={(v) => [v == null ? '—' : `${v}%`, '']} contentStyle={{ background: 'rgba(255,255,255,0.95)', border: '1px solid #e5e7eb', borderRadius: 8, fontSize: 12 }} />
+                    <ReferenceLine y={67} stroke="#16a34a" strokeDasharray="5 3" strokeWidth={1.25} />
+                    <Bar dataKey="recovery" fill="#16a34a" radius={[3, 3, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+
+            <div>
+              <div style={{ fontSize: '0.85rem', fontWeight: 600, marginBottom: '0.35rem' }}>
+                Day strain <span style={{ color: 'var(--color-text-muted)', fontWeight: 400 }}>· Whoop · avg {strainAvg}</span>
+              </div>
+              <div style={chartWrapStyle}>
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={rows} margin={{ top: 8, right: 8, left: -12, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" vertical={false} />
+                    <XAxis dataKey="date" tick={{ fontSize: 10, fill: '#9ca3af' }} axisLine={{ stroke: '#e5e7eb' }} tickLine={false} />
+                    <YAxis tick={{ fontSize: 10, fill: '#9ca3af' }} domain={[0, 21]} ticks={[0, 7, 14, 21]} axisLine={false} tickLine={false} width={28} />
+                    <Tooltip formatter={(v) => [v == null ? '—' : v, '']} contentStyle={{ background: 'rgba(255,255,255,0.95)', border: '1px solid #e5e7eb', borderRadius: 8, fontSize: 12 }} />
+                    <Bar dataKey="strain" fill="#0ea5e9" radius={[3, 3, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+
+            <div>
+              <div style={{ fontSize: '0.85rem', fontWeight: 600, marginBottom: '0.35rem' }}>
+                Calories burned <span style={{ color: 'var(--color-text-muted)', fontWeight: 400 }}>· Whoop · avg {whoopCalAvg.toLocaleString()}</span>
+              </div>
+              <div style={chartWrapStyle}>
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={rows} margin={{ top: 8, right: 8, left: -8, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" vertical={false} />
+                    <XAxis dataKey="date" tick={{ fontSize: 10, fill: '#9ca3af' }} axisLine={{ stroke: '#e5e7eb' }} tickLine={false} />
+                    <YAxis tick={{ fontSize: 10, fill: '#9ca3af' }} axisLine={false} tickLine={false} width={42} />
+                    <Tooltip formatter={(v) => [v == null ? '—' : `${v.toLocaleString()} cal`, '']} contentStyle={{ background: 'rgba(255,255,255,0.95)', border: '1px solid #e5e7eb', borderRadius: 8, fontSize: 12 }} />
+                    <Bar dataKey="whoopCalories" fill="#f59e0b" radius={[3, 3, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+          </>
+        )}
       </div>
     </div>
   );
@@ -1813,7 +2019,10 @@ export function WorkoutPage({ onBack, user }) {
       colRef,
       snap => {
         const remote = [];
-        snap.forEach(d => remote.push(d.data()));
+        // Always stamp the Firestore doc id onto the workout so each one has a
+        // stable unique key — multiple workouts can share a date, and the
+        // History tab edits/selects rows by this id, not by date.
+        snap.forEach(d => remote.push({ ...d.data(), id: d.id }));
         if (remote.length === 0) return;
         setWorkouts(prev => {
           const sorted = remote.sort((a, b) =>
@@ -1991,6 +2200,22 @@ export function WorkoutPage({ onBack, user }) {
   const [chartLeftMetric, setChartLeftMetric] = useState('avgReps');
   const [chartRightMetric, setChartRightMetric] = useState('weight');
   const [chartView, setChartView] = useState('custom'); // 'custom' or a group name like 'Push'
+  // When a data point on a per-exercise chart is clicked, holds { date, exercise }
+  // so the inline editor popup can edit that historical session.
+  const [chartEdit, setChartEdit] = useState(null);
+  // In a group view ("All Legs"), 'each' charts every exercise separately,
+  // 'combined' charts one series summing reps + weight across the group.
+  const [chartGroupMode, setChartGroupModeState] = useState(() => {
+    try {
+      const v = localStorage.getItem('sunday-chart-group-mode');
+      if (v === 'each' || v === 'combined') return v;
+    } catch {}
+    return 'each';
+  });
+  function setChartGroupMode(next) {
+    setChartGroupModeState(next);
+    try { localStorage.setItem('sunday-chart-group-mode', next); } catch {}
+  }
 
   function setSlot(idx, patch) {
     setChartSlots(prev => {
@@ -2550,9 +2775,15 @@ export function WorkoutPage({ onBack, user }) {
     setWorkouts(next);
     saveWorkouts(next, user?.uid);
   }
-  function updateHistoryField(date, originalIdx, field, value) {
+  // Stable per-workout key. Multiple workouts can share a date, so edits must
+  // target the specific workout by its id (falling back to date for any legacy
+  // row that predates ids) — matching by date alone would touch every workout
+  // on that day and collide React keys, making edits appear to do nothing.
+  function workoutKey(w) { return w.id || w.date; }
+
+  function updateHistoryField(wkey, originalIdx, field, value) {
     const next = workouts.map(w => {
-      if (w.date !== date) return w;
+      if (workoutKey(w) !== wkey) return w;
       const entries = w.entries.map((e, i) => {
         if (i !== originalIdx) return e;
         const updated = { ...e, [field]: value };
@@ -2563,9 +2794,9 @@ export function WorkoutPage({ onBack, user }) {
     });
     commitWorkouts(next);
   }
-  function updateHistorySetField(date, originalIdx, setIdx, value) {
+  function updateHistorySetField(wkey, originalIdx, setIdx, value) {
     const next = workouts.map(w => {
-      if (w.date !== date) return w;
+      if (workoutKey(w) !== wkey) return w;
       const entries = w.entries.map((e, i) => {
         if (i !== originalIdx) return e;
         const sets = Array.isArray(e.sets) ? [...e.sets] : ['', '', '', ''];
@@ -2578,9 +2809,9 @@ export function WorkoutPage({ onBack, user }) {
     commitWorkouts(next);
   }
 
-  function updateHistorySetWeight(date, originalIdx, setIdx, value) {
+  function updateHistorySetWeight(wkey, originalIdx, setIdx, value) {
     const next = workouts.map(w => {
-      if (w.date !== date) return w;
+      if (workoutKey(w) !== wkey) return w;
       const entries = w.entries.map((e, i) => {
         if (i !== originalIdx) return e;
         const setWeights = Array.isArray(e.setWeights) ? [...e.setWeights] : ['', '', '', ''];
@@ -2593,9 +2824,9 @@ export function WorkoutPage({ onBack, user }) {
     commitWorkouts(next);
   }
 
-  function setHistoryUseSetWeights(date, originalIdx, on) {
+  function setHistoryUseSetWeights(wkey, originalIdx, on) {
     const next = workouts.map(w => {
-      if (w.date !== date) return w;
+      if (workoutKey(w) !== wkey) return w;
       const entries = w.entries.map((e, i) => {
         if (i !== originalIdx) return e;
         if (on) {
@@ -2611,34 +2842,37 @@ export function WorkoutPage({ onBack, user }) {
     });
     commitWorkouts(next);
   }
-  function deleteHistoryEntry(date, originalIdx) {
+  function deleteHistoryEntry(wkey, originalIdx) {
     const next = workouts
-      .map(w => w.date === date ? { ...w, entries: w.entries.filter((_, i) => i !== originalIdx) } : w)
+      .map(w => workoutKey(w) === wkey ? { ...w, entries: w.entries.filter((_, i) => i !== originalIdx) } : w)
       .filter(w => w.entries.length > 0);
     commitWorkouts(next);
   }
-  function deleteHistoryDay(date) {
-    if (!window.confirm(`Delete the entire ${date} workout? This can't be undone.`)) return;
-    commitWorkouts(workouts.filter(w => w.date !== date));
+  function deleteHistoryDay(wkey) {
+    const target = workouts.find(w => workoutKey(w) === wkey);
+    if (!window.confirm(`Delete the entire ${target?.date || ''} workout? This can't be undone.`)) return;
+    commitWorkouts(workouts.filter(w => workoutKey(w) !== wkey));
   }
-  function setHistoryWorkoutType(date, type) {
-    commitWorkouts(workouts.map(w => w.date === date ? { ...w, workoutType: type } : w));
+  function setHistoryWorkoutType(wkey, type) {
+    commitWorkouts(workouts.map(w => workoutKey(w) === wkey ? { ...w, workoutType: type } : w));
   }
-  function setHistoryGymForDate(date, newGym) {
+  function setHistoryGymForDate(wkey, newGym) {
     if (!newGym) return;
-    commitWorkouts(workouts.map(w => w.date === date ? { ...w, gym: newGym } : w));
+    commitWorkouts(workouts.map(w => workoutKey(w) === wkey ? { ...w, gym: newGym } : w));
   }
 
   // ---- Bulk-edit helpers (History tab) ----------------------------------
-  function rowKey(date, idx) { return `${date}::${idx}`; }
+  // Rows are identified by the workout's key (id), not date — multiple
+  // workouts can share a date, so a date-based key would collide.
+  function rowKey(wkey, idx) { return `${wkey}::${idx}`; }
   function parseRowKey(k) {
     const sep = k.indexOf('::');
-    return { date: k.slice(0, sep), idx: parseInt(k.slice(sep + 2), 10) };
+    return { wkey: k.slice(0, sep), idx: parseInt(k.slice(sep + 2), 10) };
   }
-  function toggleRowSelected(date, idx) {
+  function toggleRowSelected(wkey, idx) {
     setSelectedRows(prev => {
       const next = new Set(prev);
-      const k = rowKey(date, idx);
+      const k = rowKey(wkey, idx);
       if (next.has(k)) next.delete(k); else next.add(k);
       return next;
     });
@@ -2652,21 +2886,21 @@ export function WorkoutPage({ onBack, user }) {
       return next;
     });
   }
-  // Group selection by date so we touch each workout-day only once.
-  function selectionByDate() {
-    const byDate = new Map();
+  // Group selection by workout key so we touch each workout only once.
+  function selectionByKey() {
+    const byKey = new Map();
     for (const k of selectedRows) {
-      const { date, idx } = parseRowKey(k);
-      if (!byDate.has(date)) byDate.set(date, new Set());
-      byDate.get(date).add(idx);
+      const { wkey, idx } = parseRowKey(k);
+      if (!byKey.has(wkey)) byKey.set(wkey, new Set());
+      byKey.get(wkey).add(idx);
     }
-    return byDate;
+    return byKey;
   }
   function bulkUpdateField(field, value) {
     if (selectedRows.size === 0) return;
-    const byDate = selectionByDate();
+    const byKey = selectionByKey();
     const next = workouts.map(w => {
-      const idxSet = byDate.get(w.date);
+      const idxSet = byKey.get(workoutKey(w));
       if (!idxSet) return w;
       const entries = w.entries.map((e, i) => {
         if (!idxSet.has(i)) return e;
@@ -2680,18 +2914,18 @@ export function WorkoutPage({ onBack, user }) {
   }
   function bulkSetGym(newGym) {
     if (!newGym || selectedRows.size === 0) return;
-    const dates = new Set();
-    for (const k of selectedRows) dates.add(parseRowKey(k).date);
-    commitWorkouts(workouts.map(w => dates.has(w.date) ? { ...w, gym: newGym } : w));
+    const keys = new Set();
+    for (const k of selectedRows) keys.add(parseRowKey(k).wkey);
+    commitWorkouts(workouts.map(w => keys.has(workoutKey(w)) ? { ...w, gym: newGym } : w));
   }
   function bulkDeleteSelected() {
     if (selectedRows.size === 0) return;
     const n = selectedRows.size;
     if (!window.confirm(`Delete ${n} exercise${n === 1 ? '' : 's'}? This can't be undone.`)) return;
-    const byDate = selectionByDate();
+    const byKey = selectionByKey();
     const next = workouts
       .map(w => {
-        const idxSet = byDate.get(w.date);
+        const idxSet = byKey.get(workoutKey(w));
         if (!idxSet) return w;
         return { ...w, entries: w.entries.filter((_, i) => !idxSet.has(i)) };
       })
@@ -2699,14 +2933,11 @@ export function WorkoutPage({ onBack, user }) {
     commitWorkouts(next);
     clearSelectedRows();
   }
-  function setHistoryDate(oldDate, newDate) {
-    if (!newDate || newDate === oldDate) return;
+  function setHistoryDate(wkey, newDate) {
+    if (!newDate) return;
     if (!/^\d{4}-\d{2}-\d{2}$/.test(newDate)) return;
-    if (workouts.some(w => w.date === newDate)) {
-      window.alert(`There's already a workout logged on ${newDate}. Pick a different date or merge manually.`);
-      return;
-    }
-    commitWorkouts(workouts.map(w => w.date === oldDate ? { ...w, date: newDate } : w));
+    // Multiple workouts can share a date, so just move this one — no merge.
+    commitWorkouts(workouts.map(w => workoutKey(w) === wkey ? { ...w, date: newDate } : w));
   }
 
   // Stats
@@ -2869,13 +3100,19 @@ export function WorkoutPage({ onBack, user }) {
     return Array.from(set).sort();
   }, [workouts, historyGroup]);
 
-  // Drop the exercise filter if a group change made the current selection
-  // disappear from the dropdown options.
+  // Drop the exercise filter only when an active GROUP filter no longer
+  // contains the selected exercise. Earlier this keyed off `historyExercises`,
+  // which is rebuilt on every `workouts` change — so a background Firestore
+  // sync would wipe a freshly-picked exercise and silently un-filter the table.
+  // Guarding on `historyGroup` means picking an exercise with no group set can
+  // never be auto-cleared.
   useEffect(() => {
-    if (historyExercise && !historyExercises.includes(historyExercise)) {
-      setHistoryExercise('');
-    }
-  }, [historyExercise, historyExercises]);
+    if (!historyExercise || !historyGroup) return;
+    const belongs = workouts.some(w =>
+      (w.entries || []).some(e => e.exercise === historyExercise && e.group === historyGroup),
+    );
+    if (!belongs) setHistoryExercise('');
+  }, [historyExercise, historyGroup, workouts]);
 
   const filteredHistory = useMemo(() => {
     return workouts.filter(w => {
@@ -3618,7 +3855,7 @@ export function WorkoutPage({ onBack, user }) {
                 flatRows.push({ w, e, originalIdx, isFirstOfDay: idx === 0, dayCount: visible.length });
               });
             }
-            const visibleKeys = flatRows.map(({ w, originalIdx }) => rowKey(w.date, originalIdx));
+            const visibleKeys = flatRows.map(({ w, originalIdx }) => rowKey(workoutKey(w), originalIdx));
             const visibleSelectedCount = visibleKeys.reduce((n, k) => n + (selectedRows.has(k) ? 1 : 0), 0);
             const allVisibleSelected = visibleKeys.length > 0 && visibleSelectedCount === visibleKeys.length;
             const someVisibleSelected = visibleSelectedCount > 0 && !allVisibleSelected;
@@ -3714,7 +3951,9 @@ export function WorkoutPage({ onBack, user }) {
                           onChange={() => setVisibleRowsSelected(visibleKeys, !allVisibleSelected)}
                         />
                       </th>
-                      <th>Date</th>
+                      <th className={styles.historyMetaCol}>Date</th>
+                      <th className={styles.historyMetaCol}>Location</th>
+                      <th className={styles.historyMetaCol}>Type</th>
                       <th className={styles.logGroupCol}>Group</th>
                       <th className={styles.logExerciseCol}>Exercise</th>
                       <th className={styles.logNotesCol}>Notes</th>
@@ -3746,11 +3985,12 @@ export function WorkoutPage({ onBack, user }) {
                         if (nums.length > 0) baseWt = Math.max(...nums);
                       }
                       const total = e.perArm ? baseWt * 2 : baseWt;
-                      const rk = rowKey(w.date, originalIdx);
+                      const wk = workoutKey(w);
+                      const rk = rowKey(wk, originalIdx);
                       const isSelected = selectedRows.has(rk);
                       return (
                         <tr
-                          key={`${w.date}-${originalIdx}`}
+                          key={`${wk}-${originalIdx}`}
                           className={`${isFirstOfDay ? styles.historyRowDayStart : ''} ${isSelected ? styles.historyRowSelected : ''}`.trim() || undefined}
                         >
                           <td className={styles.logSelectCell}>
@@ -3758,52 +3998,60 @@ export function WorkoutPage({ onBack, user }) {
                               type="checkbox"
                               aria-label="Select row"
                               checked={isSelected}
-                              onChange={() => toggleRowSelected(w.date, originalIdx)}
+                              onChange={() => toggleRowSelected(wk, originalIdx)}
                             />
                           </td>
-                          {isFirstOfDay && (
-                            <td rowSpan={dayCount} className={styles.historyDateCell}>
-                              <input
-                                type="date"
-                                className={styles.historyDateInput}
-                                value={w.date}
-                                onChange={ev => setHistoryDate(w.date, ev.target.value)}
-                                title="Edit date"
-                              />
-                              <div className={styles.historyDateMain}>{formatDate(w.date)}</div>
-                              <select
-                                className={styles.historyGymSelect}
-                                value={w.gym || ''}
-                                onChange={ev => setHistoryGymForDate(w.date, ev.target.value)}
-                                title="Edit location"
-                              >
-                                {w.gym && !gyms.includes(w.gym) && (
-                                  <option value={w.gym}>{w.gym}</option>
-                                )}
-                                {gyms.map(g => <option key={g} value={g}>{g}</option>)}
-                              </select>
-                              <select
-                                className={styles.historyTypeSelect}
-                                value={w.workoutType || ''}
-                                onChange={ev => setHistoryWorkoutType(w.date, ev.target.value)}
-                                title="Tag this workout's type"
-                              >
-                                <option value="">No type</option>
-                                {workoutTypes.map(t => <option key={t} value={t}>{t}</option>)}
-                              </select>
+                          {/* Date / Location / Type repeat on every exercise row
+                              (each edits THIS workout). Delete shows once per
+                              workout block to avoid clutter. */}
+                          <td className={styles.historyMetaCell}>
+                            <input
+                              type="date"
+                              className={styles.historyDateInput}
+                              value={w.date}
+                              onChange={ev => setHistoryDate(wk, ev.target.value)}
+                              title="Edit date"
+                            />
+                            {isFirstOfDay && (
                               <button
                                 className={styles.historyDeleteDayBtn}
-                                onClick={() => deleteHistoryDay(w.date)}
+                                onClick={() => deleteHistoryDay(wk)}
                                 title={`Delete the ${w.date} workout`}
                                 type="button"
                               >Delete day</button>
-                            </td>
-                          )}
+                            )}
+                          </td>
+                          <td className={styles.historyMetaCell}>
+                            <select
+                              className={styles.historyGymSelect}
+                              style={{ marginTop: 0 }}
+                              value={w.gym || ''}
+                              onChange={ev => setHistoryGymForDate(wk, ev.target.value)}
+                              title="Edit location"
+                            >
+                              {w.gym && !gyms.includes(w.gym) && (
+                                <option value={w.gym}>{w.gym}</option>
+                              )}
+                              {gyms.map(g => <option key={g} value={g}>{g}</option>)}
+                            </select>
+                          </td>
+                          <td className={styles.historyMetaCell} style={{ borderRight: '1px solid var(--color-border)' }}>
+                            <select
+                              className={styles.historyTypeSelect}
+                              style={{ marginTop: 0 }}
+                              value={w.workoutType || ''}
+                              onChange={ev => setHistoryWorkoutType(wk, ev.target.value)}
+                              title="Tag this workout's type"
+                            >
+                              <option value="">No type</option>
+                              {workoutTypes.map(t => <option key={t} value={t}>{t}</option>)}
+                            </select>
+                          </td>
                           <td>
                             <select
                               className={`${styles.logCell} ${styles.logGroupSelect}`}
                               value={e.group || ''}
-                              onChange={ev => updateHistoryField(w.date, originalIdx, 'group', ev.target.value)}
+                              onChange={ev => updateHistoryField(wk, originalIdx, 'group', ev.target.value)}
                             >
                               <option value="">—</option>
                               {MUSCLE_GROUPS.map(g => <option key={g} value={g}>{g}</option>)}
@@ -3813,7 +4061,7 @@ export function WorkoutPage({ onBack, user }) {
                             <select
                               className={`${styles.logCell} ${styles.logExerciseSelect}`}
                               value={e.exercise || ''}
-                              onChange={ev => updateHistoryField(w.date, originalIdx, 'exercise', ev.target.value)}
+                              onChange={ev => updateHistoryField(wk, originalIdx, 'exercise', ev.target.value)}
                               disabled={!e.group}
                             >
                               <option value="">—</option>
@@ -3837,7 +4085,7 @@ export function WorkoutPage({ onBack, user }) {
                               className={styles.logCell}
                               type="text"
                               value={e.notes || ''}
-                              onChange={ev => updateHistoryField(w.date, originalIdx, 'notes', ev.target.value)}
+                              onChange={ev => updateHistoryField(wk, originalIdx, 'notes', ev.target.value)}
                             />
                           </td>
                           {setVals.map((reps, si) => {
@@ -3853,7 +4101,7 @@ export function WorkoutPage({ onBack, user }) {
                                   type="text"
                                   inputMode="text"
                                   value={reps}
-                                  onChange={ev => updateHistorySetField(w.date, originalIdx, si, ev.target.value)}
+                                  onChange={ev => updateHistorySetField(wk, originalIdx, si, ev.target.value)}
                                   title="Reps (12), seconds (30s), minutes (2m), hours (1h), or m:ss (1:30)"
                                 />
                                 {e.useSetWeights && (
@@ -3861,7 +4109,7 @@ export function WorkoutPage({ onBack, user }) {
                                     className={`${styles.logCell} ${styles.logSetWeightInput}`}
                                     type="number"
                                     value={setWeightVals[si]}
-                                    onChange={ev => updateHistorySetWeight(w.date, originalIdx, si, ev.target.value)}
+                                    onChange={ev => updateHistorySetWeight(wk, originalIdx, si, ev.target.value)}
                                     placeholder="lb"
                                     title={`Set ${si + 1} weight`}
                                   />
@@ -3874,7 +4122,7 @@ export function WorkoutPage({ onBack, user }) {
                               <button
                                 type="button"
                                 className={`${styles.logCell} ${styles.logWeightInput} ${styles.perSetBadge}`}
-                                onClick={() => setHistoryUseSetWeights(w.date, originalIdx, false)}
+                                onClick={() => setHistoryUseSetWeights(wk, originalIdx, false)}
                                 title="Switch back to a single weight for all sets"
                               >
                                 PER SET
@@ -3885,12 +4133,12 @@ export function WorkoutPage({ onBack, user }) {
                                   className={`${styles.logCell} ${styles.logWeightInput}`}
                                   type="number"
                                   value={e.weight ?? ''}
-                                  onChange={ev => updateHistoryField(w.date, originalIdx, 'weight', ev.target.value)}
+                                  onChange={ev => updateHistoryField(wk, originalIdx, 'weight', ev.target.value)}
                                 />
                                 <button
                                   type="button"
                                   className={styles.perSetToggleBtn}
-                                  onClick={() => setHistoryUseSetWeights(w.date, originalIdx, true)}
+                                  onClick={() => setHistoryUseSetWeights(wk, originalIdx, true)}
                                   title="Use a different weight per set"
                                 >↕</button>
                               </span>
@@ -3900,7 +4148,7 @@ export function WorkoutPage({ onBack, user }) {
                             <input
                               type="checkbox"
                               checked={!!e.perArm}
-                              onChange={ev => updateHistoryField(w.date, originalIdx, 'perArm', ev.target.checked)}
+                              onChange={ev => updateHistoryField(wk, originalIdx, 'perArm', ev.target.checked)}
                               title="Per arm/leg — total doubles the weight"
                             />
                           </td>
@@ -3908,7 +4156,7 @@ export function WorkoutPage({ onBack, user }) {
                           <td className={styles.logRemoveCell}>
                             <button
                               className={styles.logRemoveBtn}
-                              onClick={() => deleteHistoryEntry(w.date, originalIdx)}
+                              onClick={() => deleteHistoryEntry(wk, originalIdx)}
                               title="Delete this exercise"
                               type="button"
                             >×</button>
@@ -3933,9 +4181,9 @@ export function WorkoutPage({ onBack, user }) {
 
         // Renders title + chart + summary for a single exercise. Returns
         // an empty-state element if the exercise has too little history.
-        function renderChartContent(exercise) {
+        function renderChartContent(exercise, precomputedData) {
           if (!exercise) return <div className={styles.chartCardEmpty}>Pick a group + exercise</div>;
-          const data = buildChartData(exercise);
+          const data = precomputedData || buildChartData(exercise);
           if (data.length === 0) return <div className={styles.chartCardEmpty}>No sessions logged for {exercise}</div>;
           if (data.length < 2) return <div className={styles.chartCardEmpty}>Need 2+ sessions to chart {exercise}</div>;
           const dataT = withTrend(data, rightMeta.field);
@@ -3945,19 +4193,45 @@ export function WorkoutPage({ onBack, user }) {
           const rd = last[rightMeta.field] - first[rightMeta.field];
           const lPct = first[leftMeta.field] ? ld / first[leftMeta.field] : 0;
           const rPct = first[rightMeta.field] ? rd / first[rightMeta.field] : 0;
+          // When the series spans more than one calendar year, label the x-axis
+          // with the 2-digit year at each year boundary instead of month/day
+          // (which repeats every year and is ambiguous across years).
+          const chartYears = [...new Set(data.map(p => (p.date || '').slice(0, 4)).filter(Boolean))];
+          const multiYear = chartYears.length > 1;
+          const yearTicks = multiYear
+            ? (() => {
+                const seen = new Set();
+                const ticks = [];
+                for (const p of data) {
+                  const y = (p.date || '').slice(0, 4);
+                  if (y && !seen.has(y)) { seen.add(y); ticks.push(p.date); }
+                }
+                return ticks;
+              })()
+            : undefined;
           return (
             <>
               <div className={styles.chartCardTitle}>{exercise}</div>
               <div className={styles.chartCardChart}>
                 <ResponsiveContainer width="100%" height="100%">
-                  <ComposedChart data={dataT} margin={{ top: 12, right: 36, left: 4, bottom: 8 }}>
+                  <ComposedChart
+                    data={dataT}
+                    margin={{ top: 12, right: 36, left: 4, bottom: 8 }}
+                    onClick={e => {
+                      const d = e?.activePayload?.[0]?.payload?.date;
+                      if (d) setChartEdit({ date: d, exercise });
+                    }}
+                    style={{ cursor: 'pointer' }}
+                  >
                     <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" vertical={false} />
                     <XAxis
                       dataKey="date"
                       tick={{ fontSize: 11, fill: '#6b7280' }}
+                      ticks={multiYear ? yearTicks : undefined}
                       tickFormatter={d => {
                         if (!d) return '';
-                        const [, m, dd] = d.split('-');
+                        const [y, m, dd] = d.split('-');
+                        if (multiYear) return `'${y.slice(2)}`;
                         return `${parseInt(m)}/${parseInt(dd)}`;
                       }}
                       minTickGap={28}
@@ -4001,6 +4275,44 @@ export function WorkoutPage({ onBack, user }) {
               .filter(x => x.count >= 1)
               .sort((a, b) => b.count - a.count)
           : [];
+
+        // Aggregate every exercise in a group into one series, bucketed by
+        // session date. Reps + weight are summed across exercises (total reps
+        // / total working load that day), maxes take the group max, and
+        // avgReps is averaged across contributing exercises.
+        function buildAggregateChartData(group) {
+          const exercises = (chartGroupSource[group] || []).filter(ex => !isWarmUp(ex));
+          const byDate = {};
+          for (const ex of exercises) {
+            const history = exerciseHistoryByName[ex.trim().toLowerCase()] || [];
+            for (const h of history) {
+              const d = h.date;
+              if (!byDate[d]) {
+                byDate[d] = { totalReps: 0, totalWeight: 0, maxReps: 0, maxWeight: 0, avgRepsSum: 0, avgRepsCount: 0 };
+              }
+              const b = byDate[d];
+              const ar = Number(h.avgReps) || 0;
+              b.totalReps += Number(h.totalReps) || 0;
+              b.totalWeight += Number(h.totalWeight) || 0;
+              b.maxReps = Math.max(b.maxReps, Number(h.maxReps) || 0);
+              b.maxWeight = Math.max(b.maxWeight, Number(h.maxWeight) || 0);
+              if (ar > 0) { b.avgRepsSum += ar; b.avgRepsCount += 1; }
+            }
+          }
+          return Object.keys(byDate)
+            .sort((a, b) => a.localeCompare(b))
+            .map(date => {
+              const b = byDate[date];
+              return {
+                date,
+                avgReps: b.avgRepsCount ? Math.round((b.avgRepsSum / b.avgRepsCount) * 10) / 10 : 0,
+                totalReps: b.totalReps,
+                maxReps: b.maxReps,
+                totalWeight: b.totalWeight,
+                maxWeight: b.maxWeight,
+              };
+            });
+        }
 
         // For the "Fill 8 with most recent" buttons: ranks each library
         // exercise in the chosen group by the most recent log date.
@@ -4060,6 +4372,12 @@ export function WorkoutPage({ onBack, user }) {
                 className={`${styles.chartViewBtn} ${chartView === 'custom' ? styles.chartViewBtnActive : ''}`}
                 onClick={() => setChartView('custom')}
               >My {NUM_CHART_SLOTS}</button>
+              {groupNames.length > 0 && (
+                <button
+                  className={`${styles.chartViewBtn} ${chartView === 'combined' ? styles.chartViewBtnActive : ''}`}
+                  onClick={() => setChartView('combined')}
+                >Combined</button>
+              )}
               {groupNames.map(g => (
                 <button
                   key={g}
@@ -4082,7 +4400,28 @@ export function WorkoutPage({ onBack, user }) {
               </div>
             )}
 
-            {chartView === 'custom' ? (
+            {chartView === 'combined' ? (() => {
+              // One aggregate ("All <group>") chart per group, side by side —
+              // Legs / Push / Pull / etc. each summed across their exercises.
+              const combinedGroups = groupNames
+                .map(g => ({ group: g, data: buildAggregateChartData(g) }))
+                .filter(({ data }) => data.length >= 2);
+              if (combinedGroups.length === 0) {
+                return <div className={styles.empty}>No groups with 2+ logged sessions to chart yet.</div>;
+              }
+              return (
+                <div className={styles.chartGrid}>
+                  {combinedGroups.map(({ group, data }) => (
+                    <div key={group} className={styles.chartCard}>
+                      {renderChartContent(`All ${group}`, data)}
+                      <div className={styles.chartHint}>
+                        Reps + weight summed across {(chartGroupSource[group] || []).filter(ex => !isWarmUp(ex)).length} {group} exercises per session.
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              );
+            })() : chartView === 'custom' ? (
               <div className={styles.chartGrid}>
                 {chartSlots.map((slot, idx) => {
                   const exerciseOptions = slot.group ? (chartGroupSource[slot.group] || []) : [];
@@ -4120,13 +4459,37 @@ export function WorkoutPage({ onBack, user }) {
                 No <strong>{chartView}</strong> exercises with logged sessions yet.
               </div>
             ) : (
-              <div className={styles.chartGrid}>
-                {groupViewExercises.map(({ exercise }) => (
-                  <div key={exercise} className={styles.chartCard}>
-                    {renderChartContent(exercise)}
+              <>
+                <div className={styles.chartViewRow}>
+                  <span className={styles.chartViewLabel}>Show:</span>
+                  <button
+                    className={`${styles.chartViewBtn} ${chartGroupMode === 'each' ? styles.chartViewBtnActive : ''}`}
+                    onClick={() => setChartGroupMode('each')}
+                  >By exercise</button>
+                  <button
+                    className={`${styles.chartViewBtn} ${chartGroupMode === 'combined' ? styles.chartViewBtnActive : ''}`}
+                    onClick={() => setChartGroupMode('combined')}
+                  >Combined</button>
+                </div>
+                {chartGroupMode === 'combined' ? (
+                  <div className={styles.chartGrid}>
+                    <div className={styles.chartCard}>
+                      {renderChartContent(`All ${chartView}`, buildAggregateChartData(chartView))}
+                      <div className={styles.chartHint}>
+                        Reps + weight summed across {groupViewExercises.length} {chartView} exercises per session.
+                      </div>
+                    </div>
                   </div>
-                ))}
-              </div>
+                ) : (
+                  <div className={styles.chartGrid}>
+                    {groupViewExercises.map(({ exercise }) => (
+                      <div key={exercise} className={styles.chartCard}>
+                        {renderChartContent(exercise)}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </>
             )}
           </div>
         );
@@ -4577,6 +4940,71 @@ export function WorkoutPage({ onBack, user }) {
           </div>
         </div>
       )}
+
+      {chartEdit && (() => {
+        const exLower = (chartEdit.exercise || '').trim().toLowerCase();
+        const w = workouts.find(wk => wk.date === chartEdit.date && (wk.entries || []).some(en => (en.exercise || '').trim().toLowerCase() === exLower));
+        const idx = w ? w.entries.findIndex(en => (en.exercise || '').trim().toLowerCase() === exLower) : -1;
+        const entry = idx >= 0 ? w.entries[idx] : null;
+        const close = () => setChartEdit(null);
+        if (!entry) return null;
+        const sets = Array.isArray(entry.sets) ? entry.sets : ['', '', '', '', ''];
+        const fieldStyle = { border: '1px solid var(--color-border)', borderRadius: 6, fontSize: '0.9rem' };
+        const labelStyle = { fontSize: '0.72rem', fontWeight: 600, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 4 };
+        return (
+          <div onClick={close} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
+            <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: 12, padding: '1.1rem 1.2rem', width: 'min(420px, 92vw)', maxHeight: '90vh', overflow: 'auto', boxShadow: '0 10px 40px rgba(0,0,0,0.25)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10 }}>
+                <div>
+                  <div style={{ fontWeight: 700, fontSize: '1rem' }}>{entry.exercise}</div>
+                  <div style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)' }}>{formatDate(chartEdit.date)}{w.gym ? ` · ${w.gym}` : ''}</div>
+                </div>
+                <button onClick={close} style={{ background: 'none', border: 'none', fontSize: '1.4rem', cursor: 'pointer', lineHeight: 1 }}>&times;</button>
+              </div>
+
+              <div style={labelStyle}>Sets (reps or time)</div>
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 14 }}>
+                {sets.slice(0, 5).map((s, si) => (
+                  <input
+                    key={si}
+                    value={s || ''}
+                    onChange={e => updateHistorySetField(chartEdit.date, idx, si, e.target.value)}
+                    placeholder={`#${si + 1}`}
+                    style={{ ...fieldStyle, width: 52, padding: '6px', textAlign: 'center' }}
+                  />
+                ))}
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'flex-end', gap: 14, marginBottom: 16 }}>
+                <div>
+                  <div style={labelStyle}>Weight (lb)</div>
+                  <input
+                    value={entry.weight || ''}
+                    onChange={e => updateHistoryField(chartEdit.date, idx, 'weight', e.target.value)}
+                    inputMode="decimal"
+                    style={{ ...fieldStyle, width: 90, padding: '6px 8px' }}
+                  />
+                </div>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.85rem', cursor: 'pointer', paddingBottom: 6 }}>
+                  <input type="checkbox" checked={!!entry.perArm} onChange={e => updateHistoryField(chartEdit.date, idx, 'perArm', e.target.checked)} />
+                  Per arm (×2)
+                </label>
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                <button
+                  onClick={() => { if (window.confirm('Delete this exercise from the workout?')) { deleteHistoryEntry(chartEdit.date, idx); close(); } }}
+                  style={{ background: 'none', border: '1px solid #fca5a5', color: '#b91c1c', borderRadius: 8, padding: '8px 14px', fontWeight: 600, cursor: 'pointer' }}
+                >Delete</button>
+                <button
+                  onClick={close}
+                  style={{ background: 'var(--color-accent)', color: '#fff', border: 'none', borderRadius: 8, padding: '8px 20px', fontWeight: 700, cursor: 'pointer' }}
+                >Done</button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }

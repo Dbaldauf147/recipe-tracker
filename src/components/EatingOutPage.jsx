@@ -1276,7 +1276,7 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
   const [editing, setEditing] = useState(null);
   const [adding, setAdding] = useState(false);
   const [bulkOpen, setBulkOpen] = useState(false);
-  const [viewMode, setViewMode] = useState('list');
+  const [viewMode, setViewMode] = useState('table');
   const [geocodingProgress, setGeocodingProgress] = useState(null);
   const cancelGeocodeRef = useRef(false);
   // My ranked top-3 picks, keyed by (ownerUid, category).
@@ -1396,6 +1396,16 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
     }
     return locationSuggestions.map(l => ({ name: l, count: counts.get(l) || 0 }));
   }, [restaurants, locationSuggestions, filter, activeCuisine, activeMealType, activeCategory, showRetired]);
+
+  // Locations that exist on MY own list (lowercased) — only these can be
+  // bulk-renamed, since renaming never touches a friend's shared list.
+  const myLocationNames = useMemo(() => {
+    const set = new Set();
+    for (const r of (ownerData[user?.uid]?.restaurants || [])) {
+      for (const l of (r.locations || [])) set.add(l.toLowerCase());
+    }
+    return set;
+  }, [ownerData, user?.uid]);
 
   const categoryEntries = useMemo(() => {
     const counts = new Map();
@@ -1541,6 +1551,52 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
     const nextList = ownerList.filter(r => r.id !== restaurant.id);
     persistOwner(ownerUid, nextList);
     setEditing(null);
+  }
+
+  // Rename a location across MY list — every restaurant tagged with `oldName`
+  // gets it replaced, de-duplicated case-insensitively. If the new name already
+  // exists the two effectively merge. Friends' shared lists are never touched
+  // (matches the bulk-import scoping).
+  function handleRenameLocation(oldName) {
+    if (!user?.uid) return;
+    const raw = window.prompt(`Rename location "${oldName}" to:`, oldName);
+    if (raw == null) return; // cancelled
+    const newName = raw.trim();
+    if (!newName || newName === oldName) return;
+
+    const myList = ownerData[user.uid]?.restaurants || [];
+    const sameLetters = newName.toLowerCase() === oldName.toLowerCase();
+    const mergesInto = !sameLetters && myList.some(r =>
+      (r.locations || []).some(l => l.toLowerCase() === newName.toLowerCase()),
+    );
+    if (mergesInto && !window.confirm(
+      `"${newName}" already exists — merge "${oldName}" into it? Restaurants tagged with both will keep a single "${newName}".`,
+    )) return;
+
+    let changed = 0;
+    const next = myList.map(r => {
+      const locs = r.locations || [];
+      if (!locs.some(l => l.toLowerCase() === oldName.toLowerCase())) return r;
+      const seen = new Set();
+      const updated = [];
+      for (const l of locs) {
+        const replaced = l.toLowerCase() === oldName.toLowerCase() ? newName : l;
+        const key = replaced.toLowerCase();
+        if (seen.has(key)) continue;
+        seen.add(key);
+        updated.push(replaced);
+      }
+      changed++;
+      return { ...r, locations: updated, updatedAt: new Date().toISOString() };
+    });
+    if (changed === 0) {
+      window.alert(`"${oldName}" isn't on your own list, so there's nothing to rename here.`);
+      return;
+    }
+    persistOwner(user.uid, next);
+    if (activeLocation && activeLocation.toLowerCase() === oldName.toLowerCase()) {
+      setActiveLocation(newName);
+    }
   }
 
   function handleBulkImport(rows, strategy) {
@@ -1788,15 +1844,27 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
                 <div className={styles.sidebarEmpty}>No locations yet.</div>
               ) : (
                 locationEntries.map(l => (
-                  <button
-                    key={`l-${l.name}`}
-                    type="button"
-                    className={`${styles.sidebarItem} ${activeLocation === l.name ? styles.sidebarItemActive : ''} ${l.count === 0 ? styles.sidebarItemDim : ''}`}
-                    onClick={() => setActiveLocation(activeLocation === l.name ? null : l.name)}
-                  >
-                    <span className={styles.sidebarItemName}>📍 {l.name}</span>
-                    <span className={styles.sidebarItemCount}>{l.count}</span>
-                  </button>
+                  <div key={`l-${l.name}`} className={styles.sidebarItemRow}>
+                    <button
+                      type="button"
+                      className={`${styles.sidebarItem} ${activeLocation === l.name ? styles.sidebarItemActive : ''} ${l.count === 0 ? styles.sidebarItemDim : ''}`}
+                      style={{ flex: 1, minWidth: 0 }}
+                      onClick={() => setActiveLocation(activeLocation === l.name ? null : l.name)}
+                    >
+                      <span className={styles.sidebarItemName}>📍 {l.name}</span>
+                      <span className={styles.sidebarItemCount}>{l.count}</span>
+                    </button>
+                    {myLocationNames.has(l.name.toLowerCase()) && (
+                      <button
+                        type="button"
+                        className={styles.sidebarRenameBtn}
+                        title={`Rename "${l.name}" everywhere`}
+                        onClick={() => handleRenameLocation(l.name)}
+                      >
+                        ✎
+                      </button>
+                    )}
+                  </div>
                 ))
               )}
             </div>

@@ -145,7 +145,7 @@ export function RecipeForm({ recipe, onSave, onCancel, saveLabel, cancelLabel, h
         setMealType('custom');
         setCustomMealType(type);
       }
-      setServings(recipe.servings || '1');
+      setServings(String(recipe.servings || '1'));
       setPrepTime(recipe.prepTime || '');
       setCookTime(recipe.cookTime || '');
       setSourceUrl(recipe.sourceUrl || '');
@@ -300,7 +300,7 @@ export function RecipeForm({ recipe, onSave, onCancel, saveLabel, cancelLabel, h
         const ings = ingredients.filter(row => row.ingredient.trim() !== '');
         return classifyMealType(ings);
       })(),
-      servings: servings.trim() || '1',
+      servings: String(servings).trim() || '1',
       prepTime: prepTime.trim(),
       cookTime: cookTime.trim(),
       sourceUrl: sourceUrl.trim(),

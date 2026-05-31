@@ -97,6 +97,8 @@ async function main() {
   console.log(`Looked up uid=${user.uid} for ${to}`);
   const logSnap = await db.doc(`users/${user.uid}/data/dailyLog`).get();
   const log = logSnap.exists ? (logSnap.data().log || {}) : {};
+  const userSnap = await db.doc(`users/${user.uid}`).get();
+  const goals = userSnap.exists ? (userSnap.data().nutritionGoals || null) : null;
 
   const dateKey = easternDateKey();
   const day = log[dateKey] || {};
@@ -104,7 +106,7 @@ async function main() {
   const skipped = (day.skippedMeals || []).length;
   const remaining = Math.max(1, 3 - mainMeals - skipped);
 
-  const { subject, text, html } = renderMealReminder({ remaining, log, dateKey });
+  const { subject, text, html } = renderMealReminder({ remaining, log, dateKey, goals });
 
   const transporter = nodemailer.createTransport({
     service: 'gmail',

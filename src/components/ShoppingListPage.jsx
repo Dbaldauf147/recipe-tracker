@@ -781,7 +781,12 @@ export function ShoppingListPage({ weeklyRecipes, weeklyServings = {}, getRecipe
               isDraggable
               isResizable
               resizeHandles={['se', 'e', 'w', 's', 'n']}
-              onLayoutChange={saveGridLayout}
+              // Persist ONLY on real drag/resize gestures — not onLayoutChange,
+              // which react-grid-layout also fires on mount/width-measure before
+              // the saved layout has loaded, clobbering custom sizes with the
+              // FALLBACK defaults.
+              onDragStop={saveGridLayout}
+              onResizeStop={saveGridLayout}
               draggableHandle={`.${styles.widgetHeadingRow}`}
               compactType="vertical"
               margin={[8, 8]}
