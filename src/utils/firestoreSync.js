@@ -990,6 +990,7 @@ export function hydrateLocalStorage(userData, uid) {
   hydrateArrayWithDefense('sunday-pantry-snacks', userData.pantrySnacks, 'pantrySnacks');
   hydrateArrayWithDefense('sunday-pantry-fruit', userData.pantryFruit, 'pantryFruit');
   localStorage.setItem('sunday-shop-extras', JSON.stringify(userData.shopExtras || []));
+  localStorage.setItem('sunday-shop-links', JSON.stringify(userData.shopLinks || {}));
   localStorage.setItem('sunday-shopping-selection', JSON.stringify(userData.shoppingSelection || []));
   hydrateArrayWithDefense('sunday-shopping-lists', userData.shoppingLists, 'shoppingLists');
   hydrateArrayWithDefense('sunday-store-lists', userData.storeLists, 'storeLists');

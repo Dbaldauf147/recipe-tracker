@@ -955,6 +955,16 @@ export function ShoppingList({ weeklyRecipes, weeklyServings = {}, extraItems = 
   });
   const [editingLink, setEditingLink] = useState(null); // ingredient key
 
+  // Re-read links when another device (e.g. the mobile app) updates the
+  // synced `shopLinks` field, which lands in localStorage on sync.
+  useEffect(() => {
+    const handleSync = () => {
+      try { setCustomLinks(JSON.parse(localStorage.getItem(SHOP_LINKS_KEY) || '{}')); } catch { /* ignore */ }
+    };
+    window.addEventListener('firestore-sync', handleSync);
+    return () => window.removeEventListener('firestore-sync', handleSync);
+  }, []);
+
   function saveCustomLink(ingredientKey, url) {
     setCustomLinks(prev => {
       const next = { ...prev, [ingredientKey]: url };
