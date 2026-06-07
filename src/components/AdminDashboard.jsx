@@ -99,12 +99,85 @@ function getUserPlatform(u) {
   return { key: 'none', label: '—', color: 'var(--color-text-muted)' };
 }
 
+function formatDate(iso) {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+    + ' ' + d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+}
+
+function timeAgo(iso) {
+  if (!iso) return '';
+  const diff = Date.now() - new Date(iso).getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  const days = Math.floor(hrs / 24);
+  if (days < 30) return `${days}d ago`;
+  return `${Math.floor(days / 30)}mo ago`;
+}
+
+function Badge({ color, children, title }) {
+  return (
+    <span
+      title={title}
+      style={{ fontSize: '0.75rem', fontWeight: 600, color, background: color + '15', padding: '0.15rem 0.45rem', borderRadius: '50px', whiteSpace: 'nowrap' }}
+    >
+      {children}
+    </span>
+  );
+}
+
+// Registry for the users table. `sortKey` ties a column to the existing sort
+// handlers; omit it for non-sortable columns. Widths/visibility are overridable
+// per-admin via the column picker (persisted in localStorage).
+const ADMIN_COLUMNS = [
+  { key: 'displayName', label: 'Name', width: 150, defaultVisible: true, sortKey: 'displayName',
+    render: u => u.displayName || '—' },
+  { key: 'email', label: 'Email', width: 220, defaultVisible: true, sortKey: 'email',
+    render: u => u.email || '—' },
+  { key: 'recipeCount', label: 'Recipes', width: 90, defaultVisible: true, sortKey: 'recipeCount',
+    render: u => (u.recipes || []).length },
+  { key: 'loginCount', label: 'Web Logins', width: 110, defaultVisible: true, sortKey: 'loginCount',
+    render: u => u.loginCount || 0 },
+  { key: 'lastLogin', label: 'Last Web Login', width: 140, defaultVisible: true, sortKey: 'lastLogin',
+    render: u => <span title={formatDate(u.lastLogin)}>{u.lastLogin ? timeAgo(u.lastLogin) : '—'}</span> },
+  { key: 'mobileLoginCount', label: 'App Logins', width: 110, defaultVisible: true, sortKey: 'mobileLoginCount',
+    render: u => u.mobileLoginCount || 0 },
+  { key: 'mobileLastLogin', label: 'Last App Login', width: 140, defaultVisible: true, sortKey: 'mobileLastLogin',
+    render: u => <span title={formatDate(u.mobileLastLogin)}>{u.mobileLastLogin ? timeAgo(u.mobileLastLogin) : '—'}</span> },
+  { key: 'platform', label: 'Platform', width: 120, defaultVisible: true,
+    render: u => {
+      const p = getUserPlatform(u);
+      if (p.key === 'none') return <span style={{ color: 'var(--color-text-muted)' }}>—</span>;
+      return (
+        <Badge color={p.color} title={p.key === 'both' ? `Uses both — last on ${p.recent === 'app' ? 'the app' : 'the web'}` : `${p.label}-only`}>
+          {p.key === 'both' ? `Both · ${p.recent === 'app' ? '📱' : '🌐'}` : p.label}
+        </Badge>
+      );
+    } },
+  { key: 'status', label: 'Status', width: 110, defaultVisible: true,
+    render: u => { const e = getUserEngagement(u); return <Badge color={e.color}>{e.label}</Badge>; } },
+];
+
+const ADMIN_COLS_KEY = 'sunday-admin-user-cols';
+function loadColPrefs() {
+  try { const p = JSON.parse(localStorage.getItem(ADMIN_COLS_KEY) || '{}'); return p && typeof p === 'object' ? p : {}; }
+  catch { return {}; }
+}
+function saveColPrefs(p) { try { localStorage.setItem(ADMIN_COLS_KEY, JSON.stringify(p)); } catch { /* ignore */ } }
+
 export function AdminDashboard({ onClose }) {
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [cleanedCount, setCleanedCount] = useState(0);
   const [sortField, setSortField] = useState('lastLogin');
   const [sortDir, setSortDir] = useState('desc');
+  // Per-admin column visibility + widths for the users table.
+  const [colPrefs, setColPrefs] = useState(loadColPrefs);
+  const [showCols, setShowCols] = useState(false);
+  const resizingRef = useRef(null);
   const [setupEmail, setSetupEmail] = useState('');
   const [setupRecipes, setSetupRecipes] = useState([]);
   const [setupSaving, setSetupSaving] = useState(false);
@@ -172,25 +245,6 @@ export function AdminDashboard({ onClose }) {
     if (aVal > bVal) return sortDir === 'asc' ? 1 : -1;
     return 0;
   });
-
-  function formatDate(iso) {
-    if (!iso) return '—';
-    const d = new Date(iso);
-    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
-      + ' ' + d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
-  }
-
-  function timeAgo(iso) {
-    if (!iso) return '';
-    const diff = Date.now() - new Date(iso).getTime();
-    const mins = Math.floor(diff / 60000);
-    if (mins < 60) return `${mins}m ago`;
-    const hrs = Math.floor(mins / 60);
-    if (hrs < 24) return `${hrs}h ago`;
-    const days = Math.floor(hrs / 24);
-    if (days < 30) return `${days}d ago`;
-    return `${Math.floor(days / 30)}mo ago`;
-  }
 
   const sourceCounts = users.reduce((acc, u) => {
     for (const r of (u.recipes || [])) {
@@ -457,6 +511,49 @@ export function AdminDashboard({ onClose }) {
   }, {});
 
   const arrow = (field) => sortField === field ? (sortDir === 'asc' ? ' ↑' : ' ↓') : '';
+
+  // Merge saved prefs over the column defaults.
+  const columns = ADMIN_COLUMNS.map(c => {
+    const p = colPrefs[c.key] || {};
+    return {
+      ...c,
+      visible: typeof p.visible === 'boolean' ? p.visible : c.defaultVisible,
+      width: typeof p.width === 'number' && p.width >= 50 ? p.width : c.width,
+    };
+  });
+  const visibleColumns = columns.filter(c => c.visible);
+  const tableWidth = visibleColumns.reduce((sum, c) => sum + c.width, 0);
+
+  function updateColPref(key, patch) {
+    setColPrefs(prev => {
+      const next = { ...prev, [key]: { ...(prev[key] || {}), ...patch } };
+      saveColPrefs(next);
+      return next;
+    });
+  }
+  function resetCols() { setColPrefs({}); saveColPrefs({}); }
+
+  // Drag a header's right edge to resize that column.
+  function startResize(e, colKey, startWidth) {
+    e.preventDefault();
+    e.stopPropagation();
+    resizingRef.current = { colKey, startWidth, startX: e.clientX };
+    function onMove(ev) {
+      const r = resizingRef.current;
+      if (!r) return;
+      const next = Math.max(50, Math.round(r.startWidth + (ev.clientX - r.startX)));
+      updateColPref(r.colKey, { width: next });
+    }
+    function onUp() {
+      resizingRef.current = null;
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      document.body.style.userSelect = '';
+    }
+    document.body.style.userSelect = 'none';
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+  }
 
   return (
     <div className={styles.container}>
@@ -752,70 +849,63 @@ export function AdminDashboard({ onClose }) {
       {loading ? (
         <p className={styles.loading}>Loading users...</p>
       ) : (
-        <div className={styles.tableWrap}>
-          <table className={styles.table}>
-            <thead>
-              <tr>
-                <th onClick={() => handleSort('displayName')} className={styles.sortable}>
-                  Name{arrow('displayName')}
-                </th>
-                <th onClick={() => handleSort('email')} className={styles.sortable}>
-                  Email{arrow('email')}
-                </th>
-                <th onClick={() => handleSort('recipeCount')} className={styles.sortable}>
-                  Recipes{arrow('recipeCount')}
-                </th>
-                <th onClick={() => handleSort('loginCount')} className={styles.sortable}>
-                  Web Logins{arrow('loginCount')}
-                </th>
-                <th onClick={() => handleSort('lastLogin')} className={styles.sortable}>
-                  Last Web Login{arrow('lastLogin')}
-                </th>
-                <th onClick={() => handleSort('mobileLoginCount')} className={styles.sortable}>
-                  App Logins{arrow('mobileLoginCount')}
-                </th>
-                <th onClick={() => handleSort('mobileLastLogin')} className={styles.sortable}>
-                  Last App Login{arrow('mobileLastLogin')}
-                </th>
-                <th>Platform</th>
-                <th>Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {sorted.map(u => {
-                const engagement = getUserEngagement(u);
-                const platform = getUserPlatform(u);
-                return (
-                <tr key={u.uid}>
-                  <td>{u.displayName || '—'}</td>
-                  <td>{u.email || '—'}</td>
-                  <td>{(u.recipes || []).length}</td>
-                  <td>{u.loginCount || 0}</td>
-                  <td title={formatDate(u.lastLogin)}>
-                    {u.lastLogin ? timeAgo(u.lastLogin) : '—'}
-                  </td>
-                  <td>{u.mobileLoginCount || 0}</td>
-                  <td title={formatDate(u.mobileLastLogin)}>
-                    {u.mobileLastLogin ? timeAgo(u.mobileLastLogin) : '—'}
-                  </td>
-                  <td>
-                    {platform.key === 'none' ? (
-                      <span style={{ color: 'var(--color-text-muted)' }}>—</span>
-                    ) : (
+        <>
+          <div className={styles.tableToolbar}>
+            <button className={styles.colBtn} onClick={() => setShowCols(v => !v)}>
+              ⚙ Columns ({visibleColumns.length}/{columns.length})
+            </button>
+            {showCols && (
+              <div className={styles.colPopover}>
+                <div className={styles.colPopoverHeader}>
+                  <span>Show columns</span>
+                  <button className={styles.colPopoverReset} onClick={resetCols}>Reset</button>
+                </div>
+                {columns.map(c => (
+                  <label key={c.key} className={styles.colPopoverItem}>
+                    <input
+                      type="checkbox"
+                      checked={c.visible}
+                      onChange={() => updateColPref(c.key, { visible: !c.visible })}
+                    />
+                    {c.label}
+                  </label>
+                ))}
+              </div>
+            )}
+          </div>
+          <div className={styles.tableWrap}>
+            <table className={styles.table} style={{ width: tableWidth }}>
+              <colgroup>
+                {visibleColumns.map(c => <col key={c.key} style={{ width: c.width }} />)}
+              </colgroup>
+              <thead>
+                <tr>
+                  {visibleColumns.map(c => (
+                    <th
+                      key={c.key}
+                      onClick={c.sortKey ? () => handleSort(c.sortKey) : undefined}
+                      className={c.sortKey ? styles.sortable : undefined}
+                    >
+                      {c.label}{c.sortKey ? arrow(c.sortKey) : ''}
                       <span
-                        title={platform.key === 'both' ? `Uses both — last on ${platform.recent === 'app' ? 'the app' : 'the web'}` : `${platform.label}-only`}
-                        style={{ fontSize: '0.75rem', fontWeight: 600, color: platform.color, background: platform.color + '15', padding: '0.15rem 0.45rem', borderRadius: '50px', whiteSpace: 'nowrap' }}
-                      >
-                        {platform.key === 'both' ? `Both · ${platform.recent === 'app' ? '📱' : '🌐'}` : platform.label}
-                      </span>
-                    )}
-                  </td>
-                  <td><span style={{ fontSize: '0.75rem', fontWeight: 600, color: engagement.color, background: engagement.color + '15', padding: '0.15rem 0.45rem', borderRadius: '50px', whiteSpace: 'nowrap' }}>{engagement.label}</span></td>
+                        className={styles.colResizer}
+                        onPointerDown={e => startResize(e, c.key, c.width)}
+                        onClick={e => e.stopPropagation()}
+                      />
+                    </th>
+                  ))}
                 </tr>
-              );})}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody>
+                {sorted.map(u => (
+                  <tr key={u.uid}>
+                    {visibleColumns.map(c => <td key={c.key}>{c.render(u)}</td>)}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
       )}
     </div>
   );

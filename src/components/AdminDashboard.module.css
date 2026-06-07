@@ -1,5 +1,5 @@
 .container {
-  max-width: 900px;
+  max-width: 1400px;
   margin: 0 auto;
 }
 
@@ -69,14 +69,94 @@
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-sm);
   overflow-x: auto;
+  /* The table sets its own width from column widths; let it scroll inside here
+     instead of being clipped by the page. */
+  max-width: 100%;
 }
 
 .table {
-  width: 100%;
   border-collapse: collapse;
+  table-layout: fixed;
 }
 
+/* Toolbar above the table: column picker toggle. */
+.tableToolbar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+  position: relative;
+}
+
+.colBtn {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 50px;
+  padding: 0.35rem 0.8rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  font-family: inherit;
+  color: var(--color-text);
+  cursor: pointer;
+}
+.colBtn:hover { border-color: var(--color-accent); }
+
+.colPopover {
+  position: absolute;
+  top: 2.2rem;
+  right: 0;
+  z-index: 20;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md, 0 6px 24px rgba(0,0,0,0.15));
+  padding: 0.75rem;
+  min-width: 200px;
+}
+.colPopoverHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text-muted);
+  margin-bottom: 0.5rem;
+}
+.colPopoverReset {
+  background: none;
+  border: none;
+  color: var(--color-accent);
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+}
+.colPopoverItem {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.3rem 0;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+/* Drag handle to resize a column, sits at the right edge of each header cell. */
+.colResizer {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 8px;
+  height: 100%;
+  cursor: col-resize;
+  user-select: none;
+}
+.colResizer:hover { background: var(--color-accent); opacity: 0.4; }
+
 .table th {
+  position: relative;
   text-align: left;
   font-size: 0.72rem;
   font-weight: 600;
@@ -86,6 +166,8 @@
   padding: 0.75rem 1rem;
   border-bottom: 1px solid var(--color-border);
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .sortable {
@@ -102,6 +184,9 @@
   padding: 0.65rem 1rem;
   font-size: 0.88rem;
   border-bottom: 1px solid var(--color-border-light, #e5e7eb);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .table tbody tr:last-child td {
