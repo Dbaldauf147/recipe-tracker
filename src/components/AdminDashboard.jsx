@@ -82,6 +82,23 @@ function getUserEngagement(u) {
   return { label: 'New', color: 'var(--color-text-muted)' };
 }
 
+// Which platform(s) a user actually signs in on, from their web vs app login
+// counts. "Both" notes which side they were last seen on so a primarily-app
+// user reads differently from a primarily-web one.
+function getUserPlatform(u) {
+  const web = u.loginCount || 0;
+  const app = u.mobileLoginCount || 0;
+  if (web > 0 && app > 0) {
+    const lastWeb = u.lastLogin || '';
+    const lastApp = u.mobileLastLogin || '';
+    const recent = lastApp > lastWeb ? 'app' : 'web';
+    return { key: 'both', label: 'Both', color: '#16a34a', recent };
+  }
+  if (app > 0) return { key: 'app', label: 'App', color: '#8b5cf6' };
+  if (web > 0) return { key: 'web', label: 'Web', color: '#3B6B9C' };
+  return { key: 'none', label: '—', color: 'var(--color-text-muted)' };
+}
+
 export function AdminDashboard({ onClose }) {
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -432,6 +449,13 @@ export function AdminDashboard({ onClose }) {
     return acc;
   }, {});
 
+  // Platform stats — how many users sign in on web, the app, or both.
+  const platformCounts = users.reduce((acc, u) => {
+    const p = getUserPlatform(u);
+    acc[p.label] = (acc[p.label] || 0) + 1;
+    return acc;
+  }, {});
+
   const arrow = (field) => sortField === field ? (sortDir === 'asc' ? ' ↑' : ' ↓') : '';
 
   return (
@@ -515,6 +539,38 @@ export function AdminDashboard({ onClose }) {
           </div>
           <p style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', marginTop: '0.5rem' }}>
             Logins below count web + app combined. Active: 10+ logins, seen in 14d · Regular: 5+ logins, 30d · Returning: 2+ logins, 60d · Lapsed: 2+ logins, 60d+ · Tried It: 1 login with recipes · One-Time: 1 login, no recipes
+          </p>
+        </div>
+      )}
+
+      {/* Platform breakdown — web vs app vs both */}
+      {!loading && (
+        <div className={styles.sourceSection}>
+          <h3 className={styles.sourceHeading}>Platform (Web vs App)</h3>
+          <div className={styles.sourceGrid}>
+            {[
+              { label: 'Web', color: '#3B6B9C' },
+              { label: 'App', color: '#8b5cf6' },
+              { label: 'Both', color: '#16a34a' },
+              { label: '—', color: '#999' },
+            ].filter(p => platformCounts[p.label]).map(({ label, color }) => {
+              const count = platformCounts[label];
+              const pct = Math.round((count / users.length) * 100);
+              return (
+                <div key={label} className={styles.sourceRow}>
+                  <span className={styles.sourceLabel} style={{ color }}>
+                    {label === '—' ? 'No logins yet' : label}
+                  </span>
+                  <div className={styles.sourceBarWrap}>
+                    <div className={styles.sourceBar} style={{ width: `${pct}%`, background: color }} />
+                  </div>
+                  <span className={styles.sourceCount}>{count} ({pct}%)</span>
+                </div>
+              );
+            })}
+          </div>
+          <p style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', marginTop: '0.5rem' }}>
+            Web = signs in on prep-day.com only · App = the mobile app only · Both = uses each at least once.
           </p>
         </div>
       )}
@@ -721,12 +777,14 @@ export function AdminDashboard({ onClose }) {
                 <th onClick={() => handleSort('mobileLastLogin')} className={styles.sortable}>
                   Last App Login{arrow('mobileLastLogin')}
                 </th>
+                <th>Platform</th>
                 <th>Status</th>
               </tr>
             </thead>
             <tbody>
               {sorted.map(u => {
                 const engagement = getUserEngagement(u);
+                const platform = getUserPlatform(u);
                 return (
                 <tr key={u.uid}>
                   <td>{u.displayName || '—'}</td>
@@ -739,6 +797,18 @@ export function AdminDashboard({ onClose }) {
                   <td>{u.mobileLoginCount || 0}</td>
                   <td title={formatDate(u.mobileLastLogin)}>
                     {u.mobileLastLogin ? timeAgo(u.mobileLastLogin) : '—'}
+                  </td>
+                  <td>
+                    {platform.key === 'none' ? (
+                      <span style={{ color: 'var(--color-text-muted)' }}>—</span>
+                    ) : (
+                      <span
+                        title={platform.key === 'both' ? `Uses both — last on ${platform.recent === 'app' ? 'the app' : 'the web'}` : `${platform.label}-only`}
+                        style={{ fontSize: '0.75rem', fontWeight: 600, color: platform.color, background: platform.color + '15', padding: '0.15rem 0.45rem', borderRadius: '50px', whiteSpace: 'nowrap' }}
+                      >
+                        {platform.key === 'both' ? `Both · ${platform.recent === 'app' ? '📱' : '🌐'}` : platform.label}
+                      </span>
+                    )}
                   </td>
                   <td><span style={{ fontSize: '0.75rem', fontWeight: 600, color: engagement.color, background: engagement.color + '15', padding: '0.15rem 0.45rem', borderRadius: '50px', whiteSpace: 'nowrap' }}>{engagement.label}</span></td>
                 </tr>
