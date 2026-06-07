@@ -3,7 +3,7 @@ import { getRecipeTags, getTagInfo } from '../utils/ingredientTags';
 import { detectCuisine } from '../utils/detectCuisine';
 import styles from './RecipeCard.module.css';
 
-export function RecipeCard({ recipe, onClick, draggable = false, onAdd, editMode, onDelete, macroScore, showTags = true }) {
+export function RecipeCard({ recipe, onClick, draggable = false, onAdd, editMode, onDelete, macroScore, showTags = true, dimmed = false }) {
   const mealImage = getCachedMealImage(recipe.id);
   const cuisine = recipe.cuisine || detectCuisine(recipe.title, recipe.ingredients);
   const recipeTags = showTags ? getRecipeTags(recipe).slice(0, 4) : [];
@@ -29,12 +29,15 @@ export function RecipeCard({ recipe, onClick, draggable = false, onAdd, editMode
       draggable={draggable}
       onDragStart={draggable ? handleDragStart : undefined}
       onDragEnd={draggable ? handleDragEnd : undefined}
+      style={dimmed ? { opacity: 0.45 } : undefined}
+      title={dimmed ? 'Matches your search but hidden by the active filter — click to open' : undefined}
     >
       {mealImage && (
         <img className={styles.thumbnail} src={mealImage} alt="" />
       )}
       <div className={styles.cardContent}>
         <span className={styles.name}>{recipe.title}</span>
+        {dimmed && <span className={styles.filteredTag}>Hidden by filter</span>}
         <div className={styles.tags}>
           {recipe.source === 'shared' && recipe.sharedFrom && (
             <span className={styles.sharedFromTag}>from @{recipe.sharedFrom}</span>

@@ -690,44 +690,41 @@ export function RecipeList({
 
   const cuisineList = [...new Set(recipes.map(r => r.cuisine).filter(Boolean))].sort();
 
-  // Filter by frequency, meal type, cuisine, and search query, then group by category
+  // Filter by frequency, meal type, cuisine, and search query, then group by category.
+  // When a search is active, recipes that match the search title but are hidden
+  // by the other filters are still shown — dimmed (their ids go in `dimmedIds`) —
+  // so a search hit isn't silently swallowed by a filter. They stay clickable.
   const weekSet = new Set(weeklyPlan);
-  let visible = recipes.filter(r => {
+  const searchQ = searchQuery.trim().toLowerCase();
+  const searchActive = !!searchQ;
+
+  const passesFilters = (r) => {
     const freq = r.frequency || 'common';
-    if (freq === 'retired') return showRetired;
-    if (freq === 'rare') return showRare;
-    if (freq === 'toTry') return showToTry;
-    if (freq === 'common') return showCommon;
-    return showCommon;
+    if (freq === 'retired') { if (!showRetired) return false; }
+    else if (freq === 'rare') { if (!showRare) return false; }
+    else if (freq === 'toTry') { if (!showToTry) return false; }
+    else { if (!showCommon) return false; }
+    if (checkedTypes.size > 0 && !checkedTypes.has(r.mealType || '')) return false;
+    if (checkedCategories.size > 0 && !checkedCategories.has(r.category || 'lunch-dinner')) return false;
+    if (checkedCuisines.size > 0 && !checkedCuisines.has(r.cuisine || '')) return false;
+    if (checkedTags.size > 0) {
+      const tagOk = recipeMatchesTags(r, checkedTags)
+        || (r.customTags?.length > 0 && r.customTags.some(t => checkedTags.has('custom:' + t)));
+      if (!tagOk) return false;
+    }
+    if (checkedSources.size > 0 && !checkedSources.has(r.source || 'unknown')) return false;
+    return true;
+  };
+
+  const dimmedIds = new Set();
+  let visible = recipes.filter(r => {
+    if (weekSet.has(r.id)) return false; // weekly-plan recipes render in their own section
+    if (searchActive && !r.title.toLowerCase().includes(searchQ)) return false;
+    if (passesFilters(r)) return true;
+    // Search hit that a filter would hide → keep it, but mark it dimmed.
+    if (searchActive) { dimmedIds.add(r.id); return true; }
+    return false;
   });
-  if (checkedTypes.size > 0) {
-    visible = visible.filter(r => checkedTypes.has(r.mealType || ''));
-  }
-  if (checkedCategories.size > 0) {
-    visible = visible.filter(r => checkedCategories.has(r.category || 'lunch-dinner'));
-  }
-  if (checkedCuisines.size > 0) {
-    visible = visible.filter(r => checkedCuisines.has(r.cuisine || ''));
-  }
-  if (checkedTags.size > 0) {
-    visible = visible.filter(r => {
-      // Check ingredient-based tags
-      if (recipeMatchesTags(r, checkedTags)) return true;
-      // Check custom tags
-      if (r.customTags?.length > 0) {
-        return r.customTags.some(t => checkedTags.has('custom:' + t));
-      }
-      return false;
-    });
-  }
-  if (checkedSources.size > 0) {
-    visible = visible.filter(r => checkedSources.has(r.source || 'unknown'));
-  }
-  if (searchQuery.trim()) {
-    const q = searchQuery.trim().toLowerCase();
-    visible = visible.filter(r => r.title.toLowerCase().includes(q));
-  }
-  visible = visible.filter(r => !weekSet.has(r.id));
 
   const grouped = {};
   for (const cat of CATEGORIES) {
@@ -2009,6 +2006,7 @@ export function RecipeList({
                               editMode={editMode}
                               onDelete={onDelete}
                               showTags={false}
+                              dimmed={dimmedIds.has(recipe.id)}
                             />
                           </div>
                         ))}
@@ -2064,6 +2062,7 @@ export function RecipeList({
                               editMode={editMode}
                               onDelete={onDelete}
                               showTags={false}
+                              dimmed={dimmedIds.has(recipe.id)}
                             />
                           </div>
                         ))}

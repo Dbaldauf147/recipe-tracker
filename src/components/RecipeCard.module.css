@@ -67,6 +67,13 @@
   letter-spacing: -0.01em;
 }
 
+.filteredTag {
+  font-size: 0.68rem;
+  font-style: italic;
+  color: var(--color-text-muted, #7A8FA3);
+  font-weight: 600;
+}
+
 .tags {
   display: flex;
   gap: var(--space-1);
