@@ -547,3 +547,76 @@
 .table tbody tr:hover .sectionSelect {
   opacity: 1;
 }
+/* ── Customize sections (user-defined grocery categories) ── */
+.customizeBar {
+  display: flex;
+  justify-content: flex-end;
+  margin: 0.25rem 0 0.5rem;
+}
+.customizeToggle {
+  background: none;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  padding: 0.3rem 0.7rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+.customizeToggle:hover { color: var(--color-accent); border-color: var(--color-accent); }
+.managePanel {
+  background: var(--color-surface-alt);
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  padding: 0.75rem;
+  margin-bottom: 1rem;
+}
+.managePanelHint {
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+  margin: 0 0 0.6rem;
+}
+.manageRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 0;
+}
+.dragHandle { cursor: grab; color: var(--color-text-muted); font-size: 1rem; user-select: none; }
+.manageInput {
+  flex: 1;
+  min-width: 0;
+  padding: 5px 8px;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: 0.85rem;
+}
+.manageArrow {
+  width: 26px;
+  background: none;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  cursor: pointer;
+  color: var(--color-text);
+  padding: 4px 0;
+}
+.manageArrow:disabled { opacity: 0.3; cursor: default; }
+.manageDelete {
+  width: 26px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--color-danger, #c0392b);
+  font-size: 1.1rem;
+  font-weight: 700;
+}
+.manageAddRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 0.6rem;
+  padding-top: 0.6rem;
+  border-top: 1px solid var(--color-border);
+}

@@ -1065,6 +1065,38 @@ export function WeightTracker({ onClose, user, isOnboarding = false }) {
     } catch {}
   }
 
+  // Optional start date for the goal. When set, the glidepath is anchored at
+  // (startDate, weigh-in nearest it) instead of the latest weigh-in, so the
+  // plan line is fixed and your weigh-ins show whether you're ahead or behind.
+  const [startDate, setStartDate] = useState(() => {
+    try {
+      const stats = JSON.parse(localStorage.getItem('sunday-body-stats') || '{}');
+      return stats.startDate || '';
+    } catch { return ''; }
+  });
+
+  function saveStartDate(val) {
+    setStartDate(val);
+    try {
+      const stats = JSON.parse(localStorage.getItem('sunday-body-stats') || '{}');
+      if (val) stats.startDate = val; else delete stats.startDate;
+      localStorage.setItem('sunday-body-stats', JSON.stringify(stats));
+      if (user) saveField(user.uid, 'bodyStats', stats);
+    } catch {}
+  }
+
+  // The weigh-in closest to the start date — the plan's fixed anchor weight.
+  const startWeight = useMemo(() => {
+    if (!startDate || !log.length) return null;
+    const target = new Date(startDate + 'T00:00:00').getTime();
+    let best = null, bestDiff = Infinity;
+    for (const e of log) {
+      const diff = Math.abs(new Date(e.date + 'T00:00:00').getTime() - target);
+      if (diff < bestDiff) { bestDiff = diff; best = e; }
+    }
+    return best ? best.weight : null;
+  }, [startDate, log]);
+
   // Maintenance calories (base TDEE, no goal offset) via Mifflin-St Jeor —
   // mirrors NutritionGoalsPage's computeTargets so the deficit math agrees with
   // the rest of the app. Uses the most recent weigh-in as current weight.
@@ -1095,11 +1127,17 @@ export function WeightTracker({ onClose, user, isOnboarding = false }) {
   const projection = useMemo(() => {
     const targetW = parseFloat(goalWeight);
     if (!targetW || !targetDate || chartData.length < 1) return null;
-    const anchor = chartData[chartData.length - 1];
-    const anchorW = anchor.weight;
-    const anchorDate = new Date(anchor.rawDate + 'T00:00:00');
+    const latest = chartData[chartData.length - 1];
+
+    // Anchor at the start date + the weigh-in nearest it when a start date is
+    // set; otherwise anchor at the latest weigh-in (the original behavior).
+    const haveStart = !!startDate && startWeight != null;
+    const anchorW = haveStart ? startWeight : latest.weight;
+    const anchorDate = new Date((haveStart ? startDate : latest.rawDate) + 'T00:00:00');
     const targetD = new Date(targetDate + 'T00:00:00');
-    const daysToTarget = Math.round((targetD - anchorDate) / 86400000);
+    const startMs = anchorDate.getTime();
+    const targetMs = targetD.getTime();
+    const daysToTarget = Math.round((targetMs - startMs) / 86400000);
     if (!isFinite(daysToTarget) || daysToTarget <= 0) return null;
 
     const weeksToTarget = daysToTarget / 7;
@@ -1114,27 +1152,55 @@ export function WeightTracker({ onClose, user, isOnboarding = false }) {
       ? `${MONTH_NAMES[d.getMonth()]} '${String(d.getFullYear()).slice(2)}`
       : `${d.getMonth() + 1}/${d.getDate()}`;
 
-    // Waypoints: weekly for short horizons, monthly for long ones (keeps the
-    // point count sane). They're collinear, so the line stays straight.
+    // Plan weight at a given time — linear from (start) to (target); null
+    // outside the span. Each historical weigh-in row gets its plan value in
+    // displayChartData, so the dashed line tracks the plan across the chart.
+    const planAt = (ms) => {
+      if (ms < startMs || ms > targetMs) return null;
+      const frac = (ms - startMs) / (targetMs - startMs);
+      return Math.round((anchorW + totalChange * frac) * 10) / 10;
+    };
+
+    // Forward waypoints from the latest weigh-in to the target so the line
+    // extends to (and dots) the goal. Historical rows are handled separately.
+    const fromMs = new Date(latest.rawDate + 'T00:00:00').getTime();
+    const fwdDays = Math.round((targetMs - fromMs) / 86400000);
     const stepDays = daysToTarget > 140 ? 30 : 7;
     const points = [];
-    for (let dd = stepDays; dd < daysToTarget; dd += stepDays) {
-      const d = new Date(anchorDate.getTime() + dd * 86400000);
-      const frac = dd / daysToTarget;
-      points.push({ date: label(d), rawDate: ymd(d), projectedWeight: Math.round((anchorW + totalChange * frac) * 10) / 10, projected: true });
+    for (let dd = stepDays; dd < fwdDays; dd += stepDays) {
+      const d = new Date(fromMs + dd * 86400000);
+      points.push({ date: label(d), rawDate: ymd(d), projectedWeight: planAt(d.getTime()), projected: true });
     }
     points.push({ date: label(targetD), rawDate: targetDate, projectedWeight: targetW, projected: true, isTarget: true });
 
-    return { points, lbsPerWeek, caloriesPerDay, weeksToTarget, daysToTarget, targetW, anchorW };
-  }, [goalWeight, targetDate, chartData]);
+    // How you're doing today vs the plan (only meaningful with a start date).
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    const expectedToday = planAt(Math.min(Math.max(today.getTime(), startMs), targetMs));
+    const losing = totalChange < 0;
+    const vsPlan = (haveStart && expectedToday != null)
+      ? Math.round((latest.weight - expectedToday) * 10) / 10
+      : null;
+
+    return {
+      points, planAt, lbsPerWeek, caloriesPerDay, weeksToTarget, daysToTarget,
+      targetW, anchorW, haveStart, startDate: haveStart ? startDate : null,
+      expectedToday, vsPlan, losing,
+    };
+  }, [goalWeight, targetDate, startDate, startWeight, chartData]);
 
   // When the target overlay is on, extend the chart with the projection points
   // and bridge the last real point into the projection line.
   const displayChartData = useMemo(() => {
     if (!(showTarget && projection)) return chartData;
-    const base = chartData.map((d, i) => (
-      i === chartData.length - 1 ? { ...d, projectedWeight: d.weight } : { ...d }
-    ));
+    // Each real row carries the plan's expected weight on its date, so the
+    // dashed plan line runs across the whole range (start → target) and the
+    // solid actual line shows how far above/below plan you are. Without a
+    // start date, only the latest row gets a value, reproducing the original
+    // "project forward from the latest weigh-in" behavior.
+    const base = chartData.map((d) => {
+      const planned = projection.planAt(new Date(d.rawDate + 'T00:00:00').getTime());
+      return planned != null ? { ...d, projectedWeight: planned } : { ...d };
+    });
     return [...base, ...projection.points];
   }, [chartData, showTarget, projection]);
 
@@ -1354,6 +1420,16 @@ export function WeightTracker({ onClose, user, isOnboarding = false }) {
           <span className={styles.targetUnit}>lbs</span>
         </div>
         <div className={styles.targetLeft}>
+          <span className={styles.targetLabel}>from</span>
+          <input
+            className={styles.targetDateInput}
+            type="date"
+            value={startDate}
+            onChange={e => saveStartDate(e.target.value)}
+            title="Goal start date — anchors the plan line so you can see progress vs. plan"
+          />
+        </div>
+        <div className={styles.targetLeft}>
           <span className={styles.targetLabel}>by</span>
           <input
             className={styles.targetDateInput}
@@ -1531,9 +1607,23 @@ export function WeightTracker({ onClose, user, isOnboarding = false }) {
                   ? ` · Maintenance ~${maintenanceCalories.toLocaleString()} → eat ~${(maintenanceCalories + projection.caloriesPerDay).toLocaleString()}/day`
                   : ''}
               </div>
+              {projection.haveStart && projection.vsPlan !== null && (
+                <div className={styles.targetReadoutSub}>
+                  {Math.abs(projection.vsPlan) < 0.1
+                    ? `On plan — right at the ~${projection.expectedToday} lbs you'd expect today.`
+                    : `${Math.abs(projection.vsPlan).toFixed(1)} lbs ${(projection.losing ? projection.vsPlan < 0 : projection.vsPlan > 0) ? 'ahead of' : 'behind'} plan (expected ~${projection.expectedToday} lbs today).`}
+                </div>
+              )}
               {Math.abs(projection.lbsPerWeek) > 2 && (
                 <div className={styles.targetReadoutWarn}>
                   That's an aggressive pace (&gt;2 lbs/week) — consider a later target date.
+                </div>
+              )}
+              {projection.caloriesPerDay < -1000 && (
+                <div className={styles.targetReadoutDanger}>
+                  ⚠️ This pace needs more than a 1,000 kcal/day deficit
+                  ({Math.abs(projection.caloriesPerDay).toLocaleString()} kcal/day) — faster than is
+                  generally considered safe. Pick a later target date for a more sustainable pace.
                 </div>
               )}
             </div>

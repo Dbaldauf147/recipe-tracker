@@ -694,6 +694,17 @@
   font-weight: 600;
 }
 
+.targetReadoutDanger {
+  font-size: 0.8rem;
+  color: #b91c1c;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: var(--radius-md);
+  padding: 0.5rem 0.65rem;
+  margin-top: 0.4rem;
+  font-weight: 600;
+}
+
 .targetInput {
   width: 100px;
   padding: 0.6rem 0.85rem;

@@ -1,12 +1,15 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { loadIngredients, saveIngredientsToFirestore } from '../utils/ingredientsStore.js';
-import { saveField } from '../utils/firestoreSync';
+import { saveField, loadField } from '../utils/firestoreSync';
 import { SIZE_GRAMS, WEIGHT_TO_G } from '../utils/units.js';
 import styles from './ShoppingList.module.css';
 
 function parseFraction(str) {
-  if (!str) return 0;
-  const s = str.trim();
+  if (str == null || str === '') return 0;
+  // Quantities can arrive as numbers (Firestore-stored values, friend-shared
+  // meals) — coerce before string ops so a numeric qty doesn't crash the list.
+  if (typeof str === 'number') return Number.isFinite(str) ? str : 0;
+  const s = String(str).trim();
   const mixed = s.match(/^(\d+)\s+(\d+)\/(\d+)$/);
   if (mixed) return parseInt(mixed[1]) + parseInt(mixed[2]) / parseInt(mixed[3]);
   const frac = s.match(/^(\d+)\/(\d+)$/);
@@ -596,6 +599,40 @@ function groupBySection(items, dbSections) {
   return groups;
 }
 
+// ── User-defined custom categories ──
+// Default category list = the built-in store sections. Users can add their own,
+// rename, delete, and reorder; saved on the user doc as `groceryCategories`.
+// Per-item assignment lives in `groceryItemSections` ({ ingredientLower: catId }).
+function defaultCategories() {
+  return SECTIONS.map(s => ({ id: s.key, label: s.label }));
+}
+const genCatId = () => 'c_' + Math.random().toString(36).slice(2, 9);
+
+// Resolve an item to a category id: explicit user assignment first (if that
+// category still exists), then the keyword categorizer mapped onto a valid id,
+// else 'other'.
+function resolveItemCategory(name, itemSections, validIds) {
+  const lower = name.toLowerCase().trim();
+  const assigned = itemSections?.[lower];
+  if (assigned && validIds.has(assigned)) return assigned;
+  const auto = categorizeIngredient(name); // built-in key
+  if (validIds.has(auto)) return auto;
+  return 'other';
+}
+
+function groupByCategories(items, categories, itemSections) {
+  const validIds = new Set(categories.map(c => c.id));
+  const groups = {};
+  for (const c of categories) groups[c.id] = [];
+  if (!groups.other) groups.other = [];
+  for (const item of items) {
+    const id = resolveItemCategory(item.ingredient, itemSections, validIds);
+    (groups[id] || groups.other).push(item);
+  }
+  for (const k of Object.keys(groups)) groups[k].sort((a, b) => a.ingredient.localeCompare(b.ingredient));
+  return groups;
+}
+
 // Convert (qty, measurement) into grams when possible. Returns null if the unit
 // can't be expressed in grams without knowing density (cups, tbsp, etc).
 function toGrams(qty, measurement, ingredient) {
@@ -784,11 +821,11 @@ function saveCheckedItems(checkedSet, user) {
 }
 
 export function ShoppingList({ weeklyRecipes, weeklyServings = {}, extraItems = [], onClearExtras, onAddCustomItem, pantryNames, dismissedNames, onDismissItem, user }) {
-  const isAdmin = user?.email === 'baldaufdan@gmail.com';
-
-  // Build map of ingredient name (lowercase) → grocerySection from DB
-  // Only include valid, non-'other' section values
-  const [ingredientSections, setIngredientSections] = useState(() => {
+  // Custom, reorderable categories + per-item assignment (synced on the user
+  // doc). Seeds from the built-in store sections + any legacy per-ingredient
+  // `grocerySection` overrides, so existing setups carry over.
+  const [categories, setCategories] = useState(defaultCategories);
+  const [itemSections, setItemSections] = useState(() => {
     const db = loadIngredients() || [];
     const map = {};
     for (const row of db) {
@@ -799,24 +836,61 @@ export function ShoppingList({ weeklyRecipes, weeklyServings = {}, extraItems = 
     }
     return map;
   });
+  const [manageCats, setManageCats] = useState(false);
+  const [newCatLabel, setNewCatLabel] = useState('');
+  const dragCatIdx = useRef(null);
 
-  const handleSectionChange = useCallback(async (ingredientName, newSection) => {
-    const db = loadIngredients() || [];
-    const lower = ingredientName.toLowerCase().trim();
-    let found = false;
-    for (const row of db) {
-      if (row.ingredient && row.ingredient.toLowerCase().trim() === lower) {
-        row.grocerySection = newSection;
-        found = true;
-        break;
-      }
-    }
-    if (!found) {
-      db.push({ ingredient: ingredientName.trim(), grocerySection: newSection });
-    }
-    await saveIngredientsToFirestore(db);
-    setIngredientSections(prev => ({ ...prev, [lower]: newSection }));
-  }, []);
+  useEffect(() => {
+    if (!user?.uid) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const cats = await loadField(user.uid, 'groceryCategories');
+        if (!cancelled && Array.isArray(cats) && cats.length) setCategories(cats);
+        const assigns = await loadField(user.uid, 'groceryItemSections');
+        if (!cancelled && assigns && typeof assigns === 'object') {
+          setItemSections(prev => ({ ...prev, ...assigns }));
+        }
+      } catch { /* keep local/defaults */ }
+    })();
+    return () => { cancelled = true; };
+  }, [user?.uid]);
+
+  // Always render an 'Other' catch-all even if it isn't in the saved list.
+  const renderCategories = useMemo(
+    () => (categories.some(c => c.id === 'other') ? categories : [...categories, { id: 'other', label: 'Other' }]),
+    [categories],
+  );
+
+  const persistCategories = useCallback((next) => {
+    setCategories(next);
+    if (user?.uid) saveField(user.uid, 'groceryCategories', next).catch(() => {});
+  }, [user?.uid]);
+
+  function addCategory() {
+    const label = newCatLabel.trim();
+    if (!label) return;
+    if (renderCategories.some(c => c.label.toLowerCase() === label.toLowerCase())) { setNewCatLabel(''); return; }
+    // Insert new categories before the trailing 'Other'.
+    const base = categories.filter(c => c.id !== 'other');
+    const other = categories.find(c => c.id === 'other');
+    persistCategories([...base, { id: genCatId(), label }, ...(other ? [other] : [])]);
+    setNewCatLabel('');
+  }
+  function renameCategory(id, label) {
+    persistCategories(categories.map(c => (c.id === id ? { ...c, label } : c)));
+  }
+  function deleteCategory(id) {
+    if (id === 'other') return; // keep the catch-all
+    persistCategories(categories.filter(c => c.id !== id));
+  }
+  function moveCategory(from, to) {
+    if (to < 0 || to >= categories.length) return;
+    const next = [...categories];
+    const [m] = next.splice(from, 1);
+    next.splice(to, 0, m);
+    persistCategories(next);
+  }
 
   const items = useMemo(() => {
     const map = buildShoppingList(weeklyRecipes, weeklyServings);
@@ -1017,6 +1091,55 @@ export function ShoppingList({ weeklyRecipes, weeklyServings = {}, extraItems = 
           <button className={styles.addBtn} onClick={() => { setAdding(false); setNewItem(''); }}>Cancel</button>
         </div>
       )}
+      {/* Customize sections toggle + manage panel */}
+      <div className={styles.customizeBar}>
+        <button
+          type="button"
+          className={styles.customizeToggle}
+          onClick={() => setManageCats(v => !v)}
+        >
+          {manageCats ? '✓ Done' : '⚙ Shopping order'}
+        </button>
+      </div>
+      {manageCats && (
+        <div className={styles.managePanel}>
+          <p className={styles.managePanelHint}>
+            Set the order sections appear on your list, top to bottom (e.g. put Produce second). Drag the ⠿ handle or use ↑↓ to reorder. Rename inline, or add and delete your own. “Other” stays as a catch-all.
+          </p>
+          {categories.map((c, idx) => (
+            <div
+              key={c.id}
+              className={styles.manageRow}
+              draggable
+              onDragStart={() => { dragCatIdx.current = idx; }}
+              onDragOver={e => e.preventDefault()}
+              onDrop={() => { if (dragCatIdx.current != null && dragCatIdx.current !== idx) moveCategory(dragCatIdx.current, idx); dragCatIdx.current = null; }}
+            >
+              <span className={styles.dragHandle} title="Drag to reorder">⠿</span>
+              <input
+                className={styles.manageInput}
+                value={c.label}
+                onChange={e => renameCategory(c.id, e.target.value)}
+              />
+              <button type="button" className={styles.manageArrow} onClick={() => moveCategory(idx, idx - 1)} disabled={idx === 0} title="Move up">↑</button>
+              <button type="button" className={styles.manageArrow} onClick={() => moveCategory(idx, idx + 1)} disabled={idx === categories.length - 1} title="Move down">↓</button>
+              {c.id !== 'other' ? (
+                <button type="button" className={styles.manageDelete} onClick={() => deleteCategory(c.id)} title="Delete category">×</button>
+              ) : <span className={styles.manageArrow} />}
+            </div>
+          ))}
+          <div className={styles.manageAddRow}>
+            <input
+              className={styles.manageInput}
+              placeholder="New category (e.g. Costco run)"
+              value={newCatLabel}
+              onChange={e => setNewCatLabel(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addCategory(); } }}
+            />
+            <button type="button" className={styles.addBtn} onClick={addCategory}>Add</button>
+          </div>
+        </div>
+      )}
       {displayItems.length === 0 && (
         <p className={styles.emptyMsg}>
           {weeklyRecipes.length > 0
@@ -1025,8 +1148,8 @@ export function ShoppingList({ weeklyRecipes, weeklyServings = {}, extraItems = 
         </p>
       )}
       {displayItems.length > 0 && (() => {
-        const colCount = 5 + (showMeals ? 1 : 0) + (isAdmin ? 1 : 0) + (onDismissItem ? 1 : 0);
-        const grouped = groupBySection(displayItems, ingredientSections);
+        const colCount = 5 + (showMeals ? 1 : 0) + (onDismissItem ? 1 : 0);
+        const grouped = groupByCategories(displayItems, renderCategories, itemSections);
         return (
           <table className={styles.table}>
             <colgroup>
@@ -1036,15 +1159,14 @@ export function ShoppingList({ weeklyRecipes, weeklyServings = {}, extraItems = 
               <col />
               <col className={styles.colLink} />
               {showMeals && <col className={styles.colMeals} />}
-              {isAdmin && <col className={styles.colSection} />}
               {onDismissItem && <col className={styles.colDismiss} />}
             </colgroup>
             <tbody>
-              {SECTIONS.map(section => {
-                const sectionItems = grouped[section.key];
-                if (sectionItems.length === 0) return null;
+              {renderCategories.map(section => {
+                const sectionItems = grouped[section.id];
+                if (!sectionItems || sectionItems.length === 0) return null;
                 return [
-                  <tr key={`h-${section.key}`} className={styles.sectionHeaderRow}>
+                  <tr key={`h-${section.id}`} className={styles.sectionHeaderRow}>
                     <td colSpan={colCount} className={styles.sectionHeading}>
                       {section.label}
                     </td>
@@ -1057,7 +1179,7 @@ export function ShoppingList({ weeklyRecipes, weeklyServings = {}, extraItems = 
                     const isEditingThis = editingLink === ingKey;
                     return (
                       <tr
-                        key={`${section.key}-${i}`}
+                        key={`${section.id}-${i}`}
                         className={done ? styles.checkedRow : ''}
                         onClick={() => toggleItem(key)}
                       >
@@ -1216,20 +1338,6 @@ export function ShoppingList({ weeklyRecipes, weeklyServings = {}, extraItems = 
                         {showMeals && (
                           <td className={styles.mealsCell}>
                             {(item.recipes || []).join(', ')}
-                          </td>
-                        )}
-                        {isAdmin && (
-                          <td className={styles.sectionSelectCell}>
-                            <select
-                              className={styles.sectionSelect}
-                              value={section.key}
-                              onChange={e => { e.stopPropagation(); handleSectionChange(item.ingredient, e.target.value); }}
-                              onClick={e => e.stopPropagation()}
-                            >
-                              {SECTIONS.map(s => (
-                                <option key={s.key} value={s.key}>{s.label}</option>
-                              ))}
-                            </select>
                           </td>
                         )}
                         {onDismissItem && (

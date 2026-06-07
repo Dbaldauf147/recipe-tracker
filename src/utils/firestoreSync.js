@@ -58,6 +58,17 @@ export async function saveField(uid, field, value) {
   await setDoc(ref, { [field]: value }, { merge: true });
 }
 
+// Read a single top-level field off the user doc. Returns undefined when the
+// doc or field is missing. Used for small synced prefs (e.g. weekly goals).
+export async function loadField(uid, field) {
+  try {
+    const snap = await getDoc(doc(db, 'users', uid));
+    return snap.exists() ? snap.data()?.[field] : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 // ── Workout v2: per-day subcollection ───────────────────────────────────
 // Storage: users/{uid}/workouts/{id} → one doc per workout. Mirrors the
 // mobile app's schema in PrepDay/src/services/firestoreSync.ts so the same
@@ -1382,23 +1393,32 @@ export async function loadFriends(uid) {
         // Shape: { [category]: [r1, r2, r3] }. Legacy `[r1, r2, r3]` is
         // bucketed under `__all` for backward compat.
         votesOnMyEatingOutByCategory: (() => {
-          const raw = data.eatingOutVotes?.[uid];
-          if (Array.isArray(raw)) {
-            const trimmed = raw.slice(0, 3);
-            while (trimmed.length < 3) trimmed.push(null);
-            return trimmed.some(x => x != null) ? { __all: trimmed } : {};
-          }
-          if (raw && typeof raw === 'object') {
-            const out = {};
-            for (const [cat, arr] of Object.entries(raw)) {
-              if (!Array.isArray(arr)) continue;
-              const t = arr.slice(0, 3);
-              while (t.length < 3) t.push(null);
-              if (t.some(x => x != null)) out[cat] = t;
+          // Unified: a friend's ranking is a full ordered list per category in
+          // `eatingOutVotes` (legacy `eatingOutOrder` merged for back-compat).
+          // We surface the top 3 for the medal chips on my cards.
+          const merged = {};
+          const addFrom = (raw) => {
+            if (Array.isArray(raw)) {
+              const ids = raw.filter(x => typeof x === 'string');
+              if (ids.length && !merged.__all) merged.__all = ids;
+            } else if (raw && typeof raw === 'object') {
+              for (const [cat, arr] of Object.entries(raw)) {
+                if (Array.isArray(arr) && !merged[cat]) {
+                  const ids = arr.filter(x => typeof x === 'string');
+                  if (ids.length) merged[cat] = ids;
+                }
+              }
             }
-            return out;
+          };
+          addFrom(data.eatingOutVotes?.[uid]); // votes win
+          addFrom(data.eatingOutOrder?.[uid]); // legacy order fills gaps
+          const out = {};
+          for (const [cat, ids] of Object.entries(merged)) {
+            const t = ids.slice(0, 3);
+            while (t.length < 3) t.push(null);
+            if (t.some(x => x != null)) out[cat] = t;
           }
-          return {};
+          return out;
         })(),
       });
     }
@@ -1411,27 +1431,37 @@ export async function loadFriends(uid) {
 // old shape under a synthetic `__all` category so prior picks aren't lost.
 export const LEGACY_VOTE_CATEGORY = '__all';
 
+// Unified ranking model: each (ownerUid, category) holds a FULL dense ordered
+// list of restaurant ids — the table ▲▼ controls the whole order and the
+// 🥇🥈🥉 medals are simply its top 3. Legacy top-3 arrays (which used null
+// slots) collapse cleanly to a dense ordered list here.
 function normalizeVotesMap(raw) {
   if (!raw || typeof raw !== 'object') return {};
   const out = {};
   for (const [ownerUid, v] of Object.entries(raw)) {
     if (Array.isArray(v)) {
-      // Legacy: bucket under __all
-      const trimmed = v.slice(0, 3);
-      while (trimmed.length < 3) trimmed.push(null);
-      if (trimmed.some(x => x != null)) out[ownerUid] = { [LEGACY_VOTE_CATEGORY]: trimmed };
+      const ids = v.filter(x => typeof x === 'string'); // drop null slots, keep order
+      if (ids.length) out[ownerUid] = { [LEGACY_VOTE_CATEGORY]: ids };
     } else if (v && typeof v === 'object') {
       const byCat = {};
       for (const [cat, arr] of Object.entries(v)) {
         if (!Array.isArray(arr)) continue;
-        const trimmed = arr.slice(0, 3);
-        while (trimmed.length < 3) trimmed.push(null);
-        if (trimmed.some(x => x != null)) byCat[cat] = trimmed;
+        const ids = arr.filter(x => typeof x === 'string');
+        if (ids.length) byCat[cat] = ids;
       }
       if (Object.keys(byCat).length > 0) out[ownerUid] = byCat;
     }
   }
   return out;
+}
+
+// Fold the legacy separate `eatingOutOrder` field into a votes map (votes win
+// per key) so rankings made in the Table view before unification still show.
+function mergeOrderInto(votes, orderMap) {
+  for (const [owner, byKey] of Object.entries(orderMap || {})) {
+    votes[owner] = { ...byKey, ...(votes[owner] || {}) };
+  }
+  return votes;
 }
 
 /**
@@ -1443,42 +1473,76 @@ export async function loadMyEatingOutVotes(uid) {
   try {
     const snap = await getDoc(doc(db, 'users', uid));
     if (!snap.exists()) return {};
-    return normalizeVotesMap(snap.data().eatingOutVotes);
+    const data = snap.data();
+    return mergeOrderInto(normalizeVotesMap(data.eatingOutVotes), normalizeOrderMap(data.eatingOutOrder));
   } catch {
     return {};
   }
 }
 
 /**
- * Set my rank (1, 2, 3, or null to clear) for a single restaurant within
- * a (ownerUid, category) bucket. Replacing a rank that another restaurant
- * already holds bumps that other restaurant out of the slot.
+ * Set my medal rank (1, 2, 3, or null to clear) for a restaurant within a
+ * (ownerUid, category) bucket — the medals are the top 3 of the unified full
+ * order. "Set rank N" moves the spot to position N (others shift down); null
+ * removes it from the ranking. Operates on the same dense ordered list the
+ * Table view ▲▼ arrows reorder, so the two stay in lockstep.
  */
 export async function setEatingOutVote(uid, ownerUid, category, restaurantId, rank) {
   const ref = doc(db, 'users', uid);
   const snap = await getDoc(ref);
   const data = snap.exists() ? snap.data() : {};
-  const allVotes = normalizeVotesMap(data.eatingOutVotes);
+  const allVotes = mergeOrderInto(normalizeVotesMap(data.eatingOutVotes), normalizeOrderMap(data.eatingOutOrder));
   const byCat = { ...(allVotes[ownerUid] || {}) };
-  const current = Array.isArray(byCat[category]) ? byCat[category].slice(0, 3) : [null, null, null];
-  while (current.length < 3) current.push(null);
-  for (let i = 0; i < 3; i++) {
-    if (current[i] === restaurantId) current[i] = null;
-  }
+  let list = Array.isArray(byCat[category]) ? byCat[category].filter(id => id !== restaurantId) : [];
   if (rank === 1 || rank === 2 || rank === 3) {
-    current[rank - 1] = restaurantId;
+    const idx = Math.min(rank - 1, list.length);
+    list = [...list.slice(0, idx), restaurantId, ...list.slice(idx)];
   }
-  if (current.every(v => v == null)) {
-    delete byCat[category];
-  } else {
-    byCat[category] = current;
-  }
-  if (Object.keys(byCat).length === 0) {
-    delete allVotes[ownerUid];
-  } else {
-    allVotes[ownerUid] = byCat;
-  }
+  if (list.length === 0) delete byCat[category];
+  else byCat[category] = list;
+  if (Object.keys(byCat).length === 0) delete allVotes[ownerUid];
+  else allVotes[ownerUid] = byCat;
   await updateDoc(ref, { eatingOutVotes: allVotes });
+}
+
+// ── Eating-out manual ORDER (Table view ▲▼ ranking) ─────────────────────────
+// The full ranking now lives in the unified `eatingOutVotes` field (the medals
+// are its top 3). `normalizeOrderMap` still reads the legacy `eatingOutOrder`
+// field for one-time migration of rankings made before unification.
+function normalizeOrderMap(raw) {
+  if (!raw || typeof raw !== 'object') return {};
+  const out = {};
+  for (const [owner, byKey] of Object.entries(raw)) {
+    if (!byKey || typeof byKey !== 'object') continue;
+    const m = {};
+    for (const [k, arr] of Object.entries(byKey)) {
+      if (Array.isArray(arr)) {
+        const ids = arr.filter(x => typeof x === 'string');
+        if (ids.length) m[k] = ids;
+      }
+    }
+    if (Object.keys(m).length) out[owner] = m;
+  }
+  return out;
+}
+
+/**
+ * Persist the full ordered id list for one (ownerUid, dimensionKey) bucket —
+ * the Table view ▲▼ reorder. Writes the unified `eatingOutVotes` field so the
+ * List/mobile medals (top 3) reflect the same order.
+ */
+export async function saveEatingOutOrder(uid, ownerUid, key, ids) {
+  const ref = doc(db, 'users', uid);
+  const snap = await getDoc(ref);
+  const data = snap.exists() ? snap.data() : {};
+  const all = mergeOrderInto(normalizeVotesMap(data.eatingOutVotes), normalizeOrderMap(data.eatingOutOrder));
+  const byKey = { ...(all[ownerUid] || {}) };
+  const clean = (Array.isArray(ids) ? ids : []).filter(x => typeof x === 'string');
+  if (clean.length > 0) byKey[key] = clean;
+  else delete byKey[key];
+  if (Object.keys(byKey).length === 0) delete all[ownerUid];
+  else all[ownerUid] = byKey;
+  await updateDoc(ref, { eatingOutVotes: all });
 }
 
 /**

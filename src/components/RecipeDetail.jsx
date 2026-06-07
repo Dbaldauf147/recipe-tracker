@@ -517,6 +517,73 @@ export function RecipeDetail({ recipe, allTags = [], onSave, onDelete, onBack, o
   const [cookMode, setCookMode] = useState(() => {
     try { return localStorage.getItem('sunday-cook-mode') === 'true'; } catch { return false; }
   });
+
+  // "Keep screen on" — holds a Screen Wake Lock for 10 minutes (e.g. while
+  // cooking) then auto-releases. Uses the Web Wake Lock API where supported;
+  // re-acquires on tab re-focus since the browser drops the lock when hidden.
+  const KEEP_AWAKE_SECONDS = 10 * 60;
+  const wakeLockSupported = typeof navigator !== 'undefined' && 'wakeLock' in navigator;
+  const [keepAwakeRemaining, setKeepAwakeRemaining] = useState(0);
+  const wakeLockRef = useRef(null);
+  const keepAwakeTimerRef = useRef(null);
+
+  const reacquireWakeLock = async () => {
+    if (!wakeLockSupported) return;
+    try {
+      wakeLockRef.current = await navigator.wakeLock.request('screen');
+    } catch { /* user gesture lost / unsupported — countdown still runs */ }
+  };
+
+  const stopKeepAwake = () => {
+    if (keepAwakeTimerRef.current) { clearInterval(keepAwakeTimerRef.current); keepAwakeTimerRef.current = null; }
+    if (wakeLockRef.current) { try { wakeLockRef.current.release(); } catch { /* already gone */ } wakeLockRef.current = null; }
+    setKeepAwakeRemaining(0);
+  };
+
+  const startKeepAwake = () => {
+    setKeepAwakeRemaining(KEEP_AWAKE_SECONDS);
+    reacquireWakeLock();
+    if (keepAwakeTimerRef.current) clearInterval(keepAwakeTimerRef.current);
+    keepAwakeTimerRef.current = setInterval(() => {
+      setKeepAwakeRemaining(prev => {
+        if (prev <= 1) {
+          if (keepAwakeTimerRef.current) { clearInterval(keepAwakeTimerRef.current); keepAwakeTimerRef.current = null; }
+          if (wakeLockRef.current) { try { wakeLockRef.current.release(); } catch { /* gone */ } wakeLockRef.current = null; }
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+  };
+
+  const toggleKeepAwake = () => {
+    if (keepAwakeRemaining > 0) stopKeepAwake();
+    else startKeepAwake();
+  };
+
+  // Re-acquire the lock when the tab becomes visible again (browsers auto-drop
+  // it on hide), and always release it when the component unmounts.
+  useEffect(() => {
+    function onVisible() {
+      if (document.visibilityState === 'visible' && keepAwakeRemaining > 0 && !wakeLockRef.current) {
+        reacquireWakeLock();
+      }
+    }
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      document.removeEventListener('visibilitychange', onVisible);
+      if (keepAwakeTimerRef.current) clearInterval(keepAwakeTimerRef.current);
+      if (wakeLockRef.current) { try { wakeLockRef.current.release(); } catch { /* gone */ } wakeLockRef.current = null; }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [keepAwakeRemaining]);
+
+  // Auto-enable the 10-minute lock whenever Cook Mode turns on.
+  useEffect(() => {
+    if (cookMode && wakeLockSupported) startKeepAwake();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cookMode]);
+
   const editingIngredients = editing;
   const [showSaved, setShowSaved] = useState(0);
   const [mealImage, setMealImage] = useState(() => recipe ? getCachedMealImage(recipe.id) : null);
@@ -3001,6 +3068,17 @@ export function RecipeDetail({ recipe, allTags = [], onSave, onDelete, onBack, o
           }}>
             {cookMode ? 'Standard View' : 'Cook Mode'}
           </button>
+          {wakeLockSupported && (
+            <button
+              className={keepAwakeRemaining > 0 ? styles.cookModeBtnActive : styles.cookModeBtn}
+              onClick={toggleKeepAwake}
+              title="Stop the screen from dimming or locking while you cook"
+            >
+              {keepAwakeRemaining > 0
+                ? `🔆 Screen on · ${Math.floor(keepAwakeRemaining / 60)}:${String(keepAwakeRemaining % 60).padStart(2, '0')}`
+                : '🔆 Keep screen on (10 min)'}
+            </button>
+          )}
         </div>
 
         {cookMode ? (

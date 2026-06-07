@@ -1,7 +1,44 @@
 .page {
-  max-width: 1280px;
-  margin: 0 auto;
+  /* Left-aligned (not centered) and wider so the sidebar menus + title hug the
+     left of the content area instead of sitting behind a large centered gutter. */
+  max-width: 1600px;
+  margin: 0;
   padding: 0 0 4rem;
+}
+
+/* Table-view ▲▼ ranking cell */
+.rankCell {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  justify-content: flex-start;
+}
+.rankNum {
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  min-width: 1.4em;
+  text-align: right;
+  color: var(--color-text);
+}
+.rankArrows {
+  display: inline-flex;
+  flex-direction: column;
+  line-height: 0.8;
+}
+.rankArrow {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0 2px;
+  font-size: 0.7rem;
+  color: var(--color-text-muted);
+}
+.rankArrow:hover:not(:disabled) {
+  color: var(--color-accent);
+}
+.rankArrow:disabled {
+  opacity: 0.3;
+  cursor: default;
 }
 
 .layout {
@@ -285,6 +322,50 @@
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
   gap: 1rem;
+}
+
+/* Compact ranked list — a single dense column so several places fit on screen
+   at once. Each row shows only the rank + name (tap to open full details). */
+.gridCompact {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+.cardCompact {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  width: 100%;
+  text-align: left;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  padding: 0.55rem 0.75rem;
+  cursor: pointer;
+  font-family: inherit;
+  transition: border-color 0.15s ease;
+}
+.cardCompact:hover {
+  border-color: var(--color-accent);
+}
+.compactRank {
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  min-width: 1.6em;
+  text-align: right;
+  color: var(--color-text-muted);
+  flex-shrink: 0;
+}
+.compactName {
+  font-size: 0.98rem;
+  font-weight: 600;
+  color: var(--color-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.compactSpacer {
+  flex: 1;
 }
 
 .card {

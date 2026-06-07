@@ -1,17 +1,17 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { doc, onSnapshot } from 'firebase/firestore';
 import { db } from '../firebase';
-import { loadMyEatingOutVotes, LEGACY_VOTE_CATEGORY } from '../utils/firestoreSync';
 import styles from './EatingOutPage.module.css';
 
-const RANK_MEDAL = { 1: '🥇', 2: '🥈', 3: '🥉' };
+// How many top-ranked spots to surface per list.
+const TOP_N = 5;
 
-// Reads my eating-out votes + every list I have access to (my own +
-// each shared friend) and groups the top-3 picks per category as my
-// personal "to try next" queue.
+// Shows the top of every Eating Out list I have access to (my own + each
+// shared friend) as my "to try next" queue. Ranking is the master order of
+// each list (the `restaurants` array order), so the top items are simply the
+// highest-ranked spots — numbered 1, 2, 3…
 export function NextSpotsPage({ user, sharedFromFriends = [], onClose, onOpenCategory }) {
   const [ownerData, setOwnerData] = useState({});
-  const [votes, setVotes] = useState({});
   const [loading, setLoading] = useState(true);
 
   const sharerUids = useMemo(
@@ -40,53 +40,30 @@ export function NextSpotsPage({ user, sharedFromFriends = [], onClose, onOpenCat
     return () => { unsubs.forEach(u => u && u()); };
   }, [user?.uid, sharerUids, sharerMeta]);
 
-  useEffect(() => {
-    if (!user?.uid) return;
-    let cancelled = false;
-    loadMyEatingOutVotes(user.uid)
-      .then(v => { if (!cancelled) setVotes(v || {}); })
-      .catch(() => { /* keep empty */ });
-    return () => { cancelled = true; };
-  }, [user?.uid]);
-
-  // Resolve every restaurantId I've voted on to a full restaurant object
-  // plus its owner. Skip categories with no non-null picks.
+  // One section per accessible list, each showing its top N spots in rank
+  // (master) order. Retired spots are skipped.
   const sections = useMemo(() => {
     const out = [];
-    for (const [ownerUid, byCat] of Object.entries(votes)) {
-      const ownerList = ownerData[ownerUid]?.restaurants || [];
-      const byId = new Map(ownerList.map(r => [r.id, r]));
-      const ownerUsername = ownerData[ownerUid]?.username || 'unknown';
-      for (const [category, arr] of Object.entries(byCat)) {
-        if (!Array.isArray(arr)) continue;
-        const ranked = [1, 2, 3].map(rank => {
-          const id = arr[rank - 1];
-          if (!id) return null;
-          const r = byId.get(id);
-          return r ? { rank, restaurant: r } : null;
-        }).filter(Boolean);
-        if (ranked.length === 0) continue;
-        out.push({
-          ownerUid,
-          ownerUsername,
-          isMine: ownerUid === user?.uid,
-          category,
-          isLegacy: category === LEGACY_VOTE_CATEGORY,
-          picks: ranked,
-        });
-      }
+    for (const [ownerUid, entry] of Object.entries(ownerData)) {
+      const list = Array.isArray(entry?.restaurants) ? entry.restaurants : [];
+      const picks = list
+        .filter(r => r && r.frequency !== 'retired')
+        .slice(0, TOP_N)
+        .map((r, i) => ({ rank: i + 1, restaurant: r }));
+      if (picks.length === 0) continue;
+      out.push({
+        ownerUid,
+        ownerUsername: entry?.username || 'unknown',
+        isMine: ownerUid === user?.uid,
+        picks,
+      });
     }
-    // Group by category label so the user sees one row per category even
-    // when picks span multiple lists.
     out.sort((a, b) => {
-      if (a.isLegacy !== b.isLegacy) return a.isLegacy ? 1 : -1;
-      const ca = a.category.toLowerCase();
-      const cb = b.category.toLowerCase();
-      if (ca !== cb) return ca.localeCompare(cb);
+      if (a.isMine !== b.isMine) return a.isMine ? -1 : 1;
       return a.ownerUsername.localeCompare(b.ownerUsername);
     });
     return out;
-  }, [votes, ownerData, user?.uid]);
+  }, [ownerData, user?.uid]);
 
   return (
     <div className={styles.page}>
@@ -101,38 +78,33 @@ export function NextSpotsPage({ user, sharedFromFriends = [], onClose, onOpenCat
             <div className={styles.empty}>Loading…</div>
           ) : sections.length === 0 ? (
             <div className={styles.empty}>
-              <p className={styles.emptyTitle}>No picks yet</p>
+              <p className={styles.emptyTitle}>No spots yet</p>
               <p className={styles.emptyText}>
-                Open <strong>Eating Out</strong>, pick a category in the sidebar (e.g. <em>coffee shops</em>),
-                then tap 🥇 🥈 🥉 on three spots you want to try next. They'll show up here.
+                Add places in <strong>Eating Out</strong> and use the ▲▼ arrows to rank them.
+                Your top picks show up here.
               </p>
             </div>
           ) : (
             sections.map(s => (
-              <div key={`${s.ownerUid}:${s.category}`} className={styles.nextSpotsSection}>
+              <div key={s.ownerUid} className={styles.nextSpotsSection}>
                 <div className={styles.nextSpotsHeader}>
                   <span className={styles.nextSpotsCategory}>
-                    🏷 {s.isLegacy ? 'Uncategorized picks' : s.category}
+                    🍽 {s.isMine ? 'My top spots' : `@${s.ownerUsername}'s top spots`}
                   </span>
-                  <span className={styles.nextSpotsSource}>
-                    from {s.isMine ? 'my list' : `@${s.ownerUsername}'s list`}
-                  </span>
-                  {!s.isLegacy && (
-                    <button
-                      type="button"
-                      className={styles.linkBtn}
-                      onClick={() => onOpenCategory && onOpenCategory(s.category)}
-                    >
-                      Open in Eating Out
-                    </button>
-                  )}
+                  <button
+                    type="button"
+                    className={styles.linkBtn}
+                    onClick={() => (onOpenCategory ? onOpenCategory(null) : onClose && onClose())}
+                  >
+                    Open in Eating Out
+                  </button>
                 </div>
                 <div className={styles.nextSpotsList}>
                   {s.picks.map(p => {
                     const r = p.restaurant;
                     return (
-                      <div key={`${p.rank}-${r.id}`} className={styles.nextSpotsRow}>
-                        <span className={styles.nextSpotsRank}>{RANK_MEDAL[p.rank]}</span>
+                      <div key={r.id} className={styles.nextSpotsRow}>
+                        <span className={styles.nextSpotsRank}>#{p.rank}</span>
                         {r.imageUrl
                           ? <img src={r.imageUrl} alt="" className={styles.nextSpotsImg} />
                           : <div className={`${styles.nextSpotsImg} ${styles.cardImagePlaceholder}`}>🍽️</div>}

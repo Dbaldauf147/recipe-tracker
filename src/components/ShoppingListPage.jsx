@@ -5,7 +5,7 @@ import { PantryList } from './PantryList';
 import { TrackedItemsList } from './TrackedItemsList';
 import { SavedShoppingLists } from './SavedShoppingLists';
 import { useAuth } from '../contexts/AuthContext';
-import { saveField, loadDailyLogFromFirestore } from '../utils/firestoreSync';
+import { saveField, loadField, loadDailyLogFromFirestore } from '../utils/firestoreSync';
 import GridLayoutLib, { WidthProvider } from 'react-grid-layout';
 import 'react-grid-layout/css/styles.css';
 import styles from './ShoppingListPage.module.css';
@@ -297,6 +297,33 @@ export function ShoppingListPage({ weeklyRecipes, weeklyServings = {}, getRecipe
     window.addEventListener('firestore-sync', loadFromStorage);
     return () => window.removeEventListener('firestore-sync', loadFromStorage);
   }, [GRID_LAYOUT_KEY, CUSTOM_WIDGETS_KEY]);
+
+  // Authoritative load from Firestore once the user is known. localStorage is
+  // only a fast cache and can be empty after a deploy/SW update or on a fresh
+  // device — without this, saved widget sizes fall back to defaults. The cloud
+  // copy (shopGridLayout / shopCustomWidgets) is the source of truth.
+  useEffect(() => {
+    if (!user?.uid) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const [layout, widgets] = await Promise.all([
+          loadField(user.uid, 'shopGridLayout'),
+          loadField(user.uid, 'shopCustomWidgets'),
+        ]);
+        if (cancelled) return;
+        if (Array.isArray(layout) && layout.length > 0) {
+          setGridLayout(layout);
+          localStorage.setItem(GRID_LAYOUT_KEY, JSON.stringify(layout));
+        }
+        if (Array.isArray(widgets)) {
+          setCustomWidgets(widgets);
+          localStorage.setItem(CUSTOM_WIDGETS_KEY, JSON.stringify(widgets));
+        }
+      } catch { /* keep local */ }
+    })();
+    return () => { cancelled = true; };
+  }, [user?.uid, GRID_LAYOUT_KEY, CUSTOM_WIDGETS_KEY]);
 
   const [addingWidget, setAddingWidget] = useState(false);
   const [newWidgetName, setNewWidgetName] = useState('');

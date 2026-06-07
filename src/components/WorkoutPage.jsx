@@ -3,11 +3,12 @@ import { createPortal } from 'react-dom';
 import { ComposedChart, Area, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, BarChart, Bar, ReferenceLine } from 'recharts';
 import { doc, collection, onSnapshot } from 'firebase/firestore';
 import { db } from '../firebase';
-import { saveField, saveWorkoutDraft, clearWorkoutDraft, newWorkoutId } from '../utils/firestoreSync';
+import { saveField, loadField, saveWorkoutDraft, clearWorkoutDraft, newWorkoutId } from '../utils/firestoreSync';
 import { exportWorkoutHistoryToCSV } from '../utils/exportData';
 import { parseSetValue, formatSeconds, computeSetStats } from '../utils/setValue';
 import { ExerciseLibrary, effectiveMuscleGroup } from './ExerciseLibrary';
 import { BodyHeatmap } from './BodyHeatmap';
+import { ExerciseDemo } from './ExerciseDemo';
 import styles from './WorkoutPage.module.css';
 
 const CHART_METRICS = {
@@ -1982,6 +1983,259 @@ function GroupExercisePicker({ initialGroup, exercisesForGroup, addExerciseToLib
   );
 }
 
+// Classify a workout into a calendar bucket by its type name: yoga, cardio, or
+// weights (the default for any other logged workout). Rest is derived from days
+// with no workout.
+const CAL_YOGA_RE = /yoga|vinyasa|pilates|mobility|stretch/i;
+const CAL_CARDIO_RE = /cardio|running|\brun\b|jog|cycl|spin|\bbike\b|biking|swim|hiit|elliptical|treadmill|stair|sprint|conditioning|walk|hike/i;
+function workoutCalendarCategory(w) {
+  const t = w?.workoutType || '';
+  if (CAL_YOGA_RE.test(t)) return 'yoga';
+  if (CAL_CARDIO_RE.test(t)) return 'cardio';
+  return 'weights';
+}
+
+const CAL_ICON = { weights: '🏋️', cardio: '🏃', yoga: '🧘', rest: '😴' };
+const CAL_CATS = [
+  { key: 'weights', icon: CAL_ICON.weights, label: 'Weights' },
+  { key: 'cardio', icon: CAL_ICON.cardio, label: 'Cardio' },
+  { key: 'yoga', icon: CAL_ICON.yoga, label: 'Yoga' },
+  { key: 'rest', icon: CAL_ICON.rest, label: 'Rest' },
+];
+const CAL_GOALS_KEY = 'sunday-workout-weekly-goals';
+const CAL_DEFAULT_GOALS = { weights: 3, cardio: 1, yoga: 1, rest: 2 };
+
+// Month-grid calendar of training days, split into weights / cardio / yoga, with
+// per-week goal progress and a REST DAY marker on days with no logged workout.
+function WorkoutCalendarView({ workouts, user }) {
+  const now = new Date();
+  const [monthStart, setMonthStart] = useState(() => new Date(now.getFullYear(), now.getMonth(), 1));
+  // localStorage gives an instant value; Firestore (below) is the cross-device
+  // source of truth so goals set on mobile show here and vice-versa.
+  const [goals, setGoals] = useState(() => {
+    try {
+      const r = JSON.parse(localStorage.getItem(CAL_GOALS_KEY));
+      if (r && typeof r === 'object') return { ...CAL_DEFAULT_GOALS, ...r };
+    } catch { /* ignore */ }
+    return CAL_DEFAULT_GOALS;
+  });
+  useEffect(() => {
+    if (!user?.uid) return;
+    let cancelled = false;
+    loadField(user.uid, 'workoutWeeklyGoals').then(remote => {
+      if (cancelled || !remote || typeof remote !== 'object') return;
+      const merged = { ...CAL_DEFAULT_GOALS, ...remote };
+      setGoals(merged);
+      try { localStorage.setItem(CAL_GOALS_KEY, JSON.stringify(merged)); } catch { /* ignore */ }
+    }).catch(() => { /* keep local */ });
+    return () => { cancelled = true; };
+  }, [user?.uid]);
+  function updateGoal(key, raw) {
+    const n = Math.max(0, Math.min(7, parseInt(raw, 10) || 0));
+    setGoals(prev => {
+      const next = { ...prev, [key]: n };
+      try { localStorage.setItem(CAL_GOALS_KEY, JSON.stringify(next)); } catch { /* ignore */ }
+      if (user?.uid) saveField(user.uid, 'workoutWeeklyGoals', next).catch(() => { /* local kept */ });
+      return next;
+    });
+  }
+
+  // iso date -> { items: [{ label, category }] } over all workouts.
+  const byDate = useMemo(() => {
+    const m = {};
+    for (const w of workouts || []) {
+      if (!w?.date) continue;
+      const cat = workoutCalendarCategory(w);
+      if (!m[w.date]) m[w.date] = { items: [] };
+      const label = (w.workoutType || '').trim();
+      const key = `${cat}|${label.toLowerCase()}`;
+      if (!m[w.date].items.some(it => it._key === key)) {
+        m[w.date].items.push({ _key: key, label, category: cat });
+      }
+    }
+    return m;
+  }, [workouts]);
+
+  const year = monthStart.getFullYear();
+  const month = monthStart.getMonth();
+  const monthLabel = monthStart.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+  const monthPrefix = `${year}-${String(month + 1).padStart(2, '0')}-`;
+  const todayIso = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  const isoOf = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
+  // Per-day category set; rest = no workout on a day that's already happened.
+  const catsOn = (iso) => new Set((byDate[iso]?.items || []).map(it => it.category));
+  const isRestDay = (iso) => !(byDate[iso]?.items?.length) && iso <= todayIso;
+
+  // Tally weights/cardio/yoga/rest across a set of ISO dates.
+  const tally = (isos) => {
+    const out = { weights: 0, cardio: 0, yoga: 0, rest: 0 };
+    for (const iso of isos) {
+      if (byDate[iso]?.items?.length) {
+        const cats = catsOn(iso);
+        if (cats.has('weights')) out.weights += 1;
+        if (cats.has('cardio')) out.cardio += 1;
+        if (cats.has('yoga')) out.yoga += 1;
+      } else if (iso <= todayIso) {
+        out.rest += 1;
+      }
+    }
+    return out;
+  };
+
+  const monthCounts = useMemo(() => {
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    const isos = [];
+    for (let dd = 1; dd <= daysInMonth; dd++) isos.push(`${monthPrefix}${String(dd).padStart(2, '0')}`);
+    return tally(isos);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [byDate, monthPrefix, year, month, todayIso]);
+
+  // Full weeks, plus one extra leading week so the previous month's last week
+  // is always visible. Trailing days from the next month complete the final row.
+  const weeks = useMemo(() => {
+    const start = new Date(year, month, 1);
+    start.setDate(start.getDate() - start.getDay() - 7);
+    const lastOfMonth = new Date(year, month + 1, 0);
+    const days = [];
+    const cur = new Date(start);
+    let guard = 0;
+    while ((cur <= lastOfMonth || cur.getDay() !== 0) && guard < 49) {
+      days.push(new Date(cur));
+      cur.setDate(cur.getDate() + 1);
+      guard += 1;
+    }
+    const out = [];
+    for (let i = 0; i < days.length; i += 7) out.push(days.slice(i, i + 7));
+    return out;
+  }, [year, month]);
+
+  return (
+    <div style={{ marginBottom: '1.5rem' }}>
+      {/* Header: month nav + month totals */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '0.6rem' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+          <button type="button" className={styles.tab} onClick={() => setMonthStart(new Date(year, month - 1, 1))} aria-label="Previous month">‹</button>
+          <h3 className={styles.statsHeading} style={{ margin: 0, minWidth: 160, textAlign: 'center' }}>{monthLabel}</h3>
+          <button type="button" className={styles.tab} onClick={() => setMonthStart(new Date(year, month + 1, 1))} aria-label="Next month">›</button>
+          <button type="button" className={styles.tab} onClick={() => setMonthStart(new Date(now.getFullYear(), now.getMonth(), 1))}>Today</button>
+        </div>
+        <div style={{ display: 'flex', gap: '1rem', alignItems: 'center', flexWrap: 'wrap' }}>
+          {CAL_CATS.map(cat => (
+            <span key={cat.key} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontWeight: 600, fontSize: '0.85rem' }}>
+              <span style={{ fontSize: '1.05rem' }}>{cat.icon}</span> {cat.label}: {monthCounts[cat.key]}
+            </span>
+          ))}
+        </div>
+      </div>
+
+      {/* Weekly goals editor */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap', marginBottom: '0.75rem', padding: '0.5rem 0.6rem', background: 'var(--color-surface-alt)', borderRadius: 10 }}>
+        <span style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Weekly goals</span>
+        {CAL_CATS.map(cat => (
+          <label key={cat.key} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: '0.85rem', fontWeight: 600 }}>
+            <span style={{ fontSize: '1.05rem' }}>{cat.icon}</span>
+            <span style={{ color: 'var(--color-text-muted)' }}>{cat.label}</span>
+            <input
+              type="number"
+              min={0}
+              max={7}
+              value={goals[cat.key]}
+              onChange={e => updateGoal(cat.key, e.target.value)}
+              style={{ width: 46, padding: '3px 6px', borderRadius: 6, border: '1px solid var(--color-border)', background: 'var(--color-surface)', color: 'var(--color-text)', fontWeight: 700, textAlign: 'center' }}
+            />
+            <span style={{ color: 'var(--color-text-muted)', fontSize: '0.75rem' }}>/wk</span>
+          </label>
+        ))}
+      </div>
+
+      {/* Weekday headers + goals-column label */}
+      <div style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
+        <div style={{ flex: 1, display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 6 }}>
+          {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(d => (
+            <div key={d} style={{ textAlign: 'center', fontSize: '0.7rem', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{d}</div>
+          ))}
+        </div>
+        <div style={{ width: 150, textAlign: 'center', fontSize: '0.7rem', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Week goals</div>
+      </div>
+
+      {/* Day grid with per-week goal progress on the right */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {weeks.map((week, wi) => {
+          const wk = tally(week.map(isoOf));
+          return (
+            <div key={wi} style={{ display: 'flex', gap: 6, alignItems: 'stretch' }}>
+              <div style={{ flex: 1, display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 6 }}>
+                {week.map((d, di) => {
+                  const iso = isoOf(d);
+                  const inMonth = d.getMonth() === month;
+                  const items = byDate[iso]?.items || [];
+                  const isToday = iso === todayIso;
+                  const rest = isRestDay(iso);
+                  return (
+                    <div
+                      key={di}
+                      title={items.length ? `${iso} — ${items.map(it => it.label || it.category).join(', ')}` : (rest ? `${iso} — rest day` : iso)}
+                      style={{
+                        position: 'relative',
+                        minHeight: 74,
+                        border: `1px solid ${isToday ? 'var(--color-accent)' : 'var(--color-border)'}`,
+                        borderRadius: 8,
+                        background: inMonth ? 'var(--color-surface)' : 'var(--color-surface-alt)',
+                        opacity: inMonth ? 1 : 0.5,
+                      }}
+                    >
+                      <span style={{ position: 'absolute', top: 4, left: 6, fontSize: '0.7rem', fontWeight: isToday ? 700 : 500, color: isToday ? 'var(--color-accent)' : 'var(--color-text-muted)' }}>{d.getDate()}</span>
+                      <div style={{ height: '100%', minHeight: 74, display: 'flex', alignItems: 'center', justifyContent: 'center', flexWrap: 'wrap', gap: 8, padding: '18px 4px 6px' }}>
+                        {items.length > 0 ? (
+                          items.map((it, ii) => (
+                            <div key={ii} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1, maxWidth: '100%' }}>
+                              <span style={{ fontSize: '1.6rem', lineHeight: 1 }} title={it.category}>{CAL_ICON[it.category]}</span>
+                              {it.label ? (
+                                <span style={{ fontSize: '0.62rem', fontWeight: 600, color: 'var(--color-text)', textAlign: 'center', lineHeight: 1.1, wordBreak: 'break-word' }}>{it.label}</span>
+                              ) : null}
+                            </div>
+                          ))
+                        ) : rest ? (
+                          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1 }}>
+                            <span style={{ fontSize: '1.4rem', lineHeight: 1, opacity: 0.6 }}>{CAL_ICON.rest}</span>
+                            <span style={{ fontSize: '0.56rem', fontWeight: 700, color: 'var(--color-text-muted)', letterSpacing: '0.04em' }}>REST DAY</span>
+                          </div>
+                        ) : null}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              {/* Per-week goal progress (right side) */}
+              <div style={{ width: 150, display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 5, padding: '6px 8px', border: '1px solid var(--color-border)', borderRadius: 8, background: 'var(--color-surface-alt)' }}>
+                {CAL_CATS.map(cat => {
+                  const got = wk[cat.key];
+                  const goal = goals[cat.key];
+                  const met = goal > 0 && got >= goal;
+                  return (
+                    <span key={cat.key} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontWeight: 600, fontSize: '0.74rem', color: met ? '#16a34a' : 'var(--color-text-muted)' }}>
+                      <span style={{ fontSize: '0.95rem' }}>{cat.icon}</span>
+                      <span style={{ fontVariantNumeric: 'tabular-nums' }}>{got}{goal > 0 ? `/${goal}` : ''}</span>
+                      {met ? <span>✓</span> : null}
+                    </span>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      <p style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', marginTop: '0.85rem' }}>
+        {CAL_ICON.weights} weights · {CAL_ICON.cardio} cardio · {CAL_ICON.yoga} yoga · {CAL_ICON.rest} rest. A day is categorized by its workout type
+        (yoga: yoga/pilates/stretch…; cardio: run/cycle/swim/HIIT…; everything else is weights). Days with no logged workout up to today show
+        <strong> REST DAY</strong>. Per-week progress (under each week) is Sunday–Saturday; faded days are from neighboring months.
+      </p>
+    </div>
+  );
+}
+
 export function WorkoutPage({ onBack, user }) {
   const [workouts, setWorkouts] = useState(loadWorkouts);
   const [selectedDate, setSelectedDate] = useState(todayStr());
@@ -2047,6 +2301,8 @@ export function WorkoutPage({ onBack, user }) {
   // Row index whose group/exercise picker modal is currently open.
   // null = closed. Set by + Add Exercise and by clicking an empty row.
   const [pickerIdx, setPickerIdx] = useState(null);
+  // Exercise name whose "How to do it" demo modal is open (null = closed).
+  const [demoName, setDemoName] = useState(null);
   const [viewMode, setViewMode] = useState('log'); // 'log' | 'history' | 'charts' | 'body' | 'exercises' | 'steps' | 'sleep' | 'stats' (Overview)
   const [exerciseLibrary, setExerciseLibrary] = useState(loadLibrary);
   // Mirror the mobile app: per-user custom exercises and hidden defaults
@@ -3301,10 +3557,11 @@ export function WorkoutPage({ onBack, user }) {
       </div>
 
       <div className={styles.tabs}>
-        {['log', 'history', 'charts', 'body', 'exercises', 'steps', 'sleep', 'stats'].map(tab => (
+        {['log', 'calendar', 'history', 'charts', 'body', 'exercises', 'steps', 'sleep', 'stats'].map(tab => (
           <button key={tab} className={`${styles.tab} ${viewMode === tab ? styles.tabActive : ''}`} onClick={() => setViewMode(tab)}>
             {tab === 'log' ? 'Log Workout'
               : tab === 'history' ? 'History'
+              : tab === 'calendar' ? 'Calendar'
               : tab === 'charts' ? 'Charts'
               : tab === 'body' ? 'Body Map'
               : tab === 'exercises' ? 'Exercises'
@@ -3663,19 +3920,33 @@ export function WorkoutPage({ onBack, user }) {
                         </select>
                       </td>
                       <td>
-                        <ExerciseSelector
-                          value={entry.exercise}
-                          options={exercisesForGroup(entry.group)}
-                          disabled={!entry.group}
-                          muscleGroup={entry.group}
-                          className={editedCls('exercise')}
-                          onChange={(name) => pickExercise(i, name)}
-                          onAddNew={(name) => {
-                            if (addExerciseToLibrary(name, entry.group)) {
-                              pickExercise(i, name);
-                            }
-                          }}
-                        />
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <ExerciseSelector
+                              value={entry.exercise}
+                              options={exercisesForGroup(entry.group)}
+                              disabled={!entry.group}
+                              muscleGroup={entry.group}
+                              className={editedCls('exercise')}
+                              onChange={(name) => pickExercise(i, name)}
+                              onAddNew={(name) => {
+                                if (addExerciseToLibrary(name, entry.group)) {
+                                  pickExercise(i, name);
+                                }
+                              }}
+                            />
+                          </div>
+                          {entry.exercise && (
+                            <button
+                              type="button"
+                              title="How to do it (form + muscles)"
+                              onClick={() => setDemoName(entry.exercise)}
+                              style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-accent)', fontSize: '1.05rem', lineHeight: 1, padding: '0 2px', flexShrink: 0 }}
+                            >
+                              ⓘ
+                            </button>
+                          )}
+                        </div>
                       </td>
                       <td>
                         <input className={`${styles.logCell} ${editedCls('notes')}`} type="text" value={entry.notes} onChange={e => updateEntry(i, 'notes', e.target.value)} placeholder="" />
@@ -4170,6 +4441,10 @@ export function WorkoutPage({ onBack, user }) {
             );
           })()}
         </div>
+      )}
+
+      {viewMode === 'calendar' && (
+        <WorkoutCalendarView workouts={workouts} user={user} />
       )}
 
       {viewMode === 'charts' && (() => {
@@ -5005,6 +5280,24 @@ export function WorkoutPage({ onBack, user }) {
           </div>
         );
       })()}
+
+      {demoName && (
+        <div
+          onClick={() => setDemoName(null)}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '1rem' }}
+        >
+          <div
+            onClick={e => e.stopPropagation()}
+            style={{ background: '#fff', borderRadius: 12, padding: '1.1rem 1.2rem', width: 'min(440px, 94vw)', maxHeight: '90vh', overflow: 'auto', boxShadow: '0 10px 40px rgba(0,0,0,0.25)' }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10, gap: 8 }}>
+              <div style={{ fontWeight: 700, fontSize: '1rem' }}>{demoName} — How to do it</div>
+              <button onClick={() => setDemoName(null)} style={{ background: 'none', border: 'none', fontSize: '1.4rem', cursor: 'pointer', lineHeight: 1 }}>&times;</button>
+            </div>
+            <ExerciseDemo name={demoName} />
+          </div>
+        </div>
+      )}
     </div>
   );
 }

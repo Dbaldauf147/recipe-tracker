@@ -127,10 +127,26 @@ function parseISO8601Duration(iso) {
   return parts.join(' ');
 }
 
+// Decode HTML entities. JSON-LD fetched directly is already decoded, but the
+// reader proxy HTML-escapes the script content, so a title like "World's"
+// arrives as "World&#39;s" — decode it back before returning.
+function decodeEntities(str) {
+  if (!str || typeof str !== 'string') return str;
+  return str
+    .replace(/&#x([0-9a-f]+);/gi, (_, n) => String.fromCharCode(parseInt(n, 16)))
+    .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(parseInt(n, 10)))
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&');
+}
+
 function normalizeIngredients(raw) {
   if (!raw || !Array.isArray(raw)) return [];
   return raw.map(line => {
-    const text = normalizeFractions(typeof line === 'string' ? line : line.text || '');
+    const text = normalizeFractions(decodeEntities(typeof line === 'string' ? line : line.text || ''));
     return parseIngredientLine(text);
   });
 }
@@ -355,6 +371,98 @@ ${text ? `Social media caption:\n${text.slice(0, 2000)}` : ''}`;
   return null;
 }
 
+// Browser-like headers. The old "PrepDayMealPlanner/1.0" UA was an obvious
+// bot signature that many recipe sites (Cloudflare, etc.) answer with a 403,
+// so present as a real Chrome browser instead.
+const BROWSER_HEADERS = {
+  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+  'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+  'Accept-Language': 'en-US,en;q=0.9',
+};
+
+// Some sites stay behind anti-bot protection that 403s any server-side fetch
+// regardless of headers. r.jina.ai renders the page server-side; asking for
+// HTML (not its default markdown) keeps the Schema.org JSON-LD intact so we
+// can extract a fully structured recipe rather than guessing from prose.
+async function fetchViaReaderHtml(url) {
+  try {
+    const res = await fetch(`https://r.jina.ai/${url}`, { headers: { 'X-Return-Format': 'html' } });
+    if (!res.ok) return '';
+    return await res.text();
+  } catch {
+    return '';
+  }
+}
+
+// Shared response shape for an AI-parsed recipe from a regular URL.
+function sendAiRecipe(res, aiRecipe, url) {
+  return res.status(200).json({
+    title: aiRecipe.title || '',
+    description: '',
+    category: 'lunch-dinner',
+    frequency: 'common',
+    mealType: '',
+    servings: aiRecipe.servings || '1',
+    prepTime: aiRecipe.prepTime || '',
+    cookTime: aiRecipe.cookTime || '',
+    sourceUrl: url,
+    ingredients: (aiRecipe.ingredients || []).map(ing => ({
+      quantity: ing.quantity || '',
+      measurement: ing.measurement || '',
+      ingredient: ing.ingredient || '',
+    })),
+    instructions: aiRecipe.instructions || '',
+  });
+}
+
+// Extract a recipe from a page's HTML: structured JSON-LD first (best), then
+// AI parsing of the stripped text, then raw text for the client to parse.
+// Shared by the direct fetch and the reader-proxy fallback.
+async function processHtml(res, html, url) {
+  const $ = cheerio.load(html);
+
+  const ld = extractJsonLdRecipe($);
+  if (ld) {
+    return res.status(200).json({
+      title: titleCase(decodeEntities(ld.name || '')),
+      description: decodeEntities(ld.description || ''),
+      category: 'lunch-dinner',
+      frequency: 'common',
+      mealType: '',
+      servings: normalizeServings(ld.recipeYield),
+      prepTime: parseISO8601Duration(ld.prepTime),
+      cookTime: parseISO8601Duration(ld.cookTime),
+      sourceUrl: url,
+      ingredients: normalizeIngredients(ld.recipeIngredient),
+      instructions: decodeEntities(normalizeInstructions(ld.recipeInstructions)),
+    });
+  }
+
+  // Fallback: strip HTML to plain text and let the AI parse it.
+  $('script, style, nav, footer, header, aside, .ad, .sidebar').remove();
+  const text = $('body').text().replace(/[ \t]+/g, ' ').trim();
+  if (text.length > 50) {
+    const aiRecipe = await parseRecipeWithAI(text.slice(0, 4000), url);
+    if (aiRecipe) return sendAiRecipe(res, aiRecipe, url);
+  }
+
+  // Last resort: hand raw text to the client to parse.
+  return res.status(200).json({
+    title: '',
+    description: '',
+    category: 'lunch-dinner',
+    frequency: 'common',
+    mealType: '',
+    servings: '1',
+    prepTime: '',
+    cookTime: '',
+    sourceUrl: url,
+    ingredients: [],
+    instructions: '',
+    rawText: text,
+  });
+}
+
 // ── Handler ──
 
 export default async function handler(req, res) {
@@ -431,82 +539,28 @@ export default async function handler(req, res) {
       }
     }
 
-    // Regular URLs: fetch HTML and extract structured data
-    const response = await fetch(url, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (compatible; PrepDayMealPlanner/1.0)',
-        'Accept': 'text/html,application/xhtml+xml',
-      },
-    });
-
-    if (!response.ok) {
-      return res.status(502).json({ error: `Upstream returned ${response.status}` });
+    // Regular URLs: fetch the page HTML with browser-like headers.
+    let html = '';
+    let status = 0;
+    try {
+      const response = await fetch(url, { headers: BROWSER_HEADERS, redirect: 'follow' });
+      status = response.status;
+      if (response.ok) html = await response.text();
+    } catch {
+      // network error — fall through to the reader proxy below
     }
 
-    const html = await response.text();
-    const $ = cheerio.load(html);
-
-    // Try structured data first
-    const ld = extractJsonLdRecipe($);
-    if (ld) {
-      return res.status(200).json({
-        title: titleCase(ld.name || ''),
-        description: ld.description || '',
-        category: 'lunch-dinner',
-        frequency: 'common',
-        mealType: '',
-        servings: normalizeServings(ld.recipeYield),
-        prepTime: parseISO8601Duration(ld.prepTime),
-        cookTime: parseISO8601Duration(ld.cookTime),
-        sourceUrl: url,
-        ingredients: normalizeIngredients(ld.recipeIngredient),
-        instructions: normalizeInstructions(ld.recipeInstructions),
-      });
+    // Blocked (e.g. 403 anti-bot) or unreachable: retry through the reader
+    // proxy, which renders the page and returns HTML with JSON-LD intact.
+    if (!html) {
+      html = await fetchViaReaderHtml(url);
     }
 
-    // Fallback: strip HTML to plain text
-    $('script, style, nav, footer, header, aside, .ad, .sidebar').remove();
-    const text = $('body').text().replace(/[ \t]+/g, ' ').trim();
-
-    // Try AI parsing on the plain text too
-    if (text.length > 50) {
-      const aiRecipe = await parseRecipeWithAI(text.slice(0, 3000), url);
-      if (aiRecipe) {
-        return res.status(200).json({
-          title: aiRecipe.title || '',
-          description: '',
-          category: 'lunch-dinner',
-          frequency: 'common',
-          mealType: '',
-          servings: aiRecipe.servings || '1',
-          prepTime: aiRecipe.prepTime || '',
-          cookTime: aiRecipe.cookTime || '',
-          sourceUrl: url,
-          ingredients: (aiRecipe.ingredients || []).map(ing => ({
-            quantity: ing.quantity || '',
-            measurement: ing.measurement || '',
-            ingredient: ing.ingredient || '',
-          })),
-          instructions: aiRecipe.instructions || '',
-        });
-      }
+    if (html) {
+      return await processHtml(res, html, url);
     }
 
-    // Return raw text for client-side parsing
-    return res.status(200).json({
-      title: '',
-      description: '',
-      category: 'lunch-dinner',
-      frequency: 'common',
-      mealType: '',
-      servings: '1',
-      prepTime: '',
-      cookTime: '',
-      sourceUrl: url,
-      ingredients: [],
-      instructions: '',
-      rawText: text,
-    });
+    return res.status(502).json({ error: `Upstream returned ${status || 'unreachable'}` });
   } catch (err) {
     return res.status(502).json({ error: err.message });
   }

@@ -15,7 +15,7 @@ import {
   IMPORT_FIELDS,
 } from '../utils/restaurantImport';
 import { downloadRestaurantsCsv } from '../utils/restaurantExport';
-import { loadMyEatingOutVotes, setEatingOutVote } from '../utils/firestoreSync';
+import { loadMyEatingOutVotes, setEatingOutVote, saveEatingOutOrder } from '../utils/firestoreSync';
 import styles from './EatingOutPage.module.css';
 
 // Medal characters keyed by rank (1, 2, 3).
@@ -103,6 +103,7 @@ const TABLE_COLUMNS = [
   { key: 'rating', label: 'Rating', width: 120, visible: true },
   { key: 'cuisines', label: 'Cuisines', width: 180, visible: true },
   { key: 'locations', label: 'Locations', width: 180, visible: true },
+  { key: 'categories', label: 'Categories', width: 180, visible: true },
   { key: 'address', label: 'Address', width: 260, visible: true },
   { key: 'mealType', label: 'Meal Type', width: 110, visible: true },
   { key: 'frequency', label: 'Frequency', width: 100, visible: true },
@@ -135,6 +136,7 @@ function cellValueFor(r, key) {
       return r.ratingLabel || '';
     case 'cuisines': return (r.cuisines || []).join(', ');
     case 'locations': return (r.locations || []).join(', ');
+    case 'categories': return (r.categories || []).join(', ');
     case 'address': return r.address || '';
     case 'mealType': return MEAL_TYPES.find(m => m.key === r.mealType)?.label || '';
     case 'frequency': return r.frequency
@@ -263,12 +265,23 @@ function TagChips({ values, onChange, suggestions, placeholder }) {
             commit(draft);
           }
         }}
+        // Commit a typed-but-not-Entered tag when the field loses focus — e.g.
+        // when the user types a category and clicks Save without pressing Enter.
+        onBlur={() => commit(draft)}
         placeholder={placeholder}
       />
       {filtered.length > 0 && (
         <div className={styles.suggestionRow}>
           {filtered.map(s => (
-            <button key={s} type="button" className={styles.suggestionChip} onClick={() => commit(s)}>
+            <button
+              key={s}
+              type="button"
+              className={styles.suggestionChip}
+              // preventDefault on mousedown stops the input's onBlur from firing
+              // first and committing the partial draft alongside the suggestion.
+              onMouseDown={e => e.preventDefault()}
+              onClick={() => commit(s)}
+            >
               {s}
             </button>
           ))}
@@ -888,10 +901,48 @@ function BulkImportModal({ onClose, onImport, existing }) {
   );
 }
 
-function RestaurantCard({ r, distanceMiles, votes, voteCategory, myRankInCategory, onClick, onVote }) {
+function RestaurantCard({ r, distanceMiles, rank, canMoveUp, canMoveDown, onMoveUp, onMoveDown, onClick, compact }) {
   const isRetired = r.frequency === 'retired';
   // Stop card click from firing when the user taps a vote button.
   function stop(e) { e.stopPropagation(); }
+
+  // Compact list row: just rank + name (and the ▲▼ reorder arrows). Keeps the
+  // ranked list dense so many places fit on screen at once; tap to open details.
+  if (compact) {
+    return (
+      <button type="button" className={`${styles.cardCompact} ${isRetired ? styles.cardRetired : ''}`} onClick={onClick}>
+        {rank != null && <span className={styles.compactRank}>{rank}</span>}
+        <span className={styles.compactName}>{r.name}</span>
+        {r.status === 'want-to-try' && <span className={styles.wantBadge}>Want to try</span>}
+        {isRetired && <span className={styles.retiredBadge}>Retired</span>}
+        {!r._isMine && r._ownerUsername && (
+          <span className={styles.ownerChip} title={`Shared by @${r._ownerUsername}`}>
+            @{r._ownerUsername}
+          </span>
+        )}
+        <span className={styles.compactSpacer} />
+        {(onMoveUp || onMoveDown) && (
+          <span className={styles.rankArrows} onClick={stop}>
+            <button
+              type="button"
+              className={styles.rankArrow}
+              title="Move up"
+              disabled={!canMoveUp}
+              onClick={(e) => { stop(e); onMoveUp && onMoveUp(); }}
+            >▲</button>
+            <button
+              type="button"
+              className={styles.rankArrow}
+              title="Move down"
+              disabled={!canMoveDown}
+              onClick={(e) => { stop(e); onMoveDown && onMoveDown(); }}
+            >▼</button>
+          </span>
+        )}
+      </button>
+    );
+  }
+
   return (
     <button type="button" className={`${styles.card} ${isRetired ? styles.cardRetired : ''}`} onClick={onClick}>
       {r.imageUrl
@@ -908,42 +959,27 @@ function RestaurantCard({ r, distanceMiles, votes, voteCategory, myRankInCategor
             </span>
           )}
         </div>
-        {votes && votes.length > 0 && (
-          <div className={styles.voteRow}>
-            {votes
-              .slice()
-              .sort((a, b) => a.rank - b.rank)
-              .map((v, i) => (
-                <span
-                  key={`${v.username}-${i}`}
-                  className={styles.voteChip}
-                  title={v.category && v.category !== '__all'
-                    ? `@${v.username} ranked this #${v.rank} in ${v.category}`
-                    : `@${v.username} ranked this #${v.rank}`}
-                >
-                  {RANK_MEDAL[v.rank]} @{v.username}
-                  {v.category && v.category !== '__all' ? ` · ${v.category}` : ''}
-                </span>
-              ))}
-          </div>
-        )}
-        {voteCategory && onVote && (
+        {rank != null && (
           <div className={styles.rankRow} onClick={stop}>
-            <span className={styles.rankRowLabel}>My pick in {voteCategory}:</span>
-            {[1, 2, 3].map(rank => {
-              const isMine = myRankInCategory === rank;
-              return (
+            <span className={styles.rankNum}>#{rank}</span>
+            {(onMoveUp || onMoveDown) && (
+              <span className={styles.rankArrows}>
                 <button
-                  key={rank}
                   type="button"
-                  className={`${styles.rankBtn} ${isMine ? styles.rankBtnActive : ''}`}
-                  onClick={(e) => { stop(e); onVote(isMine ? null : rank); }}
-                  title={isMine ? 'Clear my rank' : `Set as my #${rank} pick in ${voteCategory}`}
-                >
-                  {RANK_MEDAL[rank]} {rank}
-                </button>
-              );
-            })}
+                  className={styles.rankArrow}
+                  title="Move up"
+                  disabled={!canMoveUp}
+                  onClick={(e) => { stop(e); onMoveUp && onMoveUp(); }}
+                >▲</button>
+                <button
+                  type="button"
+                  className={styles.rankArrow}
+                  title="Move down"
+                  disabled={!canMoveDown}
+                  onClick={(e) => { stop(e); onMoveDown && onMoveDown(); }}
+                >▼</button>
+              </span>
+            )}
           </div>
         )}
         {(r.rating != null || r.ratingLabel) && (
@@ -1081,7 +1117,9 @@ function RestaurantMapView({ items, onSelect }) {
   );
 }
 
-function RestaurantTable({ items, onRowClick, myRestaurantIds, bulkUpdate, bulkDelete, cuisineSuggestions = [], locationSuggestions = [] }) {
+function RestaurantTable({ items, onRowClick, myRestaurantIds, bulkUpdate, bulkDelete, cuisineSuggestions = [], locationSuggestions = [], rankCtx = null }) {
+  const rankActive = !!rankCtx?.active;
+  const RANK_COL_W = 92;
   // Merge stored prefs over column defaults so columns added later keep their
   // built-in defaults while user preferences override visibility + width.
   const [prefs, setPrefs] = useState(loadTablePrefs);
@@ -1165,10 +1203,24 @@ function RestaurantTable({ items, onRowClick, myRestaurantIds, bulkUpdate, bulkD
 
   const sortedItems = useMemo(() => {
     const arr = [...items];
+    // While ranking a dimension, the manual order wins over column sort so the
+    // ▲▼ arrows visibly reorder rows. Ranked spots first (by position), the
+    // rest after, alphabetically.
+    if (rankActive) {
+      arr.sort((a, b) => {
+        const pa = rankCtx.positionOf(a.id);
+        const pb = rankCtx.positionOf(b.id);
+        const va = pa == null ? Infinity : pa;
+        const vb = pb == null ? Infinity : pb;
+        if (va !== vb) return va - vb;
+        return compareValues(a, b, 'name');
+      });
+      return arr;
+    }
     arr.sort((a, b) => compareValues(a, b, sort.key));
     if (sort.dir === 'desc') arr.reverse();
     return arr;
-  }, [items, sort]);
+  }, [items, sort, rankActive, rankCtx]);
 
   // Column resize: pointer-down on the handle starts a drag, listeners on
   // window pick up the rest so the drag continues outside the header cell.
@@ -1205,7 +1257,9 @@ function RestaurantTable({ items, onRowClick, myRestaurantIds, bulkUpdate, bulkD
   }
 
   const SELECT_COL_W = 40;
-  const totalWidth = visibleColumns.reduce((s, c) => s + c.width, 0) + (showSelect ? SELECT_COL_W : 0);
+  const totalWidth = visibleColumns.reduce((s, c) => s + c.width, 0)
+    + (showSelect ? SELECT_COL_W : 0)
+    + (rankActive ? RANK_COL_W : 0);
 
   return (
     <div className={styles.tableWrap}>
@@ -1320,6 +1374,7 @@ function RestaurantTable({ items, onRowClick, myRestaurantIds, bulkUpdate, bulkD
         <div className={styles.tableScroll}>
           <table className={styles.dataTable} style={{ width: totalWidth }}>
             <colgroup>
+              {rankActive && <col style={{ width: RANK_COL_W }} />}
               {showSelect && <col style={{ width: SELECT_COL_W }} />}
               {visibleColumns.map(c => (
                 <col key={c.key} style={{ width: c.width }} />
@@ -1327,6 +1382,11 @@ function RestaurantTable({ items, onRowClick, myRestaurantIds, bulkUpdate, bulkD
             </colgroup>
             <thead>
               <tr>
+                {rankActive && (
+                  <th style={{ width: RANK_COL_W, textAlign: 'center' }} title={`Your ranking within ${rankCtx.label}`}>
+                    Rank
+                  </th>
+                )}
                 {showSelect && (
                   <th style={{ width: SELECT_COL_W, textAlign: 'center' }}>
                     <input
@@ -1362,8 +1422,40 @@ function RestaurantTable({ items, onRowClick, myRestaurantIds, bulkUpdate, bulkD
               </tr>
             </thead>
             <tbody>
-              {sortedItems.map(r => (
+              {sortedItems.map(r => {
+                const rankPos = rankActive ? rankCtx.positionOf(r.id) : null;
+                // Anyone with access can reorder the shared list (a rejected
+                // write surfaces via persistOwner's alert), so don't gate on
+                // "is this my own restaurant".
+                const canRank = rankActive && rankPos != null;
+                return (
                 <tr key={r.id} className={styles.tableRow} onClick={() => onRowClick(r)}>
+                  {rankActive && (
+                    <td style={{ width: RANK_COL_W }} onClick={e => e.stopPropagation()}>
+                      {canRank ? (
+                        <div className={styles.rankCell}>
+                          <span className={styles.rankNum}>{rankPos}</span>
+                          <span className={styles.rankArrows}>
+                            <button
+                              type="button"
+                              className={styles.rankArrow}
+                              title="Move up"
+                              disabled={rankPos <= 1}
+                              onClick={() => rankCtx.onMove(r.id, 'up')}
+                            >▲</button>
+                            <button
+                              type="button"
+                              className={styles.rankArrow}
+                              title="Move down"
+                              onClick={() => rankCtx.onMove(r.id, 'down')}
+                            >▼</button>
+                          </span>
+                        </div>
+                      ) : (
+                        <span className={styles.rankNum}>—</span>
+                      )}
+                    </td>
+                  )}
                   {showSelect && (
                     <td style={{ width: SELECT_COL_W, textAlign: 'center' }} onClick={e => e.stopPropagation()}>
                       {myRestaurantIds.has(r.id) ? (
@@ -1407,7 +1499,8 @@ function RestaurantTable({ items, onRowClick, myRestaurantIds, bulkUpdate, bulkD
                     );
                   })}
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -1436,11 +1529,25 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
   const [editing, setEditing] = useState(null);
   const [adding, setAdding] = useState(false);
   const [bulkOpen, setBulkOpen] = useState(false);
-  const [viewMode, setViewMode] = useState('table');
+  // Default to List view — it's where the ranking controls live, so voting is
+  // visible without switching. (Table/Map remain one tap away.)
+  const [viewMode, setViewMode] = useState('list');
+  // List density: 'compact' shows just rank + name (more places per screen),
+  // 'detailed' shows the full cards with photos/ratings. Persisted per browser.
+  const [listDensity, setListDensity] = useState(() => {
+    try { return localStorage.getItem('sunday-eating-out-density') === 'detailed' ? 'detailed' : 'compact'; }
+    catch { return 'compact'; }
+  });
+  const setDensity = useCallback((d) => {
+    setListDensity(d);
+    try { localStorage.setItem('sunday-eating-out-density', d); } catch { /* ignore */ }
+  }, []);
   const [geocodingProgress, setGeocodingProgress] = useState(null);
   const cancelGeocodeRef = useRef(false);
   // My ranked top-3 picks, keyed by (ownerUid, category).
   // Shape: { [ownerUid]: { [category]: [restaurantId1, restaurantId2, restaurantId3] } }.
+  // Unified ranking: full ordered list per (ownerUid, dimensionKey). The Table
+  // view ▲▼ reorders the whole list; the List/mobile 🥇🥈🥉 medals are its top 3.
   const [myEatingOutVotes, setMyEatingOutVotes] = useState({});
 
   // Subscribe to my own doc + every friend who has shared their list with me.
@@ -1589,6 +1696,18 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
     return categorySuggestions.map(c => ({ name: c, count: counts.get(c) || 0 }));
   }, [restaurants, categorySuggestions, filter, activeCuisine, activeLocation, activeMealType, showRetired]);
 
+  // The active ranking dimension: ranking now works over a dedicated category,
+  // OR over the cuisine/location you've selected — so your existing tags are
+  // votable with no extra tagging. `key` is what we store votes under (cuisine
+  // and location are namespaced so they never collide with each other or with a
+  // real category); `label` is what we show. A category wins if both are set.
+  const rankDim = useMemo(() => {
+    if (activeCategory) return { key: activeCategory, label: activeCategory };
+    if (activeCuisine) return { key: `cuisine:${activeCuisine}`, label: activeCuisine };
+    if (activeLocation) return { key: `location:${activeLocation}`, label: activeLocation };
+    return null;
+  }, [activeCategory, activeCuisine, activeLocation]);
+
   const visible = useMemo(() => {
     const q = search.trim().toLowerCase();
     let list = restaurants.filter(r => {
@@ -1620,8 +1739,19 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
         .sort((a, b) => a.d - b.d)
         .map(x => ({ ...x.r, _distance: x.d }));
     }
+    // Otherwise the list stays in master order — each owner's `restaurants`
+    // array order IS the shared ranking (rank = position; renumbered within
+    // whatever filter is active). The ▲▼ controls reorder that array.
     return list;
   }, [restaurants, filter, activeCuisine, activeLocation, activeMealType, activeCategory, showRetired, search, proximityCenter]);
+
+  // Per-owner sequence of currently-visible ids, so a card knows whether it can
+  // move up/down (i.e. has a visible same-owner neighbor in that direction).
+  const ownerSeq = useMemo(() => {
+    const m = {};
+    for (const r of visible) (m[r._ownerUid] = m[r._ownerUid] || []).push(r.id);
+    return m;
+  }, [visible]);
 
   // Persist the full restaurants array for a single owner. Updates local
   // state optimistically (the snapshot listener will reconcile on success
@@ -1658,12 +1788,13 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
     setMyEatingOutVotes(prev => {
       const next = { ...prev };
       const byCat = { ...(next[ownerUid] || {}) };
-      const current = Array.isArray(byCat[category]) ? [...byCat[category]] : [null, null, null];
-      while (current.length < 3) current.push(null);
-      for (let i = 0; i < 3; i++) if (current[i] === restaurantId) current[i] = null;
-      if (rank === 1 || rank === 2 || rank === 3) current[rank - 1] = restaurantId;
-      if (current.every(v => v == null)) delete byCat[category];
-      else byCat[category] = current;
+      let list = Array.isArray(byCat[category]) ? byCat[category].filter(id => id !== restaurantId) : [];
+      if (rank === 1 || rank === 2 || rank === 3) {
+        const idx = Math.min(rank - 1, list.length);
+        list = [...list.slice(0, idx), restaurantId, ...list.slice(idx)];
+      }
+      if (list.length === 0) delete byCat[category];
+      else byCat[category] = list;
       if (Object.keys(byCat).length === 0) delete next[ownerUid];
       else next[ownerUid] = byCat;
       return next;
@@ -1675,6 +1806,59 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
       alert(`Couldn't save your vote — ${err?.message || 'try again'}`);
     }
   }, [user?.uid]);
+
+  // Does a restaurant belong to the active ranking dimension (cuisine/location/
+  // category)? Used to build the ordered list the ▲▼ arrows reorder.
+  const matchesRankDim = useCallback((r) => {
+    if (activeCategory) return (r.categories || []).some(c => c.toLowerCase() === activeCategory.toLowerCase());
+    if (activeCuisine) return (r.cuisines || []).some(c => c.toLowerCase() === activeCuisine.toLowerCase());
+    if (activeLocation) return (r.locations || []).some(l => l.toLowerCase() === activeLocation.toLowerCase());
+    return false;
+  }, [activeCategory, activeCuisine, activeLocation]);
+
+  // The full ranked id list for the active dimension, over MY OWN list: saved
+  // order first (for spots still in the dimension), then any not-yet-ranked
+  // spots appended alphabetically. This is what positions + ▲▼ act on.
+  const myRankOrder = useMemo(() => {
+    if (!user?.uid || !rankDim) return [];
+    const mine = (ownerData[user.uid]?.restaurants || []).filter(matchesRankDim);
+    const byId = new Map(mine.map(r => [r.id, r]));
+    const stored = (myEatingOutVotes[user.uid]?.[rankDim.key] || []).filter(id => byId.has(id));
+    const storedSet = new Set(stored);
+    const rest = mine
+      .filter(r => !storedSet.has(r.id))
+      .sort((a, b) => (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' }))
+      .map(r => r.id);
+    return [...stored, ...rest];
+  }, [user?.uid, rankDim, ownerData, myEatingOutVotes, matchesRankDim]);
+
+  // Rank = the item's 1-based position in the currently-visible (filtered) list,
+  // which is itself in master order. So numbers auto-renumber when you filter.
+  const rankPositionOf = useCallback((id) => {
+    const i = visible.findIndex(r => r.id === id);
+    return i >= 0 ? i + 1 : null;
+  }, [visible]);
+
+  // Move a spot up/down by swapping it with its nearest VISIBLE same-owner
+  // neighbour inside that owner's `restaurants` array (the shared master order),
+  // then persist the whole array. Both the owner and anyone they've shared with
+  // can do this, so it's one collaborative ranking. Optimistic via persistOwner.
+  const handleRankMove = useCallback((restaurantId, dir) => {
+    const target = visible.find(r => r.id === restaurantId);
+    if (!target) return;
+    const ownerUid = target._ownerUid;
+    const sameOwner = visible.filter(r => r._ownerUid === ownerUid);
+    const vi = sameOwner.findIndex(r => r.id === restaurantId);
+    const vj = dir === 'up' ? vi - 1 : vi + 1;
+    if (vi < 0 || vj < 0 || vj >= sameOwner.length) return;
+    const neighborId = sameOwner[vj].id;
+    const arr = [...(ownerData[ownerUid]?.restaurants || [])];
+    const ai = arr.findIndex(r => r.id === restaurantId);
+    const aj = arr.findIndex(r => r.id === neighborId);
+    if (ai < 0 || aj < 0) return;
+    [arr[ai], arr[aj]] = [arr[aj], arr[ai]];
+    persistOwner(ownerUid, arr);
+  }, [visible, ownerData, persistOwner]);
 
   // Friends' votes on MY restaurants, indexed by restaurantId. Flattens
   // per-category votes into a list of { username, rank, category }.
@@ -1952,6 +2136,14 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
     );
   }, [user?.uid, ownerData, persistOwner]);
 
+  // Selecting a category jumps to List view, the only place the per-category
+  // vote controls (🥇🥈🥉 picks) render. Deselecting leaves the view as-is.
+  function selectCategory(name) {
+    const next = activeCategory === name ? null : name;
+    setActiveCategory(next);
+    if (next && viewMode !== 'list') setViewMode('list');
+  }
+
   return (
     <div className={styles.page}>
       <div className={styles.header}>
@@ -2082,7 +2274,7 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
                     key={`cat-${c.name}`}
                     type="button"
                     className={`${styles.sidebarItem} ${activeCategory === c.name ? styles.sidebarItemActive : ''} ${c.count === 0 ? styles.sidebarItemDim : ''}`}
-                    onClick={() => setActiveCategory(activeCategory === c.name ? null : c.name)}
+                    onClick={() => selectCategory(c.name)}
                   >
                     <span className={styles.sidebarItemName}>🏷 {c.name}</span>
                     <span className={styles.sidebarItemCount}>{c.count}</span>
@@ -2154,6 +2346,24 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
                 Map
               </button>
             </div>
+            {viewMode === 'list' && (
+              <div className={styles.filterRow} style={{ marginLeft: 8 }}>
+                <button
+                  type="button"
+                  className={`${styles.filterBtn} ${listDensity === 'compact' ? styles.filterBtnActive : ''}`}
+                  onClick={() => setDensity('compact')}
+                >
+                  ☰ Compact
+                </button>
+                <button
+                  type="button"
+                  className={`${styles.filterBtn} ${listDensity === 'detailed' ? styles.filterBtnActive : ''}`}
+                  onClick={() => setDensity('detailed')}
+                >
+                  ▦ Detailed
+                </button>
+              </div>
+            )}
           </div>
 
           <form className={styles.proximityRow} onSubmit={handleProximity}>
@@ -2218,6 +2428,12 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
               bulkDelete={bulkDelete}
               cuisineSuggestions={cuisineSuggestions}
               locationSuggestions={locationSuggestions}
+              rankCtx={!proximityCenter ? {
+                active: true,
+                label: 'your list',
+                positionOf: rankPositionOf,
+                onMove: handleRankMove,
+              } : null}
             />
           ) : visible.length === 0 ? (
             <div className={styles.empty}>
@@ -2242,25 +2458,22 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
               )}
             </div>
           ) : (
-            <div className={styles.grid}>
-              {visible.map(r => {
-                const myCatVotes = activeCategory
-                  ? (myEatingOutVotes[r._ownerUid]?.[activeCategory] || [])
-                  : null;
-                const myRank = myCatVotes
-                  ? (myCatVotes.indexOf(r.id) >= 0 ? myCatVotes.indexOf(r.id) + 1 : null)
-                  : null;
+            <div className={listDensity === 'compact' ? styles.gridCompact : styles.grid}>
+              {visible.map((r, i) => {
+                const showRank = !proximityCenter;
+                const seq = ownerSeq[r._ownerUid] || [];
+                const oi = seq.indexOf(r.id);
                 return (
                   <RestaurantCard
                     key={`${r._ownerUid}:${r.id}`}
                     r={r}
+                    compact={listDensity === 'compact'}
                     distanceMiles={r._distance}
-                    votes={friendVotesByRestaurant.get(r.id)}
-                    voteCategory={activeCategory}
-                    myRankInCategory={myRank}
-                    onVote={activeCategory
-                      ? (rank) => handleVoteOnRestaurant(r._ownerUid, activeCategory, r.id, rank)
-                      : null}
+                    rank={showRank ? i + 1 : null}
+                    canMoveUp={showRank && oi > 0}
+                    canMoveDown={showRank && oi >= 0 && oi < seq.length - 1}
+                    onMoveUp={showRank ? () => handleRankMove(r.id, 'up') : null}
+                    onMoveDown={showRank ? () => handleRankMove(r.id, 'down') : null}
                     onClick={() => setEditing(r)}
                   />
                 );

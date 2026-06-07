@@ -46,7 +46,9 @@ async function cleanupUsers(allUsers) {
     const hasName = (u.displayName || '').trim();
     const hasEmail = (u.email || '').trim();
     const hasRecipes = (u.recipes || []).length > 0;
-    const hasLogins = (u.loginCount || 0) > 0;
+    // Count web OR mobile logins — a mobile-only user (loginCount 0 but
+    // mobileLoginCount > 0) still has login history and must not be purged.
+    const hasLogins = (u.loginCount || 0) > 0 || (u.mobileLoginCount || 0) > 0;
     if (!hasName && !hasEmail && !hasRecipes && !hasLogins) {
       toDelete.push(u.uid);
     }
@@ -61,9 +63,15 @@ async function cleanupUsers(allUsers) {
 }
 
 function getUserEngagement(u) {
-  const logins = u.loginCount || 0;
+  // Engagement reflects overall activity across web AND mobile, so an
+  // app-only user reads as Active rather than New.
+  const logins = (u.loginCount || 0) + (u.mobileLoginCount || 0);
   const recipes = (u.recipes || []).length;
-  const daysSinceLast = u.lastLogin ? Math.floor((Date.now() - new Date(u.lastLogin).getTime()) / 86400000) : 999;
+  const lastLoginIso = [u.lastLogin, u.mobileLastLogin]
+    .filter(Boolean)
+    .sort()
+    .pop();
+  const daysSinceLast = lastLoginIso ? Math.floor((Date.now() - new Date(lastLoginIso).getTime()) / 86400000) : 999;
 
   if (logins >= 10 && daysSinceLast <= 14) return { label: 'Active', color: '#16a34a' };
   if (logins >= 5 && daysSinceLast <= 30) return { label: 'Regular', color: '#3B6B9C' };
@@ -130,6 +138,12 @@ export function AdminDashboard({ onClose }) {
     } else if (sortField === 'lastLogin') {
       aVal = a.lastLogin || '';
       bVal = b.lastLogin || '';
+    } else if (sortField === 'mobileLoginCount') {
+      aVal = a.mobileLoginCount || 0;
+      bVal = b.mobileLoginCount || 0;
+    } else if (sortField === 'mobileLastLogin') {
+      aVal = a.mobileLastLogin || '';
+      bVal = b.mobileLastLogin || '';
     } else if (sortField === 'displayName') {
       aVal = (a.displayName || '').toLowerCase();
       bVal = (b.displayName || '').toLowerCase();
@@ -446,8 +460,10 @@ export function AdminDashboard({ onClose }) {
         <div className={styles.statCard}>
           <div className={styles.statValue}>
             {users.filter(u => {
-              if (!u.lastLogin) return false;
-              return Date.now() - new Date(u.lastLogin).getTime() < 7 * 24 * 60 * 60 * 1000;
+              // Active if last seen on web OR app within 7 days.
+              const last = [u.lastLogin, u.mobileLastLogin].filter(Boolean).sort().pop();
+              if (!last) return false;
+              return Date.now() - new Date(last).getTime() < 7 * 24 * 60 * 60 * 1000;
             }).length}
           </div>
           <div className={styles.statLabel}>Active (7d)</div>
@@ -498,7 +514,7 @@ export function AdminDashboard({ onClose }) {
             })}
           </div>
           <p style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', marginTop: '0.5rem' }}>
-            Active: 10+ logins, seen in 14d · Regular: 5+ logins, 30d · Returning: 2+ logins, 60d · Lapsed: 2+ logins, 60d+ · Tried It: 1 login with recipes · One-Time: 1 login, no recipes
+            Logins below count web + app combined. Active: 10+ logins, seen in 14d · Regular: 5+ logins, 30d · Returning: 2+ logins, 60d · Lapsed: 2+ logins, 60d+ · Tried It: 1 login with recipes · One-Time: 1 login, no recipes
           </p>
         </div>
       )}
@@ -694,10 +710,16 @@ export function AdminDashboard({ onClose }) {
                   Recipes{arrow('recipeCount')}
                 </th>
                 <th onClick={() => handleSort('loginCount')} className={styles.sortable}>
-                  Logins{arrow('loginCount')}
+                  Web Logins{arrow('loginCount')}
                 </th>
                 <th onClick={() => handleSort('lastLogin')} className={styles.sortable}>
-                  Last Login{arrow('lastLogin')}
+                  Last Web Login{arrow('lastLogin')}
+                </th>
+                <th onClick={() => handleSort('mobileLoginCount')} className={styles.sortable}>
+                  App Logins{arrow('mobileLoginCount')}
+                </th>
+                <th onClick={() => handleSort('mobileLastLogin')} className={styles.sortable}>
+                  Last App Login{arrow('mobileLastLogin')}
                 </th>
                 <th>Status</th>
               </tr>
@@ -713,6 +735,10 @@ export function AdminDashboard({ onClose }) {
                   <td>{u.loginCount || 0}</td>
                   <td title={formatDate(u.lastLogin)}>
                     {u.lastLogin ? timeAgo(u.lastLogin) : '—'}
+                  </td>
+                  <td>{u.mobileLoginCount || 0}</td>
+                  <td title={formatDate(u.mobileLastLogin)}>
+                    {u.mobileLastLogin ? timeAgo(u.mobileLastLogin) : '—'}
                   </td>
                   <td><span style={{ fontSize: '0.75rem', fontWeight: 600, color: engagement.color, background: engagement.color + '15', padding: '0.15rem 0.45rem', borderRadius: '50px', whiteSpace: 'nowrap' }}>{engagement.label}</span></td>
                 </tr>
