@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useMemo } from 'react';
 import { useRecipes } from './hooks/useRecipes';
 import { useAuth } from './contexts/AuthContext';
 import { saveField, getPendingRequests, getPendingSharedRecipes, loadFriends, loadFriendShoppingList, loadFriendEatingOut, getUsername } from './utils/firestoreSync';
+import { trackPageView } from './utils/trackPageView';
 import { RecipeList } from './components/RecipeList';
 import { RecipeDetail } from './components/RecipeDetail';
 import { WeightTracker, checkWeighReminder } from './components/WeightTracker';
@@ -219,6 +220,10 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
   });
   const [viewHistory, setViewHistory] = useState([]);
   const [modalView, setModalView] = useState(null);
+
+  // Record each page the user lands on for the admin usage table. The tracker
+  // self-guards on auth, so it's a no-op until signed in.
+  useEffect(() => { trackPageView(view); }, [view]);
 
   // Handle the Whoop OAuth return: /?whoop=connected|error → open the Whoop
   // page and strip the query param so refreshes don't re-trigger it.

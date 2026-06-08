@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, Fragment } from 'react';
 import { loadAllUsers, deleteUserDoc, savePendingSetup, saveField, loadRecipesFromFirestore, saveRecipesToFirestore } from '../utils/firestoreSync';
 import { parseRecipeText } from '../utils/parseRecipeText';
 import { classifyMealType } from '../utils/classifyMealType';
@@ -161,6 +161,25 @@ const ADMIN_COLUMNS = [
     render: u => { const e = getUserEngagement(u); return <Badge color={e.color}>{e.label}</Badge>; } },
 ];
 
+// Friendly labels for the usage table. Keys are the raw view/route ids written
+// by trackPageView (web) and recordScreenView (app). Unknown keys fall back to
+// a prettified version of the id.
+const WEB_PAGE_LABELS = {
+  list: 'Recipes', detail: 'Recipe Detail', shopping: 'Shopping List', 'eating-out': 'Eating Out',
+  'next-spots': 'Next Spots', workout: 'Workouts', 'weight-tracker': 'Weight', 'daily-tracker': 'Log Meals',
+  history: 'Meal History', whoop: 'Whoop', profile: 'Profile', 'account-settings': 'Account Settings',
+  friends: 'Friends', admin: 'Admin', features: 'Features', 'design-meal': 'Design a Meal',
+  'barcode-scanner': 'Barcode Scanner', 'seasonal-guide': 'Seasonal Guide', sources: 'Sources',
+};
+const APP_SCREEN_LABELS = {
+  menu: 'Shopping List', recipes: 'Recipes', tracker: 'Log Meals', ingredients: 'Scan',
+  workout: 'Workouts', 'eating-out': 'Eating Out', weight: 'Weight', agents: 'Agents', pantry: 'Pantry',
+  home: 'Home',
+};
+function prettifyKey(k) {
+  return String(k).replace(/[_-]+/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+}
+
 const ADMIN_COLS_KEY = 'sunday-admin-user-cols';
 function loadColPrefs() {
   try { const p = JSON.parse(localStorage.getItem(ADMIN_COLS_KEY) || '{}'); return p && typeof p === 'object' ? p : {}; }
@@ -178,6 +197,7 @@ export function AdminDashboard({ onClose }) {
   const [colPrefs, setColPrefs] = useState(loadColPrefs);
   const [showCols, setShowCols] = useState(false);
   const resizingRef = useRef(null);
+  const [expandedUsage, setExpandedUsage] = useState(null);
   const [setupEmail, setSetupEmail] = useState('');
   const [setupRecipes, setSetupRecipes] = useState([]);
   const [setupSaving, setSetupSaving] = useState(false);
@@ -510,6 +530,38 @@ export function AdminDashboard({ onClose }) {
     return acc;
   }, {});
 
+  // Page/screen usage, aggregated per page with a per-user breakdown for
+  // drill-down. Web pages come from `pageViews`, app screens from
+  // `appScreenViews` — both nested {key: count} maps on the user doc.
+  const usageRows = (() => {
+    const rows = [];
+    const build = (platform, field, labels) => {
+      const byKey = {};
+      for (const u of users) {
+        const map = u[field] || {};
+        for (const [k, v] of Object.entries(map)) {
+          const count = Number(v) || 0;
+          if (count <= 0) continue;
+          if (!byKey[k]) byKey[k] = { total: 0, users: [] };
+          byKey[k].total += count;
+          byKey[k].users.push({ name: u.displayName || u.email || u.uid, count });
+        }
+      }
+      for (const [k, data] of Object.entries(byKey)) {
+        data.users.sort((a, b) => b.count - a.count);
+        rows.push({
+          id: `${platform}:${k}`, platform, key: k,
+          label: labels[k] || prettifyKey(k),
+          total: data.total, userCount: data.users.length, users: data.users,
+        });
+      }
+    };
+    build('web', 'pageViews', WEB_PAGE_LABELS);
+    build('app', 'appScreenViews', APP_SCREEN_LABELS);
+    rows.sort((a, b) => b.total - a.total);
+    return rows;
+  })();
+
   const arrow = (field) => sortField === field ? (sortDir === 'asc' ? ' ↑' : ' ↓') : '';
 
   // Merge saved prefs over the column defaults.
@@ -669,6 +721,75 @@ export function AdminDashboard({ onClose }) {
           <p style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', marginTop: '0.5rem' }}>
             Web = signs in on prep-day.com only · App = the mobile app only · Both = uses each at least once.
           </p>
+        </div>
+      )}
+
+      {/* Page & screen usage — which pages get used, on web and app */}
+      {!loading && (
+        <div className={styles.sourceSection}>
+          <h3 className={styles.sourceHeading}>Page &amp; Screen Usage</h3>
+          {usageRows.length === 0 ? (
+            <p style={{ fontSize: '0.82rem', color: 'var(--color-text-muted)' }}>
+              No usage recorded yet. This starts collecting once the latest web deploy and app build are live —
+              data accumulates from each page/screen users open.
+            </p>
+          ) : (
+            <>
+              <div className={styles.tableWrap}>
+                <table className={styles.table} style={{ width: '100%' }}>
+                  <colgroup>
+                    <col style={{ width: '40%' }} />
+                    <col style={{ width: '15%' }} />
+                    <col style={{ width: '20%' }} />
+                    <col style={{ width: '25%' }} />
+                  </colgroup>
+                  <thead>
+                    <tr>
+                      <th>Page / Screen</th>
+                      <th>Platform</th>
+                      <th>Total Visits</th>
+                      <th>Users</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {usageRows.map(row => {
+                      const open = expandedUsage === row.id;
+                      const color = row.platform === 'web' ? '#3B6B9C' : '#8b5cf6';
+                      return (
+                        <Fragment key={row.id}>
+                          <tr
+                            onClick={() => setExpandedUsage(open ? null : row.id)}
+                            style={{ cursor: 'pointer' }}
+                          >
+                            <td>{open ? '▾ ' : '▸ '}{row.label}</td>
+                            <td><Badge color={color}>{row.platform === 'web' ? '🌐 Web' : '📱 App'}</Badge></td>
+                            <td>{row.total.toLocaleString()}</td>
+                            <td>{row.userCount}</td>
+                          </tr>
+                          {open && (
+                            <tr>
+                              <td colSpan={4} style={{ background: 'var(--color-surface-alt, #f9fafb)' }}>
+                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem 1rem', padding: '0.25rem 0.5rem' }}>
+                                  {row.users.map((usr, i) => (
+                                    <span key={i} style={{ fontSize: '0.82rem', whiteSpace: 'nowrap' }}>
+                                      {usr.name} <strong>{usr.count.toLocaleString()}</strong>
+                                    </span>
+                                  ))}
+                                </div>
+                              </td>
+                            </tr>
+                          )}
+                        </Fragment>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+              <p style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', marginTop: '0.5rem' }}>
+                Counts every page/screen open. Click a row to see which users drive it.
+              </p>
+            </>
+          )}
         </div>
       )}
 
