@@ -2211,46 +2211,10 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
               )}
             </div>
 
-            <div className={styles.sidebarPanel}>
-              <div className={styles.sidebarHeader}>
-                <span className={styles.sidebarTitle}>Locations</span>
-                <span className={styles.sidebarCount}>{locationEntries.length}</span>
-              </div>
-              <button
-                type="button"
-                className={`${styles.sidebarItem} ${!activeLocation ? styles.sidebarItemActive : ''}`}
-                onClick={() => setActiveLocation(null)}
-              >
-                <span className={styles.sidebarItemName}>All locations</span>
-              </button>
-              {locationEntries.length === 0 ? (
-                <div className={styles.sidebarEmpty}>No locations yet.</div>
-              ) : (
-                locationEntries.map(l => (
-                  <div key={`l-${l.name}`} className={styles.sidebarItemRow}>
-                    <button
-                      type="button"
-                      className={`${styles.sidebarItem} ${activeLocation === l.name ? styles.sidebarItemActive : ''} ${l.count === 0 ? styles.sidebarItemDim : ''}`}
-                      style={{ flex: 1, minWidth: 0 }}
-                      onClick={() => setActiveLocation(activeLocation === l.name ? null : l.name)}
-                    >
-                      <span className={styles.sidebarItemName}>📍 {l.name}</span>
-                      <span className={styles.sidebarItemCount}>{l.count}</span>
-                    </button>
-                    {myLocationNames.has(l.name.toLowerCase()) && (
-                      <button
-                        type="button"
-                        className={styles.sidebarRenameBtn}
-                        title={`Rename "${l.name}" everywhere`}
-                        onClick={() => handleRenameLocation(l.name)}
-                      >
-                        ✎
-                      </button>
-                    )}
-                  </div>
-                ))
-              )}
-            </div>
+            {/* Locations menu intentionally hidden — use the "Near…" search bar
+                above the list to type a neighborhood or address instead. The
+                activeLocation filter state is kept for the rename flow + any
+                deep links, but there's no longer a sidebar list for it. */}
 
             <div className={styles.sidebarPanel}>
               <div className={styles.sidebarHeader}>
@@ -2372,7 +2336,7 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
               className={styles.searchInput}
               value={proximityQuery}
               onChange={e => setProximityQuery(e.target.value)}
-              placeholder="Near… (type an address and press Enter)"
+              placeholder="Near… (type a neighborhood or address and press Enter)"
             />
             <button type="submit" className={styles.secondaryBtn} disabled={proximityResolving}>
               {proximityResolving ? 'Locating…' : 'Find nearby'}
