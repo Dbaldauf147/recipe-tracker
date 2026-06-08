@@ -471,6 +471,9 @@ export function RecipeList({
   const shareSelected = manageSelected;
   const setShareSelected = setManageSelected;
   const [searchQuery, setSearchQuery] = useState('');
+  // Predictive dropdown under the search box — shown while the field is focused
+  // and there's a query. Clicking a suggestion opens that recipe.
+  const [searchFocused, setSearchFocused] = useState(false);
   const [discoverOpen, setDiscoverOpen] = useState(true);
   const [showDiscoverTip, setShowDiscoverTip] = useState(false);
   const [friendsWithAccess, setFriendsWithAccess] = useState([]);
@@ -697,6 +700,20 @@ export function RecipeList({
   const weekSet = new Set(weeklyPlan);
   const searchQ = searchQuery.trim().toLowerCase();
   const searchActive = !!searchQ;
+
+  // Predictive recipe suggestions for the search box: title matches first,
+  // titles that start with the query ranked above mid-word matches.
+  const recipeSuggestions = searchActive
+    ? recipes
+        .filter(r => (r.title || '').toLowerCase().includes(searchQ))
+        .sort((a, b) => {
+          const aStarts = (a.title || '').toLowerCase().startsWith(searchQ) ? 0 : 1;
+          const bStarts = (b.title || '').toLowerCase().startsWith(searchQ) ? 0 : 1;
+          if (aStarts !== bStarts) return aStarts - bStarts;
+          return (a.title || '').localeCompare(b.title || '');
+        })
+        .slice(0, 8)
+    : [];
 
   const passesFilters = (r) => {
     const freq = r.frequency || 'common';
@@ -1290,13 +1307,43 @@ export function RecipeList({
         <button className={`${styles.addBtn} ${showAddTip ? styles.addBtnHighlight : ''}`} onClick={() => { onAdd(); setShowAddTip(false); }}>
           + Add New
         </button>
-        <input
-          className={styles.topSearchInput}
-          type="text"
-          placeholder="Search..."
-          value={searchQuery}
-          onChange={e => setSearchQuery(e.target.value)}
-        />
+        <div className={styles.searchWrap}>
+          <input
+            className={styles.topSearchInput}
+            type="text"
+            placeholder="Search..."
+            value={searchQuery}
+            onChange={e => setSearchQuery(e.target.value)}
+            onFocus={() => setSearchFocused(true)}
+            // Delay so a click on a suggestion registers before the list hides.
+            onBlur={() => setTimeout(() => setSearchFocused(false), 150)}
+            onKeyDown={e => {
+              if (e.key === 'Enter' && recipeSuggestions.length > 0) {
+                onSelect(recipeSuggestions[0].id);
+                setSearchFocused(false);
+              } else if (e.key === 'Escape') {
+                setSearchFocused(false);
+              }
+            }}
+          />
+          {searchFocused && recipeSuggestions.length > 0 && (
+            <ul className={styles.searchSuggestions}>
+              {recipeSuggestions.map(r => (
+                <li key={r.id}>
+                  <button
+                    type="button"
+                    className={styles.searchSuggestion}
+                    // mousedown fires before the input's blur, so the click lands.
+                    onMouseDown={e => { e.preventDefault(); onSelect(r.id); setSearchFocused(false); }}
+                  >
+                    {r.title}
+                    {r.cuisine && <span className={styles.searchSuggestionMeta}>{r.cuisine}</span>}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
         <div className={styles.mealFilterWrap} ref={mealFilterRef}>
           <button
             className={`${styles.filterBtn} ${(checkedTypes.size > 0 || checkedCategories.size > 0 || checkedCuisines.size > 0 || checkedTags.size > 0 || checkedSources.size > 0 || showToTry || showRare || showRetired || !showCommon) ? styles.filterBtnActive : ''}`}
