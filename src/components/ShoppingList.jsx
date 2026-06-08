@@ -728,6 +728,60 @@ function buildShoppingList(recipes, weeklyServings = {}) {
   return map;
 }
 
+// Flatten the shopping list to {amount, unit, item, link} rows for the
+// "Fill Cart" prompt generator. Mirrors the on-screen list: builds from
+// recipes + extras, drops pantry/dismissed matches, and resolves each item's
+// link (a custom localStorage link wins over an ingredient-DB/recipe link).
+export function buildGroceryRows(recipes, weeklyServings = {}, extraItems = [], pantryNames = null, dismissedNames = null) {
+  const map = buildShoppingList(recipes, weeklyServings);
+  for (const e of extraItems) {
+    mergeIntoMap(map, e.ingredient || '', e.measurement || '', e.quantity);
+  }
+  let rows = Array.from(map.values()).sort((a, b) => a.ingredient.localeCompare(b.ingredient));
+
+  // Same fuzzy match as displayItems so pantry/hidden items are excluded.
+  const wordMatch = (a, b) => {
+    if (a === b) return true;
+    const cleanA = a.replace(/\s*\(.*?\)\s*/g, '').trim();
+    const cleanB = b.replace(/\s*\(.*?\)\s*/g, '').trim();
+    if (cleanA === cleanB) return true;
+    const re = (s) => new RegExp('\\b' + s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b');
+    return re(cleanA).test(cleanB) || re(cleanB).test(cleanA);
+  };
+  rows = rows.filter(item => {
+    const norm = item.ingredient.toLowerCase().trim();
+    if (pantryNames) for (const pn of pantryNames) if (wordMatch(norm, pn)) return false;
+    if (dismissedNames) for (const dn of dismissedNames) if (wordMatch(norm, dn)) return false;
+    return true;
+  });
+
+  // Resolve links: custom (localStorage, synced with mobile) over DB/recipe.
+  let customLinks = {};
+  try { customLinks = JSON.parse(localStorage.getItem('sunday-shop-links') || '{}') || {}; } catch { /* ignore */ }
+  const dbLinks = {};
+  for (const row of (loadIngredients() || [])) {
+    if (row.ingredient && row.link) dbLinks[row.ingredient.toLowerCase().trim()] = row.link;
+  }
+  for (const recipe of recipes) {
+    for (const ing of (recipe.ingredients || [])) {
+      if (ing.ingredient && ing.link) {
+        const k = ing.ingredient.toLowerCase().trim();
+        if (!dbLinks[k]) dbLinks[k] = ing.link;
+      }
+    }
+  }
+
+  return rows.map(item => {
+    const key = item.ingredient.toLowerCase().trim();
+    return {
+      amount: formatQuantity(item.quantity) || '1',
+      unit: item.measurement || '',
+      item: item.ingredient,
+      link: customLinks[key] || dbLinks[key] || '',
+    };
+  });
+}
+
 // Unit conversion tables
 const VOLUME_TO_ML = { ml: 1, tsp: 4.93, tbsp: 14.79, 'fl oz': 29.57, cup: 236.59, pt: 473.18, qt: 946.35, gal: 3785.41, l: 1000 };
 const VOLUME_UNITS = ['tsp', 'tbsp', 'fl oz', 'cup', 'pt', 'qt', 'gal', 'ml', 'l'];

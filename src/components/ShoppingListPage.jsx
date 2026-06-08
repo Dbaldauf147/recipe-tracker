@@ -4,6 +4,7 @@ import { GroceryStaples } from './GroceryStaples';
 import { PantryList } from './PantryList';
 import { TrackedItemsList } from './TrackedItemsList';
 import { SavedShoppingLists } from './SavedShoppingLists';
+import { AgentCartPanel } from './AgentCartPanel';
 import { useAuth } from '../contexts/AuthContext';
 import { saveField, loadField, loadDailyLogFromFirestore } from '../utils/firestoreSync';
 import GridLayoutLib, { WidthProvider } from 'react-grid-layout';
@@ -195,7 +196,10 @@ export function ShoppingListPage({ weeklyRecipes, weeklyServings = {}, getRecipe
   const [dismissed, setDismissed] = useState(loadDismissed);
   const [resetKey, setResetKey] = useState(0);
   const [saved, setSaved] = useState(false);
-  const [activeTab, setActiveTab] = useState('current'); // 'current' | 'saved'
+  const [activeTab, setActiveTab] = useState('current'); // 'current' | 'saved' | 'agent'
+  // The Whole Foods cart-prompt subtab is gated to one account (matches the
+  // original mobile feature). If it ever leaves the active tab, fall back.
+  const showAgent = (user?.email || '').toLowerCase() === 'baldaufdan@gmail.com';
 
   // --- Resizable grid for spices/sauces/custom widgets ---
   const GRID_LAYOUT_KEY = user ? `sunday-shop-grid-layout-${user.uid}` : 'sunday-shop-grid-layout';
@@ -612,10 +616,27 @@ export function ShoppingListPage({ weeklyRecipes, weeklyServings = {}, getRecipe
         >
           My Store Lists
         </button>
+        {showAgent && (
+          <button
+            type="button"
+            className={`${styles.shopTab} ${activeTab === 'agent' ? styles.shopTabActive : ''}`}
+            onClick={() => setActiveTab('agent')}
+          >
+            🛒 Fill Cart
+          </button>
+        )}
       </div>
 
       {activeTab === 'saved' ? (
         <SavedShoppingLists user={user} />
+      ) : activeTab === 'agent' && showAgent ? (
+        <AgentCartPanel
+          recipes={combinedRecipes}
+          weeklyServings={combinedServings}
+          extraItems={extrasWithAutoAdds}
+          pantryNames={pantryNames}
+          dismissedNames={dismissedNames}
+        />
       ) : (<>
 
       {sharedFromFriends.length > 0 && (
