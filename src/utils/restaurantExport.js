@@ -13,6 +13,7 @@ const COLUMNS = [
   { key: 'frequency', header: 'frequency', get: r => r.frequency || '' },
   { key: 'cuisines', header: 'cuisines', get: r => (r.cuisines || []).join(', ') },
   { key: 'locations', header: 'locations', get: r => (r.locations || []).join(', ') },
+  { key: 'categories', header: 'categories', get: r => (r.categories || []).join(', ') },
   { key: 'dish', header: 'dish', get: r => r.dish || '' },
   { key: 'notes', header: 'notes', get: r => r.notes || '' },
   { key: 'address', header: 'address', get: r => r.address || '' },

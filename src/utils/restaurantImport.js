@@ -18,6 +18,7 @@ export const IMPORT_FIELDS = [
   { key: 'mealType', label: 'Meal type only' },
   { key: 'frequency', label: 'Frequency (Regular / Special / Retired)' },
   { key: 'cuisine', label: 'Cuisine / category' },
+  { key: 'categories', label: 'Categories (for voting)' },
   { key: 'dish', label: 'What to order' },
   { key: 'url', label: 'URL / link' },
   { key: 'imageUrl', label: 'Image URL (preview)' },
@@ -51,6 +52,9 @@ const HEADER_HINTS = [
 
   [/^place$|name|restaurant|spot/i, 'name'],
   [/^meal$|^when$|when to eat/i, 'mealAndFrequency'],
+  // Exact "categories" (the exporter header) → the voting categories field,
+  // before the broader cuisine matcher below so it isn't swallowed.
+  [/^categories$/i, 'categories'],
   [/^cat$|category|cuisine|type$|food.?type/i, 'cuisine'],
   [/dish|order|meal\/?drink|drink/i, 'dish'],
   [/url|link|website|instagram|insta/i, 'url'],
@@ -223,9 +227,9 @@ export function autoDetectMapping(rows) {
     for (const [re, key] of HEADER_HINTS) {
       if (re.test(text) && !used.has(key)) {
         mapping[i] = key;
-        // Allow array fields to repeat (cuisine, location, diet, meat) but
-        // de-dupe scalar fields.
-        if (!['cuisine', 'location', 'diet', 'meat', 'ignore'].includes(key)) {
+        // Allow array fields to repeat (cuisine, categories, location, diet,
+        // meat) but de-dupe scalar fields.
+        if (!['cuisine', 'categories', 'location', 'diet', 'meat', 'ignore'].includes(key)) {
           used.add(key);
         }
         break;
@@ -317,6 +321,8 @@ function buildRestaurantFromRow(cells, mapping, now) {
 
   const cuisines = [];
   for (const v of collected.cuisine || []) cuisines.push(...splitTags(v));
+  const categories = [];
+  for (const v of collected.categories || []) categories.push(...splitTags(v));
   const locations = [];
   for (const v of collected.location || []) locations.push(...splitTags(v));
   const dietTags = [];
@@ -351,6 +357,7 @@ function buildRestaurantFromRow(cells, mapping, now) {
     imageUrl,
     description,
     cuisines: dedupe(cuisines),
+    categories: categories.length ? dedupe(categories) : undefined,
     locations: dedupe(locations),
     rating: stars,
     ratingLabel: ratingLabelRaw ? ratingLabelRaw : undefined,
