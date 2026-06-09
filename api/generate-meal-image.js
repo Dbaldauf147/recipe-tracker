@@ -80,7 +80,10 @@ export default async function handler(req, res) {
     // Mode 2: AI-generate via Gemini, then compress. Prefer VITE_GEMINI_API_KEY
     // (the key the website successfully uses for image generation) and send the
     // matching Referer so the key's HTTP-referrer restriction is satisfied.
-    const apiKey = process.env.VITE_GEMINI_API_KEY || process.env.GEMINI_API_KEY;
+    // Server-only key name first. The old VITE_-prefixed name is dangerous (Vite
+    // inlines it into client bundles) and is being retired — kept only as a
+    // transitional fallback until it's deleted from the project env.
+    const apiKey = process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY;
     if (!apiKey) return res.status(500).json({ error: 'GEMINI_API_KEY not configured' });
 
     // Require a valid Firebase ID token — this is the metered, paid path.

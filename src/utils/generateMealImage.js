@@ -1,5 +1,5 @@
 import { doc, getDoc, setDoc, deleteDoc, collection, getDocs } from 'firebase/firestore';
-import { db } from '../firebase';
+import { db, auth } from '../firebase';
 
 const MAX_SIZE = 800; // max width/height in pixels
 const QUALITY = 0.7; // JPEG compression quality
@@ -124,31 +124,25 @@ function compressBase64(base64, mimeType) {
  * Generate a meal image using Google Gemini API.
  */
 export async function generateMealImage(recipeId, recipeName, ingredients, uid) {
-  const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
-  if (!apiKey) throw new Error('Gemini API key not configured');
-
-  const ingredientList = (ingredients || [])
-    .filter(i => (i.ingredient || '').trim())
-    .map(i => i.ingredient.trim())
-    .slice(0, 10)
-    .join(', ');
-
-  const prompt = `Professional overhead food photography of ${recipeName} on a clean white plate, containing ${ingredientList}, natural lighting, appetizing, high quality, no text`;
+  // The Gemini key lives ONLY on the server now — it must never be in the
+  // browser bundle (a client-side `import.meta.env.VITE_GEMINI_API_KEY` is what
+  // leaked the old key into prep-day.com's public JS and got the project
+  // suspended). Call our server endpoint instead: it holds the key, meters per
+  // user, and returns an already-compressed JPEG data URL.
+  const idToken = await auth.currentUser?.getIdToken().catch(() => null);
+  if (!idToken) throw new Error('Sign in to generate images.');
 
   let lastErr;
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
-      const res = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image:generateContent?key=${apiKey}`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            contents: [{ parts: [{ text: prompt }] }],
-            generationConfig: { responseModalities: ['IMAGE', 'TEXT'] },
-          }),
-        }
-      );
+      const res = await fetch('/api/generate-meal-image', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${idToken}`,
+        },
+        body: JSON.stringify({ recipeName, ingredients }),
+      });
 
       if (!res.ok) {
         const errText = await res.text().catch(() => '');
@@ -160,15 +154,11 @@ export async function generateMealImage(recipeId, recipeName, ingredients, uid) 
       }
 
       const data = await res.json();
-      const parts = data?.candidates?.[0]?.content?.parts || [];
-      const imagePart = parts.find(p => p.inlineData);
-      if (!imagePart) {
+      const dataUrl = data?.dataUrl;
+      if (!dataUrl) {
         lastErr = new Error('No image in response');
         continue;
       }
-
-      const { mimeType, data: b64 } = imagePart.inlineData;
-      const dataUrl = await compressBase64(b64, mimeType);
 
       memoryCache[recipeId] = dataUrl;
       if (uid) {
