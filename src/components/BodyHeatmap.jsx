@@ -17,7 +17,7 @@ const GROUP_MUSCLES = {
 
 // Map a free-text muscle name (from the Exercises library's primary/secondary
 // columns) to library muscle ids. Best-effort regex matching.
-function nameToMuscles(raw) {
+export function nameToMuscles(raw) {
   const m = (raw || '').toLowerCase().trim();
   if (!m) return [];
   const out = new Set();
@@ -54,7 +54,7 @@ function nameToMuscles(raw) {
   return Array.from(out);
 }
 
-function splitMuscles(s) {
+export function splitMuscles(s) {
   return String(s || '').split(/[,;/&]/).map(x => x.trim()).filter(Boolean);
 }
 

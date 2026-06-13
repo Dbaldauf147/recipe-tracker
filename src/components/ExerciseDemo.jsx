@@ -164,7 +164,7 @@ export function ExerciseDemoThumb({ name, onOpen, size = 56 }) {
  * on a loop (so the rep "moves"), the muscles worked, and step-by-step
  * instructions. Renders a friendly message when the name can't be matched.
  */
-export function ExerciseDemo({ name, fallbackPrimary, fallbackSecondary }) {
+export function ExerciseDemo({ name, fallbackPrimary, fallbackSecondary, showMuscleMap = true }) {
   const [flip, setFlip] = useState(false);
   const [showSteps, setShowSteps] = useState(false);
   const { demo, aiImage, loading } = useExerciseDemoMatch(name, true);
@@ -196,14 +196,14 @@ export function ExerciseDemo({ name, fallbackPrimary, fallbackSecondary }) {
         <div style={{ marginTop: 6, fontSize: '0.8rem', color: 'var(--color-text-muted)', fontStyle: 'italic' }}>
           No form photos for this one — here’s an AI illustration instead.
         </div>
-        <MuscleBodyMap primary={mapPrimary} secondary={mapSecondary} />
+        {showMuscleMap && <MuscleBodyMap primary={mapPrimary} secondary={mapSecondary} />}
       </div>
     );
   }
   if (!demo) {
     return (
       <div>
-        <MuscleBodyMap primary={mapPrimary} secondary={mapSecondary} />
+        {showMuscleMap && <MuscleBodyMap primary={mapPrimary} secondary={mapSecondary} />}
         <div style={{ padding: '0.5rem 0', color: 'var(--color-text-muted)', fontStyle: 'italic', fontSize: '0.88rem' }}>
           No form demo found for this name. Try a more standard name (e.g. “Barbell Bench Press”).
         </div>
@@ -231,7 +231,7 @@ export function ExerciseDemo({ name, fallbackPrimary, fallbackSecondary }) {
         {demo.name}{demo.equipment ? `  ·  ${titleCase(demo.equipment)}` : ''}
       </div>
 
-      <MuscleBodyMap primary={mapPrimary} secondary={mapSecondary} />
+      {showMuscleMap && <MuscleBodyMap primary={mapPrimary} secondary={mapSecondary} />}
 
       {(primary.length > 0 || secondary.length > 0) && (
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 6 }}>

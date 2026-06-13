@@ -5369,7 +5369,7 @@ export function WorkoutPage({ onBack, user }) {
               <div style={{ fontWeight: 700, fontSize: '1rem' }}>{demoName} — How to do it</div>
               <button onClick={() => setDemoName(null)} style={{ background: 'none', border: 'none', fontSize: '1.4rem', cursor: 'pointer', lineHeight: 1 }}>&times;</button>
             </div>
-            <ExerciseDemo name={demoName} />
+            <ExerciseDemo name={demoName} showMuscleMap={false} />
           </div>
         </div>
       )}
