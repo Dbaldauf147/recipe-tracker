@@ -36,10 +36,10 @@ export function nameToMuscles(raw) {
     out.add('front-deltoids');
     out.add('back-deltoids');
   }
-  if (/bicep/.test(m)) out.add('biceps');
+  if (/bicep|brachialis/.test(m)) out.add('biceps');
   if (/tricep/.test(m)) out.add('triceps');
-  if (/forearm|brachiorad/.test(m)) out.add('forearm');
-  if (/abs\b|abdominal|rectus abdom|^core$/.test(m)) out.add('abs');
+  if (/forearm|brachiorad|grip|wrist/.test(m)) out.add('forearm');
+  if (/abs\b|abdominal|rectus abdom|\bcore\b/.test(m)) out.add('abs');
   if (/oblique/.test(m)) out.add('obliques');
   if (/quad|rectus femoris|vastus/.test(m)) out.add('quadriceps');
   if (/glute|buttock|gluteus/.test(m)) out.add('gluteal');
@@ -51,6 +51,12 @@ export function nameToMuscles(raw) {
   }
   if (/adductor/.test(m)) out.add('adductor');
   if (/abductor/.test(m)) out.add('abductors');
+  if (/neck|sternocleidomastoid|levator scap/.test(m)) out.add('neck');
+  if (/rotator cuff|infraspinatus|supraspinatus/.test(m)) {
+    out.add('back-deltoids');
+    out.add('front-deltoids');
+  }
+  if (/\bteres\b/.test(m)) out.add('upper-back');
   return Array.from(out);
 }
 
