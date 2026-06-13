@@ -518,12 +518,14 @@ export function RecipeDetail({ recipe, allTags = [], onSave, onDelete, onBack, o
     try { return localStorage.getItem('sunday-cook-mode') === 'true'; } catch { return false; }
   });
 
-  // "Keep screen on" — holds a Screen Wake Lock for 10 minutes (e.g. while
-  // cooking) then auto-releases. Uses the Web Wake Lock API where supported;
-  // re-acquires on tab re-focus since the browser drops the lock when hidden.
-  const KEEP_AWAKE_SECONDS = 10 * 60;
+  // "Keep screen on" — holds a Screen Wake Lock for a user-chosen number of
+  // minutes (e.g. while cooking) then auto-releases. Uses the Web Wake Lock API
+  // where supported; re-acquires on tab re-focus since the browser drops the
+  // lock when hidden.
+  const KEEP_AWAKE_MINUTE_OPTIONS = [10, 20, 30];
   const wakeLockSupported = typeof navigator !== 'undefined' && 'wakeLock' in navigator;
   const [keepAwakeRemaining, setKeepAwakeRemaining] = useState(0);
+  const [keepAwakeMinutes, setKeepAwakeMinutes] = useState(10);
   const wakeLockRef = useRef(null);
   const keepAwakeTimerRef = useRef(null);
 
@@ -540,8 +542,8 @@ export function RecipeDetail({ recipe, allTags = [], onSave, onDelete, onBack, o
     setKeepAwakeRemaining(0);
   };
 
-  const startKeepAwake = () => {
-    setKeepAwakeRemaining(KEEP_AWAKE_SECONDS);
+  const startKeepAwake = (minutes = keepAwakeMinutes) => {
+    setKeepAwakeRemaining(minutes * 60);
     reacquireWakeLock();
     if (keepAwakeTimerRef.current) clearInterval(keepAwakeTimerRef.current);
     keepAwakeTimerRef.current = setInterval(() => {
@@ -561,6 +563,13 @@ export function RecipeDetail({ recipe, allTags = [], onSave, onDelete, onBack, o
     else startKeepAwake();
   };
 
+  // Pick a duration. If the lock is already running, restart it at the new
+  // length (pass the value explicitly since the state update is async).
+  const chooseKeepAwakeMinutes = (minutes) => {
+    setKeepAwakeMinutes(minutes);
+    if (keepAwakeRemaining > 0) startKeepAwake(minutes);
+  };
+
   // Re-acquire the lock when the tab becomes visible again (browsers auto-drop
   // it on hide), and always release it when the component unmounts.
   useEffect(() => {
@@ -578,7 +587,7 @@ export function RecipeDetail({ recipe, allTags = [], onSave, onDelete, onBack, o
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [keepAwakeRemaining]);
 
-  // Auto-enable the 10-minute lock whenever Cook Mode turns on.
+  // Auto-enable the lock (at the chosen duration) whenever Cook Mode turns on.
   useEffect(() => {
     if (cookMode && wakeLockSupported) startKeepAwake();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -3069,15 +3078,28 @@ export function RecipeDetail({ recipe, allTags = [], onSave, onDelete, onBack, o
             {cookMode ? 'Standard View' : 'Cook Mode'}
           </button>
           {wakeLockSupported && (
-            <button
-              className={keepAwakeRemaining > 0 ? styles.cookModeBtnActive : styles.cookModeBtn}
-              onClick={toggleKeepAwake}
-              title="Stop the screen from dimming or locking while you cook"
-            >
-              {keepAwakeRemaining > 0
-                ? `🔆 Screen on · ${Math.floor(keepAwakeRemaining / 60)}:${String(keepAwakeRemaining % 60).padStart(2, '0')}`
-                : '🔆 Keep screen on (10 min)'}
-            </button>
+            <>
+              <button
+                className={keepAwakeRemaining > 0 ? styles.cookModeBtnActive : styles.cookModeBtn}
+                onClick={toggleKeepAwake}
+                title="Stop the screen from dimming or locking while you cook"
+              >
+                {keepAwakeRemaining > 0
+                  ? `🔆 Screen on · ${Math.floor(keepAwakeRemaining / 60)}:${String(keepAwakeRemaining % 60).padStart(2, '0')}`
+                  : `🔆 Keep screen on (${keepAwakeMinutes} min)`}
+              </button>
+              {KEEP_AWAKE_MINUTE_OPTIONS.map(min => (
+                <button
+                  key={min}
+                  className={styles.cookModeBtn}
+                  style={keepAwakeMinutes === min ? { borderColor: 'var(--color-accent)', color: 'var(--color-accent)' } : undefined}
+                  onClick={() => chooseKeepAwakeMinutes(min)}
+                  title={`Keep the screen on for ${min} minutes`}
+                >
+                  {min} min
+                </button>
+              ))}
+            </>
           )}
         </div>
 
