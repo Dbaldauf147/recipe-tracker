@@ -5,6 +5,11 @@ import { useEffect, useState } from 'react';
 // instant.
 const CACHE_PREFIX = 'sunday-exercise-demo-v1:';
 
+// Passive / recovery / yoga entries that have no demonstrable "form", so we
+// don't burn an AI generation trying to illustrate them when the form-photo
+// lookup misses.
+const NON_DEMO = /\b(sauna|hot\s*tub|hottub|steam\s*room|yoga|vinyasa|bikram|yin|warm\s*up|cool\s*down|rest\s*day|nap|sleep|meditat|walk|jog|run|recumbent|bike|cycling|elliptical|stairmaster)\b/i;
+
 function titleCase(s) {
   return (s || '').replace(/\b\w/g, c => c.toUpperCase());
 }
@@ -16,6 +21,7 @@ function titleCase(s) {
  */
 export function ExerciseDemo({ name }) {
   const [demo, setDemo] = useState(null);
+  const [aiImage, setAiImage] = useState(null);
   const [loading, setLoading] = useState(false);
   const [flip, setFlip] = useState(false);
   const [showSteps, setShowSteps] = useState(false);
@@ -24,6 +30,7 @@ export function ExerciseDemo({ name }) {
     let cancelled = false;
     const n = (name || '').trim();
     setDemo(null);
+    setAiImage(null);
     setShowSteps(false);
     if (!n) return;
     const key = CACHE_PREFIX + n.toLowerCase();
@@ -31,24 +38,61 @@ export function ExerciseDemo({ name }) {
       const raw = localStorage.getItem(key);
       if (raw) {
         const cached = JSON.parse(raw);
-        if (cached && 'demo' in cached) { setDemo(cached.demo); return; }
+        if (cached && ('demo' in cached || 'ai' in cached)) {
+          setDemo(cached.demo || null);
+          setAiImage(cached.ai || null);
+          return;
+        }
       }
     } catch { /* ignore */ }
+
     setLoading(true);
-    fetch('/api/exercise-demo', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: n }),
-    })
-      .then(r => (r.ok ? r.json() : { match: null }))
-      .then(d => {
-        if (cancelled) return;
-        const m = d && d.match ? d.match : null;
-        setDemo(m);
-        try { localStorage.setItem(key, JSON.stringify({ demo: m })); } catch { /* ignore */ }
-      })
-      .catch(() => { if (!cancelled) setDemo(null); })
-      .finally(() => { if (!cancelled) setLoading(false); });
+    (async () => {
+      // 1. Try the free-exercise-db form photos.
+      let match = null;
+      try {
+        const r = await fetch('/api/exercise-demo', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: n }),
+        });
+        const d = r.ok ? await r.json() : { match: null };
+        match = d && d.match ? d.match : null;
+      } catch { match = null; }
+      if (cancelled) return;
+      if (match) {
+        setDemo(match);
+        setLoading(false);
+        try { localStorage.setItem(key, JSON.stringify({ demo: match })); } catch { /* ignore */ }
+        return;
+      }
+
+      // 2. No form match. Recovery/yoga/passive entries have no "form" to show.
+      if (NON_DEMO.test(n)) {
+        setLoading(false);
+        try { localStorage.setItem(key, JSON.stringify({ demo: null })); } catch { /* ignore */ }
+        return;
+      }
+
+      // 3. Real exercise we couldn't match — fall back to an AI illustration.
+      let aiUrl = null;
+      try {
+        const r = await fetch('/api/exercise-image', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: n }),
+        });
+        if (r.ok) { const d = await r.json(); aiUrl = d && d.url ? d.url : null; }
+      } catch { aiUrl = null; }
+      if (cancelled) return;
+      setAiImage(aiUrl);
+      setLoading(false);
+      // Only cache a positive result so transient generation failures retry.
+      if (aiUrl) {
+        try { localStorage.setItem(key, JSON.stringify({ demo: null, ai: aiUrl })); } catch { /* ignore */ }
+      }
+    })();
+
     return () => { cancelled = true; };
   }, [name]);
 
@@ -60,6 +104,19 @@ export function ExerciseDemo({ name }) {
 
   if (loading) {
     return <div style={{ padding: '0.75rem 0', color: 'var(--color-text-muted)' }}>Finding a demo…</div>;
+  }
+  if (!demo && aiImage) {
+    return (
+      <div>
+        <div style={{ position: 'relative', width: '100%', aspectRatio: '1', borderRadius: 12, overflow: 'hidden', background: '#fff', border: '1px solid var(--color-border)' }}>
+          <img src={aiImage} alt="" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+          <span style={{ position: 'absolute', top: 8, right: 8, background: 'rgba(0,0,0,0.55)', color: '#fff', fontSize: 10, fontWeight: 700, borderRadius: 999, padding: '2px 8px' }}>✨ AI illustration</span>
+        </div>
+        <div style={{ marginTop: 6, fontSize: '0.8rem', color: 'var(--color-text-muted)', fontStyle: 'italic' }}>
+          No form photos for this one — here’s an AI illustration instead.
+        </div>
+      </div>
+    );
   }
   if (!demo) {
     return (
