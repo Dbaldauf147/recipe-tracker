@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { MuscleBodyMap, toMuscleList } from './MuscleMap';
 
 // Matched exercise demos from the public-domain free-exercise-db, via the
 // /api/exercise-demo endpoint. Cached in localStorage so repeat opens are
@@ -15,24 +16,23 @@ function titleCase(s) {
 }
 
 /**
- * Real demonstration for an exercise: the start/finish form photos cross-faded
- * on a loop (so the rep "moves"), the muscles worked, and step-by-step
- * instructions. Renders a friendly message when the name can't be matched.
+ * Shared fetch+cache for an exercise demo match. Returns { demo, loading }.
+ * `enabled` lets a caller defer the network call until needed — e.g. a
+ * thumbnail that only loads once it scrolls into view. The localStorage cache
+ * key is shared with every caller, so the table thumbnails and the full-size
+ * modal never re-fetch the same name.
  */
-export function ExerciseDemo({ name }) {
+export function useExerciseDemoMatch(name, enabled = true) {
   const [demo, setDemo] = useState(null);
   const [aiImage, setAiImage] = useState(null);
   const [loading, setLoading] = useState(false);
-  const [flip, setFlip] = useState(false);
-  const [showSteps, setShowSteps] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
     const n = (name || '').trim();
     setDemo(null);
     setAiImage(null);
-    setShowSteps(false);
-    if (!n) return;
+    if (!n || !enabled) return;
     const key = CACHE_PREFIX + n.toLowerCase();
     try {
       const raw = localStorage.getItem(key);
@@ -94,7 +94,88 @@ export function ExerciseDemo({ name }) {
     })();
 
     return () => { cancelled = true; };
-  }, [name]);
+  }, [name, enabled]);
+
+  return { demo, aiImage, loading };
+}
+
+/**
+ * Compact, lazy-loaded thumbnail of an exercise's form photos — cross-faded on
+ * a loop so the rep "moves". Defers its fetch until scrolled into view, and
+ * calls onOpen(name) when clicked (the parent shows the full ExerciseDemo).
+ */
+export function ExerciseDemoThumb({ name, onOpen, size = 56 }) {
+  const ref = useRef(null);
+  const [visible, setVisible] = useState(false);
+  const [flip, setFlip] = useState(false);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || visible) return;
+    if (typeof IntersectionObserver === 'undefined') { setVisible(true); return; }
+    const io = new IntersectionObserver(entries => {
+      if (entries.some(e => e.isIntersecting)) { setVisible(true); io.disconnect(); }
+    }, { rootMargin: '250px' });
+    io.observe(el);
+    return () => io.disconnect();
+  }, [visible]);
+
+  const { demo, loading } = useExerciseDemoMatch(name, visible);
+  const imgs = demo?.images || [];
+
+  useEffect(() => {
+    if (imgs.length < 2) return;
+    const id = setInterval(() => setFlip(f => !f), 1300);
+    return () => clearInterval(id);
+  }, [imgs.length]);
+
+  const box = { width: size, height: size, borderRadius: 8, flexShrink: 0 };
+
+  return (
+    <div ref={ref} style={box}>
+      {imgs.length > 0 ? (
+        <button
+          type="button"
+          onClick={() => onOpen?.(name)}
+          title={`${demo?.name || name} — tap for form demo`}
+          style={{ ...box, position: 'relative', overflow: 'hidden', padding: 0, cursor: 'pointer', border: '1px solid var(--color-border)', background: '#fff' }}
+        >
+          <img src={imgs[0]} alt="" loading="lazy" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
+          {imgs[1] && (
+            <img src={imgs[1]} alt="" loading="lazy" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', opacity: flip ? 1 : 0, transition: 'opacity 0.6s ease-in-out' }} />
+          )}
+        </button>
+      ) : (
+        <button
+          type="button"
+          onClick={() => onOpen?.(name)}
+          title={`${name} — muscle map`}
+          style={{ ...box, display: 'flex', alignItems: 'center', justifyContent: 'center', border: '1px dashed var(--color-border)', background: 'transparent', color: 'var(--color-text-muted)', fontSize: 18, cursor: 'pointer' }}
+        >
+          {!visible || loading ? '…' : '💪'}
+        </button>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Real demonstration for an exercise: the start/finish form photos cross-faded
+ * on a loop (so the rep "moves"), the muscles worked, and step-by-step
+ * instructions. Renders a friendly message when the name can't be matched.
+ */
+export function ExerciseDemo({ name, fallbackPrimary, fallbackSecondary }) {
+  const [flip, setFlip] = useState(false);
+  const [showSteps, setShowSteps] = useState(false);
+  const { demo, aiImage, loading } = useExerciseDemoMatch(name, true);
+
+  // Body-map muscles: prefer the matched demo's data; otherwise fall back to the
+  // exercise's own library Primary/Secondary columns, so the map shows for every
+  // exercise — even ones with no form-photo match.
+  const mapPrimary = demo?.primaryMuscles?.length ? demo.primaryMuscles : toMuscleList(fallbackPrimary);
+  const mapSecondary = demo?.secondaryMuscles?.length ? demo.secondaryMuscles : toMuscleList(fallbackSecondary);
+
+  useEffect(() => { setShowSteps(false); }, [name]);
 
   useEffect(() => {
     if (!demo || (demo.images || []).length < 2) return;
@@ -115,13 +196,17 @@ export function ExerciseDemo({ name }) {
         <div style={{ marginTop: 6, fontSize: '0.8rem', color: 'var(--color-text-muted)', fontStyle: 'italic' }}>
           No form photos for this one — here’s an AI illustration instead.
         </div>
+        <MuscleBodyMap primary={mapPrimary} secondary={mapSecondary} />
       </div>
     );
   }
   if (!demo) {
     return (
-      <div style={{ padding: '0.5rem 0', color: 'var(--color-text-muted)', fontStyle: 'italic', fontSize: '0.88rem' }}>
-        No form demo found for this name. Try a more standard name (e.g. “Barbell Bench Press”).
+      <div>
+        <MuscleBodyMap primary={mapPrimary} secondary={mapSecondary} />
+        <div style={{ padding: '0.5rem 0', color: 'var(--color-text-muted)', fontStyle: 'italic', fontSize: '0.88rem' }}>
+          No form demo found for this name. Try a more standard name (e.g. “Barbell Bench Press”).
+        </div>
       </div>
     );
   }
@@ -145,6 +230,8 @@ export function ExerciseDemo({ name }) {
       <div style={{ fontWeight: 700, fontSize: '0.88rem', marginTop: 8 }}>
         {demo.name}{demo.equipment ? `  ·  ${titleCase(demo.equipment)}` : ''}
       </div>
+
+      <MuscleBodyMap primary={mapPrimary} secondary={mapSecondary} />
 
       {(primary.length > 0 || secondary.length > 0) && (
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 6 }}>

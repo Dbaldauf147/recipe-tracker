@@ -103,6 +103,7 @@
 .retiredRow { opacity: 0.55; }
 
 .colName { width: 18%; }
+.colDemo { width: 64px; text-align: center; }
 .colGroup { width: 8%; }
 .colMuscleGroup { width: 9%; }
 .colMuscles { width: 14%; }

@@ -144,6 +144,39 @@ function saveWorkoutTypes(data, uid) {
   if (uid) saveField(uid, 'workoutTypes', data);
 }
 
+// Explicit category per workout type name, so the calendar buckets a type by
+// the user's choice rather than guessing from the name. Shape:
+// { [typeName]: 'weights' | 'cardio' | 'yoga' }. Synced to the user doc and
+// shared with the mobile app via users/{uid}.workoutTypeCategories.
+const WORKOUT_TYPE_CATEGORIES_KEY = 'sunday-workout-type-categories';
+const WORKOUT_CATEGORIES = ['weights', 'cardio', 'yoga'];
+
+// Best-effort category from a type's name; used to seed the explicit category
+// when a new type is added (the user can still override it). Mirrors the
+// calendar's classification regexes (CAL_*_RE below).
+function guessWorkoutCategory(name) {
+  const t = name || '';
+  if (CAL_YOGA_RE.test(t)) return 'yoga';
+  if (CAL_CARDIO_RE.test(t)) return 'cardio';
+  return 'weights';
+}
+
+function loadWorkoutTypeCategories() {
+  try {
+    const raw = localStorage.getItem(WORKOUT_TYPE_CATEGORIES_KEY);
+    if (raw) {
+      const obj = JSON.parse(raw);
+      if (obj && typeof obj === 'object') return obj;
+    }
+  } catch { /* fall through */ }
+  return {};
+}
+
+function saveWorkoutTypeCategories(map, uid) {
+  localStorage.setItem(WORKOUT_TYPE_CATEGORIES_KEY, JSON.stringify(map));
+  if (uid) saveField(uid, 'workoutTypeCategories', map);
+}
+
 const SKIP_DATES_KEY = 'sunday-workout-type-skip-dates';
 
 function loadSkipDates() {
@@ -1988,8 +2021,12 @@ function GroupExercisePicker({ initialGroup, exercisesForGroup, addExerciseToLib
 // with no workout.
 const CAL_YOGA_RE = /yoga|vinyasa|pilates|mobility|stretch/i;
 const CAL_CARDIO_RE = /cardio|running|\brun\b|jog|cycl|spin|\bbike\b|biking|swim|hiit|elliptical|treadmill|stair|sprint|conditioning|walk|hike/i;
-function workoutCalendarCategory(w) {
+function workoutCalendarCategory(w, categories) {
   const t = w?.workoutType || '';
+  // Explicit, user-chosen category wins. Falls back to keyword guessing for
+  // types tagged before categories existed (or imported from elsewhere).
+  const explicit = categories?.[t];
+  if (explicit === 'weights' || explicit === 'cardio' || explicit === 'yoga') return explicit;
   if (CAL_YOGA_RE.test(t)) return 'yoga';
   if (CAL_CARDIO_RE.test(t)) return 'cardio';
   return 'weights';
@@ -2007,7 +2044,7 @@ const CAL_DEFAULT_GOALS = { weights: 3, cardio: 1, yoga: 1, rest: 2 };
 
 // Month-grid calendar of training days, split into weights / cardio / yoga, with
 // per-week goal progress and a REST DAY marker on days with no logged workout.
-function WorkoutCalendarView({ workouts, user }) {
+function WorkoutCalendarView({ workouts, user, typeCategories }) {
   const now = new Date();
   const [monthStart, setMonthStart] = useState(() => new Date(now.getFullYear(), now.getMonth(), 1));
   // localStorage gives an instant value; Firestore (below) is the cross-device
@@ -2045,7 +2082,7 @@ function WorkoutCalendarView({ workouts, user }) {
     const m = {};
     for (const w of workouts || []) {
       if (!w?.date) continue;
-      const cat = workoutCalendarCategory(w);
+      const cat = workoutCalendarCategory(w, typeCategories);
       if (!m[w.date]) m[w.date] = { items: [] };
       const label = (w.workoutType || '').trim();
       const key = `${cat}|${label.toLowerCase()}`;
@@ -2054,7 +2091,7 @@ function WorkoutCalendarView({ workouts, user }) {
       }
     }
     return m;
-  }, [workouts]);
+  }, [workouts, typeCategories]);
 
   const year = monthStart.getFullYear();
   const month = monthStart.getMonth();
@@ -2432,6 +2469,7 @@ export function WorkoutPage({ onBack, user }) {
     return map;
   }, [exerciseLibrary]);
   const [workoutTypes, setWorkoutTypes] = useState(loadWorkoutTypes);
+  const [workoutTypeCategories, setWorkoutTypeCategories] = useState(loadWorkoutTypeCategories);
   const [typeSkipDates, setTypeSkipDates] = useState(loadSkipDates);
   const [editingTypes, setEditingTypes] = useState(false);
   const [addingType, setAddingType] = useState(false);
@@ -3647,6 +3685,32 @@ export function WorkoutPage({ onBack, user }) {
                     style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', cursor: 'default' }}
                   >
                     <span className={styles.workoutTypePillName}>{t}</span>
+                    {(() => {
+                      const cat = workoutTypeCategories[t] || guessWorkoutCategory(t);
+                      const nextCat = WORKOUT_CATEGORIES[(WORKOUT_CATEGORIES.indexOf(cat) + 1) % WORKOUT_CATEGORIES.length];
+                      return (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const nextCats = { ...workoutTypeCategories, [t]: nextCat };
+                            setWorkoutTypeCategories(nextCats);
+                            saveWorkoutTypeCategories(nextCats, user?.uid);
+                          }}
+                          title={`Category: ${cat} — click to change (counts on the calendar as ${cat})`}
+                          style={{
+                            border: '1px solid currentColor',
+                            background: 'transparent',
+                            color: 'inherit',
+                            borderRadius: '0.4rem',
+                            padding: '0.1rem 0.4rem',
+                            fontSize: '0.7rem',
+                            cursor: 'pointer',
+                          }}
+                        >
+                          {CAL_ICON[cat]} {cat}
+                        </button>
+                      );
+                    })()}
                     <button
                       type="button"
                       onClick={() => skipWorkoutType(t)}
@@ -3674,6 +3738,12 @@ export function WorkoutPage({ onBack, user }) {
                         const next = workoutTypes.filter(x => x !== t);
                         setWorkoutTypes(next);
                         saveWorkoutTypes(next, user?.uid);
+                        if (workoutTypeCategories[t]) {
+                          const nextCats = { ...workoutTypeCategories };
+                          delete nextCats[t];
+                          setWorkoutTypeCategories(nextCats);
+                          saveWorkoutTypeCategories(nextCats, user?.uid);
+                        }
                         if (workoutType === t) setWorkoutType('');
                       }}
                       title={`Remove "${t}" from your workout types`}
@@ -3737,6 +3807,11 @@ export function WorkoutPage({ onBack, user }) {
                     const next = [...workoutTypes, name];
                     setWorkoutTypes(next);
                     saveWorkoutTypes(next, user?.uid);
+                    // Seed an explicit category (best-effort guess from the
+                    // name); editable via the category button in edit mode.
+                    const nextCats = { ...workoutTypeCategories, [name]: guessWorkoutCategory(name) };
+                    setWorkoutTypeCategories(nextCats);
+                    saveWorkoutTypeCategories(nextCats, user?.uid);
                   }
                   setNewTypeName('');
                   setAddingType(false);
@@ -4444,7 +4519,7 @@ export function WorkoutPage({ onBack, user }) {
       )}
 
       {viewMode === 'calendar' && (
-        <WorkoutCalendarView workouts={workouts} user={user} />
+        <WorkoutCalendarView workouts={workouts} user={user} typeCategories={workoutTypeCategories} />
       )}
 
       {viewMode === 'charts' && (() => {

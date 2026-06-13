@@ -1,5 +1,6 @@
 import { useState, useMemo } from 'react';
 import styles from './ExerciseLibrary.module.css';
+import { ExerciseDemo, ExerciseDemoThumb } from './ExerciseDemo';
 
 const HEADER_ALIASES = {
   exercise: ['workout', 'exercise', 'exercises', 'name'],
@@ -191,9 +192,11 @@ export function ExerciseLibrary({ library, onChange }) {
   const [importError, setImportError] = useState('');
   const [colSearch, setColSearch] = useState({});
   const [sort, setSort] = useState({ col: '', dir: 'asc' });
+  const [demoName, setDemoName] = useState(null);
 
   const COLUMNS = useMemo(() => [
     { key: 'exercise', label: 'Exercise', cls: 'colName', searchable: true, sortable: true, get: e => e.exercise },
+    { key: 'demo', label: 'Demo', cls: 'colDemo', searchable: false, sortable: false, get: () => '' },
     { key: 'muscleGroup', label: 'Muscle Group', cls: 'colMuscleGroup', searchable: true, sortable: true, get: e => effectiveMuscleGroup(e) },
     { key: 'primary', label: 'Primary', cls: 'colMuscles', searchable: true, sortable: true, get: e => e.primaryMuscles },
     { key: 'secondary', label: 'Secondary', cls: 'colMuscles', searchable: true, sortable: true, get: e => e.secondaryMuscles },
@@ -424,6 +427,9 @@ export function ExerciseLibrary({ library, onChange }) {
                     Retired
                   </label>
                 </td>
+                <td className={styles.colDemo}>
+                  <ExerciseDemoThumb name={e.exercise} onOpen={setDemoName} />
+                </td>
                 <td>
                   <input
                     list="exercise-known-groups"
@@ -580,6 +586,21 @@ export function ExerciseLibrary({ library, onChange }) {
           </div>
         </div>
       )}
+
+      {demoName && (() => {
+        const row = library.find(x => x.exercise === demoName) || {};
+        return (
+          <div className={styles.modalBackdrop} onClick={() => setDemoName(null)}>
+            <div className={styles.modal} onClick={e => e.stopPropagation()} style={{ maxWidth: 440 }}>
+              <div className={styles.modalHeader}>
+                <h2>{demoName} — How to do it</h2>
+                <button className={styles.closeBtn} onClick={() => setDemoName(null)}>×</button>
+              </div>
+              <ExerciseDemo name={demoName} fallbackPrimary={row.primaryMuscles} fallbackSecondary={row.secondaryMuscles} />
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }
