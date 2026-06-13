@@ -9,13 +9,19 @@ export default async function handler(req, res) {
 
   const { toEmail, toName, fromUsername, message, type, recipeName, mealName, toPhone, smsBody } = req.body || {};
 
-  // SMS reminder
-  if (type === 'sms-reminder' && toPhone) {
+  // Reminder (meal/weight). MUST be fully handled here so it can never fall
+  // through to the friend-request template below: the website's reminder caller
+  // sends type:'sms-reminder' with an email but NO toPhone, and gating this on
+  // `&& toPhone` previously skipped the whole block, mis-routing every reminder
+  // into a bogus "@A user sent you a friend request" email. Send as SMS only
+  // when a phone number AND Twilio are configured; otherwise send by email.
+  if (type === 'sms-reminder') {
     const twilioSid = process.env.TWILIO_ACCOUNT_SID;
     const twilioAuth = process.env.TWILIO_AUTH_TOKEN;
     const twilioFrom = process.env.TWILIO_PHONE_NUMBER;
-    if (!twilioSid || !twilioAuth || !twilioFrom) {
-      // Fall back to email if Twilio not configured
+    const canSendSms = toPhone && twilioSid && twilioAuth && twilioFrom;
+    if (!canSendSms) {
+      // No phone number (or Twilio not configured) → send the reminder by email.
       if (toEmail) {
         try {
           await sendMail({
@@ -25,11 +31,11 @@ export default async function handler(req, res) {
           });
           return res.status(200).send('Email reminder sent');
         } catch (err) {
-          console.error('notify-friend-request fallback email error:', err);
+          console.error('notify-friend-request reminder email error:', err);
           return res.status(500).send('Failed');
         }
       }
-      return res.status(400).send('Twilio not configured and no email provided');
+      return res.status(400).send('No phone number or email to send the reminder to');
     }
     try {
       const twilioRes = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${twilioSid}/Messages.json`, {
