@@ -11,9 +11,17 @@ const SUB_TABS = [
   { id: 'kpi', label: 'KPI' },
   { id: 'routines', label: 'Routines' },
   { id: 'daily', label: 'Daily Routine' },
+  { id: 'automatic', label: 'Automatic' },
   { id: 'history', label: 'History' },
+  { id: 'onhold', label: 'On Hold' },
   { id: 'habits', label: 'Habits' },
 ];
+// "On Hold" habits are paused — hidden from the Routines/Daily lists and parked
+// in their own tab, so they don't clutter the active routines.
+const ON_HOLD_STATUS = 'On Hold';
+// Statuses hidden from the Routines + Daily Routine lists. On Hold has its own
+// tab; Abandoned is managed in the main Habits table. Mirrors the mobile app.
+const PARKED_STATUSES = [ON_HOLD_STATUS, 'Abandoned'];
 
 const DAILY_ROUTINES = ['Morning', 'Lunch', 'Afternoon', 'After Work', 'Bedtime'];
 const STATUS_OPTIONS = ['Automatically', 'Most Days', 'Some Days', 'Rarely', 'On Hold', 'Not Started', 'Abandoned'];
@@ -21,6 +29,8 @@ const STATUS_OPTIONS = ['Automatically', 'Most Days', 'Some Days', 'Rarely', 'On
 // `cadence` (NOT part of HABIT_FIELDS, so the paste-from-sheet column mapping
 // stays aligned to the spreadsheet).
 const CADENCE_OPTIONS = ['Daily', 'Weekly', 'Monthly', 'Annually'];
+// Section order for the Routines tab, which groups by cadence/frequency.
+const CADENCE_RANK = { Daily: 0, Weekly: 1, Monthly: 2, Annually: 3 };
 const ACCENT = '#3B6B9C';
 
 function routineType(routine) {
@@ -49,11 +59,20 @@ function routineRank(routine) {
   const numMatch = r.match(/(\d+)\s*$/);
   return { typeOrder, dailyIdx: dailyIdx < 0 ? 50 : dailyIdx, num: numMatch ? parseInt(numMatch[1], 10) : 9999 };
 }
+// Manual drag-order within a routine group. Missing → Infinity so unordered
+// habits sink below explicitly-ordered ones. Shared with the mobile app.
+function habitOrderNum(h) {
+  const n = parseFloat(h?.order);
+  return Number.isFinite(n) ? n : Infinity;
+}
 function compareByRoutine(a, b) {
   const ra = routineRank(a.routine), rb = routineRank(b.routine);
   if (ra.typeOrder !== rb.typeOrder) return ra.typeOrder - rb.typeOrder;
   if (ra.dailyIdx !== rb.dailyIdx) return ra.dailyIdx - rb.dailyIdx;
   if (ra.num !== rb.num) return ra.num - rb.num;
+  // Same routine group: manual drag order wins, then legacy Daily #, then name.
+  const oa = habitOrderNum(a), ob = habitOrderNum(b);
+  if (oa !== ob) return oa - ob;
   const da = parseInt(a.dailyOrder, 10), db = parseInt(b.dailyOrder, 10);
   if (Number.isFinite(da) && Number.isFinite(db) && da !== db) return da - db;
   return (a.name || '').localeCompare(b.name || '');
@@ -106,12 +125,47 @@ function periodKey(cadence, date = new Date()) {
   }
 }
 
+// A cell was auto-set by the automation engine iff habitLogAuto recorded the
+// same mark the cell currently holds. If the mark was hand-changed or erased,
+// the values diverge and the "(A)" badge disappears on its own.
+function isAutoMark(habitLogAuto, key, habitId, currentMark) {
+  return !!currentMark && habitLogAuto?.[key]?.[habitId] === currentMark;
+}
+// Small "(A)" badge shown next to an auto-logged mark.
+function AutoBadge({ title = 'Automatically logged' }) {
+  return (
+    <span title={title} style={{ fontSize: '0.6rem', fontWeight: 800, color: '#2563eb', background: '#dbeafe', border: '1px solid #bfdbfe', borderRadius: 4, padding: '0 3px', marginLeft: 3, verticalAlign: 'middle', lineHeight: 1.4 }}>A</span>
+  );
+}
+
 function periodHint(cadence) {
   switch (cadenceCanon(cadence)) {
     case 'Weekly': return 'This week';
     case 'Monthly': return 'This month';
     case 'Annually': return 'This year';
     default: return 'Today';
+  }
+}
+
+// The key for the period immediately before the current one (yesterday / last
+// week / last month / last year, per cadence).
+function prevPeriodKey(cadence, date = new Date()) {
+  const d = new Date(date);
+  switch (cadenceCanon(cadence)) {
+    case 'Weekly': d.setDate(d.getDate() - 7); break;
+    case 'Monthly': d.setMonth(d.getMonth() - 1); break;
+    case 'Annually': d.setFullYear(d.getFullYear() - 1); break;
+    default: d.setDate(d.getDate() - 1);
+  }
+  return periodKey(cadence, d);
+}
+
+function prevPeriodHint(cadence) {
+  switch (cadenceCanon(cadence)) {
+    case 'Weekly': return 'Last week';
+    case 'Monthly': return 'Last month';
+    case 'Annually': return 'Last year';
+    default: return 'Yesterday';
   }
 }
 
@@ -147,35 +201,200 @@ function periodLabel(key) {
 }
 
 const MARK_META = {
-  done: { label: 'Did it', color: '#16a34a', icon: '✓' },
-  skipped: { label: 'Skip', color: '#64748b', icon: '⏭' },
-  missed: { label: 'No', color: '#dc2626', icon: '✕' },
+  exceeded: { label: 'Above & Beyond', short: 'Gold', color: '#d4a017', icon: '★' },
+  done: { label: 'Did it', short: 'Did it', color: '#16a34a', icon: '✓' },
+  skipped: { label: 'Skip', short: 'Skip', color: '#64748b', icon: '⏭' },
+  missed: { label: 'No', short: 'No', color: '#dc2626', icon: '✕' },
 };
+// Canonical display/sort order, best → worst.
+const MARK_ORDER = ['exceeded', 'done', 'skipped', 'missed'];
+// The per-day menu opened by clicking a strip cell: the four marks + Erase.
+const DAY_MENU_OPTIONS = [
+  ...MARK_ORDER.map(m => ({ mark: m, ...MARK_META[m] })),
+  { mark: null, label: 'Erase', color: '#94a3b8', icon: '⌫' },
+];
+
+// ---- Automatic habit tracking (config + reference hub) ---------------------
+// Rules are stored on the user doc as `habitAutomations`: an array of
+// { id, habitId, source, trigger, threshold, mark, enabled, logic }. This tab
+// is the control panel where the rules are authored; the engine that actually
+// fires them (reading Prep Day entries / HealthKit / webhook events and calling
+// setMark) is wired up separately. Sources + triggers are curated below.
+const AUTO_SOURCES = [
+  { id: 'prepday', label: 'Prep Day entry', icon: '🍽️', blurb: 'Reacts to things already logged in Prep Day (workouts, meals, weigh-ins).' },
+  { id: 'rally', label: 'Rally', icon: '📞', blurb: 'Reacts to activity in your Rally app — e.g. how many people you reached out to today.' },
+  { id: 'gratitude', label: 'Gratitude', icon: '🙏', blurb: 'Reacts to your Gratitude app — e.g. logging all 3 of today\'s gratitudes.' },
+  { id: 'healthkit', label: 'Apple Health', icon: '❤️', blurb: 'Reads HealthKit metrics from the iOS app (steps, workouts, sleep, mindfulness).' },
+  { id: 'external', label: 'External / webhook', icon: '🔗', blurb: 'Another tool POSTs an event to Prep Day to mark the habit.' },
+];
+const AUTO_TRIGGERS = {
+  prepday: [
+    { id: 'workout_logged', label: 'A workout is logged that day' },
+    { id: 'meal_logged', label: 'Any meal is logged that day' },
+    { id: 'all_meals_logged', label: 'All 3 main meals logged' },
+    { id: 'weighin_logged', label: 'A weigh-in is recorded' },
+    { id: 'recipe_prepped', label: 'A planned recipe is prepped' },
+    { id: 'custom', label: 'Custom — describe in Logic' },
+  ],
+  rally: [
+    { id: 'reach_out_goal', label: 'Reached out to at least', numeric: true, unit: 'people (default 2)' },
+    { id: 'custom', label: 'Custom — describe in Logic' },
+  ],
+  gratitude: [
+    { id: 'gratitude_goal', label: 'Logged at least', numeric: true, unit: 'gratitudes (default 3)' },
+    { id: 'custom', label: 'Custom — describe in Logic' },
+  ],
+  healthkit: [
+    { id: 'steps', label: 'Steps reach', numeric: true, unit: 'steps' },
+    { id: 'active_energy', label: 'Active energy reaches', numeric: true, unit: 'kcal' },
+    { id: 'exercise_minutes', label: 'Exercise minutes reach', numeric: true, unit: 'min' },
+    { id: 'hk_workout', label: 'A Health workout is recorded' },
+    { id: 'mindful_minutes', label: 'Mindful minutes reach', numeric: true, unit: 'min' },
+    { id: 'sleep_hours', label: 'Sleep reaches', numeric: true, unit: 'hrs' },
+    { id: 'custom', label: 'Custom — describe in Logic' },
+  ],
+  external: [
+    { id: 'webhook', label: 'Webhook event received' },
+    { id: 'custom', label: 'Custom — describe in Logic' },
+  ],
+};
+function triggerDef(source, trigger) {
+  return (AUTO_TRIGGERS[source] || []).find(t => t.id === trigger) || null;
+}
+// The webhook endpoint external tools would POST to (receiver not live yet).
+const AUTO_WEBHOOK_URL = 'https://prep-day.com/api/habit-event';
+
+// Period keys in the rolling KPI window for a habit's cadence: last 30 days
+// (daily), last 4 weeks (weekly), last 12 months (monthly), last 5 years
+// (annual). "Monthly window for daily/weekly, annual for monthly."
+function habitWindowKeys(cadence) {
+  const canon = cadenceCanon(cadence);
+  const now = new Date();
+  const keys = [];
+  if (canon === 'Weekly') {
+    for (let i = 0; i < 4; i++) keys.push(isoWeekKey(new Date(now.getFullYear(), now.getMonth(), now.getDate() - i * 7)));
+  } else if (canon === 'Monthly') {
+    for (let i = 0; i < 12; i++) { const d = new Date(now.getFullYear(), now.getMonth() - i, 1); keys.push(`${d.getFullYear()}-${pad2(d.getMonth() + 1)}`); }
+  } else if (canon === 'Annually') {
+    for (let i = 0; i < 5; i++) keys.push(String(now.getFullYear() - i));
+  } else {
+    for (let i = 0; i < 30; i++) keys.push(dayKey(new Date(now.getFullYear(), now.getMonth(), now.getDate() - i)));
+  }
+  return keys;
+}
+
+// Completion KPI from the log: (Did it + Above & Beyond) ÷ every period in the
+// window. Falls back to the stored kpi value when the habit has no logged marks
+// in the window (e.g. established "Automatically" habits you don't log).
+function habitKpi(h, habitLog) {
+  if (!habitLog) return pctOf(h.kpi);
+  const keys = habitWindowKeys(h.cadence);
+  let done = 0, logged = 0;
+  for (const k of keys) {
+    const mk = habitLog[k] ? habitLog[k][h.id] : undefined;
+    if (mk) logged++;
+    if (mk === 'done' || mk === 'exceeded') done++;
+  }
+  if (logged === 0) return pctOf(h.kpi);
+  return Math.round((done / keys.length) * 100);
+}
+
+// Human-readable label for the rolling KPI window of a cadence (see
+// habitWindowKeys). Used to explain the completion % in a hover tooltip.
+function habitWindowLabel(cadence) {
+  const canon = cadenceCanon(cadence);
+  if (canon === 'Weekly') return 'last 4 weeks';
+  if (canon === 'Monthly') return 'last 12 months';
+  if (canon === 'Annually') return 'last 5 years';
+  return 'last 30 days';
+}
+
+// Explains the completion KPI shown next to a habit: the numerator/denominator
+// and how it's counted. Mirrors the math in habitKpi().
+function habitKpiTooltip(h, habitLog) {
+  const canon = cadenceCanon(h.cadence);
+  const unit = canon === 'Weekly' ? 'week' : canon === 'Monthly' ? 'month' : canon === 'Annually' ? 'year' : 'day';
+  const windowLabel = habitWindowLabel(h.cadence);
+  if (!habitLog) return `Stored completion value.`;
+  const keys = habitWindowKeys(h.cadence);
+  let done = 0, logged = 0;
+  for (const k of keys) {
+    const mk = habitLog[k] ? habitLog[k][h.id] : undefined;
+    if (mk) logged++;
+    if (mk === 'done' || mk === 'exceeded') done++;
+  }
+  if (logged === 0) {
+    return `Stored completion value — no marks logged in the ${windowLabel}.`;
+  }
+  const total = keys.length;
+  const pct = Math.round((done / total) * 100);
+  return `${pct}% completion over the ${windowLabel}.\n`
+    + `${done} of ${total} ${unit}${total === 1 ? '' : 's'} marked “Did it” or “Above & Beyond”.\n`
+    + `Every ${unit} in the window counts, so unlogged ${unit}s count as missed.`;
+}
+
+// Targets a pasted habits column can map to (the editable fields + Cadence).
+const HABIT_IMPORT_TARGETS = [...HABIT_FIELDS, { key: 'cadence', label: 'Cadence' }];
+// Header text → field key, for auto-mapping pasted columns.
+const HABIT_HEADER_SYNONYMS = {
+  kpi: 'kpi', '%': 'kpi', completion: 'kpi',
+  routine: 'routine',
+  'daily routine': 'dailyOrder', 'daily routine #': 'dailyOrder', 'daily #': 'dailyOrder', dailyorder: 'dailyOrder', 'daily order': 'dailyOrder', order: 'dailyOrder', '#': 'dailyOrder',
+  habit: 'name', name: 'name', 'habit name': 'name',
+  cue: 'cue', 'cue / trigger': 'cue', 'cue/trigger': 'cue', trigger: 'cue', '1st cue': 'cue', 'first cue': 'cue',
+  '2nd cue': 'cue2', 'second cue': 'cue2', cue2: 'cue2',
+  craving: 'craving', response: 'response', reward: 'reward', age: 'age', status: 'status',
+  'start date': 'startDate', startdate: 'startDate', start: 'startDate', date: 'startDate',
+  cadence: 'cadence', frequency: 'cadence',
+};
+function autoMapHabitColumns(columns) {
+  return columns.map(c => HABIT_HEADER_SYNONYMS[(c || '').trim().toLowerCase()] || '');
+}
 
 export function HabitsPage({ onBack, user }) {
   const [habits, setHabits] = useState([]);
   const [habitLog, setHabitLog] = useState({});
+  // Which habitLog cells the automation engine set (mirrors habitLog; value is
+  // the mark it wrote). Drives the "(A)" badge on auto-logged marks.
+  const [habitLogAuto, setHabitLogAuto] = useState({});
+  // Automatic-tracking rules (see AUTO_SOURCES). Stored on the user doc as
+  // `habitAutomations`; authored on the Automatic tab.
+  const [automations, setAutomations] = useState([]);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState('routines');
   const [importOpen, setImportOpen] = useState(false);
   const [importText, setImportText] = useState('');
+  // Pasted habit-import column mapping: per-column field key ('' = ignore).
+  const [importMapping, setImportMapping] = useState([]);
   // Which habit's detail popup is open (by id). Derived from habits each render
   // so edits/deletes keep the popup in sync.
   const [openHabitId, setOpenHabitId] = useState(null);
+  // The day-menu popup: { habitId, key, label } for the cell being edited.
+  const [dayMenu, setDayMenu] = useState(null);
+  // The "move to routine" popup (by habit id), opened by double-clicking a
+  // habit on the Routines tab.
+  const [moveHabitId, setMoveHabitId] = useState(null);
+  // The routine pending deletion (shows the delete-routine confirm modal).
+  const [deleteRoutineName, setDeleteRoutineName] = useState(null);
   const openHabit = openHabitId ? habits.find(h => h.id === openHabitId) || null : null;
+  const moveHabit = moveHabitId ? habits.find(h => h.id === moveHabitId) || null : null;
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const [remote, remoteLog] = await Promise.all([
+        const [remote, remoteLog, remoteAuto, remoteLogAuto] = await Promise.all([
           user?.uid ? loadField(user.uid, 'habits') : null,
           user?.uid ? loadField(user.uid, 'habitLog') : null,
+          user?.uid ? loadField(user.uid, 'habitAutomations') : null,
+          user?.uid ? loadField(user.uid, 'habitLogAuto') : null,
         ]);
         if (cancelled) return;
         if (Array.isArray(remote) && remote.length > 0) setHabits(remote);
         else setHabits(seedHabits());
         if (remoteLog && typeof remoteLog === 'object') setHabitLog(remoteLog);
+        if (Array.isArray(remoteAuto)) setAutomations(remoteAuto);
+        if (remoteLogAuto && typeof remoteLogAuto === 'object') setHabitLogAuto(remoteLogAuto);
       } catch {
         if (!cancelled) setHabits(seedHabits());
       } finally {
@@ -188,6 +407,10 @@ export function HabitsPage({ onBack, user }) {
   function persist(next) {
     setHabits(next);
     if (user?.uid) saveField(user.uid, 'habits', next).catch(() => {});
+  }
+  function persistAutomations(next) {
+    setAutomations(next);
+    if (user?.uid) saveField(user.uid, 'habitAutomations', next).catch(() => {});
   }
 
   // The mark for a habit in its current cadence period (today / this week /
@@ -211,8 +434,44 @@ export function HabitsPage({ onBack, user }) {
       return next;
     });
   }
+  // Set (or erase, when mark is null) a habit's mark for an arbitrary period
+  // key — used by the day-menu so you can edit any day in the week strip, not
+  // just today.
+  function setMarkForKey(habitId, key, mark) {
+    setHabitLog(prev => {
+      const bucket = { ...(prev[key] || {}) };
+      if (!mark) delete bucket[habitId];
+      else bucket[habitId] = mark;
+      const next = { ...prev, [key]: bucket };
+      if (Object.keys(bucket).length === 0) delete next[key];
+      if (user?.uid) saveField(user.uid, 'habitLog', next).catch(() => {});
+      return next;
+    });
+  }
+  // Merge an imported history map ({ key: { habitId: mark } }) into habitLog.
+  function mergeHabitLog(incoming) {
+    setHabitLog(prev => {
+      const next = { ...prev };
+      for (const key of Object.keys(incoming)) {
+        next[key] = { ...(next[key] || {}), ...incoming[key] };
+      }
+      if (user?.uid) saveField(user.uid, 'habitLog', next).catch(() => {});
+      return next;
+    });
+  }
   function updateHabit(id, key, value) {
     persist(habits.map(h => (h.id === id ? { ...h, [key]: value } : h)));
+  }
+  // Assign sequential `order` (0,1,2…) to a routine group after a drag, in a
+  // single persist so the whole reorder is one Firestore write.
+  function reorderHabits(orderedIds) {
+    const pos = new Map(orderedIds.map((id, i) => [id, String(i)]));
+    persist(habits.map(h => (pos.has(h.id) ? { ...h, order: pos.get(h.id) } : h)));
+  }
+  // Move a habit to another routine ('' = No routine). Clears its order so it
+  // lands at the bottom of the destination group until dragged.
+  function setHabitRoutine(id, routine) {
+    persist(habits.map(h => (h.id === id ? { ...h, routine, order: '' } : h)));
   }
   function addHabit() {
     const blank = { id: makeHabitId() };
@@ -223,19 +482,64 @@ export function HabitsPage({ onBack, user }) {
   function deleteHabit(id) {
     persist(habits.filter(h => h.id !== id));
   }
+  // Bulk ops over a Set of ids — one Firestore write each (persist saves the
+  // whole array), so editing 50 habits costs one write, not 50.
+  function bulkUpdate(ids, key, value) {
+    persist(habits.map(h => (ids.has(h.id) ? { ...h, [key]: value } : h)));
+  }
+  function bulkDelete(ids) {
+    persist(habits.filter(h => !ids.has(h.id)));
+  }
+  // Rename a routine = retag every habit in it. Delete a routine = either drop
+  // its habits or move them to Unsorted (cleared routine). Routines aren't a
+  // stored entity — they only exist as the `routine` field on habits.
+  function renameRoutine(oldName, newName) {
+    const nn = (newName || '').trim();
+    if (!nn || nn === oldName) return;
+    persist(habits.map(h => ((h.routine || '').trim() === oldName ? { ...h, routine: nn } : h)));
+  }
+  function deleteRoutine(name, mode) {
+    if (mode === 'delete-habits') {
+      persist(habits.filter(h => (h.routine || '').trim() !== name));
+    } else { // 'unsort'
+      persist(habits.map(h => ((h.routine || '').trim() === name ? { ...h, routine: '' } : h)));
+    }
+  }
 
-  // Bulk import: paste straight from Google Sheets (tab-separated). A first
-  // row that looks like the header (starts with "KPI") is skipped.
+  // Bulk import: paste from Google Sheets (tab-separated). The first row is the
+  // header used for column mapping; remaining rows are habits.
+  const importColumns = useMemo(() => {
+    const first = importText.replace(/\r/g, '').split('\n').find(l => l.trim().length > 0);
+    return first ? first.split('\t').map(c => (c || '').trim()) : [];
+  }, [importText]);
+  const importDataRows = useMemo(
+    () => Math.max(0, importText.replace(/\r/g, '').split('\n').filter(l => l.trim().length > 0).length - 1),
+    [importText],
+  );
+  const importColSig = importColumns.join('');
+  // Re-auto-match whenever the header line changes (edits below the header keep
+  // the user's manual mapping). columns is derived from colSig.
+  useEffect(() => {
+    setImportMapping(autoMapHabitColumns(importColumns));
+  }, [importColSig]); // eslint-disable-line react-hooks/exhaustive-deps
+
   function runImport(mode) {
     const lines = importText.replace(/\r/g, '').split('\n').filter(l => l.trim().length > 0);
+    if (lines.length < 2) { setImportOpen(false); return; }
     const rows = [];
-    for (let i = 0; i < lines.length; i++) {
+    for (let i = 1; i < lines.length; i++) {
       const cells = lines[i].split('\t');
-      if (i === 0 && /^kpi$/i.test((cells[0] || '').trim())) continue; // header
-      // Need at least a habit name (4th column) to be a real row.
-      if (!(cells[3] || '').trim() && !(cells[0] || '').trim()) continue;
       const o = { id: makeHabitId() };
-      HABIT_FIELDS.forEach((f, idx) => { o[f.key] = (cells[idx] || '').trim(); });
+      HABIT_FIELDS.forEach(f => { o[f.key] = ''; });
+      let hasName = false;
+      for (let c = 0; c < importMapping.length; c++) {
+        const field = importMapping[c];
+        if (!field) continue;
+        const val = (cells[c] || '').trim();
+        o[field] = val;
+        if (field === 'name' && val) hasName = true;
+      }
+      if (!hasName) continue; // skip rows with no habit name
       rows.push(o);
     }
     if (rows.length === 0) { setImportOpen(false); return; }
@@ -252,7 +556,8 @@ export function HabitsPage({ onBack, user }) {
   }
 
   return (
-    <div style={{ maxWidth: 1200, margin: '0 auto', padding: '0 0.5rem 3rem' }}>
+    // The whole Habits page fills the full content width (less grey on the sides).
+    <div style={{ maxWidth: '100%', margin: '0 auto', padding: '0 0.5rem 3rem' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', margin: '0.5rem 0 0.25rem' }}>
         <button onClick={onBack} style={backBtn}>&larr; Back</button>
         <h1 style={{ fontSize: '1.6rem', fontWeight: 700, margin: 0, letterSpacing: '-0.02em' }}>Habits</h1>
@@ -283,12 +588,14 @@ export function HabitsPage({ onBack, user }) {
         ))}
       </div>
 
-      {tab === 'kpi' && <KpiView habits={habits} />}
-      {tab === 'routines' && <RoutinesView habits={habits} onUpdate={updateHabit} markOf={markOf} onMark={onMark} />}
-      {tab === 'daily' && <DailyView habits={habits} markOf={markOf} onMark={onMark} />}
-      {tab === 'history' && <HistoryView habitLog={habitLog} habits={habits} />}
+      {tab === 'kpi' && <KpiView habits={habits} habitLog={habitLog} />}
+      {tab === 'routines' && <RoutinesView habits={habits} habitLog={habitLog} habitLogAuto={habitLogAuto} onUpdate={updateHabit} openMenu={(habitId, key, label) => setDayMenu({ habitId, key, label })} onMove={setMoveHabitId} onReorder={reorderHabits} onSetRoutine={setHabitRoutine} onRenameRoutine={renameRoutine} onDeleteRoutine={setDeleteRoutineName} />}
+      {tab === 'daily' && <DailyView habits={habits} habitLog={habitLog} habitLogAuto={habitLogAuto} markOf={markOf} onMark={onMark} onReorder={reorderHabits} />}
+      {tab === 'automatic' && <AutomaticView habits={habits} automations={automations} habitLog={habitLog} habitLogAuto={habitLogAuto} onChange={persistAutomations} />}
+      {tab === 'onhold' && <OnHoldView habits={habits} onUpdate={updateHabit} />}
+      {tab === 'history' && <HistoryView habitLog={habitLog} habits={habits} onImport={mergeHabitLog} openMenu={(habitId, key, label) => setDayMenu({ habitId, key, label })} />}
       {tab === 'habits' && (
-        <HabitsTable habits={habits} onUpdate={updateHabit} onDelete={deleteHabit} onOpen={setOpenHabitId} />
+        <HabitsTable habits={habits} onUpdate={updateHabit} onDelete={deleteHabit} onOpen={setOpenHabitId} onBulkUpdate={bulkUpdate} onBulkDelete={bulkDelete} />
       )}
 
       {openHabit && (
@@ -300,23 +607,104 @@ export function HabitsPage({ onBack, user }) {
         />
       )}
 
+      {dayMenu && (
+        <div style={overlay} onClick={() => setDayMenu(null)}>
+          <div style={{ ...modal, width: 'min(92vw, 320px)', padding: '0.9rem' }} onClick={e => e.stopPropagation()}>
+            <h3 style={{ margin: '0 0 0.7rem', fontSize: '0.95rem' }}>{dayMenu.label}</h3>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {DAY_MENU_OPTIONS.map(opt => {
+                const current = (habitLog[dayMenu.key] || {})[dayMenu.habitId];
+                const active = opt.mark === current || (opt.mark === null && current == null);
+                return (
+                  <button
+                    key={opt.label}
+                    onClick={() => { setMarkForKey(dayMenu.habitId, dayMenu.key, opt.mark); setDayMenu(null); }}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: 10, width: '100%', textAlign: 'left',
+                      padding: '0.55rem 0.7rem', borderRadius: 8, cursor: 'pointer',
+                      border: `1px solid ${active ? opt.color : 'var(--color-border, #e2e8f0)'}`,
+                      background: active ? opt.color + '18' : 'var(--color-surface, #fff)',
+                      fontSize: '0.9rem', fontWeight: 600, color: opt.color,
+                    }}
+                  >
+                    <span style={{ fontSize: '1.05rem', width: 20, textAlign: 'center' }}>{opt.icon}</span>
+                    <span style={{ color: 'var(--color-text, #1e293b)' }}>{opt.label}</span>
+                    {active && <span style={{ marginLeft: 'auto', color: opt.color }}>✓</span>}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {moveHabit && (
+        <MoveRoutineModal
+          habit={moveHabit}
+          habits={habits}
+          onMove={(routine) => { updateHabit(moveHabit.id, 'routine', routine); setMoveHabitId(null); }}
+          onClose={() => setMoveHabitId(null)}
+        />
+      )}
+
+      {deleteRoutineName != null && (
+        <DeleteRoutineModal
+          name={deleteRoutineName}
+          count={habits.filter(h => (h.routine || '').trim() === deleteRoutineName).length}
+          onUnsort={() => { deleteRoutine(deleteRoutineName, 'unsort'); setDeleteRoutineName(null); }}
+          onDeleteHabits={() => { deleteRoutine(deleteRoutineName, 'delete-habits'); setDeleteRoutineName(null); }}
+          onClose={() => setDeleteRoutineName(null)}
+        />
+      )}
+
       {importOpen && (
         <div style={overlay} onClick={() => setImportOpen(false)}>
           <div style={modal} onClick={e => e.stopPropagation()}>
             <h3 style={{ margin: '0 0 0.5rem' }}>Paste from spreadsheet</h3>
-            <p style={{ fontSize: '0.82rem', color: 'var(--color-text-muted)', margin: '0 0 0.6rem' }}>
-              Select the rows in Google Sheets (columns in this order: KPI, Routine, Daily Routine, Habit, Cue, 2nd Cue, Craving, Response, Reward, Age, Status, Start Date) and paste. A header row is skipped automatically.
+            <p style={{ fontSize: '0.82rem', color: 'var(--color-text-muted)', margin: '0 0 0.6rem', lineHeight: 1.45 }}>
+              Paste your rows from Google Sheets, <strong>including the header row</strong>. The first row is used to map each
+              column to a habit field below — check the mapping (the <strong>Habit</strong> column is required), then Append or Replace.
             </p>
             <textarea
               value={importText}
               onChange={e => setImportText(e.target.value)}
-              placeholder="Paste tab-separated rows here…"
-              style={{ width: '100%', height: 200, fontFamily: 'monospace', fontSize: '0.78rem', padding: '0.5rem', borderRadius: 8, border: '1px solid #ccc', boxSizing: 'border-box' }}
+              placeholder="Paste tab-separated rows here (with a header row)…"
+              style={{ width: '100%', height: 120, fontFamily: 'monospace', fontSize: '0.78rem', padding: '0.5rem', borderRadius: 8, border: '1px solid #ccc', boxSizing: 'border-box' }}
             />
+
+            {importColumns.length > 0 && (
+              <div style={{ marginTop: '0.75rem' }}>
+                <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 6 }}>
+                  <strong style={{ fontSize: '0.85rem' }}>Column mapping</strong>
+                  <span style={{ fontSize: '0.76rem', color: importMapping.includes('name') ? 'var(--color-text-muted)' : '#dc2626' }}>
+                    {importDataRows} row{importDataRows !== 1 ? 's' : ''} · {importMapping.includes('name') ? 'Habit column set' : 'map a Habit column'}
+                  </span>
+                </div>
+                <div style={{ maxHeight: 230, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 6, border: '1px solid var(--color-border, #e2e8f0)', borderRadius: 8, padding: 8 }}>
+                  {importColumns.map((col, i) => (
+                    <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <span style={{ flex: 1, fontSize: '0.82rem', fontFamily: 'monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={col}>
+                        {col || <em style={{ color: '#aaa' }}>(blank)</em>}
+                      </span>
+                      <span style={{ color: importMapping[i] ? '#16a34a' : '#cbd5e1' }}>→</span>
+                      <select
+                        value={importMapping[i] || ''}
+                        onChange={e => setImportMapping(m => m.map((v, idx) => (idx === i ? e.target.value : v)))}
+                        style={{ flex: 1, minWidth: 0, fontSize: '0.8rem', padding: '4px 6px', borderRadius: 6, border: `1px solid ${importMapping[i] === 'name' ? ACCENT : (importMapping[i] ? '#cbd5e1' : '#e2e8f0')}`, background: '#fff' }}
+                      >
+                        <option value="">— Ignore —</option>
+                        {HABIT_IMPORT_TARGETS.map(f => <option key={f.key} value={f.key}>{f.label}</option>)}
+                      </select>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', marginTop: '0.75rem' }}>
               <button onClick={() => setImportOpen(false)} style={ghostBtn}>Cancel</button>
-              <button onClick={() => runImport('append')} style={ghostBtn} disabled={!importText.trim()}>Append</button>
-              <button onClick={() => runImport('replace')} style={primaryBtn} disabled={!importText.trim()}>Replace all</button>
+              <button onClick={() => runImport('append')} style={ghostBtn} disabled={!importMapping.includes('name') || importDataRows < 1}>Append</button>
+              <button onClick={() => runImport('replace')} style={primaryBtn} disabled={!importMapping.includes('name') || importDataRows < 1}>Replace all</button>
             </div>
           </div>
         </div>
@@ -325,7 +713,68 @@ export function HabitsPage({ onBack, user }) {
   );
 }
 
-function KpiView({ habits }) {
+// Daily goals pulled from sibling Claude-Code apps via shared-secret bridges:
+// Rally "reach out to 2 people" (api/reachout-today.js) and Gratitude "log 3
+// gratitudes" (api/gratitude-today.js).
+const REACH_OUT_GOAL = 2;
+const GRATITUDE_GOAL = 3;
+
+// Presentational goal tile: a bold count/goal fraction, a progress bar, and a
+// subline. Turns green with a ✓ when the goal is met.
+function GoalTile({ heading, title, count, goal, noun, source }) {
+  const met = count >= goal;
+  const pct = Math.min(Math.round((count / goal) * 100), 100);
+  return (
+    <div style={{ marginBottom: heading ? '1.25rem' : 0 }}>
+      {heading && <h3 style={{ fontSize: '0.95rem', margin: '0 0 0.5rem' }}>{title}</h3>}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 14, maxWidth: 460, background: 'var(--color-surface, #fff)', border: '1px solid var(--color-border, #e2e8f0)', borderRadius: 12, padding: '0.85rem 1.1rem' }}>
+        <div style={{ fontSize: '1.5rem', fontWeight: 800, color: met ? '#16a34a' : ACCENT, lineHeight: 1, whiteSpace: 'nowrap' }}>
+          {Math.min(count, goal)}/{goal}{met ? ' ✓' : ''}
+        </div>
+        <div style={{ flex: 1 }}>
+          <div style={{ height: 10, background: '#eef2f6', borderRadius: 6, overflow: 'hidden' }}>
+            <div style={{ width: `${pct}%`, height: '100%', background: met ? '#16a34a' : ACCENT }} />
+          </div>
+          <div style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', marginTop: 5 }}>
+            {count} {noun}{met ? ' — daily goal met' : ` — ${goal - count} to go`} · from {source}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Fetches on mount and renders nothing until the bridge answers (so each tile
+// stays hidden if its source app is unreachable or the bridge isn't configured).
+function ReachOutGoal({ heading = true }) {
+  const [data, setData] = useState(null);
+  useEffect(() => {
+    let alive = true;
+    fetch(`/api/reachout-today?date=${dayKey(new Date())}`)
+      .then(r => r.json())
+      .then(d => { if (alive && d && typeof d.reachedTodayCount === 'number') setData(d); })
+      .catch(() => { /* Rally unreachable — just hide the tile */ });
+    return () => { alive = false; };
+  }, []);
+  if (!data) return null;
+  return <GoalTile heading={heading} title="Reach out" count={data.reachedTodayCount} goal={REACH_OUT_GOAL} noun="reached out today" source="Rally" />;
+}
+
+function GratitudeGoal({ heading = true }) {
+  const [data, setData] = useState(null);
+  useEffect(() => {
+    let alive = true;
+    fetch(`/api/gratitude-today?date=${dayKey(new Date())}`)
+      .then(r => r.json())
+      .then(d => { if (alive && d && typeof d.loggedCount === 'number') setData(d); })
+      .catch(() => { /* Gratitude unreachable — just hide the tile */ });
+    return () => { alive = false; };
+  }, []);
+  if (!data) return null;
+  return <GoalTile heading={heading} title="Gratitude" count={data.loggedCount} goal={data.goal || GRATITUDE_GOAL} noun="gratitude lines logged today" source="Gratitude" />;
+}
+
+function KpiView({ habits, habitLog }) {
   const stats = useMemo(() => {
     const byStatus = {};
     const byType = { daily: 0, weekly: 0, monthly: 0, other: 0, unsorted: 0 };
@@ -334,7 +783,7 @@ function KpiView({ habits }) {
       const st = (h.status || '—').trim() || '—';
       byStatus[st] = (byStatus[st] || 0) + 1;
       byType[routineType(h.routine)]++;
-      const p = pctOf(h.kpi);
+      const p = habitKpi(h, habitLog);
       if (p != null) { pctSum += p; pctCount++; }
     }
     const active = habits.filter(h => !['Abandoned', 'Not Started', 'Havent Started', 'On Hold'].includes((h.status || '').trim())).length;
@@ -345,7 +794,30 @@ function KpiView({ habits }) {
       byStatus: Object.entries(byStatus).sort((a, b) => b[1] - a[1]),
       byType,
     };
-  }, [habits]);
+  }, [habits, habitLog]);
+
+  // Logged marks bucketed into calendar months, newest first — a time series of
+  // how the log breaks down by mark (Above & Beyond / Did it / Skip / No). Any
+  // period key (day/week/month/year) maps to a month via periodStart().
+  const byMonth = useMemo(() => {
+    const map = new Map(); // 'YYYY-MM' -> { exceeded, done, skipped, missed, total }
+    for (const key in habitLog) {
+      const ts = periodStart(key);
+      if (!ts) continue;
+      const d = new Date(ts);
+      const mKey = `${d.getUTCFullYear()}-${pad2(d.getUTCMonth() + 1)}`;
+      let bucket = map.get(mKey);
+      if (!bucket) { bucket = { exceeded: 0, done: 0, skipped: 0, missed: 0, total: 0 }; map.set(mKey, bucket); }
+      const marks = habitLog[key];
+      for (const id in marks) {
+        const mk = marks[id];
+        if (bucket[mk] != null) { bucket[mk]++; bucket.total++; }
+      }
+    }
+    const rows = [...map.entries()].sort((a, b) => b[0].localeCompare(a[0]));
+    const maxTotal = Math.max(1, ...rows.map(([, b]) => b.total));
+    return { rows, maxTotal };
+  }, [habitLog]);
 
   return (
     <div>
@@ -357,6 +829,9 @@ function KpiView({ habits }) {
         <Kpi label="Weekly" value={stats.byType.weekly} />
         <Kpi label="Monthly" value={stats.byType.monthly} />
       </div>
+
+      <ReachOutGoal />
+
       <h3 style={{ fontSize: '0.95rem', margin: '0 0 0.5rem' }}>By status</h3>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxWidth: 460 }}>
         {stats.byStatus.map(([st, n]) => {
@@ -372,6 +847,48 @@ function KpiView({ habits }) {
           );
         })}
       </div>
+
+      <h3 style={{ fontSize: '0.95rem', margin: '1.5rem 0 0.35rem' }}>Logged by month</h3>
+      <p style={{ fontSize: '0.78rem', color: 'var(--color-text-muted)', margin: '0 0 0.6rem' }}>Every mark you logged, grouped by the month it falls in — newest first.</p>
+      {/* Legend */}
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem 1rem', marginBottom: '0.6rem' }}>
+        {MARK_ORDER.map(m => (
+          <span key={m} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: '0.76rem', color: 'var(--color-text-secondary, #475569)' }}>
+            <span style={{ width: 10, height: 10, borderRadius: 3, background: MARK_META[m].color }} />
+            {MARK_META[m].label}
+          </span>
+        ))}
+      </div>
+      {byMonth.rows.length === 0 ? (
+        <p style={{ color: 'var(--color-text-muted)', fontSize: '0.82rem' }}>No marks logged yet.</p>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxWidth: 560 }}>
+          {byMonth.rows.map(([mKey, b]) => {
+            const [y, m] = mKey.split('-').map(Number);
+            const label = new Date(y, m - 1, 1).toLocaleDateString(undefined, { month: 'short', year: 'numeric' });
+            const barWidth = Math.round((b.total / byMonth.maxTotal) * 100);
+            return (
+              <div key={mKey} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <span style={{ width: 64, fontSize: '0.82rem', color: 'var(--color-text-secondary, #475569)' }}>{label}</span>
+                <div style={{ flex: 1, height: 12, background: '#eef2f6', borderRadius: 6, overflow: 'hidden' }}>
+                  <div style={{ display: 'flex', width: `${barWidth}%`, height: '100%' }}>
+                    {MARK_ORDER.map(mk => (
+                      b[mk] > 0 ? (
+                        <div
+                          key={mk}
+                          title={`${b[mk]} ${MARK_META[mk].label} · ${label}`}
+                          style={{ width: `${(b[mk] / b.total) * 100}%`, height: '100%', background: MARK_META[mk].color }}
+                        />
+                      ) : null
+                    ))}
+                  </div>
+                </div>
+                <span style={{ width: 36, textAlign: 'right', fontSize: '0.8rem', fontWeight: 700 }}>{b.total}</span>
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
@@ -408,119 +925,714 @@ function StatusSelect({ value, muted, onChange }) {
   );
 }
 
-function RoutinesView({ habits, onUpdate, markOf, onMark }) {
+function RoutinesView({ habits, habitLog, habitLogAuto, onUpdate, openMenu, onMove, onReorder, onSetRoutine, onRenameRoutine, onDeleteRoutine }) {
+  // All routine names the user has, in the canonical routine order, for the
+  // per-habit routine dropdown.
+  const routineOptions = useMemo(() => {
+    const set = new Set([...DAILY_ROUTINES, ...habits.map(h => (h.routine || '').trim()).filter(Boolean)]);
+    return [...set].sort((a, b) => {
+      const ra = routineRank(a), rb = routineRank(b);
+      return ra.typeOrder - rb.typeOrder || ra.dailyIdx - rb.dailyIdx || ra.num - rb.num || a.localeCompare(b);
+    });
+  }, [habits]);
+  // Group by the habit's tracking FREQUENCY (cadence), so setting a habit to
+  // Weekly makes it show up under the Weekly section. Sections are ordered
+  // Daily → Weekly → Monthly → Annually. Within a section, habits stay clustered
+  // by their named routine then daily order then name. Keep this in sync with
+  // PrepDay/src/components/HabitsScreen.tsx.
   const groups = useMemo(() => {
     const map = new Map();
     for (const h of habits) {
-      const key = (h.routine || '').trim() || '— Unsorted';
+      const st = (h.status || '').trim();
+      if (PARKED_STATUSES.includes(st)) continue; // parked (On Hold tab / Habits table)
+      // Not-yet-started habits don't belong in the active routines list either.
+      if (st === 'Not Started' || st === 'Havent Started') continue;
+      const key = cadenceCanon(h.cadence); // Daily | Weekly | Monthly | Annually
       if (!map.has(key)) map.set(key, []);
       map.get(key).push(h);
     }
-    const order = (name) => {
-      const t = routineType(name === '— Unsorted' ? '' : name);
-      const base = { daily: 0, weekly: 1, monthly: 2, other: 3, unsorted: 4 }[t];
-      const di = DAILY_ROUTINES.indexOf(name);
-      return [base, di < 0 ? 50 : di, name];
-    };
-    return [...map.entries()].sort((a, b) => {
-      const oa = order(a[0]), ob = order(b[0]);
-      return oa[0] - ob[0] || oa[1] - ob[1] || String(oa[2]).localeCompare(String(ob[2]));
-    });
+    for (const list of map.values()) list.sort(compareByRoutine);
+    return [...map.entries()].sort(
+      (a, b) => (CADENCE_RANK[a[0]] ?? 9) - (CADENCE_RANK[b[0]] ?? 9),
+    );
   }, [habits]);
 
-  // One sub-tab per routine. Track the selection by routine name; derive the
-  // active group each render so a routine vanishing (after an edit/import)
-  // gracefully falls back to the first one instead of showing nothing.
-  const [activeRoutine, setActiveRoutine] = useState(null);
-  const selected = groups.find(g => g[0] === activeRoutine) || groups[0];
+  // Quick filter: each tab maps to one cadence section; 'all' shows everything.
+  const [view, setView] = useState('all');
+  const [query, setQuery] = useState('');
+  const q = query.trim().toLowerCase();
 
-  if (groups.length === 0) {
-    return <p style={{ color: 'var(--color-text-muted)' }}>No habits yet — add some on the Habits tab.</p>;
+  const visibleGroups = useMemo(() => {
+    if (view === 'all') return groups;
+    return groups.filter(([cadence]) => cadence === VIEW_TO_CADENCE[view]);
+  }, [groups, view]);
+
+  // Search any habit by name — including On Hold habits that don't show in the
+  // routines — so you can find one and see its status anywhere.
+  const searchResults = useMemo(() => {
+    if (!q) return [];
+    return habits
+      .filter(h => (h.name || '').toLowerCase().includes(q))
+      .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+  }, [habits, q]);
+
+  const searchBar = (
+    <div style={{ position: 'relative', marginBottom: '0.85rem', maxWidth: 360 }}>
+      <span style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: '#94a3b8', fontSize: '0.85rem' }}>🔍</span>
+      <input
+        value={query}
+        onChange={e => setQuery(e.target.value)}
+        placeholder="Search habits…"
+        style={{ width: '100%', boxSizing: 'border-box', padding: '0.45rem 1.9rem', borderRadius: 8, border: '1px solid var(--color-border, #e2e8f0)', fontSize: '0.85rem', background: 'var(--color-surface, #fff)' }}
+      />
+      {query && (
+        <button onClick={() => setQuery('')} title="Clear" style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', border: 'none', background: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: '0.95rem' }}>×</button>
+      )}
+    </div>
+  );
+
+  if (q) {
+    return (
+      <div>
+        {searchBar}
+        {searchResults.length === 0 ? (
+          <p style={{ color: 'var(--color-text-muted)' }}>No habits match “{query.trim()}”.</p>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {searchResults.map(h => (
+              <div key={h.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '0.45rem 0.6rem', background: 'var(--color-surface, #fff)', border: '1px solid var(--color-border, #e2e8f0)', borderRadius: 8 }}>
+                <span style={{ flex: 1, fontSize: '0.88rem', fontWeight: 600 }}>{h.name || <em style={{ color: '#aaa' }}>untitled</em>}</span>
+                {(h.routine || '').trim() && <span style={routineTag} title="Routine">{(h.routine || '').trim()}</span>}
+                {(h.cadence || '').trim() && <span style={cadenceTag}>{h.cadence}</span>}
+                <StatusSelect value={h.status} onChange={v => onUpdate(h.id, 'status', v)} />
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    );
   }
 
-  const [routineName, list] = selected;
+  if (groups.length === 0) {
+    return (
+      <div>
+        {searchBar}
+        <p style={{ color: 'var(--color-text-muted)' }}>No habits yet — add some on the Habits tab.</p>
+      </div>
+    );
+  }
 
   return (
     <div>
-      {/* Per-routine sub-tabs (horizontally scrollable when there are many). */}
-      <div style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 6, marginBottom: '0.85rem' }}>
-        {groups.map(([routine]) => {
-          const active = routine === routineName;
+      {searchBar}
+      {/* Daily / Weekly / Monthly view switch */}
+      <div style={{ display: 'flex', gap: 4, marginBottom: '0.85rem', background: '#f1f5f9', borderRadius: 10, padding: 3, width: 'fit-content' }}>
+        {VIEW_TABS.map(t => {
+          const active = view === t.id;
           return (
             <button
-              key={routine}
-              onClick={() => setActiveRoutine(routine)}
+              key={t.id}
+              onClick={() => setView(t.id)}
               style={{
-                flex: '0 0 auto', whiteSpace: 'nowrap', cursor: 'pointer',
-                padding: '0.4rem 0.8rem', borderRadius: 999,
-                fontSize: '0.85rem', fontWeight: 600,
-                border: `1px solid ${active ? ACCENT : 'var(--color-border, #e2e8f0)'}`,
-                background: active ? ACCENT : 'var(--color-surface, #fff)',
-                color: active ? '#fff' : 'var(--color-text-muted, #64748b)',
+                cursor: 'pointer', padding: '0.35rem 0.9rem', borderRadius: 8,
+                fontSize: '0.82rem', fontWeight: 600, border: 'none',
+                background: active ? 'var(--color-surface, #fff)' : 'transparent',
+                color: active ? ACCENT : 'var(--color-text-muted, #64748b)',
+                boxShadow: active ? '0 1px 3px rgba(0,0,0,0.12)' : 'none',
               }}
             >
-              {routine}
+              {t.label}
             </button>
           );
         })}
       </div>
 
-      {(() => {
-        const isAuto = h => (h.status || '').trim() === 'Automatically';
-        const activeList = list.filter(h => !isAuto(h));
-        const autoList = list.filter(isAuto);
-
-        const row = (h, muted) => (
-          <div key={h.id} style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: '0.4rem 0.6rem', background: muted ? 'transparent' : 'var(--color-surface, #fff)', border: `1px solid ${muted ? '#eef2f6' : 'var(--color-border, #e2e8f0)'}`, borderRadius: 8 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <span style={{ flex: 1, fontSize: '0.88rem', fontWeight: 600, color: muted ? '#94a3b8' : 'inherit' }}>{h.name || <em style={{ color: '#aaa' }}>untitled</em>}</span>
-              {(h.cadence || '').trim() && <span style={cadenceTag}>{h.cadence}</span>}
-              <StatusSelect value={h.status} muted={muted} onChange={v => onUpdate(h.id, 'status', v)} />
-              <span style={{ width: 42, textAlign: 'right', fontSize: '0.8rem', color: muted ? '#cbd5e1' : 'var(--color-text-muted)' }}>{pctOf(h.kpi) != null ? `${pctOf(h.kpi)}%` : ''}</span>
-            </div>
-            {/* Automatic (greyed) habits are established — no need to log them. */}
-            {!muted && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={{ width: 70, fontSize: '0.72rem', fontWeight: 600, color: 'var(--color-text-muted, #64748b)' }}>{periodHint(h.cadence)}</span>
-                <DayTracker value={markOf(h)} onSet={m => onMark(h, m)} />
-              </div>
-            )}
-          </div>
-        );
-
-        return (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-            {activeList.map(h => row(h, false))}
-            {autoList.length > 0 && (
-              <>
-                <h4 style={{ fontSize: '0.78rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: '#94a3b8', margin: '0.9rem 0 0.1rem' }}>Automatic</h4>
-                {autoList.map(h => row(h, true))}
-              </>
-            )}
-          </div>
-        );
-      })()}
+      {visibleGroups.length === 0 ? (
+        <p style={{ color: 'var(--color-text-muted)' }}>
+          No {(VIEW_TABS.find(t => t.id === view)?.label || view).toLowerCase()} habits.
+        </p>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '1.4rem' }}>
+          {visibleGroups.map(([cadenceName, list]) => (
+            <RoutineSection key={cadenceName} cadenceName={cadenceName} list={list} habitLog={habitLog} habitLogAuto={habitLogAuto} onUpdate={onUpdate} openMenu={openMenu} routineOptions={routineOptions} onReorder={onReorder} onSetRoutine={onSetRoutine} />
+          ))}
+        </div>
+      )}
     </div>
   );
 }
 
-function DailyView({ habits, markOf, onMark }) {
-  const daily = useMemo(() => {
-    return habits
-      .filter(h => routineType(h.routine) === 'daily')
-      .sort((a, b) => {
-        const ka = dailyOrderKey(a), kb = dailyOrderKey(b);
-        return ka[0] - kb[0] || ka[1] - kb[1];
-      });
+const VIEW_TABS = [
+  { id: 'all', label: 'All' },
+  { id: 'daily', label: 'Daily' },
+  { id: 'weekly', label: 'Weekly' },
+  { id: 'monthly', label: 'Monthly' },
+  { id: 'annually', label: 'Yearly' },
+];
+// View-tab id → the cadence section it shows.
+const VIEW_TO_CADENCE = { daily: 'Daily', weekly: 'Weekly', monthly: 'Monthly', annually: 'Annually' };
+
+// 7-day strip (Mon–Sun of the current week) for a daily habit, today
+// highlighted. Each day is a button — clicking it opens the day menu so any day
+// (not just today) can be set to a mark or erased.
+function WeekStrip({ habitId, habitName, habitLog, habitLogAuto, openMenu }) {
+  const today = dayKey(new Date());
+  const monday = startOfISOWeek(new Date());
+  const days = Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + i);
+    const key = dayKey(d);
+    const label = d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
+    const mark = habitLog[key] ? habitLog[key][habitId] : undefined;
+    return { key, label, letter: WEEKDAY_ABBR[i][0], isToday: key === today, mark, auto: isAutoMark(habitLogAuto, key, habitId, mark) };
+  });
+  return (
+    <div style={{ display: 'flex', gap: 4 }}>
+      {days.map(d => (
+        <button
+          key={d.key}
+          onClick={() => openMenu(habitId, d.key, `${habitName || 'Habit'} · ${d.label}`)}
+          title={d.label}
+          style={{
+            flex: 1, textAlign: 'center', borderRadius: 6, padding: '3px 0', cursor: 'pointer',
+            border: `1px solid ${d.isToday ? ACCENT : (d.mark ? MARK_META[d.mark].color + '55' : '#eef2f6')}`,
+            background: d.isToday ? ACCENT + '0f' : (d.mark ? MARK_META[d.mark].color + '12' : 'var(--color-surface, #fff)'),
+          }}
+        >
+          <div style={{ fontSize: '0.58rem', fontWeight: 700, color: d.isToday ? ACCENT : '#94a3b8' }}>{d.letter}</div>
+          <div style={{ fontSize: '0.85rem', fontWeight: 800, lineHeight: 1.2, color: d.mark ? MARK_META[d.mark].color : '#d1d5db' }}>
+            {d.mark ? MARK_META[d.mark].icon : '·'}
+            {d.auto && <span title="Automatically logged" style={{ fontSize: '0.5rem', fontWeight: 800, color: '#2563eb', verticalAlign: 'super', marginLeft: 1 }}>A</span>}
+          </div>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+// "Move to routine" popup — double-click a habit on the Routines tab. Lists the
+// existing routines (sorted in the usual order) plus a field to type a new one.
+function MoveRoutineModal({ habit, habits, onMove, onClose }) {
+  const [newRoutine, setNewRoutine] = useState('');
+  const current = (habit.routine || '').trim();
+  const options = useMemo(() => {
+    const set = new Set([...DAILY_ROUTINES, ...habits.map(h => (h.routine || '').trim()).filter(Boolean)]);
+    return [...set].sort((a, b) => {
+      const ra = routineRank(a), rb = routineRank(b);
+      return ra.typeOrder - rb.typeOrder || ra.dailyIdx - rb.dailyIdx || ra.num - rb.num || a.localeCompare(b);
+    });
   }, [habits]);
 
-  const rows = useMemo(() => daily.map((h, i) => {
-    const block = (h.routine || '').trim();
-    const prevBlock = i > 0 ? (daily[i - 1].routine || '').trim() : null;
-    return { h, block, showHeader: block !== prevBlock };
-  }), [daily]);
+  return (
+    <div style={overlay} onClick={onClose}>
+      <div style={{ ...modal, width: 'min(92vw, 360px)', maxHeight: '82vh', overflowY: 'auto' }} onClick={e => e.stopPropagation()}>
+        <h3 style={{ margin: '0 0 0.15rem', fontSize: '1rem' }}>Move to routine</h3>
+        <p style={{ fontSize: '0.82rem', color: 'var(--color-text-muted)', margin: '0 0 0.7rem' }}>{habit.name || 'Habit'}</p>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          {options.map(r => {
+            const active = r === current;
+            return (
+              <button
+                key={r}
+                onClick={() => onMove(r)}
+                style={{
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, width: '100%', textAlign: 'left',
+                  padding: '0.5rem 0.7rem', borderRadius: 8, cursor: 'pointer',
+                  border: `1px solid ${active ? ACCENT : 'var(--color-border, #e2e8f0)'}`,
+                  background: active ? ACCENT + '14' : 'var(--color-surface, #fff)',
+                  fontSize: '0.88rem', fontWeight: 600, color: 'var(--color-text, #1e293b)',
+                }}
+              >
+                <span>{r}</span>
+                {active && <span style={{ color: ACCENT, fontSize: '0.78rem' }}>current</span>}
+              </button>
+            );
+          })}
+        </div>
+        <div style={{ display: 'flex', gap: 6, marginTop: '0.8rem' }}>
+          <input
+            value={newRoutine}
+            onChange={e => setNewRoutine(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter' && newRoutine.trim()) onMove(newRoutine.trim()); }}
+            placeholder="New routine name…"
+            style={fieldInput}
+          />
+          <button onClick={() => newRoutine.trim() && onMove(newRoutine.trim())} disabled={!newRoutine.trim()} style={primaryBtn}>Move</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Confirm deleting a routine: drop its habits, or keep them by moving to
+// Unsorted. (Routines only exist as the `routine` field on habits.)
+function DeleteRoutineModal({ name, count, onUnsort, onDeleteHabits, onClose }) {
+  return (
+    <div style={overlay} onClick={onClose}>
+      <div style={{ ...modal, width: 'min(92vw, 380px)' }} onClick={e => e.stopPropagation()}>
+        <h3 style={{ margin: '0 0 0.4rem', fontSize: '1rem' }}>Delete routine “{name}”?</h3>
+        <p style={{ fontSize: '0.85rem', color: 'var(--color-text-muted)', margin: '0 0 1rem', lineHeight: 1.45 }}>
+          {count === 0
+            ? 'This routine has no habits.'
+            : `It has ${count} habit${count > 1 ? 's' : ''}. Keep them by moving to Unsorted, or delete them too.`}
+        </p>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {count > 0 && (
+            <button onClick={onUnsort} style={{ ...ghostBtn, padding: '0.6rem', textAlign: 'left' }}>
+              Move {count} habit{count > 1 ? 's' : ''} to Unsorted
+            </button>
+          )}
+          <button
+            onClick={onDeleteHabits}
+            style={{ border: '1px solid #fca5a5', background: '#fff', color: '#dc2626', borderRadius: 8, padding: '0.6rem', cursor: 'pointer', fontSize: '0.88rem', fontWeight: 600, textAlign: 'left' }}
+          >
+            {count > 0 ? `Delete the routine and its ${count} habit${count > 1 ? 's' : ''}` : 'Delete routine'}
+          </button>
+          <button onClick={onClose} style={{ ...ghostBtn, padding: '0.6rem' }}>Cancel</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// One cadence section (Daily / Weekly / …). Inside it, habits are split into
+// their named routine (or "No routine"), and can be dragged to reorder within
+// a routine. Grab the ⠿ handle to drag; each row has a routine dropdown.
+function RoutineSection({ cadenceName, list, habitLog, habitLogAuto, onUpdate, openMenu, routineOptions, onReorder, onSetRoutine }) {
+  const [drag, setDrag] = useState(null); // { id, groupKey }
+  const isAuto = h => (h.status || '').trim() === 'Automatically';
+  const activeList = list.filter(h => !isAuto(h));
+  const autoList = list.filter(isAuto);
+  // Red count of trackable habits whose current period is still unlogged.
+  const uncompleted = activeList.filter(h => (habitLog[periodKey(h.cadence)] || {})[h.id] === undefined).length;
+
+  // Sub-group active habits by routine. activeList is already sorted
+  // (routine rank → manual order → name), so groups emerge in routine order and
+  // rows within a group in their drag order.
+  const subGroups = useMemo(() => {
+    const map = new Map();
+    for (const h of activeList) {
+      const key = (h.routine || '').trim();
+      if (!map.has(key)) map.set(key, []);
+      map.get(key).push(h);
+    }
+    return [...map.entries()];
+  }, [activeList]);
+
+  function handleDrop(targetId, groupKey, groupItems) {
+    const d = drag;
+    setDrag(null);
+    if (!d || d.groupKey !== groupKey || d.id === targetId) return;
+    const ids = groupItems.map(x => x.id);
+    const from = ids.indexOf(d.id);
+    const to = ids.indexOf(targetId);
+    if (from < 0 || to < 0) return;
+    ids.splice(to, 0, ids.splice(from, 1)[0]);
+    onReorder(ids);
+  }
+
+  function chooseRoutine(id, val) {
+    if (val === '__new__') {
+      const name = window.prompt('New routine name:');
+      if (name && name.trim()) onSetRoutine(id, name.trim());
+      return;
+    }
+    onSetRoutine(id, val);
+  }
+
+  const row = (h, muted, groupKey, groupItems) => {
+    const isDaily = cadenceCanon(h.cadence) === 'Daily';
+    const curKey = periodKey(h.cadence);
+    const curMark = (habitLog[curKey] || {})[h.id];
+    const pct = habitKpi(h, habitLog);
+    const dragging = drag?.id === h.id;
+    return (
+    <div
+      key={h.id}
+      onDragOver={muted ? undefined : (e) => { if (drag && drag.groupKey === groupKey) e.preventDefault(); }}
+      onDrop={muted ? undefined : (e) => { e.preventDefault(); handleDrop(h.id, groupKey, groupItems); }}
+      style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: '0.4rem 0.6rem', background: muted ? 'transparent' : 'var(--color-surface, #fff)', border: `1px solid ${dragging ? ACCENT : (muted ? '#eef2f6' : 'var(--color-border, #e2e8f0)')}`, borderRadius: 8, opacity: dragging ? 0.45 : 1 }}
+    >
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        {!muted && (
+          <span
+            draggable
+            onDragStart={(e) => { setDrag({ id: h.id, groupKey }); e.dataTransfer.effectAllowed = 'move'; }}
+            onDragEnd={() => setDrag(null)}
+            title="Drag to reorder within this routine"
+            style={{ cursor: 'grab', color: '#cbd5e1', fontSize: '0.95rem', userSelect: 'none', lineHeight: 1 }}
+          >⠿</span>
+        )}
+        <span style={{ flex: 1, fontSize: '0.88rem', fontWeight: 600, color: muted ? '#94a3b8' : 'inherit' }}>{h.name || <em style={{ color: '#aaa' }}>untitled</em>}</span>
+        <select
+          value={groupKey}
+          onChange={e => chooseRoutine(h.id, e.target.value)}
+          title="Routine"
+          style={{ fontSize: '0.72rem', padding: '2px 4px', borderRadius: 6, border: '1px solid var(--color-border, #e2e8f0)', background: 'var(--color-surface, #fff)', color: 'var(--color-text-muted, #64748b)', maxWidth: 130 }}
+        >
+          <option value="">No routine</option>
+          {routineOptions.map(r => <option key={r} value={r}>{r}</option>)}
+          <option value="__new__">＋ New routine…</option>
+        </select>
+        <StatusSelect value={h.status} muted={muted} onChange={v => onUpdate(h.id, 'status', v)} />
+        <span title={habitKpiTooltip(h, habitLog)} style={{ width: 42, textAlign: 'right', fontSize: '0.8rem', color: muted ? '#cbd5e1' : 'var(--color-text-muted)', cursor: 'help' }}>{pct != null ? `${pct}%` : ''}</span>
+      </div>
+      {/* Automatic (greyed) habits are established — no need to log them. */}
+      {!muted && (
+        isDaily ? (
+          <WeekStrip habitId={h.id} habitName={h.name} habitLog={habitLog} habitLogAuto={habitLogAuto} openMenu={openMenu} />
+        ) : (
+          // Non-daily: a single current-period chip; clicking opens the menu.
+          <button
+            onClick={() => openMenu(h.id, curKey, `${h.name || 'Habit'} · ${periodLabel(curKey)}`)}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 8, alignSelf: 'flex-start', cursor: 'pointer',
+              padding: '5px 10px', borderRadius: 8,
+              border: `1px solid ${curMark ? MARK_META[curMark].color : 'var(--color-border, #e2e8f0)'}`,
+              background: curMark ? MARK_META[curMark].color + '14' : 'var(--color-surface, #fff)',
+            }}
+          >
+            <span style={{ fontSize: '0.72rem', fontWeight: 600, color: 'var(--color-text-muted, #64748b)' }}>{periodHint(h.cadence)}</span>
+            <span style={{ fontSize: '0.82rem', fontWeight: 800, color: curMark ? MARK_META[curMark].color : '#cbd5e1' }}>
+              {curMark ? `${MARK_META[curMark].icon} ${MARK_META[curMark].label}` : 'Set…'}
+            </span>
+            {isAutoMark(habitLogAuto, curKey, h.id, curMark) && <AutoBadge />}
+          </button>
+        )
+      )}
+    </div>
+    );
+  };
+
+  return (
+    <div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '0 0 0.5rem', position: 'sticky', top: 0, background: 'var(--color-background, #fff)', paddingBottom: 2, zIndex: 1 }}>
+        <h3 style={{ fontSize: '0.95rem', fontWeight: 700, color: ACCENT, margin: 0 }}>{cadenceName}</h3>
+        {uncompleted > 0 && (
+          <span
+            title={`${uncompleted} habit${uncompleted > 1 ? 's' : ''} still unlogged (${periodHint(cadenceName).toLowerCase()})`}
+            style={{ minWidth: 18, height: 18, borderRadius: 9, padding: '0 5px', background: '#dc2626', color: '#fff', fontSize: '0.72rem', fontWeight: 800, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
+          >
+            {uncompleted}
+          </span>
+        )}
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.8rem' }}>
+        {subGroups.map(([routineKey, items]) => (
+          <div key={routineKey || '__none__'}>
+            <div style={{ fontSize: '0.72rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: routineKey ? ACCENT : '#94a3b8', margin: '0 0 0.25rem 0.1rem' }}>
+              {routineKey || 'No routine'}
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              {items.map(h => row(h, false, routineKey, items))}
+            </div>
+          </div>
+        ))}
+        {autoList.length > 0 && (
+          <>
+            <h4 style={{ fontSize: '0.78rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: '#94a3b8', margin: '0.5rem 0 0.1rem' }}>Automatic</h4>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              {autoList.map(h => row(h, true, (h.routine || '').trim(), autoList))}
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// On Hold tab: paused habits, kept off the Routines/Daily lists. "Resume"
+// returns a habit to Not Started; the status dropdown can set any other status.
+function OnHoldView({ habits, onUpdate }) {
+  const onHold = useMemo(
+    () => habits
+      .filter(h => (h.status || '').trim() === ON_HOLD_STATUS)
+      .sort((a, b) => (a.name || '').localeCompare(b.name || '')),
+    [habits],
+  );
+  if (onHold.length === 0) {
+    return <p style={{ color: 'var(--color-text-muted)' }}>No habits on hold. Set a habit’s status to “On Hold” to park it here.</p>;
+  }
+  return (
+    <div>
+      <p style={{ color: 'var(--color-text-muted)', fontSize: '0.82rem', marginBottom: '0.8rem' }}>
+        Habits set to On Hold are paused and hidden from your routines. Resume to bring one back (returns as “Not Started”).
+      </p>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+        {onHold.map(h => (
+          <div key={h.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '0.45rem 0.6rem', background: 'var(--color-surface, #fff)', border: '1px solid var(--color-border, #e2e8f0)', borderRadius: 8 }}>
+            <span style={{ flex: 1, fontSize: '0.88rem', fontWeight: 600 }}>{h.name || <em style={{ color: '#aaa' }}>untitled</em>}</span>
+            {(h.routine || '').trim() && <span style={routineTag} title="Routine">{(h.routine || '').trim()}</span>}
+            {(h.cadence || '').trim() && <span style={cadenceTag}>{h.cadence}</span>}
+            <StatusSelect value={h.status} onChange={v => onUpdate(h.id, 'status', v)} />
+            <button onClick={() => onUpdate(h.id, 'status', 'Not Started')} style={primaryBtn}>Resume</button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// Automatic habit tracking — the control panel where auto-logging rules are
+// authored and external tools are connected. Rules persist to the user doc
+// (`habitAutomations`); the engine that fires them is wired up separately, so
+// this tab is intentionally a config + reference hub.
+function AutomaticView({ habits, automations, habitLog = {}, habitLogAuto = {}, onChange }) {
+  const [copied, setCopied] = useState(false);
+  const sortedHabits = useMemo(
+    () => [...habits].sort((a, b) => (a.name || '').localeCompare(b.name || '')),
+    [habits],
+  );
+  const rules = automations || [];
+  const habitById = useMemo(() => new Map(habits.map(h => [h.id, h])), [habits]);
+
+  function addRule() {
+    const first = AUTO_TRIGGERS.prepday[0];
+    onChange([...rules, {
+      id: makeHabitId(), habitId: '', source: 'prepday', trigger: first.id,
+      threshold: '', mark: 'done', enabled: true, logic: '',
+    }]);
+  }
+  function updateRule(id, patch) {
+    onChange(rules.map(r => (r.id === id ? { ...r, ...patch } : r)));
+  }
+  function removeRule(id) {
+    onChange(rules.filter(r => r.id !== id));
+  }
+  // Switching source resets the trigger to that source's first option.
+  function changeSource(id, source) {
+    const first = (AUTO_TRIGGERS[source] || [])[0];
+    updateRule(id, { source, trigger: first ? first.id : 'custom', threshold: '' });
+  }
+  function copyWebhook() {
+    try {
+      navigator.clipboard?.writeText(AUTO_WEBHOOK_URL);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch { /* ignore */ }
+  }
+
+  const selectStyle = { ...fieldInput, width: 'auto', padding: '4px 6px', fontSize: '0.82rem' };
+  const codeBox = { fontFamily: 'ui-monospace, Menlo, monospace', fontSize: '0.76rem', background: 'var(--color-surface-alt, #f1f5f9)', border: '1px solid var(--color-border, #e2e8f0)', borderRadius: 6, padding: '3px 7px', wordBreak: 'break-all' };
+  const markChip = (m) => ({ display: 'inline-flex', alignItems: 'center', gap: 4, fontWeight: 700, color: MARK_META[m].color, background: MARK_META[m].color + '14', border: `1px solid ${MARK_META[m].color}55`, borderRadius: 999, padding: '2px 9px' });
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem', maxWidth: 920 }}>
+      {/* Today's daily goals pulled from sibling apps (Rally + Gratitude). */}
+      <ReachOutGoal heading />
+      <GratitudeGoal heading />
+
+      {/* How it works + status banner */}
+      <div style={{ background: ACCENT + '0d', border: `1px solid ${ACCENT}33`, borderRadius: 10, padding: '0.85rem 1rem' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, flexWrap: 'wrap' }}>
+          <span style={{ fontSize: '1.05rem' }}>⚙️</span>
+          <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 700 }}>Automatic habit tracking</h3>
+          <span style={{ fontSize: '0.66rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.4, color: '#166534', background: '#dcfce7', border: '1px solid #bbf7d0', borderRadius: 999, padding: '2px 8px' }}>
+            Prep Day rules live · hourly
+          </span>
+        </div>
+        <p style={{ margin: 0, fontSize: '0.84rem', color: 'var(--color-text-muted)', lineHeight: 1.5 }}>
+          Define rules that mark a habit for you when something happens elsewhere. <strong>Prep Day-source rules
+          run automatically every hour</strong> — e.g. log a workout and your “Exercise” habit gets marked for
+          that day. The engine only fills an <em>empty</em> mark for the current period, so it never overwrites
+          one you set by hand. Rules save to your account and sync to mobile.
+          {' '}<strong>Apple Health</strong> and <strong>External/webhook</strong> rules are authored here but
+          don’t fire yet (they need the Health bridge / webhook receiver). Tip: set a rule’s habit to the
+          <strong> “Automatically” </strong> status so it reads as auto-managed in the routines.
+        </p>
+      </div>
+
+      {/* Connections */}
+      <div>
+        <h4 style={{ margin: '0 0 0.5rem', fontSize: '0.8rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.4, color: 'var(--color-text-muted)' }}>Connections</h4>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 10 }}>
+          {AUTO_SOURCES.map(src => {
+            const used = rules.filter(r => r.source === src.id).length;
+            const status = (src.id === 'prepday' || src.id === 'rally' || src.id === 'gratitude')
+              ? { label: 'Live · hourly', color: '#16a34a' }
+              : src.id === 'healthkit'
+                ? { label: 'Bridge pending', color: '#b45309' }
+                : { label: 'Receiver pending', color: '#b45309' };
+            return (
+              <div key={src.id} style={{ border: '1px solid var(--color-border, #e2e8f0)', borderRadius: 10, padding: '0.7rem 0.8rem', background: 'var(--color-surface, #fff)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                  <span style={{ fontSize: '1.05rem' }}>{src.icon}</span>
+                  <span style={{ fontSize: '0.9rem', fontWeight: 700 }}>{src.label}</span>
+                  <span style={{ marginLeft: 'auto', fontSize: '0.66rem', fontWeight: 700, color: status.color, background: status.color + '18', borderRadius: 999, padding: '2px 8px', whiteSpace: 'nowrap' }}>{status.label}</span>
+                </div>
+                <p style={{ margin: 0, fontSize: '0.78rem', color: 'var(--color-text-muted)', lineHeight: 1.45 }}>{src.blurb}</p>
+                {src.id === 'external' && (
+                  <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    <div style={codeBox}>POST {AUTO_WEBHOOK_URL}</div>
+                    <button onClick={copyWebhook} style={{ ...ghostBtn, alignSelf: 'flex-start', padding: '0.25rem 0.6rem', fontSize: '0.75rem' }}>
+                      {copied ? 'Copied ✓' : 'Copy endpoint'}
+                    </button>
+                  </div>
+                )}
+                <div style={{ marginTop: 6, fontSize: '0.72rem', color: 'var(--color-text-muted)' }}>{used} rule{used === 1 ? '' : 's'}</div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Rules */}
+      <div>
+        <div style={{ display: 'flex', alignItems: 'center', marginBottom: '0.6rem' }}>
+          <h4 style={{ margin: 0, fontSize: '0.8rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.4, color: 'var(--color-text-muted)' }}>Rules</h4>
+          <button onClick={addRule} style={{ ...primaryBtn, marginLeft: 'auto', padding: '0.4rem 0.8rem' }}>+ Add rule</button>
+        </div>
+
+        {rules.length === 0 ? (
+          <p style={{ color: 'var(--color-text-muted)', fontSize: '0.85rem' }}>
+            No automatic rules yet. Add one to describe when a habit should be marked for you.
+          </p>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {rules.map(r => {
+              const tdef = triggerDef(r.source, r.trigger);
+              const isWebhook = r.source === 'external' && r.trigger === 'webhook';
+              // Live status: this rule's habit and its mark for the current
+              // reporting cycle (today / this week / month / year, per cadence).
+              const habit = habitById.get(r.habitId);
+              const curKey = habit ? periodKey(habit.cadence) : null;
+              const curMark = curKey ? (habitLog[curKey] || {})[habit.id] : undefined;
+              const cycleLabel = habit ? periodHint(habit.cadence) : ''; // Today / This week / ...
+              const notYetLabel = cycleLabel === 'Today' ? 'today' : cycleLabel.toLowerCase();
+              const autoSet = curKey ? isAutoMark(habitLogAuto, curKey, habit.id, curMark) : false;
+              // Previous period alongside the current one (yesterday / last week / ...).
+              const prevKey = habit ? prevPeriodKey(habit.cadence) : null;
+              const prevMark = prevKey ? (habitLog[prevKey] || {})[habit.id] : undefined;
+              const prevLabel = habit ? prevPeriodHint(habit.cadence) : '';
+              const prevAutoSet = prevKey ? isAutoMark(habitLogAuto, prevKey, habit.id, prevMark) : false;
+              return (
+                <div key={r.id} style={{ border: '1px solid var(--color-border, #e2e8f0)', borderRadius: 10, padding: '0.7rem 0.8rem', background: r.enabled ? 'var(--color-surface, #fff)' : 'var(--color-surface-alt, #f8fafc)', opacity: r.enabled ? 1 : 0.75 }}>
+                  {/* Row 1: enable + habit + delete */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                    <label style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: '0.78rem', color: 'var(--color-text-muted)', cursor: 'pointer' }}>
+                      <input type="checkbox" checked={!!r.enabled} onChange={e => updateRule(r.id, { enabled: e.target.checked })} />
+                      {r.enabled ? 'On' : 'Off'}
+                    </label>
+                    <select value={r.habitId || ''} onChange={e => updateRule(r.id, { habitId: e.target.value })} style={{ ...selectStyle, fontWeight: 600, minWidth: 160 }}>
+                      <option value="">— pick a habit —</option>
+                      {sortedHabits.map(h => <option key={h.id} value={h.id}>{h.name || 'untitled'}</option>)}
+                    </select>
+                    <button onClick={() => removeRule(r.id)} title="Delete rule" style={{ marginLeft: 'auto', border: '1px solid #fca5a5', background: '#fff', color: '#dc2626', borderRadius: 8, padding: '0.25rem 0.6rem', cursor: 'pointer', fontSize: '0.78rem', fontWeight: 600 }}>Delete</button>
+                  </div>
+
+                  {/* Row 2: when <source> <trigger> [threshold] → mark <mark> */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginTop: 8 }}>
+                    <span style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)' }}>When</span>
+                    <select value={r.source} onChange={e => changeSource(r.id, e.target.value)} style={selectStyle}>
+                      {AUTO_SOURCES.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}
+                    </select>
+                    <select value={r.trigger} onChange={e => updateRule(r.id, { trigger: e.target.value, threshold: '' })} style={selectStyle}>
+                      {(AUTO_TRIGGERS[r.source] || []).map(t => <option key={t.id} value={t.id}>{t.label}</option>)}
+                    </select>
+                    {tdef?.numeric && (
+                      <>
+                        <input
+                          type="number"
+                          value={r.threshold ?? ''}
+                          onChange={e => updateRule(r.id, { threshold: e.target.value })}
+                          placeholder="0"
+                          style={{ ...fieldInput, width: 80, padding: '4px 6px', fontSize: '0.82rem' }}
+                        />
+                        <span style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)' }}>{tdef.unit}</span>
+                      </>
+                    )}
+                    <span style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)' }}>→ mark</span>
+                    <select value={r.mark} onChange={e => updateRule(r.id, { mark: e.target.value })} style={{ ...selectStyle, color: MARK_META[r.mark]?.color, fontWeight: 700 }}>
+                      {MARK_ORDER.map(m => <option key={m} value={m}>{MARK_META[m].icon} {MARK_META[m].label}</option>)}
+                    </select>
+                  </div>
+
+                  {/* Row 2.5: live status — the habit's mark this cycle and the one before */}
+                  {habit ? (
+                    <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap', fontSize: '0.78rem' }}>
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                        <span style={{ color: 'var(--color-text-muted)' }}>{cycleLabel}:</span>
+                        {curMark ? (
+                          <span style={markChip(curMark)}>
+                            {MARK_META[curMark].icon} {MARK_META[curMark].label}
+                            {autoSet && <AutoBadge title="Auto-logged by this rule" />}
+                          </span>
+                        ) : (
+                          <span style={{ color: '#94a3b8', fontStyle: 'italic' }}>not yet marked {notYetLabel}</span>
+                        )}
+                      </span>
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                        <span style={{ color: 'var(--color-text-muted)' }}>{prevLabel}:</span>
+                        {prevMark ? (
+                          <span style={markChip(prevMark)}>
+                            {MARK_META[prevMark].icon} {MARK_META[prevMark].label}
+                            {prevAutoSet && <AutoBadge title="Auto-logged by this rule" />}
+                          </span>
+                        ) : (
+                          <span style={{ color: '#94a3b8', fontStyle: 'italic' }}>—</span>
+                        )}
+                      </span>
+                    </div>
+                  ) : (
+                    <div style={{ marginTop: 8, fontSize: '0.78rem', color: '#94a3b8', fontStyle: 'italic' }}>Pick a habit to see its current status.</div>
+                  )}
+
+                  {/* Row 3: logic reference */}
+                  <div style={{ marginTop: 8 }}>
+                    <input
+                      value={r.logic || ''}
+                      onChange={e => updateRule(r.id, { logic: e.target.value })}
+                      placeholder="Logic / notes — e.g. how the source maps to this mark, edge cases, which app sends it…"
+                      style={{ ...fieldInput, fontSize: '0.8rem' }}
+                    />
+                  </div>
+
+                  {isWebhook && (
+                    <div style={{ marginTop: 8, fontSize: '0.76rem', color: 'var(--color-text-muted)' }}>
+                      External tools POST to <span style={codeBox}>{AUTO_WEBHOOK_URL}</span> with this rule key:{' '}
+                      <span style={codeBox}>{r.id}</span>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function DailyView({ habits, habitLogAuto, markOf, onMark, onReorder }) {
+  const [drag, setDrag] = useState(null); // { id, blockKey }
+  const todayKey = dayKey(new Date());
+  const daily = useMemo(() => habits
+    .filter(h => routineType(h.routine) === 'daily' && !PARKED_STATUSES.includes((h.status || '').trim()))
+    .sort(compareByRoutine), [habits]);
+
+  // Group into routine blocks (Morning / Lunch / …). Drag reorders within one.
+  const blocks = useMemo(() => {
+    const map = new Map();
+    for (const h of daily) {
+      const key = (h.routine || '').trim();
+      if (!map.has(key)) map.set(key, []);
+      map.get(key).push(h);
+    }
+    return [...map.entries()];
+  }, [daily]);
 
   const doneCount = daily.filter(h => markOf(h) === 'done').length;
+
+  function handleDrop(targetId, blockKey, items) {
+    const d = drag;
+    setDrag(null);
+    if (!d || d.blockKey !== blockKey || d.id === targetId) return;
+    const ids = items.map(x => x.id);
+    const from = ids.indexOf(d.id);
+    const to = ids.indexOf(targetId);
+    if (from < 0 || to < 0) return;
+    ids.splice(to, 0, ids.splice(from, 1)[0]);
+    onReorder(ids);
+  }
 
   if (daily.length === 0) return <p style={{ color: 'var(--color-text-muted)' }}>No daily-routine habits yet.</p>;
 
@@ -530,30 +1642,49 @@ function DailyView({ habits, markOf, onMark }) {
         <span style={{ fontSize: '0.85rem', fontWeight: 700 }}>{new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' })}</span>
         <span style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--color-text-muted)' }}>{doneCount}/{daily.length} done</span>
       </div>
-      {rows.map(({ h, block, showHeader }) => {
-        return (
-          <div key={h.id}>
-            {showHeader && <h3 style={{ fontSize: '0.9rem', margin: '0.6rem 0 0.3rem', color: ACCENT }}>{block}</h3>}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, padding: '0.5rem 0.7rem', background: 'var(--color-surface, #fff)', border: '1px solid var(--color-border, #e2e8f0)', borderRadius: 8 }}>
-              <div style={{ display: 'flex', gap: 10 }}>
-                <span style={{ width: 26, fontWeight: 800, color: ACCENT, fontSize: '0.85rem' }}>{h.dailyOrder || '·'}</span>
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: '0.9rem', fontWeight: 700 }}>{h.name}</div>
-                  {(h.cue || h.response || h.reward) && (
-                    <div style={{ fontSize: '0.78rem', color: 'var(--color-text-muted)', marginTop: 2, lineHeight: 1.4 }}>
-                      {h.cue && <><strong>Cue:</strong> {h.cue}. </>}
-                      {h.response && <><strong>Do:</strong> {h.response}. </>}
-                      {h.reward && <><strong>Reward:</strong> {h.reward}.</>}
+      {blocks.map(([blockKey, items]) => (
+        <div key={blockKey || '__none__'}>
+          <h3 style={{ fontSize: '0.9rem', margin: '0.6rem 0 0.3rem', color: ACCENT }}>{blockKey || 'No routine'}</h3>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {items.map(h => {
+              const dragging = drag?.id === h.id;
+              return (
+                <div
+                  key={h.id}
+                  onDragOver={(e) => { if (drag && drag.blockKey === blockKey) e.preventDefault(); }}
+                  onDrop={(e) => { e.preventDefault(); handleDrop(h.id, blockKey, items); }}
+                  style={{ display: 'flex', flexDirection: 'column', gap: 10, padding: '0.5rem 0.7rem', background: 'var(--color-surface, #fff)', border: `1px solid ${dragging ? ACCENT : 'var(--color-border, #e2e8f0)'}`, borderRadius: 8, opacity: dragging ? 0.45 : 1 }}
+                >
+                  <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+                    <span
+                      draggable
+                      onDragStart={(e) => { setDrag({ id: h.id, blockKey }); e.dataTransfer.effectAllowed = 'move'; }}
+                      onDragEnd={() => setDrag(null)}
+                      title="Drag to reorder within this routine"
+                      style={{ cursor: 'grab', color: '#cbd5e1', fontSize: '0.95rem', userSelect: 'none', paddingTop: 2 }}
+                    >⠿</span>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: '0.9rem', fontWeight: 700 }}>
+                        {h.name}
+                        {isAutoMark(habitLogAuto, todayKey, h.id, markOf(h)) && <AutoBadge />}
+                      </div>
+                      {(h.cue || h.response || h.reward) && (
+                        <div style={{ fontSize: '0.78rem', color: 'var(--color-text-muted)', marginTop: 2, lineHeight: 1.4 }}>
+                          {h.cue && <><strong>Cue:</strong> {h.cue}. </>}
+                          {h.response && <><strong>Do:</strong> {h.response}. </>}
+                          {h.reward && <><strong>Reward:</strong> {h.reward}.</>}
+                        </div>
+                      )}
                     </div>
-                  )}
+                    <StatusChip status={h.status} />
+                  </div>
+                  <DayTracker value={markOf(h)} onSet={m => onMark(h, m)} />
                 </div>
-                <StatusChip status={h.status} />
-              </div>
-              <DayTracker value={markOf(h)} onSet={m => onMark(h, m)} />
-            </div>
+              );
+            })}
           </div>
-        );
-      })}
+        </div>
+      ))}
     </div>
   );
 }
@@ -576,12 +1707,13 @@ function DayTracker({ value, onSet }) {
           color: active ? '#fff' : meta.color,
         }}
       >
-        <span aria-hidden>{meta.icon}</span>{meta.label}
+        <span aria-hidden>{meta.icon}</span>{meta.short}
       </button>
     );
   };
   return (
     <div style={{ display: 'flex', gap: 6 }}>
+      {btn('exceeded')}
       {btn('done')}
       {btn('skipped')}
       {btn('missed')}
@@ -589,63 +1721,391 @@ function DayTracker({ value, onSet }) {
   );
 }
 
-// Logged history grouped by period, most recent first.
-function HistoryView({ habitLog, habits }) {
-  const nameById = useMemo(() => {
-    const m = new Map();
-    habits.forEach(h => m.set(h.id, h));
-    return m;
-  }, [habits]);
+// Monday of the ISO week containing d (local date, time stripped).
+function startOfISOWeek(d) {
+  const date = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const day = date.getDay() || 7; // Sun=7
+  date.setDate(date.getDate() - (day - 1));
+  return date;
+}
+function daysInMonth(y, m /* 0-based */) { return new Date(y, m + 1, 0).getDate(); }
 
-  const { periods, totals } = useMemo(() => {
-    const keys = Object.keys(habitLog).filter(k => habitLog[k] && Object.keys(habitLog[k]).length > 0);
-    keys.sort((a, b) => periodStart(b) - periodStart(a));
-    const t = { done: 0, skipped: 0, missed: 0 };
-    for (const k of keys) for (const mark of Object.values(habitLog[k])) t[mark] = (t[mark] || 0) + 1;
-    return { periods: keys, totals: t };
+const MONTH_ABBR = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const WEEKDAY_ABBR = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+
+// Columns for the History grid: Daily→7 days of a week, Weekly→ISO weeks of a
+// month, Monthly→12 months of a year, Annually→a 6-year window. Each column key
+// is the same period key habitLog is stored under, so cells are a direct lookup.
+function historyColumns(sel, anchor) {
+  if (sel === 'Daily') {
+    const start = startOfISOWeek(anchor);
+    const cols = [];
+    for (let i = 0; i < 7; i++) {
+      const d = new Date(start.getFullYear(), start.getMonth(), start.getDate() + i);
+      cols.push({ key: dayKey(d), label: WEEKDAY_ABBR[i], sub: String(d.getDate()) });
+    }
+    const end = new Date(start.getFullYear(), start.getMonth(), start.getDate() + 6);
+    const label = `${start.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} – ${end.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`;
+    return { cols, label };
+  }
+  if (sel === 'Weekly') {
+    const y = anchor.getFullYear(), m = anchor.getMonth();
+    const seen = new Map();
+    for (let day = 1; day <= daysInMonth(y, m); day++) {
+      const d = new Date(y, m, day);
+      const key = isoWeekKey(d);
+      if (!seen.has(key)) {
+        const mon = startOfISOWeek(d);
+        seen.set(key, { key, label: `W${key.slice(6)}`, sub: `${mon.getMonth() + 1}/${mon.getDate()}` });
+      }
+    }
+    return { cols: [...seen.values()], label: anchor.toLocaleDateString(undefined, { month: 'long', year: 'numeric' }) };
+  }
+  if (sel === 'Monthly') {
+    const y = anchor.getFullYear();
+    const cols = MONTH_ABBR.map((label, i) => ({ key: `${y}-${pad2(i + 1)}`, label }));
+    return { cols, label: String(y) };
+  }
+  // Annually: a 6-year window ending at the anchor year.
+  const y = anchor.getFullYear();
+  const N = 6;
+  const cols = Array.from({ length: N }, (_, i) => { const yr = y - (N - 1) + i; return { key: String(yr), label: String(yr) }; });
+  return { cols, label: `${y - (N - 1)} – ${y}` };
+}
+
+function shiftHistoryAnchor(sel, anchor, dir) {
+  const d = new Date(anchor.getFullYear(), anchor.getMonth(), anchor.getDate());
+  if (sel === 'Daily') d.setDate(d.getDate() + 7 * dir);
+  else if (sel === 'Weekly') d.setMonth(d.getMonth() + dir);
+  else d.setFullYear(d.getFullYear() + dir); // Monthly + Annually step by year
+  return d;
+}
+
+const HISTORY_CADENCES = [
+  { id: 'Daily', label: 'Daily', view: 'weekly view' },
+  { id: 'Weekly', label: 'Weekly', view: 'monthly view' },
+  { id: 'Monthly', label: 'Monthly', view: 'yearly view' },
+  { id: 'Annually', label: 'Annual', view: 'yearly view' },
+];
+
+// Map a cell value (yes/no/skip/gold or ✓/✕/⏭/★ and common synonyms) to a mark.
+function parseMarkValue(v) {
+  const x = (v || '').trim().toLowerCase();
+  if (!x) return undefined;
+  if (['gold', '★', 'star', 'above', 'exceeded', 'above & beyond', 'a&b', '++', 'great'].includes(x)) return 'exceeded';
+  if (['yes', 'y', 'done', 'did', 'true', '1', '✓', '✔', 'x'].includes(x)) return 'done';
+  if (['skip', 'skipped', 's', '⏭', '-', '–'].includes(x)) return 'skipped';
+  if (['no', 'n', 'missed', 'miss', 'false', '0', '✕', '✗'].includes(x)) return 'missed';
+  return undefined;
+}
+
+// Parse a date cell into a YYYY-MM-DD key (handles ISO, M/D/YY, M/D/YYYY, etc.).
+function parseDateKey(s) {
+  const t = (s || '').trim();
+  if (!t) return null;
+  let m = t.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+  if (m) return `${m[1]}-${pad2(+m[2])}-${pad2(+m[3])}`;
+  m = t.match(/^(\d{1,2})[/.-](\d{1,2})[/.-](\d{2,4})$/);
+  if (m) {
+    const mo = +m[1], da = +m[2];
+    const yr = m[3].length === 2 ? 2000 + +m[3] : +m[3];
+    return `${yr}-${pad2(mo)}-${pad2(da)}`;
+  }
+  const d = new Date(t);
+  if (!isNaN(d.getTime())) return dayKey(d);
+  return null;
+}
+
+// Parse pasted Excel history (dates down the first column, habit names across
+// the header row) into a habitLog patch keyed by each habit's period. Returns
+// the patch plus a small summary for user feedback.
+// Inspect the pasted text: the habit-column headers (after the date column)
+// and how many valid date rows follow. Used to render the column-mapping UI.
+function parseHistoryHeader(text) {
+  const lines = text.replace(/\r/g, '').split('\n').filter(l => l.trim().length > 0);
+  if (lines.length === 0) return { columns: [], rows: 0 };
+  const columns = lines[0].split('\t').slice(1).map(h => (h || '').trim());
+  let rows = 0;
+  for (let i = 1; i < lines.length; i++) { if (parseDateKey(lines[i].split('\t')[0])) rows++; }
+  return { columns, rows };
+}
+
+// Auto-match each column header to a habit id by (normalized) name.
+function autoMapColumns(columns, habits) {
+  const nameToId = new Map();
+  for (const h of habits) { const n = (h.name || '').trim().toLowerCase(); if (n) nameToId.set(n, h.id); }
+  return columns.map(c => nameToId.get((c || '').trim().toLowerCase()) || '');
+}
+
+// Build the habitLog patch using an explicit column→habitId mapping (''=ignore).
+function buildHistoryIncoming(text, habits, mapping) {
+  const lines = text.replace(/\r/g, '').split('\n').filter(l => l.trim().length > 0);
+  const habitById = new Map(habits.map(h => [h.id, h]));
+  const incoming = {};
+  let marks = 0;
+  const dateSet = new Set();
+  for (let r = 1; r < lines.length; r++) {
+    const cells = lines[r].split('\t');
+    const dk = parseDateKey(cells[0]);
+    if (!dk) continue;
+    const [y, mo, da] = dk.split('-').map(Number);
+    const dateObj = new Date(y, mo - 1, da);
+    for (let c = 0; c < mapping.length; c++) {
+      const habit = habitById.get(mapping[c]);
+      if (!habit) continue;
+      const mark = parseMarkValue(cells[c + 1]);
+      if (!mark) continue;
+      const key = periodKey(habit.cadence, dateObj);
+      if (!incoming[key]) incoming[key] = {};
+      incoming[key][habit.id] = mark;
+      marks++;
+      dateSet.add(dk);
+    }
+  }
+  return { incoming, marks, dates: dateSet.size };
+}
+
+// One habit row in the History grid. `isAuto` habits ("Automatically" status)
+// get a greyed background and, for any period they weren't explicitly logged,
+// a faint assumed-done checkmark (up to the current period — future cells stay
+// blank). Cells remain clickable to override the assumption.
+function renderHistoryRow(h, isAuto, cols, currentKey, habitLog, openMenu) {
+  const rowBg = isAuto ? '#f8fafc' : undefined;
+  return (
+    <tr key={h.id} style={{ borderTop: '1px solid #eef2f6', background: rowBg }}>
+      <td style={{ ...histNameTd, background: isAuto ? '#f1f5f9' : '#fff', color: isAuto ? 'var(--color-text-muted)' : undefined }} title={h.name}>
+        {h.name || <em style={{ color: '#aaa' }}>untitled</em>}
+      </td>
+      {cols.map(c => {
+        const mk = habitLog[c.key] ? habitLog[c.key][h.id] : undefined;
+        const assumeDone = isAuto && !mk && c.key <= currentKey;
+        return (
+          <td
+            key={c.key}
+            onClick={() => openMenu(h.id, c.key, `${h.name || 'Habit'} · ${periodLabel(c.key)}`)}
+            title="Edit"
+            style={{ ...histCellTd, cursor: 'pointer', background: c.key === currentKey ? ACCENT + '0a' : rowBg }}
+          >
+            {mk
+              ? <span title={MARK_META[mk].label} style={{ color: MARK_META[mk].color, fontWeight: 800, fontSize: '0.9rem' }}>{MARK_META[mk].icon}</span>
+              : assumeDone
+                ? <span title="Automatic — assumed done" style={{ color: MARK_META.done.color, opacity: 0.4, fontWeight: 800, fontSize: '0.9rem' }}>{MARK_META.done.icon}</span>
+                : <span style={{ color: '#d1d5db' }}>·</span>}
+          </td>
+        );
+      })}
+    </tr>
+  );
+}
+
+// History tab: all-time totals on top, then a per-cadence calendar grid
+// (habits × sub-periods) you can page back through. Daily habits show a week of
+// days, weekly habits a month of weeks, monthly habits a year of months, annual
+// habits a span of years. Cells are clickable (open the day menu); historical
+// data can be imported from Excel.
+function HistoryView({ habitLog, habits, onImport, openMenu }) {
+  const [importOpen, setImportOpen] = useState(false);
+  const [importText, setImportText] = useState('');
+  const [importResult, setImportResult] = useState(null);
+  // Column → habit-id mapping ('' = ignore). Auto-filled by name, editable.
+  const [mapping, setMapping] = useState([]);
+
+  const { columns, rows: dateRows } = useMemo(() => parseHistoryHeader(importText), [importText]);
+  const colSig = columns.join('');
+  // Re-auto-match whenever the header line changes (keystrokes that don't touch
+  // the header keep the user's manual mapping edits).
+  useEffect(() => {
+    setMapping(autoMapColumns(colSig ? colSig.split('') : [], habits));
+    setImportResult(null);
+  }, [colSig, habits]);
+
+  // Habit options for the mapping dropdowns, by name.
+  const habitOptions = useMemo(
+    () => habits.filter(h => (h.name || '').trim()).sort((a, b) => a.name.localeCompare(b.name)),
+    [habits],
+  );
+
+  function runImport() {
+    const res = buildHistoryIncoming(importText, habits, mapping);
+    if (res.marks > 0) onImport(res.incoming);
+    setImportResult(res);
+  }
+  const totals = useMemo(() => {
+    const t = { exceeded: 0, done: 0, skipped: 0, missed: 0 };
+    for (const k in habitLog) for (const id in habitLog[k]) { const mk = habitLog[k][id]; if (t[mk] != null) t[mk]++; }
+    return t;
+  }, [habitLog]);
+  const loggedIds = useMemo(() => {
+    const s = new Set();
+    for (const k in habitLog) for (const id in habitLog[k]) s.add(id);
+    return s;
   }, [habitLog]);
 
-  if (periods.length === 0) {
+  const [sel, setSel] = useState('Daily');
+  const [anchor, setAnchor] = useState(() => new Date());
+
+  const { cols, label } = useMemo(() => historyColumns(sel, anchor), [sel, anchor]);
+  const currentKey = periodKey(sel); // highlight the in-progress period
+
+  // Rows = habits tracked at the selected cadence. For Daily that means an
+  // explicit Daily cadence OR any logged daily entry (so we don't dump every
+  // un-cadenced habit into the grid); weekly/monthly/annual are explicit.
+  const rows = useMemo(
+    () => habits
+      .filter(h => !PARKED_STATUSES.includes((h.status || '').trim())) // hide parked (On Hold + Abandoned) from History
+      .filter(h => cadenceCanon(h.cadence) === sel && ((h.cadence || '').trim() || loggedIds.has(h.id)))
+      .sort(compareByRoutine),
+    [habits, sel, loggedIds],
+  );
+  // "Automatically" habits are established — they run on autopilot and aren't
+  // logged, so we assume a checkmark for each period and park them in a greyed
+  // group below the actively-tracked habits.
+  const manualRows = useMemo(() => rows.filter(h => h.status !== 'Automatically'), [rows]);
+  const autoRows = useMemo(() => rows.filter(h => h.status === 'Automatically'), [rows]);
+
+  if (loggedIds.size === 0) {
     return <p style={{ color: 'var(--color-text-muted)' }}>No habit logs yet. Mark habits as Did it / Skip / No on the Routines or Daily Routine tab and they'll show up here.</p>;
   }
 
-  const ORDER = ['done', 'skipped', 'missed'];
+  const viewName = HISTORY_CADENCES.find(c => c.id === sel)?.view;
 
   return (
     <div>
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '1.25rem' }}>
-        {ORDER.map(m => (
-          <div key={m} style={{ background: 'var(--color-surface, #fff)', border: '1px solid var(--color-border, #e2e8f0)', borderRadius: 12, padding: '0.85rem 1.1rem', minWidth: 110 }}>
+      {/* All-time totals + import */}
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '1.1rem', alignItems: 'center' }}>
+        {MARK_ORDER.map(m => (
+          <div key={m} style={{ background: 'var(--color-surface, #fff)', border: '1px solid var(--color-border, #e2e8f0)', borderRadius: 12, padding: '0.85rem 1.1rem', minWidth: 100 }}>
             <div style={{ fontSize: '1.5rem', fontWeight: 800, color: MARK_META[m].color, lineHeight: 1 }}>{totals[m]}</div>
-            <div style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', marginTop: 4, textTransform: 'uppercase', letterSpacing: 0.4 }}>{MARK_META[m].label}</div>
+            <div style={{ fontSize: '0.72rem', color: 'var(--color-text-muted)', marginTop: 4, textTransform: 'uppercase', letterSpacing: 0.4 }}>{MARK_META[m].label}</div>
           </div>
         ))}
+        <div style={{ flex: 1 }} />
+        <button onClick={() => { setImportResult(null); setImportOpen(true); }} style={ghostBtn}>Import from Excel</button>
       </div>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-        {periods.map(key => {
-          const entries = Object.entries(habitLog[key]).sort((a, b) => {
-            const oa = ORDER.indexOf(a[1]), ob = ORDER.indexOf(b[1]);
-            if (oa !== ob) return oa - ob;
-            return (nameById.get(a[0])?.name || '').localeCompare(nameById.get(b[0])?.name || '');
-          });
+
+      {/* Cadence selector — picks which habits + which calendar window. */}
+      <div style={{ display: 'flex', gap: 4, background: '#f1f5f9', borderRadius: 10, padding: 3, width: 'fit-content', marginBottom: '0.4rem' }}>
+        {HISTORY_CADENCES.map(c => {
+          const active = sel === c.id;
           return (
-            <div key={key}>
-              <h3 style={{ fontSize: '0.9rem', margin: '0 0 0.4rem', color: ACCENT }}>{periodLabel(key)}</h3>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                {entries.map(([hid, mark]) => {
-                  const meta = MARK_META[mark];
-                  return (
-                    <div key={hid} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '0.4rem 0.6rem', background: 'var(--color-surface, #fff)', border: '1px solid var(--color-border, #e2e8f0)', borderRadius: 8 }}>
-                      <span style={{ fontSize: '0.72rem', fontWeight: 700, color: meta.color, background: meta.color + '18', border: `1px solid ${meta.color}40`, borderRadius: 999, padding: '2px 8px', whiteSpace: 'nowrap' }}>{meta.icon} {meta.label}</span>
-                      <span style={{ flex: 1, fontSize: '0.88rem', fontWeight: 600 }}>{nameById.get(hid)?.name || <em style={{ color: '#aaa' }}>(deleted habit)</em>}</span>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
+            <button
+              key={c.id}
+              onClick={() => { setSel(c.id); setAnchor(new Date()); }}
+              style={{
+                cursor: 'pointer', padding: '0.35rem 0.9rem', borderRadius: 8,
+                fontSize: '0.82rem', fontWeight: 600, border: 'none',
+                background: active ? 'var(--color-surface, #fff)' : 'transparent',
+                color: active ? ACCENT : 'var(--color-text-muted, #64748b)',
+                boxShadow: active ? '0 1px 3px rgba(0,0,0,0.12)' : 'none',
+              }}
+            >
+              {c.label}
+            </button>
           );
         })}
       </div>
+      <p style={{ fontSize: '0.78rem', color: 'var(--color-text-muted)', margin: '0 0 0.75rem' }}>{sel} tracking · {viewName}</p>
+
+      {/* Window navigation */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: '0.6rem' }}>
+        <button onClick={() => setAnchor(a => shiftHistoryAnchor(sel, a, -1))} style={navBtn} title="Previous">‹</button>
+        <strong style={{ fontSize: '0.95rem', minWidth: 150, textAlign: 'center' }}>{label}</strong>
+        <button onClick={() => setAnchor(a => shiftHistoryAnchor(sel, a, 1))} style={navBtn} title="Next">›</button>
+        <button onClick={() => setAnchor(new Date())} style={{ ...ghostBtn, padding: '0.3rem 0.7rem', fontSize: '0.78rem' }}>Today</button>
+      </div>
+
+      {rows.length === 0 ? (
+        <p style={{ color: 'var(--color-text-muted)' }}>No {sel.toLowerCase()} habits tracked yet. Set a habit's cadence to {sel} in its popup, or log it on the Routines tab.</p>
+      ) : (
+        <div style={{ overflowX: 'auto', border: '1px solid var(--color-border, #e2e8f0)', borderRadius: 10 }}>
+          <table style={{ borderCollapse: 'collapse', width: '100%' }}>
+            <thead>
+              <tr>
+                <th style={histNameTh}>Habit</th>
+                {cols.map(c => (
+                  <th key={c.key} style={{ ...histColTh, background: c.key === currentKey ? ACCENT + '14' : '#f8fafc' }}>
+                    <div>{c.label}</div>
+                    {c.sub && <div style={{ fontSize: '0.62rem', fontWeight: 500, color: 'var(--color-text-muted)' }}>{c.sub}</div>}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {manualRows.map(h => renderHistoryRow(h, false, cols, currentKey, habitLog, openMenu))}
+              {autoRows.length > 0 && (
+                <>
+                  <tr>
+                    <td colSpan={cols.length + 1} style={{ ...histNameTd, position: 'static', background: '#f1f5f9', fontSize: '0.68rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: '#94a3b8', padding: '0.35rem 0.6rem', maxWidth: 'none', whiteSpace: 'nowrap' }}>
+                      Automatic · assumed done
+                    </td>
+                  </tr>
+                  {autoRows.map(h => renderHistoryRow(h, true, cols, currentKey, habitLog, openMenu))}
+                </>
+              )}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {importOpen && (
+        <div style={overlay} onClick={() => setImportOpen(false)}>
+          <div style={modal} onClick={e => e.stopPropagation()}>
+            <h3 style={{ margin: '0 0 0.5rem' }}>Import history from Excel</h3>
+            <p style={{ fontSize: '0.82rem', color: 'var(--color-text-muted)', margin: '0 0 0.6rem', lineHeight: 1.45 }}>
+              Paste cells with <strong>dates down the first column</strong> and <strong>habit names across the top row</strong>.
+              Cell values: <code>yes</code> / <code>no</code> / <code>skip</code> / <code>gold</code> (or ✓ / ✕ / ⏭ / ★); blanks are ignored.
+              Then check the column mapping below before importing. Imported values merge into your log (overwriting only the same habit+date).
+            </p>
+            <textarea
+              value={importText}
+              onChange={e => setImportText(e.target.value)}
+              placeholder={'Date\tMeditation\tFlossing\n2026-06-01\tyes\tno\n2026-06-02\tgold\tyes'}
+              style={{ width: '100%', height: 120, fontFamily: 'monospace', fontSize: '0.78rem', padding: '0.5rem', borderRadius: 8, border: '1px solid #ccc', boxSizing: 'border-box' }}
+            />
+
+            {columns.length > 0 && (
+              <div style={{ marginTop: '0.75rem' }}>
+                <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 6 }}>
+                  <strong style={{ fontSize: '0.85rem' }}>Column mapping</strong>
+                  <span style={{ fontSize: '0.76rem', color: 'var(--color-text-muted)' }}>
+                    {dateRows} date row{dateRows !== 1 ? 's' : ''} · {mapping.filter(Boolean).length}/{columns.length} mapped
+                  </span>
+                </div>
+                <div style={{ maxHeight: 230, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 6, border: '1px solid var(--color-border, #e2e8f0)', borderRadius: 8, padding: 8 }}>
+                  {columns.map((col, i) => (
+                    <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <span style={{ flex: 1, fontSize: '0.82rem', fontFamily: 'monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={col}>
+                        {col || <em style={{ color: '#aaa' }}>(blank)</em>}
+                      </span>
+                      <span style={{ color: mapping[i] ? '#16a34a' : '#cbd5e1' }}>→</span>
+                      <select
+                        value={mapping[i] || ''}
+                        onChange={e => setMapping(m => m.map((v, idx) => (idx === i ? e.target.value : v)))}
+                        style={{ flex: 1, minWidth: 0, fontSize: '0.8rem', padding: '4px 6px', borderRadius: 6, border: `1px solid ${mapping[i] ? '#cbd5e1' : '#fca5a5'}`, background: '#fff' }}
+                      >
+                        <option value="">— Ignore —</option>
+                        {habitOptions.map(h => <option key={h.id} value={h.id}>{h.name}</option>)}
+                      </select>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {importResult && (
+              <p style={{ fontSize: '0.82rem', margin: '0.6rem 0 0', color: importResult.marks > 0 ? '#16a34a' : '#dc2626' }}>
+                {importResult.marks > 0
+                  ? `Imported ${importResult.marks} mark${importResult.marks > 1 ? 's' : ''} across ${importResult.dates} date${importResult.dates > 1 ? 's' : ''}.`
+                  : 'Nothing imported — check the date column and that at least one column is mapped.'}
+              </p>
+            )}
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', marginTop: '0.75rem' }}>
+              <button onClick={() => setImportOpen(false)} style={ghostBtn}>Close</button>
+              <button onClick={runImport} style={primaryBtn} disabled={!dateRows || mapping.every(v => !v)}>Import</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -666,14 +2126,63 @@ function StatusChip({ status }) {
 
 const SELECT_FILTER_COLS = ['routine', 'status', 'age'];
 
-function HabitsTable({ habits, onUpdate, onDelete, onOpen }) {
+// Fields that make sense to set across many habits at once. Deliberately
+// excludes name + the long Atomic-Habits text fields (bulk-setting those would
+// just clobber per-habit content).
+const BULK_FIELDS = [
+  { key: 'status', label: 'Status' },
+  { key: 'routine', label: 'Routine' },
+  { key: 'cadence', label: 'Cadence' },
+  { key: 'dailyOrder', label: 'Daily Routine #' },
+  { key: 'age', label: 'Age' },
+  { key: 'startDate', label: 'Start Date' },
+  { key: 'kpi', label: 'KPI' },
+];
+
+function HabitsTable({ habits, onUpdate, onDelete, onOpen, onBulkUpdate, onBulkDelete }) {
   const [visibleCols, setVisibleCols] = useState(() => {
     try { const raw = localStorage.getItem('sunday-habits-cols'); if (raw) return new Set(JSON.parse(raw)); } catch { /* default below */ }
     return new Set(HABIT_FIELDS.map(f => f.key));
   });
   const [colsOpen, setColsOpen] = useState(false);
-  const [showFilters, setShowFilters] = useState(false);
+  // Filter row is shown by default; remembers the user's last choice.
+  const [showFilters, setShowFilters] = useState(() => {
+    try { const v = localStorage.getItem('sunday-habits-showfilters'); return v == null ? true : v === '1'; } catch { return true; }
+  });
   const [filters, setFilters] = useState({});
+  // Click-to-sort, persisted across visits. key=null → default routine
+  // grouping. Clicking a header cycles asc → desc → back to default.
+  const [sort, setSort] = useState(() => {
+    try {
+      const p = JSON.parse(localStorage.getItem('sunday-habits-sort'));
+      if (p && (p.key === null || typeof p.key === 'string') && (p.dir === 'asc' || p.dir === 'desc')) return p;
+    } catch { /* default below */ }
+    return { key: null, dir: 'asc' };
+  });
+  // Bulk edit: a Set of selected habit ids + the field/value to apply.
+  const [selectedIds, setSelectedIds] = useState(() => new Set());
+  const [bulkField, setBulkField] = useState('status');
+  const [bulkValue, setBulkValue] = useState('');
+  // Per-column widths (px), drag-resized from the header. Overrides COL_WIDTH.
+  const [colWidths, setColWidths] = useState(() => {
+    try { const raw = localStorage.getItem('sunday-habits-colwidths'); if (raw) return JSON.parse(raw) || {}; } catch { /* default below */ }
+    return {};
+  });
+  useEffect(() => {
+    try { localStorage.setItem('sunday-habits-colwidths', JSON.stringify(colWidths)); } catch { /* ignore */ }
+  }, [colWidths]);
+  const widthOf = (key) => colWidths[key] || COL_WIDTH[key] || 120;
+  // Drag a header's right edge to resize its column; persists via the effect above.
+  function startResize(e, key) {
+    e.preventDefault();
+    e.stopPropagation(); // don't trigger the header's sort click
+    const startX = e.clientX;
+    const startW = widthOf(key);
+    const onMove = (ev) => setColWidths(prev => ({ ...prev, [key]: Math.max(50, startW + (ev.clientX - startX)) }));
+    const onUp = () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp); };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  }
 
   function toggleCol(key) {
     const wasVisible = visibleCols.has(key);
@@ -688,8 +2197,27 @@ function HabitsTable({ habits, onUpdate, onDelete, onOpen }) {
   function setFilter(key, value) {
     setFilters(prev => { const n = { ...prev }; if (value) n[key] = value; else delete n[key]; return n; });
   }
+  function toggleSort(key) {
+    setSort(prev => {
+      let next;
+      if (prev.key !== key) next = { key, dir: 'asc' };
+      else if (prev.dir === 'asc') next = { key, dir: 'desc' };
+      else next = { key: null, dir: 'asc' }; // third click → back to default routine order
+      try { localStorage.setItem('sunday-habits-sort', JSON.stringify(next)); } catch { /* ignore */ }
+      return next;
+    });
+  }
+  function toggleShowFilters() {
+    setShowFilters(s => {
+      const next = !s;
+      try { localStorage.setItem('sunday-habits-showfilters', next ? '1' : '0'); } catch { /* ignore */ }
+      return next;
+    });
+  }
 
   const cols = HABIT_FIELDS.filter(f => visibleCols.has(f.key));
+  // Checkbox col (34) + each field's width + delete col (40). Drives fixed layout.
+  const totalWidth = 34 + cols.reduce((s, f) => s + widthOf(f.key), 0) + 40;
 
   const distinct = useMemo(() => {
     const d = {};
@@ -704,7 +2232,24 @@ function HabitsTable({ habits, onUpdate, onDelete, onOpen }) {
     [habits],
   );
 
-  const sorted = useMemo(() => [...habits].sort(compareByRoutine), [habits]);
+  const sorted = useMemo(() => {
+    const base = [...habits];
+    if (!sort.key) return base.sort(compareByRoutine);
+    const { key, dir } = sort;
+    const mul = dir === 'desc' ? -1 : 1;
+    return base.sort((a, b) => {
+      const av = (a[key] ?? '').toString().trim();
+      const bv = (b[key] ?? '').toString().trim();
+      // Blank cells always sink to the bottom, regardless of sort direction.
+      if (av === '' && bv === '') return 0;
+      if (av === '') return 1;
+      if (bv === '') return -1;
+      const an = parseFloat(av), bn = parseFloat(bv);
+      const bothNum = !isNaN(an) && !isNaN(bn) && /^-?[\d.]/.test(av) && /^-?[\d.]/.test(bv);
+      if (bothNum) return (an - bn) * mul;
+      return av.localeCompare(bv, undefined, { numeric: true, sensitivity: 'base' }) * mul;
+    });
+  }, [habits, sort]);
   const filtered = useMemo(() => sorted.filter(h => {
     for (const [k, v] of Object.entries(filters)) {
       if (!v) continue;
@@ -715,6 +2260,66 @@ function HabitsTable({ habits, onUpdate, onDelete, onOpen }) {
     return true;
   }), [sorted, filters]);
 
+  // --- Selection helpers (operate on the currently filtered rows) ---
+  const allSelected = filtered.length > 0 && filtered.every(h => selectedIds.has(h.id));
+  const someSelected = filtered.some(h => selectedIds.has(h.id));
+  function toggleOne(id) {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+  function toggleAll() {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (allSelected) filtered.forEach(h => next.delete(h.id));
+      else filtered.forEach(h => next.add(h.id));
+      return next;
+    });
+  }
+  function clearSelection() { setSelectedIds(new Set()); }
+  function applyBulk() {
+    if (selectedIds.size === 0) return;
+    onBulkUpdate(selectedIds, bulkField, bulkValue);
+  }
+  function deleteBulk() {
+    if (selectedIds.size === 0) return;
+    if (!window.confirm(`Delete ${selectedIds.size} habit${selectedIds.size > 1 ? 's' : ''}? This can't be undone.`)) return;
+    onBulkDelete(selectedIds);
+    clearSelection();
+  }
+
+  // Value control for the bulk bar — a dropdown for status/cadence, a
+  // datalist-backed input for routine, a plain input otherwise.
+  const bulkValueControl = () => {
+    if (bulkField === 'status') {
+      return (
+        <select value={bulkValue} onChange={e => setBulkValue(e.target.value)} style={bulkCtrl}>
+          <option value="">— (clear)</option>
+          {STATUS_OPTIONS.map(s => <option key={s} value={s}>{s}</option>)}
+        </select>
+      );
+    }
+    if (bulkField === 'cadence') {
+      return (
+        <select value={bulkValue} onChange={e => setBulkValue(e.target.value)} style={bulkCtrl}>
+          <option value="">— (clear)</option>
+          {CADENCE_OPTIONS.map(s => <option key={s} value={s}>{s}</option>)}
+        </select>
+      );
+    }
+    return (
+      <input
+        value={bulkValue}
+        onChange={e => setBulkValue(e.target.value)}
+        list={bulkField === 'routine' ? 'habit-routine-options' : undefined}
+        placeholder="new value…"
+        style={bulkCtrl}
+      />
+    );
+  };
+
   const cellInput = (h, f) => {
     const listId = f.key === 'status' ? 'habit-status-options' : f.key === 'routine' ? 'habit-routine-options' : undefined;
     return (
@@ -722,7 +2327,7 @@ function HabitsTable({ habits, onUpdate, onDelete, onOpen }) {
         value={h[f.key] || ''}
         onChange={e => onUpdate(h.id, f.key, e.target.value)}
         list={listId}
-        style={{ width: '100%', minWidth: COL_WIDTH[f.key] || 120, border: '1px solid transparent', background: 'transparent', borderRadius: 4, padding: '4px 5px', fontSize: '0.8rem', boxSizing: 'border-box' }}
+        style={{ width: '100%', minWidth: 0, border: '1px solid transparent', background: 'transparent', borderRadius: 4, padding: '4px 5px', fontSize: '0.8rem', boxSizing: 'border-box' }}
         onFocus={e => { e.target.style.border = '1px solid #cbd5e1'; e.target.style.background = '#fff'; }}
         onBlur={e => { e.target.style.border = '1px solid transparent'; e.target.style.background = 'transparent'; }}
       />
@@ -745,22 +2350,90 @@ function HabitsTable({ habits, onUpdate, onDelete, onOpen }) {
             </div>
           )}
         </div>
-        <button onClick={() => setShowFilters(s => !s)} style={showFilters ? primaryBtn : ghostBtn}>Filter</button>
+        <button onClick={toggleShowFilters} style={showFilters ? primaryBtn : ghostBtn}>Filter</button>
         {Object.keys(filters).length > 0 && <button onClick={() => setFilters({})} style={ghostBtn}>Clear filters</button>}
+        {Object.keys(colWidths).length > 0 && <button onClick={() => setColWidths({})} style={ghostBtn} title="Reset all column widths to default">Reset widths</button>}
         <span style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)' }}>{filtered.length} of {habits.length}</span>
       </div>
+
+      {/* Status color legend — matches the row tint / left edge. */}
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem 0.9rem', marginBottom: 8 }}>
+        {Object.entries(STATUS_COLOR).map(([label, color]) => (
+          <span key={label} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: '0.72rem', color: 'var(--color-text-muted)' }}>
+            <span style={{ width: 10, height: 10, borderRadius: 3, background: color }} />
+            {label}
+          </span>
+        ))}
+      </div>
+
+      {/* Bulk-edit bar — appears once any rows are selected. */}
+      {selectedIds.size > 0 && (
+        <div style={{ display: 'flex', gap: 8, marginBottom: 8, alignItems: 'center', flexWrap: 'wrap', background: ACCENT + '12', border: `1px solid ${ACCENT}40`, borderRadius: 8, padding: '0.5rem 0.7rem' }}>
+          <strong style={{ fontSize: '0.85rem', color: ACCENT }}>{selectedIds.size} selected</strong>
+          <span style={{ fontSize: '0.82rem', color: 'var(--color-text-muted)' }}>Set</span>
+          <select
+            value={bulkField}
+            onChange={e => { setBulkField(e.target.value); setBulkValue(''); }}
+            style={bulkCtrl}
+          >
+            {BULK_FIELDS.map(f => <option key={f.key} value={f.key}>{f.label}</option>)}
+          </select>
+          <span style={{ fontSize: '0.82rem', color: 'var(--color-text-muted)' }}>to</span>
+          {bulkValueControl()}
+          <button onClick={applyBulk} style={primaryBtn}>Apply</button>
+          <span style={{ width: 1, height: 22, background: ACCENT + '40' }} />
+          <button onClick={deleteBulk} style={{ ...ghostBtn, color: '#dc2626', borderColor: '#fca5a5' }}>Delete</button>
+          <button onClick={clearSelection} style={ghostBtn}>Clear selection</button>
+        </div>
+      )}
 
       <div style={{ overflowX: 'auto', border: '1px solid var(--color-border, #e2e8f0)', borderRadius: 10 }}>
         <datalist id="habit-status-options">{STATUS_OPTIONS.map(s => <option key={s} value={s} />)}</datalist>
         <datalist id="habit-routine-options">{routineOptions.map(s => <option key={s} value={s} />)}</datalist>
-        <table style={{ borderCollapse: 'collapse', width: '100%', minWidth: cols.length * 130 + 40 }}>
+        <table style={{ borderCollapse: 'collapse', tableLayout: 'fixed', width: totalWidth, minWidth: totalWidth }}>
+          <colgroup>
+            <col style={{ width: 34 }} />
+            {cols.map(f => <col key={f.key} style={{ width: widthOf(f.key) }} />)}
+            <col style={{ width: 40 }} />
+          </colgroup>
           <thead>
             <tr>
-              {cols.map(f => <th key={f.key} style={th}>{f.label}</th>)}
+              <th style={{ ...th, width: 34, textAlign: 'center' }}>
+                <input
+                  type="checkbox"
+                  checked={allSelected}
+                  ref={el => { if (el) el.indeterminate = someSelected && !allSelected; }}
+                  onChange={toggleAll}
+                  title="Select all (filtered)"
+                />
+              </th>
+              {cols.map(f => {
+                const active = sort.key === f.key;
+                return (
+                  <th
+                    key={f.key}
+                    style={{ ...th, cursor: 'pointer', userSelect: 'none', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
+                    onClick={() => toggleSort(f.key)}
+                    title="Click to sort — click again to reverse, once more to clear"
+                  >
+                    {f.label}
+                    <span style={{ color: active ? ACCENT : '#cbd5e1', marginLeft: 4 }}>
+                      {active ? (sort.dir === 'asc' ? '▲' : '▼') : '↕'}
+                    </span>
+                    <span
+                      onMouseDown={e => startResize(e, f.key)}
+                      onClick={e => e.stopPropagation()}
+                      title="Drag to resize this column"
+                      style={{ position: 'absolute', top: 0, right: 0, height: '100%', width: 8, cursor: 'col-resize' }}
+                    />
+                  </th>
+                );
+              })}
               <th style={th} />
             </tr>
             {showFilters && (
               <tr>
+                <th style={{ ...th, background: '#fff', position: 'static' }} />
                 {cols.map(f => (
                   <th key={f.key} style={{ ...th, background: '#fff', position: 'static', padding: '2px 4px' }}>
                     {SELECT_FILTER_COLS.includes(f.key) ? (
@@ -778,8 +2451,14 @@ function HabitsTable({ habits, onUpdate, onDelete, onOpen }) {
             )}
           </thead>
           <tbody>
-            {filtered.map(h => (
-              <tr key={h.id} style={{ borderTop: '1px solid #eef2f6' }}>
+            {filtered.map(h => {
+              const isSel = selectedIds.has(h.id);
+              const sc = statusColor(h.status);
+              return (
+              <tr key={h.id} style={{ borderTop: '1px solid #eef2f6', background: isSel ? ACCENT + '0d' : (sc ? sc + '12' : undefined) }}>
+                <td style={{ ...td, textAlign: 'center', borderLeft: `3px solid ${sc || 'transparent'}` }}>
+                  <input type="checkbox" checked={isSel} onChange={() => toggleOne(h.id)} />
+                </td>
                 {cols.map(f => (
                   <td key={f.key} style={td}>
                     {f.key === 'name' ? (
@@ -794,9 +2473,10 @@ function HabitsTable({ habits, onUpdate, onDelete, onOpen }) {
                   <button onClick={() => onDelete(h.id)} title="Delete" style={{ border: 'none', background: 'none', color: '#dc2626', cursor: 'pointer', fontSize: '1rem', padding: '0 6px' }}>×</button>
                 </td>
               </tr>
-            ))}
+              );
+            })}
             {filtered.length === 0 && (
-              <tr><td colSpan={cols.length + 1} style={{ padding: '1.5rem', textAlign: 'center', color: 'var(--color-text-muted)' }}>{habits.length === 0 ? 'No habits yet — add one or paste from your sheet.' : 'No habits match the filters.'}</td></tr>
+              <tr><td colSpan={cols.length + 2} style={{ padding: '1.5rem', textAlign: 'center', color: 'var(--color-text-muted)' }}>{habits.length === 0 ? 'No habits yet — add one or paste from your sheet.' : 'No habits match the filters.'}</td></tr>
             )}
           </tbody>
         </table>
@@ -904,9 +2584,29 @@ const COL_WIDTH = {
   craving: 240, response: 220, reward: 200, age: 80, status: 120, startDate: 96,
 };
 
+// Row color-coding for the Habits table, by status — most-active (green) down
+// to retired (red). Legacy/unknown statuses get no tint.
+const STATUS_COLOR = {
+  'Automatically': '#16a34a',
+  'Most Days': '#65a30d',
+  'Some Days': '#d97706',
+  'Rarely': '#ea580c',
+  'On Hold': '#64748b',
+  'Not Started': '#94a3b8',
+  'Abandoned': '#dc2626',
+};
+const statusColor = (status) => STATUS_COLOR[(status || '').trim()] || null;
+
 const th = { textAlign: 'left', fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: 0.4, color: 'var(--color-text-muted, #64748b)', padding: '0.5rem 0.5rem', background: '#f8fafc', whiteSpace: 'nowrap', position: 'sticky', top: 0 };
-const td = { padding: '1px 2px', verticalAlign: 'top' };
+const td = { padding: '1px 2px', verticalAlign: 'top', overflow: 'hidden' };
 const filterCtrl = { width: '100%', minWidth: 70, fontSize: '0.72rem', padding: '3px 4px', border: '1px solid #cbd5e1', borderRadius: 4, boxSizing: 'border-box', fontWeight: 400, textTransform: 'none', letterSpacing: 0 };
+const bulkCtrl = { fontSize: '0.82rem', padding: '4px 6px', border: '1px solid #cbd5e1', borderRadius: 6, background: '#fff', minWidth: 130 };
+const routineIconBtn = { border: 'none', background: 'none', cursor: 'pointer', fontSize: '0.9rem', padding: '2px 4px', lineHeight: 1, opacity: 0.7 };
+const navBtn = { border: '1px solid var(--color-border, #e2e8f0)', background: '#fff', borderRadius: 8, width: 30, height: 30, cursor: 'pointer', fontSize: '1.1rem', lineHeight: 1, color: ACCENT, fontWeight: 700 };
+const histNameTh = { ...th, position: 'sticky', left: 0, zIndex: 2, minWidth: 150, background: '#f8fafc' };
+const histColTh = { textAlign: 'center', fontSize: '0.7rem', fontWeight: 700, color: 'var(--color-text-secondary, #475569)', padding: '0.4rem 0.3rem', minWidth: 40, whiteSpace: 'nowrap' };
+const histNameTd = { position: 'sticky', left: 0, zIndex: 1, background: '#fff', fontSize: '0.82rem', fontWeight: 600, padding: '0.45rem 0.6rem', whiteSpace: 'nowrap', maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 150 };
+const histCellTd = { textAlign: 'center', padding: '0.4rem 0.3rem', borderLeft: '1px solid #f1f5f9' };
 const backBtn = { border: '1px solid var(--color-border, #e2e8f0)', background: '#fff', borderRadius: 8, padding: '0.4rem 0.7rem', cursor: 'pointer', fontSize: '0.85rem' };
 const ghostBtn = { border: '1px solid var(--color-border, #e2e8f0)', background: '#fff', borderRadius: 8, padding: '0.45rem 0.85rem', cursor: 'pointer', fontSize: '0.85rem' };
 const primaryBtn = { border: 'none', background: '#111', color: '#fff', borderRadius: 8, padding: '0.45rem 0.9rem', cursor: 'pointer', fontSize: '0.85rem', fontWeight: 600 };
@@ -914,6 +2614,9 @@ const overlay = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', di
 const modal = { background: '#fff', borderRadius: 12, padding: '1.1rem 1.25rem', width: 'min(94vw, 560px)', boxShadow: '0 12px 40px rgba(0,0,0,0.25)' };
 const nameBtn = { width: '100%', textAlign: 'left', display: 'flex', alignItems: 'center', gap: 6, border: '1px solid transparent', background: 'transparent', borderRadius: 4, padding: '4px 5px', fontSize: '0.8rem', fontWeight: 600, color: ACCENT, cursor: 'pointer' };
 const cadenceTag = { fontSize: '0.62rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.3, color: ACCENT, background: ACCENT + '14', borderRadius: 999, padding: '1px 6px', whiteSpace: 'nowrap' };
+// Subtle label showing a habit's named routine (the Routines tab now groups by
+// cadence, so the routine name is shown per-row instead of as a section header).
+const routineTag = { fontSize: '0.62rem', fontWeight: 600, color: 'var(--color-text-muted, #64748b)', background: 'var(--color-surface-alt, #f1f5f9)', border: '1px solid var(--color-border, #e2e8f0)', borderRadius: 999, padding: '1px 7px', whiteSpace: 'nowrap' };
 const fieldWrap = { display: 'flex', flexDirection: 'column', gap: 3, marginBottom: '0.6rem' };
 const fieldLabel = { fontSize: '0.7rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.4, color: 'var(--color-text-muted, #64748b)' };
 const fieldInput = { width: '100%', boxSizing: 'border-box', border: '1px solid var(--color-border, #e2e8f0)', borderRadius: 6, padding: '5px 7px', fontSize: '0.85rem' };
