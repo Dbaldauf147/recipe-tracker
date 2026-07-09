@@ -26,13 +26,16 @@ export async function lookupBarcode(barcode) {
   const name = p.product_name || '';
   if (!name) return null;
 
-  const ingredient = brand ? `${brand} ${name}` : name;
+  // Keep the name clean and capture the brand in its own field, so tracked
+  // ingredients carry the brand separately (matches the mobile scanner).
+  const ingredient = name;
   const { quantity, measurement } = parseServingSize(p.serving_size);
 
   return {
     quantity,
     measurement,
     ingredient,
+    brand,
     notes: p.quantity || '',
   };
 }
@@ -53,7 +56,8 @@ export async function lookupBarcodeFullNutrition(barcode) {
   const name = p.product_name || '';
   if (!name) return null;
 
-  const ingredient = brand ? `${brand} ${name}` : name;
+  // Clean name + separate brand field (the editor/DB has a Brand column).
+  const ingredient = name;
   const n = p.nutriments || {};
 
   // Prefer per-serving values; fall back to per-100g
@@ -93,6 +97,7 @@ export async function lookupBarcodeFullNutrition(barcode) {
 
   return {
     ingredient,
+    brand,
     grams,
     measurement,
     protein: fmt(protein),

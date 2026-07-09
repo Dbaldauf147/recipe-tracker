@@ -10,6 +10,7 @@ import {
 import { lookupBarcodeFullNutrition } from '../utils/openFoodFacts.js';
 import { locationToRegion, getSeasonalIngredients } from '../utils/seasonal.js';
 import { BarcodeScanner } from './BarcodeScanner.jsx';
+import { CompositeIngredientBuilder } from './CompositeIngredientBuilder.jsx';
 import styles from './IngredientsPage.module.css';
 
 const ADMIN_UID = import.meta.env.VITE_ADMIN_UID;
@@ -275,6 +276,25 @@ export function IngredientsPage({ onClose, user }) {
   const removeRow = useCallback((origIdx) => {
     setRows(prev => {
       const updated = prev.filter((_, i) => i !== origIdx);
+      saveIngredientsToFirestore(updated);
+      return updated;
+    });
+  }, []);
+
+  // Composite builder: null = closed, { existing } = open (existing row | null).
+  const [composite, setComposite] = useState(null);
+
+  // Append a freshly-built composite, or replace the row being edited (matched
+  // by its original name), then persist.
+  const saveComposite = useCallback((row, originalName) => {
+    setRows(prev => {
+      let updated;
+      if (originalName) {
+        const lower = originalName.trim().toLowerCase();
+        updated = prev.map(r => ((r.ingredient || '').trim().toLowerCase() === lower ? row : r));
+      } else {
+        updated = [...prev, row];
+      }
       saveIngredientsToFirestore(updated);
       return updated;
     });
@@ -655,6 +675,9 @@ export function IngredientsPage({ onClose, user }) {
                 <button className={styles.addMenuItem} onClick={() => { setShowAddMenu(false); setShowManualAdd(true); setModalError(null); }}>
                   <span className={styles.addMenuIcon}>&#9998;</span> Manual entry
                 </button>
+                <button className={styles.addMenuItem} onClick={() => { setShowAddMenu(false); setComposite({ existing: null }); }}>
+                  <span className={styles.addMenuIcon}>&#128279;</span> Combine ingredients
+                </button>
                 <button className={styles.addMenuItem} onClick={() => { setShowAddMenu(false); addRow(); }}>
                   <span className={styles.addMenuIcon}>&#43;</span> Blank row
                 </button>
@@ -737,6 +760,16 @@ export function IngredientsPage({ onClose, user }) {
                     </React.Fragment>
                   ))}
                   <td>
+                    {Array.isArray(row.components) && row.components.length > 0 && (
+                      <button
+                        className={styles.removeBtn}
+                        onClick={() => setComposite({ existing: row })}
+                        title="Edit combined ingredient"
+                        style={{ marginRight: 4 }}
+                      >
+                        ✎
+                      </button>
+                    )}
                     <button
                       className={styles.removeBtn}
                       onClick={() => removeRow(origIdx)}
@@ -786,6 +819,13 @@ export function IngredientsPage({ onClose, user }) {
           onClose={() => setShowBarcodeScanner(false)}
         />
       )}
+
+      <CompositeIngredientBuilder
+        open={!!composite}
+        existing={composite?.existing ?? null}
+        onClose={() => setComposite(null)}
+        onSave={saveComposite}
+      />
 
       {/* Photo upload modal */}
       {showPhotoUpload && (

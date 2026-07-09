@@ -15,7 +15,7 @@ const READER_ID = 'ingredient-barcode-reader';
 const SECTIONS = [
   {
     label: 'Basic Info',
-    fields: ['ingredient', 'grams', 'measurement'],
+    fields: ['ingredient', 'brand', 'grams', 'measurement'],
   },
   {
     label: 'Macronutrients',

@@ -41,7 +41,7 @@ function getYear(dateStr) {
   return dateStr.split('-')[0];
 }
 
-export function HistoryPage({ getRecipe, recipes, onClose }) {
+export function HistoryPage({ getRecipe, recipes, deletedRecipes = [], onRestoreDeleted, onPurgeDeleted, onClose }) {
   const [entries, setEntries] = useState(loadHistory);
   const [editingDate, setEditingDate] = useState(null);
   const [editingCell, setEditingCell] = useState(null); // { timestamp, index }
@@ -50,6 +50,23 @@ export function HistoryPage({ getRecipe, recipes, onClose }) {
   const [backups, setBackups] = useState(null);
   const [restoreStatus, setRestoreStatus] = useState(null);
   const [restoring, setRestoring] = useState(false);
+  const [showDeleted, setShowDeleted] = useState(false);
+  const [deletedStatus, setDeletedStatus] = useState(null);
+
+  function handleRestoreDeleted(deletionId, title) {
+    onRestoreDeleted?.(deletionId);
+    setDeletedStatus(`Restored "${title}" to your recipes.`);
+  }
+
+  function handlePurgeDeleted(deletionId, title) {
+    if (!window.confirm(`Permanently remove "${title}" from the deleted list? This can't be undone.`)) return;
+    onPurgeDeleted?.(deletionId);
+    setDeletedStatus(null);
+  }
+
+  const sortedDeleted = [...deletedRecipes].sort(
+    (a, b) => new Date(b.deletedAt || 0) - new Date(a.deletedAt || 0)
+  );
 
   async function openRestore() {
     setShowRestore(true);
@@ -145,6 +162,9 @@ export function HistoryPage({ getRecipe, recipes, onClose }) {
         </button>
         <h2 className={styles.title}>Meal History</h2>
         <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+          <button className={styles.importBtn} onClick={() => { setShowDeleted(true); setDeletedStatus(null); }} style={{ background: '#f3f4f6', color: '#374151', border: '1px solid #d1d5db' }}>
+            Deleted Recipes{deletedRecipes.length > 0 ? ` (${deletedRecipes.length})` : ''}
+          </button>
           <button className={styles.importBtn} onClick={openRestore} style={{ background: '#fef3c7', color: '#92400e', border: '1px solid #fbbf24' }}>
             Restore from backup…
           </button>
@@ -204,6 +224,61 @@ export function HistoryPage({ getRecipe, recipes, onClose }) {
                           style={{ padding: '0.3rem 0.7rem', borderRadius: 6, border: '1px solid #16a34a', background: b.planHistoryCount > 0 ? '#16a34a' : '#9ca3af', color: '#fff', fontSize: '0.8rem', fontWeight: 600, cursor: b.planHistoryCount > 0 ? 'pointer' : 'not-allowed', opacity: restoring ? 0.5 : 1 }}
                         >
                           {restoring ? 'Restoring…' : 'Restore'}
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        </div>
+      )}
+
+      {showDeleted && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000, padding: '1rem' }} onClick={() => setShowDeleted(false)}>
+          <div onClick={e => e.stopPropagation()} style={{ background: 'var(--color-surface, #fff)', borderRadius: 12, padding: '1.5rem', width: '100%', maxWidth: 560, maxHeight: '85vh', overflowY: 'auto', boxShadow: '0 8px 32px rgba(0,0,0,0.18)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
+              <h3 style={{ margin: 0, fontSize: '1.1rem' }}>Deleted Recipes</h3>
+              <button onClick={() => setShowDeleted(false)} style={{ background: 'none', border: 'none', fontSize: '1.4rem', cursor: 'pointer', color: '#666' }}>×</button>
+            </div>
+            <p style={{ fontSize: '0.85rem', color: '#666', marginTop: 0 }}>
+              Recipes you've deleted are kept here so you can bring them back. Only deletions from now on are tracked.
+            </p>
+            {deletedStatus && (
+              <p style={{ fontSize: '0.9rem', padding: '0.5rem 0.75rem', background: '#dcfce7', color: '#166534', borderRadius: 6 }}>{deletedStatus}</p>
+            )}
+            {sortedDeleted.length === 0 ? (
+              <p style={{ color: '#666', fontSize: '0.9rem' }}>No deleted recipes yet. When you delete a recipe, it'll show up here.</p>
+            ) : (
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.88rem' }}>
+                <thead>
+                  <tr style={{ borderBottom: '1px solid #e5e7eb', textAlign: 'left' }}>
+                    <th style={{ padding: '0.4rem 0.5rem' }}>Recipe</th>
+                    <th style={{ padding: '0.4rem 0.5rem' }}>Deleted</th>
+                    <th style={{ padding: '0.4rem 0.5rem' }}></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {sortedDeleted.map(d => (
+                    <tr key={d.deletionId} style={{ borderBottom: '1px solid #f3f4f6' }}>
+                      <td style={{ padding: '0.4rem 0.5rem', fontWeight: 600 }}>{d.title || '(untitled)'}</td>
+                      <td style={{ padding: '0.4rem 0.5rem', color: '#666', fontSize: '0.8rem' }}>
+                        {d.deletedAt ? `${formatDate(d.deletedAt.slice(0, 10))}, ${getYear(d.deletedAt.slice(0, 10))}` : '—'}
+                      </td>
+                      <td style={{ padding: '0.4rem 0.5rem', textAlign: 'right', whiteSpace: 'nowrap' }}>
+                        <button
+                          onClick={() => handleRestoreDeleted(d.deletionId, d.title)}
+                          style={{ padding: '0.3rem 0.7rem', borderRadius: 6, border: '1px solid #16a34a', background: '#16a34a', color: '#fff', fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer', marginRight: '0.4rem' }}
+                        >
+                          Restore
+                        </button>
+                        <button
+                          onClick={() => handlePurgeDeleted(d.deletionId, d.title)}
+                          title="Remove permanently"
+                          style={{ padding: '0.3rem 0.55rem', borderRadius: 6, border: '1px solid #e5e7eb', background: 'none', color: '#991b1b', fontSize: '0.9rem', cursor: 'pointer' }}
+                        >
+                          ×
                         </button>
                       </td>
                     </tr>

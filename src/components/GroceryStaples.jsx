@@ -24,6 +24,10 @@ function saveStaples(staples) {
 export function GroceryStaples({ onMoveToShop, highlightNames }) {
   const [staples, setStaples] = useState([]);
   const [loading, setLoading] = useState(true);
+  // In-progress name edits, keyed by the staple's index. Buffered so the
+  // alphabetical sort doesn't reorder the row on every keystroke — committed
+  // to `staples` on blur/Enter.
+  const [nameEdits, setNameEdits] = useState({});
   const [checked, setChecked] = useState(() => {
     try { const raw = localStorage.getItem('sunday-staples-checked'); return raw ? new Set(JSON.parse(raw)) : new Set(); }
     catch { return new Set(); }
@@ -202,9 +206,46 @@ export function GroceryStaples({ onMoveToShop, highlightNames }) {
                       onClick={e => e.stopPropagation()}
                     />
                   </td>
-                  <td><span className={styles.cellText}>{item.quantity}</span></td>
-                  <td><span className={styles.cellText}>{item.measurement}</span></td>
-                  <td><span className={styles.cellText}>{item.ingredient}</span></td>
+                  <td>
+                    <input
+                      className={styles.cellInput}
+                      type="text"
+                      value={item.quantity || ''}
+                      onChange={e => updateItem(i, 'quantity', e.target.value)}
+                      onClick={e => e.stopPropagation()}
+                      placeholder="Qty"
+                      style={{ width: '3rem' }}
+                    />
+                  </td>
+                  <td>
+                    <input
+                      className={styles.cellInput}
+                      type="text"
+                      value={item.measurement || ''}
+                      onChange={e => updateItem(i, 'measurement', e.target.value)}
+                      onClick={e => e.stopPropagation()}
+                      placeholder="Unit"
+                      style={{ width: '4rem' }}
+                    />
+                  </td>
+                  <td>
+                    <input
+                      className={styles.cellInput}
+                      type="text"
+                      value={nameEdits[i] ?? item.ingredient}
+                      onChange={e => setNameEdits(prev => ({ ...prev, [i]: e.target.value }))}
+                      onClick={e => e.stopPropagation()}
+                      onBlur={() => {
+                        if (!(i in nameEdits)) return;
+                        const draft = (nameEdits[i] || '').trim();
+                        if (draft && draft !== item.ingredient) updateItem(i, 'ingredient', draft);
+                        setNameEdits(prev => { const next = { ...prev }; delete next[i]; return next; });
+                      }}
+                      onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur(); }}
+                      placeholder="Ingredient"
+                      style={{ width: '100%' }}
+                    />
+                  </td>
                   <td>
                     <button
                       className={styles.removeBtn}

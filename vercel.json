@@ -9,9 +9,13 @@
     "api/parse-recipe-image.js": { "maxDuration": 60 },
     "api/parse-sudoku-image.js": { "maxDuration": 60 },
     "api/parse-nutrition-label.js": { "maxDuration": 60 },
-    "api/extract-recipe.js": { "maxDuration": 60 }
+    "api/extract-recipe.js": { "maxDuration": 60 },
+    "api/backup-user-data.js": { "maxDuration": 60 }
   },
   "crons": [
-    { "path": "/api/send-meal-prompt", "schedule": "0 * * * *" }
+    { "path": "/api/send-meal-prompt", "schedule": "0 * * * *" },
+    { "path": "/api/auto-log-meals", "schedule": "0 9 * * *" },
+    { "path": "/api/backup-user-data", "schedule": "0 8 * * *" },
+    { "path": "/api/run-habit-automations", "schedule": "15 * * * *" }
   ]
 }

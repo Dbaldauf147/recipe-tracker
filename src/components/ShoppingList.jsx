@@ -921,6 +921,21 @@ export function ShoppingList({ weeklyRecipes, weeklyServings = {}, extraItems = 
     if (user?.uid) saveField(user.uid, 'groceryCategories', next).catch(() => {});
   }, [user?.uid]);
 
+  // Pin an item to a category (or back to 'Other', which clears the override
+  // so the keyword categorizer takes over again). Persisted on the user doc as
+  // `groceryItemSections` so the assignment sticks across sessions/devices.
+  const assignItemCategory = useCallback((ingredient, catId) => {
+    const lower = (ingredient || '').toLowerCase().trim();
+    if (!lower) return;
+    setItemSections(prev => {
+      const next = { ...prev };
+      if (!catId || catId === 'other') delete next[lower];
+      else next[lower] = catId;
+      if (user?.uid) saveField(user.uid, 'groceryItemSections', next).catch(() => {});
+      return next;
+    });
+  }, [user?.uid]);
+
   function addCategory() {
     const label = newCatLabel.trim();
     if (!label) return;
@@ -1008,6 +1023,10 @@ export function ShoppingList({ weeklyRecipes, weeklyServings = {}, extraItems = 
     try { return JSON.parse(localStorage.getItem(SHOP_LINKS_KEY) || '{}'); } catch { return {}; }
   });
   const [editingLink, setEditingLink] = useState(null); // ingredient key
+  // Double-click item editor: pick its store section + edit its hyperlink.
+  const [itemPopup, setItemPopup] = useState(null); // ingredient name or null
+  const [popupCat, setPopupCat] = useState('other');
+  const [popupLink, setPopupLink] = useState('');
 
   // Re-read links when another device (e.g. the mobile app) updates the
   // synced `shopLinks` field, which lands in localStorage on sync.
@@ -1029,6 +1048,19 @@ export function ShoppingList({ weeklyRecipes, weeklyServings = {}, extraItems = 
       return next;
     });
     setEditingLink(null);
+  }
+
+  function openItemPopup(ingredient, currentCatId) {
+    const ingKey = ingredient.toLowerCase().trim();
+    setItemPopup(ingredient);
+    setPopupCat(currentCatId || 'other');
+    setPopupLink(customLinks[ingKey] || ingredientLinks[ingKey] || '');
+  }
+  function saveItemPopup() {
+    if (!itemPopup) return;
+    assignItemCategory(itemPopup, popupCat);
+    saveCustomLink(itemPopup.toLowerCase().trim(), (popupLink || '').trim());
+    setItemPopup(null);
   }
 
   const [checked, setChecked] = useState(() => loadCheckedItems());
@@ -1246,6 +1278,9 @@ export function ShoppingList({ weeklyRecipes, weeklyServings = {}, extraItems = 
                         key={`${section.id}-${i}`}
                         className={done ? styles.checkedRow : ''}
                         onClick={() => toggleItem(key)}
+                        onDoubleClick={e => { e.stopPropagation(); openItemPopup(item.ingredient, section.id); }}
+                        title="Double-click to set section & link"
+                        style={{ cursor: 'pointer' }}
                       >
                         <td className={styles.checkCell}>
                           <input
@@ -1424,6 +1459,63 @@ export function ShoppingList({ weeklyRecipes, weeklyServings = {}, extraItems = 
           </table>
         );
       })()}
+
+      {itemPopup && (
+        <div
+          onClick={() => setItemPopup(null)}
+          style={{
+            position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000,
+          }}
+        >
+          <div
+            onClick={e => e.stopPropagation()}
+            style={{
+              background: '#fff', borderRadius: 12, padding: '1.1rem 1.25rem',
+              width: 'min(92vw, 360px)', boxShadow: '0 12px 40px rgba(0,0,0,0.25)',
+            }}
+          >
+            <h3 style={{ margin: '0 0 0.85rem', fontSize: '1.05rem', fontWeight: 700 }}>{itemPopup}</h3>
+
+            <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: '#555', marginBottom: '0.25rem' }}>Section</label>
+            <select
+              value={popupCat}
+              onChange={e => setPopupCat(e.target.value)}
+              style={{ width: '100%', padding: '0.5rem', borderRadius: 8, border: '1px solid #ccc', fontSize: '0.9rem', marginBottom: '0.85rem' }}
+            >
+              {renderCategories.map(c => (
+                <option key={c.id} value={c.id}>{c.label}</option>
+              ))}
+            </select>
+
+            <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: '#555', marginBottom: '0.25rem' }}>Link</label>
+            <input
+              type="url"
+              value={popupLink}
+              autoFocus
+              onChange={e => setPopupLink(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') saveItemPopup(); if (e.key === 'Escape') setItemPopup(null); }}
+              placeholder="https://..."
+              style={{ width: '100%', padding: '0.5rem', borderRadius: 8, border: '1px solid #ccc', fontSize: '0.9rem', marginBottom: '1.1rem', boxSizing: 'border-box' }}
+            />
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem' }}>
+              <button
+                onClick={() => setItemPopup(null)}
+                style={{ padding: '0.45rem 0.9rem', borderRadius: 8, border: '1px solid #ccc', background: '#fff', cursor: 'pointer', fontSize: '0.85rem' }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={saveItemPopup}
+                style={{ padding: '0.45rem 0.9rem', borderRadius: 8, border: 'none', background: '#111', color: '#fff', cursor: 'pointer', fontSize: '0.85rem', fontWeight: 600 }}
+              >
+                Save
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

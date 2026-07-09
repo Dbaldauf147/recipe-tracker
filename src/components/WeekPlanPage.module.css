@@ -1,0 +1,654 @@
+.container {
+  max-width: none;
+  /* The app's <main> wrapper has var(--space-8) side padding (global, all pages).
+     Pull this page out to <main>'s edges with negative margins so the Week Plan
+     uses nearly the full width; a small space-2 padding keeps a thin gutter. */
+  margin: 0 calc(-1 * var(--space-8));
+  padding: var(--space-4) var(--space-2) var(--space-12);
+  font-family: var(--font-family);
+}
+
+.topBar {
+  display: flex;
+  align-items: center;
+  margin-bottom: var(--space-4);
+}
+
+.backBtn {
+  background: none;
+  border: none;
+  color: var(--color-accent);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  cursor: pointer;
+  padding: var(--space-2);
+}
+
+.header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  margin-bottom: var(--space-5);
+}
+
+/* Prepare table + goals sidebar laid out side by side. */
+.prepareRow {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-4);
+}
+
+.prepareRow .prepareSection {
+  flex: 1;
+  min-width: 0; /* let the wide table shrink/scroll instead of overflowing */
+}
+
+.goalsSidebar {
+  flex-shrink: 0;
+  width: 240px;
+  position: sticky;
+  top: var(--space-4);
+}
+
+.title {
+  font-size: var(--font-size-2xl);
+  font-weight: 700;
+  color: var(--color-text);
+  margin: 0;
+}
+
+.subtitle {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  margin: var(--space-1) 0 0;
+}
+
+.weekNav {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.navArrow {
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: 1.2rem;
+  line-height: 1;
+  cursor: pointer;
+}
+.navArrow:hover { background: var(--color-surface-alt); }
+
+.todayBtn {
+  padding: var(--space-2) var(--space-4);
+  border-radius: var(--radius-full);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  cursor: pointer;
+}
+.todayBtn:hover { background: var(--color-surface-alt); }
+
+.prepareSection {
+  margin-bottom: var(--space-6);
+  padding-bottom: var(--space-5);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.mealsBar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-3);
+  margin-bottom: var(--space-3);
+}
+
+.fillBtn {
+  padding: var(--space-2) var(--space-4);
+  border-radius: var(--radius-full);
+  border: 1px solid var(--color-accent);
+  background: var(--color-accent);
+  color: #fff;
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  cursor: pointer;
+}
+.fillBtn:hover { background: var(--color-accent-hover); }
+.fillBtn:disabled { opacity: 0.5; cursor: default; }
+
+.fillHint {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
+
+.calBar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+  margin-bottom: var(--space-3);
+}
+
+.calConnectBtn {
+  padding: var(--space-2) var(--space-4);
+  border-radius: var(--radius-full);
+  border: 1px solid var(--color-accent);
+  background: var(--color-accent-light);
+  color: var(--color-accent);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.calBtn {
+  padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-full);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  cursor: pointer;
+}
+.calBtn:hover { background: var(--color-surface-alt); }
+.calBtn:disabled { opacity: 0.6; cursor: default; }
+
+.calPicker {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-3);
+  margin-bottom: var(--space-3);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-light);
+  border-radius: var(--radius-md);
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+.calRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+}
+
+/* Color-coded legend: event rows show only a colored dot, so this maps each
+   selected calendar's color back to its name. */
+.calLegend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-4);
+  margin-top: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-light);
+  border-radius: var(--radius-md);
+}
+
+.legendItem {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary, var(--color-text));
+}
+
+.legendDot {
+  width: 10px;
+  height: 10px;
+  border-radius: var(--radius-full);
+  flex-shrink: 0;
+}
+
+.legendLabel {
+  white-space: nowrap;
+}
+
+.calColor {
+  width: 12px;
+  height: 12px;
+  border-radius: var(--radius-full);
+  flex-shrink: 0;
+}
+
+.calName {
+  color: var(--color-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.calBadge {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  background: var(--color-surface-alt);
+  border-radius: var(--radius-full);
+  padding: 0 var(--space-2);
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(150px, 1fr));
+  gap: var(--space-3);
+  overflow-x: auto;
+}
+
+.dayColumn {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-light);
+  border-radius: var(--radius-md);
+  padding: var(--space-3);
+  box-shadow: var(--shadow-sm);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.dayColumnToday {
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 1px var(--color-accent);
+}
+
+.dayHeader {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--color-border-light);
+  padding-bottom: var(--space-2);
+}
+
+.dayName {
+  font-weight: 700;
+  font-size: var(--font-size-sm);
+  color: var(--color-text);
+}
+
+.dayDate {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
+
+.slot {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.slotLabel {
+  font-size: var(--font-size-xs);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text-muted);
+}
+
+.recipeChip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-1);
+  background: var(--color-accent-light);
+  border: 1px solid var(--color-accent-subtle);
+  border-radius: var(--radius-sm);
+  padding: var(--space-1) var(--space-2);
+}
+
+.recipeChipMissing {
+  background: var(--color-surface-alt);
+  border-color: var(--color-border-light);
+}
+
+.chipText {
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  font-size: var(--font-size-xs);
+  color: var(--color-text);
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.recipeChipMissing .chipText {
+  cursor: default;
+  color: var(--color-text-muted);
+  font-style: italic;
+}
+
+.removeBtn {
+  background: none;
+  border: none;
+  color: var(--color-text-muted);
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 2px;
+  flex-shrink: 0;
+}
+.removeBtn:hover { color: var(--color-danger); }
+
+.addBtn {
+  align-self: flex-start;
+  background: none;
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius-sm);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  padding: var(--space-1) var(--space-2);
+  cursor: pointer;
+}
+.addBtn:hover { color: var(--color-accent); border-color: var(--color-accent); }
+
+.pickerWrap {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.cancelBtn {
+  align-self: flex-start;
+  background: none;
+  border: none;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+  cursor: pointer;
+  padding: 0;
+}
+
+.workoutCell {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  border-top: 1px solid var(--color-border-light);
+  padding-top: var(--space-3);
+  margin-top: auto;
+}
+
+/* Workout cell inside the Prepare table — matches the Daily-macros cell
+   padding/typography (weeklyMacroBody) so the two rows read consistently. */
+.workoutBody {
+  width: 100%;
+  padding: 0.5rem 0.45rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.25rem;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-family: var(--font-family);
+}
+
+.workoutItem {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+}
+
+.workoutIcon {
+  font-size: 1.1rem;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.workoutName {
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: var(--color-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Render the editable workout select as plain grid text (not a dropdown bubble)
+   to match the Daily-macros value typography; still clickable to change. */
+.workoutSelect {
+  font-size: 0.88rem;
+  font-weight: 700;
+  font-family: var(--font-family);
+  color: var(--color-text);
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  padding: 0;
+  margin: 0;
+  cursor: pointer;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
+  text-align: center;
+  max-width: 100%;
+}
+.workoutSelect:focus { outline: none; }
+.workoutSelect:hover { color: var(--color-accent); }
+
+.workoutAuto {
+  font-size: 0.58rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text-muted);
+}
+
+.plansCell {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  border-top: 1px solid var(--color-border-light);
+  padding-top: var(--space-3);
+}
+
+.nutriCell {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  border-top: 1px solid var(--color-border-light);
+  padding-top: var(--space-3);
+}
+
+.macroRow {
+  display: flex;
+  gap: var(--space-1);
+}
+
+.macro {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  text-align: center;
+}
+
+.macroLabel {
+  font-size: 0.58rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  color: var(--color-text-muted);
+}
+
+.macroValue {
+  font-size: var(--font-size-xs);
+  font-weight: 700;
+  color: var(--color-text);
+}
+
+.macroPct {
+  font-size: 0.58rem;
+  color: var(--color-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.eventRow {
+  display: flex;
+  align-items: flex-start;
+  gap: 5px;
+  font-size: var(--font-size-xs);
+  color: var(--color-text);
+}
+
+.eventDot {
+  width: 7px;
+  height: 7px;
+  border-radius: var(--radius-full);
+  flex-shrink: 0;
+  margin-top: 4px;
+}
+
+.eventTime {
+  color: var(--color-text-muted);
+  flex-shrink: 0;
+}
+
+.eventCat {
+  flex-shrink: 0;
+  max-width: 90px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 1px 6px;
+  border-radius: var(--radius-full);
+  background: var(--color-bg-subtle, rgba(0, 0, 0, 0.06));
+  color: var(--color-text-muted);
+  font-size: 0.65rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.eventTitle {
+  flex: 1;
+  min-width: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.emptyHint {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
+
+/* Bottom goals footer */
+.goalsFooter {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-4);
+  margin-top: var(--space-6);
+  padding-top: var(--space-5);
+  border-top: 1px solid var(--color-border);
+}
+
+.goalsBlock {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-light);
+  border-radius: var(--radius-md);
+  padding: var(--space-4);
+  box-shadow: var(--shadow-sm);
+}
+
+/* In the sidebar, stack the goal chips vertically as a list. */
+.goalsSidebar .workoutGoalsRow {
+  flex-direction: column;
+  flex-wrap: nowrap;
+}
+
+.goalsSidebar .wGoal {
+  justify-content: flex-start;
+}
+
+.goalsHeading {
+  font-size: var(--font-size-md);
+  font-weight: 700;
+  color: var(--color-text);
+  margin: 0 0 var(--space-3);
+}
+
+.workoutGoalsRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+
+.wGoal {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-surface-alt);
+  border-radius: var(--radius-full);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--color-text-secondary);
+}
+
+.wGoalMet {
+  color: var(--color-success);
+  background: var(--color-success-light);
+}
+
+.wGoalIcon { font-size: 1.1rem; }
+.wGoalLabel { color: inherit; }
+.wGoalCount { font-variant-numeric: tabular-nums; }
+.wGoalCheck { font-weight: 700; }
+
+@media (max-width: 900px) {
+  .grid {
+    grid-template-columns: repeat(7, minmax(160px, 1fr));
+  }
+  /* Drop the sidebar below the table on narrow screens. */
+  .prepareRow {
+    flex-direction: column;
+  }
+  .goalsSidebar {
+    width: 100%;
+    position: static;
+  }
+  .goalsSidebar .workoutGoalsRow {
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+}
+
+/* ── Meal insights moved from the Track Meals page (below Food Log) ── */
+.belowWeekPlan {
+  max-width: 100%;
+  margin-top: 2rem;
+}
+
+.threeColRow {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 1.5rem;
+  margin-bottom: 1.5rem;
+}
+
+@media (max-width: 1200px) {
+  .threeColRow {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+@media (max-width: 700px) {
+  .threeColRow {
+    grid-template-columns: 1fr;
+  }
+}

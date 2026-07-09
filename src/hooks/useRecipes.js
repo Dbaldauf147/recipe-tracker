@@ -138,6 +138,38 @@ function save(recipes) {
   syncToFirestore(user.uid, recipes);
 }
 
+// ── Deleted-recipe graveyard ────────────────────────────────────────────
+// Soft-delete log so a deleted recipe can be viewed / restored later.
+// Stored in localStorage under the `recipe-tracker-` prefix (so it's swept
+// into full backups for free) and mirrored to the Firestore user doc field
+// `deletedRecipes`. Newest first; capped so it can't grow without bound.
+const DELETED_KEY = 'recipe-tracker-deleted';
+const MAX_DELETED = 200;
+
+function loadDeleted() {
+  try {
+    const data = localStorage.getItem(DELETED_KEY);
+    return data ? JSON.parse(data) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveDeleted(list) {
+  try {
+    localStorage.setItem(DELETED_KEY, JSON.stringify(list));
+  } catch { /* storage full or unavailable */ }
+  const user = auth.currentUser;
+  if (user) saveField(user.uid, 'deletedRecipes', list).catch(err => console.error('[deletedRecipes] sync failed', err));
+}
+
+function makeDeletionId() {
+  try {
+    if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID();
+  } catch { /* fall through */ }
+  return `del-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
 async function syncToFirestore(uid, recipes, retryCount = 0) {
   try {
     await saveField(uid, 'recipes', recipes);
@@ -163,6 +195,8 @@ export function useRecipes() {
   // The exported `recipes` is rawRecipes with link stubs merged with their
   // live data from the owner's Firestore.
   const [rawRecipes, setRecipes] = useState(loadRecipes);
+  // Graveyard of soft-deleted recipes (newest first).
+  const [deletedRecipes, setDeletedRecipes] = useState(loadDeleted);
   // ownerUid -> Map<recipeId, recipeObj | null>. null means "fetched, not found".
   const [linkCache, setLinkCache] = useState(() => new Map());
   const backupDone = useRef(false);
@@ -263,6 +297,7 @@ export function useRecipes() {
   useEffect(() => {
     function handleSync() {
       setRecipes(loadRecipes());
+      setDeletedRecipes(loadDeleted());
     }
     window.addEventListener('firestore-sync', handleSync);
     return () => window.removeEventListener('firestore-sync', handleSync);
@@ -400,12 +435,48 @@ export function useRecipes() {
   }
 
   function deleteRecipe(id) {
+    const removed = rawRecipes.find(r => r.id === id);
     setRecipes(prev => {
       const next = prev.filter(r => r.id !== id);
       save(next);
       return next;
     });
+    // Log to the graveyard so it can be viewed / restored from Meal History.
+    // Link stubs are pointers, not owned recipes — don't archive those.
+    if (removed && removed.source !== 'shared-link') {
+      setDeletedRecipes(prevDel => {
+        const entry = { ...removed, deletedAt: new Date().toISOString(), deletionId: makeDeletionId() };
+        const nextDel = [entry, ...prevDel].slice(0, MAX_DELETED);
+        saveDeleted(nextDel);
+        return nextDel;
+      });
+    }
     emitRecipeChange('removed');
+  }
+
+  // Re-add a graveyard entry as a live recipe (fresh id + timestamps via
+  // addRecipe) and drop it from the deleted list.
+  function restoreDeletedRecipe(deletionId) {
+    const entry = deletedRecipes.find(d => d.deletionId === deletionId);
+    if (!entry) return null;
+    // eslint-disable-next-line no-unused-vars
+    const { deletedAt, deletionId: _dropId, id: _oldId, createdAt: _c, updatedAt: _u, ...recipe } = entry;
+    const restored = addRecipe(recipe);
+    setDeletedRecipes(prevDel => {
+      const nextDel = prevDel.filter(d => d.deletionId !== deletionId);
+      saveDeleted(nextDel);
+      return nextDel;
+    });
+    return restored;
+  }
+
+  // Permanently remove a single entry from the graveyard.
+  function purgeDeletedRecipe(deletionId) {
+    setDeletedRecipes(prevDel => {
+      const nextDel = prevDel.filter(d => d.deletionId !== deletionId);
+      saveDeleted(nextDel);
+      return nextDel;
+    });
   }
 
   function getRecipe(id) {
@@ -533,5 +604,5 @@ export function useRecipes() {
     return { total: parsed.size, updated: updatedTitles.length, updatedTitles, unmatched, csvRecipeNames: [...parsed.keys()] };
   }
 
-  return { recipes, addRecipe, updateRecipe, deleteRecipe, getRecipe, importRecipes, importInstructions, refreshLinkedRecipes };
+  return { recipes, addRecipe, updateRecipe, deleteRecipe, getRecipe, importRecipes, importInstructions, refreshLinkedRecipes, deletedRecipes, restoreDeletedRecipe, purgeDeletedRecipe };
 }

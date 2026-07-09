@@ -3,6 +3,7 @@ import { NutritionPanel, PlateChart, MealScore } from './NutritionPanel';
 import { BarcodeScanner } from './BarcodeScanner';
 import { loadFriends, shareRecipe, getUsername, createShareLink } from '../utils/firestoreSync';
 import { loadIngredients } from '../utils/ingredientsStore';
+import { ingredientMatchScore } from '../utils/ingredientMatch';
 import { VOLUME_TO_ML, WEIGHT_TO_G, SIZE_GRAMS, getSizeGrams } from '../utils/units';
 import { classifyMealType } from '../utils/classifyMealType';
 import { uploadMealImage, deleteMealImage, getCachedMealImage, generateMealImage } from '../utils/generateMealImage';
@@ -421,6 +422,21 @@ function SyncStatus() {
   );
 }
 
+// Shared 1–5 mood scale for the "how do you feel after eating this" log. Index
+// 0 = mood 1 (worst) … index 4 = mood 5 (best). The mobile app stores the same
+// number and renders the same emoji, so entries sync cleanly across platforms.
+const MOOD_EMOJIS = ['😖', '😕', '😐', '🙂', '😀'];
+function moodEmoji(mood) {
+  return MOOD_EMOJIS[Math.min(5, Math.max(1, Math.round(mood))) - 1];
+}
+function formatFeelingDate(iso) {
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return '';
+  const opts = { month: 'short', day: 'numeric' };
+  if (d.getFullYear() !== new Date().getFullYear()) opts.year = 'numeric';
+  return d.toLocaleDateString(undefined, opts);
+}
+
 function initFields(recipe) {
   const type = recipe.mealType || '';
   const presets = ['meat', 'pescatarian', 'vegan', 'vegetarian', 'keto', ''];
@@ -514,6 +530,35 @@ export function RecipeDetail({ recipe, allTags = [], onSave, onDelete, onBack, o
   }, []);
   const [editing, setEditing] = useState(true);
   const autoSaveRef = useRef(null);
+
+  // "How do you feel after eating this" log. Persisted immediately via
+  // onPersistFields (same path the nutrition panel uses) so a logged feeling
+  // survives even if the user never hits Save, and syncs to the mobile app.
+  const [feelings, setFeelings] = useState(() => Array.isArray(recipe.feelings) ? recipe.feelings : []);
+  const [feelingMood, setFeelingMood] = useState(null);
+  const [feelingNote, setFeelingNote] = useState('');
+  const [feelingFormOpen, setFeelingFormOpen] = useState(false);
+  function addFeeling() {
+    if (feelingMood == null) return;
+    const entry = {
+      id: (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : String(Date.now()),
+      date: new Date().toISOString(),
+      mood: feelingMood,
+    };
+    const note = feelingNote.trim();
+    if (note) entry.note = note;
+    const next = [entry, ...feelings];
+    setFeelings(next);
+    if (onPersistFields) onPersistFields({ feelings: next });
+    setFeelingMood(null);
+    setFeelingNote('');
+    setFeelingFormOpen(false);
+  }
+  function removeFeeling(id) {
+    const next = feelings.filter(f => f.id !== id);
+    setFeelings(next);
+    if (onPersistFields) onPersistFields({ feelings: next });
+  }
   const [cookMode, setCookMode] = useState(() => {
     try { return localStorage.getItem('sunday-cook-mode') === 'true'; } catch { return false; }
   });
@@ -689,6 +734,8 @@ export function RecipeDetail({ recipe, allTags = [], onSave, onDelete, onBack, o
   const [showAddMenu, setShowAddMenu] = useState(false);
   const [showPasteBox, setShowPasteBox] = useState(false);
   const [pasteText, setPasteText] = useState('');
+  const [showStepPaste, setShowStepPaste] = useState(false);
+  const [stepPasteText, setStepPasteText] = useState('');
   const addMenuRef = useRef(null);
   const [convertPopup, setConvertPopup] = useState(null); // { rowIdx, options: [{ qty, unit, label }] }
   const convertPopupRef = useRef(null);
@@ -1147,6 +1194,47 @@ export function RecipeDetail({ recipe, allTags = [], onSave, onDelete, onBack, o
     });
     setPasteText('');
     setShowPasteBox(false);
+  }
+
+  // Turn a spreadsheet/free-text paste into one step per line. Each row may be
+  // tab-separated (e.g. a step-number column + the text); keep the longest cell
+  // and strip leading "1." / "Step 1:" numbering.
+  function parsePastedSteps(text) {
+    return (text || '')
+      .replace(/\r\n/g, '\n')
+      .replace(/\r/g, '\n')
+      .split('\n')
+      .map(line => {
+        const cells = line.split('\t').map(c => c.trim()).filter(Boolean);
+        if (cells.length === 0) return '';
+        const step = cells.length === 1
+          ? cells[0]
+          : cells.reduce((a, b) => (b.length > a.length ? b : a), '');
+        return step
+          .replace(/^step\s*\d+\s*[:.)-]?\s*/i, '')
+          .replace(/^\d+\s*[.)-]\s*/, '')
+          .trim();
+      })
+      .filter(Boolean);
+  }
+
+  function applyStepPaste(mode) {
+    const steps = parsePastedSteps(stepPasteText);
+    if (steps.length === 0) {
+      window.alert('No steps found. Paste one step per row (or a column of steps).');
+      return;
+    }
+    setFields(prev => {
+      if (mode === 'replace') {
+        // New steps replace everything — step-indexed maps no longer line up.
+        return { ...prev, steps, stepIngredients: {}, stepSections: {}, stepTitles: {} };
+      }
+      // Append: keep existing steps verbatim so stepIngredients indices stay valid.
+      return { ...prev, steps: [...(prev.steps || []), ...steps] };
+    });
+    setStepVersion(v => v + 1);
+    setStepPasteText('');
+    setShowStepPaste(false);
   }
 
   function updateStep(index, value) {
@@ -2497,7 +2585,12 @@ export function RecipeDetail({ recipe, allTags = [], onSave, onDelete, onBack, o
                                 />
                                 {activeAutoIdx === i && (row.ingredient || '').trim() && (() => {
                                   const q = (row.ingredient || '').trim().toLowerCase();
-                                  const matches = dbNamesList.filter(n => n.toLowerCase().includes(q)).slice(0, 8);
+                                  const matches = dbNamesList
+                                    .filter(n => n.toLowerCase().includes(q))
+                                    .map((n, idx) => ({ n, idx, score: ingredientMatchScore(n, q) }))
+                                    .sort((a, b) => a.score - b.score || a.idx - b.idx)
+                                    .slice(0, 8)
+                                    .map(s => s.n);
                                   return matches.length > 0 ? (
                                     <ul className={styles.suggestions}>
                                       {matches.map(name => (
@@ -2879,6 +2972,60 @@ export function RecipeDetail({ recipe, allTags = [], onSave, onDelete, onBack, o
                 </div>
               );
             })()}
+            {showStepPaste && (() => {
+              const preview = parsePastedSteps(stepPasteText);
+              const close = () => { setStepPasteText(''); setShowStepPaste(false); };
+              const PREVIEW_LIMIT = 15;
+              return (
+                <div className={styles.pasteOverlay} onClick={close}>
+                  <div className={styles.pasteModal} onClick={e => e.stopPropagation()}>
+                    <div className={styles.pasteHeader}>
+                      <h3 className={styles.pasteTitle}>Paste instructions</h3>
+                      <button type="button" className={styles.pasteCloseBtn} onClick={close} aria-label="Close">×</button>
+                    </div>
+                    <div className={styles.pasteBody}>
+                      <div className={styles.pasteHint}>
+                        Paste a column of steps from Excel or Google Sheets (one step per row), or free text with one step per line. A leading step-number column or "1." numbering is stripped automatically.
+                      </div>
+                      <textarea
+                        className={styles.pasteArea}
+                        value={stepPasteText}
+                        onChange={e => setStepPasteText(e.target.value)}
+                        placeholder={'1\tPreheat oven to 400°F\n2\tToss vegetables in oil\n3\tRoast for 25 minutes'}
+                        rows={6}
+                        autoFocus
+                      />
+                      <div className={styles.pasteCount}>
+                        {preview.length === 0
+                          ? (stepPasteText.trim() ? 'No steps detected — check the layout.' : 'Paste data above to preview.')
+                          : `${preview.length} step${preview.length === 1 ? '' : 's'} detected`}
+                      </div>
+                      <div className={styles.previewWrap}>
+                        <ol style={{ margin: 0, paddingLeft: '1.25rem', display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
+                          {preview.slice(0, PREVIEW_LIMIT).map((s, i) => (
+                            <li key={i} style={{ fontSize: '0.85rem', lineHeight: 1.4 }}>{s}</li>
+                          ))}
+                        </ol>
+                        {preview.length > PREVIEW_LIMIT && (
+                          <div className={styles.previewMore}>+ {preview.length - PREVIEW_LIMIT} more</div>
+                        )}
+                      </div>
+                    </div>
+                    <div className={styles.pasteFooter}>
+                      <button className={styles.pasteAppendBtn} type="button" onClick={() => applyStepPaste('append')} disabled={preview.length === 0}>
+                        Append steps
+                      </button>
+                      <button className={styles.pasteReplaceBtn} type="button" onClick={() => applyStepPaste('replace')} disabled={preview.length === 0}>
+                        Replace existing
+                      </button>
+                      <button className={styles.pasteCancelBtn} type="button" onClick={close}>
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
           </>
         ) : (
           <table className={styles.viewTable}>
@@ -3012,6 +3159,93 @@ export function RecipeDetail({ recipe, allTags = [], onSave, onDelete, onBack, o
           }}
           data-placeholder="Add notes, changes to try next time, or things to remember..."
         />
+      </div>
+
+      <div className={styles.section}>
+        <h3>How do you feel after eating this?</h3>
+        {feelings.length > 0 ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginBottom: '0.75rem' }}>
+            {feelings.map(f => (
+              <div key={f.id} style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.5rem 0.75rem', borderRadius: '8px', background: 'var(--color-surface-alt)' }}>
+                <span style={{ fontSize: '1.6rem', lineHeight: 1 }}>{moodEmoji(f.mood)}</span>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: '0.72rem', fontWeight: 600, color: 'var(--color-text-muted)' }}>{formatFeelingDate(f.date)}</div>
+                  {f.note ? <div style={{ fontSize: '0.88rem' }}>{f.note}</div> : null}
+                </div>
+                <button
+                  type="button"
+                  aria-label="Remove entry"
+                  onClick={() => removeFeeling(f.id)}
+                  style={{ border: 'none', background: 'none', color: 'var(--color-text-muted)', fontSize: '1.2rem', lineHeight: 1, cursor: 'pointer', padding: '0 0.25rem' }}
+                >
+                  &times;
+                </button>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p style={{ fontSize: '0.88rem', color: 'var(--color-text-muted)', margin: '0 0 0.75rem' }}>
+            No entries yet — log how this meal made you feel.
+          </p>
+        )}
+
+        {feelingFormOpen ? (
+          <div style={{ padding: '0.75rem', borderRadius: '10px', background: 'var(--color-surface-alt)' }}>
+            <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.75rem', flexWrap: 'wrap' }}>
+              {MOOD_EMOJIS.map((em, i) => {
+                const val = i + 1;
+                const selected = feelingMood === val;
+                return (
+                  <button
+                    key={val}
+                    type="button"
+                    onClick={() => setFeelingMood(val)}
+                    style={{
+                      fontSize: '1.7rem',
+                      lineHeight: 1,
+                      width: '3rem',
+                      height: '3rem',
+                      borderRadius: '10px',
+                      cursor: 'pointer',
+                      background: selected ? 'var(--color-accent-light)' : 'var(--color-surface)',
+                      border: selected ? '2px solid var(--color-accent)' : '1px solid var(--color-border)',
+                    }}
+                  >
+                    {em}
+                  </button>
+                );
+              })}
+            </div>
+            <textarea
+              value={feelingNote}
+              onChange={e => setFeelingNote(e.target.value)}
+              placeholder="Optional note (energy, digestion, fullness…)"
+              style={{ width: '100%', minHeight: '56px', boxSizing: 'border-box', padding: '0.5rem', borderRadius: '8px', border: '1px solid var(--color-border)', fontFamily: 'inherit', fontSize: '0.88rem', resize: 'vertical' }}
+            />
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', marginTop: '0.5rem' }}>
+              <button
+                type="button"
+                className={styles.addRowBtn}
+                onClick={() => { setFeelingFormOpen(false); setFeelingMood(null); setFeelingNote(''); }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className={styles.addRowBtn}
+                onClick={addFeeling}
+                disabled={feelingMood == null}
+                style={{ opacity: feelingMood == null ? 0.5 : 1 }}
+              >
+                Add
+              </button>
+            </div>
+          </div>
+        ) : (
+          <button type="button" className={styles.addRowBtn} onClick={() => setFeelingFormOpen(true)}>
+            + Add how you feel
+          </button>
+        )}
       </div>
 
       <div className={styles.section}>
@@ -3345,9 +3579,14 @@ export function RecipeDetail({ recipe, allTags = [], onSave, onDelete, onBack, o
                   );
                 })}
             {editing && (
-              <button className={styles.addRowBtn} type="button" onClick={addStep}>
-                + Add step
-              </button>
+              <>
+                <button className={styles.addRowBtn} type="button" onClick={addStep}>
+                  + Add step
+                </button>
+                <button className={styles.addRowBtn} type="button" onClick={() => setShowStepPaste(true)}>
+                  📋 Paste from Sheets/Excel
+                </button>
+              </>
             )}
             {(() => {
               const allAssigned = new Set(Object.values(fields.stepIngredients).flat());
@@ -3476,6 +3715,9 @@ export function RecipeDetail({ recipe, allTags = [], onSave, onDelete, onBack, o
             </ol>
             <button className={styles.addRowBtn} type="button" onClick={addStep}>
               + Add step
+            </button>
+            <button className={styles.addRowBtn} type="button" onClick={() => setShowStepPaste(true)}>
+              📋 Paste from Sheets/Excel
             </button>
           </>
         ) : (

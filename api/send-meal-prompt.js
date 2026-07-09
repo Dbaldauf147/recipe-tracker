@@ -10,9 +10,10 @@
 // the same header or query (?secret=...).
 
 import { initializeApp, cert, getApps } from 'firebase-admin/app';
-import { getFirestore } from 'firebase-admin/firestore';
+import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 import { sendMail } from '../lib/mailer.js';
 import { renderMealReminder } from '../lib/mealReminderEmail.js';
+import { sendExpoPush, deadTokensFrom } from '../lib/expoPush.js';
 
 if (getApps().length === 0) {
   const serviceAccount = process.env.FIREBASE_SERVICE_ACCOUNT
@@ -71,6 +72,28 @@ function recipientsForDay(settings, dow) {
   return parseEmails(settings);
 }
 
+// Per-device Expo push tokens registered by the mobile app. Deduped so the
+// same device (re-registered across launches) only gets one push.
+function getPushTokens(data) {
+  const raw = Array.isArray(data?.expoPushTokens) ? data.expoPushTokens : [];
+  return Array.from(new Set(raw.filter(t => typeof t === 'string' && t.length > 0)));
+}
+
+// Send a reminder push to all of a user's devices and prune any Expo reports as
+// dead. Best-effort: returns true if at least the send was attempted without
+// throwing. `badge` mirrors the old local-notification badge (1 = one item due).
+async function pushToUser(ref, tokens, { title, body }) {
+  if (tokens.length === 0) return false;
+  const { tickets } = await sendExpoPush(
+    tokens.map(to => ({ to, title, body, sound: 'default', badge: 1, priority: 'high', channelId: 'reminders' })),
+  );
+  const dead = deadTokensFrom(tokens, tickets);
+  if (dead.length > 0) {
+    await ref.update({ expoPushTokens: FieldValue.arrayRemove(...dead) }).catch(() => {});
+  }
+  return true;
+}
+
 // ── Server-side mirror of WeightTracker.jsx's weigh-schedule logic ──
 // The client only prompts on scheduled weigh-in days; without this the cron
 // would email "log your weight" every single day a user with a weekly/monthly
@@ -100,6 +123,25 @@ function daysBetween(fromKey, toKey) {
   const [y1, m1, d1] = fromKey.split('-').map(Number);
   const [y2, m2, d2] = toKey.split('-').map(Number);
   return Math.floor((Date.UTC(y2, m2 - 1, d2) - Date.UTC(y1, m1 - 1, d1)) / 86400000);
+}
+
+// Shift a Y-M-D key by n days (n may be negative), returning a zero-padded key.
+function addDays(dateKey, n) {
+  const [y, m, d] = dateKey.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d + n));
+  return `${dt.getUTCFullYear()}-${String(dt.getUTCMonth() + 1).padStart(2, '0')}-${String(dt.getUTCDate()).padStart(2, '0')}`;
+}
+
+// Tolerance band: true if any weigh-in falls within the last `toleranceDays`
+// days up to and including today (cron date). Used to suppress the weight
+// reminder when the user has effectively already weighed in — covers same-day
+// logs that land just after the reminder hour and any date-boundary off-by-one,
+// so "I already logged my weight" doesn't still get nagged. Lexicographic
+// compare is safe because both keys are zero-padded YYYY-MM-DD.
+function weighedWithin(weightLog, dateKey, toleranceDays) {
+  if (!Array.isArray(weightLog)) return false;
+  const minKey = addDays(dateKey, -toleranceDays);
+  return weightLog.some(e => e?.date && e.date >= minKey && e.date <= dateKey);
 }
 
 function isWeighDay(y, m, d, dow, settings) {
@@ -156,7 +198,7 @@ export default async function handler(req, res) {
   }
 
   const { hour, dayOfWeek, dateKey } = eastern();
-  const summary = { scanned: 0, foodSent: 0, weightSent: 0, errors: [] };
+  const summary = { scanned: 0, foodSent: 0, weightSent: 0, foodPushed: 0, weightPushed: 0, errors: [] };
 
   try {
     const snap = await db.collection('users').get();
@@ -167,9 +209,12 @@ export default async function handler(req, res) {
       const s = data.reminderSettings;
       if (!s || (!s.foodLogReminder && !s.weightReminder)) continue;
       // Day-aware recipients: an address only gets mail on its selected days.
-      // If nobody is scheduled for today, skip this user entirely.
+      // Push goes to the user's own devices (state-aware, so it suppresses
+      // itself when they already logged on another device). Skip the user only
+      // when there's no way to reach them at all today.
       const to = recipientsForDay(s, dayOfWeek);
-      if (to.length === 0) continue;
+      const pushTokens = getPushTokens(data);
+      if (to.length === 0 && pushTokens.length === 0) continue;
 
       // --- Food log reminder ---
       if (s.foodLogReminder && s.foodLogTime) {
@@ -194,18 +239,31 @@ export default async function handler(req, res) {
             const remaining = 3 - mainMeals - skipped;
             const goals = data.nutritionGoals || null;
             const { subject, text, html } = renderMealReminder({ remaining, log, dateKey, goals });
-            try {
-              await sendMail({
-                to,
-                subject,
-                text,
-                html,
-              });
-              await docSnap.ref.update({ 'reminderSettings.lastFoodSent': dateKey });
-              summary.foodSent++;
-            } catch (err) {
-              summary.errors.push({ uid, type: 'food', err: err.message });
+            let delivered = false;
+            if (to.length > 0) {
+              try {
+                await sendMail({ to, subject, text, html });
+                summary.foodSent++;
+                delivered = true;
+              } catch (err) {
+                summary.errors.push({ uid, type: 'food', err: err.message });
+              }
             }
+            if (pushTokens.length > 0) {
+              try {
+                await pushToUser(docSnap.ref, pushTokens, {
+                  title: 'Log your meals',
+                  body: remaining === 1 ? '1 meal left to log today.' : `${remaining} meals left to log today.`,
+                });
+                summary.foodPushed++;
+                delivered = true;
+              } catch (err) {
+                summary.errors.push({ uid, type: 'food-push', err: err.message });
+              }
+            }
+            // Mark the day handled only if we reached the user on some channel,
+            // so a transient failure can retry next hour instead of going silent.
+            if (delivered) await docSnap.ref.update({ 'reminderSettings.lastFoodSent': dateKey });
           }
         }
       }
@@ -223,20 +281,40 @@ export default async function handler(req, res) {
           try {
             due = shouldWeighToday(data.weightLog, data.bodyStats, dateKey, dayOfWeek);
           } catch { /* if schedule can't be evaluated, skip rather than spam */ }
+          // Even if the cadence says "due", don't nag when a weigh-in already
+          // landed today or yesterday — the user has effectively logged this
+          // period; this absorbs same-day logs just after the reminder hour.
+          if (due && weighedWithin(data.weightLog, dateKey, 1)) due = false;
           if (due) {
-            try {
-              await sendMail({
-                to,
-                subject: 'Prep Day — log your weight',
-                text:
-                  `Don't forget to log your weight today.\n\n` +
-                  `Log now: https://prep-day.com\n\n— Prep Day`,
-              });
-              await docSnap.ref.update({ 'reminderSettings.lastWeightSent': dateKey });
-              summary.weightSent++;
-            } catch (err) {
-              summary.errors.push({ uid, type: 'weight', err: err.message });
+            let delivered = false;
+            if (to.length > 0) {
+              try {
+                await sendMail({
+                  to,
+                  subject: 'Prep Day — log your weight',
+                  text:
+                    `Don't forget to log your weight today.\n\n` +
+                    `Log now: https://prep-day.com\n\n— Prep Day`,
+                });
+                summary.weightSent++;
+                delivered = true;
+              } catch (err) {
+                summary.errors.push({ uid, type: 'weight', err: err.message });
+              }
             }
+            if (pushTokens.length > 0) {
+              try {
+                await pushToUser(docSnap.ref, pushTokens, {
+                  title: 'Time to weigh in',
+                  body: 'Log your weight in Prep Day.',
+                });
+                summary.weightPushed++;
+                delivered = true;
+              } catch (err) {
+                summary.errors.push({ uid, type: 'weight-push', err: err.message });
+              }
+            }
+            if (delivered) await docSnap.ref.update({ 'reminderSettings.lastWeightSent': dateKey });
           }
         }
       }

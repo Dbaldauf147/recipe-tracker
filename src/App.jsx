@@ -29,11 +29,12 @@ import { BarcodeScannerPage } from './components/BarcodeScannerPage';
 import { RecipeSetupPage } from './components/RecipeSetupPage';
 import { ProfilePage } from './components/ProfilePage';
 import { WorkoutPage } from './components/WorkoutPage';
+import { WeekPlanPage } from './components/WeekPlanPage';
+import { HabitsPage } from './components/HabitsPage';
 import { WhoopPage } from './components/WhoopPage';
 import { StorageBanner } from './components/StorageBanner';
 import { FeaturesPage } from './components/FeaturesPage';
 import { EatingOutPage } from './components/EatingOutPage';
-import { NextSpotsPage } from './components/NextSpotsPage';
 import { UpdatePill } from './components/UpdatePill';
 import { NutritionOnboarding } from './components/NutritionOnboarding';
 import React from 'react';
@@ -164,6 +165,8 @@ function DeleteAccountButton({ onDeleted }) {
 
 const WEEKLY_KEY = 'sunday-weekly-plan';
 const WEEKLY_SERVINGS_KEY = 'sunday-weekly-servings';
+const WEEK_MEAL_PLAN_KEY = 'sunday-week-meal-plan';
+const WEEK_WORKOUT_PLAN_KEY = 'sunday-week-workout-plan';
 
 function loadWeeklyPlan() {
   try {
@@ -183,12 +186,32 @@ function loadWeeklyServings() {
   }
 }
 
+// Day-aware meal plan: { 'YYYY-MM-DD': { breakfast:[id], lunch:[id], dinner:[id] } }
+function loadWeekMealPlan() {
+  try {
+    const data = localStorage.getItem(WEEK_MEAL_PLAN_KEY);
+    return data ? JSON.parse(data) : {};
+  } catch {
+    return {};
+  }
+}
+
+// Recurring workout template keyed by weekday (Mon..Sun = 0..6): { 0:'weights', ... }
+function loadWeekWorkoutPlan() {
+  try {
+    const data = localStorage.getItem(WEEK_WORKOUT_PLAN_KEY);
+    return data ? JSON.parse(data) : {};
+  } catch {
+    return {};
+  }
+}
+
 /**
  * Authenticated app content — rendered with key={user.uid} so it
  * remounts when the user changes, re-initializing all useState from localStorage.
  */
 function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal, onCloseGoalsModal, onCompleteGoals, deletionPendingAt, cancelDeletion }) {
-  const { recipes, addRecipe, updateRecipe, deleteRecipe, getRecipe, importRecipes, refreshLinkedRecipes } =
+  const { recipes, addRecipe, updateRecipe, deleteRecipe, getRecipe, importRecipes, refreshLinkedRecipes, deletedRecipes, restoreDeletedRecipe, purgeDeletedRecipe } =
     useRecipes();
 
   // Unique meal tags across all recipes, for the tag autocomplete in
@@ -237,14 +260,16 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
       window.history.replaceState({}, '', window.location.pathname + (qs ? `?${qs}` : '') + window.location.hash);
     }
   }, []);
-  // When Next Spots → "Open in Eating Out" is clicked, this carries the
-  // chosen category across the navigation so the page can pre-filter.
+  // Carries a chosen category across navigation into Eating Out so the page
+  // can pre-filter. Reset to null when Eating Out closes.
   const [pendingEatingOutCategory, setPendingEatingOutCategory] = useState(null);
   // Holds a friend-shared recipe being viewed inline (without persisting it
   // to the user's own library). Cleared when the user navigates away.
   const [transientViewRecipe, setTransientViewRecipe] = useState(null);
   const [weeklyPlan, setWeeklyPlan] = useState(loadWeeklyPlan);
   const [weeklyServings, setWeeklyServings] = useState(loadWeeklyServings);
+  const [weekMealPlan, setWeekMealPlan] = useState(loadWeekMealPlan);
+  const [weekWorkoutPlan, setWeekWorkoutPlan] = useState(loadWeekWorkoutPlan);
   // Friends who have toggled "Share my shopping list" on for this user.
   // Each entry: { uid, username, meals: [<full recipe objects>] }.
   // Loaded once per session here so both ShoppingList and RecipeList can use it.
@@ -352,6 +377,8 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
     function handleSync() {
       setWeeklyPlan(loadWeeklyPlan());
       setWeeklyServings(loadWeeklyServings());
+      setWeekMealPlan(loadWeekMealPlan());
+      setWeekWorkoutPlan(loadWeekWorkoutPlan());
       setIngredientsVersion(v => v + 1);
     }
     window.addEventListener('firestore-sync', handleSync);
@@ -394,74 +421,15 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
     });
   }, [user]);
 
-  // Check for email reminder notifications on page load
-  useEffect(() => {
-    if (!user) return;
-    try {
-      const settings = JSON.parse(localStorage.getItem('sunday-reminder-settings') || '{}');
-      if (!settings.foodLogReminder && !settings.weightReminder) return;
-      if (!user.email) return;
-
-      const now = new Date();
-      const todayDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-      const currentTime = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
-
-      // Use separate last-check keys for each reminder type so they trigger independently
-      const messages = [];
-
-      // Food log check
-      if (settings.foodLogReminder && currentTime >= settings.foodLogTime) {
-        const lastFoodCheck = localStorage.getItem('sunday-reminder-food-last');
-        if (lastFoodCheck !== todayDate) {
-          const dailyLog = JSON.parse(localStorage.getItem('sunday-daily-log') || '{}');
-          const dayData = dailyLog[todayDate] || {};
-          const entries = dayData.entries || [];
-          const mainMeals = entries.filter(e => ['breakfast', 'lunch', 'dinner'].includes(e.mealSlot)).length;
-          const skipped = (dayData.skippedMeals || []).length;
-          if (mainMeals + skipped < 3 && !dayData.daySkipped) {
-            const remaining = 3 - mainMeals - skipped;
-            messages.push(`You have ${remaining} meal${remaining > 1 ? 's' : ''} left to log today.`);
-            localStorage.setItem('sunday-reminder-food-last', todayDate);
-          }
-        }
-      }
-
-      // Weight check — only on scheduled weigh days
-      if (settings.weightReminder && currentTime >= settings.weightTime) {
-        const lastWeightCheck = localStorage.getItem('sunday-reminder-weight-last');
-        if (lastWeightCheck !== todayDate) {
-          try {
-            const bodyStats = JSON.parse(localStorage.getItem('sunday-body-stats') || '{}');
-            const goals = bodyStats.mealTrackingGoals || [];
-            const shouldWeigh = goals.includes('weighDaily') ||
-              (goals.includes('weighWeekly') && [0, 1].includes(now.getDay())) ||
-              (goals.includes('weighMonthly') && now.getDate() === 1);
-
-            if (shouldWeigh || bodyStats.weighRepeatUnit) {
-              const weightLog = JSON.parse(localStorage.getItem('sunday-weight-log') || '[]');
-              const hasToday = weightLog.some(e => e.date === todayDate);
-              if (!hasToday) {
-                messages.push("Don't forget to log your weight today!");
-                localStorage.setItem('sunday-reminder-weight-last', todayDate);
-              }
-            }
-          } catch {}
-        }
-      }
-
-      if (messages.length > 0) {
-        fetch('/api/notify-friend-request', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            type: 'sms-reminder',
-            toEmail: user.email,
-            smsBody: `Prep Day Reminder: ${messages.join(' ')} Log now at https://prep-day.com`,
-          }),
-        }).catch(() => {});
-      }
-    } catch {}
-  }, [user]);
+  // NOTE: the old on-page-load email reminder was removed (2026-06-22). It read
+  // localStorage to decide whether the user had logged food/weight, which is
+  // stale when the log was made on another device or before this tab synced —
+  // so it emailed "don't forget to log your weight" even right after a weigh-in.
+  // Reminders are now owned solely by the hourly server cron
+  // (api/send-meal-prompt.js), which checks Firestore (the source of truth) with
+  // the cadence-aware shouldWeighToday + weighedWithin suppression. The in-app
+  // weigh-in banner below (weighNeedsLog) still uses checkWeighReminder for live
+  // UI, but no longer sends email.
 
   useEffect(() => {
     if (!user) return;
@@ -546,6 +514,41 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
     if (user) saveField(user.uid, 'weeklyServings', servings).catch(() => {});
   }
 
+  function saveWeekMealPlan(next) {
+    try { localStorage.setItem(WEEK_MEAL_PLAN_KEY, JSON.stringify(next)); } catch {}
+    if (user) saveField(user.uid, 'weekMealPlan', next).catch(() => {});
+  }
+
+  // Replace the whole week meal plan at once (used by "Fill from This Week").
+  function handleSetWeekMealPlan(next) {
+    setWeekMealPlan(next);
+    saveWeekMealPlan(next);
+  }
+
+  // Set the recipe ids for one (date, slot), pruning empty slots/days so the
+  // stored object stays sparse.
+  function handleSaveWeekMealPlan(date, slot, nextIds) {
+    setWeekMealPlan(prev => {
+      const day = { ...(prev[date] || {}) };
+      if (nextIds.length === 0) delete day[slot]; else day[slot] = nextIds;
+      const next = { ...prev };
+      if (Object.keys(day).length === 0) delete next[date]; else next[date] = day;
+      saveWeekMealPlan(next);
+      return next;
+    });
+  }
+
+  function saveWeekWorkoutPlan(next) {
+    try { localStorage.setItem(WEEK_WORKOUT_PLAN_KEY, JSON.stringify(next)); } catch {}
+    if (user) saveField(user.uid, 'weekWorkoutPlan', next).catch(() => {});
+  }
+
+  // WeekPlanPage hands up the full resolved Mon..Sun template; persist it.
+  function handleSaveWeekWorkoutPlan(next) {
+    setWeekWorkoutPlan(next);
+    saveWeekWorkoutPlan(next);
+  }
+
   function handleUpdateWeeklyServings(recipeId, newServings) {
     setWeeklyServings(prev => {
       const next = { ...prev, [recipeId]: newServings };
@@ -601,10 +604,11 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
       ...(showWeightTab ? [{ label: 'Weight', action: 'weight-tracker' }] : []),
       ...(showRotateHealthy ? [{ label: 'Healthy Foods', action: 'key-ingredients' }] : []),
     ] }] : []),
+    { label: 'Week Plan', action: 'week-plan', icon: 'calendar_month' },
     { label: 'Shopping List', action: 'shopping', icon: 'shopping_cart' },
     { label: 'Eating Out', action: 'eating-out', icon: 'restaurant' },
-    { label: 'Next Spots', action: 'next-spots', icon: 'star' },
     ...((user?.email === 'baldaufdan@gmail.com' || localStorage.getItem('sunday-workout-enabled') === 'true') ? [{ label: 'Workout', action: 'workout', icon: 'fitness_center' }] : []),
+    ...(user?.email === 'baldaufdan@gmail.com' ? [{ label: 'Habits', action: 'habits', icon: 'checklist' }] : []),
   ];
 
   function handleNavClick(item) {
@@ -612,12 +616,14 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
       navigateTo('features');
     } else if (item.action === 'workout') {
       navigateTo('workout');
+    } else if (item.action === 'habits') {
+      navigateTo('habits');
     } else if (item.action === 'shopping') {
       navigateTo('shopping');
     } else if (item.action === 'eating-out') {
       navigateTo('eating-out');
-    } else if (item.action === 'next-spots') {
-      navigateTo('next-spots');
+    } else if (item.action === 'week-plan') {
+      navigateTo('week-plan');
     } else if (item.action === 'history') {
       navigateTo('history');
     } else if (item.action === 'key-ingredients') {
@@ -670,6 +676,23 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
       const next = { ...prev };
       delete next[id];
       saveWeeklyServings(next);
+      return next;
+    });
+    // Strip the deleted recipe from any day/slot of the week meal plan.
+    setWeekMealPlan(prev => {
+      let changed = false;
+      const next = {};
+      for (const [date, day] of Object.entries(prev)) {
+        const nextDay = {};
+        for (const [slot, ids] of Object.entries(day)) {
+          const filtered = ids.filter(wid => wid !== id);
+          if (filtered.length !== ids.length) changed = true;
+          if (filtered.length) nextDay[slot] = filtered;
+        }
+        if (Object.keys(nextDay).length) next[date] = nextDay;
+      }
+      if (!changed) return prev;
+      saveWeekMealPlan(next);
       return next;
     });
     setView('list');
@@ -960,6 +983,25 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
           );
         })() : view === 'workout' ? (
           <WorkoutPage onBack={goBack} user={user} />
+        ) : view === 'week-plan' ? (
+          <WeekPlanPage
+            recipes={recipes}
+            getRecipe={getRecipe}
+            user={user}
+            weeklyPlan={weeklyPlan}
+            weeklyServings={weeklyServings}
+            weekMealPlan={weekMealPlan}
+            weekWorkoutPlan={weekWorkoutPlan}
+            onChangeMealPlan={handleSaveWeekMealPlan}
+            onSetMealPlan={handleSetWeekMealPlan}
+            onChangeWorkoutPlan={handleSaveWeekWorkoutPlan}
+            onViewRecipe={(id) => navigateTo('detail', id)}
+            onImportRecipe={() => navigateTo('import')}
+            onOpenWorkout={() => navigateTo('workout')}
+            onClose={goBack}
+          />
+        ) : view === 'habits' ? (
+          <HabitsPage onBack={goBack} user={user} />
         ) : view === 'profile' ? (
           <ProfilePage
             recipes={recipes}
@@ -1013,20 +1055,13 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
             initialCategory={pendingEatingOutCategory}
             onClose={() => { setPendingEatingOutCategory(null); goBack(); }}
           />
-        ) : view === 'next-spots' ? (
-          <NextSpotsPage
-            user={user}
-            sharedFromFriends={sharedEatingOutFromFriends}
-            onClose={goBack}
-            onOpenCategory={(category) => {
-              setPendingEatingOutCategory(category);
-              navigateTo('eating-out');
-            }}
-          />
         ) : view === 'history' ? (
           <HistoryPage
             getRecipe={getRecipe}
             recipes={recipes}
+            deletedRecipes={deletedRecipes}
+            onRestoreDeleted={restoreDeletedRecipe}
+            onPurgeDeleted={purgeDeletedRecipe}
             onClose={goBack}
           />
         ) : view === 'ingredients' ? (
@@ -1154,7 +1189,7 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
 
       {modalView && (
         <div className={styles.importModalOverlay} onClick={() => setModalView(null)}>
-          <div className={modalView === 'nutrition-goals' ? styles.importModalContentWide : styles.importModalContent} onClick={e => e.stopPropagation()}>
+          <div className={(modalView === 'nutrition-goals' || modalView === 'key-ingredients') ? styles.importModalContentWide : styles.importModalContent} onClick={e => e.stopPropagation()}>
             <button className={styles.importModalClose} onClick={() => setModalView(null)}>&times;</button>
             {modalView === 'nutrition-goals' ? (() => {
               let savedGoals = {};

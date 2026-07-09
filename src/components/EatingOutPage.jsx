@@ -291,6 +291,133 @@ function TagChips({ values, onChange, suggestions, placeholder }) {
   );
 }
 
+// Editor for the per-restaurant "meals" list (what you order here, with macros).
+// Each meal: { id, name, calories, protein, carbs, fat, source: 'manual'|'ai' }.
+// Used inside EditModal; the parent owns the `meals` array via value/onChange.
+function MealsEditor({ value, onChange, restaurantName }) {
+  const meals = value || [];
+  const [name, setName] = useState('');
+  const [cal, setCal] = useState('');
+  const [protein, setProtein] = useState('');
+  const [carbs, setCarbs] = useState('');
+  const [fat, setFat] = useState('');
+  const [usedAi, setUsedAi] = useState(false);
+  const [estimating, setEstimating] = useState(false);
+
+  async function handleEstimate() {
+    const n = name.trim();
+    if (!n) { alert('Type the meal name first.'); return; }
+    setEstimating(true);
+    try {
+      const ctx = restaurantName?.trim() ? ` at ${restaurantName.trim()}` : '';
+      const res = await fetch('/api/generate-recipe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          prompt: `Estimate the nutrition for this restaurant meal: "${n}"${ctx}. `
+            + `Give a realistic estimate for a single serving as it would be served at a restaurant. `
+            + `Return exactly 1 recipe object. Set the title to a clean name for the meal. Set servings to 1. `
+            + `Include macrosPerServing with calories, protein, carbs, and fat.`,
+          count: 1,
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || 'Failed to estimate.');
+      }
+      const data = await res.json();
+      const m = (data.recipes || [])[0]?.macrosPerServing || {};
+      setCal(Math.round(m.calories) || '');
+      setProtein(Math.round(m.protein) || '');
+      setCarbs(Math.round(m.carbs) || '');
+      setFat(Math.round(m.fat) || '');
+      setUsedAi(true);
+    } catch (err) {
+      alert(`AI estimate failed: ${err.message || 'try again'}`);
+    } finally {
+      setEstimating(false);
+    }
+  }
+
+  function addMeal() {
+    const n = name.trim();
+    if (!n) { alert('Meal needs a name.'); return; }
+    onChange([
+      ...meals,
+      {
+        id: generateId(),
+        name: n,
+        calories: Number(cal) || 0,
+        protein: Number(protein) || 0,
+        carbs: Number(carbs) || 0,
+        fat: Number(fat) || 0,
+        source: usedAi ? 'ai' : 'manual',
+      },
+    ]);
+    setName(''); setCal(''); setProtein(''); setCarbs(''); setFat(''); setUsedAi(false);
+  }
+
+  // Manually editing a macro means it's no longer a pure AI estimate.
+  const macroInput = (val, set) => (
+    <input
+      type="number"
+      className={styles.input}
+      value={val}
+      onChange={e => { set(e.target.value); setUsedAi(false); }}
+      style={{ width: 64, padding: '0.35rem 0.4rem' }}
+      min="0"
+    />
+  );
+
+  return (
+    <div className={styles.mealsEditor}>
+      {meals.length > 0 && (
+        <div className={styles.mealsList}>
+          {meals.map(m => (
+            <div key={m.id} className={styles.mealRow}>
+              <span className={styles.mealRowName}>
+                {m.name}{m.source === 'ai' ? ' ✨' : ''}
+              </span>
+              <span className={styles.mealRowMacros}>
+                {Math.round(m.calories) || 0} cal · {Math.round(m.protein) || 0}p · {Math.round(m.carbs) || 0}c · {Math.round(m.fat) || 0}f
+              </span>
+              <button
+                type="button"
+                className={styles.chipRemove}
+                onClick={() => onChange(meals.filter(x => x.id !== m.id))}
+                aria-label="Remove meal"
+              >
+                ✕
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+      <input
+        type="text"
+        className={styles.input}
+        value={name}
+        onChange={e => setName(e.target.value)}
+        placeholder="Meal name, e.g. Spinach & feta pizza"
+      />
+      <div className={styles.mealMacroRow}>
+        <label className={styles.mealMacroField}><span>Cal</span>{macroInput(cal, setCal)}</label>
+        <label className={styles.mealMacroField}><span>Protein</span>{macroInput(protein, setProtein)}</label>
+        <label className={styles.mealMacroField}><span>Carbs</span>{macroInput(carbs, setCarbs)}</label>
+        <label className={styles.mealMacroField}><span>Fat</span>{macroInput(fat, setFat)}</label>
+      </div>
+      <div className={styles.mealsEditorActions}>
+        <button type="button" className={styles.secondaryBtn} onClick={handleEstimate} disabled={estimating || !name.trim()}>
+          {estimating ? 'Estimating…' : '✨ AI estimate'}
+        </button>
+        <button type="button" className={styles.fetchBtn} onClick={addMeal} disabled={!name.trim()}>
+          + Add meal
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function EditModal({ initial, onSave, onClose, onDelete, cuisineSuggestions, locationSuggestions, categorySuggestions = [] }) {
   const [name, setName] = useState(initial.name || '');
   const [url, setUrl] = useState(initial.url || '');
@@ -307,6 +434,7 @@ function EditModal({ initial, onSave, onClose, onDelete, cuisineSuggestions, loc
   const [mealType, setMealType] = useState(initial.mealType || '');
   const [frequency, setFrequency] = useState(initial.frequency || '');
   const [dish, setDish] = useState(initial.dish || '');
+  const [meals, setMeals] = useState(Array.isArray(initial.meals) ? initial.meals : []);
   const [address, setAddress] = useState(initial.address || '');
   const [coords, setCoords] = useState(
     initial.lat != null && initial.lng != null ? { lat: initial.lat, lng: initial.lng } : null,
@@ -395,6 +523,7 @@ function EditModal({ initial, onSave, onClose, onDelete, cuisineSuggestions, loc
       mealType: mealType || undefined,
       frequency: frequency || undefined,
       dish: dish.trim() || undefined,
+      meals: meals.length ? meals : undefined,
       address: address.trim() || undefined,
       lat: coords?.lat,
       lng: coords?.lng,
@@ -601,6 +730,9 @@ function EditModal({ initial, onSave, onClose, onDelete, cuisineSuggestions, loc
             onChange={e => setDish(e.target.value)}
             placeholder='e.g., "Spinach and Feta Pizza"'
           />
+
+          <label className={styles.fieldLabel}>Meals (track these from the + button)</label>
+          <MealsEditor value={meals} onChange={setMeals} restaurantName={name} />
 
           <label className={styles.fieldLabel}>Last visit</label>
           <input

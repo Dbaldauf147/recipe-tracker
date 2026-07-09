@@ -1,7 +1,17 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
-import { saveField } from '../utils/firestoreSync';
+import { saveField, loadUserData, saveDailyLogToFirestore, saveRecipesToFirestore, listDailyLogRecoveryPoints, previewDailyLogMerge, mergeRestoreDailyLog, normalizeDailyLog, previewDailyLogMergeMap, mergeRestoreDailyLogMap } from '../utils/firestoreSync';
 import styles from './AccountSettings.module.css';
+
+// User-doc fields included in a full backup / restore (the big blobs —
+// dailyLog, recipes, workoutLog — are handled separately below).
+const BACKUP_FIELDS = [
+  'weightLog', 'weeklyPlan', 'weeklyServings', 'planHistory', 'habits',
+  'bodyStats', 'nutritionGoals', 'reminderSettings', 'groceryCategories',
+  'groceryItemSections', 'shopLinks', 'restaurants', 'eatingOutVotes',
+  'eatingOutOrder', 'keyIngredients', 'userDiet', 'userLocation',
+  'customGridWidgets', 'catLayout', 'hiddenCategories',
+];
 
 const REMINDER_KEY = 'sunday-reminder-settings';
 const ALL_DAYS = [0, 1, 2, 3, 4, 5, 6];
@@ -16,6 +26,172 @@ export function AccountSettings({ user, onClose }) {
   const { deleteAccount } = useAuth();
   const [deleting, setDeleting] = useState(false);
   const [showDelete, setShowDelete] = useState(false);
+  const [backupBusy, setBackupBusy] = useState('');
+  const [backupMsg, setBackupMsg] = useState('');
+
+  // Merge-restore of lost meal days (adds missing/empty days only; never
+  // overwrites a day that already has meals).
+  const [recoverBusy, setRecoverBusy] = useState('');
+  const [recoverMsg, setRecoverMsg] = useState('');
+  const [recoverPoints, setRecoverPoints] = useState(null); // null = not loaded
+  const [selectedPointId, setSelectedPointId] = useState('');
+  const [mergePreview, setMergePreview] = useState(null);
+
+  function fmtPoint(p) {
+    const when = p.date || (p.savedAt || '').slice(0, 10) || 'unknown date';
+    const src = p.source === 'backup' ? 'daily backup' : 'snapshot';
+    return `${when} — ${p.count} meal${p.count === 1 ? '' : 's'} (${src})`;
+  }
+
+  async function findMealBackups() {
+    if (!user?.uid) return;
+    setRecoverBusy('list'); setRecoverMsg(''); setMergePreview(null);
+    try {
+      const points = await listDailyLogRecoveryPoints(user.uid);
+      setRecoverPoints(points);
+      if (points.length === 0) {
+        setRecoverMsg('No meal backups found for this account.');
+      } else {
+        setSelectedPointId(points[0].id);
+        setRecoverMsg(`Found ${points.length} recovery point${points.length === 1 ? '' : 's'}. Pick one and preview.`);
+      }
+    } catch (err) {
+      setRecoverMsg(`Couldn’t load backups: ${err.message}`);
+    } finally {
+      setRecoverBusy('');
+    }
+  }
+
+  async function previewMerge() {
+    if (!user?.uid || !selectedPointId || !recoverPoints) return;
+    const point = recoverPoints.find(p => p.id === selectedPointId);
+    if (!point) return;
+    setRecoverBusy('preview'); setRecoverMsg(''); setMergePreview(null);
+    try {
+      const pv = await previewDailyLogMerge(user.uid, point);
+      setMergePreview(pv);
+      if (pv.addedDates.length === 0) {
+        setRecoverMsg('This backup adds nothing new — every day it contains is already filled in your current log.');
+      } else {
+        setRecoverMsg('');
+      }
+    } catch (err) {
+      setRecoverMsg(`Preview failed: ${err.message}`);
+    } finally {
+      setRecoverBusy('');
+    }
+  }
+
+  async function applyMerge() {
+    if (!user?.uid || !selectedPointId || !recoverPoints || !mergePreview) return;
+    const point = recoverPoints.find(p => p.id === selectedPointId);
+    if (!point) return;
+    if (!window.confirm(`Restore ${mergePreview.addedDates.length} missing day(s) — ${mergePreview.addedEntries} meals — from this backup? Days that already have meals will not be touched.`)) return;
+    setRecoverBusy('apply'); setRecoverMsg('');
+    try {
+      const res = await mergeRestoreDailyLog(user.uid, point);
+      setMergePreview(null);
+      setRecoverMsg(`Restored ${res.addedDays} day(s), ${res.addedEntries} meals. Reloading…`);
+      // Reload immediately so the tracker re-reads the full log from Firestore
+      // (and the stale in-memory log can't save back over the restore).
+      setTimeout(() => window.location.reload(), 900);
+    } catch (err) {
+      setRecoverMsg(`Restore failed: ${err.message}`);
+      setRecoverBusy('');
+    }
+  }
+
+  // Import history from a backup JSON file, merging in only the missing days.
+  const [fileLog, setFileLog] = useState(null);
+  const [filePreview, setFilePreview] = useState(null);
+
+  async function onHistoryFile(file) {
+    if (!file || !user?.uid) return;
+    setRecoverBusy('filePreview'); setRecoverMsg(''); setFilePreview(null); setFileLog(null);
+    try {
+      const parsed = JSON.parse(await file.text());
+      const log = normalizeDailyLog(parsed);
+      if (Object.keys(log).length === 0) throw new Error('No daily-log data found in that file.');
+      const pv = await previewDailyLogMergeMap(user.uid, log);
+      setFileLog(log);
+      setFilePreview(pv);
+      if (pv.addedDates.length === 0) {
+        setRecoverMsg('This file adds nothing new — every day it contains is already filled in your current log.');
+      }
+    } catch (err) {
+      setRecoverMsg(`Couldn’t read file: ${err.message}`);
+    } finally {
+      setRecoverBusy('');
+    }
+  }
+
+  async function applyFileMerge() {
+    if (!user?.uid || !fileLog || !filePreview) return;
+    if (!window.confirm(`Import ${filePreview.addedDates.length} missing day(s) — ${filePreview.addedEntries} meals — from this file? Days that already have meals will not be touched.`)) return;
+    setRecoverBusy('fileApply'); setRecoverMsg('');
+    try {
+      const res = await mergeRestoreDailyLogMap(user.uid, fileLog);
+      setFilePreview(null); setFileLog(null);
+      setRecoverMsg(`Imported ${res.addedDays} day(s), ${res.addedEntries} meals. Reloading…`);
+      // Reload immediately so the tracker re-reads the full log from Firestore
+      // (and the stale in-memory log can't save back over the import).
+      setTimeout(() => window.location.reload(), 900);
+    } catch (err) {
+      setRecoverMsg(`Import failed: ${err.message}`);
+      setRecoverBusy('');
+    }
+  }
+
+  function describeAdded(pv) {
+    const dates = pv.addedDates;
+    if (dates.length <= 8) return dates.join(', ');
+    return `${dates[0]} … ${dates[dates.length - 1]} (${dates.length} days)`;
+  }
+
+  async function downloadBackup() {
+    if (!user?.uid) return;
+    setBackupBusy('export'); setBackupMsg('');
+    try {
+      const data = await loadUserData(user.uid);
+      if (!data) throw new Error('Could not read your data.');
+      const payload = { app: 'prep-day', exportedAt: new Date().toISOString(), uid: user.uid, data };
+      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `prepday-backup-${new Date().toISOString().slice(0, 10)}.json`;
+      document.body.appendChild(a); a.click(); a.remove();
+      URL.revokeObjectURL(url);
+      setBackupMsg('Backup downloaded.');
+    } catch (err) {
+      setBackupMsg(`Export failed: ${err.message}`);
+    } finally {
+      setBackupBusy('');
+    }
+  }
+
+  async function restoreBackup(file) {
+    if (!file || !user?.uid) return;
+    if (!window.confirm('Restore this backup? It will merge the file’s data back into your account (the safety guards still protect against accidental wipes).')) return;
+    setBackupBusy('restore'); setBackupMsg('');
+    try {
+      const parsed = JSON.parse(await file.text());
+      const data = parsed?.data || parsed;
+      if (!data || typeof data !== 'object') throw new Error('Not a valid backup file.');
+      let n = 0;
+      if (data.dailyLog && typeof data.dailyLog === 'object') { await saveDailyLogToFirestore(user.uid, data.dailyLog); n++; }
+      if (Array.isArray(data.recipes)) { await saveRecipesToFirestore(user.uid, data.recipes); n++; }
+      if (Array.isArray(data.workoutLog)) { await saveField(user.uid, 'workoutLog', data.workoutLog); n++; }
+      for (const f of BACKUP_FIELDS) {
+        if (data[f] !== undefined) { try { await saveField(user.uid, f, data[f]); n++; } catch (e) { /* guard may block a shrink; skip */ } }
+      }
+      setBackupMsg(`Restore complete (${n} sections). Reload the page to see your data.`);
+    } catch (err) {
+      setBackupMsg(`Restore failed: ${err.message}`);
+    } finally {
+      setBackupBusy('');
+    }
+  }
   const [phone, setPhone] = useState('');
   // Per-email day routing: each row is { email, days[] }. A reminder due on a
   // given weekday is sent to every row whose `days` includes that weekday.
@@ -26,6 +202,10 @@ export function AccountSettings({ user, onClose }) {
   const [weightReminder, setWeightReminder] = useState(false);
   const [weightTime, setWeightTime] = useState('08:00');
   const [weightDays, setWeightDays] = useState([0, 1, 2, 3, 4, 5, 6]);
+  // Auto-log: on its scheduled days, a daily cron records every recipe in the
+  // weekly plan (the shopping-list recipes) into meal history. Default Sun+Wed.
+  const [autoLogMeals, setAutoLogMeals] = useState(false);
+  const [autoLogDays, setAutoLogDays] = useState([0, 3]);
   const [reminderSaved, setReminderSaved] = useState(false);
   const [testSending, setTestSending] = useState(false);
 
@@ -52,6 +232,8 @@ export function AccountSettings({ user, onClose }) {
     if (s.weightReminder) setWeightReminder(s.weightReminder);
     if (s.weightTime) setWeightTime(s.weightTime);
     if (Array.isArray(s.weightDays)) setWeightDays(s.weightDays);
+    if (s.autoLogMeals) setAutoLogMeals(s.autoLogMeals);
+    if (Array.isArray(s.autoLogDays)) setAutoLogDays(s.autoLogDays);
   }, []);
 
   function toggleDay(d) {
@@ -59,6 +241,9 @@ export function AccountSettings({ user, onClose }) {
   }
   function toggleWeightDay(d) {
     setWeightDays(prev => prev.includes(d) ? prev.filter(x => x !== d) : [...prev, d].sort());
+  }
+  function toggleAutoLogDay(d) {
+    setAutoLogDays(prev => prev.includes(d) ? prev.filter(x => x !== d) : [...prev, d].sort());
   }
 
   function updateScheduleEmail(i, email) {
@@ -114,6 +299,7 @@ export function AccountSettings({ user, onClose }) {
       emails,
       email: emails[0] || '',
       foodLogReminder, foodLogTime, foodLogDays, weightReminder, weightTime, weightDays,
+      autoLogMeals, autoLogDays,
     };
     localStorage.setItem(REMINDER_KEY, JSON.stringify(settings));
     if (user) saveField(user.uid, 'reminderSettings', settings);
@@ -357,6 +543,44 @@ export function AccountSettings({ user, onClose }) {
           </>
         )}
 
+        <div className={styles.reminderRow}>
+          <label className={styles.reminderToggle}>
+            <input type="checkbox" checked={autoLogMeals} onChange={e => { setAutoLogMeals(e.target.checked); }} />
+            Auto-log weekly meals
+          </label>
+        </div>
+        {autoLogMeals && (
+          <>
+            <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap', margin: '0.5rem 0 0.25rem' }}>
+              {DAY_LABELS.map((label, idx) => {
+                const on = autoLogDays.includes(idx);
+                return (
+                  <button
+                    key={idx}
+                    type="button"
+                    onClick={() => toggleAutoLogDay(idx)}
+                    style={{
+                      padding: '0.35rem 0.6rem',
+                      borderRadius: 6,
+                      border: '1px solid ' + (on ? '#111' : '#ccc'),
+                      background: on ? '#111' : '#fff',
+                      color: on ? '#fff' : '#666',
+                      fontSize: '0.8rem',
+                      cursor: 'pointer',
+                      minWidth: 42,
+                    }}
+                  >
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
+            <p className={styles.reminderHint}>
+              On each highlighted day, every recipe in your weekly plan (your shopping-list recipes) is recorded in your meal history automatically. Pick two days for "twice a week."
+            </p>
+          </>
+        )}
+
         <div className={styles.reminderActions}>
           <button className={styles.reminderSaveBtn} onClick={saveReminders}>
             {reminderSaved ? 'Saved!' : 'Save Settings'}
@@ -365,6 +589,118 @@ export function AccountSettings({ user, onClose }) {
             {testSending ? 'Sending...' : 'Send Test Email'}
           </button>
         </div>
+      </div>
+
+      <div className={styles.section}>
+        <h3 className={styles.sectionTitle}>Backup &amp; Restore</h3>
+        <p style={{ fontSize: '0.85rem', color: 'var(--color-text-muted)', margin: '0 0 0.6rem', lineHeight: 1.45 }}>
+          Download a full copy of your data (meals, recipes, workouts, weight, habits, settings) as a JSON file, or restore from one. Your data is also auto-snapshotted and backed up daily on the server.
+        </p>
+        <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
+          <button
+            onClick={downloadBackup}
+            disabled={!!backupBusy}
+            style={{ border: '1px solid var(--color-border, #e2e8f0)', background: '#fff', borderRadius: 8, padding: '0.5rem 0.9rem', cursor: 'pointer', fontSize: '0.85rem', fontWeight: 600 }}
+          >
+            {backupBusy === 'export' ? 'Preparing…' : 'Download my data'}
+          </button>
+          <label style={{ border: '1px solid var(--color-border, #e2e8f0)', background: '#fff', borderRadius: 8, padding: '0.5rem 0.9rem', cursor: 'pointer', fontSize: '0.85rem', fontWeight: 600 }}>
+            {backupBusy === 'restore' ? 'Restoring…' : 'Restore from file'}
+            <input
+              type="file"
+              accept="application/json,.json"
+              style={{ display: 'none' }}
+              disabled={!!backupBusy}
+              onChange={e => { const f = e.target.files?.[0]; e.target.value = ''; if (f) restoreBackup(f); }}
+            />
+          </label>
+        </div>
+        {backupMsg && <p style={{ fontSize: '0.82rem', color: 'var(--color-text-secondary, #475569)', marginTop: '0.5rem' }}>{backupMsg}</p>}
+      </div>
+
+      <div className={styles.section}>
+        <h3 className={styles.sectionTitle}>Recover lost meal days</h3>
+        <p style={{ fontSize: '0.85rem', color: 'var(--color-text-muted)', margin: '0 0 0.6rem', lineHeight: 1.45 }}>
+          Missing some past days from your meal log? Pick a backup and this will add back only the days that are currently empty — anything you’ve logged since stays exactly as it is.
+        </p>
+        <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
+          <button
+            onClick={findMealBackups}
+            disabled={!!recoverBusy}
+            style={{ border: '1px solid var(--color-border, #e2e8f0)', background: '#fff', borderRadius: 8, padding: '0.5rem 0.9rem', cursor: 'pointer', fontSize: '0.85rem', fontWeight: 600 }}
+          >
+            {recoverBusy === 'list' ? 'Loading…' : 'Find meal backups'}
+          </button>
+          {recoverPoints && recoverPoints.length > 0 && (
+            <>
+              <select
+                value={selectedPointId}
+                onChange={e => { setSelectedPointId(e.target.value); setMergePreview(null); }}
+                disabled={!!recoverBusy}
+                style={{ border: '1px solid var(--color-border, #e2e8f0)', background: '#fff', borderRadius: 8, padding: '0.5rem 0.6rem', fontSize: '0.82rem', maxWidth: '100%' }}
+              >
+                {recoverPoints.map(p => (
+                  <option key={p.id} value={p.id}>{fmtPoint(p)}</option>
+                ))}
+              </select>
+              <button
+                onClick={previewMerge}
+                disabled={!!recoverBusy}
+                style={{ border: '1px solid var(--color-border, #e2e8f0)', background: '#fff', borderRadius: 8, padding: '0.5rem 0.9rem', cursor: 'pointer', fontSize: '0.85rem', fontWeight: 600 }}
+              >
+                {recoverBusy === 'preview' ? 'Checking…' : 'Preview'}
+              </button>
+            </>
+          )}
+        </div>
+        {mergePreview && mergePreview.addedDates.length > 0 && (
+          <div style={{ marginTop: '0.6rem', fontSize: '0.82rem', color: 'var(--color-text-secondary, #475569)' }}>
+            <p style={{ margin: '0 0 0.35rem' }}>
+              Will add <strong>{mergePreview.addedDates.length} day(s)</strong> ({mergePreview.addedEntries} meals) that are missing now:
+            </p>
+            <p style={{ margin: '0 0 0.5rem', wordBreak: 'break-word' }}>{describeAdded(mergePreview)}</p>
+            <button
+              onClick={applyMerge}
+              disabled={!!recoverBusy}
+              style={{ border: 'none', background: 'var(--color-accent, #2563eb)', color: '#fff', borderRadius: 8, padding: '0.5rem 0.9rem', cursor: 'pointer', fontSize: '0.85rem', fontWeight: 600 }}
+            >
+              {recoverBusy === 'apply' ? 'Restoring…' : `Restore ${mergePreview.addedDates.length} day(s)`}
+            </button>
+          </div>
+        )}
+
+        <div style={{ marginTop: '0.9rem', paddingTop: '0.8rem', borderTop: '1px solid var(--color-border, #e2e8f0)' }}>
+          <p style={{ fontSize: '0.85rem', color: 'var(--color-text-muted)', margin: '0 0 0.5rem', lineHeight: 1.45 }}>
+            Have an older backup file? Upload it and it’ll import only the days you’re currently missing.
+          </p>
+          <label style={{ border: '1px solid var(--color-border, #e2e8f0)', background: '#fff', borderRadius: 8, padding: '0.5rem 0.9rem', cursor: 'pointer', fontSize: '0.85rem', fontWeight: 600, display: 'inline-block' }}>
+            {recoverBusy === 'filePreview' ? 'Reading…' : 'Import history from file'}
+            <input
+              type="file"
+              accept="application/json,.json"
+              style={{ display: 'none' }}
+              disabled={!!recoverBusy}
+              onChange={e => { const f = e.target.files?.[0]; e.target.value = ''; setFilePreview(null); setFileLog(null); if (f) onHistoryFile(f); }}
+            />
+          </label>
+          {filePreview && filePreview.addedDates.length > 0 && (
+            <div style={{ marginTop: '0.6rem', fontSize: '0.82rem', color: 'var(--color-text-secondary, #475569)' }}>
+              <p style={{ margin: '0 0 0.35rem' }}>
+                This file will add <strong>{filePreview.addedDates.length} day(s)</strong> ({filePreview.addedEntries} meals) that are missing now:
+              </p>
+              <p style={{ margin: '0 0 0.5rem', wordBreak: 'break-word' }}>{describeAdded(filePreview)}</p>
+              <button
+                onClick={applyFileMerge}
+                disabled={!!recoverBusy}
+                style={{ border: 'none', background: 'var(--color-accent, #2563eb)', color: '#fff', borderRadius: 8, padding: '0.5rem 0.9rem', cursor: 'pointer', fontSize: '0.85rem', fontWeight: 600 }}
+              >
+                {recoverBusy === 'fileApply' ? 'Importing…' : `Import ${filePreview.addedDates.length} day(s)`}
+              </button>
+            </div>
+          )}
+        </div>
+
+        {recoverMsg && <p style={{ fontSize: '0.82rem', color: 'var(--color-text-secondary, #475569)', marginTop: '0.5rem' }}>{recoverMsg}</p>}
       </div>
 
       <div className={styles.section}>

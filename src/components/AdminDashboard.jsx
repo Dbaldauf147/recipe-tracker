@@ -170,6 +170,7 @@ const WEB_PAGE_LABELS = {
   history: 'Meal History', whoop: 'Whoop', profile: 'Profile', 'account-settings': 'Account Settings',
   friends: 'Friends', admin: 'Admin', features: 'Features', 'design-meal': 'Design a Meal',
   'barcode-scanner': 'Barcode Scanner', 'seasonal-guide': 'Seasonal Guide', sources: 'Sources',
+  'week-plan': 'Week Plan',
 };
 const APP_SCREEN_LABELS = {
   menu: 'Shopping List', recipes: 'Recipes', tracker: 'Log Meals', ingredients: 'Scan',

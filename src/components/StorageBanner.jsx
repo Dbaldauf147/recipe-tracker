@@ -41,12 +41,22 @@ export function StorageBanner({ user }) {
   // background so other devices stay in sync.
   useEffect(() => {
     if (!user?.uid) return;
-    setBreakdown(computeStorageBreakdown());
+    const local = computeStorageBreakdown();
+    setBreakdown(local);
+    // Heal the persisted estimate: older builds counted local-only recompute
+    // caches (e.g. sunday-nutrition-cache) against the per-doc limit, so a
+    // stale saved estimate can be hundreds of KB too high.
+    saveStorageEstimate(user.uid).catch(() => {});
     (async () => {
       try {
         const snap = await getDoc(doc(db, 'users', user.uid));
         const remote = snap.exists() ? snap.data().storageEstimate : null;
-        if (remote?.docs) setBreakdown({ docs: remote.docs, total: remote.total });
+        // Only fall back to the remote estimate when this device has no local
+        // data yet (fresh login). Otherwise the freshly computed local value is
+        // authoritative and already excludes derived caches.
+        if (remote?.docs && (!local || local.total === 0)) {
+          setBreakdown({ docs: remote.docs, total: remote.total });
+        }
       } catch {}
     })();
   }, [user?.uid]);

@@ -1,6 +1,106 @@
 import { doc, getDoc, setDoc, addDoc, deleteDoc, updateDoc, collection, query, where, getDocs, arrayUnion, arrayRemove, increment, onSnapshot, writeBatch } from 'firebase/firestore';
 import { db, auth } from '../firebase';
 
+// ── Data-safety layer (mirrors the mobile app) ──────────────────────────────
+// Every full-document overwrite of a big "blob" doc (dailyLog, recipes) goes
+// through safeOverwriteDoc, which (1) refuses to erase a non-empty doc with an
+// empty write and (2) snapshots the current good state to
+// users/{uid}/dataSnapshots before any write that would shrink it.
+const SNAPSHOT_KEEP = 20;
+
+function countDailyLogEntries(log) {
+  if (!log || typeof log !== 'object') return 0;
+  let n = 0;
+  for (const d of Object.keys(log)) n += Array.isArray(log[d]?.entries) ? log[d].entries.length : 0;
+  return n;
+}
+
+async function writeSnapshot(uid, type, data, count) {
+  try {
+    const col = collection(db, 'users', uid, 'dataSnapshots');
+    await addDoc(col, { type, count, savedAt: new Date().toISOString(), data });
+    const snap = await getDocs(query(col, where('type', '==', type)));
+    const docs = snap.docs.sort((a, b) => (b.data().savedAt || '').localeCompare(a.data().savedAt || ''));
+    for (let i = SNAPSHOT_KEEP; i < docs.length; i++) await deleteDoc(docs[i].ref);
+  } catch (err) {
+    console.warn('[dataSnapshot] failed', type, err);
+  }
+}
+
+// Fire-and-forget owner alert when a guard blocks a destructive write.
+function alertGuardBlock(field, prevCount) {
+  try {
+    fetch('/api/alert-data-guard', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ field, prevCount, platform: 'web', uid: auth.currentUser?.uid || '' }),
+    }).catch(() => {});
+  } catch { /* ignore */ }
+}
+
+async function safeOverwriteDoc({ uid, type, ref, field, value, count, extract }) {
+  const newCount = count(value);
+  let prevVal = null;
+  let prevCount = 0;
+  try {
+    const prev = await getDoc(ref);
+    if (prev.exists()) { prevVal = extract(prev.data()); prevCount = count(prevVal); }
+  } catch { /* unreadable → fall through to normal write */ }
+
+  if (prevCount > 0 && newCount === 0) {
+    const msg = `[${type}] blocked overwrite: would erase ${prevCount} items with an empty write`;
+    console.error(msg);
+    alertGuardBlock(type, prevCount);
+    throw new Error(msg);
+  }
+  if (prevVal != null && prevCount > 0 && newCount < prevCount) {
+    await writeSnapshot(uid, type, prevVal, prevCount);
+  }
+  await setDoc(ref, { [field]: value }, { merge: false });
+}
+
+// Important user-doc array/object fields that get the snapshot-on-shrink guard.
+const GUARDED_FIELDS = new Set([
+  'weightLog', 'weeklyPlan', 'weeklyServings', 'planHistory', 'habits',
+  'groceryCategories', 'groceryItemSections', 'shopLinks', 'restaurants',
+  'eatingOutVotes', 'eatingOutOrder', 'customGridWidgets', 'keyIngredients',
+  'ingredientsDb', 'catLayout', 'hiddenCategories', 'friends',
+  'weekMealPlan', 'weekWorkoutPlan',
+]);
+// Fields where going from many → 0 in one write is always a bug (block it).
+// (weeklyPlan is intentionally NOT here — "clear week" legitimately empties it.)
+const NEVER_EMPTY_FIELDS = new Set(['weightLog', 'habits', 'ingredientsDb']);
+
+function itemCount(v) {
+  if (Array.isArray(v)) return v.length;
+  if (v && typeof v === 'object') return Object.keys(v).length;
+  return v == null ? 0 : 1;
+}
+
+// Guarded setter for a single user-doc field: snapshots before any shrink and
+// blocks emptying the never-empty fields. Non-container or unguarded fields
+// write straight through.
+async function guardUserField(uid, field, value) {
+  const ref = doc(db, 'users', uid);
+  const isContainer = Array.isArray(value) || (value && typeof value === 'object');
+  if (!GUARDED_FIELDS.has(field) || !isContainer) {
+    await setDoc(ref, { [field]: value }, { merge: true });
+    return;
+  }
+  const newCount = itemCount(value);
+  let prev;
+  let prevCount = 0;
+  try { const s = await getDoc(ref); if (s.exists()) { prev = s.data()[field]; prevCount = itemCount(prev); } } catch { /* unreadable */ }
+  if (prevCount > 0 && newCount === 0 && NEVER_EMPTY_FIELDS.has(field)) {
+    const msg = `[${field}] blocked overwrite: would erase ${prevCount} items with an empty write`;
+    console.error(msg);
+    alertGuardBlock(field, prevCount);
+    throw new Error(msg);
+  }
+  if (prev != null && prevCount > 0 && newCount < prevCount) await writeSnapshot(uid, field, prev, prevCount);
+  await setDoc(ref, { [field]: value }, { merge: true });
+}
+
 /**
  * Save a single field to the user's Firestore document.
  * Merges so other fields are not overwritten.
@@ -11,7 +111,11 @@ import { db, auth } from '../firebase';
 export async function saveDailyLogToFirestore(uid, log) {
   try {
     const ref = doc(db, 'users', uid, 'data', 'dailyLog');
-    await setDoc(ref, { log }, { merge: false });
+    await safeOverwriteDoc({
+      uid, type: 'dailyLog', ref, field: 'log', value: log,
+      count: countDailyLogEntries,
+      extract: (data) => data?.log || {},
+    });
   } catch (err) {
     console.error('saveDailyLogToFirestore:', err);
     throw err;
@@ -43,6 +147,120 @@ export async function loadDailyLogFromFirestore(uid) {
   }
 }
 
+// ── Daily-log recovery (merge restore) ───────────────────────────────────────
+// The plain "Restore from file" overwrites the whole dailyLog. That's wrong
+// when you've logged new meals SINCE a partial loss — those would be wiped.
+// These helpers merge a recovery point into the live log, adding ONLY the
+// days that are currently missing or empty. A day that already has entries is
+// never touched, so anything logged after the loss is preserved.
+
+function dayEntryCount(day) {
+  return Array.isArray(day?.entries) ? day.entries.length : 0;
+}
+
+/** List dailyLog recovery points (daily server backups + app snapshots), newest first. */
+export async function listDailyLogRecoveryPoints(uid) {
+  const out = [];
+  try {
+    const snaps = await getDocs(query(collection(db, 'users', uid, 'backups'), where('type', '==', 'dailyLog')));
+    snaps.forEach(d => {
+      const x = d.data();
+      out.push({ id: d.id, source: 'backup', count: x.count || 0, savedAt: x.savedAt || x.date || '', date: x.date || (x.savedAt || '').slice(0, 10) });
+    });
+  } catch { /* none */ }
+  try {
+    const snaps = await getDocs(query(collection(db, 'users', uid, 'dataSnapshots'), where('type', '==', 'dailyLog')));
+    snaps.forEach(d => {
+      const x = d.data();
+      out.push({ id: d.id, source: 'snapshot', count: x.count || 0, savedAt: x.savedAt || '', date: (x.savedAt || '').slice(0, 10) });
+    });
+  } catch { /* none */ }
+  return out.sort((a, b) => (b.savedAt || '').localeCompare(a.savedAt || ''));
+}
+
+async function readRecoveryLog(uid, point) {
+  const ref = doc(db, 'users', uid, point.source === 'snapshot' ? 'dataSnapshots' : 'backups', point.id);
+  const snap = await getDoc(ref);
+  if (!snap.exists()) throw new Error('Recovery point not found');
+  const data = snap.data().data;
+  if (!data || typeof data !== 'object') throw new Error('Recovery point has no daily-log data');
+  return data;
+}
+
+// Normalize whatever JSON shape a backup file/source has into a flat
+// { 'YYYY-MM-DD': { entries: [...] } } log map.
+export function normalizeDailyLog(raw) {
+  let log = raw;
+  if (raw && typeof raw === 'object') {
+    if (raw.data?.dailyLog) log = raw.data.dailyLog;
+    else if (raw.dailyLog) log = raw.dailyLog;
+    else if (raw.log) log = raw.log;
+    else if (raw.data && Object.keys(raw.data).some(k => /^\d{4}-\d{2}-\d{2}$/.test(k))) log = raw.data;
+  }
+  if (!log || typeof log !== 'object') return {};
+  const out = {};
+  for (const k of Object.keys(log)) {
+    if (/^\d{4}-\d{2}-\d{2}$/.test(k)) out[k] = log[k];
+  }
+  return out;
+}
+
+/**
+ * Non-destructive preview of merging a backup log map into the live log.
+ * Returns which dates would be ADDED (have entries in the backup, but are
+ * missing/empty in the live log). The live log is never modified.
+ */
+export async function previewDailyLogMergeMap(uid, backupLog) {
+  const currentLog = (await loadDailyLogFromFirestore(uid)) || {};
+  const addedDates = [];
+  for (const date of Object.keys(backupLog || {})) {
+    if (dayEntryCount(backupLog[date]) === 0) continue;   // nothing to restore from this day
+    if (dayEntryCount(currentLog[date]) > 0) continue;    // live day already has meals — leave it
+    addedDates.push(date);
+  }
+  addedDates.sort();
+  const addedEntries = addedDates.reduce((n, d) => n + dayEntryCount(backupLog[d]), 0);
+  return {
+    addedDates,
+    addedEntries,
+    currentDays: Object.keys(currentLog).filter(d => dayEntryCount(currentLog[d]) > 0).length,
+    backupDays: Object.keys(backupLog || {}).filter(d => dayEntryCount(backupLog[d]) > 0).length,
+  };
+}
+
+/**
+ * Merge a backup log map into the live daily log: fills in only the days that
+ * are currently missing or empty. Days that already have entries are kept as-is
+ * (so meals logged after a loss survive). Returns how much was added.
+ */
+export async function mergeRestoreDailyLogMap(uid, backupLog) {
+  const currentLog = (await loadDailyLogFromFirestore(uid)) || {};
+  const merged = { ...currentLog };
+  let addedDays = 0;
+  let addedEntries = 0;
+  for (const date of Object.keys(backupLog || {})) {
+    if (dayEntryCount(backupLog[date]) === 0) continue;
+    if (dayEntryCount(currentLog[date]) > 0) continue;
+    merged[date] = backupLog[date];
+    addedDays++;
+    addedEntries += dayEntryCount(backupLog[date]);
+  }
+  if (addedDays > 0) await saveDailyLogToFirestore(uid, merged);
+  return { addedDays, addedEntries, totalDays: Object.keys(merged).length };
+}
+
+/** Preview a merge from a stored Firestore recovery point (backup/snapshot). */
+export async function previewDailyLogMerge(uid, point) {
+  const backupLog = await readRecoveryLog(uid, point);
+  return previewDailyLogMergeMap(uid, backupLog);
+}
+
+/** Merge a stored Firestore recovery point into the live log. */
+export async function mergeRestoreDailyLog(uid, point) {
+  const backupLog = await readRecoveryLog(uid, point);
+  return mergeRestoreDailyLogMap(uid, backupLog);
+}
+
 export async function saveField(uid, field, value) {
   // Large fields go to separate subcollection docs to avoid the 1 MB user
   // doc limit. New ones added here as we hit the cap.
@@ -54,8 +272,7 @@ export async function saveField(uid, field, value) {
     // workouts whose payload changed, only deletes ones that disappeared.
     return saveWorkoutLogToFirestore(uid, value);
   }
-  const ref = doc(db, 'users', uid);
-  await setDoc(ref, { [field]: value }, { merge: true });
+  return guardUserField(uid, field, value);
 }
 
 // Read a single top-level field off the user doc. Returns undefined when the
@@ -334,7 +551,11 @@ export function subscribeToWorkoutDraft(uid, onChange) {
  */
 export async function saveRecipesToFirestore(uid, recipes) {
   const ref = doc(db, 'users', uid, 'data', 'recipes');
-  await setDoc(ref, { recipes }, { merge: false });
+  await safeOverwriteDoc({
+    uid, type: 'recipes', ref, field: 'recipes', value: Array.isArray(recipes) ? recipes : [],
+    count: (v) => (Array.isArray(v) ? v.length : 0),
+    extract: (data) => data?.recipes || [],
+  });
 }
 
 /**
@@ -374,6 +595,23 @@ const BACKUP_EXCLUDE = new Set([
   'migration-size-variants-v2',
 ]);
 
+// Local-only computed CACHES. These are rebuilt on demand and are NEVER
+// written to any Firestore doc, so they must not (a) count against the
+// per-document storage estimate that drives the storage banner, nor (b) bloat
+// backups. `sunday-nutrition-cache` in particular can reach hundreds of KB and
+// was falsely tripping the "main profile at 76%" warning even though it never
+// leaves the browser. Exact keys + prefixes (exercise-demo caches are keyed by
+// exercise name, e.g. `sunday-exercise-demo-v1:seated cable row`).
+const LOCAL_ONLY_CACHE_KEYS = new Set([
+  'sunday-nutrition-cache',
+  'sunday-nutrition-cache-version',
+]);
+const LOCAL_ONLY_CACHE_PREFIXES = ['sunday-exercise-demo-v1:'];
+function isLocalOnlyCache(key) {
+  return LOCAL_ONLY_CACHE_KEYS.has(key)
+    || LOCAL_ONLY_CACHE_PREFIXES.some(p => key.startsWith(p));
+}
+
 function snapshotAllAppLocalStorage() {
   const data = {};
   if (typeof localStorage === 'undefined') return data;
@@ -383,6 +621,7 @@ function snapshotAllAppLocalStorage() {
     if (BACKUP_EXCLUDE.has(key)) continue;
     if (key.startsWith('sunday-backup-full-')) continue; // throttle markers
     if (!APP_STORAGE_PREFIXES.some(p => key.startsWith(p))) continue;
+    if (isLocalOnlyCache(key)) continue; // derived caches rebuild on demand
     const raw = localStorage.getItem(key);
     if (raw == null) continue;
     try {
@@ -425,6 +664,9 @@ export function computeStorageBreakdown() {
     // workoutLog lives in a subcollection now — skip rather than fold its
     // size into the main user doc (would falsely trip the per-doc warning).
     if (key === 'sunday-workout-log') continue;
+    // Local-only recompute caches never reach any Firestore doc — counting
+    // them here falsely inflates the per-document usage warning.
+    if (isLocalOnlyCache(key)) continue;
     const raw = localStorage.getItem(key) || '';
     const docName = KEY_TO_DOC[key] || 'user';
     docs[docName] += raw.length;
@@ -593,6 +835,8 @@ export async function restoreFieldFromBackup(uid, backupId, field) {
     weightLog: ['sunday-weight-log', 'weightLog'],
     weeklyPlan: ['sunday-weekly-plan', 'weeklyPlan'],
     weeklyServings: ['sunday-weekly-servings', 'weeklyServings'],
+    weekMealPlan: ['sunday-week-meal-plan', 'weekMealPlan'],
+    weekWorkoutPlan: ['sunday-week-workout-plan', 'weekWorkoutPlan'],
     workoutLog: ['sunday-workout-log', 'workoutLog'],
     groceryStaples: ['sunday-grocery-staples', 'groceryStaples'],
     pantrySpices: ['sunday-pantry-spices', 'pantrySpices'],
@@ -783,6 +1027,16 @@ export async function migrateToFirestore(uid) {
   } catch {}
 
   try {
+    const weekMealPlan = localStorage.getItem('sunday-week-meal-plan');
+    if (weekMealPlan) data.weekMealPlan = JSON.parse(weekMealPlan);
+  } catch {}
+
+  try {
+    const weekWorkoutPlan = localStorage.getItem('sunday-week-workout-plan');
+    if (weekWorkoutPlan) data.weekWorkoutPlan = JSON.parse(weekWorkoutPlan);
+  } catch {}
+
+  try {
     const keyIngs = localStorage.getItem('sunday-key-ingredients');
     if (keyIngs) data.keyIngredients = JSON.parse(keyIngs);
   } catch {}
@@ -825,6 +1079,11 @@ export async function migrateToFirestore(uid) {
   try {
     const gyms = localStorage.getItem('sunday-workout-gyms');
     if (gyms) data.gyms = JSON.parse(gyms);
+  } catch {}
+
+  try {
+    const wu = localStorage.getItem('sunday-workout-weight-unit');
+    if (wu === 'lb' || wu === 'kg') data.workoutWeightUnit = wu;
   } catch {}
 
   try {
@@ -984,6 +1243,7 @@ export function hydrateLocalStorage(userData, uid) {
 
   hydrateArrayWithDefense('sunday-weekly-plan', userData.weeklyPlan, 'weeklyPlan');
   hydrateArrayWithDefense('sunday-plan-history', userData.planHistory, 'planHistory');
+  hydrateArrayWithDefense('recipe-tracker-deleted', userData.deletedRecipes, 'deletedRecipes');
   hydrateArrayWithDefense('sunday-grocery-staples', userData.groceryStaples, 'groceryStaples');
   hydrateArrayWithDefense('sunday-pantry-spices', userData.pantrySpices, 'pantrySpices');
   hydrateArrayWithDefense('sunday-pantry-sauces', userData.pantrySauces, 'pantrySauces');
@@ -995,6 +1255,8 @@ export function hydrateLocalStorage(userData, uid) {
   hydrateArrayWithDefense('sunday-shopping-lists', userData.shoppingLists, 'shoppingLists');
   hydrateArrayWithDefense('sunday-store-lists', userData.storeLists, 'storeLists');
   hydrateObjectWithDefense('sunday-weekly-servings', userData.weeklyServings, 'weeklyServings');
+  hydrateObjectWithDefense('sunday-week-meal-plan', userData.weekMealPlan, 'weekMealPlan');
+  hydrateObjectWithDefense('sunday-week-workout-plan', userData.weekWorkoutPlan, 'weekWorkoutPlan');
 
   if (userData.keyIngredients) {
     localStorage.setItem('sunday-key-ingredients', JSON.stringify(userData.keyIngredients));
@@ -1086,6 +1348,9 @@ export function hydrateLocalStorage(userData, uid) {
     localStorage.removeItem('sunday-workout-enabled');
   }
 
+  if (userData.workoutWeightUnit === 'lb' || userData.workoutWeightUnit === 'kg') {
+    localStorage.setItem('sunday-workout-weight-unit', userData.workoutWeightUnit);
+  }
   if (Array.isArray(userData.gyms)) {
     localStorage.setItem('sunday-workout-gyms', JSON.stringify(userData.gyms));
   }

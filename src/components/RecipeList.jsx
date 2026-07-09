@@ -484,6 +484,9 @@ export function RecipeList({
   const [weekMenuOpen, setWeekMenuOpen] = useState(true);
   const [suggestOpen, setSuggestOpen] = useState(true);
   const [aiEnabled, setAiEnabled] = useState(() => localStorage.getItem('sunday-ai-meals-enabled') !== 'false');
+  // When on, recipes marked "To Try" are included in Suggested Meals even if
+  // the main list's "To Try" frequency filter is off. Persisted like aiEnabled.
+  const [includeToTry, setIncludeToTry] = useState(() => localStorage.getItem('sunday-suggest-include-totry') === 'true');
   const [aiMeals, setAiMeals] = useState([]);
   const [aiPreview, setAiPreview] = useState(null);
   const [aiSkipping, setAiSkipping] = useState(null); // null or category string being loaded
@@ -1092,7 +1095,7 @@ export function RecipeList({
       const freq = r.frequency || 'common';
       if (freq === 'retired') return showRetired;
       if (freq === 'rare') return showRare;
-      if (freq === 'toTry') return showToTry;
+      if (freq === 'toTry') return showToTry || includeToTry;
       if (freq === 'common') return showCommon;
       return showCommon; // default to common behavior
     });
@@ -1281,7 +1284,7 @@ export function RecipeList({
     const lunches = scored.filter(s => s.recipe.category === 'lunch-dinner').slice(0, 10);
     return { breakfasts, lunches };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [recipes, weeklyPlan, showCommon, showRare, showToTry, showRetired, checkedTypes, checkedCategories, checkedCuisines, checkedTags, checkedSources, historyTick]);
+  }, [recipes, weeklyPlan, showCommon, showRare, showToTry, showRetired, includeToTry, checkedTypes, checkedCategories, checkedCuisines, checkedTags, checkedSources, historyTick]);
 
   return (
     <>
@@ -1728,6 +1731,20 @@ export function RecipeList({
                       }}
                     />
                     ✨ AI Suggested Meals
+                  </label>
+                  <label className={styles.suggestGearLabel}>
+                    <input
+                      type="checkbox"
+                      checked={includeToTry}
+                      onChange={() => {
+                        const next = !includeToTry;
+                        setIncludeToTry(next);
+                        localStorage.setItem('sunday-suggest-include-totry', String(next));
+                        // Sync so the mobile app's Suggested Meals matches.
+                        if (user) saveField(user.uid, 'suggestIncludeToTry', next);
+                      }}
+                    />
+                    Include "To Try" meals
                   </label>
                   <label className={styles.suggestGearLabel}>
                     <input

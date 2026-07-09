@@ -1,6 +1,9 @@
 .banner {
   position: fixed;
-  top: 0.75rem;
+  /* Bottom, not top: the top banner is inaccessible on iPhone (covered by the
+     notch/status bar in the installed PWA). Offset by the safe-area inset so it
+     sits above the home indicator. */
+  bottom: calc(0.75rem + env(safe-area-inset-bottom, 0px));
   left: 50%;
   transform: translateX(-50%);
   z-index: 99999;
@@ -14,11 +17,11 @@
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25);
   font-size: 0.9rem;
   font-weight: 600;
-  animation: slideDown 0.3s ease;
+  animation: slideUp 0.3s ease;
 }
 
-@keyframes slideDown {
-  from { opacity: 0; transform: translateX(-50%) translateY(-20px); }
+@keyframes slideUp {
+  from { opacity: 0; transform: translateX(-50%) translateY(20px); }
   to { opacity: 1; transform: translateX(-50%) translateY(0); }
 }
 

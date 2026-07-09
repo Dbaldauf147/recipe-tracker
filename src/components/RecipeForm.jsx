@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { BarcodeScanner } from './BarcodeScanner';
 import { loadIngredients, loadIngredientsFromFirestore } from '../utils/ingredientsStore';
+import { ingredientMatchScore } from '../utils/ingredientMatch';
 import { classifyMealType } from '../utils/classifyMealType';
 import { parseIngredientLine } from '../utils/parseRecipeText';
 import styles from './RecipeForm.module.css';
@@ -101,6 +102,28 @@ function applyColumnMap(text, map, hasHeader) {
   return rows;
 }
 
+// Turn a spreadsheet/free-text paste into one instruction step per line. Each
+// row may be tab-separated (e.g. a step-number column + the step text); we keep
+// the longest non-empty cell as the step and strip leading "1." / "Step 1:".
+function parsePastedInstructions(text) {
+  return (text || '')
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n')
+    .split('\n')
+    .map(line => {
+      const cells = line.split('\t').map(c => c.trim()).filter(Boolean);
+      if (cells.length === 0) return '';
+      const step = cells.length === 1
+        ? cells[0]
+        : cells.reduce((a, b) => (b.length > a.length ? b : a), '');
+      return step
+        .replace(/^step\s*\d+\s*[:.)-]?\s*/i, '')
+        .replace(/^\d+\s*[.)-]\s*/, '')
+        .trim();
+    })
+    .filter(Boolean);
+}
+
 export function RecipeForm({ recipe, onSave, onCancel, saveLabel, cancelLabel, headerAction, titleOverride }) {
   const [title, setTitle] = useState('');
   const [category, setCategory] = useState('lunch-dinner');
@@ -118,6 +141,8 @@ export function RecipeForm({ recipe, onSave, onCancel, saveLabel, cancelLabel, h
   const [activeAutoIdx, setActiveAutoIdx] = useState(-1);
   const [showPasteBox, setShowPasteBox] = useState(false);
   const [pasteText, setPasteText] = useState('');
+  const [showInstrPaste, setShowInstrPaste] = useState(false);
+  const [instrPasteText, setInstrPasteText] = useState('');
   const [columnMap, setColumnMap] = useState({});
   const [hasHeader, setHasHeader] = useState(false);
   const [imageProcessing, setImageProcessing] = useState(false);
@@ -288,6 +313,20 @@ export function RecipeForm({ recipe, onSave, onCancel, saveLabel, cancelLabel, h
     setShowPasteBox(false);
   }
 
+  function applyInstrPaste(mode) {
+    const steps = parsePastedInstructions(instrPasteText);
+    if (steps.length === 0) {
+      window.alert('No steps found. Paste one step per row (or a column of steps).');
+      return;
+    }
+    setInstructions(prev => {
+      const existing = mode === 'append' ? prev.split('\n').filter(s => s.trim()) : [];
+      return [...existing, ...steps].join('\n');
+    });
+    setInstrPasteText('');
+    setShowInstrPaste(false);
+  }
+
   function handleSubmit(e) {
     e.preventDefault();
     onSave({
@@ -446,8 +485,14 @@ export function RecipeForm({ recipe, onSave, onCancel, saveLabel, cancelLabel, h
           </thead>
           <tbody>
             {ingredients.map((row, i) => {
+              const autoQuery = row.ingredient.trim();
               const suggestions = activeAutoIdx === i
-                ? ingredientNames.filter(n => n.toLowerCase().includes(row.ingredient.trim().toLowerCase())).slice(0, 8)
+                ? ingredientNames
+                    .filter(n => n.toLowerCase().includes(autoQuery.toLowerCase()))
+                    .map((n, idx) => ({ n, idx, score: ingredientMatchScore(n, autoQuery) }))
+                    .sort((a, b) => a.score - b.score || a.idx - b.idx)
+                    .slice(0, 8)
+                    .map(s => s.n)
                 : [];
               return (
               <tr key={i}>
@@ -697,6 +742,52 @@ export function RecipeForm({ recipe, onSave, onCancel, saveLabel, cancelLabel, h
         );
       })()}
 
+      {showInstrPaste && (() => {
+        const close = () => { setInstrPasteText(''); setShowInstrPaste(false); };
+        const preview = parsePastedInstructions(instrPasteText);
+        return (
+          <div className={styles.pasteOverlay} onClick={close}>
+            <div className={styles.pasteModal} onClick={e => e.stopPropagation()}>
+              <div className={styles.pasteHeader}>
+                <h3 className={styles.pasteTitle}>Import instructions</h3>
+                {preview.length > 0 && (
+                  <span className={styles.pasteFormatBadge}>{preview.length} step{preview.length === 1 ? '' : 's'}</span>
+                )}
+                <button type="button" className={styles.pasteCloseBtn} onClick={close} aria-label="Close">×</button>
+              </div>
+              <div className={styles.pasteBody}>
+                <div className={styles.pasteHint}>
+                  Paste a column of steps from a spreadsheet, or free text with one step per line. A leading step-number column or "1." numbering is stripped automatically.
+                </div>
+                <textarea
+                  className={styles.pasteArea}
+                  value={instrPasteText}
+                  onChange={e => setInstrPasteText(e.target.value)}
+                  placeholder={'Paste here:\n• One step per row from Excel/Sheets\n• Or one step per line'}
+                />
+                {preview.length > 0 && (
+                  <div className={styles.pasteCount}>
+                    Preview: {preview.slice(0, 3).map((s, i) => `${i + 1}. ${s.length > 50 ? s.slice(0, 50) + '…' : s}`).join('  ')}
+                    {preview.length > 3 ? `  … +${preview.length - 3} more` : ''}
+                  </div>
+                )}
+              </div>
+              <div className={styles.pasteFooter}>
+                <button className={styles.pasteAppendBtn} type="button" onClick={() => applyInstrPaste('append')} disabled={preview.length === 0}>
+                  Append steps
+                </button>
+                <button className={styles.pasteReplaceBtn} type="button" onClick={() => applyInstrPaste('replace')} disabled={preview.length === 0}>
+                  Replace existing
+                </button>
+                <button className={styles.pasteCancelBtn} type="button" onClick={close}>
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
       <div style={{ marginBottom: '0.75rem' }}>
         <div style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--color-text-secondary)', textTransform: 'uppercase', letterSpacing: '0.03em', marginBottom: '0.5rem' }}>Instructions</div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
@@ -731,9 +822,14 @@ export function RecipeForm({ recipe, onSave, onCancel, saveLabel, cancelLabel, h
               );
             });
           })()}
-          <button type="button" onClick={() => setInstructions(prev => prev + '\n')} style={{ alignSelf: 'flex-start', background: 'none', border: 'none', color: 'var(--color-accent)', fontSize: '0.82rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', padding: '0.25rem 0' }}>
-            + Add step
-          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+            <button type="button" onClick={() => setInstructions(prev => prev + '\n')} style={{ background: 'none', border: 'none', color: 'var(--color-accent)', fontSize: '0.82rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', padding: '0.25rem 0' }}>
+              + Add step
+            </button>
+            <button type="button" onClick={() => setShowInstrPaste(true)} style={{ background: 'none', border: 'none', color: 'var(--color-accent)', fontSize: '0.82rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', padding: '0.25rem 0' }}>
+              📋 Paste from Sheets/Excel
+            </button>
+          </div>
         </div>
       </div>
 

@@ -15,8 +15,8 @@ const CHART_METRICS = {
   avgReps: { label: 'Avg Reps', field: 'avgReps' },
   totalReps: { label: 'Total Reps', field: 'totalReps' },
   maxReps: { label: 'Max Reps', field: 'maxReps' },
-  weight: { label: 'Weight', field: 'totalWeight' },
-  maxWeight: { label: 'Max Weight', field: 'maxWeight' },
+  weight: { label: 'Weight', field: 'totalWeight', isWeight: true },
+  maxWeight: { label: 'Max Weight', field: 'maxWeight', isWeight: true },
 };
 
 const NUM_CHART_SLOTS = 8;
@@ -58,6 +58,73 @@ function loadGyms() {
 function saveGyms(data, uid) {
   localStorage.setItem(GYMS_KEY, JSON.stringify(data));
   if (uid) saveField(uid, 'gyms', data);
+}
+
+// ── Workout weight unit (lb | kg) ────────────────────────────────────────
+// Weights are ALWAYS stored canonically in pounds (lb); this preference only
+// changes how they're displayed and entered. Synced to the user doc field
+// `workoutWeightUnit` and shared with the mobile app.
+const WEIGHT_UNIT_KEY = 'sunday-workout-weight-unit';
+const LB_PER_KG = 2.2046226218; // 1 kg = 2.2046226218 lb
+
+function loadWeightUnit() {
+  try { return localStorage.getItem(WEIGHT_UNIT_KEY) === 'kg' ? 'kg' : 'lb'; } catch { return 'lb'; }
+}
+
+function saveWeightUnit(unit, uid) {
+  try { localStorage.setItem(WEIGHT_UNIT_KEY, unit); } catch { /* ignore */ }
+  if (uid) saveField(uid, 'workoutWeightUnit', unit);
+}
+
+// Round a number to at most 1 decimal, dropping a trailing .0.
+function roundWeight(n) {
+  const r = Math.round(n * 10) / 10;
+  return r;
+}
+
+// Canonical lb value (number|string) → display number in `unit` (or null when blank/NaN).
+function lbToUnitNum(lb, unit) {
+  const n = typeof lb === 'number' ? lb : parseFloat(lb);
+  if (!isFinite(n)) return null;
+  return unit === 'kg' ? roundWeight(n / LB_PER_KG) : roundWeight(n);
+}
+
+// Canonical lb string → display string for an input value ('' stays '').
+function lbToUnitStr(lbStr, unit) {
+  if (lbStr === '' || lbStr == null) return '';
+  const v = lbToUnitNum(lbStr, unit);
+  return v == null ? '' : String(v);
+}
+
+// User-entered display string (in `unit`) → canonical lb string ('' stays '').
+function unitToLbStr(inputStr, unit) {
+  if (inputStr === '' || inputStr == null) return '';
+  const n = parseFloat(inputStr);
+  if (!isFinite(n)) return '';
+  return unit === 'kg' ? String(Math.round(n * LB_PER_KG * 100) / 100) : String(roundWeight(n));
+}
+
+// Weight input that displays/edits in the active unit while persisting lb.
+// Uses a focus buffer so decimal typing (e.g. "62.5" kg) isn't mangled by the
+// lb round-trip; commits the converted lb value on blur.
+function WeightInput({ valueLb, unit, onCommitLb, className, style, placeholder, title, onClick }) {
+  const [buf, setBuf] = useState(null); // null => not focused, show derived value
+  const shown = buf != null ? buf : lbToUnitStr(valueLb, unit);
+  return (
+    <input
+      className={className}
+      style={style}
+      type="text"
+      inputMode="decimal"
+      value={shown}
+      title={title}
+      placeholder={placeholder != null ? placeholder : unit}
+      onClick={onClick}
+      onFocus={() => setBuf(lbToUnitStr(valueLb, unit))}
+      onChange={e => setBuf(e.target.value)}
+      onBlur={() => { onCommitLb(unitToLbStr(buf ?? '', unit)); setBuf(null); }}
+    />
+  );
 }
 
 const DEFAULT_WORKOUT_TYPES = ['Push', 'Pull', 'Legs', 'Full Body', 'Yoga'];
@@ -2021,7 +2088,7 @@ function GroupExercisePicker({ initialGroup, exercisesForGroup, addExerciseToLib
 // with no workout.
 const CAL_YOGA_RE = /yoga|vinyasa|pilates|mobility|stretch/i;
 const CAL_CARDIO_RE = /cardio|running|\brun\b|jog|cycl|spin|\bbike\b|biking|swim|hiit|elliptical|treadmill|stair|sprint|conditioning|walk|hike/i;
-function workoutCalendarCategory(w, categories) {
+export function workoutCalendarCategory(w, categories) {
   const t = w?.workoutType || '';
   // Explicit, user-chosen category wins. Falls back to keyword guessing for
   // types tagged before categories existed (or imported from elsewhere).
@@ -2032,7 +2099,7 @@ function workoutCalendarCategory(w, categories) {
   return 'weights';
 }
 
-const CAL_ICON = { weights: '🏋️', cardio: '🏃', yoga: '🧘', rest: '😴' };
+export const CAL_ICON = { weights: '🏋️', cardio: '🏃', yoga: '🧘', rest: '😴' };
 const CAL_CATS = [
   { key: 'weights', icon: CAL_ICON.weights, label: 'Weights' },
   { key: 'cardio', icon: CAL_ICON.cardio, label: 'Cardio' },
@@ -2332,6 +2399,16 @@ export function WorkoutPage({ onBack, user }) {
   }, [user?.uid]);
   const [gyms, setGymsState] = useState(loadGyms);
   const [gym, setGym] = useState(() => loadGyms()[0] || '');
+  const [weightUnit, setWeightUnitState] = useState(loadWeightUnit);
+  const setWeightUnit = (unit) => {
+    setWeightUnitState(unit);
+    saveWeightUnit(unit, user?.uid);
+  };
+  useEffect(() => {
+    const refresh = () => setWeightUnitState(loadWeightUnit());
+    window.addEventListener('firestore-sync', refresh);
+    return () => window.removeEventListener('firestore-sync', refresh);
+  }, []);
   const [locationEditorOpen, setLocationEditorOpen] = useState(false);
   const [workoutType, setWorkoutType] = useState('');
   const [entries, setEntries] = useState(() => blankEntries());
@@ -3856,43 +3933,6 @@ export function WorkoutPage({ onBack, user }) {
             )}
           </div>
 
-          {workoutType && lastByType[workoutType] && (() => {
-            const last = lastByType[workoutType];
-            const days = daysSince(last.date);
-            const visibleEntries = (last.entries || []).filter(e => e.exercise);
-            return (
-              <div className={styles.lastWorkoutPreview}>
-                <div className={styles.lastWorkoutPreviewHeader}>
-                  Last {workoutType}: {formatDate(last.date)} · {days}d ago
-                  {last.gym ? ` · ${last.gym}` : ''}
-                </div>
-                {visibleEntries.length === 0 ? (
-                  <div className={styles.lastWorkoutPreviewEmpty}>No exercises were logged.</div>
-                ) : (
-                  <ul className={styles.lastWorkoutPreviewList}>
-                    {visibleEntries.map((e, i) => {
-                      const setsArr = Array.isArray(e.sets) ? e.sets : [];
-                      const repsStr = setsArr
-                        .filter(s => s !== '' && s != null)
-                        .join('/');
-                      const wt = parseFloat(e.weight);
-                      const wtStr = !isNaN(wt) && wt > 0
-                        ? ` @ ${wt}${e.perArm ? '×2' : ''}`
-                        : '';
-                      return (
-                        <li key={i}>
-                          <span className={styles.lastWorkoutExercise}>{e.exercise}</span>
-                          {repsStr && <span className={styles.lastWorkoutSets}> · {repsStr}</span>}
-                          {wtStr && <span className={styles.lastWorkoutSets}>{wtStr}</span>}
-                        </li>
-                      );
-                    })}
-                  </ul>
-                )}
-              </div>
-            );
-          })()}
-
           <input
             ref={logImageFileRef}
             type="file"
@@ -3946,7 +3986,7 @@ export function WorkoutPage({ onBack, user }) {
                   <th className={styles.logSetCol}>S2{renderColResizer('s2')}</th>
                   <th className={styles.logSetCol}>S3{renderColResizer('s3')}</th>
                   <th className={styles.logSetCol}>S4{renderColResizer('s4')}</th>
-                  <th className={styles.logWeightCol}>Weight{renderColResizer('weight')}</th>
+                  <th className={styles.logWeightCol}>Weight ({weightUnit}){renderColResizer('weight')}</th>
                   <th className={styles.logPerCol} title="Weight is per leg/arm (totals double)">Per leg/arm{renderColResizer('per')}</th>
                   <th className={styles.logTotalCol}>Total{renderColResizer('total')}</th>
                   <th className={styles.logRemoveCol}>{renderColResizer('remove')}</th>
@@ -4048,13 +4088,12 @@ export function WorkoutPage({ onBack, user }) {
                               title="Reps (12), seconds (30s), minutes (2m), hours (1h), or m:ss (1:30)"
                             />
                             {entry.useSetWeights && (
-                              <input
+                              <WeightInput
                                 className={`${styles.logCell} ${styles.logSetWeightInput} ${editedCls(`setWeight${si}`)}`}
-                                type="number"
-                                value={(entry.setWeights || [])[si] ?? ''}
-                                onChange={e => updateSetWeight(i, si, e.target.value)}
+                                valueLb={(entry.setWeights || [])[si] ?? ''}
+                                unit={weightUnit}
+                                onCommitLb={v => updateSetWeight(i, si, v)}
                                 onClick={e => e.stopPropagation()}
-                                placeholder="lb"
                                 title={`Set ${si + 1} weight`}
                               />
                             )}
@@ -4073,7 +4112,7 @@ export function WorkoutPage({ onBack, user }) {
                           </button>
                         ) : (
                           <span className={styles.weightCellWrap}>
-                            <input className={`${styles.logCell} ${styles.logWeightInput} ${editedCls('weight')}`} type="number" value={entry.weight} onChange={e => updateEntry(i, 'weight', e.target.value)} placeholder="" />
+                            <WeightInput className={`${styles.logCell} ${styles.logWeightInput} ${editedCls('weight')}`} valueLb={entry.weight} unit={weightUnit} onCommitLb={v => updateEntry(i, 'weight', v)} placeholder="" />
                             <button
                               type="button"
                               className={styles.perSetToggleBtn}
@@ -4086,7 +4125,7 @@ export function WorkoutPage({ onBack, user }) {
                       <td className={`${styles.logPerCell} ${editedCls('perArm')}`}>
                         <input type="checkbox" checked={entry.perArm} onChange={e => updateEntry(i, 'perArm', e.target.checked)} title="Per arm/leg — total doubles the weight" />
                       </td>
-                      <td className={styles.logTotalCell}>{total > 0 ? total : ''}</td>
+                      <td className={styles.logTotalCell}>{total > 0 ? lbToUnitNum(total, weightUnit) : ''}</td>
                       <td className={styles.logRemoveCell}>
                         {entries.length > 1 && (
                           <button className={styles.logRemoveBtn} onClick={() => removeEntry(i)} title="Remove row">×</button>
@@ -4247,12 +4286,12 @@ export function WorkoutPage({ onBack, user }) {
                     <input
                       type="number"
                       className={styles.bulkInput}
-                      placeholder="Weight"
+                      placeholder={`Weight (${weightUnit})`}
                       value={bulkWeightInput}
                       onChange={ev => setBulkWeightInput(ev.target.value)}
                       onKeyDown={ev => {
                         if (ev.key === 'Enter' && bulkWeightInput !== '') {
-                          bulkUpdateField('weight', bulkWeightInput);
+                          bulkUpdateField('weight', unitToLbStr(bulkWeightInput, weightUnit));
                           setBulkWeightInput('');
                         }
                       }}
@@ -4260,7 +4299,7 @@ export function WorkoutPage({ onBack, user }) {
                     <button
                       className={styles.bulkApplyBtn}
                       disabled={bulkWeightInput === ''}
-                      onClick={() => { bulkUpdateField('weight', bulkWeightInput); setBulkWeightInput(''); }}
+                      onClick={() => { bulkUpdateField('weight', unitToLbStr(bulkWeightInput, weightUnit)); setBulkWeightInput(''); }}
                     >Apply weight</button>
                     <input
                       type="text"
@@ -4307,7 +4346,7 @@ export function WorkoutPage({ onBack, user }) {
                       <th className={styles.logSetCol}>S2</th>
                       <th className={styles.logSetCol}>S3</th>
                       <th className={styles.logSetCol}>S4</th>
-                      <th className={styles.logWeightCol}>Weight</th>
+                      <th className={styles.logWeightCol}>Weight ({weightUnit})</th>
                       <th className={styles.logPerCol} title="Per leg/arm">Per leg/arm</th>
                       <th className={styles.logTotalCol}>Total</th>
                       <th className={styles.logRemoveCol}></th>
@@ -4451,12 +4490,11 @@ export function WorkoutPage({ onBack, user }) {
                                   title="Reps (12), seconds (30s), minutes (2m), hours (1h), or m:ss (1:30)"
                                 />
                                 {e.useSetWeights && (
-                                  <input
+                                  <WeightInput
                                     className={`${styles.logCell} ${styles.logSetWeightInput}`}
-                                    type="number"
-                                    value={setWeightVals[si]}
-                                    onChange={ev => updateHistorySetWeight(wk, originalIdx, si, ev.target.value)}
-                                    placeholder="lb"
+                                    valueLb={setWeightVals[si]}
+                                    unit={weightUnit}
+                                    onCommitLb={v => updateHistorySetWeight(wk, originalIdx, si, v)}
                                     title={`Set ${si + 1} weight`}
                                   />
                                 )}
@@ -4475,11 +4513,12 @@ export function WorkoutPage({ onBack, user }) {
                               </button>
                             ) : (
                               <span className={styles.weightCellWrap}>
-                                <input
+                                <WeightInput
                                   className={`${styles.logCell} ${styles.logWeightInput}`}
-                                  type="number"
-                                  value={e.weight ?? ''}
-                                  onChange={ev => updateHistoryField(wk, originalIdx, 'weight', ev.target.value)}
+                                  valueLb={e.weight ?? ''}
+                                  unit={weightUnit}
+                                  onCommitLb={v => updateHistoryField(wk, originalIdx, 'weight', v)}
+                                  placeholder=""
                                 />
                                 <button
                                   type="button"
@@ -4498,7 +4537,7 @@ export function WorkoutPage({ onBack, user }) {
                               title="Per arm/leg — total doubles the weight"
                             />
                           </td>
-                          <td className={styles.logTotalCell}>{total > 0 ? total : ''}</td>
+                          <td className={styles.logTotalCell}>{total > 0 ? lbToUnitNum(total, weightUnit) : ''}</td>
                           <td className={styles.logRemoveCell}>
                             <button
                               className={styles.logRemoveBtn}
@@ -4595,8 +4634,8 @@ export function WorkoutPage({ onBack, user }) {
                       return (
                         <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 6, padding: '0.5rem 0.7rem', fontSize: '0.82rem', boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }}>
                           <div style={{ fontWeight: 700, marginBottom: 2 }}>{formatDate(label)}</div>
-                          <div style={{ color: '#dc2626' }}>{leftMeta.label}: {d[leftMeta.field]}</div>
-                          <div style={{ color: '#3B6B9C' }}>{rightMeta.label}: {d[rightMeta.field]}</div>
+                          <div style={{ color: '#dc2626' }}>{leftMeta.label}{leftMeta.isWeight ? ` (${weightUnit})` : ''}: {leftMeta.isWeight ? lbToUnitNum(d[leftMeta.field], weightUnit) : d[leftMeta.field]}</div>
+                          <div style={{ color: '#3B6B9C' }}>{rightMeta.label}{rightMeta.isWeight ? ` (${weightUnit})` : ''}: {rightMeta.isWeight ? lbToUnitNum(d[rightMeta.field], weightUnit) : d[rightMeta.field]}</div>
                         </div>
                       );
                     }} />
@@ -4608,8 +4647,8 @@ export function WorkoutPage({ onBack, user }) {
               </div>
               <div className={styles.chartCardSummary}>
                 <span className={styles.chartCardSessions}>{data.length} sessions</span>
-                <span style={{ color: '#dc2626' }}>{first[leftMeta.field]}→{last[leftMeta.field]}{ld !== 0 ? ` ${fmtDelta(ld, lPct)}` : ''}</span>
-                <span style={{ color: '#3B6B9C' }}>{first[rightMeta.field]}→{last[rightMeta.field]}{rd !== 0 ? ` ${fmtDelta(rd, rPct)}` : ''}</span>
+                <span style={{ color: '#dc2626' }}>{leftMeta.isWeight ? lbToUnitNum(first[leftMeta.field], weightUnit) : first[leftMeta.field]}→{leftMeta.isWeight ? lbToUnitNum(last[leftMeta.field], weightUnit) : last[leftMeta.field]}{ld !== 0 ? ` ${fmtDelta(leftMeta.isWeight ? lbToUnitNum(ld, weightUnit) : ld, lPct)}` : ''}</span>
+                <span style={{ color: '#3B6B9C' }}>{rightMeta.isWeight ? lbToUnitNum(first[rightMeta.field], weightUnit) : first[rightMeta.field]}→{rightMeta.isWeight ? lbToUnitNum(last[rightMeta.field], weightUnit) : last[rightMeta.field]}{rd !== 0 ? ` ${fmtDelta(rightMeta.isWeight ? lbToUnitNum(rd, weightUnit) : rd, rPct)}` : ''}</span>
               </div>
             </>
           );
@@ -5327,11 +5366,12 @@ export function WorkoutPage({ onBack, user }) {
 
               <div style={{ display: 'flex', alignItems: 'flex-end', gap: 14, marginBottom: 16 }}>
                 <div>
-                  <div style={labelStyle}>Weight (lb)</div>
-                  <input
-                    value={entry.weight || ''}
-                    onChange={e => updateHistoryField(chartEdit.date, idx, 'weight', e.target.value)}
-                    inputMode="decimal"
+                  <div style={labelStyle}>Weight ({weightUnit})</div>
+                  <WeightInput
+                    valueLb={entry.weight || ''}
+                    unit={weightUnit}
+                    onCommitLb={v => updateHistoryField(chartEdit.date, idx, 'weight', v)}
+                    placeholder=""
                     style={{ ...fieldStyle, width: 90, padding: '6px 8px' }}
                   />
                 </div>
