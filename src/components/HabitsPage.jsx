@@ -550,6 +550,32 @@ export function HabitsPage({ onBack, user }) {
     setTab('habits');
   }
 
+  // Red count badges per sub-tab: how many items still need action.
+  //  • Routines / Daily Routine — active habits (not parked, not-yet-started, or
+  //    on autopilot) with no mark yet for their current cadence period.
+  //  • Auto Review — automatic habits not confirmed for the current month.
+  // Tabs with nothing to complete (KPI/Automatic/History/On Hold/Habits) get 0.
+  const tabBadges = useMemo(() => {
+    const isActive = (h) => {
+      const st = (h.status || '').trim();
+      return !PARKED_STATUSES.includes(st) && st !== 'Not Started' && st !== 'Havent Started' && st !== 'Automatically';
+    };
+    const needsMark = (h) => {
+      const bucket = habitLog[periodKey(h.cadence)];
+      return !(bucket && bucket[h.id]);
+    };
+    const currentMonth = periodKey('Monthly');
+    let routines = 0, daily = 0, autoreview = 0;
+    for (const h of habits) {
+      if (isActive(h) && needsMark(h)) {
+        routines++;
+        if (routineType(h.routine) === 'daily') daily++;
+      }
+      if ((h.status || '').trim() === 'Automatically' && (h.autoConfirmedMonth || '') !== currentMonth) autoreview++;
+    }
+    return { routines, daily, autoreview };
+  }, [habits, habitLog]);
+
   if (loading) {
     return (
       <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--color-text-muted)' }}>Loading habits…</div>
@@ -572,28 +598,44 @@ export function HabitsPage({ onBack, user }) {
 
       {/* Sub-tabs */}
       <div style={{ display: 'flex', gap: 4, borderBottom: '1px solid var(--color-border, #e2e8f0)', marginBottom: '1rem' }}>
-        {SUB_TABS.map(t => (
-          <button
-            key={t.id}
-            onClick={() => setTab(t.id)}
-            style={{
-              padding: '0.55rem 1rem', border: 'none', background: 'none', cursor: 'pointer',
-              fontSize: '0.9rem', fontWeight: 600,
-              color: tab === t.id ? ACCENT : 'var(--color-text-muted, #64748b)',
-              borderBottom: tab === t.id ? `2px solid ${ACCENT}` : '2px solid transparent',
-              marginBottom: -1,
-            }}
-          >
-            {t.label}
-          </button>
-        ))}
+        {SUB_TABS.map(t => {
+          const badge = tabBadges[t.id] || 0;
+          return (
+            <button
+              key={t.id}
+              onClick={() => setTab(t.id)}
+              style={{
+                display: 'inline-flex', alignItems: 'center', gap: 6,
+                padding: '0.55rem 1rem', border: 'none', background: 'none', cursor: 'pointer',
+                fontSize: '0.9rem', fontWeight: 600,
+                color: tab === t.id ? ACCENT : 'var(--color-text-muted, #64748b)',
+                borderBottom: tab === t.id ? `2px solid ${ACCENT}` : '2px solid transparent',
+                marginBottom: -1,
+              }}
+            >
+              {t.label}
+              {badge > 0 && (
+                <span
+                  title={`${badge} to complete`}
+                  style={{
+                    display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                    minWidth: 18, height: 18, padding: '0 5px', borderRadius: 999,
+                    background: '#dc2626', color: '#fff', fontSize: '0.68rem', fontWeight: 700, lineHeight: 1,
+                  }}
+                >
+                  {badge}
+                </span>
+              )}
+            </button>
+          );
+        })}
       </div>
 
       {tab === 'kpi' && <KpiView habits={habits} habitLog={habitLog} />}
       {tab === 'routines' && <RoutinesView habits={habits} habitLog={habitLog} habitLogAuto={habitLogAuto} onUpdate={updateHabit} openMenu={(habitId, key, label) => setDayMenu({ habitId, key, label })} onMove={setMoveHabitId} onReorder={reorderHabits} onSetRoutine={setHabitRoutine} onRenameRoutine={renameRoutine} onDeleteRoutine={setDeleteRoutineName} />}
       {tab === 'daily' && <DailyView habits={habits} habitLog={habitLog} habitLogAuto={habitLogAuto} markOf={markOf} onMark={onMark} onReorder={reorderHabits} />}
       {tab === 'automatic' && <AutomaticView habits={habits} automations={automations} habitLog={habitLog} habitLogAuto={habitLogAuto} onChange={persistAutomations} />}
-      {tab === 'autoreview' && <AutoReviewView habits={habits} onUpdate={updateHabit} />}
+      {tab === 'autoreview' && <AutoReviewView habits={habits} onUpdate={updateHabit} onOpen={setOpenHabitId} />}
       {tab === 'onhold' && <OnHoldView habits={habits} onUpdate={updateHabit} />}
       {tab === 'history' && <HistoryView habitLog={habitLog} habits={habits} onImport={mergeHabitLog} openMenu={(habitId, key, label) => setDayMenu({ habitId, key, label })} />}
       {tab === 'habits' && (
@@ -1380,7 +1422,7 @@ function OnHoldView({ habits, onUpdate }) {
 // Confirmation is stored per-habit as `autoConfirmedMonth` = 'YYYY-MM'; when it
 // no longer matches the current month the box shows unchecked (needs a re-check),
 // so every box naturally resets at the start of each month.
-function AutoReviewView({ habits, onUpdate }) {
+function AutoReviewView({ habits, onUpdate, onOpen }) {
   const currentMonth = periodKey('Monthly'); // 'YYYY-MM' in local time
   const monthLabel = new Date().toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
 
@@ -1436,14 +1478,21 @@ function AutoReviewView({ habits, onUpdate }) {
               {list.map(h => {
                 const confirmed = (h.autoConfirmedMonth || '') === currentMonth;
                 return (
-                  <label key={h.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '0.5rem 0.7rem', background: 'var(--color-surface, #fff)', border: `1px solid ${confirmed ? '#bbf7d0' : 'var(--color-border, #e2e8f0)'}`, borderRadius: 8, cursor: 'pointer' }}>
-                    <input type="checkbox" checked={confirmed} onChange={() => toggle(h)} style={{ width: 17, height: 17, cursor: 'pointer', accentColor: ACCENT }} />
-                    <span style={{ flex: 1, fontSize: '0.88rem', fontWeight: 600 }}>{h.name || <em style={{ color: '#aaa' }}>untitled</em>}</span>
+                  <div key={h.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '0.5rem 0.7rem', background: 'var(--color-surface, #fff)', border: `1px solid ${confirmed ? '#bbf7d0' : 'var(--color-border, #e2e8f0)'}`, borderRadius: 8 }}>
+                    <input type="checkbox" checked={confirmed} onChange={() => toggle(h)} title="Confirm still automatic" style={{ width: 17, height: 17, cursor: 'pointer', accentColor: ACCENT, flexShrink: 0 }} />
+                    <button
+                      type="button"
+                      onClick={() => onOpen(h.id)}
+                      title="Edit habit"
+                      style={{ flex: 1, textAlign: 'left', border: 'none', background: 'none', padding: 0, cursor: 'pointer', fontSize: '0.88rem', fontWeight: 600, color: 'inherit', fontFamily: 'inherit' }}
+                    >
+                      {h.name || <em style={{ color: '#aaa' }}>untitled</em>}
+                    </button>
                     {(h.cadence || '').trim() && <span style={cadenceTag}>{h.cadence}</span>}
                     {confirmed
                       ? <span style={{ fontSize: '0.72rem', fontWeight: 600, color: '#16a34a', whiteSpace: 'nowrap' }}>Confirmed</span>
                       : <span style={{ fontSize: '0.72rem', fontWeight: 600, color: '#b45309', whiteSpace: 'nowrap' }}>Needs check</span>}
-                  </label>
+                  </div>
                 );
               })}
             </div>
