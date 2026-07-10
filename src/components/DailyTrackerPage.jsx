@@ -149,7 +149,7 @@ function slimLogForFirestore(log, maxDays) {
   return slim;
 }
 
-function saveDailyLog(log, user) {
+export function saveDailyLog(log, user) {
   // Always save full log to localStorage (no size limit concern)
   try {
     localStorage.setItem(DAILY_LOG_KEY, JSON.stringify(log));
@@ -3416,7 +3416,7 @@ const COMMON_SUPPLEMENTS = [
   { key: '__custom',     label: 'Other / Custom', unit: ''   },
 ];
 
-function DailySupplementsPanel({ date, supplements, onChange }) {
+export function DailySupplementsPanel({ date, supplements, onChange }) {
   function addRow() {
     const id = (typeof crypto !== 'undefined' && crypto.randomUUID)
       ? crypto.randomUUID()
@@ -3774,6 +3774,12 @@ function CookPicker({ date, weeklyPlan, recipes, selected, onCommit }) {
 function WeeklyView({ dailyLog, date, recipes, onDayClick, onMoveEntry, onAddToSlot, onViewRecipe, onRemoveLastEntry, onEditEntry, onSelectDate, mode = 'log', weeklyPlan = [], onSetCookRecipes, onDropCookRecipeInSlot, prepareAnchor, renderDayWorkout, renderDayEvents }) {
   const goals = loadGoals();
   const macroKeys = ['calories', 'protein', 'carbs', 'fat'];
+  // Fruit & vegetable servings get their own rows below Daily macros.
+  const servingKeys = ['vegServings', 'fruitServings'];
+  const SERVING_ROWS = [
+    { key: 'vegServings', label: 'Veg', defGoal: 5 },
+    { key: 'fruitServings', label: 'Fruit', defGoal: 2 },
+  ];
   const [dragOver, setDragOver] = useState(null); // { dateStr, slot }
   const [cookDragOverDate, setCookDragOverDate] = useState(null); // day header drop target
 
@@ -3807,13 +3813,15 @@ function WeeklyView({ dailyLog, date, recipes, onDayClick, onMoveEntry, onAddToS
       bySlot[slot].push({ id: entry.id, entryIndex: ei, name: name || 'Unknown', sourceDate: dateStr, recipeId: entry.recipeId || null, type: entry.type, editable: entry.type === 'custom_meal' || entry.type === 'recipe', clickable: true, nutrition: entry.nutrition || null, entry });
     }
 
-    // Compute totals for macros
+    // Compute totals for macros + fruit/veg servings
     const totals = {};
     for (const key of macroKeys) totals[key] = 0;
+    for (const key of servingKeys) totals[key] = 0;
     if (!daySkipped) {
       for (const entry of entries) {
         if (entry.nutrition) {
           for (const key of macroKeys) totals[key] += entry.nutrition[key] || 0;
+          for (const key of servingKeys) totals[key] += entry.nutrition[key] || 0;
         }
       }
     }
@@ -4177,6 +4185,41 @@ function WeeklyView({ dailyLog, date, recipes, onDayClick, onMoveEntry, onAddToS
           )}
         </div>
       )}
+      {goals && (
+        <div className={styles.weeklyColsWrap} style={{ marginTop: '0.5rem' }}>
+          <div
+            className={styles.weeklyMacroGrid}
+            style={{ gridTemplateColumns: `120px repeat(${days.length}, minmax(0, 1fr))` }}
+          >
+            <div className={styles.weeklyGridSlotLabel}>Fruit &amp; veg</div>
+            {days.map(day => (
+              <div key={day.dateStr} className={`${styles.weeklyMacroCol} ${day.dateStr === date ? styles.weeklyMacroColActive : ''}`}>
+                <div className={styles.weeklyMacroBody}>
+                  {SERVING_ROWS.map(({ key, label, defGoal }) => {
+                    const goal = goals[key] || defGoal;
+                    const val = Math.round((day.totals[key] || 0) * 10) / 10;
+                    const pct = goal > 0 ? Math.round(val / goal * 100) : 0;
+                    // Servings: hitting the goal is good (green), short is red.
+                    const color = pct >= 100 ? 'var(--color-success, #16a34a)' : 'var(--color-danger, #dc2626)';
+                    return day.daySkipped || !day.hasEntries ? (
+                      <React.Fragment key={key}>
+                        <span className={styles.weeklyMacroRowLabel}>{label}</span>
+                        <span className={styles.weeklyMacroRowDash}>—</span>
+                      </React.Fragment>
+                    ) : (
+                      <React.Fragment key={key}>
+                        <span className={styles.weeklyMacroRowLabel}>{label}</span>
+                        <span className={styles.weeklyMacroVal}>{val}/{goal}</span>
+                        <span className={styles.weeklyMacroPct} style={{ color }}>{pct}%</span>
+                      </React.Fragment>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
       {renderDayWorkout && (
         <div className={styles.weeklyColsWrap} style={{ marginTop: '0.5rem' }}>
           <div
@@ -4309,6 +4352,14 @@ function EditEstimateModal({ entry, user, onSave, onClose, getRecipe }) {
   const existingBreakdown = calcBreakdown || entry.ingredientNutrition || entry.ingredientData?.filter(d => d.nutrition && Object.keys(d.nutrition).length > 0) || [];
   const hasBreakdown = existingBreakdown.length > 0;
   const canCalculate = !hasBreakdown && items.length > 0;
+
+  // Fruit & veg servings for this meal — from the stored totals, falling back to
+  // summing the per-ingredient breakdown. Shown even when 0 so the count is explicit.
+  const produceTotal = (key) =>
+    (Number(existingNutrition[key]) || 0) ||
+    existingBreakdown.reduce((s, ing) => s + (Number(ing?.nutrition?.[key]) || 0), 0);
+  const vegServingsTotal = produceTotal('vegServings');
+  const fruitServingsTotal = produceTotal('fruitServings');
 
   async function calculateBreakdown() {
     setCalculating(true);
@@ -4482,6 +4533,14 @@ function EditEstimateModal({ entry, user, onSave, onClose, getRecipe }) {
                   </span>
                 );
               })}
+              <span className={styles.editNutritionChip}>
+                <span className={styles.editNutritionChipVal}>{fmtNutrient(vegServingsTotal, 'vegServings')}</span>
+                <span className={styles.editNutritionChipLabel}>veg servings</span>
+              </span>
+              <span className={styles.editNutritionChip}>
+                <span className={styles.editNutritionChipVal}>{fmtNutrient(fruitServingsTotal, 'fruitServings')}</span>
+                <span className={styles.editNutritionChipLabel}>fruit servings</span>
+              </span>
             </div>
           </div>
         )}
@@ -5534,32 +5593,7 @@ export function DailyTrackerPage({ recipes, getRecipe, onClose, user, weeklyPlan
         <div className={styles.weeklyWithCalRight}>
           <MiniCalendar date={date} setDate={setDate} dailyLog={dailyLog} />
           <button className={styles.todayBtn} onClick={() => setDate(todayStr())} disabled={date === todayStr()}>Today</button>
-          <DailySupplementsPanel
-            date={date}
-            supplements={(() => {
-              // If today's supplements haven't been touched yet (the field is
-              // undefined, not an empty array the user explicitly cleared),
-              // carry forward the most recent prior day's list. The first
-              // edit on this day persists it under `dailyLog[date].supplements`,
-              // which then sticks regardless of what later days do.
-              if (dailyLog[date]?.supplements !== undefined) return dailyLog[date].supplements;
-              const priorDates = Object.keys(dailyLog).filter(d => d < date).sort().reverse();
-              for (const d of priorDates) {
-                const sups = dailyLog[d]?.supplements;
-                if (Array.isArray(sups)) return sups;
-              }
-              return [];
-            })()}
-            onChange={(next) => {
-              setDailyLog(prev => {
-                const all = { ...prev };
-                if (!all[date]) all[date] = { entries: [] };
-                all[date] = { ...all[date], supplements: next };
-                saveDailyLog(all, user);
-                return all;
-              });
-            }}
-          />
+          {/* Daily Supplements panel moved to the Week Plan page. */}
         </div>
         )}
       </div>

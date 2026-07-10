@@ -12,6 +12,7 @@ const SUB_TABS = [
   { id: 'routines', label: 'Routines' },
   { id: 'daily', label: 'Daily Routine' },
   { id: 'automatic', label: 'Automatic' },
+  { id: 'autoreview', label: 'Auto Review' },
   { id: 'history', label: 'History' },
   { id: 'onhold', label: 'On Hold' },
   { id: 'habits', label: 'Habits' },
@@ -592,6 +593,7 @@ export function HabitsPage({ onBack, user }) {
       {tab === 'routines' && <RoutinesView habits={habits} habitLog={habitLog} habitLogAuto={habitLogAuto} onUpdate={updateHabit} openMenu={(habitId, key, label) => setDayMenu({ habitId, key, label })} onMove={setMoveHabitId} onReorder={reorderHabits} onSetRoutine={setHabitRoutine} onRenameRoutine={renameRoutine} onDeleteRoutine={setDeleteRoutineName} />}
       {tab === 'daily' && <DailyView habits={habits} habitLog={habitLog} habitLogAuto={habitLogAuto} markOf={markOf} onMark={onMark} onReorder={reorderHabits} />}
       {tab === 'automatic' && <AutomaticView habits={habits} automations={automations} habitLog={habitLog} habitLogAuto={habitLogAuto} onChange={persistAutomations} />}
+      {tab === 'autoreview' && <AutoReviewView habits={habits} onUpdate={updateHabit} />}
       {tab === 'onhold' && <OnHoldView habits={habits} onUpdate={updateHabit} />}
       {tab === 'history' && <HistoryView habitLog={habitLog} habits={habits} onImport={mergeHabitLog} openMenu={(habitId, key, label) => setDayMenu({ habitId, key, label })} />}
       {tab === 'habits' && (
@@ -1365,6 +1367,86 @@ function OnHoldView({ habits, onUpdate }) {
             {(h.cadence || '').trim() && <span style={cadenceTag}>{h.cadence}</span>}
             <StatusSelect value={h.status} onChange={v => onUpdate(h.id, 'status', v)} />
             <button onClick={() => onUpdate(h.id, 'status', 'Not Started')} style={primaryBtn}>Resume</button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// Monthly "still automatic?" review — the habits you've marked "Automatically"
+// run on autopilot, so they aren't logged day-to-day. This tab prompts you once
+// a month to confirm each is still genuinely automatic, grouped by routine.
+// Confirmation is stored per-habit as `autoConfirmedMonth` = 'YYYY-MM'; when it
+// no longer matches the current month the box shows unchecked (needs a re-check),
+// so every box naturally resets at the start of each month.
+function AutoReviewView({ habits, onUpdate }) {
+  const currentMonth = periodKey('Monthly'); // 'YYYY-MM' in local time
+  const monthLabel = new Date().toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+
+  // Automatic habits grouped by routine, routines in the canonical routine order.
+  const groups = useMemo(() => {
+    const auto = habits.filter(h => (h.status || '').trim() === 'Automatically');
+    const map = new Map();
+    for (const h of auto) {
+      const key = (h.routine || '').trim() || 'Unsorted';
+      if (!map.has(key)) map.set(key, []);
+      map.get(key).push(h);
+    }
+    for (const list of map.values()) list.sort(compareByRoutine);
+    return [...map.entries()].sort((a, b) => {
+      const ra = routineRank(a[0]), rb = routineRank(b[0]);
+      return ra.typeOrder - rb.typeOrder || ra.dailyIdx - rb.dailyIdx || ra.num - rb.num || a[0].localeCompare(b[0]);
+    });
+  }, [habits]);
+
+  const autoCount = groups.reduce((n, [, list]) => n + list.length, 0);
+  const pending = groups.reduce((n, [, list]) => n + list.filter(h => (h.autoConfirmedMonth || '') !== currentMonth).length, 0);
+
+  if (autoCount === 0) {
+    return <p style={{ color: 'var(--color-text-muted)' }}>No automatic habits yet. Set a habit’s status to “Automatically” and it will show up here for a monthly check-in.</p>;
+  }
+
+  function toggle(h) {
+    const confirmed = (h.autoConfirmedMonth || '') === currentMonth;
+    onUpdate(h.id, 'autoConfirmedMonth', confirmed ? '' : currentMonth);
+  }
+
+  return (
+    <div>
+      {/* Prompt banner */}
+      <div style={{ background: ACCENT + '0d', border: `1px solid ${ACCENT}33`, borderRadius: 10, padding: '0.75rem 1rem', marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+        <span style={{ fontSize: '1.05rem' }}>🔁</span>
+        <div style={{ flex: 1, minWidth: 220 }}>
+          <div style={{ fontWeight: 700, fontSize: '0.95rem' }}>Monthly automatic check-in · {monthLabel}</div>
+          <div style={{ fontSize: '0.82rem', color: 'var(--color-text-muted)', lineHeight: 1.45 }}>
+            Once a month, confirm each habit is still running on autopilot by checking its box. The boxes reset at the start of every month.
+          </div>
+        </div>
+        <span style={{ fontSize: '0.72rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.4, color: pending === 0 ? '#166534' : '#b45309', background: pending === 0 ? '#dcfce7' : '#fef3c7', border: `1px solid ${pending === 0 ? '#bbf7d0' : '#fde68a'}`, borderRadius: 999, padding: '3px 10px', whiteSpace: 'nowrap' }}>
+          {pending === 0 ? 'All confirmed ✓' : `${pending} to confirm`}
+        </span>
+      </div>
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '1.4rem' }}>
+        {groups.map(([routine, list]) => (
+          <div key={routine}>
+            <h4 style={{ fontSize: '0.78rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: '#94a3b8', margin: '0 0 0.4rem' }}>{routine}</h4>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {list.map(h => {
+                const confirmed = (h.autoConfirmedMonth || '') === currentMonth;
+                return (
+                  <label key={h.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '0.5rem 0.7rem', background: 'var(--color-surface, #fff)', border: `1px solid ${confirmed ? '#bbf7d0' : 'var(--color-border, #e2e8f0)'}`, borderRadius: 8, cursor: 'pointer' }}>
+                    <input type="checkbox" checked={confirmed} onChange={() => toggle(h)} style={{ width: 17, height: 17, cursor: 'pointer', accentColor: ACCENT }} />
+                    <span style={{ flex: 1, fontSize: '0.88rem', fontWeight: 600 }}>{h.name || <em style={{ color: '#aaa' }}>untitled</em>}</span>
+                    {(h.cadence || '').trim() && <span style={cadenceTag}>{h.cadence}</span>}
+                    {confirmed
+                      ? <span style={{ fontSize: '0.72rem', fontWeight: 600, color: '#16a34a', whiteSpace: 'nowrap' }}>Confirmed</span>
+                      : <span style={{ fontSize: '0.72rem', fontWeight: 600, color: '#b45309', whiteSpace: 'nowrap' }}>Needs check</span>}
+                  </label>
+                );
+              })}
+            </div>
           </div>
         ))}
       </div>

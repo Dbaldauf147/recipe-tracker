@@ -559,7 +559,7 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
 
   const [navVersion, setNavVersion] = useState(0);
 
-  const { showNutrition, showTrackMeals, showWeightTab, showRotateHealthy } = useMemo(() => {
+  const { showNutrition, showWeightTab, showRotateHealthy } = useMemo(() => {
     try {
       const focus = JSON.parse(localStorage.getItem('sunday-user-focus') || '[]');
       const nutritionEnabled = !Array.isArray(focus) || focus.length === 0 || focus.includes('nutrition');
@@ -599,7 +599,7 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
     { label: 'Recipes', id: 'weekly-menu', icon: 'restaurant_menu' },
     ...(showNutrition ? [{ label: 'Nutrition', icon: 'clinical_notes', submenu: [
       { label: 'Goals', action: 'nutrition-goals' },
-      ...(showTrackMeals ? [{ label: 'Track Meals', action: 'daily-tracker' }] : []),
+      // Track Meals page hidden (its Daily Supplements panel moved to Week Plan).
       { label: 'Design a Meal', action: 'design-meal' },
       ...(showWeightTab ? [{ label: 'Weight', action: 'weight-tracker' }] : []),
       ...(showRotateHealthy ? [{ label: 'Healthy Foods', action: 'key-ingredients' }] : []),
@@ -1189,7 +1189,7 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
 
       {modalView && (
         <div className={styles.importModalOverlay} onClick={() => setModalView(null)}>
-          <div className={(modalView === 'nutrition-goals' || modalView === 'key-ingredients') ? styles.importModalContentWide : styles.importModalContent} onClick={e => e.stopPropagation()}>
+          <div className={(modalView === 'nutrition-goals' || modalView === 'key-ingredients' || modalView === 'setup') ? styles.importModalContentWide : styles.importModalContent} onClick={e => e.stopPropagation()}>
             <button className={styles.importModalClose} onClick={() => setModalView(null)}>&times;</button>
             {modalView === 'nutrition-goals' ? (() => {
               let savedGoals = {};

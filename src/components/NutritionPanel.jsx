@@ -572,7 +572,9 @@ export function NutritionPanel({ recipeId, ingredients, servings = 1, portionLab
             <NutrientGroup title="Sugars & Fiber" keys={SUGARS_FIBER} totals={totals} perServing={perServing} showPerServing={ps} selectedGoals={selectedGoals} />
             <NutrientGroup title="Minerals" keys={MINERALS} totals={totals} perServing={perServing} showPerServing={ps} selectedGoals={selectedGoals} />
             <NutrientGroup title="Vitamins & Aminos" keys={VITAMINS_AMINOS} totals={totals} perServing={perServing} showPerServing={ps} selectedGoals={selectedGoals} />
-            <NutrientGroup title="Other" keys={OTHER} totals={totals} perServing={perServing} showPerServing={ps} selectedGoals={selectedGoals} />
+            {/* Always show fruit & veg servings for a meal, regardless of which
+                nutrition goals the user tracks (selectedGoals={null}). */}
+            <NutrientGroup title="Fruit & Veg" keys={OTHER} totals={totals} perServing={perServing} showPerServing={ps} selectedGoals={null} />
           </>;
         })()}
       </div>

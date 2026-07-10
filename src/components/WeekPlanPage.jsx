@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
-import { RecipeCombobox, DailyTrackerPage, MealsTrackedChart, HistoryChart, ServingsChart, KpiAlerts } from './DailyTrackerPage';
+import { RecipeCombobox, DailyTrackerPage, MealsTrackedChart, HistoryChart, ServingsChart, KpiAlerts, DailySupplementsPanel, saveDailyLog } from './DailyTrackerPage';
 import { workoutCalendarCategory, CAL_ICON } from './WorkoutPage';
 import { loadField } from '../utils/firestoreSync';
 import {
@@ -373,7 +373,13 @@ export function WeekPlanPage({ recipes, getRecipe, user, weeklyPlan = [], weekly
       );
     }
     const idx = sundayIndexOf(dateStr);
-    const cell = resolvedWorkoutPlan[idx] || { value: 'rest', isAuto: true };
+    let cell = resolvedWorkoutPlan[idx] || { value: 'rest', isAuto: true };
+    // A past day with no recorded workout + an auto (non-manual) plan means the
+    // suggested workout never actually happened — show it as a Rest day instead
+    // of a misleading "Cardio · auto". Manual plans are left as the user set them.
+    if (dateStr < isoDate(new Date()) && cell.isAuto && cell.value !== 'rest') {
+      cell = { value: 'rest', isAuto: true };
+    }
     const isRest = cell.value === 'rest';
     const iconCat = isRest ? 'rest' : (typeCategories[cell.value] || 'weights');
     return (
@@ -420,6 +426,29 @@ export function WeekPlanPage({ recipes, getRecipe, user, weeklyPlan = [], weekly
     () => Array.from({ length: 7 }, (_, i) => isoDate(addDays(weekStart, i))),
     [weekStart]
   );
+
+  // Daily Supplements (moved here from the Track Meals page) — always today's
+  // list. If today hasn't been touched yet, carry forward the most recent prior
+  // day's supplements (the first edit persists under dailyLog[today].supplements).
+  const todaySupplements = useMemo(() => {
+    if (dailyLog[todayKey]?.supplements !== undefined) return dailyLog[todayKey].supplements;
+    const priorDates = Object.keys(dailyLog).filter(d => d < todayKey).sort().reverse();
+    for (const d of priorDates) {
+      const sups = dailyLog[d]?.supplements;
+      if (Array.isArray(sups)) return sups;
+    }
+    return [];
+  }, [dailyLog, todayKey]);
+
+  const handleSupplementsChange = useCallback((next) => {
+    setDailyLog(prev => {
+      const all = { ...prev };
+      if (!all[todayKey]) all[todayKey] = { entries: [] };
+      all[todayKey] = { ...all[todayKey], supplements: next };
+      saveDailyLog(all, user);
+      return all;
+    });
+  }, [todayKey, user]);
 
   // ── Google Calendar ("Plans") ──
   const [calConnected, setCalConnected] = useState(() => hasGoogleToken());
@@ -779,6 +808,11 @@ export function WeekPlanPage({ recipes, getRecipe, user, weeklyPlan = [], weekly
             })}
           </div>
         </div>
+        <DailySupplementsPanel
+          date={todayKey}
+          supplements={todaySupplements}
+          onChange={handleSupplementsChange}
+        />
       </aside>
       </div>
 
