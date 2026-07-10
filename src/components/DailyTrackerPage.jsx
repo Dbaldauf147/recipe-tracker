@@ -4345,9 +4345,13 @@ function EditEstimateModal({ entry, user, onSave, onClose, getRecipe }) {
   const [calcBreakdown, setCalcBreakdown] = useState(null);
   const [calcNutrition, setCalcNutrition] = useState(null);
   const [calculating, setCalculating] = useState(false);
+  // Per-ingredient breakdown subtab: macros vs. fruit & veg servings.
+  const [breakdownMode, setBreakdownMode] = useState('nutrition');
 
   // Nutrition display keys
   const displayKeys = ['calories', 'protein', 'carbs', 'fat'];
+  // Columns for the per-ingredient breakdown, per the active subtab.
+  const breakdownKeys = breakdownMode === 'produce' ? ['vegServings', 'fruitServings'] : displayKeys;
   const existingNutrition = calcNutrition || entry.nutrition || {};
   const existingBreakdown = calcBreakdown || entry.ingredientNutrition || entry.ingredientData?.filter(d => d.nutrition && Object.keys(d.nutrition).length > 0) || [];
   const hasBreakdown = existingBreakdown.length > 0;
@@ -4576,7 +4580,7 @@ function EditEstimateModal({ entry, user, onSave, onClose, getRecipe }) {
               <div key={`${keyPrefix}-${i}`} className={styles.editIngBreakdownRow}>
                 <span className={styles.editIngBreakdownName}>{ingName}</span>
                 <div className={styles.editIngBreakdownMacros}>
-                  {displayKeys.map(key => (
+                  {breakdownKeys.map(key => (
                     <span key={key} className={styles.editIngBreakdownMacro}>
                       {fmtNutrient(ingN[key], key)}
                     </span>
@@ -4589,10 +4593,29 @@ function EditEstimateModal({ entry, user, onSave, onClose, getRecipe }) {
           return (
             <div className={styles.editIngBreakdown}>
               <span className={styles.editIngBreakdownTitle}>Per Ingredient</span>
+              {/* Subtab: per-ingredient macros vs. fruit & veg servings. */}
+              <div style={{ display: 'inline-flex', gap: 2, background: '#f1f5f9', borderRadius: 8, padding: 2, margin: '0.25rem 0 0.4rem' }}>
+                {[['nutrition', 'Nutrition'], ['produce', 'Fruit & Veg']].map(([m, label]) => (
+                  <button
+                    key={m}
+                    type="button"
+                    onClick={() => setBreakdownMode(m)}
+                    style={{
+                      cursor: 'pointer', border: 'none', borderRadius: 6, padding: '0.25rem 0.6rem',
+                      fontSize: '0.72rem', fontWeight: 600, fontFamily: 'inherit',
+                      background: breakdownMode === m ? '#fff' : 'transparent',
+                      color: breakdownMode === m ? '#111' : '#64748b',
+                      boxShadow: breakdownMode === m ? '0 1px 2px rgba(0,0,0,0.1)' : 'none',
+                    }}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
               <div className={styles.editIngBreakdownHeader}>
                 <span style={{ flex: 1 }}></span>
                 <div className={styles.editIngBreakdownMacros}>
-                  {displayKeys.map(key => (
+                  {breakdownKeys.map(key => (
                     <span key={key} className={styles.editIngBreakdownHeaderLabel}>{SHORT_LABELS[key]}</span>
                   ))}
                 </div>
@@ -4608,7 +4631,7 @@ function EditEstimateModal({ entry, user, onSave, onClose, getRecipe }) {
               <div className={styles.editIngBreakdownRow} style={{ borderTop: '1px solid var(--color-border)', paddingTop: '0.3rem', marginTop: '0.2rem' }}>
                 <span className={styles.editIngBreakdownName} style={{ fontWeight: 600 }}>Total</span>
                 <div className={styles.editIngBreakdownMacros}>
-                  {displayKeys.map(key => (
+                  {breakdownKeys.map(key => (
                     <span key={key} className={styles.editIngBreakdownMacro} style={{ fontWeight: 700 }}>
                       {fmtNutrient(existingNutrition[key], key)}
                     </span>

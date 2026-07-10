@@ -302,7 +302,11 @@ function saveCachedNutrition(recipeId, data, fingerprint) {
 const BREAKDOWN_STORAGE_KEY = 'sunday-breakdown-columns';
 const DEFAULT_BREAKDOWN_COLS = ['calories', 'protein', 'carbs', 'fat', 'fiber'];
 
+// Fixed fruit & veg columns for the "Fruit & Veg" per-ingredient subtab.
+const PRODUCE_KEYS = ['vegServings', 'fruitServings'];
+
 function IngredientBreakdown({ items, totals }) {
+  const [mode, setMode] = useState('nutrition'); // 'nutrition' | 'produce'
   const [selectedCols, setSelectedCols] = useState(() => {
     try {
       const saved = localStorage.getItem(BREAKDOWN_STORAGE_KEY);
@@ -319,11 +323,29 @@ function IngredientBreakdown({ items, totals }) {
     });
   }
 
-  const visibleNutrients = NUTRIENTS.filter(n => selectedCols.includes(n.key));
+  const visibleNutrients = mode === 'produce'
+    ? NUTRIENTS.filter(n => PRODUCE_KEYS.includes(n.key))
+    : NUTRIENTS.filter(n => selectedCols.includes(n.key));
 
   return (
     <details className={styles.details}>
       <summary>Per-ingredient breakdown</summary>
+      {/* Subtab: nutrition columns vs. per-ingredient fruit & veg servings. */}
+      <div className={styles.servingsToggle}>
+        <button
+          className={`${styles.toggleBtn} ${mode === 'nutrition' ? styles.toggleActive : ''}`}
+          onClick={() => setMode('nutrition')}
+        >
+          Nutrition
+        </button>
+        <button
+          className={`${styles.toggleBtn} ${mode === 'produce' ? styles.toggleActive : ''}`}
+          onClick={() => setMode('produce')}
+        >
+          Fruit &amp; Veg
+        </button>
+      </div>
+      {mode === 'nutrition' && (
       <div className={styles.breakdownControls}>
         <button className={styles.colPickerBtn} onClick={() => setShowPicker(p => !p)}>
           {showPicker ? 'Done' : 'Choose columns'}
@@ -339,6 +361,7 @@ function IngredientBreakdown({ items, totals }) {
           </div>
         )}
       </div>
+      )}
       <div className={styles.tableWrap}>
         <table className={styles.table}>
           <thead>
