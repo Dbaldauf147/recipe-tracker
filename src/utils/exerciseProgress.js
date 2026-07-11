@@ -104,7 +104,7 @@ function analyzeExercise(name, group, history) {
   if (best <= 0) return null; // nothing measurable (e.g. all-empty sets)
   const last = series[n - 1].value;
 
-  const baseResult = { name, group, metric, sessions: n, series, best, last };
+  const baseResult = { name, group, metric, sessions: n, series, best, last, lastDate: dates[n - 1] };
 
   if (n < MIN_SESSIONS) {
     return { ...baseResult, status: 'nobaseline', baseline: null, recent: last, delta: null, deltaPct: null, volDeltaPct: null, declining: false };

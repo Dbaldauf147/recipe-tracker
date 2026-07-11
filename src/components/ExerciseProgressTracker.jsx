@@ -20,6 +20,14 @@ const STATUS_META = {
 };
 const ORDER = ['progressing', 'decreasing', 'stagnating', 'nobaseline'];
 
+// 'YYYY-MM-DD' → "Jul 9" (parsed as a local date to avoid TZ drift).
+function fmtDate(dateStr) {
+  if (!dateStr) return '—';
+  const [y, m, d] = dateStr.split('-').map(Number);
+  if (!y || !m || !d) return '—';
+  return new Date(y, m - 1, d).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
+
 // Format a metric value in the right units (weight / reps / hold time).
 function fmtValue(metric, val, unit) {
   if (val == null) return '—';
@@ -81,6 +89,7 @@ function ExerciseRow({ r, unit, onHide }) {
         {r.group && <span className={styles.exGroup}>{r.group}</span>}
       </td>
       <td className={styles.num}>{r.sessions}</td>
+      <td className={styles.num}>{fmtDate(r.lastDate)}</td>
       <td className={styles.num}>{fmtValue(r.metric, r.baseline ?? r.last, unit)}</td>
       <td className={`${styles.num} ${styles.strong}`}>{fmtValue(r.metric, r.recent, unit)}</td>
       <td className={styles.num}><DeltaCell r={r} unit={unit} /></td>
@@ -112,6 +121,7 @@ function StatusSection({ status, rows, unit, onHide }) {
             <tr>
               <th>Exercise</th>
               <th className={styles.num}>Sessions</th>
+              <th className={styles.num}>Last</th>
               <th className={styles.num}>{baselineCol}</th>
               <th className={styles.num}>{recentCol}</th>
               <th className={styles.num}>Δ vs baseline</th>
@@ -128,6 +138,7 @@ function StatusSection({ status, rows, unit, onHide }) {
                     {r.group && <span className={styles.exGroup}>{r.group}</span>}
                   </td>
                   <td className={styles.num}>{r.sessions}</td>
+                  <td className={styles.num}>{fmtDate(r.lastDate)}</td>
                   <td className={styles.num}>{fmtValue(r.metric, r.last, unit)}</td>
                   <td className={styles.num}>{fmtValue(r.metric, r.best, unit)}</td>
                   <td className={`${styles.num} ${styles.dim}`}>{MIN_SESSIONS - r.sessions} more</td>
