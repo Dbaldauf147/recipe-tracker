@@ -2563,6 +2563,7 @@ export function WorkoutPage({ onBack, user }) {
   const [selectedRows, setSelectedRows] = useState(() => new Set());
   const [bulkWeightInput, setBulkWeightInput] = useState('');
   const [bulkNotesInput, setBulkNotesInput] = useState('');
+  const [bulkRenameInput, setBulkRenameInput] = useState('');
   const [chartSlots, setChartSlots] = useState(() => {
     try {
       const saved = JSON.parse(localStorage.getItem('sunday-chart-slots') || 'null');
@@ -3289,6 +3290,69 @@ export function WorkoutPage({ onBack, user }) {
       return { ...w, entries };
     });
     commitWorkouts(next);
+  }
+  // Rename the exercise(s) in the selected rows to `newNameRaw` EVERYWHERE:
+  // every logged workout entry with that name (not just the selected rows), the
+  // exercise library, and the customExercises mirror (deduping any collision the
+  // rename creates). Multiple distinct selected exercises all collapse to the
+  // new name (a merge).
+  function bulkRenameExercise(newNameRaw) {
+    const newName = (newNameRaw || '').trim();
+    if (!newName || selectedRows.size === 0) return;
+    const byKey = selectionByKey();
+    const oldSet = new Set();
+    for (const w of workouts) {
+      const idxSet = byKey.get(workoutKey(w));
+      if (!idxSet) continue;
+      w.entries.forEach((e, i) => { if (idxSet.has(i) && e.exercise) oldSet.add(e.exercise.trim().toLowerCase()); });
+    }
+    oldSet.delete(newName.toLowerCase()); // renaming to the same name is a no-op
+    if (oldSet.size === 0) { setBulkRenameInput(''); clearSelectedRows(); return; }
+
+    const n = oldSet.size;
+    if (!window.confirm(`Rename ${n === 1 ? 'this exercise' : `these ${n} exercises`} to "${newName}" everywhere — in all logged workouts and your exercise library? This can't be undone.`)) return;
+
+    // 1) Every matching workout entry across ALL workouts.
+    const nextWorkouts = workouts.map(w => {
+      let changed = false;
+      const entries = w.entries.map(e => {
+        if (e.exercise && oldSet.has(e.exercise.trim().toLowerCase())) { changed = true; return enrichEntry({ ...e, exercise: newName }); }
+        return e;
+      });
+      return changed ? { ...w, entries } : w;
+    });
+    commitWorkouts(nextWorkouts);
+
+    // 2) Exercise library — rename, dropping any duplicate the rename produces.
+    const libSeen = new Set();
+    const nextLib = [];
+    for (const it of (exerciseLibrary || [])) {
+      const name = (it?.exercise || '').trim();
+      const renamed = name && oldSet.has(name.toLowerCase()) ? { ...it, exercise: newName } : it;
+      const k = (renamed.exercise || '').trim().toLowerCase();
+      if (k && libSeen.has(k)) continue;
+      if (k) libSeen.add(k);
+      nextLib.push(renamed);
+    }
+    setExerciseLibrary(nextLib);
+    saveLibrary(nextLib, user?.uid);
+
+    // 3) customExercises mirror (mobile picker reads this) — same rename + dedupe.
+    const custSeen = new Set();
+    const nextCustom = [];
+    for (const c of (customExercises || [])) {
+      const name = (c?.name || '').trim();
+      const renamed = name && oldSet.has(name.toLowerCase()) ? { ...c, name: newName } : c;
+      const k = (renamed.name || '').trim().toLowerCase();
+      if (k && custSeen.has(k)) continue;
+      if (k) custSeen.add(k);
+      nextCustom.push(renamed);
+    }
+    setCustomExercises(nextCustom);
+    if (user?.uid) saveField(user.uid, 'customExercises', nextCustom).catch(() => {});
+
+    setBulkRenameInput('');
+    clearSelectedRows();
   }
   function bulkSetGym(newGym) {
     if (!newGym || selectedRows.size === 0) return;
@@ -4301,6 +4365,21 @@ export function WorkoutPage({ onBack, user }) {
                           .map(ex => <option key={ex} value={ex}>{ex}</option>);
                       })()}
                     </select>
+                    <input
+                      type="text"
+                      className={styles.bulkInput}
+                      placeholder="Rename exercise to…"
+                      value={bulkRenameInput}
+                      onChange={ev => setBulkRenameInput(ev.target.value)}
+                      onKeyDown={ev => { if (ev.key === 'Enter' && bulkRenameInput.trim()) bulkRenameExercise(bulkRenameInput); }}
+                      title="Rename the selected exercise everywhere: all logged workouts + your exercise library"
+                    />
+                    <button
+                      className={styles.bulkApplyBtn}
+                      disabled={!bulkRenameInput.trim()}
+                      onClick={() => bulkRenameExercise(bulkRenameInput)}
+                      title="Rename everywhere"
+                    >Rename</button>
                     <select
                       className={styles.bulkSelect}
                       value=""
