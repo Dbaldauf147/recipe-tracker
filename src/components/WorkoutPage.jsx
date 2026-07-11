@@ -9,6 +9,7 @@ import { parseSetValue, formatSeconds, computeSetStats } from '../utils/setValue
 import { ExerciseLibrary, effectiveMuscleGroup } from './ExerciseLibrary';
 import { BodyHeatmap } from './BodyHeatmap';
 import { ExerciseDemo } from './ExerciseDemo';
+import ExerciseProgressTracker from './ExerciseProgressTracker';
 import styles from './WorkoutPage.module.css';
 
 const CHART_METRICS = {
@@ -3672,12 +3673,13 @@ export function WorkoutPage({ onBack, user }) {
       </div>
 
       <div className={styles.tabs}>
-        {['log', 'calendar', 'history', 'charts', 'body', 'exercises', 'steps', 'sleep', 'stats'].map(tab => (
+        {['log', 'calendar', 'history', 'charts', 'progress', 'body', 'exercises', 'steps', 'sleep', 'stats'].map(tab => (
           <button key={tab} className={`${styles.tab} ${viewMode === tab ? styles.tabActive : ''}`} onClick={() => setViewMode(tab)}>
             {tab === 'log' ? 'Log Workout'
               : tab === 'history' ? 'History'
               : tab === 'calendar' ? 'Calendar'
               : tab === 'charts' ? 'Charts'
+              : tab === 'progress' ? 'Progress'
               : tab === 'body' ? 'Body Map'
               : tab === 'exercises' ? 'Exercises'
               : tab === 'steps' ? 'Steps'
@@ -4928,6 +4930,10 @@ export function WorkoutPage({ onBack, user }) {
 
       {viewMode === 'sleep' && (
         <SleepTab user={user} />
+      )}
+
+      {viewMode === 'progress' && (
+        <ExerciseProgressTracker workouts={workouts} weightUnit={weightUnit} exerciseLibrary={exerciseLibrary} />
       )}
 
       {viewMode === 'stats' && (
