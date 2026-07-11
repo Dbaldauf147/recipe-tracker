@@ -68,6 +68,19 @@ function entrySample(entry) {
   return { bestE1rm, volume, maxReps, maxSeconds, hasWeight };
 }
 
+// Whether an entry has at least one COMPLETED ("green") set — a set the user
+// checked off (setDone[i]) that also holds a rep/time value. This is what marks
+// an exercise as actually performed vs. merely logged/planned.
+function entryHasGreen(entry) {
+  const done = Array.isArray(entry.setDone) ? entry.setDone : null;
+  if (!done) return false;
+  const sets = Array.isArray(entry.sets) ? entry.sets : [];
+  for (let i = 0; i < done.length; i++) {
+    if (done[i] && parseSetValue(sets[i]).kind !== 'empty') return true;
+  }
+  return false;
+}
+
 const mean = (arr) => arr.reduce((s, x) => s + x, 0) / arr.length;
 
 // Analyze one exercise's history (entries carry a `.date`). Returns a result
@@ -75,9 +88,13 @@ const mean = (arr) => arr.reduce((s, x) => s + x, 0) / arr.length;
 function analyzeExercise(name, group, history) {
   const cutoff = cutoffKey(WINDOW_DAYS);
   // One combined sample per date (a date can hold multiple logged entries).
+  // `greenDates` tracks days with a completed (green) set — those are the only
+  // ones that count as the exercise "recently happening".
   const byDate = new Map();
+  const greenDates = new Set();
   for (const e of history) {
     if (!e.date || e.date < cutoff) continue;
+    if (entryHasGreen(e)) greenDates.add(e.date);
     const s = entrySample(e);
     const prev = byDate.get(e.date);
     byDate.set(e.date, prev ? {
@@ -103,8 +120,11 @@ function analyzeExercise(name, group, history) {
   const best = Math.max(...series.map(p => p.value));
   if (best <= 0) return null; // nothing measurable (e.g. all-empty sets)
   const last = series[n - 1].value;
+  // "Recently happening" only counts days with a completed (green) set; null if
+  // the exercise has been logged but never marked done in the window.
+  const lastDate = greenDates.size ? [...greenDates].sort().pop() : null;
 
-  const baseResult = { name, group, metric, sessions: n, series, best, last, lastDate: dates[n - 1] };
+  const baseResult = { name, group, metric, sessions: n, series, best, last, lastDate };
 
   if (n < MIN_SESSIONS) {
     return { ...baseResult, status: 'nobaseline', baseline: null, recent: last, delta: null, deltaPct: null, volDeltaPct: null, declining: false };
