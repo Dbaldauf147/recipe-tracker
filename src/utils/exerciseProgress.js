@@ -128,8 +128,11 @@ function analyzeExercise(name, group, history) {
   const improved = (deltaPct != null && deltaPct >= PROGRESS_PCT)
     || (volDeltaPct != null && volDeltaPct >= VOLUME_PCT);
   const declining = deltaPct != null && deltaPct <= -PROGRESS_PCT;
+  // Progressing (added stimulus) > Decreasing (1RM clearly down, no volume
+  // rescue) > Stagnating (flat, neither up nor down enough to matter).
+  const status = improved ? 'progressing' : declining ? 'decreasing' : 'stagnating';
 
-  return { ...baseResult, status: improved ? 'progressing' : 'stagnating', baseline, recent, delta, deltaPct, volDeltaPct, declining };
+  return { ...baseResult, status, baseline, recent, delta, deltaPct, volDeltaPct, declining };
 }
 
 // workouts: array of { date, entries:[{ exercise, group, sets, weight, ... }] }.
@@ -146,14 +149,15 @@ export function analyzeProgress(workouts, groupByName) {
       byName[key].entries.push({ ...e, date: w.date });
     }
   }
-  const groups = { progressing: [], stagnating: [], nobaseline: [] };
+  const groups = { progressing: [], decreasing: [], stagnating: [], nobaseline: [] };
   for (const key of Object.keys(byName)) {
     const g = (groupByName && groupByName.get(key)) || byName[key].group || '';
     const r = analyzeExercise(byName[key].name, g, byName[key].entries);
     if (r) groups[r.status].push(r);
   }
-  groups.progressing.sort((a, b) => (b.deltaPct || 0) - (a.deltaPct || 0));
-  groups.stagnating.sort((a, b) => (a.deltaPct || 0) - (b.deltaPct || 0)); // worst first
+  groups.progressing.sort((a, b) => (b.deltaPct || 0) - (a.deltaPct || 0)); // best gain first
+  groups.decreasing.sort((a, b) => (a.deltaPct || 0) - (b.deltaPct || 0));  // steepest drop first
+  groups.stagnating.sort((a, b) => (a.deltaPct || 0) - (b.deltaPct || 0));
   groups.nobaseline.sort((a, b) => b.sessions - a.sessions || a.name.localeCompare(b.name));
   return groups;
 }

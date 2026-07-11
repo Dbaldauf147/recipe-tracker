@@ -4933,7 +4933,7 @@ export function WorkoutPage({ onBack, user }) {
       )}
 
       {viewMode === 'progress' && (
-        <ExerciseProgressTracker workouts={workouts} weightUnit={weightUnit} exerciseLibrary={exerciseLibrary} />
+        <ExerciseProgressTracker workouts={workouts} weightUnit={weightUnit} exerciseLibrary={exerciseLibrary} user={user} />
       )}
 
       {viewMode === 'stats' && (

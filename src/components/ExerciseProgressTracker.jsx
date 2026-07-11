@@ -1,19 +1,24 @@
 // "Progress" subtab of the Workout page. Classifies every exercise logged in the
-// last 2 months as Progressing / Stagnating / No-Baseline and lays them out in
-// status-grouped cards (mirroring the Normal Range Tracker visual): a chips
-// summary up top, then a table per status with baseline → recent, Δ, and a
-// trend sparkline. Analysis lives in utils/exerciseProgress.js.
-import React, { useMemo } from 'react';
+// last 2 months as Progressing / Decreasing / Stagnating / No-Baseline and lays
+// them out in status-grouped cards (mirroring the Normal Range Tracker visual):
+// a chips summary up top (each chip has an ✕ to hide it from the page), then a
+// table per status with baseline → recent, Δ, and a trend sparkline. Analysis
+// lives in utils/exerciseProgress.js.
+import React, { useMemo, useState, useEffect, useCallback } from 'react';
 import styles from './ExerciseProgressTracker.module.css';
 import { analyzeProgress, displayWeight, WINDOW_DAYS, MIN_SESSIONS } from '../utils/exerciseProgress';
 import { formatSeconds } from '../utils/setValue';
+import { saveField, loadField } from '../utils/firestoreSync';
+
+const HIDDEN_KEY = 'sunday-progress-hidden';
 
 const STATUS_META = {
   progressing: { label: 'Progressing', icon: '📈', color: '#16a34a', blurb: 'Adding weight, reps, or volume' },
-  stagnating: { label: 'Stagnating', icon: '➖', color: '#d97706', blurb: "1RM flat or down — no added stimulus" },
+  decreasing: { label: 'Decreasing', icon: '📉', color: '#dc2626', blurb: 'Estimated 1RM trending down' },
+  stagnating: { label: 'Stagnating', icon: '➖', color: '#d97706', blurb: '1RM holding flat — no added stimulus' },
   nobaseline: { label: 'No Baseline', icon: '○', color: '#64748b', blurb: `Fewer than ${MIN_SESSIONS} sessions in the window` },
 };
-const ORDER = ['progressing', 'stagnating', 'nobaseline'];
+const ORDER = ['progressing', 'decreasing', 'stagnating', 'nobaseline'];
 
 // Format a metric value in the right units (weight / reps / hold time).
 function fmtValue(metric, val, unit) {
@@ -23,7 +28,7 @@ function fmtValue(metric, val, unit) {
   return formatSeconds(Math.round(val));
 }
 
-// Signed delta cell, e.g. "+12.5 lb (+6%)". `declining` picks the red tone.
+// Signed delta cell, e.g. "+12.5 lb (+6%)", colored by the exercise's status.
 function DeltaCell({ r, unit }) {
   if (r.delta == null || r.deltaPct == null) return <span className={styles.dim}>—</span>;
   const up = r.delta >= 0;
@@ -35,8 +40,9 @@ function DeltaCell({ r, unit }) {
       ? `${Math.round(mag)} reps`
       : formatSeconds(Math.round(mag));
   const pct = `${up ? '+' : '−'}${Math.abs(Math.round(r.deltaPct * 100))}%`;
-  const cls = up && r.status === 'progressing' ? styles.deltaUp
-    : r.declining ? styles.deltaDown : styles.deltaFlat;
+  const cls = r.status === 'progressing' ? styles.deltaUp
+    : r.status === 'decreasing' ? styles.deltaDown
+      : styles.deltaFlat;
   return <span className={cls}>{sign}{amount} ({pct})</span>;
 }
 
@@ -66,7 +72,7 @@ function Sparkline({ series, baseline, color }) {
   );
 }
 
-function ExerciseRow({ r, unit }) {
+function ExerciseRow({ r, unit, onHide }) {
   const color = STATUS_META[r.status].color;
   return (
     <tr>
@@ -79,11 +85,14 @@ function ExerciseRow({ r, unit }) {
       <td className={`${styles.num} ${styles.strong}`}>{fmtValue(r.metric, r.recent, unit)}</td>
       <td className={styles.num}><DeltaCell r={r} unit={unit} /></td>
       <td className={styles.trendCell}><Sparkline series={r.series} baseline={r.baseline} color={color} /></td>
+      <td className={styles.hideCol}>
+        <button type="button" className={styles.rowHide} title="Hide from tracker" aria-label={`Hide ${r.name}`} onClick={() => onHide(r.name)}>×</button>
+      </td>
     </tr>
   );
 }
 
-function StatusSection({ status, rows, unit }) {
+function StatusSection({ status, rows, unit, onHide }) {
   const meta = STATUS_META[status];
   const baselineCol = status === 'nobaseline' ? 'Latest' : 'Baseline';
   const recentCol = status === 'nobaseline' ? 'Best' : 'Recent';
@@ -107,6 +116,7 @@ function StatusSection({ status, rows, unit }) {
               <th className={styles.num}>{recentCol}</th>
               <th className={styles.num}>Δ vs baseline</th>
               <th>Trend</th>
+              <th className={styles.hideCol} aria-label="Hide" />
             </tr>
           </thead>
           <tbody>
@@ -122,9 +132,12 @@ function StatusSection({ status, rows, unit }) {
                   <td className={styles.num}>{fmtValue(r.metric, r.best, unit)}</td>
                   <td className={`${styles.num} ${styles.dim}`}>{MIN_SESSIONS - r.sessions} more</td>
                   <td className={styles.trendCell}><Sparkline series={r.series} baseline={null} color={STATUS_META.nobaseline.color} /></td>
+                  <td className={styles.hideCol}>
+                    <button type="button" className={styles.rowHide} title="Hide from tracker" aria-label={`Hide ${r.name}`} onClick={() => onHide(r.name)}>×</button>
+                  </td>
                 </tr>
               ))
-              : rows.map(r => <ExerciseRow key={r.name} r={r} unit={unit} />)}
+              : rows.map(r => <ExerciseRow key={r.name} r={r} unit={unit} onHide={onHide} />)}
           </tbody>
         </table>
       </div>
@@ -132,7 +145,7 @@ function StatusSection({ status, rows, unit }) {
   );
 }
 
-export default function ExerciseProgressTracker({ workouts = [], weightUnit = 'lb', exerciseLibrary = [] }) {
+export default function ExerciseProgressTracker({ workouts = [], weightUnit = 'lb', exerciseLibrary = [], user = null }) {
   // name(lowercased) → muscle group, so rows can show a group subtitle.
   const groupByName = useMemo(() => {
     const m = new Map();
@@ -143,8 +156,56 @@ export default function ExerciseProgressTracker({ workouts = [], weightUnit = 'l
     return m;
   }, [exerciseLibrary]);
 
-  const groups = useMemo(() => analyzeProgress(workouts, groupByName), [workouts, groupByName]);
-  const total = ORDER.reduce((s, k) => s + groups[k].length, 0);
+  const allGroups = useMemo(() => analyzeProgress(workouts, groupByName), [workouts, groupByName]);
+
+  // Exercises the user has hidden from this page (lowercased names). Seed from
+  // localStorage for instant paint, then reconcile with the user doc.
+  const [hidden, setHidden] = useState(() => {
+    try { const a = JSON.parse(localStorage.getItem(HIDDEN_KEY) || '[]'); return new Set(Array.isArray(a) ? a : []); }
+    catch { return new Set(); }
+  });
+  useEffect(() => {
+    if (!user?.uid) return;
+    let alive = true;
+    loadField(user.uid, 'progressHiddenExercises').then(v => {
+      if (alive && Array.isArray(v)) {
+        const set = new Set(v.map(x => String(x).toLowerCase()));
+        setHidden(set);
+        try { localStorage.setItem(HIDDEN_KEY, JSON.stringify([...set])); } catch { /* ignore */ }
+      }
+    }).catch(() => {});
+    return () => { alive = false; };
+  }, [user?.uid]);
+
+  const setHiddenName = useCallback((name, hide) => {
+    setHidden(prev => {
+      const next = new Set(prev);
+      const key = name.trim().toLowerCase();
+      if (hide) next.add(key); else next.delete(key);
+      const arr = [...next];
+      try { localStorage.setItem(HIDDEN_KEY, JSON.stringify(arr)); } catch { /* ignore */ }
+      if (user?.uid) saveField(user.uid, 'progressHiddenExercises', arr).catch(() => {});
+      return next;
+    });
+  }, [user?.uid]);
+
+  // Split analysis into visible groups + the hidden pile (for the restore row).
+  const { groups, hiddenList, total } = useMemo(() => {
+    const g = {};
+    let t = 0;
+    const hid = [];
+    for (const k of ORDER) {
+      g[k] = [];
+      for (const r of allGroups[k]) {
+        if (hidden.has(r.name.toLowerCase())) hid.push(r);
+        else { g[k].push(r); t++; }
+      }
+    }
+    hid.sort((a, b) => a.name.localeCompare(b.name));
+    return { groups: g, hiddenList: hid, total: t };
+  }, [allGroups, hidden]);
+
+  const anyAnalyzed = ORDER.reduce((s, k) => s + allGroups[k].length, 0) > 0;
 
   return (
     <div className={styles.container}>
@@ -156,11 +217,11 @@ export default function ExerciseProgressTracker({ workouts = [], weightUnit = 'l
         <span className={styles.legendNote}>Past {WINDOW_DAYS} days · est. 1RM (Epley) · recent vs baseline</span>
       </div>
 
-      {total === 0 ? (
+      {!anyAnalyzed ? (
         <div className={styles.empty}>No workouts logged in the last 2 months. Log some sets and your exercises will show up here.</div>
       ) : (
         <>
-          {/* Chips summary — status → count + the exercises in it */}
+          {/* Chips summary — status → count + the exercises in it (✕ to hide) */}
           <div className={styles.summary}>
             {ORDER.map(status => (
               <div key={status} className={styles.summaryRow}>
@@ -172,15 +233,36 @@ export default function ExerciseProgressTracker({ workouts = [], weightUnit = 'l
                   {groups[status].length === 0
                     ? <span className={styles.chipEmpty}>none</span>
                     : groups[status].map(r => (
-                      <span key={r.name} className={styles.chip} style={{ '--status-color': STATUS_META[status].color }}>{r.name}</span>
+                      <span key={r.name} className={styles.chip} style={{ '--status-color': STATUS_META[status].color }}>
+                        {r.name}
+                        <button type="button" className={styles.chipX} title="Hide from tracker" aria-label={`Hide ${r.name}`} onClick={() => setHiddenName(r.name, true)}>×</button>
+                      </span>
                     ))}
                 </div>
               </div>
             ))}
+            {hiddenList.length > 0 && (
+              <div className={styles.summaryRow}>
+                <span className={styles.summaryLabel} style={{ '--status-color': '#94a3b8' }}>
+                  Hidden
+                  <span className={styles.summaryCount}>{hiddenList.length}</span>
+                </span>
+                <div className={styles.chips}>
+                  {hiddenList.map(r => (
+                    <button key={r.name} type="button" className={styles.chipHidden} title="Show again" onClick={() => setHiddenName(r.name, false)}>
+                      {r.name}<span className={styles.chipRestore}>＋</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
+          <p className={styles.hint}>Click ✕ on an exercise to hide it from this page{hiddenList.length > 0 ? '; click a hidden one to show it again.' : '.'}</p>
 
-          {ORDER.filter(s => groups[s].length > 0).map(status => (
-            <StatusSection key={status} status={status} rows={groups[status]} unit={weightUnit} />
+          {total === 0 ? (
+            <div className={styles.empty}>All analyzed exercises are hidden. Restore one above to see it here.</div>
+          ) : ORDER.filter(s => groups[s].length > 0).map(status => (
+            <StatusSection key={status} status={status} rows={groups[status]} unit={weightUnit} onHide={(n) => setHiddenName(n, true)} />
           ))}
         </>
       )}
