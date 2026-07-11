@@ -2575,6 +2575,9 @@ export function WorkoutPage({ onBack, user }) {
   const [chartLeftMetric, setChartLeftMetric] = useState('avgReps');
   const [chartRightMetric, setChartRightMetric] = useState('weight');
   const [chartView, setChartView] = useState('custom'); // 'custom' or a group name like 'Push'
+  // Charts page exercise search — add any logged exercise's chart by name.
+  const [chartSearchInput, setChartSearchInput] = useState('');
+  const [searchedChartExercises, setSearchedChartExercises] = useState([]);
   // When a data point on a per-exercise chart is clicked, holds { date, exercise }
   // so the inline editor popup can edit that historical session.
   const [chartEdit, setChartEdit] = useState(null);
@@ -3452,6 +3455,14 @@ export function WorkoutPage({ onBack, user }) {
       }
     }
     return map;
+  }, [workouts]);
+
+  // Every exercise name that appears in a logged workout (original casing),
+  // for the Charts page search box.
+  const allExerciseNames = useMemo(() => {
+    const set = new Set();
+    for (const w of workouts) for (const e of w.entries || []) if (e.exercise) set.add(e.exercise.trim());
+    return Array.from(set).sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
   }, [workouts]);
 
   // Dropdown options derived from actual logged workouts so the user only
@@ -4775,6 +4786,17 @@ export function WorkoutPage({ onBack, user }) {
           try { localStorage.setItem('sunday-chart-slots', JSON.stringify(next)); } catch {}
         }
 
+        // Add a searched exercise's chart. Snap to the real (case-correct) name
+        // if it matches a logged exercise; ignore blanks/duplicates.
+        function addSearchedExercise(val) {
+          const v = (val || '').trim();
+          if (!v) return;
+          const match = allExerciseNames.find(n => n.toLowerCase() === v.toLowerCase()) || v;
+          setSearchedChartExercises(prev =>
+            prev.some(x => x.toLowerCase() === match.toLowerCase()) ? prev : [...prev, match]);
+          setChartSearchInput('');
+        }
+
         return (
           <div className={styles.chartsSection}>
             <div className={styles.chartFilterRow}>
@@ -4804,6 +4826,43 @@ export function WorkoutPage({ onBack, user }) {
                   : `${usingLibrary ? 'Groups come from your library.' : ''}`}
               </span>
             </div>
+
+            {/* Search any logged exercise by name and pin its chart. */}
+            <div className={styles.chartSearchRow}>
+              <input
+                type="text"
+                list="chartExerciseOptions"
+                className={styles.chartSearchInput}
+                placeholder="🔍 Search an exercise to chart…"
+                value={chartSearchInput}
+                onChange={e => setChartSearchInput(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addSearchedExercise(chartSearchInput); } }}
+                aria-label="Search an exercise to chart"
+              />
+              <datalist id="chartExerciseOptions">
+                {allExerciseNames.map(n => <option key={n} value={n} />)}
+              </datalist>
+              <button
+                className={styles.chartAddBtn}
+                onClick={() => addSearchedExercise(chartSearchInput)}
+                disabled={!chartSearchInput.trim()}
+              >Add chart</button>
+            </div>
+            {searchedChartExercises.length > 0 && (
+              <div className={styles.chartGrid}>
+                {searchedChartExercises.map(ex => (
+                  <div key={ex} className={styles.chartCard}>
+                    <button
+                      className={styles.chartCardRemove}
+                      title={`Remove ${ex}`}
+                      aria-label={`Remove ${ex}`}
+                      onClick={() => setSearchedChartExercises(prev => prev.filter(x => x !== ex))}
+                    >×</button>
+                    {renderChartContent(ex)}
+                  </div>
+                ))}
+              </div>
+            )}
 
             <div className={styles.chartViewRow}>
               <span className={styles.chartViewLabel}>View:</span>
