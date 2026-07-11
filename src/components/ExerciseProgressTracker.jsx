@@ -6,7 +6,7 @@
 // lives in utils/exerciseProgress.js.
 import React, { useMemo, useState, useEffect, useCallback } from 'react';
 import styles from './ExerciseProgressTracker.module.css';
-import { analyzeProgress, displayWeight, WINDOW_DAYS, MIN_SESSIONS } from '../utils/exerciseProgress';
+import { analyzeProgress, displayWeight, WINDOW_DAYS, MIN_SESSIONS, PROGRESS_PCT, VOLUME_PCT } from '../utils/exerciseProgress';
 import { formatSeconds } from '../utils/setValue';
 import { saveField, loadField } from '../utils/firestoreSync';
 
@@ -251,6 +251,40 @@ export default function ExerciseProgressTracker({ workouts = [], weightUnit = 'l
         </div>
         <span className={styles.legendNote}>Past {WINDOW_DAYS} days · est. 1RM (Epley) · recent vs baseline</span>
       </div>
+
+      {/* Default-collapsed explanation of the categorization method. */}
+      <details className={styles.methodology}>
+        <summary className={styles.methodologySummary}>How are exercises categorized?</summary>
+        <div className={styles.methodologyBody}>
+          <p>
+            <strong>Estimated 1RM (e1RM)</strong> is your <em>one-rep max</em> — the most weight you could
+            lift for a single rep. Since you rarely test a true max, we estimate it from your heaviest set
+            each session with the <strong>Epley formula</strong>: <code>weight × (1 + reps ÷ 30)</code>. This
+            puts every set on one scale, so a 3×8 at 150&nbsp;lb and a 5×5 at 165&nbsp;lb can be compared
+            directly.
+          </p>
+          <p>
+            <strong>Training volume</strong> — weight × reps summed across your sets — is the secondary
+            signal (total work done).
+          </p>
+          <p>
+            Over the past <strong>{WINDOW_DAYS} days</strong>, each exercise's sessions are split into an
+            earlier <strong>baseline</strong> and a more <strong>recent</strong> period, and we compare the
+            two averages:
+          </p>
+          <ul className={styles.methodologyList}>
+            <li><strong style={{ color: '#16a34a' }}>Progressing</strong> — recent e1RM is ≥{PROGRESS_PCT * 100}% above baseline, <em>or</em> volume is ≥{VOLUME_PCT * 100}% higher (you've added weight, reps, or volume).</li>
+            <li><strong style={{ color: '#dc2626' }}>Decreasing</strong> — recent e1RM is ≥{PROGRESS_PCT * 100}% <em>below</em> baseline.</li>
+            <li><strong style={{ color: '#d97706' }}>Stagnating</strong> — e1RM within ±{PROGRESS_PCT * 100}% of baseline: flat, no added stimulus.</li>
+            <li><strong style={{ color: '#64748b' }}>No Baseline</strong> — fewer than {MIN_SESSIONS} sessions logged in the window; not enough to judge a trend.</li>
+          </ul>
+          <p>
+            <strong>Bodyweight or timed moves</strong> (pull-ups, planks) carry no weight, so we track max
+            reps or longest hold instead of e1RM. The <strong>days-ago</strong> note under each date is how
+            long since you last logged the exercise, turning amber once it's been {STALE_DAYS}+ days.
+          </p>
+        </div>
+      </details>
 
       {!anyAnalyzed ? (
         <div className={styles.empty}>No workouts logged in the last 2 months. Log some sets and your exercises will show up here.</div>

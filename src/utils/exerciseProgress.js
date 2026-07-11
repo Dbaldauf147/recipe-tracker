@@ -13,8 +13,8 @@ import { parseSetValue } from './setValue';
 const LB_PER_KG = 2.2046226218;
 export const WINDOW_DAYS = 60;          // "past 2 months"
 export const MIN_SESSIONS = 3;          // fewer than this → no baseline to judge
-const PROGRESS_PCT = 0.025;             // +2.5% on the primary metric = progressing
-const VOLUME_PCT = 0.05;                // …or +5% training volume rescues it
+export const PROGRESS_PCT = 0.025;      // +2.5% on the primary metric = progressing
+export const VOLUME_PCT = 0.05;         // …or +5% training volume rescues it
 
 // Canonical-lb value → the user's display unit, rounded to 0.1.
 export function displayWeight(lb, unit) {

@@ -29,6 +29,51 @@
   white-space: nowrap;
 }
 
+/* ── Methodology (collapsible) ── */
+.methodology {
+  border: 1px solid var(--color-border, #e2e8f0);
+  border-radius: 10px;
+  background: var(--color-surface-alt, #f8fafc);
+  overflow: hidden;
+}
+.methodologySummary {
+  cursor: pointer;
+  padding: 0.6rem 0.9rem;
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--color-text, #334155);
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+.methodologySummary::-webkit-details-marker { display: none; }
+.methodologySummary::before {
+  content: '▸';
+  font-size: 0.8rem;
+  color: var(--color-text-muted, #94a3b8);
+  transition: transform 0.15s ease;
+}
+.methodology[open] .methodologySummary::before { transform: rotate(90deg); }
+.methodologyBody {
+  padding: 0 0.95rem 0.9rem;
+  font-size: 0.83rem;
+  line-height: 1.55;
+  color: var(--color-text-muted, #475569);
+}
+.methodologyBody p { margin: 0.55rem 0; }
+.methodologyBody code {
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 0.8rem;
+  background: var(--color-surface, #fff);
+  border: 1px solid var(--color-border, #e2e8f0);
+  border-radius: 4px;
+  padding: 0.05rem 0.32rem;
+  white-space: nowrap;
+}
+.methodologyList { margin: 0.5rem 0; padding-left: 1.15rem; }
+.methodologyList li { margin: 0.32rem 0; }
+
 /* ── Chips summary ── */
 .summary {
   display: flex;
