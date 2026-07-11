@@ -2557,6 +2557,9 @@ export function WorkoutPage({ onBack, user }) {
   const [historyEndDate, setHistoryEndDate] = useState('');
   const [historyGym, setHistoryGym] = useState('');
   const [historyExercise, setHistoryExercise] = useState('');
+  // Per-column search boxes in the History table header (compose with the
+  // filter-row dropdowns above via AND).
+  const [historyColSearch, setHistoryColSearch] = useState({ date: '', location: '', type: '', group: '', exercise: '', notes: '', weight: '' });
   const [selectedRows, setSelectedRows] = useState(() => new Set());
   const [bulkWeightInput, setBulkWeightInput] = useState('');
   const [bulkNotesInput, setBulkNotesInput] = useState('');
@@ -3498,7 +3501,7 @@ export function WorkoutPage({ onBack, user }) {
     });
   }, [workouts, historyStartDate, historyEndDate, historyGym, historyGroup, historyExercise]);
 
-  const hasActiveHistoryFilters = !!(historyGroup || historyStartDate || historyEndDate || historyGym || historyExercise);
+  const hasActiveHistoryFilters = !!(historyGroup || historyStartDate || historyEndDate || historyGym || historyExercise || Object.values(historyColSearch).some(v => v));
   function exportHistory() {
     const rows = [];
     for (const w of filteredHistory) {
@@ -3531,6 +3534,7 @@ export function WorkoutPage({ onBack, user }) {
     setHistoryEndDate('');
     setHistoryGym('');
     setHistoryExercise('');
+    setHistoryColSearch({ date: '', location: '', type: '', group: '', exercise: '', notes: '', weight: '' });
   }
 
   // Library-driven groupings for the Charts picker. Falls back to the
@@ -4230,13 +4234,22 @@ export function WorkoutPage({ onBack, user }) {
             // original entry index inside w.entries so inline-edit
             // handlers can mutate the right slot even when the visible
             // list is filtered by group.
+            const cs = historyColSearch;
+            const colInc = (val, term) => !term || String(val ?? '').toLowerCase().includes(term.trim().toLowerCase());
             const flatRows = [];
             for (const w of filteredHistory) {
+              // Workout-level column searches (date/location/type).
+              if (!colInc(w.date, cs.date) || !colInc(w.gym, cs.location) || !colInc(w.workoutType, cs.type)) continue;
               const visible = (w.entries || [])
                 .map((e, originalIdx) => ({ e, originalIdx }))
                 .filter(({ e }) =>
                   (!historyGroup || e.group === historyGroup) &&
-                  (!historyExercise || e.exercise === historyExercise)
+                  (!historyExercise || e.exercise === historyExercise) &&
+                  // Entry-level column searches (weight matched on the displayed unit).
+                  colInc(e.group, cs.group) &&
+                  colInc(e.exercise, cs.exercise) &&
+                  colInc(e.notes, cs.notes) &&
+                  colInc(lbToUnitStr(e.weight, weightUnit), cs.weight)
                 );
               visible.forEach(({ e, originalIdx }, idx) => {
                 flatRows.push({ w, e, originalIdx, isFirstOfDay: idx === 0, dayCount: visible.length });
@@ -4352,6 +4365,41 @@ export function WorkoutPage({ onBack, user }) {
                       <th className={styles.logPerCol} title="Per leg/arm">Per leg/arm</th>
                       <th className={styles.logTotalCol}>Total</th>
                       <th className={styles.logRemoveCol}></th>
+                    </tr>
+                    <tr className={styles.historySearchRow}>
+                      <th />
+                      {[
+                        ['date', 'historyMetaCol'], ['location', 'historyMetaCol'], ['type', 'historyMetaCol'],
+                        ['group', 'logGroupCol'], ['exercise', 'logExerciseCol'], ['notes', 'logNotesCol'],
+                      ].map(([key, col]) => (
+                        <th key={key} className={styles[col]}>
+                          <input
+                            type="text"
+                            className={styles.historySearchInput}
+                            placeholder="Search…"
+                            value={historyColSearch[key]}
+                            onChange={ev => setHistoryColSearch(s => ({ ...s, [key]: ev.target.value }))}
+                            aria-label={`Search ${key}`}
+                          />
+                        </th>
+                      ))}
+                      <th className={styles.logSetCol} />
+                      <th className={styles.logSetCol} />
+                      <th className={styles.logSetCol} />
+                      <th className={styles.logSetCol} />
+                      <th className={styles.logWeightCol}>
+                        <input
+                          type="text"
+                          className={styles.historySearchInput}
+                          placeholder="Search…"
+                          value={historyColSearch.weight}
+                          onChange={ev => setHistoryColSearch(s => ({ ...s, weight: ev.target.value }))}
+                          aria-label="Search weight"
+                        />
+                      </th>
+                      <th className={styles.logPerCol} />
+                      <th className={styles.logTotalCol} />
+                      <th className={styles.logRemoveCol} />
                     </tr>
                   </thead>
                   <tbody>

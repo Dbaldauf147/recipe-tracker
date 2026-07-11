@@ -771,6 +771,33 @@ td.logPerCell.manuallyEdited {
 /* Date / Location / Type are their own repeating columns (one value per
    exercise row) so a single-exercise filter reads like a clean spreadsheet. */
 .historyMetaCol { width: 104px; }
+
+/* Per-column search row in the History table header. */
+.historySearchRow th {
+  padding: 0.3rem 0.4rem;
+  border-bottom: 1px solid var(--color-border);
+  text-transform: none;
+  letter-spacing: normal;
+  overflow: visible;
+  background: var(--color-surface-alt);
+}
+.historySearchInput {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  padding: 0.22rem 0.4rem;
+  border: 1px solid var(--color-border);
+  border-radius: 5px;
+  font-size: 0.78rem;
+  font-family: inherit;
+  font-weight: 400;
+  letter-spacing: normal;
+  text-transform: none;
+  color: var(--color-text);
+  background: var(--color-surface, #fff);
+}
+.historySearchInput::placeholder { color: var(--color-text-muted); opacity: 0.7; }
+.historySearchInput:focus { outline: none; border-color: var(--color-accent, #3B6B9C); }
 .historyMetaCell {
   background: var(--color-surface-alt);
   white-space: nowrap;
