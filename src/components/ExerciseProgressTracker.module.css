@@ -209,6 +209,15 @@
   text-transform: capitalize;
 }
 
+.lastDate { display: block; }
+.lastAgo {
+  display: block;
+  font-size: 0.72rem;
+  color: var(--color-text-muted, #94a3b8);
+  font-weight: 500;
+}
+.lastStale { color: #d97706; font-weight: 600; }
+
 .deltaUp { color: var(--color-success, #16a34a); font-weight: 700; }
 .deltaDown { color: var(--color-danger, #dc2626); font-weight: 700; }
 .deltaFlat { color: #d97706; font-weight: 700; }

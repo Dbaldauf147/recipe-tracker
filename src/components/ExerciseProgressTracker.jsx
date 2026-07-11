@@ -28,6 +28,30 @@ function fmtDate(dateStr) {
   return new Date(y, m - 1, d).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
 
+// Whole days between `dateStr` (local midnight) and today. null if unparseable.
+function daysSince(dateStr) {
+  if (!dateStr) return null;
+  const [y, m, d] = dateStr.split('-').map(Number);
+  if (!y || !m || !d) return null;
+  const then = new Date(y, m - 1, d); then.setHours(0, 0, 0, 0);
+  const now = new Date(); now.setHours(0, 0, 0, 0);
+  return Math.round((now - then) / 86400000);
+}
+
+const STALE_DAYS = 14; // amber flag once an exercise hasn't been trained in this long
+
+// Last-workout cell: the date plus a "days ago" indicator (amber when stale).
+function LastCell({ dateStr }) {
+  const n = daysSince(dateStr);
+  const rel = n == null ? '' : n <= 0 ? 'today' : n === 1 ? 'yesterday' : `${n}d ago`;
+  return (
+    <td className={styles.num}>
+      <span className={styles.lastDate}>{fmtDate(dateStr)}</span>
+      {rel && <span className={`${styles.lastAgo}${n >= STALE_DAYS ? ` ${styles.lastStale}` : ''}`}>{rel}</span>}
+    </td>
+  );
+}
+
 // Format a metric value in the right units (weight / reps / hold time).
 function fmtValue(metric, val, unit) {
   if (val == null) return '—';
@@ -89,7 +113,7 @@ function ExerciseRow({ r, unit, onHide }) {
         {r.group && <span className={styles.exGroup}>{r.group}</span>}
       </td>
       <td className={styles.num}>{r.sessions}</td>
-      <td className={styles.num}>{fmtDate(r.lastDate)}</td>
+      <LastCell dateStr={r.lastDate} />
       <td className={styles.num}>{fmtValue(r.metric, r.baseline ?? r.last, unit)}</td>
       <td className={`${styles.num} ${styles.strong}`}>{fmtValue(r.metric, r.recent, unit)}</td>
       <td className={styles.num}><DeltaCell r={r} unit={unit} /></td>
@@ -138,7 +162,7 @@ function StatusSection({ status, rows, unit, onHide }) {
                     {r.group && <span className={styles.exGroup}>{r.group}</span>}
                   </td>
                   <td className={styles.num}>{r.sessions}</td>
-                  <td className={styles.num}>{fmtDate(r.lastDate)}</td>
+                  <LastCell dateStr={r.lastDate} />
                   <td className={styles.num}>{fmtValue(r.metric, r.last, unit)}</td>
                   <td className={styles.num}>{fmtValue(r.metric, r.best, unit)}</td>
                   <td className={`${styles.num} ${styles.dim}`}>{MIN_SESSIONS - r.sessions} more</td>
