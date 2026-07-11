@@ -9,6 +9,7 @@ import styles from './ExerciseProgressTracker.module.css';
 import { analyzeProgress, displayWeight, WINDOW_DAYS, MIN_SESSIONS, PROGRESS_PCT, VOLUME_PCT } from '../utils/exerciseProgress';
 import { formatSeconds } from '../utils/setValue';
 import { saveField, loadField } from '../utils/firestoreSync';
+import ExerciseChart from './ExerciseChart';
 
 const HIDDEN_KEY = 'sunday-progress-hidden';
 
@@ -104,12 +105,12 @@ function Sparkline({ series, baseline, color }) {
   );
 }
 
-function ExerciseRow({ r, unit, onHide }) {
+function ExerciseRow({ r, unit, onHide, onOpenChart }) {
   const color = STATUS_META[r.status].color;
   return (
     <tr>
       <td className={styles.nameCell}>
-        <span className={styles.exName}>{r.name}</span>
+        <button type="button" className={styles.exNameBtn} onClick={() => onOpenChart(r.name)} title={`View ${r.name} chart`}>{r.name}</button>
         {r.group && <span className={styles.exGroup}>{r.group}</span>}
       </td>
       <td className={styles.num}>{r.sessions}</td>
@@ -125,7 +126,7 @@ function ExerciseRow({ r, unit, onHide }) {
   );
 }
 
-function StatusSection({ status, rows, unit, onHide }) {
+function StatusSection({ status, rows, unit, onHide, onOpenChart }) {
   const meta = STATUS_META[status];
   const baselineCol = status === 'nobaseline' ? 'Latest' : 'Baseline';
   const recentCol = status === 'nobaseline' ? 'Best' : 'Recent';
@@ -158,7 +159,7 @@ function StatusSection({ status, rows, unit, onHide }) {
               ? rows.map(r => (
                 <tr key={r.name}>
                   <td className={styles.nameCell}>
-                    <span className={styles.exName}>{r.name}</span>
+                    <button type="button" className={styles.exNameBtn} onClick={() => onOpenChart(r.name)} title={`View ${r.name} chart`}>{r.name}</button>
                     {r.group && <span className={styles.exGroup}>{r.group}</span>}
                   </td>
                   <td className={styles.num}>{r.sessions}</td>
@@ -172,7 +173,7 @@ function StatusSection({ status, rows, unit, onHide }) {
                   </td>
                 </tr>
               ))
-              : rows.map(r => <ExerciseRow key={r.name} r={r} unit={unit} onHide={onHide} />)}
+              : rows.map(r => <ExerciseRow key={r.name} r={r} unit={unit} onHide={onHide} onOpenChart={onOpenChart} />)}
           </tbody>
         </table>
       </div>
@@ -241,6 +242,15 @@ export default function ExerciseProgressTracker({ workouts = [], weightUnit = 'l
   }, [allGroups, hidden]);
 
   const anyAnalyzed = ORDER.reduce((s, k) => s + allGroups[k].length, 0) > 0;
+
+  // Exercise whose chart popup is open (click a row name to open).
+  const [chartExercise, setChartExercise] = useState(null);
+  useEffect(() => {
+    if (!chartExercise) return;
+    const onKey = (e) => { if (e.key === 'Escape') setChartExercise(null); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [chartExercise]);
 
   return (
     <div className={styles.container}>
@@ -331,9 +341,21 @@ export default function ExerciseProgressTracker({ workouts = [], weightUnit = 'l
           {total === 0 ? (
             <div className={styles.empty}>All analyzed exercises are hidden. Restore one above to see it here.</div>
           ) : ORDER.filter(s => groups[s].length > 0).map(status => (
-            <StatusSection key={status} status={status} rows={groups[status]} unit={weightUnit} onHide={(n) => setHiddenName(n, true)} />
+            <StatusSection key={status} status={status} rows={groups[status]} unit={weightUnit} onHide={(n) => setHiddenName(n, true)} onOpenChart={setChartExercise} />
           ))}
         </>
+      )}
+
+      {chartExercise && (
+        <div className={styles.modalOverlay} onClick={() => setChartExercise(null)} role="dialog" aria-modal="true">
+          <div className={styles.modalCard} onClick={e => e.stopPropagation()}>
+            <div className={styles.modalHeader}>
+              <h3 className={styles.modalTitle}>{chartExercise}</h3>
+              <button className={styles.modalClose} onClick={() => setChartExercise(null)} aria-label="Close chart">×</button>
+            </div>
+            <ExerciseChart workouts={workouts} exercise={chartExercise} weightUnit={weightUnit} />
+          </div>
+        </div>
       )}
     </div>
   );

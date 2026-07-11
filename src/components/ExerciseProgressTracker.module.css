@@ -248,6 +248,18 @@
 
 .nameCell { min-width: 150px; }
 .exName { font-weight: 700; color: var(--color-text, #1e293b); display: block; }
+.exNameBtn {
+  display: block;
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  font-weight: 700;
+  color: var(--color-text, #1e293b);
+  text-align: left;
+  cursor: pointer;
+}
+.exNameBtn:hover { color: var(--color-accent, #3B6B9C); text-decoration: underline; }
 .exGroup {
   font-size: 0.72rem;
   color: var(--color-text-muted, #94a3b8);
@@ -282,3 +294,51 @@
   border-radius: 12px;
   font-size: 0.9rem;
 }
+
+/* ── Chart popup ── */
+.modalOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: rgba(15, 23, 42, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+}
+.modalCard {
+  background: var(--color-surface, #fff);
+  border: 1px solid var(--color-border, #e2e8f0);
+  border-radius: 14px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.25);
+  width: min(680px, 100%);
+  max-height: 90vh;
+  overflow-y: auto;
+  padding: 1rem 1.15rem 1.25rem;
+}
+.modalHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.5rem;
+}
+.modalTitle {
+  margin: 0;
+  font-size: 1.15rem;
+  font-weight: 800;
+  color: var(--color-text, #1e293b);
+}
+.modalClose {
+  border: none;
+  background: var(--color-surface-alt, #f1f5f9);
+  color: var(--color-text-muted, #64748b);
+  width: 2rem;
+  height: 2rem;
+  border-radius: 999px;
+  font-size: 1.35rem;
+  line-height: 1;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.modalClose:hover { color: var(--color-text, #1e293b); background: var(--color-border, #e2e8f0); }
