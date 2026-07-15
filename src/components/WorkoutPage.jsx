@@ -2412,6 +2412,10 @@ export function WorkoutPage({ onBack, user }) {
   }, []);
   const [locationEditorOpen, setLocationEditorOpen] = useState(false);
   const [workoutType, setWorkoutType] = useState('');
+  // Whether this session included a sauna. Mirrors the mobile app's per-workout
+  // 🧖 toggle; persisted on the Workout (Workout.sauna) and counted by the Week
+  // Plan's weekly sauna goal.
+  const [sauna, setSauna] = useState(false);
   const [entries, setEntries] = useState(() => blankEntries());
   // Row index whose group/exercise picker modal is currently open.
   // null = closed. Set by + Add Exercise and by clicking an empty row.
@@ -2836,10 +2840,12 @@ export function WorkoutPage({ onBack, user }) {
     if (existing) {
       setGym(existing.gym || gyms[0] || '');
       setWorkoutType(existing.workoutType || '');
+      setSauna(!!existing.sauna);
       setEntries(padToMin(existing.entries.length > 0 ? existing.entries : []));
     } else {
       setEntries(blankEntries());
       setWorkoutType('');
+      setSauna(false);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedDate]);
@@ -3094,7 +3100,17 @@ export function WorkoutPage({ onBack, user }) {
     const validEntries = entries.filter(e => e.group && e.exercise);
     if (validEntries.length === 0) return;
 
-    const enriched = validEntries.map(enrichEntry);
+    // Only log exercises the user actually marked complete (green cells).
+    // Un-completed rows are treated as "planned but skipped today" — they
+    // stay out of history but are remembered in suggestedEntries so this
+    // type keeps suggesting them next time (until the user removes the row).
+    // Fallback: if NOTHING is green this session, log everything as before —
+    // the green feature isn't in use, so don't silently drop the workout.
+    const hasGreen = e => Array.isArray(e.setDone) && e.setDone.some(Boolean);
+    const anyGreen = validEntries.some(hasGreen);
+    const loggedEntries = anyGreen ? validEntries.filter(hasGreen) : validEntries;
+
+    const enriched = loggedEntries.map(enrichEntry);
 
     // Preserve the existing workout id for this date so the per-day
     // Firestore writer updates that doc in place rather than treating it
@@ -3107,7 +3123,17 @@ export function WorkoutPage({ onBack, user }) {
       workoutType,
       entries: enriched,
       savedAt: new Date().toISOString(),
+      ...(sauna ? { sauna: true } : {}),
     };
+    // When un-completed exercises were dropped from the log, stash the full
+    // ordered template (logged + skipped) so fillFromLast/lastByType keep
+    // suggesting the skipped ones. Strip UI-only + green flags.
+    if (anyGreen && loggedEntries.length < validEntries.length) {
+      workout.suggestedEntries = validEntries.map(e => {
+        const { editedFields: _ef, setDone: _sd, ...rest } = e;
+        return rest;
+      });
+    }
     const next = [workout, ...workouts.filter(w => w.date !== selectedDate)].sort((a, b) => b.date.localeCompare(a.date));
     setWorkouts(next);
     saveWorkouts(next, user?.uid);
@@ -3140,11 +3166,12 @@ export function WorkoutPage({ onBack, user }) {
         date: selectedDate,
         gym,
         workoutType,
+        sauna: !!sauna,
         entries: meaningful,
       }).catch(() => {});
     }, 800);
     return () => clearTimeout(draftDebounceRef.current);
-  }, [user?.uid, selectedDate, gym, workoutType, entries]);
+  }, [user?.uid, selectedDate, gym, workoutType, sauna, entries]);
 
   // Inline edits on the History tab. Each handler mutates the workouts
   // array, re-enriches the touched entry, and persists to localStorage +
@@ -3465,7 +3492,12 @@ export function WorkoutPage({ onBack, user }) {
   function fillFromLast(t) {
     const last = lastByType[t];
     if (!last) return;
-    const fill = (last.entries || []).map(e => ({
+    // Prefer suggestedEntries (full logged+skipped template) so exercises the
+    // user skipped last time — not logged to history — still get suggested.
+    const source = (last.suggestedEntries && last.suggestedEntries.length)
+      ? last.suggestedEntries
+      : last.entries;
+    const fill = (source || []).map(e => ({
       group: e.group || '',
       exercise: e.exercise || '',
       sets: Array.isArray(e.sets) ? e.sets.map(s => (s == null ? '' : String(s))) : ['', '', '', ''],
@@ -4012,6 +4044,20 @@ export function WorkoutPage({ onBack, user }) {
                 ↻ Refill from last {workoutType}
               </button>
             )}
+          </div>
+
+          {/* Sauna toggle — record whether this session included a sauna. Mirrors
+              the mobile app's 🧖 toggle; feeds the Week Plan's weekly sauna goal. */}
+          <div className={styles.saunaRow}>
+            <button
+              type="button"
+              className={`${styles.saunaToggle} ${sauna ? styles.saunaToggleActive : ''}`}
+              onClick={() => setSauna(v => !v)}
+              aria-pressed={sauna}
+              title="Did this session include a sauna?"
+            >
+              🧖 Sauna{sauna ? '  ✓' : ''}
+            </button>
           </div>
 
           <input
