@@ -1026,6 +1026,7 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
             sharedFromFriends={sharedFromFriends}
             onClose={goBack}
             onSaveToHistory={handleSaveToHistory}
+            onViewRecipe={setViewRecipeId}
           />
         ) : view === 'setup' ? (
           <OnboardingPage

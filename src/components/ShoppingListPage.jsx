@@ -190,7 +190,7 @@ function buildIngredientEatenMap(getRecipe) {
   return map;
 }
 
-export function ShoppingListPage({ weeklyRecipes, weeklyServings = {}, getRecipe, sharedFromFriends = [], onClose, onSaveToHistory }) {
+export function ShoppingListPage({ weeklyRecipes, weeklyServings = {}, getRecipe, sharedFromFriends = [], onClose, onSaveToHistory, onViewRecipe }) {
   const { user } = useAuth();
   const [extras, setExtras] = useState(loadExtras);
   const [dismissed, setDismissed] = useState(loadDismissed);
@@ -594,7 +594,19 @@ export function ShoppingListPage({ weeklyRecipes, weeklyServings = {}, getRecipe
           {weeklyRecipes.length > 0 && activeTab === 'current' && (
             <div className={styles.mealBubbles}>
               {weeklyRecipes.map(r => (
-                <span key={r.id} className={styles.mealBubble}>{r.title}</span>
+                onViewRecipe ? (
+                  <button
+                    key={r.id}
+                    type="button"
+                    className={`${styles.mealBubble} ${styles.mealBubbleButton}`}
+                    onClick={() => onViewRecipe(r.id)}
+                    title={`View ${r.title}`}
+                  >
+                    {r.title}
+                  </button>
+                ) : (
+                  <span key={r.id} className={styles.mealBubble}>{r.title}</span>
+                )
               ))}
             </div>
           )}

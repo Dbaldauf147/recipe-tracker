@@ -1,8 +1,18 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
-import { loadIngredients, saveIngredientsToFirestore } from '../utils/ingredientsStore.js';
+import { loadIngredients, saveIngredientsToFirestore, INGREDIENT_FIELDS } from '../utils/ingredientsStore.js';
 import { saveField, loadField } from '../utils/firestoreSync';
 import { SIZE_GRAMS, WEIGHT_TO_G } from '../utils/units.js';
 import styles from './ShoppingList.module.css';
+
+// Human labels for every trackable ingredient field, keyed for O(1) lookup.
+const FIELD_LABEL = Object.fromEntries(INGREDIENT_FIELDS.map(f => [f.key, f.label]));
+// Nutrition facts shown (in order) in the ingredient info popup — only those
+// with a value render.
+const POPUP_NUTRITION_KEYS = [
+  'calories', 'protein', 'carbs', 'fat', 'saturatedFat', 'sugar', 'addedSugar',
+  'fiber', 'sodium', 'potassium', 'calcium', 'iron', 'magnesium', 'zinc',
+  'vitaminB12', 'vitaminC', 'leucine', 'omega3',
+];
 
 function parseFraction(str) {
   if (str == null || str === '') return 0;
@@ -1018,6 +1028,24 @@ export function ShoppingList({ weeklyRecipes, weeklyServings = {}, extraItems = 
     return map;
   }, [weeklyRecipes]);
 
+  // Lowercased-name → full ingredient DB record, so clicking a shopping line
+  // can surface everything the user tracks about it (nutrition/brand/serving).
+  // Re-read on firestore-sync so a fresh mobile edit shows up without reload.
+  const [ingDbVersion, setIngDbVersion] = useState(0);
+  useEffect(() => {
+    const bump = () => setIngDbVersion(v => v + 1);
+    window.addEventListener('firestore-sync', bump);
+    return () => window.removeEventListener('firestore-sync', bump);
+  }, []);
+  const ingredientRecords = useMemo(() => {
+    const db = loadIngredients() || [];
+    const map = {};
+    for (const row of db) {
+      if (row.ingredient) map[row.ingredient.toLowerCase().trim()] = row;
+    }
+    return map;
+  }, [ingDbVersion]);
+
   const SHOP_LINKS_KEY = 'sunday-shop-links';
   const [customLinks, setCustomLinks] = useState(() => {
     try { return JSON.parse(localStorage.getItem(SHOP_LINKS_KEY) || '{}'); } catch { return {}; }
@@ -1027,6 +1055,11 @@ export function ShoppingList({ weeklyRecipes, weeklyServings = {}, extraItems = 
   const [itemPopup, setItemPopup] = useState(null); // ingredient name or null
   const [popupCat, setPopupCat] = useState('other');
   const [popupLink, setPopupLink] = useState('');
+  // Editable ingredient-DB fields for the open popup, whether the ingredient
+  // already had a DB record, and which meals it appears in.
+  const [popupFields, setPopupFields] = useState(null);
+  const [popupRecExisted, setPopupRecExisted] = useState(false);
+  const [popupMeals, setPopupMeals] = useState([]);
 
   // Re-read links when another device (e.g. the mobile app) updates the
   // synced `shopLinks` field, which lands in localStorage on sync.
@@ -1050,17 +1083,53 @@ export function ShoppingList({ weeklyRecipes, weeklyServings = {}, extraItems = 
     setEditingLink(null);
   }
 
-  function openItemPopup(ingredient, currentCatId) {
+  function openItemPopup(ingredient, currentCatId, meals) {
     const ingKey = ingredient.toLowerCase().trim();
     setItemPopup(ingredient);
     setPopupCat(currentCatId || 'other');
     setPopupLink(customLinks[ingKey] || ingredientLinks[ingKey] || '');
+    setPopupMeals(Array.isArray(meals) ? meals : []);
+    // Seed the editable fields from the DB record, or a blank template (name
+    // pre-filled) so an unknown ingredient can be created from here.
+    const rec = ingredientRecords[ingKey];
+    const seed = {};
+    for (const fld of INGREDIENT_FIELDS) seed[fld.key] = rec ? (rec[fld.key] ?? '') : '';
+    if (!rec) seed.ingredient = ingredient;
+    setPopupFields(seed);
+    setPopupRecExisted(!!rec);
   }
   function saveItemPopup() {
     if (!itemPopup) return;
     assignItemCategory(itemPopup, popupCat);
     saveCustomLink(itemPopup.toLowerCase().trim(), (popupLink || '').trim());
+    persistIngredientEdits();
     setItemPopup(null);
+  }
+  // Upsert the popup's edited fields into the shared ingredient DB (same path
+  // the Ingredients page uses: localStorage + Firestore `ingredientsDb`).
+  function persistIngredientEdits() {
+    if (!popupFields || !itemPopup) return;
+    const nameKey = itemPopup.toLowerCase().trim();
+    const db = loadIngredients() || [];
+    const record = {};
+    for (const fld of INGREDIENT_FIELDS) record[fld.key] = popupFields[fld.key] ?? '';
+    record.ingredient = (popupFields.ingredient || itemPopup).trim();
+    const idx = db.findIndex(r => (r.ingredient || '').toLowerCase().trim() === nameKey);
+    let updated;
+    if (idx >= 0) {
+      // Merge so fields not exposed in the popup (e.g. composite components)
+      // survive the edit.
+      updated = db.map((r, i) => (i === idx ? { ...r, ...record } : r));
+    } else {
+      // Don't create an empty row if the user saved without entering anything.
+      const hasAny = INGREDIENT_FIELDS.some(
+        fld => fld.key !== 'ingredient' && String(popupFields[fld.key] ?? '').trim() !== ''
+      );
+      if (!hasAny) return;
+      updated = [...db, record];
+    }
+    saveIngredientsToFirestore(updated);
+    setIngDbVersion(v => v + 1); // refresh this component's lookup map
   }
 
   const [checked, setChecked] = useState(() => loadCheckedItems());
@@ -1277,9 +1346,8 @@ export function ShoppingList({ weeklyRecipes, weeklyServings = {}, extraItems = 
                       <tr
                         key={`${section.id}-${i}`}
                         className={done ? styles.checkedRow : ''}
-                        onClick={() => toggleItem(key)}
-                        onDoubleClick={e => { e.stopPropagation(); openItemPopup(item.ingredient, section.id); }}
-                        title="Double-click to set section & link"
+                        onClick={() => openItemPopup(item.ingredient, section.id, item.recipes)}
+                        title="Click for ingredient details · use the checkbox to cross off"
                         style={{ cursor: 'pointer' }}
                       >
                         <td className={styles.checkCell}>
@@ -1472,10 +1540,86 @@ export function ShoppingList({ weeklyRecipes, weeklyServings = {}, extraItems = 
             onClick={e => e.stopPropagation()}
             style={{
               background: '#fff', borderRadius: 12, padding: '1.1rem 1.25rem',
-              width: 'min(92vw, 360px)', boxShadow: '0 12px 40px rgba(0,0,0,0.25)',
+              width: 'min(94vw, 420px)', maxHeight: '85vh', overflowY: 'auto',
+              boxShadow: '0 12px 40px rgba(0,0,0,0.25)',
             }}
           >
             <h3 style={{ margin: '0 0 0.85rem', fontSize: '1.05rem', fontWeight: 700 }}>{itemPopup}</h3>
+
+            {popupMeals.length > 0 && (
+              <div style={{ margin: '0 0 0.85rem' }}>
+                <div style={{ fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.04em', color: '#999', fontWeight: 700, margin: '0 0 0.35rem' }}>
+                  In {popupMeals.length === 1 ? 'meal' : 'meals'}
+                </div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem' }}>
+                  {popupMeals.map((m, mi) => (
+                    <span key={mi} style={{ padding: '0.2rem 0.55rem', borderRadius: 999, background: '#eef1ff', color: '#3b4b8a', fontSize: '0.78rem', fontWeight: 600 }}>{m}</span>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {(() => {
+              const f = popupFields || {};
+              const setF = (k, v) => setPopupFields(prev => ({ ...(prev || {}), [k]: v }));
+              const inputStyle = { width: '100%', padding: '0.4rem', borderRadius: 6, border: '1px solid #ccc', fontSize: '0.85rem', boxSizing: 'border-box' };
+              const labelStyle = { display: 'block', fontSize: '0.72rem', fontWeight: 600, color: '#777', marginBottom: '0.15rem' };
+              return (
+                <div style={{ margin: '0 0 0.2rem' }}>
+                  {!popupRecExisted && (
+                    <p style={{ margin: '0 0 0.7rem', fontSize: '0.8rem', color: '#888', lineHeight: 1.4 }}>
+                      Not in your ingredient database yet — fill in the details below and Save to add it.
+                    </p>
+                  )}
+                  <div style={{ marginBottom: '0.6rem' }}>
+                    <label style={labelStyle}>Brand</label>
+                    <input style={inputStyle} value={f.brand || ''} onChange={e => setF('brand', e.target.value)} placeholder="e.g. Chobani" />
+                  </div>
+                  <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.75rem' }}>
+                    <div style={{ flex: 1 }}>
+                      <label style={labelStyle}>Serving (g)</label>
+                      <input style={inputStyle} value={f.grams || ''} onChange={e => setF('grams', e.target.value)} inputMode="decimal" />
+                    </div>
+                    <div style={{ flex: 1 }}>
+                      <label style={labelStyle}>Measurement</label>
+                      <input style={inputStyle} value={f.measurement || ''} onChange={e => setF('measurement', e.target.value)} placeholder="cup, oz, piece" />
+                    </div>
+                  </div>
+                  <div style={{ fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.04em', color: '#999', fontWeight: 700, margin: '0 0 0.4rem' }}>Nutrition (per serving)</div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem 0.7rem', marginBottom: '0.75rem' }}>
+                    {POPUP_NUTRITION_KEYS.map(k => (
+                      <div key={k}>
+                        <label style={labelStyle}>{FIELD_LABEL[k] || k}</label>
+                        <input style={inputStyle} value={f[k] || ''} onChange={e => setF(k, e.target.value)} inputMode="decimal" />
+                      </div>
+                    ))}
+                  </div>
+                  <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.6rem' }}>
+                    <div style={{ flex: 1 }}>
+                      <label style={labelStyle}>Storage</label>
+                      <input style={inputStyle} value={f.storage || ''} onChange={e => setF('storage', e.target.value)} />
+                    </div>
+                    <div style={{ width: 68 }}>
+                      <label style={labelStyle}>Min days</label>
+                      <input style={inputStyle} value={f.minShelf || ''} onChange={e => setF('minShelf', e.target.value)} inputMode="numeric" />
+                    </div>
+                    <div style={{ width: 68 }}>
+                      <label style={labelStyle}>Max days</label>
+                      <input style={inputStyle} value={f.maxShelf || ''} onChange={e => setF('maxShelf', e.target.value)} inputMode="numeric" />
+                    </div>
+                  </div>
+                  <div style={{ marginBottom: '0.6rem' }}>
+                    <label style={labelStyle}>Processed?</label>
+                    <input style={inputStyle} value={f.processed || ''} onChange={e => setF('processed', e.target.value)} />
+                  </div>
+                  <div style={{ marginBottom: '0.2rem' }}>
+                    <label style={labelStyle}>Notes</label>
+                    <textarea style={{ ...inputStyle, minHeight: 46, resize: 'vertical' }} value={f.notes || ''} onChange={e => setF('notes', e.target.value)} />
+                  </div>
+                  <div style={{ height: 1, background: '#eee', margin: '0.95rem 0 0.9rem' }} />
+                </div>
+              );
+            })()}
 
             <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: '#555', marginBottom: '0.25rem' }}>Section</label>
             <select
@@ -1492,7 +1636,6 @@ export function ShoppingList({ weeklyRecipes, weeklyServings = {}, extraItems = 
             <input
               type="url"
               value={popupLink}
-              autoFocus
               onChange={e => setPopupLink(e.target.value)}
               onKeyDown={e => { if (e.key === 'Enter') saveItemPopup(); if (e.key === 'Escape') setItemPopup(null); }}
               placeholder="https://..."

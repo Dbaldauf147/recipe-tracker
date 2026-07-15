@@ -376,6 +376,22 @@
   white-space: nowrap;
 }
 
+/* Clickable meal bubble — opens the recipe popup. Resets the native <button>
+   look and adds an affordance on hover. */
+.mealBubbleButton {
+  border: none;
+  font-family: inherit;
+  cursor: pointer;
+  transition: filter 0.12s ease, transform 0.12s ease;
+}
+.mealBubbleButton:hover {
+  filter: brightness(0.96);
+  text-decoration: underline;
+}
+.mealBubbleButton:active {
+  transform: translateY(1px);
+}
+
 .sharedSection {
   display: flex;
   flex-direction: column;
