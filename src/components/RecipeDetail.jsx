@@ -2600,7 +2600,7 @@ export function RecipeDetail({ recipe, allTags = [], onSave, onDelete, onBack, o
                 <col style={{ width: '80px' }} />
                 <col style={{ width: '70px' }} />
                 <col style={{ width: '52px' }} />{/* Count */}
-                <col style={{ width: '150px' }} />{/* Unit size + name */}
+                <col style={{ width: '200px' }} />{/* Unit size + name */}
                 <col />
                 {showGHG && <col style={{ width: '50px' }} />}
                 {showShelfLife && <col style={{ width: '95px' }} />}
