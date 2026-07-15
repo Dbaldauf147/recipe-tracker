@@ -2,7 +2,10 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { NutritionPanel, PlateChart, MealScore } from './NutritionPanel';
 import { BarcodeScanner } from './BarcodeScanner';
 import { loadFriends, shareRecipe, getUsername, createShareLink } from '../utils/firestoreSync';
-import { loadIngredients } from '../utils/ingredientsStore';
+import { loadIngredients, setIngredientUnitWeight } from '../utils/ingredientsStore';
+import {
+  UNIT_SIZES, composeUnit, splitUnit, findUnitWeight, defaultUnitWeight,
+} from '../utils/unitWeights';
 import { ingredientMatchScore } from '../utils/ingredientMatch';
 import { VOLUME_TO_ML, WEIGHT_TO_G, SIZE_GRAMS, getSizeGrams } from '../utils/units';
 import { classifyMealType } from '../utils/classifyMealType';
@@ -739,6 +742,11 @@ export function RecipeDetail({ recipe, allTags = [], onSave, onDelete, onBack, o
   const addMenuRef = useRef(null);
   const [convertPopup, setConvertPopup] = useState(null); // { rowIdx, options: [{ qty, unit, label }] }
   const convertPopupRef = useRef(null);
+  // In-progress edits to the count/unit columns, keyed by row index. Cleared
+  // once the ratio is taught so the columns go back to deriving from grams.
+  const [unitDrafts, setUnitDrafts] = useState({});
+  // Bumped after teaching, to re-read the ingredient DB maps.
+  const [dbBump, setDbBump] = useState(0);
   const [activeAutoIdx, setActiveAutoIdx] = useState(-1);
 
   // Compute days since this recipe was last prepared
@@ -801,7 +809,9 @@ export function RecipeDetail({ recipe, allTags = [], onSave, onDelete, onBack, o
     }
     namesList.sort((a, b) => a.localeCompare(b));
     return { dbNotesMap: notes, dbGramsMap: grams, dbMeasurementMap: measurements, dbLinksMap: links, dbNamesSet: names, dbNamesList: namesList, dbRowsByName: rowsByName };
-  }, [ingredientsVersion]);
+    // dbBump re-reads after we teach a unit weight. `ingredientsVersion` only
+    // arrives on the full-page mount — the modal mount doesn't pass it.
+  }, [ingredientsVersion, dbBump]);
 
   function getDbNotes(ingredientName) {
     if (!ingredientName) return null;
@@ -892,6 +902,82 @@ export function RecipeDetail({ recipe, allTags = [], onSave, onDelete, onBack, o
       if (name.includes(search) || search.includes(name)) return link;
     }
     return '';
+  }
+
+  // ── Count units ("133 grams celery" = "2 regular sticks") ──
+  // The count columns TEACH what one unit weighs: grams stay put and the ratio
+  // moves, so typing 4 into a 133 g row means one stick is 33.25 g. The weight
+  // is stored on the shared ingredient DB (unitWeights), not the recipe, so it's
+  // learned once and reused by every recipe, the shopping list and mobile.
+
+  // The DB row backing an ingredient name, or null.
+  function getDbRow(ingredientName) {
+    const search = (ingredientName || '').trim().toLowerCase();
+    if (!search) return null;
+    if (dbRowsByName.has(search)) return dbRowsByName.get(search)[0];
+    for (const [name, rows] of dbRowsByName) {
+      if (name.startsWith(search) || search.startsWith(name)) return rows[0];
+    }
+    for (const [name, rows] of dbRowsByName) {
+      if (name.includes(search) || search.includes(name)) return rows[0];
+    }
+    return null;
+  }
+
+  // Grams this row amounts to, or null when the unit can't reach grams without
+  // a density (cups of celery). Per-ingredient units are consulted BEFORE
+  // WEIGHT_TO_G so "2 sticks celery" isn't priced as butter sticks (113.4 g).
+  function gramsForRow(row) {
+    const qty = parseFraction(row.quantity);
+    if (!(qty > 0)) return null;
+    const m = normalizeUnit(row.measurement || '');
+    const dbRow = getDbRow(row.ingredient);
+    const hit = findUnitWeight(dbRow, m);
+    if (hit?.grams > 0) return qty * hit.grams;
+    if (WEIGHT_TO_G[m] != null) return qty * WEIGHT_TO_G[m];
+    const dbGrams = getDbGrams(row.ingredient);
+    const dbMeas = normalizeUnit(getDbMeasurement(row.ingredient) || '');
+    if (dbGrams > 0 && dbMeas && dbMeas === m) return qty * dbGrams;
+    const sized = getSizeGrams(row.ingredient, m);
+    if (sized > 0) return qty * sized;
+    return null;
+  }
+
+  // What the two count columns should show for a row: the unit it's using and
+  // how many of them its grams work out to.
+  function countInfoFor(row) {
+    const dbRow = getDbRow(row.ingredient);
+    const grams = gramsForRow(row);
+    // Prefer the unit the row is already measured in, else the ingredient's default.
+    const rowUnit = findUnitWeight(dbRow, normalizeUnit(row.measurement || ''));
+    const entry = rowUnit || defaultUnitWeight(dbRow);
+    const { size, name } = splitUnit(entry?.unit || '');
+    const count = (grams != null && entry?.grams > 0)
+      ? String(Math.round((grams / entry.grams) * 10) / 10)
+      : '';
+    return { dbRow, grams, entry, size, name, count, inDb: !!dbRow };
+  }
+
+  // Draft state per row index, so typing stays responsive before the ratio is
+  // written; falls back to the derived values above.
+  const teachTimer = useRef(null);
+  function teachUnit(row, idx, patch) {
+    const info = countInfoFor(row);
+    const base = { count: info.count, size: info.size, name: info.name };
+    const draft = { ...base, ...(unitDrafts[idx] || {}), ...patch };
+    setUnitDrafts(d => ({ ...d, [idx]: draft }));
+    const count = parseFloat(draft.count);
+    const unit = composeUnit(draft.size, draft.name);
+    // Need a real unit, a real count, and grams to divide — otherwise the user
+    // is still mid-entry and there's nothing to learn yet.
+    if (!unit || !(count > 0) || info.grams == null) return;
+    clearTimeout(teachTimer.current);
+    teachTimer.current = setTimeout(() => {
+      if (setIngredientUnitWeight(row.ingredient, unit, info.grams / count)) {
+        setUnitDrafts(d => { const n = { ...d }; delete n[idx]; return n; }); // re-derive
+        setDbBump(v => v + 1);
+      }
+    }, 700);
   }
 
   function isInDb(ingredientName) {
@@ -2513,6 +2599,8 @@ export function RecipeDetail({ recipe, allTags = [], onSave, onDelete, onBack, o
                 <col style={{ width: '65px' }} />
                 <col style={{ width: '80px' }} />
                 <col style={{ width: '70px' }} />
+                <col style={{ width: '52px' }} />{/* Count */}
+                <col style={{ width: '150px' }} />{/* Unit size + name */}
                 <col />
                 {showGHG && <col style={{ width: '50px' }} />}
                 {showShelfLife && <col style={{ width: '95px' }} />}
@@ -2525,6 +2613,8 @@ export function RecipeDetail({ recipe, allTags = [], onSave, onDelete, onBack, o
                   <th style={{ textAlign: 'center' }}>Qty</th>
                   <th style={{ textAlign: 'left' }}>Unit</th>
                   <th style={{ textAlign: 'left' }}>Type</th>
+                  <th style={{ textAlign: 'center' }} title="How many units this amount works out to. Type a number to teach what one unit weighs.">Count</th>
+                  <th style={{ textAlign: 'left' }} title="Unit size, plus an optional name like stick or breast">Unit size</th>
                   <th style={{ textAlign: 'left' }}>Ingredient</th>
                   {showGHG && <th className={styles.colGhg}>GHG</th>}
                   {showShelfLife && <th style={{ textAlign: 'left', fontSize: '0.68rem', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--color-text-muted)' }}>Storage</th>}
@@ -2800,6 +2890,67 @@ export function RecipeDetail({ recipe, allTags = [], onSave, onDelete, onBack, o
                                 </span>
                               )}
                             </td>
+                            {/* Count + unit size. Typing a count teaches what one
+                                unit weighs (grams stay); the weight lands on the
+                                shared ingredient DB, so every recipe and the
+                                shopping list pick it up. */}
+                            {(() => {
+                              const info = countInfoFor(row);
+                              const draft = unitDrafts[i] || {};
+                              const count = draft.count ?? info.count;
+                              const size = draft.size ?? info.size;
+                              const name = draft.name ?? info.name;
+                              const unit = composeUnit(size, name);
+                              const teachable = info.inDb && info.grams != null;
+                              const title = !(row.ingredient || '').trim()
+                                ? ''
+                                : !info.inDb ? 'Add this ingredient to the database first'
+                                  : info.grams == null ? 'Needs a weight — this unit can’t convert to grams'
+                                    : unit && parseFloat(count) > 0
+                                      ? `1 ${unit} = ${Math.round((info.grams / parseFloat(count)) * 10) / 10} g`
+                                      : 'How many of these units this amount is';
+                              return (
+                                <>
+                                  <td className={styles.colCount}>
+                                    <input
+                                      className={styles.countInput}
+                                      type="number"
+                                      min="0"
+                                      step="0.1"
+                                      value={count}
+                                      disabled={!teachable}
+                                      title={title}
+                                      placeholder="—"
+                                      aria-label="Unit count"
+                                      onChange={e => teachUnit(row, i, { count: e.target.value })}
+                                    />
+                                  </td>
+                                  <td className={styles.colUnitSize}>
+                                    <div className={styles.unitSizeCell}>
+                                      <select
+                                        className={styles.unitSizeSelect}
+                                        value={size}
+                                        disabled={!teachable}
+                                        aria-label="Unit size"
+                                        onChange={e => teachUnit(row, i, { size: e.target.value })}
+                                      >
+                                        <option value="">—</option>
+                                        {UNIT_SIZES.map(s => <option key={s} value={s}>{s}</option>)}
+                                      </select>
+                                      <input
+                                        className={styles.unitNameInput}
+                                        type="text"
+                                        value={name}
+                                        disabled={!teachable}
+                                        placeholder="stick"
+                                        aria-label="Unit name"
+                                        onChange={e => teachUnit(row, i, { name: e.target.value })}
+                                      />
+                                    </div>
+                                  </td>
+                                </>
+                              );
+                            })()}
                           </>
                         )}
                       </React.Fragment>
@@ -2848,7 +2999,8 @@ export function RecipeDetail({ recipe, allTags = [], onSave, onDelete, onBack, o
                   </tr>
                   );
                   };
-                  const editSpan = 5 + (showGHG ? 1 : 0) + (showShelfLife ? 2 : 0) + 1;
+                  // drag + qty + unit + type + count + unit size + ingredient (+ optional) + delete
+                  const editSpan = 7 + (showGHG ? 1 : 0) + (showShelfLife ? 2 : 0) + 1;
                   return (
                     <>
                       {mainIdxRows.length > 0 && (

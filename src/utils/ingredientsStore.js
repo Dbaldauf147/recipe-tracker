@@ -1,4 +1,5 @@
 import { saveField, loadUserData } from './firestoreSync';
+import { upsertUnitWeight } from './unitWeights';
 
 const STORAGE_KEY = 'sunday-ingredients-db';
 const ADMIN_UID = import.meta.env.VITE_ADMIN_UID;
@@ -253,6 +254,70 @@ export async function saveIngredientsToFirestore(data) {
   } catch (err) {
     console.error('saveIngredientsToFirestore:', err);
   }
+}
+
+// Cached name → row lookup. The shopping list resolves a DB row per ingredient
+// per recipe, and loadIngredients() re-parses localStorage every call, so the
+// map is kept until the stored JSON actually changes — which makes it
+// self-invalidating on any write (including our own unit-weight teaches).
+let _rowMapRaw = null;
+let _rowMap = null;
+export function ingredientRowByName(name) {
+  let raw = null;
+  try { raw = localStorage.getItem(STORAGE_KEY); } catch { raw = null; }
+  if (raw !== _rowMapRaw || !_rowMap) {
+    _rowMapRaw = raw;
+    _rowMap = new Map();
+    for (const r of (loadIngredients() || [])) {
+      const k = (r.ingredient || '').trim().toLowerCase();
+      if (k && !_rowMap.has(k)) _rowMap.set(k, r);
+    }
+  }
+  return _rowMap.get((name || '').trim().toLowerCase()) || null;
+}
+
+/**
+ * Find the DB row for an ingredient name, using the same exact → prefix →
+ * contains cascade the recipe editor's isInDb uses — so we write to the row the
+ * reader will find. Returns an index into `rows`, or -1.
+ */
+export function findIngredientIndex(rows, ingredientName) {
+  const search = (ingredientName || '').trim().toLowerCase();
+  if (!search || !Array.isArray(rows)) return -1;
+  const nameAt = (i) => (rows[i].ingredient || '').trim().toLowerCase();
+  for (let i = 0; i < rows.length; i++) if (nameAt(i) === search) return i;
+  for (let i = 0; i < rows.length; i++) {
+    const n = nameAt(i);
+    if (n && (n.startsWith(search) || search.startsWith(n))) return i;
+  }
+  for (let i = 0; i < rows.length; i++) {
+    const n = nameAt(i);
+    if (n && (n.includes(search) || search.includes(n))) return i;
+  }
+  return -1;
+}
+
+/**
+ * Teach a count-unit weight ("1 regular stick of celery = 66.5 g") by upserting
+ * it onto that ingredient's `unitWeights`. Shared with the mobile app, which
+ * reads the same field off the same admin doc — see utils/unitWeights.js.
+ *
+ * Returns true when it was written, false when the ingredient isn't in the DB
+ * (nothing to hang the size off — the editor shows its not-in-DB warning).
+ */
+export function setIngredientUnitWeight(ingredientName, unit, grams) {
+  if (!unit || !(grams > 0)) return false;
+  const rows = loadIngredients();
+  if (!Array.isArray(rows)) return false;
+  const idx = findIngredientIndex(rows, ingredientName);
+  if (idx < 0) return false;
+  const next = rows.slice();
+  next[idx] = { ...next[idx], unitWeights: upsertUnitWeight(next[idx].unitWeights, unit, grams) };
+  // Local first so the UI re-reads immediately; Firestore write is fire-and-
+  // forget (it targets the admin doc and already logs its own failures).
+  saveIngredients(next);
+  saveIngredientsToFirestore(next);
+  return true;
 }
 
 /**

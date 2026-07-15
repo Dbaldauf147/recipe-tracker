@@ -1967,6 +1967,59 @@
   min-width: 100px;
 }
 
+/* Count + unit size: "133 grams" ── 2 ── regular stick ── celery.
+   Typing a count teaches what one unit weighs (see unitWeights.js). */
+.colCount {
+  width: 52px;
+  min-width: 52px;
+}
+.colUnitSize {
+  width: 150px;
+  min-width: 150px;
+}
+.countInput {
+  width: 100%;
+  padding: 2px 4px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-family: var(--font-family);
+  font-size: 0.8rem;
+  text-align: center;
+}
+.unitSizeCell {
+  display: flex;
+  gap: 3px;
+}
+.unitSizeSelect {
+  flex: 0 0 62px;
+  min-width: 0;
+}
+.unitNameInput {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.unitSizeSelect,
+.unitNameInput {
+  padding: 2px 3px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-family: var(--font-family);
+  font-size: 0.75rem;
+}
+/* Nothing to hang a size off yet (ingredient not in the DB, or the unit can't
+   reach grams) — stay visible but clearly inert. */
+.countInput:disabled,
+.unitSizeSelect:disabled,
+.unitNameInput:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+  background: var(--color-surface-alt);
+}
+
 .colGrams {
   width: 60px;
   min-width: 60px;

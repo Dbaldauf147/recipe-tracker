@@ -1,7 +1,8 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
-import { loadIngredients, saveIngredientsToFirestore, INGREDIENT_FIELDS } from '../utils/ingredientsStore.js';
+import { loadIngredients, saveIngredientsToFirestore, INGREDIENT_FIELDS, ingredientRowByName } from '../utils/ingredientsStore.js';
 import { saveField, loadField } from '../utils/firestoreSync';
 import { SIZE_GRAMS, WEIGHT_TO_G } from '../utils/units.js';
+import { unitWeightGrams, defaultUnitWeight, pluralizeUnit, normalizeUnitName } from '../utils/unitWeights.js';
 import styles from './ShoppingList.module.css';
 
 // Human labels for every trackable ingredient field, keyed for O(1) lookup.
@@ -649,6 +650,10 @@ function toGrams(qty, measurement, ingredient) {
   if (!qty) return 0;
   const m = (measurement || '').toLowerCase().trim();
   const ing = (ingredient || '').toLowerCase().trim();
+  // Per-ingredient count units win over the generic tables — otherwise
+  // "2 sticks celery" would be priced as butter (WEIGHT_TO_G.stick = 113.4).
+  const uw = unitWeightGrams(ingredientRowByName(ing), qty, m);
+  if (uw != null) return uw;
   if (WEIGHT_TO_G[m] != null) return qty * WEIGHT_TO_G[m];
   const sg = SIZE_GRAMS[ing];
   if (sg) {
@@ -719,11 +724,22 @@ function buildShoppingList(recipes, weeklyServings = {}) {
     }
   }
   // Post-process: for entries with non-null grams, render in a canonical unit.
-  // Items with SIZE_GRAMS (avocado, egg, bell pepper, ...) display as
-  // "N regular"; weight-only items display as grams.
+  // An ingredient you've taught a count unit for (unitWeights, e.g. "1 regular
+  // stick of celery = 66.5 g") keeps its grams AND carries the count alongside,
+  // so the line reads "133 grams (2 regular sticks) celery". Items with only
+  // SIZE_GRAMS still collapse to "N regular"; everything else is grams.
   for (const entry of map.values()) {
     if (entry.grams == null) continue;
     const key = entry.ingredient.toLowerCase().trim();
+    const uwEntry = defaultUnitWeight(ingredientRowByName(key));
+    if (uwEntry?.grams > 0) {
+      const count = Math.round((entry.grams / uwEntry.grams) * 10) / 10;
+      entry.quantity = Math.round(entry.grams);
+      entry.measurement = 'g';
+      entry.unitCount = count;
+      entry.unitLabel = pluralizeUnit(uwEntry.unit, count);
+      continue;
+    }
     const sg = SIZE_GRAMS[key];
     if (sg) {
       const pieces = entry.grams / sg.regular;
@@ -1419,6 +1435,15 @@ export function ShoppingList({ weeklyRecipes, weeklyServings = {}, extraItems = 
                                 style={{ cursor: 'pointer', textDecoration: 'underline', textDecorationStyle: 'dotted', position: 'relative' }}
                               >
                                 {displayUnit || '—'}
+                                {/* "133 grams (2 regular sticks) celery" — the count
+                                    comes from a size taught on a recipe row. Hidden
+                                    when the row is already displayed in that unit. */}
+                                {item.unitCount != null
+                                  && normalizeUnitName(displayUnit) !== normalizeUnitName(item.unitLabel) && (
+                                  <span className={styles.unitCountNote}>
+                                    {' '}({formatQuantity(item.unitCount)} {item.unitLabel})
+                                  </span>
+                                )}
                                 {convertPopup === ingKey && (
                                   <div className={styles.convertDropdown} onClick={e => e.stopPropagation()}>
                                     <div className={styles.convertTitle}>Convert to:</div>
