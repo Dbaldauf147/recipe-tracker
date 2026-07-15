@@ -16,6 +16,7 @@
     { "path": "/api/send-meal-prompt", "schedule": "0 * * * *" },
     { "path": "/api/auto-log-meals", "schedule": "0 9 * * *" },
     { "path": "/api/backup-user-data", "schedule": "0 8 * * *" },
-    { "path": "/api/run-habit-automations", "schedule": "15 * * * *" }
+    { "path": "/api/run-habit-automations", "schedule": "15 * * * *" },
+    { "path": "/api/sync-workout-calendar", "schedule": "30 * * * *" }
   ]
 }

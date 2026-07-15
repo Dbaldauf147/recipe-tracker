@@ -1,11 +1,18 @@
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { RecipeCombobox, DailyTrackerPage, MealsTrackedChart, HistoryChart, ServingsChart, KpiAlerts, DailySupplementsPanel, saveDailyLog } from './DailyTrackerPage';
 import { workoutCalendarCategory, CAL_ICON } from './WorkoutPage';
-import { loadField } from '../utils/firestoreSync';
+import { loadField, saveField } from '../utils/firestoreSync';
 import {
   hasGoogleToken, storeTokenFromPopup, disconnectGoogle,
   openGoogleAuthPopup, fetchGoogleCalendars, fetchGoogleEvents, parseEventDate, SELECTED_KEY,
 } from '../utils/googleCalendar';
+import {
+  SYNC_KINDS, DEFAULT_CALENDAR_SYNC_SETTINGS, normalizeCalendarSyncSettings, previewOrder, minToHHMM,
+} from '../utils/calendarSyncSettings';
+import {
+  DEFAULT_SAUNA_GOAL, MAX_SAUNA_GOAL, normalizeSaunaGoal, normalizeSaunaOverrides,
+  pruneSaunaOverrides, resolveSaunaDates, spreadIndices,
+} from '../utils/saunaPlan';
 import styles from './WeekPlanPage.module.css';
 
 const SLOTS = [
@@ -38,6 +45,11 @@ function loadWorkoutGoals() {
   return DEFAULT_WORKOUT_GOALS;
 }
 
+// The weekly sauna goal lives on the user doc (`saunaGoal`, edited in the ⚙
+// popup) — see utils/saunaPlan.js. Saunas are logged per-workout on the mobile
+// app (Workout.sauna); the Week Plan counts logged days against the goal and
+// suggests saunas on planned workout days to make up the difference.
+
 // Rank workout types by how overdue they are (most overdue first). Effective
 // last-activity = newer of the last logged workout of that type and a manual
 // skip; never done = most overdue. Mirrors WorkoutPage's Workout Type view.
@@ -62,19 +74,8 @@ function rankWorkoutTypesByStaleness(workoutsRaw, workoutTypes, typeSkipDates) {
   });
 }
 
-// Pick `count` evenly-spread positions within [0, len) — used to scatter rest days.
-function spreadIndices(len, count) {
-  const set = new Set();
-  if (count <= 0 || len <= 0) return set;
-  if (count >= len) { for (let i = 0; i < len; i++) set.add(i); return set; }
-  for (let j = 0; j < count; j++) {
-    let idx = Math.min(len - 1, Math.round((j + 0.5) * len / count));
-    while (set.has(idx) && idx < len - 1) idx += 1;
-    while (set.has(idx) && idx > 0) idx -= 1;
-    set.add(idx);
-  }
-  return set;
-}
+// spreadIndices (used below to scatter rest days) now lives in utils/saunaPlan.js
+// alongside the sauna spread that shares it.
 
 // Build the full Sun..Sat (0..6) plan from the staleness ranking + the user's
 // per-day overrides. Most-overdue types fill the earliest auto days; exactly 2
@@ -278,6 +279,16 @@ export function WeekPlanPage({ recipes, getRecipe, user, weeklyPlan = [], weekly
   const [typeSkipDates, setTypeSkipDates] = useState(loadTypeSkipDates);
   const [nutritionGoals, setNutritionGoals] = useState(loadNutritionGoals);
   const [dailyLog, setDailyLog] = useState(loadDailyLog);
+  // Weekly sauna goal + the user's per-day pin/veto decisions (user doc:
+  // `saunaGoal` / `saunaOverrides`). Hydrated below; both feed resolveSaunaDates.
+  const [saunaGoal, setSaunaGoal] = useState(DEFAULT_SAUNA_GOAL);
+  const [saunaOverrides, setSaunaOverrides] = useState({});
+
+  const todayKey = isoDate(new Date());
+  const days = useMemo(
+    () => Array.from({ length: 7 }, (_, i) => isoDate(addDays(weekStart, i))),
+    [weekStart]
+  );
 
   // Logged workouts grouped by date, categorized exactly like the Workout
   // calendar (so the Week Plan shows recorded days the same way).
@@ -285,6 +296,16 @@ export function WeekPlanPage({ recipes, getRecipe, user, weeklyPlan = [], weekly
     () => buildWorkoutsByDate(workoutsRaw, typeCategories),
     [workoutsRaw, typeCategories]
   );
+
+  // Dates with a sauna logged (Workout.sauna, set on the mobile app) — drives
+  // the 🧖 chip shown under the workout cell on the Prepare table.
+  const saunaDates = useMemo(() => {
+    const set = new Set();
+    for (const w of workoutsRaw || []) {
+      if (w?.sauna && w.date) set.add(w.date);
+    }
+    return set;
+  }, [workoutsRaw]);
 
   // Pull the cross-device goals + type-categories like WorkoutCalendarView does,
   // so the seeded layout and recorded categories match even before visiting Workout.
@@ -312,6 +333,12 @@ export function WeekPlanPage({ recipes, getRecipe, user, weeklyPlan = [], weekly
       setTypeSkipDates(remote);
       try { localStorage.setItem('sunday-workout-type-skip-dates', JSON.stringify(remote)); } catch { /* ignore */ }
     }).catch(() => { /* keep local */ });
+    loadField(user.uid, 'saunaGoal').then(remote => {
+      if (!cancelled && remote != null) setSaunaGoal(normalizeSaunaGoal(remote));
+    }).catch(() => { /* keep default */ });
+    loadField(user.uid, 'saunaOverrides').then(remote => {
+      if (!cancelled && remote && typeof remote === 'object') setSaunaOverrides(normalizeSaunaOverrides(remote));
+    }).catch(() => { /* keep default */ });
     return () => { cancelled = true; };
   }, [user?.uid]);
 
@@ -355,21 +382,91 @@ export function WeekPlanPage({ recipes, getRecipe, user, weeklyPlan = [], weekly
     onChangeWorkoutPlan(next);
   }, [weekWorkoutPlan, onChangeWorkoutPlan]);
 
+  // The visible week's planned (non-rest, today-or-later) workout days — the
+  // candidates a suggested sauna can attach to. Mirrors the cron's plannedDates:
+  // a day only counts if the resolved plan gives it a real workout type.
+  const plannedWorkoutDates = useMemo(() => {
+    const out = [];
+    for (const dateStr of days) {
+      if (dateStr < todayKey) continue;
+      const cell = resolvedWorkoutPlan[sundayIndexOf(dateStr)];
+      if (cell?.value && cell.value !== 'rest') out.push(dateStr);
+    }
+    return out;
+  }, [days, resolvedWorkoutPlan, todayKey]);
+
+  // Days in the visible week that already have a sauna logged — they count
+  // against the weekly goal, so the suggestion only tops up the difference.
+  const loggedSaunaWeek = useMemo(() => days.filter(d => saunaDates.has(d)), [days, saunaDates]);
+
+  // The days the goal says should get a sauna. Same helper the cron runs, so the
+  // grid and the synced Google Calendar land on the same days.
+  const suggestedSaunaDates = useMemo(() => resolveSaunaDates({
+    weekDates: days,
+    plannedDates: plannedWorkoutDates,
+    loggedSaunaDays: loggedSaunaWeek,
+    overrides: saunaOverrides,
+    goal: saunaGoal,
+    todayStr: todayKey,
+  }), [days, plannedWorkoutDates, loggedSaunaWeek, saunaOverrides, saunaGoal, todayKey]);
+
+  // Pin a sauna to a day, or veto one the goal suggested. Stored per-date so the
+  // cron honors it too; past decisions are pruned on write.
+  const toggleSaunaDay = useCallback((dateStr) => {
+    const next = pruneSaunaOverrides(
+      { ...saunaOverrides, [dateStr]: !suggestedSaunaDates.has(dateStr) },
+      todayKey
+    );
+    setSaunaOverrides(next);
+    if (user?.uid) saveField(user.uid, 'saunaOverrides', next).catch(() => {});
+  }, [saunaOverrides, suggestedSaunaDates, todayKey, user?.uid]);
+
+  // The 🧖 chip under a workout cell. A logged sauna is a plain (solid) chip;
+  // upcoming days get a clickable chip — dashed when suggested, ghosted when not
+  // — so the weekly goal is visible and adjustable straight from the grid.
+  const renderSaunaChip = useCallback((dateStr) => {
+    if (saunaDates.has(dateStr)) {
+      return <span className={styles.workoutSauna} title="Sauna logged on the mobile app">🧖 Sauna</span>;
+    }
+    if (dateStr < todayKey) return null;
+    const on = suggestedSaunaDates.has(dateStr);
+    const pinned = saunaOverrides[dateStr] === true;
+    const title = on
+      ? (pinned ? 'Sauna pinned to this day — click to remove' : `Suggested to hit your goal of ${saunaGoal} saunas/week — click to remove`)
+      : 'Click to add a sauna this day';
+    return (
+      <button
+        type="button"
+        className={`${styles.workoutSauna} ${on ? styles.saunaSuggested : styles.saunaOff}${pinned ? ` ${styles.saunaPinned}` : ''}`}
+        onClick={(e) => { e.stopPropagation(); toggleSaunaDay(dateStr); }}
+        title={title}
+      >
+        🧖 {on ? 'Sauna' : 'Add'}
+      </button>
+    );
+  }, [saunaDates, suggestedSaunaDates, saunaOverrides, saunaGoal, todayKey, toggleSaunaDay]);
+
   // Render the workout cell for a given date (Prepare table). A recorded workout
   // wins; otherwise show the days-since suggestion with an editable dropdown of
   // your workout types + Rest + Auto. Keyed Sun..Sat.
   const renderDayWorkout = useCallback((dateStr) => {
+    const saunaChip = renderSaunaChip(dateStr);
     const recorded = workoutsByDate.get(dateStr) || [];
     if (recorded.length) {
+      // The chip is a sibling of the open-workouts button, never inside it —
+      // it's a button itself on upcoming days, and buttons can't nest.
       return (
-        <button className={styles.workoutBody} onClick={onOpenWorkout} title="Open workouts" type="button">
-          {recorded.map((it, ii) => (
-            <span key={ii} className={styles.workoutItem}>
-              <span className={styles.workoutIcon}>{CAL_ICON[it.category]}</span>
-              <span className={styles.workoutName}>{it.label || WORKOUT_CAT_META[it.category]?.label || ''}</span>
-            </span>
-          ))}
-        </button>
+        <div className={styles.workoutBody}>
+          <button className={styles.workoutOpen} onClick={onOpenWorkout} title="Open workouts" type="button">
+            {recorded.map((it, ii) => (
+              <span key={ii} className={styles.workoutItem}>
+                <span className={styles.workoutIcon}>{CAL_ICON[it.category]}</span>
+                <span className={styles.workoutName}>{it.label || WORKOUT_CAT_META[it.category]?.label || ''}</span>
+              </span>
+            ))}
+          </button>
+          {saunaChip}
+        </div>
       );
     }
     const idx = sundayIndexOf(dateStr);
@@ -398,9 +495,10 @@ export function WeekPlanPage({ recipes, getRecipe, user, weeklyPlan = [], weekly
           </select>
         </span>
         {cell.isAuto && <span className={styles.workoutAuto}>auto</span>}
+        {saunaChip}
       </div>
     );
-  }, [workoutsByDate, resolvedWorkoutPlan, typeCategories, workoutTypes, setWorkoutCategory, onOpenWorkout]);
+  }, [workoutsByDate, renderSaunaChip, resolvedWorkoutPlan, typeCategories, workoutTypes, setWorkoutCategory, onOpenWorkout]);
 
   // Refresh from localStorage when a Firestore sync hydrates it, or another tab writes.
   useEffect(() => {
@@ -420,12 +518,6 @@ export function WeekPlanPage({ recipes, getRecipe, user, weeklyPlan = [], weekly
       window.removeEventListener('storage', refresh);
     };
   }, []);
-
-  const todayKey = isoDate(new Date());
-  const days = useMemo(
-    () => Array.from({ length: 7 }, (_, i) => isoDate(addDays(weekStart, i))),
-    [weekStart]
-  );
 
   // Daily Supplements (moved here from the Track Meals page) — always today's
   // list. If today hasn't been touched yet, carry forward the most recent prior
@@ -459,6 +551,75 @@ export function WeekPlanPage({ recipes, getRecipe, user, weeklyPlan = [], weekly
   const [showCalPicker, setShowCalPicker] = useState(false);
   const [eventsByDate, setEventsByDate] = useState({});
   const [calLoading, setCalLoading] = useState(false);
+  // Auto-sync planned workouts, saunas and cooking into a dedicated "Prep Day"
+  // Google Calendar via the server cron (needs the calendar scope + a stored
+  // refresh token). `googleCalendarAutoSync` / `googleWorkoutCalendarId` live on
+  // the user doc, as does the per-kind timing in `calendarSyncSettings`.
+  const [autoSyncWorkouts, setAutoSyncWorkouts] = useState(false);
+  const [workoutCalId, setWorkoutCalId] = useState('');
+  const [syncSettings, setSyncSettings] = useState(DEFAULT_CALENDAR_SYNC_SETTINGS);
+  const [syncGearOpen, setSyncGearOpen] = useState(false);
+  const syncGearRef = useRef(null);
+
+  // Hydrate the calendar-sync fields from the user doc. Kept next to their state
+  // so the setters aren't referenced above their declaration.
+  useEffect(() => {
+    if (!user?.uid) return;
+    let cancelled = false;
+    loadField(user.uid, 'googleCalendarAutoSync').then(v => { if (!cancelled) setAutoSyncWorkouts(v === true); }).catch(() => {});
+    loadField(user.uid, 'googleWorkoutCalendarId').then(v => { if (!cancelled && typeof v === 'string') setWorkoutCalId(v); }).catch(() => {});
+    loadField(user.uid, 'calendarSyncSettings').then(v => {
+      if (!cancelled && v && typeof v === 'object') setSyncSettings(normalizeCalendarSyncSettings(v));
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [user?.uid]);
+
+  // Enable/disable auto-sync to the dedicated Google Calendar. Enabling requires
+  // a connected Google account (so a refresh token is stored server-side); if not
+  // connected, kick off the OAuth popup first.
+  const toggleAutoSyncWorkouts = useCallback((next) => {
+    // Enabling always (re)opens Google consent: the cron needs a refresh token
+    // carrying the broader `calendar` scope, which older connections don't have.
+    if (next) openGoogleAuthPopup();
+    setAutoSyncWorkouts(next);
+    if (user?.uid) saveField(user.uid, 'googleCalendarAutoSync', next).catch(() => {});
+  }, [user?.uid]);
+
+  // Close the sync gear popup on an outside click (the popup overlays the grid).
+  useEffect(() => {
+    if (!syncGearOpen) return;
+    const onDown = (e) => { if (syncGearRef.current && !syncGearRef.current.contains(e.target)) setSyncGearOpen(false); };
+    document.addEventListener('mousedown', onDown);
+    return () => document.removeEventListener('mousedown', onDown);
+  }, [syncGearOpen]);
+
+  // Patch one kind's timing. Kept local-first so typing stays responsive; the
+  // write is debounced because number/time inputs fire per keystroke.
+  const syncSaveTimer = useRef(null);
+  const updateSyncSetting = useCallback((kind, patch) => {
+    const next = normalizeCalendarSyncSettings({ ...syncSettings, [kind]: { ...syncSettings[kind], ...patch } });
+    setSyncSettings(next);
+    if (!user?.uid) return;
+    clearTimeout(syncSaveTimer.current);
+    syncSaveTimer.current = setTimeout(() => {
+      saveField(user.uid, 'calendarSyncSettings', next).catch(() => {});
+    }, 600);
+  }, [syncSettings, user?.uid]);
+  useEffect(() => () => clearTimeout(syncSaveTimer.current), []);
+
+  // Weekly sauna goal. Local-first + debounced for the same reason as the timing
+  // fields: the number input fires per keystroke.
+  const saunaGoalTimer = useRef(null);
+  const updateSaunaGoal = useCallback((raw) => {
+    const next = normalizeSaunaGoal(raw);
+    setSaunaGoal(next);
+    if (!user?.uid) return;
+    clearTimeout(saunaGoalTimer.current);
+    saunaGoalTimer.current = setTimeout(() => {
+      saveField(user.uid, 'saunaGoal', next).catch(() => {});
+    }, 600);
+  }, [user?.uid]);
+  useEffect(() => () => clearTimeout(saunaGoalTimer.current), []);
 
   // ── Rally events (pulled from the Rally app's Plans data) ──
   const [rallyByDate, setRallyByDate] = useState({});
@@ -507,6 +668,11 @@ export function WeekPlanPage({ recipes, getRecipe, user, weeklyPlan = [], weekly
       if (e.data?.type === 'google-auth-success') {
         storeTokenFromPopup(e.data);
         setCalConnected(true);
+        // Persist the refresh token server-side so the workout-calendar cron can
+        // sync on your behalf even when the site is closed.
+        if (e.data.refreshToken && user?.uid) {
+          saveField(user.uid, 'googleCalendarRefreshToken', e.data.refreshToken).catch(() => {});
+        }
       } else if (e.data?.type === 'google-auth-error') {
         // Surface the failure instead of letting the popup close silently.
         console.error('Google Calendar auth failed:', e.data.error);
@@ -515,7 +681,7 @@ export function WeekPlanPage({ recipes, getRecipe, user, weeklyPlan = [], weekly
     }
     window.addEventListener('message', onMessage);
     return () => window.removeEventListener('message', onMessage);
-  }, []);
+  }, [user?.uid]);
 
   const loadCalendars = useCallback(async () => {
     const data = await fetchGoogleCalendars();
@@ -631,6 +797,12 @@ export function WeekPlanPage({ recipes, getRecipe, user, weeklyPlan = [], weekly
     setCalConnected(false);
     setCalendars([]);
     setEventsByDate({});
+    // Also stop the server-side workout sync and drop the stored token.
+    setAutoSyncWorkouts(false);
+    if (user?.uid) {
+      saveField(user.uid, 'googleCalendarAutoSync', false).catch(() => {});
+      saveField(user.uid, 'googleCalendarRefreshToken', '').catch(() => {});
+    }
   }
   function toggleCalendar(id) {
     setSelectedCalIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
@@ -668,6 +840,17 @@ export function WeekPlanPage({ recipes, getRecipe, user, weeklyPlan = [], weekly
     }
     return out;
   }, [days, workoutsByDate, todayKey]);
+
+  // Sauna sessions this week = distinct days in the visible week that have at
+  // least one workout with `sauna: true` (logged from the mobile app).
+  const weekSaunas = useMemo(() => {
+    const inWeek = new Set(days);
+    const saunaDays = new Set();
+    for (const w of workoutsRaw || []) {
+      if (w?.sauna && w.date && inWeek.has(w.date)) saunaDays.add(w.date);
+    }
+    return saunaDays.size;
+  }, [workoutsRaw, days]);
 
   // Distribute the "This Week" recipes across the visible week by servings:
   // each recipe fills one day-slot per serving (breakfast recipes → breakfast,
@@ -711,10 +894,6 @@ export function WeekPlanPage({ recipes, getRecipe, user, weeklyPlan = [], weekly
 
   return (
     <div className={styles.container}>
-      <div className={styles.topBar}>
-        <button className={styles.backBtn} onClick={onClose}>&larr; Back</button>
-      </div>
-
       <div className={styles.header}>
         <div className={styles.titleBlock}>
           <h1 className={styles.title}>Week Plan</h1>
@@ -773,6 +952,108 @@ export function WeekPlanPage({ recipes, getRecipe, user, weeklyPlan = [], weekly
           )}
         </div>
 
+        {/* Auto-sync planned workouts, saunas and cooking into a dedicated
+            Google Calendar (server cron). The gear sets each kind's time/length. */}
+        <div className={styles.workoutSyncRow}>
+          <label className={styles.workoutSyncToggle}>
+            <input type="checkbox" checked={autoSyncWorkouts} onChange={e => toggleAutoSyncWorkouts(e.target.checked)} />
+            <span>🏋️ Auto-sync workouts, sauna &amp; cooking to Google Calendar</span>
+          </label>
+          <div className={styles.syncGearWrap} ref={syncGearRef}>
+            <button
+              className={styles.syncGearBtn}
+              onClick={() => setSyncGearOpen(v => !v)}
+              aria-label="Event timing and sauna goal settings"
+              aria-expanded={syncGearOpen}
+              title="Event timing & sauna goal"
+            >⚙</button>
+            {syncGearOpen && (
+              <div className={styles.syncGearPopup}>
+                <div className={styles.syncGearTitle}>Event timing &amp; sauna goal</div>
+                {SYNC_KINDS.map(kind => {
+                  const cfg = syncSettings[kind.key];
+                  const anchors = SYNC_KINDS.filter(k => k.key !== kind.key);
+                  return (
+                    <div key={kind.key} className={styles.syncGearRow}>
+                      <span className={styles.syncGearKind}>{kind.icon} {kind.label}</span>
+                      <select
+                        className={styles.syncGearSelect}
+                        value={cfg.startMode === 'after' ? `after:${cfg.after}` : 'time'}
+                        onChange={e => {
+                          const v = e.target.value;
+                          if (v === 'time') updateSyncSetting(kind.key, { startMode: 'time' });
+                          else updateSyncSetting(kind.key, { startMode: 'after', after: v.slice(6) });
+                        }}
+                        aria-label={`${kind.label} start`}
+                      >
+                        <option value="time">At</option>
+                        {anchors.map(a => (
+                          <option key={a.key} value={`after:${a.key}`}>After {a.label.toLowerCase()}</option>
+                        ))}
+                      </select>
+                      {cfg.startMode === 'time' ? (
+                        <input
+                          type="time"
+                          className={styles.syncGearTime}
+                          value={cfg.time}
+                          onChange={e => updateSyncSetting(kind.key, { time: e.target.value })}
+                          aria-label={`${kind.label} start time`}
+                        />
+                      ) : (
+                        <span className={styles.syncGearChained} title={`Starts when ${cfg.after} ends`}>ends</span>
+                      )}
+                      <input
+                        type="number"
+                        className={styles.syncGearMins}
+                        min="5"
+                        max="720"
+                        step="5"
+                        value={cfg.durationMin}
+                        onChange={e => updateSyncSetting(kind.key, { durationMin: e.target.value })}
+                        aria-label={`${kind.label} length in minutes`}
+                      />
+                      <span className={styles.syncGearUnit}>min</span>
+                    </div>
+                  );
+                })}
+                <div className={styles.syncGearRow}>
+                  <span className={styles.syncGearKind}>🧖 Sauna goal</span>
+                  <input
+                    type="number"
+                    className={styles.syncGearMins}
+                    min="0"
+                    max={MAX_SAUNA_GOAL}
+                    step="1"
+                    value={saunaGoal}
+                    onChange={e => updateSaunaGoal(e.target.value)}
+                    aria-label="Weekly sauna goal"
+                  />
+                  <span className={styles.syncGearUnit}>per week</span>
+                </div>
+                <div className={styles.syncGearPreview}>
+                  A day with all three:{' '}
+                  {previewOrder(syncSettings).map(p => {
+                    const meta = SYNC_KINDS.find(k => k.key === p.key);
+                    return `${meta.icon} ${minToHHMM(p.startMin)}–${minToHHMM(p.endMin)}`;
+                  }).join(' · ')}
+                </div>
+                <div className={styles.syncGearNote}>
+                  Sauna is suggested on your planned workout days — spread across the week until it hits
+                  your goal, with ones you’ve already logged counting toward it. Click a 🧖 chip on the
+                  grid to pin or remove a specific day. Cooking uses the days you’re cooking on the
+                  Prepare grid. A kind chained to something that isn’t on that day falls back to its own time.
+                </div>
+              </div>
+            )}
+          </div>
+          {autoSyncWorkouts && (
+            <span className={styles.workoutSyncHint}>
+              Creates a “Prep Day” calendar and updates it hourly with this &amp; next week’s workouts, saunas and cooking.
+              {' '}<button className={styles.calBtn} onClick={connectCalendar}>Reconnect Google</button> if events don’t appear.
+            </span>
+          )}
+        </div>
+
         {calConnected && showCalPicker && (
           <div className={styles.calPicker}>
             {calendars.length === 0 ? (
@@ -806,6 +1087,24 @@ export function WeekPlanPage({ recipes, getRecipe, user, weeklyPlan = [], weekly
                 </span>
               );
             })}
+            {/* Sauna goal — counts saunas logged from the mobile app's 🧖 toggle,
+                and notes how many more are suggested on upcoming workout days. */}
+            {(() => {
+              const met = weekSaunas >= saunaGoal;
+              const planned = suggestedSaunaDates.size;
+              const title = met
+                ? `Goal met — ${weekSaunas} sauna${weekSaunas === 1 ? '' : 's'} logged this week`
+                : `${weekSaunas} logged this week${planned ? `, ${planned} more suggested on upcoming workout days` : ''}. Set the goal in the ⚙ next to the calendar sync.`;
+              return (
+                <span title={title} className={`${styles.wGoal}${met ? ` ${styles.wGoalMet}` : ''}`}>
+                  <span className={styles.wGoalIcon}>🧖</span>
+                  <span className={styles.wGoalLabel}>Sauna</span>
+                  <span className={styles.wGoalCount}>{weekSaunas}/{saunaGoal}</span>
+                  {met ? <span className={styles.wGoalCheck}>✓</span>
+                    : planned > 0 && <span className={styles.wGoalPlanned}>+{planned}</span>}
+                </span>
+              );
+            })()}
           </div>
         </div>
         <DailySupplementsPanel
