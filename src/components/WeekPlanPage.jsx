@@ -548,9 +548,12 @@ export function WeekPlanPage({ recipes, getRecipe, user, weeklyPlan = [], weekly
   const [selectedCalIds, setSelectedCalIds] = useState(() => {
     try { return JSON.parse(localStorage.getItem(SELECTED_KEY) || '[]'); } catch { return []; }
   });
-  const [showCalPicker, setShowCalPicker] = useState(false);
   const [eventsByDate, setEventsByDate] = useState({});
   const [calLoading, setCalLoading] = useState(false);
+  // Everything Google-Calendar-related lives in one "Google Calendar Integration"
+  // modal: which calendars to show, the auto-sync toggle, and the event timing +
+  // sauna goal. The calendar list needs no collapse in here — there's room.
+  const [calModalOpen, setCalModalOpen] = useState(false);
   // Auto-sync planned workouts, saunas and cooking into a dedicated "Prep Day"
   // Google Calendar via the server cron (needs the calendar scope + a stored
   // refresh token). `googleCalendarAutoSync` / `googleWorkoutCalendarId` live on
@@ -558,8 +561,6 @@ export function WeekPlanPage({ recipes, getRecipe, user, weeklyPlan = [], weekly
   const [autoSyncWorkouts, setAutoSyncWorkouts] = useState(false);
   const [workoutCalId, setWorkoutCalId] = useState('');
   const [syncSettings, setSyncSettings] = useState(DEFAULT_CALENDAR_SYNC_SETTINGS);
-  const [syncGearOpen, setSyncGearOpen] = useState(false);
-  const syncGearRef = useRef(null);
 
   // Hydrate the calendar-sync fields from the user doc. Kept next to their state
   // so the setters aren't referenced above their declaration.
@@ -585,13 +586,13 @@ export function WeekPlanPage({ recipes, getRecipe, user, weeklyPlan = [], weekly
     if (user?.uid) saveField(user.uid, 'googleCalendarAutoSync', next).catch(() => {});
   }, [user?.uid]);
 
-  // Close the sync gear popup on an outside click (the popup overlays the grid).
+  // Esc closes the integration modal (overlay click and × do too).
   useEffect(() => {
-    if (!syncGearOpen) return;
-    const onDown = (e) => { if (syncGearRef.current && !syncGearRef.current.contains(e.target)) setSyncGearOpen(false); };
-    document.addEventListener('mousedown', onDown);
-    return () => document.removeEventListener('mousedown', onDown);
-  }, [syncGearOpen]);
+    if (!calModalOpen) return;
+    const onKey = (e) => { if (e.key === 'Escape') setCalModalOpen(false); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [calModalOpen]);
 
   // Patch one kind's timing. Kept local-first so typing stays responsive; the
   // write is debounced because number/time inputs fire per keystroke.
@@ -686,11 +687,10 @@ export function WeekPlanPage({ recipes, getRecipe, user, weeklyPlan = [], weekly
   const loadCalendars = useCallback(async () => {
     const data = await fetchGoogleCalendars();
     if (data.needsAuth) { setCalConnected(false); return; }
-    if (data.calendars) {
-      setCalendars(data.calendars);
-      if (selectedCalIds.length === 0) setShowCalPicker(true);
-    }
-  }, [selectedCalIds.length]);
+    // The picker used to auto-open when nothing was selected; it's always
+    // visible inside the integration modal now, so there's nothing to reveal.
+    if (data.calendars) setCalendars(data.calendars);
+  }, []);
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -936,39 +936,97 @@ export function WeekPlanPage({ recipes, getRecipe, user, weeklyPlan = [], weekly
           </div>
         )}
 
+        {/* Everything Google-Calendar lives behind this one button. */}
         <div className={styles.calBar}>
-          {!calConnected ? (
-            <button className={styles.calConnectBtn} onClick={connectCalendar}>📅 Connect Google Calendar</button>
-          ) : (
-            <>
-              <button className={styles.calBtn} onClick={() => setShowCalPicker(v => !v)}>
-                {showCalPicker ? 'Hide calendars' : 'Choose calendars'}{selectedCalIds.length ? ` · ${selectedCalIds.length}` : ''}
-              </button>
-              <button className={styles.calBtn} onClick={refreshEvents} disabled={calLoading}>
-                {calLoading ? 'Loading…' : '↻ Refresh'}
-              </button>
-              <button className={styles.calBtn} onClick={disconnectCalendar}>Disconnect</button>
-            </>
-          )}
+          <button
+            className={styles.calConnectBtn}
+            onClick={() => setCalModalOpen(true)}
+            aria-haspopup="dialog"
+          >
+            📅 Google Calendar Integration
+            <span className={styles.calBtnNote}>
+              {!calConnected
+                ? 'Not connected'
+                : [
+                  selectedCalIds.length
+                    ? `${selectedCalIds.length} calendar${selectedCalIds.length === 1 ? '' : 's'} shown`
+                    : 'No calendars shown',
+                  autoSyncWorkouts ? 'syncing' : null,
+                ].filter(Boolean).join(' · ')}
+            </span>
+          </button>
         </div>
 
-        {/* Auto-sync planned workouts, saunas and cooking into a dedicated
-            Google Calendar (server cron). The gear sets each kind's time/length. */}
-        <div className={styles.workoutSyncRow}>
-          <label className={styles.workoutSyncToggle}>
-            <input type="checkbox" checked={autoSyncWorkouts} onChange={e => toggleAutoSyncWorkouts(e.target.checked)} />
-            <span>🏋️ Auto-sync workouts, sauna &amp; cooking to Google Calendar</span>
-          </label>
-          <div className={styles.syncGearWrap} ref={syncGearRef}>
-            <button
-              className={styles.syncGearBtn}
-              onClick={() => setSyncGearOpen(v => !v)}
-              aria-label="Event timing and sauna goal settings"
-              aria-expanded={syncGearOpen}
-              title="Event timing & sauna goal"
-            >⚙</button>
-            {syncGearOpen && (
-              <div className={styles.syncGearPopup}>
+        {calModalOpen && (
+          <div
+            className={styles.modalOverlay}
+            onClick={() => setCalModalOpen(false)}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Google Calendar Integration"
+          >
+            <div className={styles.modalCard} onClick={e => e.stopPropagation()}>
+              <div className={styles.modalHeader}>
+                <h3 className={styles.modalTitle}>📅 Google Calendar Integration</h3>
+                <button className={styles.modalClose} onClick={() => setCalModalOpen(false)} aria-label="Close">×</button>
+              </div>
+
+              {/* 1 — read: whose events show on the Prepare grid. */}
+              <div className={styles.calSection}>
+                <div className={styles.calSectionHead}>
+                  <span className={styles.syncGearTitle}>
+                    Show events on the grid{calConnected && selectedCalIds.length ? ` · ${selectedCalIds.length}` : ''}
+                  </span>
+                  {calConnected && (
+                    <span className={styles.calSectionActions}>
+                      <button className={styles.calBtn} onClick={refreshEvents} disabled={calLoading}>
+                        {calLoading ? 'Loading…' : '↻ Refresh'}
+                      </button>
+                      <button className={styles.calBtn} onClick={disconnectCalendar}>Disconnect</button>
+                    </span>
+                  )}
+                </div>
+                {!calConnected ? (
+                  <>
+                    <div className={styles.syncGearNote}>
+                      Connect Google to show your existing events on the Prepare grid, and to let Prep Day
+                      push your planned workouts, saunas and cooking back to a calendar of its own.
+                    </div>
+                    <button className={styles.calConnectBtn} onClick={connectCalendar}>📅 Connect Google Calendar</button>
+                  </>
+                ) : (
+                  <div className={styles.calPicker}>
+                    {calendars.length === 0 ? (
+                      <span className={styles.emptyHint}>Loading your calendars…</span>
+                    ) : calendars.map(c => (
+                      <label key={c.id} className={styles.calRow}>
+                        <input type="checkbox" checked={selectedCalIds.includes(c.id)} onChange={() => toggleCalendar(c.id)} />
+                        <span className={styles.calColor} style={{ background: c.color }} />
+                        <span className={styles.calName}>{c.name}</span>
+                        {c.primary && <span className={styles.calBadge}>Primary</span>}
+                      </label>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* 2 — write: push the plan out to a dedicated calendar (server cron). */}
+              <div className={styles.calSection}>
+                <div className={styles.syncGearTitle}>Auto-sync the plan out</div>
+                <label className={styles.workoutSyncToggle}>
+                  <input type="checkbox" checked={autoSyncWorkouts} onChange={e => toggleAutoSyncWorkouts(e.target.checked)} />
+                  <span>🏋️ Auto-sync workouts, sauna &amp; cooking to Google Calendar</span>
+                </label>
+                <div className={styles.syncGearNote}>
+                  Creates a “Prep Day” calendar and updates it hourly with this &amp; next week’s workouts,
+                  saunas and cooking. Turning this on asks Google for permission again — that’s expected.
+                  {' '}<button className={styles.calBtn} onClick={connectCalendar}>Reconnect Google</button> if events don’t appear.
+                </div>
+              </div>
+
+              {/* 3 — the settings the old ⚙ held. The sauna goal drives the grid's
+                  suggestions too, so this section shows even when not connected. */}
+              <div className={styles.calSection}>
                 <div className={styles.syncGearTitle}>Event timing &amp; sauna goal</div>
                 {SYNC_KINDS.map(kind => {
                   const cfg = syncSettings[kind.key];
@@ -1044,28 +1102,7 @@ export function WeekPlanPage({ recipes, getRecipe, user, weeklyPlan = [], weekly
                   Prepare grid. A kind chained to something that isn’t on that day falls back to its own time.
                 </div>
               </div>
-            )}
-          </div>
-          {autoSyncWorkouts && (
-            <span className={styles.workoutSyncHint}>
-              Creates a “Prep Day” calendar and updates it hourly with this &amp; next week’s workouts, saunas and cooking.
-              {' '}<button className={styles.calBtn} onClick={connectCalendar}>Reconnect Google</button> if events don’t appear.
-            </span>
-          )}
-        </div>
-
-        {calConnected && showCalPicker && (
-          <div className={styles.calPicker}>
-            {calendars.length === 0 ? (
-              <span className={styles.emptyHint}>Loading your calendars…</span>
-            ) : calendars.map(c => (
-              <label key={c.id} className={styles.calRow}>
-                <input type="checkbox" checked={selectedCalIds.includes(c.id)} onChange={() => toggleCalendar(c.id)} />
-                <span className={styles.calColor} style={{ background: c.color }} />
-                <span className={styles.calName}>{c.name}</span>
-                {c.primary && <span className={styles.calBadge}>Primary</span>}
-              </label>
-            ))}
+            </div>
           </div>
         )}
       </div>
