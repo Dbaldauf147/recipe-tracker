@@ -1500,8 +1500,8 @@ function TrackIngredientInline({ onAdd, onBack }) {
 }
 
 /* ── AI Estimate (restaurant meal) ── */
-function AiEstimateInline({ onAdd, onBack }) {
-  const [description, setDescription] = useState('');
+function AiEstimateInline({ onAdd, onBack, initialDescription = '' }) {
+  const [description, setDescription] = useState(initialDescription);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [result, setResult] = useState(null);
@@ -1639,8 +1639,8 @@ For each ingredient, include a "nutrition" object with estimated calories, prote
   );
 }
 
-/* ── Eating Out (pick a saved restaurant + one of its saved meals) ── */
-function EatingOutInline({ user, onAdd, onBack }) {
+/* ── Eating Out (pick one of your saved spots, then a meal or an estimate) ── */
+function EatingOutInline({ user, onAdd, onBack, onEstimate }) {
   const [restaurants, setRestaurants] = useState(null); // null = loading
   const [query, setQuery] = useState('');
   const [selected, setSelected] = useState(null); // chosen restaurant
@@ -1654,10 +1654,19 @@ function EatingOutInline({ user, onAdd, onBack }) {
     return () => { cancelled = true; };
   }, [user?.uid]);
 
-  // Only spots that actually have saved meals are useful here.
-  const withMeals = (restaurants || []).filter(r => Array.isArray(r.meals) && r.meals.length);
+  const mealCountOf = r => (Array.isArray(r.meals) ? r.meals.length : 0);
+  // Predict from ALL your Eating Out spots — matching name OR any of a spot's
+  // locations — not just ones with saved meals, so every place you've listed
+  // shows up as you type. Spots with saved meals sort first (ready to log with
+  // real macros); the rest fall back to an AI estimate.
+  const spots = restaurants || [];
   const q = query.trim().toLowerCase();
-  const filtered = q ? withMeals.filter(r => (r.name || '').toLowerCase().includes(q)) : withMeals;
+  const matchesQuery = r => !q
+    || (r.name || '').toLowerCase().includes(q)
+    || (Array.isArray(r.locations) && r.locations.some(l => (l || '').toLowerCase().includes(q)));
+  const filtered = spots.filter(matchesQuery).sort((a, b) =>
+    (mealCountOf(a) ? 0 : 1) - (mealCountOf(b) ? 0 : 1) || (a.name || '').localeCompare(b.name || ''),
+  );
 
   function logMeal(restaurant, meal) {
     onAdd({
@@ -1678,35 +1687,41 @@ function EatingOutInline({ user, onAdd, onBack }) {
     });
   }
 
+  const selectedMeals = selected && Array.isArray(selected.meals) ? selected.meals : [];
+
   return (
     <div>
       <button className={styles.trackMenuBack} onClick={onBack}>&larr; Back</button>
       <h4 className={styles.trackMenuSubtitle}>Eating Out</h4>
       {restaurants === null ? (
         <p className={styles.aiEstimateHint}>Loading your spots…</p>
-      ) : withMeals.length === 0 ? (
+      ) : spots.length === 0 ? (
         <p className={styles.aiEstimateHint}>
-          No saved meals yet. Open the Eating Out page, edit a spot, and add meals to it first.
+          No Eating Out spots yet. Add some on the Eating Out page first.
         </p>
       ) : !selected ? (
         <>
-          <p className={styles.aiEstimateHint}>Pick a spot, then choose what you ate.</p>
+          <p className={styles.aiEstimateHint}>Search your spots, then log what you ate.</p>
           <input
             type="text"
             className={styles.eatingOutSearch}
             value={query}
             onChange={e => setQuery(e.target.value)}
             placeholder="Search your spots…"
+            autoFocus
           />
           <div className={styles.eatingOutList}>
-            {filtered.map(r => (
-              <button key={r.id} className={styles.eatingOutSpotBtn} onClick={() => setSelected(r)}>
-                <span className={styles.eatingOutSpotName}>{r.name}</span>
-                <span className={styles.eatingOutSpotCount}>
-                  {r.meals.length} meal{r.meals.length === 1 ? '' : 's'} &rsaquo;
-                </span>
-              </button>
-            ))}
+            {filtered.map(r => {
+              const n = mealCountOf(r);
+              return (
+                <button key={r.id} className={styles.eatingOutSpotBtn} onClick={() => setSelected(r)}>
+                  <span className={styles.eatingOutSpotName}>{r.name}</span>
+                  <span className={styles.eatingOutSpotCount}>
+                    {n ? `${n} meal${n === 1 ? '' : 's'} ` : 'Estimate '}&rsaquo;
+                  </span>
+                </button>
+              );
+            })}
             {filtered.length === 0 && (
               <p className={styles.aiEstimateHint}>No spots match “{query}”.</p>
             )}
@@ -1715,17 +1730,52 @@ function EatingOutInline({ user, onAdd, onBack }) {
       ) : (
         <>
           <button className={styles.trackMenuBack} onClick={() => setSelected(null)}>&larr; {selected.name}</button>
-          <p className={styles.aiEstimateHint}>Tap a meal to log it.</p>
-          <div className={styles.eatingOutList}>
-            {selected.meals.map(m => (
-              <button key={m.id} className={styles.eatingOutMealBtn} onClick={() => logMeal(selected, m)}>
-                <span className={styles.eatingOutMealName}>{m.name}{m.source === 'ai' ? ' ✨' : ''}</span>
-                <span className={styles.eatingOutMealMacros}>
-                  {Math.round(m.calories) || 0} cal · {Math.round(m.protein) || 0}p · {Math.round(m.carbs) || 0}c · {Math.round(m.fat) || 0}f
-                </span>
-              </button>
-            ))}
-          </div>
+          {selectedMeals.length > 0 ? (
+            <>
+              <p className={styles.aiEstimateHint}>Tap a saved meal to log it.</p>
+              <div className={styles.eatingOutList}>
+                {selectedMeals.map(m => (
+                  <button key={m.id} className={styles.eatingOutMealBtn} onClick={() => logMeal(selected, m)}>
+                    <span className={styles.eatingOutMealName}>{m.name}{m.source === 'ai' ? ' ✨' : ''}</span>
+                    <span className={styles.eatingOutMealMacros}>
+                      {Math.round(m.calories) || 0} cal · {Math.round(m.protein) || 0}p · {Math.round(m.carbs) || 0}c · {Math.round(m.fat) || 0}f
+                    </span>
+                  </button>
+                ))}
+              </div>
+              {onEstimate && (
+                <button
+                  className={styles.trackMenuBtn}
+                  style={{ marginTop: '0.5rem' }}
+                  onClick={() => onEstimate(selected.name)}
+                >
+                  <div className={styles.trackMenuBtnInfo}>
+                    <span className={styles.trackMenuBtnLabel}>✨ Estimate a different meal</span>
+                    <span className={styles.trackMenuBtnDesc}>Describe something not saved here</span>
+                  </div>
+                  <span className={styles.trackMenuBtnArrow}>&rsaquo;</span>
+                </button>
+              )}
+            </>
+          ) : (
+            <>
+              <p className={styles.aiEstimateHint}>No saved meals for {selected.name} yet.</p>
+              {onEstimate ? (
+                <button
+                  className={styles.trackMenuBtn}
+                  onClick={() => onEstimate(selected.name)}
+                >
+                  <div className={styles.trackMenuBtnInfo}>
+                    <span className={styles.trackMenuBtnLabel}>✨ Estimate what you ate</span>
+                    <span className={styles.trackMenuBtnDesc}>Get an AI nutrition estimate for this spot</span>
+                  </div>
+                  <span className={styles.trackMenuBtnArrow}>&rsaquo;</span>
+                </button>
+              ) : (
+                <p className={styles.aiEstimateHint}>Add meals to this spot on the Eating Out page first.</p>
+              )}
+            </>
+          )}
         </>
       )}
     </div>
@@ -4008,6 +4058,28 @@ function WeeklyView({ dailyLog, date, recipes, onDayClick, onMoveEntry, onAddToS
               <span className={styles.weeklyColNum}>
                 {day.dayNum}<sup className={styles.weeklyColOrd}>{ordinal(day.dayNum)}</sup>
               </span>
+              {/* Recipes dragged onto this day get a "cooking" tag right here in
+                  the day box (the drop target). */}
+              {mode === 'prepare' && Array.isArray(day.cookRecipes) && day.cookRecipes.length > 0 && (
+                <div className={styles.cookTagWrap}>
+                  {day.cookRecipes.map(id => {
+                    const r = recipes.find(x => x.id === id);
+                    return (
+                      <span key={id} className={styles.cookTag} title={r ? `Cooking ${r.title} this day` : 'Cooking this day'}>
+                        <span className={styles.cookTagName}>🍳 {r ? r.title : 'Recipe'}</span>
+                        {onSetCookRecipes && (
+                          <button
+                            type="button"
+                            className={styles.cookTagRemove}
+                            onClick={(e) => { e.stopPropagation(); onSetCookRecipes(day.dateStr, day.cookRecipes.filter(x => x !== id)); }}
+                            aria-label="Remove from cooking"
+                          >×</button>
+                        )}
+                      </span>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           ))}
 
@@ -4097,6 +4169,9 @@ function WeeklyView({ dailyLog, date, recipes, onDayClick, onMoveEntry, onAddToS
                         }}
                       >
                         <span className={`${styles.weeklyColMeal} ${styles.weeklyColMealClickable} ${item.entry?.autoSuggested ? styles.weeklyColMealSuggested : ''}`}>
+                          {item.entry?.cooked && (
+                            <span className={styles.cookedIcon} title="Cook this on this day" aria-label="Cook this on this day">🍳</span>
+                          )}
                           {item.name}
                           {item.entry?.brand && <span className={styles.entryBrand}>{item.entry.brand}</span>}
                           {item.entry?.autoSuggested && <span className={styles.suggestedTag}>auto</span>}
@@ -5264,6 +5339,9 @@ export function DailyTrackerPage({ recipes, getRecipe, onClose, user, weeklyPlan
           mealSlot: slot,
           timestamp: new Date().toISOString(),
           nutrition,
+          // Only the first day of the run is the day it's actually cooked; the
+          // rest of the forward fill is leftovers.
+          cooked: placed === 0,
         }];
         placed++;
       }
@@ -5838,13 +5916,15 @@ export function DailyTrackerPage({ recipes, getRecipe, onClose, user, weeklyPlan
             ) : addModal.mode === 'ai-estimate' ? (
               <AiEstimateInline
                 onAdd={(entry) => { addEntry(entry, addModal.targetDate, addModal.targetSlot); setAddModal(null); }}
-                onBack={() => setAddModal(prev => ({ ...prev, mode: null }))}
+                onBack={() => setAddModal(prev => ({ ...prev, mode: null, estimatePrefill: undefined }))}
+                initialDescription={addModal.estimatePrefill || ''}
               />
             ) : addModal.mode === 'eating-out' ? (
               <EatingOutInline
                 user={user}
                 onAdd={(entry) => { addEntry(entry, addModal.targetDate, addModal.targetSlot); setAddModal(null); }}
                 onBack={() => setAddModal(prev => ({ ...prev, mode: null }))}
+                onEstimate={(spotName) => setAddModal(prev => ({ ...prev, mode: 'ai-estimate', estimatePrefill: spotName ? `${spotName}: ` : '' }))}
               />
             ) : null}
           </div>
