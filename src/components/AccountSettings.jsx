@@ -7,6 +7,9 @@ import styles from './AccountSettings.module.css';
 // dailyLog, recipes, workoutLog — are handled separately below).
 const BACKUP_FIELDS = [
   'weightLog', 'weeklyPlan', 'weeklyServings', 'planHistory', 'habits',
+  // Habit tracking: the marks (habitLog) + rules/derived state, so a restore
+  // brings back the whole tracker, not just the habit definitions.
+  'habitLog', 'habitAutomations', 'habitLogAuto', 'habitNextLog',
   'bodyStats', 'nutritionGoals', 'reminderSettings', 'groceryCategories',
   'groceryItemSections', 'shopLinks', 'restaurants', 'eatingOutVotes',
   'eatingOutOrder', 'keyIngredients', 'userDiet', 'userLocation',
@@ -195,7 +198,7 @@ export function AccountSettings({ user, onClose }) {
   const [phone, setPhone] = useState('');
   // Per-email day routing: each row is { email, days[] }. A reminder due on a
   // given weekday is sent to every row whose `days` includes that weekday.
-  const [emailSchedules, setEmailSchedules] = useState([{ email: '', days: [...ALL_DAYS] }]);
+  const [emailSchedules, setEmailSchedules] = useState([{ email: '', days: [...ALL_DAYS], cadence: 'weekly', week: 'A' }]);
   const [foodLogReminder, setFoodLogReminder] = useState(false);
   const [foodLogTime, setFoodLogTime] = useState('17:00');
   const [foodLogDays, setFoodLogDays] = useState([0, 1, 2, 3, 4, 5, 6]);
@@ -218,13 +221,15 @@ export function AccountSettings({ user, onClose }) {
       setEmailSchedules(s.emailSchedules.map(r => ({
         email: r?.email || '',
         days: Array.isArray(r?.days) && r.days.length ? [...r.days].sort((a, b) => a - b) : [...ALL_DAYS],
+        cadence: r?.cadence === 'biweekly' ? 'biweekly' : 'weekly',
+        week: r?.week === 'B' ? 'B' : 'A',
       })));
     } else if (Array.isArray(s.emails) && s.emails.length > 0) {
-      setEmailSchedules(s.emails.map(e => ({ email: e, days: [...ALL_DAYS] })));
+      setEmailSchedules(s.emails.map(e => ({ email: e, days: [...ALL_DAYS], cadence: 'weekly', week: 'A' })));
     } else if (s.email) {
-      setEmailSchedules([{ email: s.email, days: [...ALL_DAYS] }]);
+      setEmailSchedules([{ email: s.email, days: [...ALL_DAYS], cadence: 'weekly', week: 'A' }]);
     } else if (user?.email) {
-      setEmailSchedules([{ email: user.email.toLowerCase(), days: [...ALL_DAYS] }]);
+      setEmailSchedules([{ email: user.email.toLowerCase(), days: [...ALL_DAYS], cadence: 'weekly', week: 'A' }]);
     }
     if (s.foodLogReminder) setFoodLogReminder(s.foodLogReminder);
     if (s.foodLogTime) setFoodLogTime(s.foodLogTime);
@@ -256,8 +261,14 @@ export function AccountSettings({ user, onClose }) {
       return { ...r, days: has ? r.days.filter(x => x !== d) : [...r.days, d].sort((a, b) => a - b) };
     }));
   }
+  function updateScheduleCadence(i, cadence) {
+    setEmailSchedules(prev => prev.map((r, j) => (j === i ? { ...r, cadence } : r)));
+  }
+  function updateScheduleWeek(i, week) {
+    setEmailSchedules(prev => prev.map((r, j) => (j === i ? { ...r, week } : r)));
+  }
   function addScheduleRow() {
-    setEmailSchedules(prev => [...prev, { email: '', days: [...ALL_DAYS] }]);
+    setEmailSchedules(prev => [...prev, { email: '', days: [...ALL_DAYS], cadence: 'weekly', week: 'A' }]);
   }
   function removeScheduleRow(i) {
     setEmailSchedules(prev => (prev.length <= 1 ? prev : prev.filter((_, j) => j !== i)));
@@ -274,7 +285,11 @@ export function AccountSettings({ user, onClose }) {
       const days = Array.isArray(r.days) && r.days.length ? [...r.days].sort((a, b) => a - b) : [];
       if (days.length === 0) continue;
       seen.add(email);
-      out.push({ email, days });
+      const cadence = r.cadence === 'biweekly' ? 'biweekly' : 'weekly';
+      const entry = { email, days, cadence };
+      // `week` only matters for biweekly (which alternating week to fire on).
+      if (cadence === 'biweekly') entry.week = r.week === 'B' ? 'B' : 'A';
+      out.push(entry);
     }
     return out;
   }
@@ -446,6 +461,28 @@ export function AccountSettings({ user, onClose }) {
                   );
                 })}
               </div>
+              <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                <span style={{ fontSize: '0.75rem', color: '#666' }}>Frequency</span>
+                <select
+                  value={row.cadence || 'weekly'}
+                  onChange={e => updateScheduleCadence(i, e.target.value)}
+                  style={{ fontSize: '0.75rem', padding: '0.25rem 0.4rem', borderRadius: 6, border: '1px solid #ccc' }}
+                >
+                  <option value="weekly">Every week</option>
+                  <option value="biweekly">Every other week</option>
+                </select>
+                {row.cadence === 'biweekly' && (
+                  <select
+                    value={row.week || 'A'}
+                    onChange={e => updateScheduleWeek(i, e.target.value)}
+                    title="Which alternating week this address fires on"
+                    style={{ fontSize: '0.75rem', padding: '0.25rem 0.4rem', borderRadius: 6, border: '1px solid #ccc' }}
+                  >
+                    <option value="A">Week A</option>
+                    <option value="B">Week B (opposite)</option>
+                  </select>
+                )}
+              </div>
             </div>
           ))}
           <button
@@ -457,7 +494,7 @@ export function AccountSettings({ user, onClose }) {
             + Add another email
           </button>
           <p className={styles.reminderHint} style={{ marginTop: 0 }}>
-            Each address only gets reminders on the days you highlight — e.g. send weekday reminders to one inbox and weekend ones to another. Applies to both meal and weight reminders. Save after changing.
+            Each address only gets reminders on the days you highlight — e.g. send weekday reminders to one inbox and weekend ones to another. Set an address to <strong>every other week</strong> for a biweekly cadence; Week A and Week B fall on opposite weeks, so you can alternate two inboxes. Applies to both meal and weight reminders. Save after changing.
           </p>
         </div>
 

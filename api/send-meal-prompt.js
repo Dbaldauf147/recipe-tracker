@@ -52,11 +52,22 @@ function parseEmails(settings) {
   return [];
 }
 
-// Recipients due to receive a reminder on the given weekday (0=Sun..6=Sat).
-// Per-email `emailSchedules` [{ email, days[] }] take precedence: an address
-// only gets mail on the weekdays it lists. Falls back to the flat `emails`
-// list (all days) when no schedules are configured.
-function recipientsForDay(settings, dow) {
+// Stable "which week is it" parity for biweekly cadence: whole weeks since the
+// Unix epoch, mod 2. 0 = week "A", 1 = week "B". Timezone-stable (uses the ET
+// date key), so a biweekly row fires on the same alternating weeks everywhere.
+function weekParityOf(dateKey) {
+  const [y, m, d] = dateKey.split('-').map(Number);
+  const weeks = Math.floor(Date.UTC(y, m - 1, d) / (7 * 86400000));
+  return weeks % 2; // 0 or 1
+}
+
+// Recipients due to receive a reminder on the given weekday (0=Sun..6=Sat) and
+// week parity (0/1). Per-email `emailSchedules` [{ email, days[], cadence?,
+// week? }] take precedence: an address only gets mail on the weekdays it lists,
+// and biweekly rows only on their matching alternating week ('A'=parity 0,
+// 'B'=parity 1). Falls back to the flat `emails` list (all days) when no
+// schedules are configured.
+function recipientsForDay(settings, dow, parity) {
   const sched = settings?.emailSchedules;
   if (Array.isArray(sched) && sched.length > 0) {
     const out = [];
@@ -65,7 +76,13 @@ function recipientsForDay(settings, dow) {
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) continue;
       const days = Array.isArray(row.days) ? row.days : null;
       // No days specified = every day (treat as unrestricted).
-      if (!days || days.length === 0 || days.includes(dow)) out.push(email);
+      if (days && days.length > 0 && !days.includes(dow)) continue;
+      // Biweekly: skip on the off week. 'A' → even parity, 'B' → odd parity.
+      if (row.cadence === 'biweekly') {
+        const wantParity = row.week === 'B' ? 1 : 0;
+        if (parity !== wantParity) continue;
+      }
+      out.push(email);
     }
     return out;
   }
@@ -198,6 +215,7 @@ export default async function handler(req, res) {
   }
 
   const { hour, dayOfWeek, dateKey } = eastern();
+  const weekParity = weekParityOf(dateKey);
   const summary = { scanned: 0, foodSent: 0, weightSent: 0, foodPushed: 0, weightPushed: 0, errors: [] };
 
   try {
@@ -212,7 +230,7 @@ export default async function handler(req, res) {
       // Push goes to the user's own devices (state-aware, so it suppresses
       // itself when they already logged on another device). Skip the user only
       // when there's no way to reach them at all today.
-      const to = recipientsForDay(s, dayOfWeek);
+      const to = recipientsForDay(s, dayOfWeek, weekParity);
       const pushTokens = getPushTokens(data);
       if (to.length === 0 && pushTokens.length === 0) continue;
 
