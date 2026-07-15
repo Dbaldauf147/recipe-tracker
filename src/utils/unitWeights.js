@@ -82,13 +82,29 @@ export function unitWeightGrams(row, qty, unit) {
   return qty * hit.grams;
 }
 
-// "regular stick" + 2 → "regular sticks". Pluralizes the noun (the last word),
-// so the size qualifier stays put.
+// Text that already carries its own plurality — "stick(s)", "leaves", "sticks".
+// Ingredient/unit names here are often written with an explicit "(s)", so
+// appending another s produces "stick(s)s".
+export function isAlreadyPlural(word) {
+  const w = (word || '').trim();
+  return !w || /\(e?s\)$/i.test(w) || /s$/i.test(w);
+}
+
+// "regular stick" + 2 → "regular sticks". Only the NOUN pluralizes, and only
+// when it's safe to:
+//   - a bare size ("regular", "large") is an adjective, not a noun — "2
+//     regulars" is nonsense, so it's left alone;
+//   - a noun that already reads plural ("stick(s)", "leaves") is left alone;
+//   - exactly one of something stays singular.
 export function pluralizeUnit(unit, count) {
   const u = (unit || '').trim();
   if (!u || Math.abs(count - 1) < 1e-9) return u;
   const parts = u.split(/\s+/);
-  parts[parts.length - 1] += 's';
+  const noun = parts[parts.length - 1];
+  // No noun to pluralize — the whole unit is just a size qualifier.
+  if (parts.length === 1 && UNIT_SIZES.includes(noun.toLowerCase())) return u;
+  if (isAlreadyPlural(noun)) return u;
+  parts[parts.length - 1] = `${noun}s`;
   return parts.join(' ');
 }
 

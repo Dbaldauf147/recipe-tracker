@@ -2,7 +2,7 @@ import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { loadIngredients, saveIngredientsToFirestore, INGREDIENT_FIELDS, ingredientRowByName } from '../utils/ingredientsStore.js';
 import { saveField, loadField } from '../utils/firestoreSync';
 import { SIZE_GRAMS, WEIGHT_TO_G } from '../utils/units.js';
-import { unitWeightGrams, defaultUnitWeight, pluralizeUnit, normalizeUnitName } from '../utils/unitWeights.js';
+import { unitWeightGrams, defaultUnitWeight, pluralizeUnit, normalizeUnitName, isAlreadyPlural, UNIT_SIZES } from '../utils/unitWeights.js';
 import styles from './ShoppingList.module.css';
 
 // Human labels for every trackable ingredient field, keyed for O(1) lookup.
@@ -1411,8 +1411,14 @@ export function ShoppingList({ weeklyRecipes, weeklyServings = {}, extraItems = 
                           const rawUnit = (item.measurement || '').toLowerCase().replace(/\.$/, '');
                           const qty = parseFloat(item.quantity) || 0;
                           let fullUnit = UNIT_FULL[rawUnit] || item.measurement;
-                          // Pluralize if qty > 1 and unit is singular
-                          if (qty > 1 && fullUnit && !fullUnit.endsWith('s') && fullUnit !== 'dash' && fullUnit !== 'pinch') {
+                          // Pluralize if qty > 1 and the unit is a singular noun.
+                          // Skipped for size words (a size is an adjective — "2
+                          // regulars" reads as nonsense) and for text that already
+                          // carries its own plurality, e.g. "stick(s)" → "stick(s)s".
+                          if (qty > 1 && fullUnit
+                            && !isAlreadyPlural(fullUnit)
+                            && !UNIT_SIZES.includes((fullUnit || '').toLowerCase())
+                            && fullUnit !== 'dash' && fullUnit !== 'pinch') {
                             fullUnit = fullUnit + 's';
                           }
                           let displayUnit = fullUnit;
