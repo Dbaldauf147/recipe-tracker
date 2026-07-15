@@ -10,7 +10,10 @@
 //
 // WHAT SYNCS, per day, for the current + next Sunday–Saturday week:
 //   workout — the resolved plan (same staleness ranking + per-day overrides the
-//             Week Plan uses). Non-rest, today-or-future days only.
+//             Week Plan uses). Non-rest, today-or-future days only. A workout's
+//             KIND is its category (weights/cardio/yoga, via
+//             `workoutTypeCategories`), which is what picks its timing row —
+//             so cardio can be a 6am thing and lifting a 6pm one.
 //   sauna   — sauna has no plan of its own (it's only logged after the fact on
 //             mobile), so it's suggested: it rides along with planned workouts,
 //             spread across the week until it tops up to `saunaGoal`, minus any
@@ -155,12 +158,21 @@ function resolveSaunaDates({ weekDates = [], plannedDates = [], loggedSaunaDays 
 }
 
 // ---- Per-kind timing (mirrored from src/utils/calendarSyncSettings.js) ----
-const KIND_KEYS = ['workout', 'sauna', 'cooking'];
+const WORKOUT_KINDS = ['weights', 'cardio', 'yoga'];
+const ANY_WORKOUT = 'workout';
+const KIND_KEYS = [...WORKOUT_KINDS, 'sauna', 'cooking'];
+const isWorkoutKind = (k) => WORKOUT_KINDS.includes(k);
 const DEFAULT_SYNC_SETTINGS = {
-  workout: { startMode: 'time', time: '18:00', after: '', durationMin: 75 },
-  sauna: { startMode: 'after', time: '19:15', after: 'workout', durationMin: 30 },
+  weights: { startMode: 'time', time: '18:00', after: '', durationMin: 75 },
+  cardio: { startMode: 'time', time: '18:00', after: '', durationMin: 75 },
+  yoga: { startMode: 'time', time: '18:00', after: '', durationMin: 75 },
+  sauna: { startMode: 'after', time: '19:15', after: ANY_WORKOUT, durationMin: 30 },
   cooking: { startMode: 'time', time: '17:00', after: '', durationMin: 45 },
 };
+function anchorOptionsFor(key) {
+  if (isWorkoutKind(key)) return KIND_KEYS.filter(k => !isWorkoutKind(k) && k !== key);
+  return [ANY_WORKOUT, ...KIND_KEYS.filter(k => k !== key)];
+}
 const MAX_MIN = 24 * 60 - 1;
 const clamp = (n, lo, hi) => Math.min(hi, Math.max(lo, n));
 function parseHHMM(s) {
@@ -173,11 +185,16 @@ function minToHHMM(min) {
   return `${pad2(Math.floor(v / 60))}:${pad2(v % 60)}`;
 }
 function normalizeSyncSettings(raw) {
+  const src = (raw && typeof raw === 'object') ? raw : {};
+  // Pre-category docs had ONE `workout` entry covering every category.
+  const legacy = (src.workout && typeof src.workout === 'object') ? src.workout : null;
   const out = {};
   for (const key of KIND_KEYS) {
     const d = DEFAULT_SYNC_SETTINGS[key];
-    const v = (raw && typeof raw === 'object' && raw[key] && typeof raw[key] === 'object') ? raw[key] : {};
-    const after = KIND_KEYS.includes(v.after) && v.after !== key ? v.after : d.after;
+    let v = (src[key] && typeof src[key] === 'object') ? src[key] : {};
+    if (legacy && isWorkoutKind(key) && !src[key]) v = legacy;
+    const allowed = anchorOptionsFor(key);
+    const after = allowed.includes(v.after) ? v.after : d.after;
     out[key] = {
       startMode: v.startMode === 'after' && after ? 'after' : 'time',
       time: /^\d{1,2}:\d{2}$/.test(v.time) ? minToHHMM(parseHHMM(v.time)) : d.time,
@@ -186,6 +203,10 @@ function normalizeSyncSettings(raw) {
     };
   }
   return out;
+}
+function resolveAnchor(after, present) {
+  if (after === ANY_WORKOUT) return WORKOUT_KINDS.find(k => present.has(k)) || null;
+  return present.has(after) ? after : null;
 }
 // Start/end minutes for the kinds actually happening on one day. A kind chained
 // to an absent anchor (cooking "after workout" on a rest day) falls back to its
@@ -201,7 +222,10 @@ function resolveDayTimes(settings, presentKinds) {
     if (resolving.has(kind)) return { startMin: parseHHMM(cfg.time), endMin: parseHHMM(cfg.time) + cfg.durationMin };
     resolving.add(kind);
     let startMin = parseHHMM(cfg.time);
-    if (cfg.startMode === 'after' && cfg.after && present.has(cfg.after)) startMin = place(cfg.after).endMin;
+    if (cfg.startMode === 'after' && cfg.after) {
+      const anchor = resolveAnchor(cfg.after, present);
+      if (anchor) startMin = place(anchor).endMin;
+    }
     resolving.delete(kind);
     startMin = clamp(startMin, 0, MAX_MIN - 5);
     out[kind] = { startMin, endMin: clamp(startMin + cfg.durationMin, startMin + 5, MAX_MIN) };
@@ -265,8 +289,11 @@ async function ensureCalendar(accessToken, existingId) {
   return { id: cal.id, created: true, renamed: false };
 }
 
+// Workout events keep the type's own name as the label; the icon comes from its
+// category, matching the Week Plan grid.
+const WORKOUT_ICON = { weights: '🏋️', cardio: '🏃', yoga: '🧘' };
 const titleFor = (kind, label) => (
-  kind === 'workout' ? `🏋️ ${label}`
+  isWorkoutKind(kind) ? `${WORKOUT_ICON[kind]} ${label}`
     : kind === 'sauna' ? '🧖 Sauna'
       : label ? `🍳 Cook: ${label}` : '🍳 Cooking'
 );
@@ -329,6 +356,11 @@ export default async function handler(req, res) {
         const settings = normalizeSyncSettings(data.calendarSyncSettings);
         const workoutTypes = Array.isArray(data.workoutTypes) ? data.workoutTypes : [];
         const typeSkipDates = (data.workoutTypeSkipDates && typeof data.workoutTypeSkipDates === 'object') ? data.workoutTypeSkipDates : {};
+        // type name → 'weights' | 'cardio' | 'yoga'. Drives which timing row a
+        // day's workout uses; anything unmapped is treated as weights (same
+        // fallback the Week Plan's icon uses).
+        const typeCategories = (data.workoutTypeCategories && typeof data.workoutTypeCategories === 'object') ? data.workoutTypeCategories : {};
+        const categoryOf = (type) => (isWorkoutKind(typeCategories[type]) ? typeCategories[type] : 'weights');
         const overrides = (data.weekWorkoutPlan && typeof data.weekWorkoutPlan === 'object') ? data.weekWorkoutPlan : {};
         const saunaGoal = normalizeSaunaGoal(data.saunaGoal);
         const saunaOverrides = normalizeSaunaOverrides(data.saunaOverrides);
@@ -361,7 +393,10 @@ export default async function handler(req, res) {
             const dateStr = weekDates[i];
             if (dateStr < todayStr) continue;            // skip past days
             const val = plan[i]?.value;
-            if (val && val !== 'rest') { workoutByDate[dateStr] = val; plannedDates.push(dateStr); }
+            if (val && val !== 'rest') {
+              workoutByDate[dateStr] = { label: val, kind: categoryOf(val) };
+              plannedDates.push(dateStr);
+            }
           }
 
           // Sauna rides along with workouts, topping up to the user's weekly
@@ -403,12 +438,13 @@ export default async function handler(req, res) {
         for (const date of dates) {
           if (date < windowStart || date > windowEndStr) continue;
           const present = [];
-          if (workoutByDate[date]) present.push('workout');
+          // A workout's kind IS its category, so it picks up that row's timing.
+          if (workoutByDate[date]) present.push(workoutByDate[date].kind);
           if (saunaDates.has(date)) present.push('sauna');
           if (cookByDate[date]) present.push('cooking');
           const times = resolveDayTimes(settings, present);
           for (const kind of present) {
-            const label = kind === 'workout' ? workoutByDate[date] : kind === 'cooking' ? cookByDate[date] : '';
+            const label = isWorkoutKind(kind) ? workoutByDate[date].label : kind === 'cooking' ? cookByDate[date] : '';
             desired[`${date}|${kind}`] = {
               date, kind, label,
               title: titleFor(kind, label),
@@ -449,8 +485,12 @@ export default async function handler(req, res) {
         for (const ev of (listed.items || [])) {
           const date = ev.start?.date || (ev.start?.dateTime || '').slice(0, 10);
           if (!date) continue;
-          // Events written before multi-kind support carry no prepDayKind.
-          const kind = ev.extendedProperties?.private?.prepDayKind || 'workout';
+          // Events written before multi-kind support carry no prepDayKind; ones
+          // written before per-category timing are tagged 'workout'. Both re-key
+          // to that day's category so they're PATCHed in place rather than
+          // deleted and recreated (which would churn event ids).
+          const raw = ev.extendedProperties?.private?.prepDayKind || ANY_WORKOUT;
+          const kind = raw === ANY_WORKOUT ? (workoutByDate[date]?.kind || ANY_WORKOUT) : raw;
           existing.set(`${date}|${kind}`, ev);
         }
 
@@ -458,7 +498,7 @@ export default async function handler(req, res) {
         for (const [key, want] of Object.entries(desired)) {
           const ev = existing.get(key);
           const priv = { prepDayWorkout: 'true', prepDayKind: want.kind };
-          if (want.kind === 'workout') priv.workoutType = want.label;
+          if (isWorkoutKind(want.kind)) priv.workoutType = want.label;
           const body = {
             summary: want.title,
             ...timedSlot(want.date, want.startMin, want.endMin),
@@ -475,8 +515,10 @@ export default async function handler(req, res) {
           const isAllDay = !!ev.start?.date; // legacy all-day event → re-time it
           const timeMismatch = hhmm(ev.start?.dateTime) !== minToHHMM(want.startMin)
             || hhmm(ev.end?.dateTime) !== minToHHMM(want.endMin);
+          // A legacy 'workout'-tagged event re-keyed above lands here with the
+          // old tag, so this also re-tags it with its category.
           const tagMismatch = ev.extendedProperties?.private?.prepDayKind !== want.kind
-            || (want.kind === 'workout' && ev.extendedProperties?.private?.workoutType !== want.label);
+            || (isWorkoutKind(want.kind) && ev.extendedProperties?.private?.workoutType !== want.label);
           if (ev.summary !== want.title || tagMismatch || isAllDay || timeMismatch) {
             await gcal(accessToken, `/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(ev.id)}`, {
               method: 'PATCH',

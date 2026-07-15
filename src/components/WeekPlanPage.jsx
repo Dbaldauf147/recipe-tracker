@@ -7,7 +7,8 @@ import {
   openGoogleAuthPopup, fetchGoogleCalendars, fetchGoogleEvents, parseEventDate, SELECTED_KEY,
 } from '../utils/googleCalendar';
 import {
-  SYNC_KINDS, DEFAULT_CALENDAR_SYNC_SETTINGS, normalizeCalendarSyncSettings, previewOrder, minToHHMM,
+  SYNC_KINDS, WORKOUT_KINDS, ANY_WORKOUT, DEFAULT_CALENDAR_SYNC_SETTINGS,
+  normalizeCalendarSyncSettings, anchorOptionsFor, previewOrder, minToHHMM,
 } from '../utils/calendarSyncSettings';
 import {
   DEFAULT_SAUNA_GOAL, MAX_SAUNA_GOAL, normalizeSaunaGoal, normalizeSaunaOverrides,
@@ -1030,7 +1031,6 @@ export function WeekPlanPage({ recipes, getRecipe, user, weeklyPlan = [], weekly
                 <div className={styles.syncGearTitle}>Event timing &amp; sauna goal</div>
                 {SYNC_KINDS.map(kind => {
                   const cfg = syncSettings[kind.key];
-                  const anchors = SYNC_KINDS.filter(k => k.key !== kind.key);
                   return (
                     <div key={kind.key} className={styles.syncGearRow}>
                       <span className={styles.syncGearKind}>{kind.icon} {kind.label}</span>
@@ -1045,8 +1045,12 @@ export function WeekPlanPage({ recipes, getRecipe, user, weeklyPlan = [], weekly
                         aria-label={`${kind.label} start`}
                       >
                         <option value="time">At</option>
-                        {anchors.map(a => (
-                          <option key={a.key} value={`after:${a.key}`}>After {a.label.toLowerCase()}</option>
+                        {anchorOptionsFor(kind.key).map(a => (
+                          <option key={a} value={`after:${a}`}>
+                            After {a === ANY_WORKOUT
+                              ? 'the workout'
+                              : SYNC_KINDS.find(k => k.key === a).label.toLowerCase()}
+                          </option>
                         ))}
                       </select>
                       {cfg.startMode === 'time' ? (
@@ -1088,18 +1092,29 @@ export function WeekPlanPage({ recipes, getRecipe, user, weeklyPlan = [], weekly
                   />
                   <span className={styles.syncGearUnit}>per week</span>
                 </div>
+                {/* One line per workout category — now that the three can be
+                    timed apart, a single example day wouldn't show the split. */}
                 <div className={styles.syncGearPreview}>
-                  A day with all three:{' '}
-                  {previewOrder(syncSettings).map(p => {
-                    const meta = SYNC_KINDS.find(k => k.key === p.key);
-                    return `${meta.icon} ${minToHHMM(p.startMin)}–${minToHHMM(p.endMin)}`;
-                  }).join(' · ')}
+                  {WORKOUT_KINDS.map(wk => {
+                    const wkMeta = SYNC_KINDS.find(k => k.key === wk);
+                    return (
+                      <div key={wk} className={styles.syncGearPreviewRow}>
+                        <span className={styles.syncGearPreviewLabel}>{wkMeta.label} day</span>
+                        {previewOrder(syncSettings, wk).map(p => {
+                          const meta = SYNC_KINDS.find(k => k.key === p.key);
+                          return `${meta.icon} ${minToHHMM(p.startMin)}–${minToHHMM(p.endMin)}`;
+                        }).join(' · ')}
+                      </div>
+                    );
+                  })}
                 </div>
                 <div className={styles.syncGearNote}>
-                  Sauna is suggested on your planned workout days — spread across the week until it hits
-                  your goal, with ones you’ve already logged counting toward it. Click a 🧖 chip on the
-                  grid to pin or remove a specific day. Cooking uses the days you’re cooking on the
-                  Prepare grid. A kind chained to something that isn’t on that day falls back to its own time.
+                  Each workout uses its category’s time — a type counts as Weights, Cardio or Yoga based
+                  on how it’s categorized on the Workout page. Sauna is suggested on your planned workout
+                  days, spread across the week until it hits your goal, with ones you’ve already logged
+                  counting toward it; click a 🧖 chip on the grid to pin or remove a day. Cooking uses the
+                  days you’re cooking on the Prepare grid. A kind chained to something that isn’t on that
+                  day falls back to its own time.
                 </div>
               </div>
             </div>

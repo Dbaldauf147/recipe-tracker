@@ -270,6 +270,20 @@
   color: var(--color-text-secondary);
   border-top: 1px solid var(--color-border-light);
   padding-top: 0.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+/* One example day per workout category. */
+.syncGearPreviewRow {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
+}
+.syncGearPreviewLabel {
+  min-width: 72px;
+  font-weight: 700;
+  color: var(--color-text-muted);
 }
 .syncGearNote {
   font-size: var(--font-size-xs);
