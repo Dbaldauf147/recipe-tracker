@@ -62,6 +62,9 @@ async function safeOverwriteDoc({ uid, type, ref, field, value, count, extract }
 // Important user-doc array/object fields that get the snapshot-on-shrink guard.
 const GUARDED_FIELDS = new Set([
   'weightLog', 'weeklyPlan', 'weeklyServings', 'planHistory', 'habits',
+  // Habit tracking: habitLog is the irreplaceable daily ✓/✕ history and
+  // habitAutomations are user-authored rules — both snapshot on shrink.
+  'habitLog', 'habitAutomations',
   'groceryCategories', 'groceryItemSections', 'shopLinks', 'restaurants',
   'eatingOutVotes', 'eatingOutOrder', 'customGridWidgets', 'keyIngredients',
   'ingredientsDb', 'catLayout', 'hiddenCategories', 'friends',
@@ -69,7 +72,8 @@ const GUARDED_FIELDS = new Set([
 ]);
 // Fields where going from many → 0 in one write is always a bug (block it).
 // (weeklyPlan is intentionally NOT here — "clear week" legitimately empties it.)
-const NEVER_EMPTY_FIELDS = new Set(['weightLog', 'habits', 'ingredientsDb']);
+// habitLog: there's no "clear all marks" feature, so many → 0 is always a bug.
+const NEVER_EMPTY_FIELDS = new Set(['weightLog', 'habits', 'ingredientsDb', 'habitLog']);
 
 function itemCount(v) {
   if (Array.isArray(v)) return v.length;
@@ -273,6 +277,18 @@ export async function saveField(uid, field, value) {
     return saveWorkoutLogToFirestore(uid, value);
   }
   return guardUserField(uid, field, value);
+}
+
+// Per-cell auto-tracking status ("why a habit was / wasn't auto-recorded"),
+// written by the run-habit-automations cron to users/{uid}/data/habitAutoStatus.
+// Shape: { [periodKey]: { [habitId]: { reason, source, trigger, day, at } } }.
+export async function loadHabitAutoStatus(uid) {
+  try {
+    const snap = await getDoc(doc(db, 'users', uid, 'data', 'habitAutoStatus'));
+    return snap.exists() ? (snap.data().status || {}) : {};
+  } catch {
+    return {};
+  }
 }
 
 // Read a single top-level field off the user doc. Returns undefined when the
@@ -2244,7 +2260,20 @@ export async function recordLogin(uid) {
  */
 export async function loadAllUsers() {
   const snap = await getDocs(collection(db, 'users'));
-  return snap.docs.map(d => ({ uid: d.id, ...d.data() }));
+  const users = snap.docs.map(d => ({ uid: d.id, ...d.data() }));
+  // Recipes live in the users/{uid}/data/recipes subcollection now, so the main
+  // doc's `recipes` field is empty ([]) for every migrated user — which made the
+  // admin dashboard report 0 recipes. Backfill each user's recipes from the
+  // subcollection (parallel; falls back to any legacy inline array) so counts,
+  // source breakdowns and cleanup logic are accurate again.
+  await Promise.all(users.map(async (u) => {
+    try {
+      const rSnap = await getDoc(doc(db, 'users', u.uid, 'data', 'recipes'));
+      const sub = rSnap.exists() ? (rSnap.data().recipes || []) : null;
+      if (Array.isArray(sub) && sub.length > 0) u.recipes = sub;
+    } catch { /* keep any inline recipes */ }
+  }));
+  return users;
 }
 
 /**

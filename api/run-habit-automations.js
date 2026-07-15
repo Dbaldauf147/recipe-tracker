@@ -7,6 +7,12 @@
 // still marks the day it belongs to). When the trigger is satisfied, the rule's
 // habit is marked for that day's cadence period in `habitLog`.
 //
+// REST-DAY / "otherwise" MARK: a daily rule may set `elseMark` — the mark to
+// apply when the trigger did NOT fire on a day that's already over (the
+// look-back day). e.g. a "workout logged → Did it" rule with elseMark 'skipped'
+// auto-logs a rest day (no workout) as a Skip. Never applied to today (activity
+// may still come) or to non-daily cadences (a past day isn't a finished period).
+//
 // SOURCES:
 //   - 'prepday'   → evaluated here (reads dailyLog / weightLog / workouts).
 //   - 'rally'     → evaluated here by calling the Rally reach-out bridge
@@ -24,6 +30,11 @@
 // SAFETY / IDEMPOTENCY:
 //   - Only fills an EMPTY habitLog cell. Never overwrites a mark the user (or a
 //     prior run) already set, so re-runs are no-ops and manual marks always win.
+//   - RESPECTS MANUAL ERASES: if the engine auto-set a cell before (it's still
+//     recorded in habitLogAuto) but the cell is now empty in habitLog, the user
+//     cleared it on purpose — so we leave it empty instead of refilling it every
+//     hour. Each new period (week/month/…) starts fresh, so auto-logging still
+//     fires next period unless that cell is erased too.
 //   - Never shrinks habitLog: it reads the current map, adds keys, writes back.
 //   - Natural opt-in: a user with no enabled prepday rules is skipped entirely.
 //
@@ -49,6 +60,26 @@ const db = getFirestore();
 
 const MAIN_SLOTS = ['breakfast', 'lunch', 'dinner'];
 const VALID_MARKS = new Set(['exceeded', 'done', 'skipped', 'missed']);
+
+// Human-readable status recorded per auto-evaluated cell so the app can show,
+// on hover, WHY a habit was or wasn't auto-recorded for that period.
+const STATUS_KEEP_DAYS = 90;
+const MARK_LABELS = { exceeded: 'Exceeded', done: 'Did it', skipped: 'Skipped', missed: 'Missed' };
+const markLabel = (m) => MARK_LABELS[m] || m;
+const srcLabel = (s) => (s === 'rally' ? 'Rally' : s === 'gratitude' ? 'Gratitude' : 'the source');
+// Positive/negative phrasing for each trigger, used to build the reason string.
+function triggerPhrasing(rule) {
+  switch (rule.trigger) {
+    case 'meal_logged': return { pos: 'A meal was logged', neg: 'No meal was logged', noun: 'meals' };
+    case 'all_meals_logged': return { pos: 'All 3 meals were logged', neg: 'Not all meals were logged', noun: 'meals' };
+    case 'recipe_prepped': return { pos: 'A planned recipe was prepped', neg: 'No recipe was prepped', noun: 'meal prep' };
+    case 'weighin_logged': return { pos: 'A weigh-in was recorded', neg: 'No weigh-in was recorded', noun: 'weigh-ins' };
+    case 'workout_logged': return { pos: 'A workout was logged', neg: 'No workout was logged', noun: 'workouts' };
+    case 'reach_out_goal': return { pos: 'Reach-out goal met', neg: "Reach-out goal wasn't met", noun: 'reach-outs' };
+    case 'gratitude_goal': return { pos: 'Gratitude goal met', neg: "Gratitude goal wasn't met", noun: 'gratitude entries' };
+    default: return { pos: 'Trigger met', neg: 'Trigger not met', noun: 'this' };
+  }
+}
 
 const pad2 = (n) => String(n).padStart(2, '0');
 
@@ -87,11 +118,25 @@ function isoWeekKeyFromYMD(y, m, d) {
   return `${date.getUTCFullYear()}-W${pad2(week)}`;
 }
 
+// Sunday-anchored WEEK KEY — mirrors HabitsPage.weekKey. Keeps the "YYYY-Www"
+// format but groups a Sunday→Saturday week into one key (ISO week of the day
+// AFTER), so a Sunday weigh-in counts for the week it STARTS. Aligns weekly
+// habits with the app's Sun–Sat weeks (Week Plan).
+function sundayWeekKeyFromYMD(y, m, d) {
+  const nx = new Date(Date.UTC(y, m - 1, d + 1)); // day after (handles month/year rollover)
+  return isoWeekKeyFromYMD(nx.getUTCFullYear(), nx.getUTCMonth() + 1, nx.getUTCDate());
+}
+// Sunday-week key for a 'YYYY-MM-DD' date string.
+function weekKeyOfDate(dateStr) {
+  const [y, m, d] = String(dateStr).split('-').map(Number);
+  return sundayWeekKeyFromYMD(y, m, d);
+}
+
 // The habitLog bucket key for a habit's current cadence period — mirrors
 // HabitsPage.periodKey, computed from the Eastern y/m/d.
 function periodKeyFor(cadence, { y, m, d, dateKey }) {
   switch ((cadence || '').trim().toLowerCase()) {
-    case 'weekly': return isoWeekKeyFromYMD(y, m, d);
+    case 'weekly': return sundayWeekKeyFromYMD(y, m, d);
     case 'monthly': return `${y}-${pad2(m)}`;
     case 'annually': return String(y);
     default: return dateKey; // daily
@@ -114,13 +159,23 @@ function mainSlotsCovered(day) {
 
 // Evaluate a single prepday trigger against the day's data. Returns true/false,
 // or null when the trigger can't be evaluated server-side (custom, etc.).
-function evalPrepdayTrigger(trigger, ctx) {
+// `habit` lets period-spanning cadences scan their whole period: a WEEKLY
+// weigh-in habit counts if ANY weigh-in falls in the Sun–Sat week (not just the
+// exact processed day) — matching "scan the whole week for a weigh-in".
+function evalPrepdayTrigger(trigger, ctx, habit) {
   const { day, weightLog, dateKey, workoutsForDay } = ctx;
+  const cadence = (habit?.cadence || '').trim().toLowerCase();
   switch (trigger) {
     case 'meal_logged': return (day?.entries || []).length > 0;
     case 'all_meals_logged': return mainSlotsCovered(day) >= 3;
     case 'recipe_prepped': return Array.isArray(day?.cookRecipes) && day.cookRecipes.length > 0;
-    case 'weighin_logged': return (weightLog || []).some(e => e && e.date === dateKey);
+    case 'weighin_logged': {
+      if (cadence === 'weekly') {
+        const wk = weekKeyOfDate(dateKey);
+        return (weightLog || []).some(e => e?.date && weekKeyOfDate(e.date) === wk);
+      }
+      return (weightLog || []).some(e => e && e.date === dateKey);
+    }
     case 'workout_logged': return (workoutsForDay?.() || []).length > 0;
     default: return null; // 'custom' / unknown → not machine-evaluable
   }
@@ -167,8 +222,8 @@ export default async function handler(req, res) {
   const DAYS = [when, easternYesterday(when)];
   const summary = {
     scanned: 0, usersWithRules: 0, usersMarked: 0, marksApplied: 0,
-    rulesEvaluated: 0, triggersFired: 0, cellsAlreadySet: 0,
-    unsupported: 0, dryRun,
+    rulesEvaluated: 0, triggersFired: 0, elseMarksApplied: 0, cellsAlreadySet: 0,
+    erasesRespected: 0, unsupported: 0, dryRun,
   };
 
   // Rally reach-out count per date, fetched at most once per date per run (the
@@ -261,6 +316,20 @@ export default async function handler(req, res) {
       const nextAuto = { ...habitLogAuto };
       let changed = 0;
 
+      // Per-cell auto-status ("why it was / wasn't recorded"), stored in its own
+      // subcollection doc to keep the user doc lean. Preserve prior runs' entries
+      // (older cells stay explained) and prune anything past STATUS_KEEP_DAYS.
+      let autoStatus = {};
+      try {
+        const sSnap = await db.doc(`users/${uid}/data/habitAutoStatus`).get();
+        autoStatus = sSnap.exists ? (sSnap.data().status || {}) : {};
+      } catch { autoStatus = {}; }
+      const nextStatus = JSON.parse(JSON.stringify(autoStatus));
+      // Today is processed before yesterday; for non-daily cadences both map to
+      // the same period key, so this set keeps today's (fresher) status.
+      const statusTouched = new Set();
+      const nowIso = new Date().toISOString();
+
       // Today first, then yesterday. Each day fills its own cadence-period cell
       // from that day's data; the empty-cell guard makes both passes idempotent.
       for (const dayCtx of DAYS) {
@@ -280,30 +349,126 @@ export default async function handler(req, res) {
             const grat = await getGratitude(dayCtx.dateKey);
             fired = grat ? evalGratitudeTrigger(rule, grat) : null; // null → Gratitude unreachable
           } else {
-            fired = evalPrepdayTrigger(rule.trigger, ctx);
+            fired = evalPrepdayTrigger(rule.trigger, ctx, habit);
           }
-          if (fired === null) { summary.unsupported++; continue; }
-          if (!fired) continue;
-          summary.triggersFired++;
-
-          const mark = VALID_MARKS.has(rule.mark) ? rule.mark : 'done';
           const key = periodKeyFor(habit.cadence, dayCtx);
+          const cadence = (habit.cadence || '').trim().toLowerCase();
+          const isDaily = !['weekly', 'monthly', 'annually'].includes(cadence);
+          const dayIsOver = dayCtx.dateKey !== when.dateKey; // look-back day, not today
+          const phr = triggerPhrasing(rule);
+
+          // Records the "why" for this cell unless today already wrote it (today
+          // runs first, so its status wins for a shared non-daily period key).
+          const recordStatus = (reason) => {
+            const tk = `${key}|${rule.habitId}`;
+            if (statusTouched.has(tk)) return;
+            statusTouched.add(tk);
+            nextStatus[key] = { ...(nextStatus[key] || {}), [rule.habitId]: { reason, source: rule.source, trigger: rule.trigger, day: dayCtx.dateKey, at: nowIso } };
+          };
+
+          // Trigger couldn't be evaluated (source unreachable / custom rule).
+          if (fired === null) {
+            summary.unsupported++;
+            recordStatus(rule.source === 'rally' || rule.source === 'gratitude'
+              ? `Couldn't reach ${srcLabel(rule.source)} to check ${phr.noun}`
+              : `${phr.noun === 'this' ? 'This trigger' : phr.noun} can't be auto-checked`);
+            continue;
+          }
+
+          // The mark to write. A fired trigger uses the rule's mark. If it did
+          // NOT fire, a daily rule with an `elseMark` (e.g. "rest day → Skip")
+          // marks the elseMark instead — but ONLY for a day that's already over
+          // (the look-back day, never today), since today's workout/meal/etc.
+          // may still be logged later. Non-daily cadences are skipped: a single
+          // past day isn't a finished week/month, so "no trigger yet" ≠ missed.
+          let mark;
+          if (fired) {
+            summary.triggersFired++;
+            mark = VALID_MARKS.has(rule.mark) ? rule.mark : 'done';
+          } else {
+            if (isDaily && dayIsOver && VALID_MARKS.has(rule.elseMark)) {
+              mark = rule.elseMark;
+              summary.elseMarksApplied++;
+            } else {
+              recordStatus(dayIsOver ? `${phr.neg} → not recorded` : `${phr.neg} yet — this ${isDaily ? 'day' : 'period'} isn't over`);
+              continue;
+            }
+          }
+
+          const isElse = !fired;
           const bucket = { ...(nextLog[key] || {}) };
-          if (bucket[rule.habitId] !== undefined) { summary.cellsAlreadySet++; continue; }
+          if (bucket[rule.habitId] !== undefined) {
+            summary.cellsAlreadySet++;
+            const wasAuto = habitLogAuto[key]?.[rule.habitId] !== undefined;
+            recordStatus(wasAuto
+              ? `${isElse ? phr.neg : phr.pos} → ${markLabel(mark)}${isElse ? ' (rest day)' : ''}`
+              : 'You recorded this yourself');
+            continue;
+          }
+          // Respect a manual erase: an empty cell that the engine previously
+          // auto-set (still recorded in the persisted habitLogAuto) was cleared
+          // by the user on purpose — don't refill it. `habitLogAuto` is the
+          // original persisted map, so this only catches erases from prior runs.
+          if (habitLogAuto[key]?.[rule.habitId] !== undefined) {
+            summary.erasesRespected++;
+            recordStatus('You cleared this — left empty');
+            continue;
+          }
           bucket[rule.habitId] = mark;
           nextLog[key] = bucket;
           nextAuto[key] = { ...(nextAuto[key] || {}), [rule.habitId]: mark };
+          recordStatus(`${isElse ? phr.neg : phr.pos} → ${markLabel(mark)}${isElse ? ' (rest day)' : ''}`);
           changed++;
         }
       }
 
-      if (changed === 0) continue;
-      summary.marksApplied += changed;
-      summary.usersMarked++;
+      // Weekly weigh-in backfill: the Sun–Sat re-anchoring shifted weekly keys,
+      // so reconstruct the last 10 weeks' cells from the weightLog. Fills only
+      // empty, non-erased cells (respecting manual marks + erases), so it's
+      // idempotent and self-heals the history under the new keys. Bounded to the
+      // recent window shown in the strip.
+      for (const rule of rules) {
+        if (rule.trigger !== 'weighin_logged') continue;
+        const habit = habitById.get(rule.habitId);
+        if (!habit || (habit.cadence || '').trim().toLowerCase() !== 'weekly') continue;
+        const mark = VALID_MARKS.has(rule.mark) ? rule.mark : 'done';
+        const weeksWithWeigh = new Set();
+        for (const e of weightLog) { if (e?.date) weeksWithWeigh.add(weekKeyOfDate(e.date)); }
+        for (let i = 0; i < 10; i++) {
+          const dd = new Date(Date.UTC(when.y, when.m - 1, when.d - i * 7));
+          const wk = sundayWeekKeyFromYMD(dd.getUTCFullYear(), dd.getUTCMonth() + 1, dd.getUTCDate());
+          if (!weeksWithWeigh.has(wk)) continue;
+          const bucket = { ...(nextLog[wk] || {}) };
+          if (bucket[rule.habitId] !== undefined) continue;          // manual / already set
+          if (habitLogAuto[wk]?.[rule.habitId] !== undefined) continue; // respect erase
+          bucket[rule.habitId] = mark;
+          nextLog[wk] = bucket;
+          nextAuto[wk] = { ...(nextAuto[wk] || {}), [rule.habitId]: mark };
+          changed++;
+        }
+      }
+
+      // Prune status entries older than the retention window so the doc stays
+      // bounded (drop stale cells; drop a period key once it's fully empty).
+      const cutoffIso = new Date(Date.now() - STATUS_KEEP_DAYS * 86400000).toISOString();
+      for (const k of Object.keys(nextStatus)) {
+        const bucket = nextStatus[k];
+        for (const hid of Object.keys(bucket)) {
+          if (!bucket[hid]?.at || bucket[hid].at < cutoffIso) delete bucket[hid];
+        }
+        if (Object.keys(bucket).length === 0) delete nextStatus[k];
+      }
+      const statusChanged = JSON.stringify(nextStatus) !== JSON.stringify(autoStatus);
+
+      if (changed > 0) { summary.marksApplied += changed; summary.usersMarked++; }
+      if (changed === 0 && !statusChanged) continue;
 
       if (!dryRun) {
         try {
-          await docSnap.ref.update({ habitLog: nextLog, habitLogAuto: nextAuto });
+          if (changed > 0) await docSnap.ref.update({ habitLog: nextLog, habitLogAuto: nextAuto });
+          if (statusChanged) {
+            await db.doc(`users/${uid}/data/habitAutoStatus`).set({ status: nextStatus, updatedAt: nowIso }, { merge: false });
+          }
         } catch (err) {
           summary.errors = summary.errors || [];
           summary.errors.push({ uid, err: err.message });

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { saveField, loadField } from '../utils/firestoreSync';
+import { saveField, loadField, loadHabitAutoStatus } from '../utils/firestoreSync';
 import { HABIT_FIELDS, seedHabits, makeHabitId } from '../data/habitsSeed';
 
 // Personal habit tracker (Atomic Habits: Cue → Craving → Response → Reward).
@@ -10,7 +10,6 @@ import { HABIT_FIELDS, seedHabits, makeHabitId } from '../data/habitsSeed';
 const SUB_TABS = [
   { id: 'kpi', label: 'KPI' },
   { id: 'routines', label: 'Routines' },
-  { id: 'daily', label: 'Daily Routine' },
   { id: 'automatic', label: 'Automatic' },
   { id: 'autoreview', label: 'Auto Review' },
   { id: 'history', label: 'History' },
@@ -109,6 +108,22 @@ function isoWeekKey(d) {
   return `${date.getUTCFullYear()}-W${pad2(week)}`;
 }
 
+// The local Sunday that STARTS the week containing d (Sun..Sat), matching the
+// Sunday-anchored weeks the Week Plan uses.
+function sundayOf(d) {
+  const x = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  x.setDate(x.getDate() - x.getDay()); // getDay() 0=Sun
+  return x;
+}
+// Sunday-anchored WEEK KEY for weekly habits. Keeps the "YYYY-Www" format (so all
+// key parsing stays valid) but groups a Sunday→Saturday week into ONE key by
+// taking the ISO week of the following day: every day Sun..Sat maps to the same
+// key, and a Sunday weigh-in counts for the week it STARTS (not the ISO week it
+// ends). This aligns weekly habits with the app's Sun–Sat weeks.
+function weekKey(d) {
+  return isoWeekKey(new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1));
+}
+
 function cadenceCanon(c) {
   const x = (c || '').trim().toLowerCase();
   if (x === 'weekly') return 'Weekly';
@@ -119,7 +134,7 @@ function cadenceCanon(c) {
 
 function periodKey(cadence, date = new Date()) {
   switch (cadenceCanon(cadence)) {
-    case 'Weekly': return isoWeekKey(date);
+    case 'Weekly': return weekKey(date);
     case 'Monthly': return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}`;
     case 'Annually': return String(date.getFullYear());
     default: return dayKey(date);
@@ -138,6 +153,14 @@ function AutoBadge({ title = 'Automatically logged' }) {
     <span title={title} style={{ fontSize: '0.6rem', fontWeight: 800, color: '#2563eb', background: '#dbeafe', border: '1px solid #bfdbfe', borderRadius: 4, padding: '0 3px', marginLeft: 3, verticalAlign: 'middle', lineHeight: 1.4 }}>A</span>
   );
 }
+// "(A)" badge shown next to a habit's *name* when the habit is tracked
+// automatically (has an enabled automation rule targeting it). Distinct from
+// AutoBadge, which marks an individual auto-logged cell.
+function AutoNameBadge({ title = 'Tracked automatically' }) {
+  return (
+    <span title={title} style={{ fontSize: '0.58rem', fontWeight: 800, color: '#2563eb', background: '#dbeafe', border: '1px solid #bfdbfe', borderRadius: 4, padding: '0 3px', marginLeft: 5, verticalAlign: 'middle', lineHeight: 1.4, flex: '0 0 auto' }}>A</span>
+  );
+}
 
 function periodHint(cadence) {
   switch (cadenceCanon(cadence)) {
@@ -145,6 +168,17 @@ function periodHint(cadence) {
     case 'Monthly': return 'This month';
     case 'Annually': return 'This year';
     default: return 'Today';
+  }
+}
+
+// The bare period noun for a cadence ('week' / 'month' / 'year' / 'day'), used in
+// the routine-table column tooltips (e.g. "this week", "next month (upcoming)").
+function periodNoun(cadence) {
+  switch (cadenceCanon(cadence)) {
+    case 'Weekly': return 'week';
+    case 'Monthly': return 'month';
+    case 'Annually': return 'year';
+    default: return 'day';
   }
 }
 
@@ -176,7 +210,9 @@ function periodStart(key) {
     const jan4 = new Date(Date.UTC(y, 0, 4));
     const jan4Day = jan4.getUTCDay() || 7;
     const week1Mon = jan4.getTime() - (jan4Day - 1) * 86400000;
-    return week1Mon + (w - 1) * 7 * 86400000;
+    // Weekly keys are Sunday-anchored (see weekKey): the week STARTS the day
+    // before this ISO Monday, so back up one day to the Sunday.
+    return week1Mon + (w - 1) * 7 * 86400000 - 86400000;
   }
   if (/^\d{4}-\d{2}-\d{2}$/.test(key)) { const [y, m, d] = key.split('-').map(Number); return Date.UTC(y, m - 1, d); }
   if (/^\d{4}-\d{2}$/.test(key)) { const [y, m] = key.split('-').map(Number); return Date.UTC(y, m - 1, 1); }
@@ -199,6 +235,205 @@ function periodLabel(key) {
   }
   if (/^\d{4}$/.test(key)) return key;
   return key;
+}
+
+// ---- Habit "next log" recurrence (mirrors the weigh-in schedule model) ------
+// Stored per non-daily cadence in the habitNextLog user-doc field as an object:
+//   Weekly:   { repeatEvery, weekDays:['monday',…] }
+//   Monthly:  { repeatEvery, monthOption:'day'|'weekday', monthDay, monthWeek, monthWeekday }
+//   Annually: { repeatEvery, annualMonth (0-11), annualDay }
+// The next date is anchored on the last logged occurrence for that cadence, so
+// it rolls forward as you log — just like weigh-ins anchor on the last weigh.
+const WD_NAMES = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+const WD_LETTERS = [['sunday', 'S'], ['monday', 'M'], ['tuesday', 'T'], ['wednesday', 'W'], ['thursday', 'T'], ['friday', 'F'], ['saturday', 'S']];
+const MONTH_WEEKS = ['1st', '2nd', '3rd', '4th', 'last'];
+const startOfDayLocal = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
+const addDaysLocal = (d, n) => new Date(d.getFullYear(), d.getMonth(), d.getDate() + n);
+const sameDayLocal = (a, b) => a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+const capWord = (s) => (s ? s[0].toUpperCase() + s.slice(1) : s);
+
+function nthWeekdayMatches(date, ordinal, weekdayName) {
+  if (WD_NAMES[date.getDay()] !== weekdayName) return false;
+  const dom = date.getDate();
+  if (ordinal === 'last') {
+    const lastDom = new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate();
+    return dom > lastDom - 7;
+  }
+  return Math.floor((dom - 1) / 7) === MONTH_WEEKS.indexOf(ordinal);
+}
+function isScheduledDay(canon, rec, date) {
+  if (!rec) return true;
+  if (canon === 'Weekly') {
+    const days = (rec.weekDays && rec.weekDays.length) ? rec.weekDays : ['monday'];
+    return days.includes(WD_NAMES[date.getDay()]);
+  }
+  if (canon === 'Monthly') {
+    if ((rec.monthOption || 'day') === 'day') return date.getDate() === (rec.monthDay || 1);
+    return nthWeekdayMatches(date, rec.monthWeek || '1st', rec.monthWeekday || 'monday');
+  }
+  if (canon === 'Annually') return date.getMonth() === (rec.annualMonth ?? 0) && date.getDate() === (rec.annualDay || 1);
+  return true;
+}
+function cadenceOfKey(key) {
+  if (/^\d{4}-W\d{2}$/.test(key)) return 'Weekly';
+  if (/^\d{4}-\d{2}-\d{2}$/.test(key)) return 'Daily';
+  if (/^\d{4}-\d{2}$/.test(key)) return 'Monthly';
+  if (/^\d{4}$/.test(key)) return 'Annually';
+  return null;
+}
+function periodsBetween(canon, a, b) {
+  if (canon === 'Weekly') return Math.round((startOfISOWeek(b).getTime() - startOfISOWeek(a).getTime()) / (7 * 86400000));
+  if (canon === 'Monthly') return (b.getFullYear() * 12 + b.getMonth()) - (a.getFullYear() * 12 + a.getMonth());
+  if (canon === 'Annually') return b.getFullYear() - a.getFullYear();
+  return Math.round((startOfDayLocal(b).getTime() - startOfDayLocal(a).getTime()) / 86400000);
+}
+// The most recent date any of this cadence's habits were logged (anchor for the
+// "every N" interval), derived from habitLog period keys.
+function lastLoggedOccurrence(canon, list, habitLog) {
+  const ids = new Set(list.map(h => h.id));
+  let bestTs = null;
+  for (const key of Object.keys(habitLog || {})) {
+    if (cadenceOfKey(key) !== canon) continue;
+    const bucket = habitLog[key] || {};
+    let has = false;
+    for (const id in bucket) { if (ids.has(id)) { has = true; break; } }
+    if (!has) continue;
+    const ts = periodStart(key);
+    if (bestTs === null || ts > bestTs) bestTs = ts;
+  }
+  return bestTs === null ? null : new Date(bestTs);
+}
+function nextRecurrenceDate(canon, rec, list, habitLog, allLogged) {
+  const today = startOfDayLocal(new Date());
+  const N = Math.max(1, Number(rec?.repeatEvery) || 1);
+  const anchor = lastLoggedOccurrence(canon, list, habitLog);
+  const gateOK = d => !anchor || periodsBetween(canon, anchor, d) >= N;
+  const find = fromOffset => {
+    for (let i = fromOffset; i <= 800; i++) {
+      const d = addDaysLocal(today, i);
+      if (isScheduledDay(canon, rec, d) && gateOK(d)) return d;
+    }
+    return null;
+  };
+  const first = find(0);
+  if (!first) return { date: today, dueNow: false };
+  // Today is a scheduled day but the period is already fully logged → roll to the
+  // next occurrence so we don't nag for something already done.
+  if (sameDayLocal(first, today) && allLogged) {
+    const next = find(1);
+    return { date: next || first, dueNow: false };
+  }
+  return { date: first, dueNow: sameDayLocal(first, today) };
+}
+function defaultRec(canon) {
+  if (canon === 'Weekly') return { repeatEvery: 1, weekDays: ['monday'] };
+  if (canon === 'Monthly') return { repeatEvery: 1, monthOption: 'day', monthDay: 1 };
+  if (canon === 'Annually') return { repeatEvery: 1, annualMonth: 0, annualDay: 1 };
+  return { repeatEvery: 1 };
+}
+function recurrenceSummary(canon, rec) {
+  const N = Math.max(1, Number(rec?.repeatEvery) || 1);
+  if (canon === 'Weekly') {
+    const days = (rec.weekDays && rec.weekDays.length ? rec.weekDays : ['monday'])
+      .slice().sort((a, b) => WD_NAMES.indexOf(a) - WD_NAMES.indexOf(b))
+      .map(d => capWord(d).slice(0, 3)).join(', ');
+    return `Every ${N > 1 ? `${N} weeks` : 'week'} · ${days}`;
+  }
+  if (canon === 'Monthly') {
+    const every = `Every ${N > 1 ? `${N} months` : 'month'}`;
+    if ((rec.monthOption || 'day') === 'day') return `${every} · day ${rec.monthDay || 1}`;
+    return `${every} · ${rec.monthWeek || '1st'} ${capWord(rec.monthWeekday || 'monday')}`;
+  }
+  if (canon === 'Annually') return `Every ${N > 1 ? `${N} years` : 'year'} · ${MONTH_ABBR[rec.annualMonth ?? 0]} ${rec.annualDay || 1}`;
+  return '';
+}
+
+// Inline recurrence editor for a cadence section — the weigh-in "Change
+// Schedule" controls, scoped to one cadence (unit fixed by the section).
+function NextLogRecurrenceEditor({ canon, rec, onChange, onDone }) {
+  const N = Math.max(1, Number(rec.repeatEvery) || 1);
+  const unit = canon === 'Weekly' ? 'week' : canon === 'Monthly' ? 'month' : 'year';
+  const stepBtn = { width: 24, height: 24, borderRadius: 6, border: '1px solid var(--color-border,#e2e8f0)', background: 'var(--color-surface,#fff)', cursor: 'pointer', fontWeight: 700, lineHeight: 1 };
+  const pill = active => ({ padding: '0.25rem 0.55rem', borderRadius: 6, border: `1px solid ${active ? ACCENT : 'var(--color-border,#e2e8f0)'}`, background: active ? ACCENT + '14' : 'var(--color-surface,#fff)', color: active ? ACCENT : 'var(--color-text,#475569)', cursor: 'pointer', fontSize: '0.72rem', fontWeight: 700 });
+  const circle = active => ({ width: 26, height: 26, borderRadius: 13, border: `1px solid ${active ? ACCENT : 'var(--color-border,#e2e8f0)'}`, background: active ? ACCENT : 'var(--color-surface,#fff)', color: active ? '#fff' : 'var(--color-text-muted,#64748b)', cursor: 'pointer', fontSize: '0.7rem', fontWeight: 700 });
+  const wrap = { marginTop: 8, padding: '0.6rem 0.7rem', border: '1px solid var(--color-border,#e2e8f0)', borderRadius: 8, background: 'var(--color-surface,#fff)', display: 'flex', flexDirection: 'column', gap: 8, maxWidth: 340 };
+  const row = { display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' };
+  const lbl = { fontSize: '0.72rem', fontWeight: 700, color: 'var(--color-text-muted,#64748b)' };
+  const num = { minWidth: 18, textAlign: 'center', fontWeight: 700, fontSize: '0.8rem' };
+
+  const weekDays = (rec.weekDays && rec.weekDays.length) ? rec.weekDays : ['monday'];
+  const toggleDay = d => {
+    const set = new Set(weekDays);
+    if (set.has(d)) { if (set.size > 1) set.delete(d); } else set.add(d);
+    onChange({ weekDays: WD_NAMES.filter(n => set.has(n)) });
+  };
+
+  return (
+    <div style={wrap}>
+      <div style={row}>
+        <span style={lbl}>Repeat every</span>
+        <button style={stepBtn} onClick={() => onChange({ repeatEvery: Math.max(1, N - 1) })}>−</button>
+        <span style={num}>{N}</span>
+        <button style={stepBtn} onClick={() => onChange({ repeatEvery: N + 1 })}>+</button>
+        <span style={lbl}>{unit}{N > 1 ? 's' : ''}</span>
+      </div>
+
+      {canon === 'Weekly' && (
+        <div style={row}>
+          <span style={lbl}>On</span>
+          {WD_LETTERS.map(([name, letter]) => (
+            <button key={name} title={capWord(name)} style={circle(weekDays.includes(name))} onClick={() => toggleDay(name)}>{letter}</button>
+          ))}
+        </div>
+      )}
+
+      {canon === 'Monthly' && (
+        <>
+          <div style={row}>
+            <button style={pill((rec.monthOption || 'day') === 'day')} onClick={() => onChange({ monthOption: 'day' })}>On a day</button>
+            <button style={pill(rec.monthOption === 'weekday')} onClick={() => onChange({ monthOption: 'weekday' })}>On a weekday</button>
+          </div>
+          {(rec.monthOption || 'day') === 'day' ? (
+            <div style={row}>
+              <span style={lbl}>Day</span>
+              <button style={stepBtn} onClick={() => onChange({ monthDay: Math.max(1, (rec.monthDay || 1) - 1) })}>−</button>
+              <span style={num}>{rec.monthDay || 1}</span>
+              <button style={stepBtn} onClick={() => onChange({ monthDay: Math.min(31, (rec.monthDay || 1) + 1) })}>+</button>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <div style={row}>
+                {MONTH_WEEKS.map(w => (
+                  <button key={w} style={pill((rec.monthWeek || '1st') === w)} onClick={() => onChange({ monthWeek: w })}>{w}</button>
+                ))}
+              </div>
+              <div style={row}>
+                {WD_LETTERS.map(([name, letter]) => (
+                  <button key={name} title={capWord(name)} style={circle((rec.monthWeekday || 'monday') === name)} onClick={() => onChange({ monthWeekday: name })}>{letter}</button>
+                ))}
+              </div>
+            </div>
+          )}
+        </>
+      )}
+
+      {canon === 'Annually' && (
+        <div style={row}>
+          <span style={lbl}>On</span>
+          <select value={rec.annualMonth ?? 0} onChange={e => onChange({ annualMonth: Number(e.target.value) })} style={{ fontSize: '0.75rem', padding: '0.2rem', borderRadius: 6, border: '1px solid var(--color-border,#e2e8f0)' }}>
+            {MONTH_ABBR.map((m, i) => <option key={m} value={i}>{m}</option>)}
+          </select>
+          <button style={stepBtn} onClick={() => onChange({ annualDay: Math.max(1, (rec.annualDay || 1) - 1) })}>−</button>
+          <span style={num}>{rec.annualDay || 1}</span>
+          <button style={stepBtn} onClick={() => onChange({ annualDay: Math.min(31, (rec.annualDay || 1) + 1) })}>+</button>
+        </div>
+      )}
+
+      <div>
+        <button style={{ ...pill(false), borderColor: ACCENT, color: ACCENT }} onClick={onDone}>Done</button>
+      </div>
+    </div>
+  );
 }
 
 const MARK_META = {
@@ -265,21 +500,55 @@ function triggerDef(source, trigger) {
 // The webhook endpoint external tools would POST to (receiver not live yet).
 const AUTO_WEBHOOK_URL = 'https://prep-day.com/api/habit-event';
 
+// ---- Per-weekday tracking (Daily habits only) ---------------------------
+// A Daily habit can be limited to certain weekdays (e.g. weekdays only, not
+// Sat/Sun). Stored on the habit as `trackDays`: an array of JS weekday numbers
+// (0=Sun … 6=Sat). Absent or empty → tracked every day (the default). Ignored
+// for non-Daily cadences, whose period isn't a single weekday. Shared with the
+// mobile app via the `habits` field.
+const ALL_WEEKDAYS = [0, 1, 2, 3, 4, 5, 6];
+function habitTrackDays(h) {
+  const t = h?.trackDays;
+  return Array.isArray(t) && t.length > 0 ? t : ALL_WEEKDAYS;
+}
+// Is a Daily habit tracked on this date? Non-daily habits track every period.
+function tracksDate(h, date = new Date()) {
+  if (cadenceCanon(h?.cadence) !== 'Daily') return true;
+  return habitTrackDays(h).includes(date.getDay());
+}
+// True when a Daily habit is limited to a strict subset of weekdays.
+function hasCustomTrackDays(h) {
+  return cadenceCanon(h?.cadence) === 'Daily' && Array.isArray(h?.trackDays) && h.trackDays.length > 0 && h.trackDays.length < 7;
+}
+// Short weekday names indexed by JS getDay() (0=Sun … 6=Sat).
+const WEEKDAY_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+// "Mon, Tue, Wed, Thu, Fri" for a trackDays array, in Mon-first order.
+function trackDaysLabel(trackDays) {
+  const set = new Set(Array.isArray(trackDays) ? trackDays : []);
+  return [1, 2, 3, 4, 5, 6, 0].filter(wd => set.has(wd)).map(wd => WEEKDAY_SHORT[wd]).join(', ');
+}
+
 // Period keys in the rolling KPI window for a habit's cadence: last 30 days
 // (daily), last 4 weeks (weekly), last 12 months (monthly), last 5 years
-// (annual). "Monthly window for daily/weekly, annual for monthly."
-function habitWindowKeys(cadence) {
+// (annual). "Monthly window for daily/weekly, annual for monthly." For Daily
+// habits, `trackDays` limits the window to the weekdays the habit is tracked on,
+// so untracked days (e.g. weekends) don't drag the completion % down.
+function habitWindowKeys(cadence, trackDays) {
   const canon = cadenceCanon(cadence);
   const now = new Date();
   const keys = [];
   if (canon === 'Weekly') {
-    for (let i = 0; i < 4; i++) keys.push(isoWeekKey(new Date(now.getFullYear(), now.getMonth(), now.getDate() - i * 7)));
+    for (let i = 0; i < 4; i++) keys.push(weekKey(new Date(now.getFullYear(), now.getMonth(), now.getDate() - i * 7)));
   } else if (canon === 'Monthly') {
     for (let i = 0; i < 12; i++) { const d = new Date(now.getFullYear(), now.getMonth() - i, 1); keys.push(`${d.getFullYear()}-${pad2(d.getMonth() + 1)}`); }
   } else if (canon === 'Annually') {
     for (let i = 0; i < 5; i++) keys.push(String(now.getFullYear() - i));
   } else {
-    for (let i = 0; i < 30; i++) keys.push(dayKey(new Date(now.getFullYear(), now.getMonth(), now.getDate() - i)));
+    const allowed = Array.isArray(trackDays) && trackDays.length > 0 ? trackDays : ALL_WEEKDAYS;
+    for (let i = 0; i < 30; i++) {
+      const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - i);
+      if (allowed.includes(d.getDay())) keys.push(dayKey(d));
+    }
   }
   return keys;
 }
@@ -289,7 +558,7 @@ function habitWindowKeys(cadence) {
 // in the window (e.g. established "Automatically" habits you don't log).
 function habitKpi(h, habitLog) {
   if (!habitLog) return pctOf(h.kpi);
-  const keys = habitWindowKeys(h.cadence);
+  const keys = habitWindowKeys(h.cadence, h.trackDays);
   let done = 0, logged = 0;
   for (const k of keys) {
     const mk = habitLog[k] ? habitLog[k][h.id] : undefined;
@@ -317,7 +586,7 @@ function habitKpiTooltip(h, habitLog) {
   const unit = canon === 'Weekly' ? 'week' : canon === 'Monthly' ? 'month' : canon === 'Annually' ? 'year' : 'day';
   const windowLabel = habitWindowLabel(h.cadence);
   if (!habitLog) return `Stored completion value.`;
-  const keys = habitWindowKeys(h.cadence);
+  const keys = habitWindowKeys(h.cadence, h.trackDays);
   let done = 0, logged = 0;
   for (const k of keys) {
     const mk = habitLog[k] ? habitLog[k][h.id] : undefined;
@@ -329,9 +598,13 @@ function habitKpiTooltip(h, habitLog) {
   }
   const total = keys.length;
   const pct = Math.round((done / total) * 100);
+  const trackedNote = hasCustomTrackDays(h)
+    ? `\nOnly tracked days count — ${trackDaysLabel(h.trackDays)}.`
+    : '';
   return `${pct}% completion over the ${windowLabel}.\n`
     + `${done} of ${total} ${unit}${total === 1 ? '' : 's'} marked “Did it” or “Above & Beyond”.\n`
-    + `Every ${unit} in the window counts, so unlogged ${unit}s count as missed.`;
+    + `Every ${unit} in the window counts, so unlogged ${unit}s count as missed.`
+    + trackedNote;
 }
 
 // Targets a pasted habits column can map to (the editable fields + Cadence).
@@ -361,6 +634,48 @@ export function HabitsPage({ onBack, user }) {
   // Automatic-tracking rules (see AUTO_SOURCES). Stored on the user doc as
   // `habitAutomations`; authored on the Automatic tab.
   const [automations, setAutomations] = useState([]);
+  // Habit ids that are tracked automatically — i.e. have at least one enabled
+  // automation rule targeting them. Drives the "(A)" badge shown next to the
+  // habit's name in the Routines / History tables.
+  const autoTrackedIds = useMemo(() => {
+    const s = new Set();
+    for (const r of automations || []) {
+      if (r && r.enabled && r.habitId) s.add(r.habitId);
+    }
+    return s;
+  }, [automations]);
+  // Per-cell auto-tracking status from the engine ("why it was / wasn't
+  // recorded"), keyed { [periodKey]: { [habitId]: { reason, ... } } }. Drives
+  // the hover tooltip on auto-tracked habits' cells.
+  const [habitAutoStatus, setHabitAutoStatus] = useState({});
+  // Hover-tooltip text for one cell of an auto-tracked habit: the engine's
+  // recorded reason when we have one for that period, else a rule-based
+  // explanation. Returns '' for habits that aren't auto-tracked.
+  const autoStatusFor = useMemo(() => {
+    const rulesByHabit = new Map();
+    for (const r of automations || []) {
+      if (r?.enabled && r.habitId) {
+        if (!rulesByHabit.has(r.habitId)) rulesByHabit.set(r.habitId, []);
+        rulesByHabit.get(r.habitId).push(r);
+      }
+    }
+    return (habitId, key, mark) => {
+      if (!autoTrackedIds.has(habitId)) return '';
+      const st = habitAutoStatus?.[key]?.[habitId];
+      if (st?.reason) return `Automatic — ${st.reason}`;
+      const labels = (rulesByHabit.get(habitId) || [])
+        .map(r => triggerDef(r.source, r.trigger)?.label)
+        .filter(Boolean);
+      const when = labels.length ? labels.join(' or ').toLowerCase() : 'a linked event happens';
+      return mark
+        ? `Auto-tracked — marks when ${when}.`
+        : `Auto-tracked — marks when ${when}. Nothing auto-recorded for this period yet.`;
+    };
+  }, [automations, autoTrackedIds, habitAutoStatus]);
+  // Manual "next log date" override per non-daily cadence, e.g.
+  // { Weekly: '2026-07-20', Monthly: '2026-08-01', Annually: '2027-01-01' }.
+  // Empty/absent → the auto-computed next-log date is shown instead.
+  const [habitNextLog, setHabitNextLog] = useState({});
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState('routines');
   const [importOpen, setImportOpen] = useState(false);
@@ -384,11 +699,13 @@ export function HabitsPage({ onBack, user }) {
     let cancelled = false;
     (async () => {
       try {
-        const [remote, remoteLog, remoteAuto, remoteLogAuto] = await Promise.all([
+        const [remote, remoteLog, remoteAuto, remoteLogAuto, remoteNextLog, remoteAutoStatus] = await Promise.all([
           user?.uid ? loadField(user.uid, 'habits') : null,
           user?.uid ? loadField(user.uid, 'habitLog') : null,
           user?.uid ? loadField(user.uid, 'habitAutomations') : null,
           user?.uid ? loadField(user.uid, 'habitLogAuto') : null,
+          user?.uid ? loadField(user.uid, 'habitNextLog') : null,
+          user?.uid ? loadHabitAutoStatus(user.uid) : null,
         ]);
         if (cancelled) return;
         if (Array.isArray(remote) && remote.length > 0) setHabits(remote);
@@ -396,6 +713,8 @@ export function HabitsPage({ onBack, user }) {
         if (remoteLog && typeof remoteLog === 'object') setHabitLog(remoteLog);
         if (Array.isArray(remoteAuto)) setAutomations(remoteAuto);
         if (remoteLogAuto && typeof remoteLogAuto === 'object') setHabitLogAuto(remoteLogAuto);
+        if (remoteNextLog && typeof remoteNextLog === 'object') setHabitNextLog(remoteNextLog);
+        if (remoteAutoStatus && typeof remoteAutoStatus === 'object') setHabitAutoStatus(remoteAutoStatus);
       } catch {
         if (!cancelled) setHabits(seedHabits());
       } finally {
@@ -412,6 +731,17 @@ export function HabitsPage({ onBack, user }) {
   function persistAutomations(next) {
     setAutomations(next);
     if (user?.uid) saveField(user.uid, 'habitAutomations', next).catch(() => {});
+  }
+  // Set (dateStr = 'YYYY-MM-DD') or clear (empty) the manual next-log date for a
+  // cadence. Empty removes the key so the section falls back to auto-compute.
+  function setNextLogDate(cadence, dateStr) {
+    setHabitNextLog(prev => {
+      const next = { ...prev };
+      if (dateStr) next[cadence] = dateStr;
+      else delete next[cadence];
+      if (user?.uid) saveField(user.uid, 'habitNextLog', next).catch(() => {});
+      return next;
+    });
   }
 
   // The mark for a habit in its current cadence period (today / this week /
@@ -445,6 +775,24 @@ export function HabitsPage({ onBack, user }) {
       else bucket[habitId] = mark;
       const next = { ...prev, [key]: bucket };
       if (Object.keys(bucket).length === 0) delete next[key];
+      if (user?.uid) saveField(user.uid, 'habitLog', next).catch(() => {});
+      return next;
+    });
+  }
+  // Bulk set (or erase, when mark is null) many cells at once — used by the
+  // weekly table's bulk-edit mode. `cells` is [{ habitId, key }, …]. One state
+  // update + one Firestore write for the whole batch.
+  function setMarksForCells(cells, mark) {
+    if (!cells || cells.length === 0) return;
+    setHabitLog(prev => {
+      const next = { ...prev };
+      for (const { habitId, key } of cells) {
+        const bucket = { ...(next[key] || {}) };
+        if (!mark) delete bucket[habitId];
+        else bucket[habitId] = mark;
+        if (Object.keys(bucket).length === 0) delete next[key];
+        else next[key] = bucket;
+      }
       if (user?.uid) saveField(user.uid, 'habitLog', next).catch(() => {});
       return next;
     });
@@ -561,6 +909,8 @@ export function HabitsPage({ onBack, user }) {
       return !PARKED_STATUSES.includes(st) && st !== 'Not Started' && st !== 'Havent Started' && st !== 'Automatically';
     };
     const needsMark = (h) => {
+      // A daily habit that isn't tracked today (e.g. weekends off) isn't due.
+      if (!tracksDate(h)) return false;
       const bucket = habitLog[periodKey(h.cadence)];
       return !(bucket && bucket[h.id]);
     };
@@ -632,12 +982,11 @@ export function HabitsPage({ onBack, user }) {
       </div>
 
       {tab === 'kpi' && <KpiView habits={habits} habitLog={habitLog} />}
-      {tab === 'routines' && <RoutinesView habits={habits} habitLog={habitLog} habitLogAuto={habitLogAuto} onUpdate={updateHabit} openMenu={(habitId, key, label) => setDayMenu({ habitId, key, label })} onMove={setMoveHabitId} onReorder={reorderHabits} onSetRoutine={setHabitRoutine} onRenameRoutine={renameRoutine} onDeleteRoutine={setDeleteRoutineName} />}
-      {tab === 'daily' && <DailyView habits={habits} habitLog={habitLog} habitLogAuto={habitLogAuto} markOf={markOf} onMark={onMark} onReorder={reorderHabits} />}
+      {tab === 'routines' && <RoutinesView habits={habits} habitLog={habitLog} habitLogAuto={habitLogAuto} autoTrackedIds={autoTrackedIds} autoStatusFor={autoStatusFor} nextLogMap={habitNextLog} onSetNextLog={setNextLogDate} onUpdate={updateHabit} openMenu={(habitId, key, label) => setDayMenu({ habitId, key, label })} onMove={setMoveHabitId} onReorder={reorderHabits} onSetRoutine={setHabitRoutine} onRenameRoutine={renameRoutine} onDeleteRoutine={setDeleteRoutineName} onBulkMark={setMarksForCells} onOpen={setOpenHabitId} />}
       {tab === 'automatic' && <AutomaticView habits={habits} automations={automations} habitLog={habitLog} habitLogAuto={habitLogAuto} onChange={persistAutomations} />}
       {tab === 'autoreview' && <AutoReviewView habits={habits} onUpdate={updateHabit} onOpen={setOpenHabitId} />}
       {tab === 'onhold' && <OnHoldView habits={habits} onUpdate={updateHabit} />}
-      {tab === 'history' && <HistoryView habitLog={habitLog} habits={habits} onImport={mergeHabitLog} openMenu={(habitId, key, label) => setDayMenu({ habitId, key, label })} />}
+      {tab === 'history' && <HistoryView habitLog={habitLog} habits={habits} autoTrackedIds={autoTrackedIds} autoStatusFor={autoStatusFor} onImport={mergeHabitLog} openMenu={(habitId, key, label) => setDayMenu({ habitId, key, label })} />}
       {tab === 'habits' && (
         <HabitsTable habits={habits} onUpdate={updateHabit} onDelete={deleteHabit} onOpen={setOpenHabitId} onBulkUpdate={bulkUpdate} onBulkDelete={bulkDelete} />
       )}
@@ -969,7 +1318,7 @@ function StatusSelect({ value, muted, onChange }) {
   );
 }
 
-function RoutinesView({ habits, habitLog, habitLogAuto, onUpdate, openMenu, onMove, onReorder, onSetRoutine, onRenameRoutine, onDeleteRoutine }) {
+function RoutinesView({ habits, habitLog, habitLogAuto, autoTrackedIds = new Set(), autoStatusFor = () => '', nextLogMap, onSetNextLog, onUpdate, openMenu, onMove, onReorder, onSetRoutine, onRenameRoutine, onDeleteRoutine, onBulkMark, onOpen }) {
   // All routine names the user has, in the canonical routine order, for the
   // per-habit routine dropdown.
   const routineOptions = useMemo(() => {
@@ -1011,6 +1360,23 @@ function RoutinesView({ habits, habitLog, habitLogAuto, onUpdate, openMenu, onMo
     return groups.filter(([cadence]) => cadence === VIEW_TO_CADENCE[view]);
   }, [groups, view]);
 
+  // Per-cadence count of active habits still unlogged for their current period —
+  // drives the red badges on the All / Daily / Weekly / Monthly / Yearly tabs.
+  // Mirrors RoutineSection's `uncompleted` (skips Automatic habits + off days).
+  const cadenceUnlogged = useMemo(() => {
+    const counts = { Daily: 0, Weekly: 0, Monthly: 0, Annually: 0 };
+    for (const [cadence, list] of groups) {
+      let n = 0;
+      for (const h of list) {
+        if ((h.status || '').trim() === 'Automatically') continue;
+        if (tracksDate(h) && (habitLog[periodKey(h.cadence)] || {})[h.id] === undefined) n++;
+      }
+      counts[cadence] = n;
+    }
+    return counts;
+  }, [groups, habitLog]);
+  const totalUnlogged = cadenceUnlogged.Daily + cadenceUnlogged.Weekly + cadenceUnlogged.Monthly + cadenceUnlogged.Annually;
+
   // Search any habit by name — including On Hold habits that don't show in the
   // routines — so you can find one and see its status anywhere.
   const searchResults = useMemo(() => {
@@ -1045,7 +1411,7 @@ function RoutinesView({ habits, habitLog, habitLogAuto, onUpdate, openMenu, onMo
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
             {searchResults.map(h => (
               <div key={h.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '0.45rem 0.6rem', background: 'var(--color-surface, #fff)', border: '1px solid var(--color-border, #e2e8f0)', borderRadius: 8 }}>
-                <span style={{ flex: 1, fontSize: '0.88rem', fontWeight: 600 }}>{h.name || <em style={{ color: '#aaa' }}>untitled</em>}</span>
+                <span style={{ flex: 1, fontSize: '0.88rem', fontWeight: 600 }}>{h.name || <em style={{ color: '#aaa' }}>untitled</em>}{autoTrackedIds.has(h.id) && <AutoNameBadge />}</span>
                 {(h.routine || '').trim() && <span style={routineTag} title="Routine">{(h.routine || '').trim()}</span>}
                 {(h.cadence || '').trim() && <span style={cadenceTag}>{h.cadence}</span>}
                 <StatusSelect value={h.status} onChange={v => onUpdate(h.id, 'status', v)} />
@@ -1073,6 +1439,7 @@ function RoutinesView({ habits, habitLog, habitLogAuto, onUpdate, openMenu, onMo
       <div style={{ display: 'flex', gap: 4, marginBottom: '0.85rem', background: '#f1f5f9', borderRadius: 10, padding: 3, width: 'fit-content' }}>
         {VIEW_TABS.map(t => {
           const active = view === t.id;
+          const dot = t.id === 'all' ? totalUnlogged : (cadenceUnlogged[VIEW_TO_CADENCE[t.id]] || 0);
           return (
             <button
               key={t.id}
@@ -1080,12 +1447,21 @@ function RoutinesView({ habits, habitLog, habitLogAuto, onUpdate, openMenu, onMo
               style={{
                 cursor: 'pointer', padding: '0.35rem 0.9rem', borderRadius: 8,
                 fontSize: '0.82rem', fontWeight: 600, border: 'none',
+                display: 'inline-flex', alignItems: 'center', gap: 6,
                 background: active ? 'var(--color-surface, #fff)' : 'transparent',
                 color: active ? ACCENT : 'var(--color-text-muted, #64748b)',
                 boxShadow: active ? '0 1px 3px rgba(0,0,0,0.12)' : 'none',
               }}
             >
               {t.label}
+              {dot > 0 && (
+                <span
+                  title={`${dot} habit${dot > 1 ? 's' : ''} still unlogged`}
+                  style={{ minWidth: 16, height: 16, borderRadius: 8, padding: '0 4px', background: '#dc2626', color: '#fff', fontSize: '0.62rem', fontWeight: 800, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', lineHeight: 1 }}
+                >
+                  {dot}
+                </span>
+              )}
             </button>
           );
         })}
@@ -1098,7 +1474,7 @@ function RoutinesView({ habits, habitLog, habitLogAuto, onUpdate, openMenu, onMo
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1.4rem' }}>
           {visibleGroups.map(([cadenceName, list]) => (
-            <RoutineSection key={cadenceName} cadenceName={cadenceName} list={list} habitLog={habitLog} habitLogAuto={habitLogAuto} onUpdate={onUpdate} openMenu={openMenu} routineOptions={routineOptions} onReorder={onReorder} onSetRoutine={onSetRoutine} />
+            <RoutineSection key={cadenceName} cadenceName={cadenceName} list={list} habitLog={habitLog} habitLogAuto={habitLogAuto} autoTrackedIds={autoTrackedIds} autoStatusFor={autoStatusFor} nextLogOverride={(nextLogMap || {})[cadenceName] || ''} onSetNextLog={onSetNextLog} onUpdate={onUpdate} openMenu={openMenu} routineOptions={routineOptions} onReorder={onReorder} onSetRoutine={onSetRoutine} onBulkMark={onBulkMark} onOpen={onOpen} />
           ))}
         </div>
       )}
@@ -1119,7 +1495,7 @@ const VIEW_TO_CADENCE = { daily: 'Daily', weekly: 'Weekly', monthly: 'Monthly', 
 // 7-day strip (Mon–Sun of the current week) for a daily habit, today
 // highlighted. Each day is a button — clicking it opens the day menu so any day
 // (not just today) can be set to a mark or erased.
-function WeekStrip({ habitId, habitName, habitLog, habitLogAuto, openMenu }) {
+function WeekStrip({ habit, habitId, habitName, habitLog, habitLogAuto, openMenu }) {
   const today = dayKey(new Date());
   const monday = startOfISOWeek(new Date());
   const days = Array.from({ length: 7 }, (_, i) => {
@@ -1127,7 +1503,8 @@ function WeekStrip({ habitId, habitName, habitLog, habitLogAuto, openMenu }) {
     const key = dayKey(d);
     const label = d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
     const mark = habitLog[key] ? habitLog[key][habitId] : undefined;
-    return { key, label, letter: WEEKDAY_ABBR[i][0], isToday: key === today, mark, auto: isAutoMark(habitLogAuto, key, habitId, mark) };
+    const tracked = habit ? tracksDate(habit, d) : true;
+    return { key, label, letter: WEEKDAY_ABBR[i][0], isToday: key === today, mark, tracked, auto: isAutoMark(habitLogAuto, key, habitId, mark) };
   });
   return (
     <div style={{ display: 'flex', gap: 4 }}>
@@ -1135,22 +1512,115 @@ function WeekStrip({ habitId, habitName, habitLog, habitLogAuto, openMenu }) {
         <button
           key={d.key}
           onClick={() => openMenu(habitId, d.key, `${habitName || 'Habit'} · ${d.label}`)}
-          title={d.label}
+          title={d.tracked ? d.label : `${d.label} · off day (not tracked)`}
           style={{
             flex: 1, textAlign: 'center', borderRadius: 6, padding: '3px 0', cursor: 'pointer',
-            border: `1px solid ${d.isToday ? ACCENT : (d.mark ? MARK_META[d.mark].color + '55' : '#eef2f6')}`,
-            background: d.isToday ? ACCENT + '0f' : (d.mark ? MARK_META[d.mark].color + '12' : 'var(--color-surface, #fff)'),
+            // A logged mark's colour (green for "Did it") always wins over today's
+            // blue highlight, so a completed day reads as green even when it's today.
+            border: `1px solid ${d.mark ? MARK_META[d.mark].color + (d.isToday ? '' : '55') : (d.isToday ? ACCENT : '#eef2f6')}`,
+            background: d.mark ? MARK_META[d.mark].color + (d.isToday ? '22' : '12') : (d.isToday ? ACCENT + '0f' : 'var(--color-surface, #fff)'),
+            // Off days (e.g. weekends for a weekday habit) are dimmed and, when
+            // unlogged, show a dash instead of the "log me" dot — they don't
+            // count toward completion. A pre-existing mark still shows.
+            opacity: d.tracked || d.mark ? 1 : 0.4,
           }}
         >
-          <div style={{ fontSize: '0.58rem', fontWeight: 700, color: d.isToday ? ACCENT : '#94a3b8' }}>{d.letter}</div>
+          <div style={{ fontSize: '0.58rem', fontWeight: 700, color: d.mark ? MARK_META[d.mark].color : (d.isToday ? ACCENT : '#94a3b8') }}>{d.letter}</div>
           <div style={{ fontSize: '0.85rem', fontWeight: 800, lineHeight: 1.2, color: d.mark ? MARK_META[d.mark].color : '#d1d5db' }}>
-            {d.mark ? MARK_META[d.mark].icon : '·'}
+            {d.mark ? MARK_META[d.mark].icon : (d.tracked ? '·' : '–')}
             {d.auto && <span title="Automatically logged" style={{ fontSize: '0.5rem', fontWeight: 800, color: '#2563eb', verticalAlign: 'super', marginLeft: 1 }}>A</span>}
           </div>
         </button>
       ))}
     </div>
   );
+}
+
+// The 7 weeks shown by the weekly strip/header: offsets -5..-1 = past 5 weeks,
+// 0 = this week, +1 = next week upcoming. Each week's displayed date is its
+// scheduled LOG day (ISO-week Monday + logOffset days, e.g. that week's Sunday),
+// so labels match the day you actually log on. Storage keys stay ISO-week based.
+function weeklyStripWeeks(logOffset = 0) {
+  const sunday = sundayOf(new Date());   // Sunday that starts the current week
+  const curKey = weekKey(sunday);
+  // Show the past 3 weeks of history, plus the current week and the upcoming
+  // one (offsets -3 … +1) — a tighter 5-week window.
+  return Array.from({ length: 5 }, (_, i) => {
+    const offset = i - 3;
+    const weekSun = new Date(sunday.getFullYear(), sunday.getMonth(), sunday.getDate() + offset * 7);
+    const key = weekKey(weekSun);
+    // Label date = the scheduled log day within this Sun–Sat week (logOffset days
+    // from Sunday; 0 = Sunday itself).
+    const logDate = new Date(weekSun.getFullYear(), weekSun.getMonth(), weekSun.getDate() + logOffset);
+    const weekNo = key.slice(key.indexOf('W') + 1);          // "28" from 2026-W28
+    // Sunday-anchored week span, e.g. "Jul 12 – 18".
+    const weekSat = new Date(weekSun.getFullYear(), weekSun.getMonth(), weekSun.getDate() + 6);
+    const rangeLabel = `${weekSun.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} – ${
+      weekSun.getMonth() === weekSat.getMonth()
+        ? weekSat.getDate()
+        : weekSat.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+    }`;
+    return {
+      key,
+      date: logDate,
+      weekNo,
+      primary: `W${weekNo}`,                                 // column header, e.g. "W28"
+      shortLabel: rangeLabel,                                // week span, e.g. "Jul 12 – 18"
+      fullLabel: logDate.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' }),
+      isCurrent: key === curKey,
+      isNext: offset === 1,
+    };
+  });
+}
+
+// The routine-table column strip for ANY cadence — one entry per period, same
+// shape weeklyStripWeeks returns so the weekly table renders every cadence.
+// Weekly keeps its schedule-aware builder. Daily shows the current ISO week
+// (Mon–Sun, carrying each day's Date so off-days can dim). Monthly/Annually show
+// a trailing window ending one period ahead (5 past · current · next), mirroring
+// the weekly strip's shape.
+function periodStripCols(canon, logOffset = 0) {
+  if (canon === 'Weekly') return weeklyStripWeeks(logOffset);
+  const today = new Date();
+  const curKey = periodKey(canon, today);
+  if (canon === 'Daily') {
+    const monday = startOfISOWeek(today);
+    // Start one day early (the previous Sunday) so the strip shows 8 days —
+    // Sun, Mon…Sun — giving a peek at the prior week's tail end.
+    const start = new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() - 1);
+    return Array.from({ length: 8 }, (_, i) => {
+      const d = new Date(start.getFullYear(), start.getMonth(), start.getDate() + i);
+      const key = periodKey('Daily', d);
+      return {
+        key,
+        date: d,
+        primary: d.toLocaleDateString(undefined, { weekday: 'narrow' }),   // M T W…
+        shortLabel: d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }),
+        fullLabel: d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' }),
+        isCurrent: key === curKey,
+        isNext: false,
+      };
+    });
+  }
+  // Monthly / Annually: 5 past · current · next.
+  return Array.from({ length: 7 }, (_, i) => {
+    const offset = i - 5;
+    let d, key, primary, shortLabel, fullLabel;
+    if (canon === 'Monthly') {
+      d = new Date(today.getFullYear(), today.getMonth() + offset, 1);
+      key = periodKey('Monthly', d);
+      primary = d.toLocaleDateString(undefined, { month: 'short' });        // Jul
+      shortLabel = String(d.getFullYear());
+      fullLabel = d.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+    } else { // Annually
+      d = new Date(today.getFullYear() + offset, 0, 1);
+      key = periodKey('Annually', d);
+      primary = String(d.getFullYear());                                    // 2026
+      shortLabel = '';
+      fullLabel = String(d.getFullYear());
+    }
+    return { key, date: d, primary, shortLabel, fullLabel, isCurrent: key === curKey, isNext: offset === 1 };
+  });
 }
 
 // "Move to routine" popup — double-click a habit on the Routines tab. Lists the
@@ -1241,13 +1711,49 @@ function DeleteRoutineModal({ name, count, onUnsort, onDeleteHabits, onClose }) 
 // One cadence section (Daily / Weekly / …). Inside it, habits are split into
 // their named routine (or "No routine"), and can be dragged to reorder within
 // a routine. Grab the ⠿ handle to drag; each row has a routine dropdown.
-function RoutineSection({ cadenceName, list, habitLog, habitLogAuto, onUpdate, openMenu, routineOptions, onReorder, onSetRoutine }) {
+function RoutineSection({ cadenceName, list, habitLog, habitLogAuto, autoTrackedIds = new Set(), autoStatusFor = () => '', nextLogOverride, onSetNextLog, onUpdate, openMenu, routineOptions, onReorder, onSetRoutine, onBulkMark, onOpen }) {
   const [drag, setDrag] = useState(null); // { id, groupKey }
+  const [editingNext, setEditingNext] = useState(false);
+  // Weekly table bulk-edit: when on, clicking cells/headers/rows selects them
+  // (instead of opening the single-cell menu); an action bar applies one mark to
+  // the whole selection. Selection key is `${habitId}|${weekKey}`.
+  const [bulkMode, setBulkMode] = useState(false);
+  const [selected, setSelected] = useState(() => new Set());
+  // Column strip for this cadence (Daily = 8 days incl. the previous Sunday,
+  // Weekly = the weeks in view, Monthly/Annually = 7 periods). Computed up front
+  // so the resizable columns can size to the actual count.
+  //
+  // Weekly strip cells are labeled by the section's scheduled log DAY (e.g.
+  // Sunday), measured from the Sun–Sat week's START (Sun 0 … Sat 6); when multiple
+  // days are scheduled we use the latest (the week's deadline). Falls back to
+  // Sunday (0, the week start) on auto with no set schedule.
+  const weeklyRec = (nextLogOverride && typeof nextLogOverride === 'object') ? nextLogOverride : null;
+  const weekLogOffset = (cadenceCanon(cadenceName) === 'Weekly' && weeklyRec?.weekDays?.length)
+    ? Math.max(...weeklyRec.weekDays.map(d => WD_NAMES.indexOf(d))) // WD_NAMES[0]=sunday
+    : 0;
+  const weekCols = periodStripCols(cadenceCanon(cadenceName), weekLogOffset);
+  // Resizable columns (Habit, %, then one per period). Widths persist in
+  // localStorage, keyed by column count so cadences with different strip lengths
+  // don't overwrite each other's saved widths.
+  // Column order: Habit, one per period, then % and the routine dropdown on the
+  // far right. Storage key is bumped to v2 because that order changed.
+  const colStorageKey = `habitWeeklyColWidths-v2-${3 + weekCols.length}`;
+  // Weekly columns carry a full date span ("Jul 12 – 18") so they need more room
+  // than a single day/month/year label.
+  const periodColW = cadenceCanon(cadenceName) === 'Weekly' ? 72 : 46;
+  const [colWidths, setColWidths] = useState(() => {
+    try {
+      const s = JSON.parse(localStorage.getItem(colStorageKey));
+      if (Array.isArray(s) && s.length === 3 + weekCols.length && s.every(n => typeof n === 'number')) return s;
+    } catch { /* ignore */ }
+    return [220, ...Array(weekCols.length).fill(periodColW), 46, 130];
+  });
   const isAuto = h => (h.status || '').trim() === 'Automatically';
   const activeList = list.filter(h => !isAuto(h));
   const autoList = list.filter(isAuto);
-  // Red count of trackable habits whose current period is still unlogged.
-  const uncompleted = activeList.filter(h => (habitLog[periodKey(h.cadence)] || {})[h.id] === undefined).length;
+  // Red count of trackable habits whose current period is still unlogged
+  // (daily habits that are off today don't count as needing a mark).
+  const uncompleted = activeList.filter(h => tracksDate(h) && (habitLog[periodKey(h.cadence)] || {})[h.id] === undefined).length;
 
   // Sub-group active habits by routine. activeList is already sorted
   // (routine rank → manual order → name), so groups emerge in routine order and
@@ -1283,69 +1789,181 @@ function RoutineSection({ cadenceName, list, habitLog, habitLogAuto, onUpdate, o
     onSetRoutine(id, val);
   }
 
-  const row = (h, muted, groupKey, groupItems) => {
-    const isDaily = cadenceCanon(h.cadence) === 'Daily';
-    const curKey = periodKey(h.cadence);
-    const curMark = (habitLog[curKey] || {})[h.id];
+  // ---- Weekly table + bulk-edit helpers ----------------------------------
+  const borderCol = 'var(--color-border, #e2e8f0)';
+  const thBase = { padding: '5px 6px', borderBottom: `2px solid ${borderCol}`, background: 'var(--color-background, #fff)', verticalAlign: 'bottom' };
+  const cellId = (habitId, key) => `${habitId}|${key}`;
+  const setCells = (ids, on) => setSelected(prev => {
+    const n = new Set(prev);
+    ids.forEach(id => (on ? n.add(id) : n.delete(id)));
+    return n;
+  });
+  const toggleCell = (habitId, key) => setSelected(prev => {
+    const n = new Set(prev); const id = cellId(habitId, key);
+    n.has(id) ? n.delete(id) : n.add(id);
+    return n;
+  });
+  const toggleMany = (ids) => { const allOn = ids.length > 0 && ids.every(id => selected.has(id)); setCells(ids, !allOn); };
+  const toggleColumn = (key) => toggleMany(activeList.map(h => cellId(h.id, key)));
+  const toggleRow = (habitId) => toggleMany(weekCols.map(w => cellId(habitId, w.key)));
+  const toggleGroup = (items) => toggleMany(items.flatMap(h => weekCols.map(w => cellId(h.id, w.key))));
+  const clearSel = () => setSelected(new Set());
+  const applyBulk = (mark) => {
+    const cells = [...selected].map(id => { const i = id.lastIndexOf('|'); return { habitId: id.slice(0, i), key: id.slice(i + 1) }; });
+    onBulkMark?.(cells, mark);
+    clearSel();
+  };
+  const totalTableWidth = colWidths.reduce((a, b) => a + b, 0);
+  const startColResize = (idx, e) => {
+    e.preventDefault(); e.stopPropagation();
+    const startX = e.clientX;
+    const startW = colWidths[idx];
+    const onMove = (ev) => {
+      const w = Math.max(30, startW + (ev.clientX - startX));
+      setColWidths(prev => { const n = [...prev]; n[idx] = w; return n; });
+    };
+    const onUp = () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+      setColWidths(prev => { try { localStorage.setItem(colStorageKey, JSON.stringify(prev)); } catch { /* ignore */ } return prev; });
+    };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  };
+  // Small draggable handle on a header cell's right edge.
+  const colResizeHandle = (idx) => (
+    <span
+      onMouseDown={(e) => startColResize(idx, e)}
+      onClick={(e) => e.stopPropagation()}
+      title="Drag to resize column"
+      style={{ position: 'absolute', top: 0, right: -3, width: 7, height: '100%', cursor: 'col-resize', userSelect: 'none', zIndex: 2 }}
+    />
+  );
+
+  // Every cadence (Daily / Weekly / Monthly / Annually) now renders the shared
+  // period-strip table below via weeklyRow — the old per-cadence list rows were
+  // removed so the Routines subtabs share one consistent layout.
+  //
+  // One <tr> in the table: name (+ drag / routine), status, %, then a
+  // mark cell per week. In bulk mode, cells/name toggle selection instead of
+  // opening the single-cell menu. Automatic (muted) habits render read-only.
+  const weeklyRow = (h, muted, groupKey, groupItems) => {
     const pct = habitKpi(h, habitLog);
     const dragging = drag?.id === h.id;
+    const rowSel = !muted && weekCols.length > 0 && weekCols.every(w => selected.has(cellId(h.id, w.key)));
+    const tdBase = { borderBottom: `1px solid ${borderCol}`, padding: '3px 6px' };
     return (
-    <div
-      key={h.id}
-      onDragOver={muted ? undefined : (e) => { if (drag && drag.groupKey === groupKey) e.preventDefault(); }}
-      onDrop={muted ? undefined : (e) => { e.preventDefault(); handleDrop(h.id, groupKey, groupItems); }}
-      style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: '0.4rem 0.6rem', background: muted ? 'transparent' : 'var(--color-surface, #fff)', border: `1px solid ${dragging ? ACCENT : (muted ? '#eef2f6' : 'var(--color-border, #e2e8f0)')}`, borderRadius: 8, opacity: dragging ? 0.45 : 1 }}
-    >
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-        {!muted && (
-          <span
-            draggable
-            onDragStart={(e) => { setDrag({ id: h.id, groupKey }); e.dataTransfer.effectAllowed = 'move'; }}
-            onDragEnd={() => setDrag(null)}
-            title="Drag to reorder within this routine"
-            style={{ cursor: 'grab', color: '#cbd5e1', fontSize: '0.95rem', userSelect: 'none', lineHeight: 1 }}
-          >⠿</span>
-        )}
-        <span style={{ flex: 1, fontSize: '0.88rem', fontWeight: 600, color: muted ? '#94a3b8' : 'inherit' }}>{h.name || <em style={{ color: '#aaa' }}>untitled</em>}</span>
-        <select
-          value={groupKey}
-          onChange={e => chooseRoutine(h.id, e.target.value)}
-          title="Routine"
-          style={{ fontSize: '0.72rem', padding: '2px 4px', borderRadius: 6, border: '1px solid var(--color-border, #e2e8f0)', background: 'var(--color-surface, #fff)', color: 'var(--color-text-muted, #64748b)', maxWidth: 130 }}
-        >
-          <option value="">No routine</option>
-          {routineOptions.map(r => <option key={r} value={r}>{r}</option>)}
-          <option value="__new__">＋ New routine…</option>
-        </select>
-        <StatusSelect value={h.status} muted={muted} onChange={v => onUpdate(h.id, 'status', v)} />
-        <span title={habitKpiTooltip(h, habitLog)} style={{ width: 42, textAlign: 'right', fontSize: '0.8rem', color: muted ? '#cbd5e1' : 'var(--color-text-muted)', cursor: 'help' }}>{pct != null ? `${pct}%` : ''}</span>
-      </div>
-      {/* Automatic (greyed) habits are established — no need to log them. */}
-      {!muted && (
-        isDaily ? (
-          <WeekStrip habitId={h.id} habitName={h.name} habitLog={habitLog} habitLogAuto={habitLogAuto} openMenu={openMenu} />
-        ) : (
-          // Non-daily: a single current-period chip; clicking opens the menu.
-          <button
-            onClick={() => openMenu(h.id, curKey, `${h.name || 'Habit'} · ${periodLabel(curKey)}`)}
-            style={{
-              display: 'flex', alignItems: 'center', gap: 8, alignSelf: 'flex-start', cursor: 'pointer',
-              padding: '5px 10px', borderRadius: 8,
-              border: `1px solid ${curMark ? MARK_META[curMark].color : 'var(--color-border, #e2e8f0)'}`,
-              background: curMark ? MARK_META[curMark].color + '14' : 'var(--color-surface, #fff)',
-            }}
-          >
-            <span style={{ fontSize: '0.72rem', fontWeight: 600, color: 'var(--color-text-muted, #64748b)' }}>{periodHint(h.cadence)}</span>
-            <span style={{ fontSize: '0.82rem', fontWeight: 800, color: curMark ? MARK_META[curMark].color : '#cbd5e1' }}>
-              {curMark ? `${MARK_META[curMark].icon} ${MARK_META[curMark].label}` : 'Set…'}
-            </span>
-            {isAutoMark(habitLogAuto, curKey, h.id, curMark) && <AutoBadge />}
-          </button>
-        )
-      )}
-    </div>
+      <tr
+        key={h.id}
+        onDragOver={muted ? undefined : (e) => { if (drag && drag.groupKey === groupKey) e.preventDefault(); }}
+        onDrop={muted ? undefined : (e) => { e.preventDefault(); handleDrop(h.id, groupKey, groupItems); }}
+        style={{ background: dragging ? ACCENT + '0f' : undefined, opacity: dragging ? 0.5 : 1 }}
+      >
+        <td style={{ ...tdBase, minWidth: 150 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            {!muted && !bulkMode && (
+              <span
+                draggable
+                onDragStart={(e) => { setDrag({ id: h.id, groupKey }); e.dataTransfer.effectAllowed = 'move'; }}
+                onDragEnd={() => setDrag(null)}
+                title="Drag to reorder within this routine"
+                style={{ cursor: 'grab', color: '#cbd5e1', fontSize: '0.9rem', userSelect: 'none', lineHeight: 1 }}
+              >⠿</span>
+            )}
+            <span
+              onClick={bulkMode && !muted ? () => toggleRow(h.id) : undefined}
+              onDoubleClick={() => onOpen?.(h.id)}
+              title={bulkMode && !muted ? 'Click to select this habit’s whole row (double-click to open)' : 'Double-click to open habit'}
+              style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: '0.82rem', fontWeight: 600, color: muted ? '#94a3b8' : 'inherit', cursor: bulkMode && !muted ? 'pointer' : 'default', textDecoration: rowSel ? 'underline' : 'none' }}
+            >{h.name || <em style={{ color: '#aaa' }}>untitled</em>}</span>
+            {autoTrackedIds.has(h.id) && <AutoNameBadge />}
+          </div>
+        </td>
+        {weekCols.map(w => {
+          const mark = habitLog[w.key] ? habitLog[w.key][h.id] : undefined;
+          const auto = isAutoMark(habitLogAuto, w.key, h.id, mark);
+          const sel = selected.has(cellId(h.id, w.key));
+          // A Daily habit limited to certain weekdays: dim + disable its off-days
+          // (mirrors the old day-strip) so untracked days read as inactive.
+          const off = !muted && w.date && cadenceCanon(h.cadence) === 'Daily' && !tracksDate(h, w.date);
+          const disabled = muted || off;
+          // Auto-tracked habits: explain on hover why this cell was / wasn't
+          // auto-recorded, appended to the normal date/action tooltip.
+          const autoTip = off ? '' : autoStatusFor(h.id, w.key, mark);
+          const baseTip = off ? 'Not tracked on this day' : (muted ? '' : (bulkMode ? 'Click to select' : w.fullLabel));
+          const cellTitle = [baseTip, autoTip].filter(Boolean).join(' — ') || undefined;
+          return (
+            <td key={w.key} title={disabled ? cellTitle : undefined} style={{ ...tdBase, padding: 2, borderLeft: `1px ${w.isNext ? 'dashed' : 'solid'} ${borderCol}`, textAlign: 'center', background: off ? '#f8fafc' : ((w.isCurrent && !mark) ? ACCENT + '08' : undefined) }}>
+              <button
+                disabled={disabled}
+                onClick={disabled ? undefined : () => (bulkMode ? toggleCell(h.id, w.key) : openMenu(h.id, w.key, `${h.name || 'Habit'} · ${w.fullLabel}${w.isNext ? ' · upcoming' : ''}`))}
+                title={cellTitle}
+                style={{
+                  width: '100%', minWidth: 34, height: 26, display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                  cursor: disabled ? 'default' : 'pointer', borderRadius: 5,
+                  // A logged mark's colour (green for "Did it") always wins over the
+                  // current-period blue tint, so a completed cell reads as green.
+                  border: sel ? `2px solid ${ACCENT}` : (mark ? `1px solid ${MARK_META[mark].color}66` : '1px solid transparent'),
+                  background: sel ? ACCENT + '22' : (mark ? MARK_META[mark].color + '22' : 'transparent'),
+                  color: mark ? MARK_META[mark].color : '#d1d5db', fontWeight: 800, fontSize: '0.9rem',
+                  opacity: off ? 0.3 : (w.isNext && !mark && !sel ? 0.5 : 1),
+                }}
+              >
+                {off ? '' : (mark ? MARK_META[mark].icon : '·')}
+                {auto && <span title="Automatically logged" style={{ fontSize: '0.5rem', fontWeight: 800, color: '#2563eb', verticalAlign: 'super', marginLeft: 1 }}>A</span>}
+              </button>
+            </td>
+          );
+        })}
+        {/* % completion + routine dropdown live on the far right. */}
+        <td title={habitKpiTooltip(h, habitLog)} style={{ ...tdBase, borderLeft: `1px solid ${borderCol}`, textAlign: 'center', fontSize: '0.78rem', color: muted ? '#cbd5e1' : 'var(--color-text-muted)', cursor: 'help' }}>{pct != null ? `${pct}%` : ''}</td>
+        <td style={{ ...tdBase, borderLeft: `1px solid ${borderCol}`, textAlign: 'center' }}>
+          {!bulkMode && (
+            <select
+              value={groupKey}
+              onChange={e => chooseRoutine(h.id, e.target.value)}
+              title="Routine"
+              style={{ fontSize: '0.7rem', padding: '2px 4px', borderRadius: 6, border: `1px solid ${borderCol}`, background: 'var(--color-surface, #fff)', color: 'var(--color-text-muted, #64748b)', maxWidth: '100%' }}
+            >
+              <option value="">No routine</option>
+              {routineOptions.map(r => <option key={r} value={r}>{r}</option>)}
+              <option value="__new__">＋ New routine…</option>
+            </select>
+          )}
+        </td>
+      </tr>
     );
   };
+
+  const canon = cadenceCanon(cadenceName);
+  const canEditNext = canon !== 'Daily'; // Weekly / Monthly / Annually can be scheduled
+  // A saved recurrence object wins; otherwise fall back to the auto next-period.
+  const rec = (canEditNext && nextLogOverride && typeof nextLogOverride === 'object') ? nextLogOverride : null;
+  // Next date the user will need to log this cadence's habits.
+  const nextLog = (() => {
+    const today = new Date();
+    if (rec) {
+      const { date, dueNow } = nextRecurrenceDate(canon, rec, activeList, habitLog, uncompleted === 0);
+      return { dueNow, date, isRecurring: true };
+    }
+    if (uncompleted > 0) return { dueNow: true, date: today, isRecurring: false };
+    let d;
+    if (canon === 'Weekly') { d = sundayOf(today); d.setDate(d.getDate() + 7); }
+    else if (canon === 'Monthly') { d = new Date(today.getFullYear(), today.getMonth() + 1, 1); }
+    else if (canon === 'Annually') { d = new Date(today.getFullYear() + 1, 0, 1); }
+    else {
+      d = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1);
+      for (let i = 1; i <= 7; i++) {
+        const cand = new Date(today.getFullYear(), today.getMonth(), today.getDate() + i);
+        if (activeList.some(h => tracksDate(h, cand))) { d = cand; break; }
+      }
+    }
+    return { dueNow: false, date: d, isRecurring: false };
+  })();
+  const nextLogLabel = nextLog.dueNow
+    ? (nextLog.isRecurring ? 'Due now' : `Due ${periodHint(cadenceName).toLowerCase()}`)
+    : `Next log: ${nextLog.date.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}`;
+  const nextLinkBtn = { border: 'none', background: 'none', padding: 0, cursor: 'pointer', color: ACCENT, fontSize: '0.72rem', fontWeight: 700 };
 
   return (
     <div>
@@ -1360,26 +1978,130 @@ function RoutineSection({ cadenceName, list, habitLog, habitLogAuto, onUpdate, o
           </span>
         )}
       </div>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.8rem' }}>
-        {subGroups.map(([routineKey, items]) => (
-          <div key={routineKey || '__none__'}>
-            <div style={{ fontSize: '0.72rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: routineKey ? ACCENT : '#94a3b8', margin: '0 0 0.25rem 0.1rem' }}>
-              {routineKey || 'No routine'}
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-              {items.map(h => row(h, false, routineKey, items))}
-            </div>
+      {activeList.length > 0 && (
+        <div style={{ margin: '-0.25rem 0 0.7rem 0.1rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            <span style={{ fontSize: '0.75rem', fontWeight: 600, color: nextLog.dueNow ? '#dc2626' : 'var(--color-text-muted, #64748b)' }}>
+              {nextLogLabel}
+            </span>
+            {rec && <span style={{ fontSize: '0.72rem', color: '#94a3b8' }}>· {recurrenceSummary(canon, rec)}</span>}
+            {canEditNext && !editingNext && (
+              <button style={nextLinkBtn} onClick={() => { if (!rec) onSetNextLog(canon, defaultRec(canon)); setEditingNext(true); }}>
+                {rec ? 'Edit schedule' : 'Set schedule'}
+              </button>
+            )}
+            {canEditNext && rec && !editingNext && (
+              <button style={{ ...nextLinkBtn, color: '#94a3b8' }} onClick={() => onSetNextLog(canon, '')}>Reset to auto</button>
+            )}
           </div>
-        ))}
-        {autoList.length > 0 && (
-          <>
-            <h4 style={{ fontSize: '0.78rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: '#94a3b8', margin: '0.5rem 0 0.1rem' }}>Automatic</h4>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-              {autoList.map(h => row(h, true, (h.routine || '').trim(), autoList))}
-            </div>
-          </>
-        )}
-      </div>
+          {canEditNext && editingNext && rec && (
+            <NextLogRecurrenceEditor
+              canon={canon}
+              rec={rec}
+              onChange={patch => onSetNextLog(canon, { ...rec, ...patch })}
+              onDone={() => setEditingNext(false)}
+            />
+          )}
+        </div>
+      )}
+      {(
+        <>
+          {/* Bulk-edit toolbar: toggle select mode, then apply one mark to the
+              whole selection (cells / columns / rows / groups). Every cadence
+              (Daily / Weekly / Monthly / Annually) renders this same table. */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '0 0 0.5rem', flexWrap: 'wrap' }}>
+            <button
+              onClick={() => { setBulkMode(m => !m); clearSel(); }}
+              style={{ cursor: 'pointer', fontSize: '0.74rem', fontWeight: 700, padding: '0.3rem 0.7rem', borderRadius: 7, border: `1px solid ${bulkMode ? ACCENT : borderCol}`, background: bulkMode ? ACCENT + '14' : 'var(--color-surface, #fff)', color: bulkMode ? ACCENT : 'var(--color-text-muted, #64748b)' }}
+            >
+              {bulkMode ? '✓ Bulk editing' : '☰ Bulk edit'}
+            </button>
+            {bulkMode && (
+              <>
+                <span style={{ fontSize: '0.74rem', color: 'var(--color-text-muted, #64748b)' }}>{selected.size} selected</span>
+                {MARK_ORDER.map(m => (
+                  <button
+                    key={m}
+                    disabled={selected.size === 0}
+                    onClick={() => applyBulk(m)}
+                    title={`Set selection to “${MARK_META[m].label}”`}
+                    style={{ cursor: selected.size ? 'pointer' : 'not-allowed', opacity: selected.size ? 1 : 0.4, fontSize: '0.74rem', fontWeight: 700, padding: '0.3rem 0.6rem', borderRadius: 7, border: `1px solid ${MARK_META[m].color}`, background: MARK_META[m].color + '14', color: MARK_META[m].color }}
+                  >
+                    {MARK_META[m].icon} {MARK_META[m].short}
+                  </button>
+                ))}
+                <button
+                  disabled={selected.size === 0}
+                  onClick={() => applyBulk(null)}
+                  title="Erase marks in selection"
+                  style={{ cursor: selected.size ? 'pointer' : 'not-allowed', opacity: selected.size ? 1 : 0.4, fontSize: '0.74rem', fontWeight: 700, padding: '0.3rem 0.6rem', borderRadius: 7, border: `1px solid ${borderCol}`, background: 'var(--color-surface, #fff)', color: '#94a3b8' }}
+                >⌫ Erase</button>
+                {selected.size > 0 && <button onClick={clearSel} style={{ ...nextLinkBtn, color: '#94a3b8' }}>Clear</button>}
+              </>
+            )}
+          </div>
+          {bulkMode && (
+            <p style={{ fontSize: '0.7rem', color: '#94a3b8', margin: '-0.25rem 0 0.5rem' }}>
+              Tap cells to select. Click a week header for the whole column, a habit name for its row, or a routine heading for the group — then pick a mark above.
+            </p>
+          )}
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ borderCollapse: 'collapse', tableLayout: 'fixed', width: '100%', minWidth: totalTableWidth, fontSize: '0.8rem' }}>
+              <colgroup>
+                {colWidths.map((w, i) => <col key={i} style={{ width: w }} />)}
+              </colgroup>
+              <thead>
+                <tr>
+                  <th style={{ ...thBase, position: 'relative', textAlign: 'left' }}>
+                    <span style={{ fontSize: '0.66rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--color-text-muted, #64748b)' }}>Habit</span>
+                    {colResizeHandle(0)}
+                  </th>
+                  {weekCols.map((w, wi) => (
+                    <th
+                      key={w.key}
+                      onClick={bulkMode ? () => toggleColumn(w.key) : undefined}
+                      title={`${w.fullLabel}${w.isCurrent ? ` · this ${periodNoun(canon)}` : w.isNext ? ` · next ${periodNoun(canon)} (upcoming)` : ''}${bulkMode ? ' · click to select column' : ''}`}
+                      style={{ ...thBase, position: 'relative', textAlign: 'center', cursor: bulkMode ? 'pointer' : 'default', background: w.isCurrent ? ACCENT + '10' : thBase.background, borderLeft: `1px ${w.isNext ? 'dashed' : 'solid'} ${borderCol}` }}
+                    >
+                      <div style={{ fontSize: '0.66rem', fontWeight: 800, color: w.isCurrent ? ACCENT : (w.isNext ? '#94a3b8' : 'var(--color-text-muted, #64748b)') }}>{w.primary}</div>
+                      <div style={{ fontSize: '0.62rem', fontWeight: 600, color: w.isCurrent ? ACCENT : '#a0aab8', whiteSpace: 'nowrap' }}>{w.shortLabel}</div>
+                      {colResizeHandle(1 + wi)}
+                    </th>
+                  ))}
+                  <th style={{ ...thBase, position: 'relative', textAlign: 'center', borderLeft: `1px solid ${borderCol}`, fontSize: '0.66rem', fontWeight: 700, color: 'var(--color-text-muted, #64748b)' }} title={`Completion over ${habitWindowLabel(canon)}`}>
+                    %{colResizeHandle(1 + weekCols.length)}
+                  </th>
+                  <th style={{ ...thBase, position: 'relative', textAlign: 'center', borderLeft: `1px solid ${borderCol}`, fontSize: '0.66rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--color-text-muted, #64748b)' }}>
+                    Routine{colResizeHandle(2 + weekCols.length)}
+                  </th>
+                </tr>
+              </thead>
+              {subGroups.map(([routineKey, items]) => (
+                <tbody key={routineKey || '__none__'}>
+                  <tr>
+                    <td
+                      colSpan={3 + weekCols.length}
+                      onClick={bulkMode ? () => toggleGroup(items) : undefined}
+                      style={{ padding: '0.4rem 6px 0.15rem', fontSize: '0.68rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: routineKey ? ACCENT : '#94a3b8', cursor: bulkMode ? 'pointer' : 'default' }}
+                    >
+                      {routineKey || 'No routine'}{bulkMode && <span style={{ color: '#cbd5e1', fontWeight: 600, textTransform: 'none', letterSpacing: 0 }}> · select group</span>}
+                    </td>
+                  </tr>
+                  {items.map(h => weeklyRow(h, false, routineKey, items))}
+                </tbody>
+              ))}
+              {autoList.length > 0 && (
+                <tbody>
+                  <tr>
+                    <td colSpan={3 + weekCols.length} style={{ padding: '0.55rem 6px 0.15rem', fontSize: '0.7rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: '#94a3b8' }}>Automatic</td>
+                  </tr>
+                  {autoList.map(h => weeklyRow(h, true, (h.routine || '').trim(), autoList))}
+                </tbody>
+              )}
+            </table>
+          </div>
+        </>
+      )}
     </div>
   );
 }
@@ -1675,6 +2397,25 @@ function AutomaticView({ habits, automations, habitLog = {}, habitLogAuto = {}, 
                     <select value={r.mark} onChange={e => updateRule(r.id, { mark: e.target.value })} style={{ ...selectStyle, color: MARK_META[r.mark]?.color, fontWeight: 700 }}>
                       {MARK_ORDER.map(m => <option key={m} value={m}>{MARK_META[m].icon} {MARK_META[m].label}</option>)}
                     </select>
+                    {/* Daily habits: what to mark when the trigger DIDN'T fire on a
+                        day that's already over — e.g. a rest day (no workout) → Skip.
+                        Never touches today; ignored for non-daily cadences. */}
+                    {habit && cadenceCanon(habit.cadence) === 'Daily' && (
+                      <>
+                        <span
+                          style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)' }}
+                          title="Applied to a past day when the trigger didn't fire — e.g. a rest day with no workout. Never marks today."
+                        >· else →</span>
+                        <select
+                          value={r.elseMark || ''}
+                          onChange={e => updateRule(r.id, { elseMark: e.target.value })}
+                          style={{ ...selectStyle, color: r.elseMark ? MARK_META[r.elseMark]?.color : undefined, fontWeight: r.elseMark ? 700 : 400 }}
+                        >
+                          <option value="">— nothing</option>
+                          {MARK_ORDER.map(m => <option key={m} value={m}>{MARK_META[m].icon} {MARK_META[m].label}</option>)}
+                        </select>
+                      </>
+                    )}
                   </div>
 
                   {/* Row 2.5: live status — the habit's mark this cycle and the one before */}
@@ -1736,8 +2477,10 @@ function AutomaticView({ habits, automations, habitLog = {}, habitLogAuto = {}, 
 function DailyView({ habits, habitLogAuto, markOf, onMark, onReorder }) {
   const [drag, setDrag] = useState(null); // { id, blockKey }
   const todayKey = dayKey(new Date());
+  // Today's checklist — exclude daily habits that aren't tracked today (e.g. a
+  // weekday-only habit on a Saturday).
   const daily = useMemo(() => habits
-    .filter(h => routineType(h.routine) === 'daily' && !PARKED_STATUSES.includes((h.status || '').trim()))
+    .filter(h => routineType(h.routine) === 'daily' && !PARKED_STATUSES.includes((h.status || '').trim()) && tracksDate(h))
     .sort(compareByRoutine), [habits]);
 
   // Group into routine blocks (Morning / Lunch / …). Drag reorders within one.
@@ -1867,15 +2610,20 @@ const WEEKDAY_ABBR = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 // Columns for the History grid: Daily→7 days of a week, Weekly→ISO weeks of a
 // month, Monthly→12 months of a year, Annually→a 6-year window. Each column key
 // is the same period key habitLog is stored under, so cells are a direct lookup.
-function historyColumns(sel, anchor) {
+function historyColumns(sel, anchor, weeks = 1) {
   if (sel === 'Daily') {
+    const n = Math.max(1, weeks || 1);
+    const total = 7 * n + 1; // +1 leading day = the previous Sunday (8-day view)
     const start = startOfISOWeek(anchor);
+    start.setDate(start.getDate() - 1); // back up to the previous Sunday
     const cols = [];
-    for (let i = 0; i < 7; i++) {
+    for (let i = 0; i < total; i++) {
       const d = new Date(start.getFullYear(), start.getMonth(), start.getDate() + i);
-      cols.push({ key: dayKey(d), label: WEEKDAY_ABBR[i], sub: String(d.getDate()) });
+      // Weekday label from the actual date (WEEKDAY_ABBR is Mon-indexed) since
+      // the strip now starts on Sunday, not Monday.
+      cols.push({ key: dayKey(d), label: WEEKDAY_ABBR[(d.getDay() + 6) % 7], sub: String(d.getDate()) });
     }
-    const end = new Date(start.getFullYear(), start.getMonth(), start.getDate() + 6);
+    const end = new Date(start.getFullYear(), start.getMonth(), start.getDate() + total - 1);
     const label = `${start.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} – ${end.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`;
     return { cols, label };
   }
@@ -1884,10 +2632,10 @@ function historyColumns(sel, anchor) {
     const seen = new Map();
     for (let day = 1; day <= daysInMonth(y, m); day++) {
       const d = new Date(y, m, day);
-      const key = isoWeekKey(d);
+      const key = weekKey(d);
       if (!seen.has(key)) {
-        const mon = startOfISOWeek(d);
-        seen.set(key, { key, label: `W${key.slice(6)}`, sub: `${mon.getMonth() + 1}/${mon.getDate()}` });
+        const sun = sundayOf(d); // Sun–Sat weeks: label by the week's Sunday
+        seen.set(key, { key, label: `W${key.slice(6)}`, sub: `${sun.getMonth() + 1}/${sun.getDate()}` });
       }
     }
     return { cols: [...seen.values()], label: anchor.toLocaleDateString(undefined, { month: 'long', year: 'numeric' }) };
@@ -1904,9 +2652,9 @@ function historyColumns(sel, anchor) {
   return { cols, label: `${y - (N - 1)} – ${y}` };
 }
 
-function shiftHistoryAnchor(sel, anchor, dir) {
+function shiftHistoryAnchor(sel, anchor, dir, weeks = 1) {
   const d = new Date(anchor.getFullYear(), anchor.getMonth(), anchor.getDate());
-  if (sel === 'Daily') d.setDate(d.getDate() + 7 * dir);
+  if (sel === 'Daily') d.setDate(d.getDate() + 7 * Math.max(1, weeks) * dir);
   else if (sel === 'Weekly') d.setMonth(d.getMonth() + dir);
   else d.setFullYear(d.getFullYear() + dir); // Monthly + Annually step by year
   return d;
@@ -2000,21 +2748,24 @@ function buildHistoryIncoming(text, habits, mapping) {
 // get a greyed background and, for any period they weren't explicitly logged,
 // a faint assumed-done checkmark (up to the current period — future cells stay
 // blank). Cells remain clickable to override the assumption.
-function renderHistoryRow(h, isAuto, cols, currentKey, habitLog, openMenu) {
+function renderHistoryRow(h, isAuto, cols, currentKey, habitLog, openMenu, autoTracked = false, autoStatusFor = () => '') {
   const rowBg = isAuto ? '#f8fafc' : undefined;
   return (
     <tr key={h.id} style={{ borderTop: '1px solid #eef2f6', background: rowBg }}>
       <td style={{ ...histNameTd, background: isAuto ? '#f1f5f9' : '#fff', color: isAuto ? 'var(--color-text-muted)' : undefined }} title={h.name}>
         {h.name || <em style={{ color: '#aaa' }}>untitled</em>}
+        {autoTracked && <AutoNameBadge />}
       </td>
       {cols.map(c => {
         const mk = habitLog[c.key] ? habitLog[c.key][h.id] : undefined;
         const assumeDone = isAuto && !mk && c.key <= currentKey;
+        // For auto-tracked habits, hover shows why the cell was / wasn't recorded.
+        const autoTip = autoStatusFor(h.id, c.key, mk);
         return (
           <td
             key={c.key}
             onClick={() => openMenu(h.id, c.key, `${h.name || 'Habit'} · ${periodLabel(c.key)}`)}
-            title="Edit"
+            title={autoTip || 'Edit'}
             style={{ ...histCellTd, cursor: 'pointer', background: c.key === currentKey ? ACCENT + '0a' : rowBg }}
           >
             {mk
@@ -2034,7 +2785,7 @@ function renderHistoryRow(h, isAuto, cols, currentKey, habitLog, openMenu) {
 // days, weekly habits a month of weeks, monthly habits a year of months, annual
 // habits a span of years. Cells are clickable (open the day menu); historical
 // data can be imported from Excel.
-function HistoryView({ habitLog, habits, onImport, openMenu }) {
+function HistoryView({ habitLog, habits, onImport, openMenu, autoTrackedIds = new Set(), autoStatusFor = () => '' }) {
   const [importOpen, setImportOpen] = useState(false);
   const [importText, setImportText] = useState('');
   const [importResult, setImportResult] = useState(null);
@@ -2074,8 +2825,12 @@ function HistoryView({ habitLog, habits, onImport, openMenu }) {
 
   const [sel, setSel] = useState('Daily');
   const [anchor, setAnchor] = useState(() => new Date());
+  // How many weeks the Daily grid shows at once (1 / 2 / 4). Only applies to
+  // the Daily cadence; other cadences ignore it.
+  const [weeksN, setWeeksN] = useState(1);
+  const dailyWeeks = sel === 'Daily' ? weeksN : 1;
 
-  const { cols, label } = useMemo(() => historyColumns(sel, anchor), [sel, anchor]);
+  const { cols, label } = useMemo(() => historyColumns(sel, anchor, dailyWeeks), [sel, anchor, dailyWeeks]);
   const currentKey = periodKey(sel); // highlight the in-progress period
 
   // Rows = habits tracked at the selected cadence. For Daily that means an
@@ -2139,10 +2894,33 @@ function HistoryView({ habitLog, habits, onImport, openMenu }) {
 
       {/* Window navigation */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: '0.6rem' }}>
-        <button onClick={() => setAnchor(a => shiftHistoryAnchor(sel, a, -1))} style={navBtn} title="Previous">‹</button>
+        <button onClick={() => setAnchor(a => shiftHistoryAnchor(sel, a, -1, dailyWeeks))} style={navBtn} title="Previous">‹</button>
         <strong style={{ fontSize: '0.95rem', minWidth: 150, textAlign: 'center' }}>{label}</strong>
-        <button onClick={() => setAnchor(a => shiftHistoryAnchor(sel, a, 1))} style={navBtn} title="Next">›</button>
+        <button onClick={() => setAnchor(a => shiftHistoryAnchor(sel, a, 1, dailyWeeks))} style={navBtn} title="Next">›</button>
         <button onClick={() => setAnchor(new Date())} style={{ ...ghostBtn, padding: '0.3rem 0.7rem', fontSize: '0.78rem' }}>Today</button>
+        {sel === 'Daily' && (
+          <div style={{ display: 'flex', gap: 4, background: '#f1f5f9', borderRadius: 8, padding: 3, marginLeft: 'auto' }}>
+            {[1, 2, 4].map(n => {
+              const active = weeksN === n;
+              return (
+                <button
+                  key={n}
+                  onClick={() => setWeeksN(n)}
+                  title={`Show ${n} week${n > 1 ? 's' : ''}`}
+                  style={{
+                    cursor: 'pointer', padding: '0.25rem 0.6rem', borderRadius: 6,
+                    fontSize: '0.76rem', fontWeight: 700, border: 'none',
+                    background: active ? 'var(--color-surface, #fff)' : 'transparent',
+                    color: active ? ACCENT : 'var(--color-text-muted, #64748b)',
+                    boxShadow: active ? '0 1px 3px rgba(0,0,0,0.12)' : 'none',
+                  }}
+                >
+                  {n}w
+                </button>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       {rows.length === 0 ? (
@@ -2162,7 +2940,7 @@ function HistoryView({ habitLog, habits, onImport, openMenu }) {
               </tr>
             </thead>
             <tbody>
-              {manualRows.map(h => renderHistoryRow(h, false, cols, currentKey, habitLog, openMenu))}
+              {manualRows.map(h => renderHistoryRow(h, false, cols, currentKey, habitLog, openMenu, autoTrackedIds.has(h.id), autoStatusFor))}
               {autoRows.length > 0 && (
                 <>
                   <tr>
@@ -2170,7 +2948,7 @@ function HistoryView({ habitLog, habits, onImport, openMenu }) {
                       Automatic · assumed done
                     </td>
                   </tr>
-                  {autoRows.map(h => renderHistoryRow(h, true, cols, currentKey, habitLog, openMenu))}
+                  {autoRows.map(h => renderHistoryRow(h, true, cols, currentKey, habitLog, openMenu, autoTrackedIds.has(h.id), autoStatusFor))}
                 </>
               )}
             </tbody>
@@ -2675,6 +3453,44 @@ function HabitDetailModal({ habit, onUpdate, onDelete, onClose }) {
             })}
           </div>
         </div>
+
+        {/* Days tracked — only for Daily habits (unset cadence counts as daily).
+            Lets you limit a habit to certain weekdays, e.g. not on weekends. */}
+        {cadenceCanon(cadence) === 'Daily' && (
+          <div style={{ marginBottom: '1.1rem' }}>
+            <div style={{ ...fieldLabel, marginBottom: 6 }}>Days tracked</div>
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+              {[{ wd: 1, l: 'Mon' }, { wd: 2, l: 'Tue' }, { wd: 3, l: 'Wed' }, { wd: 4, l: 'Thu' }, { wd: 5, l: 'Fri' }, { wd: 6, l: 'Sat' }, { wd: 0, l: 'Sun' }].map(({ wd, l }) => {
+                const on = habitTrackDays(h).includes(wd);
+                return (
+                  <button
+                    key={wd}
+                    type="button"
+                    onClick={() => {
+                      const set = new Set(habitTrackDays(h));
+                      if (set.has(wd)) { if (set.size <= 1) return; set.delete(wd); } else set.add(wd);
+                      const arr = [...set].sort((a, b) => a - b);
+                      // Store [] (the "all days" default) when every day is on, so
+                      // the field only persists a real restriction.
+                      onUpdate(h.id, 'trackDays', arr.length === 7 ? [] : arr);
+                    }}
+                    style={{
+                      minWidth: 46, padding: '0.45rem 0.6rem', borderRadius: 999, cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600,
+                      border: `1px solid ${on ? ACCENT : 'var(--color-border, #e2e8f0)'}`,
+                      background: on ? ACCENT : 'var(--color-surface, #fff)',
+                      color: on ? '#fff' : 'var(--color-text-muted, #64748b)',
+                    }}
+                  >
+                    {l}
+                  </button>
+                );
+              })}
+            </div>
+            <div style={{ fontSize: '0.72rem', color: 'var(--color-text-muted)', marginTop: 6, lineHeight: 1.4 }}>
+              Untracked days (e.g. weekends) don't count toward completion and don't show a reminder.
+            </div>
+          </div>
+        )}
 
         {/* Status + meta */}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.6rem', marginBottom: '0.4rem' }}>

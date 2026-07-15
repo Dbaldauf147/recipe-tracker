@@ -1,9 +1,10 @@
 // GET /api/backup-user-data — daily cron (declared in vercel.json).
 //
-// Independent safety net: snapshots every user's dailyLog + recipes to
-// users/{uid}/backups/{type}_{YYYY-MM-DD}, keeping the newest KEEP per type.
-// Runs server-side so it survives any client bug. Skips empty docs so a
-// transient empty state never replaces a good backup. Auth: CRON_SECRET.
+// Independent safety net: snapshots every user's dailyLog + recipes + habit
+// data (habits + habitLog) to users/{uid}/backups/{type}_{YYYY-MM-DD}, keeping
+// the newest KEEP per type. Runs server-side so it survives any client bug.
+// Skips empty docs so a transient empty state never replaces a good backup.
+// Auth: CRON_SECRET.
 
 import { initializeApp, cert, getApps } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
@@ -32,6 +33,17 @@ function countDailyLogEntries(log) {
   return n;
 }
 
+// Total habit marks across all periods: habitLog[periodKey][habitId] = mark.
+function countHabitMarks(log) {
+  if (!log || typeof log !== 'object') return 0;
+  let n = 0;
+  for (const k of Object.keys(log)) {
+    const bucket = log[k];
+    if (bucket && typeof bucket === 'object') n += Object.keys(bucket).length;
+  }
+  return n;
+}
+
 async function prune(uid, type) {
   const col = db.collection(`users/${uid}/backups`);
   const snap = await col.where('type', '==', type).get();
@@ -49,7 +61,7 @@ export default async function handler(req, res) {
   }
 
   const date = dateKeyET();
-  const summary = { date, users: 0, dailyLogBackups: 0, recipesBackups: 0, errors: [] };
+  const summary = { date, users: 0, dailyLogBackups: 0, recipesBackups: 0, habitsBackups: 0, habitLogBackups: 0, errors: [] };
 
   try {
     const snap = await db.collection('users').get();
@@ -57,6 +69,27 @@ export default async function handler(req, res) {
       const uid = u.id;
       summary.users++;
       try {
+        // Habit data lives on the main user doc (already fetched as `u`).
+        const udata = u.data() || {};
+        const habits = udata.habits;
+        if (Array.isArray(habits) && habits.length > 0) {
+          await db.doc(`users/${uid}/backups/habits_${date}`).set({
+            type: 'habits', date, count: habits.length, data: habits, savedAt: new Date().toISOString(),
+          });
+          summary.habitsBackups++;
+          await prune(uid, 'habits');
+        }
+
+        const habitLog = udata.habitLog;
+        const habitMarks = countHabitMarks(habitLog);
+        if (habitMarks > 0) {
+          await db.doc(`users/${uid}/backups/habitLog_${date}`).set({
+            type: 'habitLog', date, count: habitMarks, data: habitLog, savedAt: new Date().toISOString(),
+          });
+          summary.habitLogBackups++;
+          await prune(uid, 'habitLog');
+        }
+
         const dl = await db.doc(`users/${uid}/data/dailyLog`).get();
         const log = dl.exists ? (dl.data().log || {}) : null;
         if (log && countDailyLogEntries(log) > 0) {
