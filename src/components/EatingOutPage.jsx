@@ -69,14 +69,28 @@ const FILTERS = [
   { key: 'visited', label: 'Visited' },
 ];
 
-const MEAL_TYPES = [
-  { key: 'breakfast', label: 'Breakfast' },
-  { key: 'lunch-dinner', label: 'Lunch / Dinner' },
-  { key: 'drinking', label: 'Drinking' },
-  { key: 'coffee', label: 'Coffee' },
-  { key: 'other', label: 'Other' },
-  { key: 'all', label: 'Anytime' },
+// Higher-level buckets a spot can belong to. A spot can be in SEVERAL (a brewpub
+// is Lunch/Dinner and Drinking), stored as `buckets: string[]`. This replaces the
+// old single-valued `mealType`; see bucketsOf for the migration.
+const BUCKETS = [
+  { key: 'breakfast', label: 'Breakfast', icon: '🍳' },
+  { key: 'lunch-dinner', label: 'Lunch / Dinner', icon: '🍽️' },
+  { key: 'drinking', label: 'Drinking', icon: '🍸' },
+  { key: 'coffee', label: 'Coffee', icon: '☕' },
+  { key: 'going-out', label: 'Going Out', icon: '🎉' },
 ];
+const BUCKET_KEYS = new Set(BUCKETS.map(b => b.key));
+const bucketLabel = (key) => BUCKETS.find(b => b.key === key)?.label || '';
+
+// A spot's buckets, migrating from the legacy single `mealType` when the array
+// isn't there yet. The old 'other'/'all' values have no bucket equivalent, so
+// those spots read as unsorted (empty) — findable via the Unsorted filter and
+// reassignable in bulk.
+function bucketsOf(r) {
+  if (Array.isArray(r.buckets)) return r.buckets.filter(k => BUCKET_KEYS.has(k));
+  if (r.mealType && BUCKET_KEYS.has(r.mealType)) return [r.mealType];
+  return [];
+}
 
 const FREQUENCIES = [
   { key: 'regular', label: 'Regular' },
@@ -84,15 +98,17 @@ const FREQUENCIES = [
   { key: 'retired', label: 'Retired' },
 ];
 
-// A restaurant matches a meal-type filter if its Meal type equals the key, OR
-// any of its free-text Categories contains the meal type's label as text — so a
-// place with a "coffee shops" category is caught by the Coffee filter even when
-// its Meal type field was never set.
-function restaurantMatchesMealType(r, mealTypeKey) {
-  if (!mealTypeKey) return true;
-  if (r.mealType === mealTypeKey) return true;
-  const term = (MEAL_TYPES.find(m => m.key === mealTypeKey)?.label || mealTypeKey).toLowerCase();
-  return (r.categories || []).some(c => (c || '').toLowerCase().includes(term));
+// Whether a spot belongs to a bucket filter. 'unsorted' matches spots with no
+// buckets; otherwise the bucket must be assigned, OR a free-text Category must
+// contain the bucket's label (so a "coffee shops" category is still caught by
+// the Coffee filter even on a spot that was never bucketed).
+function restaurantMatchesBucket(r, bucketKey) {
+  if (!bucketKey) return true;
+  const buckets = bucketsOf(r);
+  if (bucketKey === 'unsorted') return buckets.length === 0;
+  if (buckets.includes(bucketKey)) return true;
+  const term = bucketLabel(bucketKey).toLowerCase();
+  return term ? (r.categories || []).some(c => (c || '').toLowerCase().includes(term)) : false;
 }
 
 // Table view: column registry, defaults, and per-user width/visibility prefs.
@@ -105,7 +121,7 @@ const TABLE_COLUMNS = [
   { key: 'locations', label: 'Locations', width: 180, visible: true },
   { key: 'categories', label: 'Categories', width: 180, visible: true },
   { key: 'address', label: 'Address', width: 260, visible: true },
-  { key: 'mealType', label: 'Meal Type', width: 110, visible: true },
+  { key: 'mealType', label: 'Buckets', width: 140, visible: true },
   { key: 'frequency', label: 'Frequency', width: 100, visible: true },
   { key: 'dish', label: 'What to order', width: 200, visible: true },
   { key: 'lastVisit', label: 'Last Visit', width: 120, visible: true },
@@ -138,7 +154,7 @@ function cellValueFor(r, key) {
     case 'locations': return (r.locations || []).join(', ');
     case 'categories': return (r.categories || []).join(', ');
     case 'address': return r.address || '';
-    case 'mealType': return MEAL_TYPES.find(m => m.key === r.mealType)?.label || '';
+    case 'mealType': return bucketsOf(r).map(bucketLabel).filter(Boolean).join(', ');
     case 'frequency': return r.frequency
       ? r.frequency.charAt(0).toUpperCase() + r.frequency.slice(1)
       : '';
@@ -431,7 +447,7 @@ function EditModal({ initial, onSave, onClose, onDelete, cuisineSuggestions, loc
   const [ratingLabel, setRatingLabel] = useState(initial.ratingLabel || '');
   const [status, setStatus] = useState(initial.status || 'want-to-try');
   const [takenJoanne, setTakenJoanne] = useState(!!initial.takenJoanne);
-  const [mealType, setMealType] = useState(initial.mealType || '');
+  const [buckets, setBuckets] = useState(() => bucketsOf(initial));
   const [frequency, setFrequency] = useState(initial.frequency || '');
   const [dish, setDish] = useState(initial.dish || '');
   const [meals, setMeals] = useState(Array.isArray(initial.meals) ? initial.meals : []);
@@ -520,7 +536,10 @@ function EditModal({ initial, onSave, onClose, onDelete, cuisineSuggestions, loc
       rating,
       ratingLabel: ratingLabel.trim() || undefined,
       status,
-      mealType: mealType || undefined,
+      buckets: buckets.length ? buckets : undefined,
+      // Keep the legacy single field in sync so consumers that still read it
+      // (CSV export, older mobile builds) get the primary bucket.
+      mealType: buckets[0] || undefined,
       frequency: frequency || undefined,
       dish: dish.trim() || undefined,
       meals: meals.length ? meals : undefined,
@@ -617,23 +636,18 @@ function EditModal({ initial, onSave, onClose, onDelete, cuisineSuggestions, loc
             placeholder="e.g., coffee shops, date spots — press Enter"
           />
 
-          <label className={styles.fieldLabel}>Meal type</label>
+          <label className={styles.fieldLabel}>Buckets</label>
           <div className={styles.statusRow}>
-            <button
-              type="button"
-              className={`${styles.statusBtn} ${!mealType ? styles.statusBtnActive : ''}`}
-              onClick={() => setMealType('')}
-            >
-              —
-            </button>
-            {MEAL_TYPES.map(m => (
+            {BUCKETS.map(b => (
               <button
-                key={m.key}
+                key={b.key}
                 type="button"
-                className={`${styles.statusBtn} ${mealType === m.key ? styles.statusBtnActive : ''}`}
-                onClick={() => setMealType(m.key)}
+                className={`${styles.statusBtn} ${buckets.includes(b.key) ? styles.statusBtnActive : ''}`}
+                onClick={() => setBuckets(prev => prev.includes(b.key)
+                  ? prev.filter(k => k !== b.key)
+                  : [...prev, b.key])}
               >
-                {m.label}
+                {b.icon} {b.label}
               </button>
             ))}
           </div>
@@ -1124,6 +1138,15 @@ function RestaurantCard({ r, distanceMiles, rank, canMoveUp, canMoveDown, onMove
             {r.ratingLabel && <span className={styles.cardRatingLabel}>{r.ratingLabel}</span>}
           </div>
         )}
+        {bucketsOf(r).length > 0 && (
+          <div className={styles.cardBuckets}>
+            {bucketsOf(r).map(k => (
+              <span key={k} className={styles.bucketChip}>
+                {BUCKETS.find(b => b.key === k)?.icon} {bucketLabel(k)}
+              </span>
+            ))}
+          </div>
+        )}
         {(r.cuisines?.length > 0 || r.locations?.length > 0 || r.frequency) && (
           <div className={styles.cardMeta}>
             {[
@@ -1263,6 +1286,7 @@ function RestaurantTable({ items, onRowClick, myRestaurantIds, bulkUpdate, bulkD
   const [selectedIds, setSelectedIds] = useState(() => new Set());
   const [tagField, setTagField] = useState('cuisines');
   const [tagValue, setTagValue] = useState('');
+  const [bulkBucket, setBulkBucket] = useState(BUCKETS[0].key);
   const canSelect = !!myRestaurantIds && !!bulkUpdate;
   const [bulkMode, setBulkMode] = useState(false);
   const showSelect = canSelect && bulkMode;
@@ -1307,6 +1331,17 @@ function RestaurantTable({ items, onRowClick, myRestaurantIds, bulkUpdate, bulkD
       return { [tagField]: [...arr, value] };
     });
     setTagValue('');
+  }
+  // Add/remove a bucket across the selected spots. Multi-valued, so this edits
+  // the array rather than replacing it; mealType is kept as the primary for
+  // legacy consumers (see EditModal.handleSave).
+  function applyBucket(key, remove) {
+    applyUpdate(r => {
+      const cur = bucketsOf(r);
+      if (remove ? !cur.includes(key) : cur.includes(key)) return null;
+      const next = remove ? cur.filter(k => k !== key) : [...cur, key];
+      return { buckets: next, mealType: next[0] || undefined };
+    });
   }
   function handleBulkDelete() {
     if (selectedCount === 0) return;
@@ -1447,12 +1482,12 @@ function RestaurantTable({ items, onRowClick, myRestaurantIds, bulkUpdate, bulkD
           </div>
 
           <div className={styles.bulkGroup}>
-            <span className={styles.bulkLabel}>Meal type</span>
-            <select className={styles.bulkSelect} value=""
-              onChange={e => { if (e.target.value) applyUpdate(() => ({ mealType: e.target.value })); }}>
-              <option value="">Set…</option>
-              {MEAL_TYPES.map(m => <option key={m.key} value={m.key}>{m.label}</option>)}
+            <span className={styles.bulkLabel}>Bucket</span>
+            <select className={styles.bulkSelect} value={bulkBucket} onChange={e => setBulkBucket(e.target.value)}>
+              {BUCKETS.map(b => <option key={b.key} value={b.key}>{b.label}</option>)}
             </select>
+            <button type="button" className={styles.bulkBtn} onClick={() => applyBucket(bulkBucket, false)}>+ Add</button>
+            <button type="button" className={styles.bulkBtn} onClick={() => applyBucket(bulkBucket, true)}>− Remove</button>
           </div>
 
           <div className={styles.bulkGroup}>
@@ -1652,7 +1687,7 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
   const [filter, setFilter] = useState('all');
   const [activeCuisine, setActiveCuisine] = useState(null);
   const [activeLocation, setActiveLocation] = useState(null);
-  const [activeMealType, setActiveMealType] = useState(null);
+  const [activeBucket, setActiveBucket] = useState(null);
   const [activeCategory, setActiveCategory] = useState(initialCategory);
   const [showRetired, setShowRetired] = useState(false);
   const [proximityQuery, setProximityQuery] = useState('');
@@ -1772,14 +1807,14 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
       if (!showRetired && r.frequency === 'retired') continue;
       if (filter !== 'all' && r.status !== filter) continue;
       if (activeLocation && !(r.locations || []).some(l => l.toLowerCase() === activeLocation.toLowerCase())) continue;
-      if (activeMealType && !restaurantMatchesMealType(r, activeMealType)) continue;
+      if (activeBucket && !restaurantMatchesBucket(r, activeBucket)) continue;
       if (activeCategory && !(r.categories || []).some(c => c.toLowerCase() === activeCategory.toLowerCase())) continue;
       for (const c of (r.cuisines || [])) {
         counts.set(c, (counts.get(c) || 0) + 1);
       }
     }
     return cuisineSuggestions.map(c => ({ name: c, count: counts.get(c) || 0 }));
-  }, [restaurants, cuisineSuggestions, filter, activeLocation, activeMealType, activeCategory, showRetired]);
+  }, [restaurants, cuisineSuggestions, filter, activeLocation, activeBucket, activeCategory, showRetired]);
 
   const locationEntries = useMemo(() => {
     const counts = new Map();
@@ -1787,14 +1822,14 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
       if (!showRetired && r.frequency === 'retired') continue;
       if (filter !== 'all' && r.status !== filter) continue;
       if (activeCuisine && !(r.cuisines || []).some(c => c.toLowerCase() === activeCuisine.toLowerCase())) continue;
-      if (activeMealType && !restaurantMatchesMealType(r, activeMealType)) continue;
+      if (activeBucket && !restaurantMatchesBucket(r, activeBucket)) continue;
       if (activeCategory && !(r.categories || []).some(c => c.toLowerCase() === activeCategory.toLowerCase())) continue;
       for (const l of (r.locations || [])) {
         counts.set(l, (counts.get(l) || 0) + 1);
       }
     }
     return locationSuggestions.map(l => ({ name: l, count: counts.get(l) || 0 }));
-  }, [restaurants, locationSuggestions, filter, activeCuisine, activeMealType, activeCategory, showRetired]);
+  }, [restaurants, locationSuggestions, filter, activeCuisine, activeBucket, activeCategory, showRetired]);
 
   // Locations that exist on MY own list (lowercased) — only these can be
   // bulk-renamed, since renaming never touches a friend's shared list.
@@ -1820,13 +1855,13 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
       if (filter !== 'all' && r.status !== filter) continue;
       if (activeCuisine && !(r.cuisines || []).some(c => c.toLowerCase() === activeCuisine.toLowerCase())) continue;
       if (activeLocation && !(r.locations || []).some(l => l.toLowerCase() === activeLocation.toLowerCase())) continue;
-      if (activeMealType && !restaurantMatchesMealType(r, activeMealType)) continue;
+      if (activeBucket && !restaurantMatchesBucket(r, activeBucket)) continue;
       for (const c of (r.categories || [])) {
         counts.set(c, (counts.get(c) || 0) + 1);
       }
     }
     return categorySuggestions.map(c => ({ name: c, count: counts.get(c) || 0 }));
-  }, [restaurants, categorySuggestions, filter, activeCuisine, activeLocation, activeMealType, showRetired]);
+  }, [restaurants, categorySuggestions, filter, activeCuisine, activeLocation, activeBucket, showRetired]);
 
   // The active ranking dimension: ranking now works over a dedicated category,
   // OR over the cuisine/location you've selected — so your existing tags are
@@ -1847,7 +1882,7 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
       if (filter !== 'all' && r.status !== filter) return false;
       if (activeCuisine && !(r.cuisines || []).some(c => c.toLowerCase() === activeCuisine.toLowerCase())) return false;
       if (activeLocation && !(r.locations || []).some(l => l.toLowerCase() === activeLocation.toLowerCase())) return false;
-      if (activeMealType && !restaurantMatchesMealType(r, activeMealType)) return false;
+      if (activeBucket && !restaurantMatchesBucket(r, activeBucket)) return false;
       if (activeCategory && !(r.categories || []).some(c => c.toLowerCase() === activeCategory.toLowerCase())) return false;
       if (q) {
         const hay = [
@@ -1875,7 +1910,7 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
     // array order IS the shared ranking (rank = position; renumbered within
     // whatever filter is active). The ▲▼ controls reorder that array.
     return list;
-  }, [restaurants, filter, activeCuisine, activeLocation, activeMealType, activeCategory, showRetired, search, proximityCenter]);
+  }, [restaurants, filter, activeCuisine, activeLocation, activeBucket, activeCategory, showRetired, search, proximityCenter]);
 
   // Per-owner sequence of currently-visible ids, so a card knows whether it can
   // move up/down (i.e. has a visible same-owner neighbor in that direction).
@@ -2185,6 +2220,12 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
     () => restaurants.filter(r => r.frequency === 'retired').length,
     [restaurants],
   );
+  // Spots in no bucket yet — surfaced as an "Unsorted" filter chip so they can
+  // be found and bulk-assigned.
+  const unsortedCount = useMemo(
+    () => restaurants.filter(r => bucketsOf(r).length === 0).length,
+    [restaurants],
+  );
   const geocodedCount = useMemo(
     () => restaurants.filter(hasValidCoords).length,
     [restaurants],
@@ -2490,16 +2531,26 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
           </form>
 
           <div className={styles.tagFilterRow}>
-            {MEAL_TYPES.map(m => (
+            {BUCKETS.map(b => (
               <button
-                key={`m-${m.key}`}
+                key={`b-${b.key}`}
                 type="button"
-                className={`${styles.tagFilter} ${activeMealType === m.key ? styles.tagFilterActive : ''}`}
-                onClick={() => setActiveMealType(activeMealType === m.key ? null : m.key)}
+                className={`${styles.tagFilter} ${activeBucket === b.key ? styles.tagFilterActive : ''}`}
+                onClick={() => setActiveBucket(activeBucket === b.key ? null : b.key)}
               >
-                {m.label}
+                {b.icon} {b.label}
               </button>
             ))}
+            {unsortedCount > 0 && (
+              <button
+                type="button"
+                className={`${styles.tagFilter} ${activeBucket === 'unsorted' ? styles.tagFilterActive : ''}`}
+                onClick={() => setActiveBucket(activeBucket === 'unsorted' ? null : 'unsorted')}
+                title="Spots not yet in a bucket — assign them below"
+              >
+                Unsorted ({unsortedCount})
+              </button>
+            )}
             {retiredCount > 0 && (
               <button
                 type="button"

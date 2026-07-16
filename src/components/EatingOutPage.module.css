@@ -448,6 +448,23 @@
   text-overflow: ellipsis;
 }
 
+/* Bucket chips on a spot card — which higher-level groups it belongs to. */
+.cardBuckets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.bucketChip {
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--color-accent);
+  background: var(--color-accent-light);
+  border: 1px solid var(--color-border-light);
+  border-radius: 999px;
+  padding: 1px 8px;
+  white-space: nowrap;
+}
+
 .cardLink {
   font-size: 0.75rem;
   color: var(--color-accent);
