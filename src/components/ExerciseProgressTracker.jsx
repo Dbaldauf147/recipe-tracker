@@ -6,20 +6,52 @@
 // lives in utils/exerciseProgress.js.
 import React, { useMemo, useState, useEffect, useCallback } from 'react';
 import styles from './ExerciseProgressTracker.module.css';
-import { analyzeProgress, displayWeight, WINDOW_DAYS, MIN_SESSIONS, PROGRESS_PCT, VOLUME_PCT } from '../utils/exerciseProgress';
+import {
+  analyzeProgress, displayWeight, deltaTone, WINDOW_DAYS, MIN_SESSIONS, MIN_SPAN_DAYS,
+  PROGRESS_PCT, VOLUME_PCT, VOLUME_DROP_PCT, EPLEY_REP_CAP,
+} from '../utils/exerciseProgress';
 import { formatSeconds } from '../utils/setValue';
 import { saveField, loadField } from '../utils/firestoreSync';
 import ExerciseChart from './ExerciseChart';
 
 const HIDDEN_KEY = 'sunday-progress-hidden';
+const INTENT_KEY = 'sunday-progress-intent';
+// Bodyweight history, hydrated into localStorage from the user doc by
+// firestoreSync. Read directly (the established pattern in this app) rather than
+// threaded through props — WorkoutPage doesn't receive it either.
+const WEIGHT_LOG_KEY = 'sunday-weight-log';
 
 const STATUS_META = {
   progressing: { label: 'Progressing', icon: '📈', color: '#16a34a', blurb: 'Adding weight, reps, or volume' },
   decreasing: { label: 'Decreasing', icon: '📉', color: '#dc2626', blurb: 'Estimated 1RM trending down' },
   stagnating: { label: 'Stagnating', icon: '➖', color: '#d97706', blurb: '1RM holding flat — no added stimulus' },
-  nobaseline: { label: 'No Baseline', icon: '○', color: '#64748b', blurb: `Fewer than ${MIN_SESSIONS} sessions in the window` },
+  deload: { label: 'Deload', icon: '🌙', color: '#7c3aed', blurb: 'Backing off on purpose — dips are expected' },
+  maintaining: { label: 'Maintaining', icon: '⏸️', color: '#0891b2', blurb: 'Holding steady on purpose' },
+  nobaseline: { label: 'No Baseline', icon: '○', color: '#64748b', blurb: `Needs ${MIN_SESSIONS}+ sessions over ${MIN_SPAN_DAYS}+ days` },
 };
-const ORDER = ['progressing', 'decreasing', 'stagnating', 'nobaseline'];
+const ORDER = ['progressing', 'decreasing', 'stagnating', 'deload', 'maintaining', 'nobaseline'];
+
+const INTENT_OPTIONS = [
+  { value: 'normal', label: 'Normal training' },
+  { value: 'deload', label: 'Deload' },
+  { value: 'maintenance', label: 'Maintaining' },
+];
+
+// Why an exercise has no trend yet — "new" (not enough time depth) vs
+// "insufficient" (logged too sparsely). Shown as a hint in the No Baseline table.
+function noBaselineHint(r) {
+  if (r.noBaselineReason === 'new') {
+    const need = MIN_SPAN_DAYS - (r.spanDays || 0);
+    return `new · ${need}+ more days`;
+  }
+  const need = MIN_SESSIONS - r.sessions;
+  return need > 0 ? `${need} more session${need === 1 ? '' : 's'}` : 'log more often';
+}
+
+const ANNOTATION_META = {
+  'volume-down': { text: 'volume down', title: `Training volume is down ${VOLUME_DROP_PCT * 100}%+ over the window` },
+  'volume-up': { text: 'volume up', title: `Training volume is up ${VOLUME_PCT * 100}%+ over the window` },
+};
 
 // 'YYYY-MM-DD' → "Jul 9" (parsed as a local date to avoid TZ drift).
 function fmtDate(dateStr) {
@@ -39,16 +71,22 @@ function daysSince(dateStr) {
   return Math.round((now - then) / 86400000);
 }
 
-const STALE_DAYS = 14; // amber flag once an exercise hasn't been trained in this long
-
 // Last-workout cell: the date plus a "days ago" indicator (amber when stale).
-function LastCell({ dateStr }) {
+// `staleAfter` is per-exercise and adaptive — 2× that lift's own median logging
+// gap — so a twice-weekly lift flags sooner than a once-a-month one.
+function LastCell({ dateStr, staleAfter = 14 }) {
   const n = daysSince(dateStr);
   const rel = n == null ? '' : n <= 0 ? 'today' : n === 1 ? 'yesterday' : `${n}d ago`;
+  const stale = n != null && n >= staleAfter;
   return (
     <td className={styles.num}>
       <span className={styles.lastDate}>{fmtDate(dateStr)}</span>
-      {rel && <span className={`${styles.lastAgo}${n >= STALE_DAYS ? ` ${styles.lastStale}` : ''}`}>{rel}</span>}
+      {rel && (
+        <span
+          className={`${styles.lastAgo}${stale ? ` ${styles.lastStale}` : ''}`}
+          title={stale ? `No log in ${n} days — this lift is usually trained every ~${Math.round(staleAfter / 2)} days` : undefined}
+        >{rel}</span>
+      )}
     </td>
   );
 }
@@ -73,10 +111,17 @@ function DeltaCell({ r, unit }) {
       ? `${Math.round(mag)} reps`
       : formatSeconds(Math.round(mag));
   const pct = `${up ? '+' : '−'}${Math.abs(Math.round(r.deltaPct * 100))}%`;
-  const cls = r.status === 'progressing' ? styles.deltaUp
-    : r.status === 'decreasing' ? styles.deltaDown
-      : styles.deltaFlat;
-  return <span className={cls}>{sign}{amount} ({pct})</span>;
+  const tone = deltaTone(r.status, r.delta);
+  const cls = tone === 'up' ? styles.deltaUp : tone === 'down' ? styles.deltaDown : styles.deltaFlat;
+  // The status and the number disagree — the lift was classified on volume while
+  // its e1RM moved the other way. Say so on hover rather than colouring a
+  // negative number green.
+  const mismatch = (r.status === 'progressing' && !up) || (r.status === 'decreasing' && up);
+  return (
+    <span className={cls} title={mismatch ? 'Classified on training volume — the e1RM trend itself moved the other way.' : undefined}>
+      {sign}{amount} ({pct})
+    </span>
+  );
 }
 
 // Minimal inline-SVG sparkline: the primary metric per session, a dashed
@@ -105,6 +150,21 @@ function Sparkline({ series, baseline, color }) {
   );
 }
 
+// Secondary signals that didn't change the status but are worth surfacing —
+// e.g. a sustained volume drop underneath a flat e1RM.
+function Annotations({ list }) {
+  if (!list || list.length === 0) return null;
+  return (
+    <>
+      {list.map(a => ANNOTATION_META[a] && (
+        <span key={a} className={styles.annotation} title={ANNOTATION_META[a].title}>
+          {ANNOTATION_META[a].text}
+        </span>
+      ))}
+    </>
+  );
+}
+
 function ExerciseRow({ r, unit, onHide, onOpenChart }) {
   const color = STATUS_META[r.status].color;
   return (
@@ -112,9 +172,15 @@ function ExerciseRow({ r, unit, onHide, onOpenChart }) {
       <td className={styles.nameCell}>
         <button type="button" className={styles.exNameBtn} onClick={() => onOpenChart(r.name)} title={`View ${r.name} chart`}>{r.name}</button>
         {r.group && <span className={styles.exGroup}>{r.group}</span>}
+        <Annotations list={r.annotations} />
+        {r.discontinuity && (
+          <span className={styles.annotation} title="This exercise switched between rep-based and loaded logging; the trend restarts from the switch.">
+            window restarted
+          </span>
+        )}
       </td>
       <td className={styles.num}>{r.sessions}</td>
-      <LastCell dateStr={r.lastDate} />
+      <LastCell dateStr={r.lastDate} staleAfter={r.staleAfterDays} />
       <td className={styles.num}>{fmtValue(r.metric, r.baseline ?? r.last, unit)}</td>
       <td className={`${styles.num} ${styles.strong}`}>{fmtValue(r.metric, r.recent, unit)}</td>
       <td className={styles.num}><DeltaCell r={r} unit={unit} /></td>
@@ -163,10 +229,10 @@ function StatusSection({ status, rows, unit, onHide, onOpenChart }) {
                     {r.group && <span className={styles.exGroup}>{r.group}</span>}
                   </td>
                   <td className={styles.num}>{r.sessions}</td>
-                  <LastCell dateStr={r.lastDate} />
+                  <LastCell dateStr={r.lastDate} staleAfter={r.staleAfterDays} />
                   <td className={styles.num}>{fmtValue(r.metric, r.last, unit)}</td>
                   <td className={styles.num}>{fmtValue(r.metric, r.best, unit)}</td>
-                  <td className={`${styles.num} ${styles.dim}`}>{MIN_SESSIONS - r.sessions} more</td>
+                  <td className={`${styles.num} ${styles.dim}`}>{noBaselineHint(r)}</td>
                   <td className={styles.trendCell}><Sparkline series={r.series} baseline={null} color={STATUS_META.nobaseline.color} /></td>
                   <td className={styles.hideCol}>
                     <button type="button" className={styles.rowHide} title="Hide from tracker" aria-label={`Hide ${r.name}`} onClick={() => onHide(r.name)}>×</button>
@@ -192,7 +258,58 @@ export default function ExerciseProgressTracker({ workouts = [], weightUnit = 'l
     return m;
   }, [exerciseLibrary]);
 
-  const allGroups = useMemo(() => analyzeProgress(workouts, groupByName), [workouts, groupByName]);
+  // Bodyweight history, so weighted pull-ups/dips can be scored on
+  // bodyweight + added load instead of the plate alone. Seeded from localStorage
+  // (firestoreSync hydrates it there) and refreshed when a weigh-in lands.
+  const [weightLog, setWeightLog] = useState(() => {
+    try { const a = JSON.parse(localStorage.getItem(WEIGHT_LOG_KEY) || '[]'); return Array.isArray(a) ? a : []; }
+    catch { return []; }
+  });
+  useEffect(() => {
+    const reload = () => {
+      try { const a = JSON.parse(localStorage.getItem(WEIGHT_LOG_KEY) || '[]'); setWeightLog(Array.isArray(a) ? a : []); }
+      catch { /* keep what we have */ }
+    };
+    window.addEventListener('weight-logged', reload);
+    window.addEventListener('firestore-sync', reload);
+    return () => {
+      window.removeEventListener('weight-logged', reload);
+      window.removeEventListener('firestore-sync', reload);
+    };
+  }, []);
+
+  // Declared training intent. When set, planned dips stop being reported as
+  // regressions. Global-only for now; the analysis layer also supports a
+  // per-exercise override (see options.intentByExercise) which has no UI yet.
+  const [intent, setIntent] = useState(() => {
+    try { return localStorage.getItem(INTENT_KEY) || 'normal'; } catch { return 'normal'; }
+  });
+  useEffect(() => {
+    if (!user?.uid) return;
+    let alive = true;
+    loadField(user.uid, 'workoutTrainingIntent').then(v => {
+      if (alive && typeof v === 'string' && INTENT_OPTIONS.some(o => o.value === v)) {
+        setIntent(v);
+        try { localStorage.setItem(INTENT_KEY, v); } catch { /* ignore */ }
+      }
+    }).catch(() => {});
+    return () => { alive = false; };
+  }, [user?.uid]);
+
+  const uid = user?.uid;
+  const changeIntent = useCallback((v) => {
+    setIntent(v);
+    try { localStorage.setItem(INTENT_KEY, v); } catch { /* ignore */ }
+    if (uid) saveField(uid, 'workoutTrainingIntent', v).catch(() => {});
+  }, [uid]);
+
+  const allGroups = useMemo(
+    () => analyzeProgress(workouts, groupByName, {
+      weightLog,
+      intent: intent === 'normal' ? null : intent,
+    }),
+    [workouts, groupByName, weightLog, intent],
+  );
 
   // Exercises the user has hidden from this page (lowercased names). Seed from
   // localStorage for instant paint, then reconcile with the user doc.
@@ -259,7 +376,20 @@ export default function ExerciseProgressTracker({ workouts = [], weightUnit = 'l
           <h2 className={styles.title}>Exercise Progress Tracker</h2>
           <p className={styles.subtitle}>Every exercise you've logged in the last 2 months, by whether it's progressing.</p>
         </div>
-        <span className={styles.legendNote}>Past {WINDOW_DAYS} days · est. 1RM (Epley) · recent vs baseline</span>
+        <div className={styles.headerRight}>
+          <label className={styles.intentPicker}>
+            <span className={styles.intentLabel}>Training intent</span>
+            <select
+              className={styles.intentSelect}
+              value={intent}
+              onChange={e => changeIntent(e.target.value)}
+              title="On a deload or maintenance block, planned dips aren't reported as regressions."
+            >
+              {INTENT_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+            </select>
+          </label>
+          <span className={styles.legendNote}>Past {WINDOW_DAYS} days · est. 1RM (Epley) · trend line</span>
+        </div>
       </div>
 
       {/* Default-collapsed explanation of the categorization method. */}
@@ -268,30 +398,40 @@ export default function ExerciseProgressTracker({ workouts = [], weightUnit = 'l
         <div className={styles.methodologyBody}>
           <p>
             <strong>Estimated 1RM (e1RM)</strong> is your <em>one-rep max</em> — the most weight you could
-            lift for a single rep. Since you rarely test a true max, we estimate it from your heaviest set
-            each session with the <strong>Epley formula</strong>: <code>weight × (1 + reps ÷ 30)</code>. This
-            puts every set on one scale, so a 3×8 at 150&nbsp;lb and a 5×5 at 165&nbsp;lb can be compared
-            directly.
+            lift for a single rep. Since you rarely test a true max, we estimate it with the{' '}
+            <strong>Epley formula</strong>: <code>weight × (1 + reps ÷ 30)</code>, taking the{' '}
+            <em>best set of the session</em> (a lighter set for more reps can imply a higher max than a
+            heavy triple). This puts every set on one scale, so a 3×8 at 150&nbsp;lb and a 5×5 at
+            165&nbsp;lb can be compared directly. Reps are capped at {EPLEY_REP_CAP} in the formula, since
+            past that Epley inflates fast and a high-rep burnout set would fake a PR.
           </p>
           <p>
             <strong>Training volume</strong> — weight × reps summed across your sets — is the secondary
             signal (total work done).
           </p>
           <p>
-            Over the past <strong>{WINDOW_DAYS} days</strong>, each exercise's sessions are split into an
-            earlier <strong>baseline</strong> and a more <strong>recent</strong> period, and we compare the
-            two averages:
+            Over the past <strong>{WINDOW_DAYS} days</strong>, we fit a <strong>trend line</strong> through
+            every session's e1RM (a least-squares regression) and read off the change it implies across the
+            window. Using the whole line rather than comparing two halves means one unusual session can't
+            flip the verdict:
           </p>
           <ul className={styles.methodologyList}>
-            <li><strong style={{ color: '#16a34a' }}>Progressing</strong> — recent e1RM is ≥{PROGRESS_PCT * 100}% above baseline, <em>or</em> volume is ≥{VOLUME_PCT * 100}% higher (you've added weight, reps, or volume).</li>
-            <li><strong style={{ color: '#dc2626' }}>Decreasing</strong> — recent e1RM is ≥{PROGRESS_PCT * 100}% <em>below</em> baseline.</li>
-            <li><strong style={{ color: '#d97706' }}>Stagnating</strong> — e1RM within ±{PROGRESS_PCT * 100}% of baseline: flat, no added stimulus.</li>
-            <li><strong style={{ color: '#64748b' }}>No Baseline</strong> — fewer than {MIN_SESSIONS} sessions logged in the window; not enough to judge a trend.</li>
+            <li><strong style={{ color: '#16a34a' }}>Progressing</strong> — the trend implies ≥{PROGRESS_PCT * 100}% e1RM growth, <em>or</em> e1RM is flat while volume climbs ≥{VOLUME_PCT * 100}% (you've added work).</li>
+            <li><strong style={{ color: '#dc2626' }}>Decreasing</strong> — the trend implies ≥{PROGRESS_PCT * 100}% e1RM <em>decline</em>. Extra volume doesn't cancel this out; it's noted alongside instead.</li>
+            <li><strong style={{ color: '#d97706' }}>Stagnating</strong> — e1RM within ±{PROGRESS_PCT * 100}%: flat, no added stimulus. A volume drop of ≥{VOLUME_DROP_PCT * 100}% is flagged as <em>volume down</em>.</li>
+            <li><strong style={{ color: '#7c3aed' }}>Deload</strong> / <strong style={{ color: '#0891b2' }}>Maintaining</strong> — you've set your training intent above, so planned dips aren't reported as regressions.</li>
+            <li><strong style={{ color: '#64748b' }}>No Baseline</strong> — needs {MIN_SESSIONS}+ sessions spread over {MIN_SPAN_DAYS}+ days. Either it's new, or it's logged too sparsely to read a trend.</li>
           </ul>
           <p>
-            <strong>Bodyweight or timed moves</strong> (pull-ups, planks) carry no weight, so we track max
-            reps or longest hold instead of e1RM. The <strong>days-ago</strong> note under each date is how
-            long since you last logged the exercise, turning amber once it's been {STALE_DAYS}+ days.
+            Each exercise is only ever in <strong>one</strong> category: the e1RM trend decides, and volume
+            can only ever promote a flat lift to Progressing. A wandering, low-confidence trend is left as
+            Stagnating rather than flip-flopping week to week.
+          </p>
+          <p>
+            <strong>Bodyweight moves</strong> (pull-ups, dips) are scored on bodyweight + any added load
+            when we know your bodyweight, and on max reps when we don't. <strong>Timed holds</strong>{' '}
+            (planks) trend on your longest hold. The <strong>days-ago</strong> note under each date turns
+            amber once you've gone more than twice that exercise's usual gap between sessions.
           </p>
         </div>
       </details>

@@ -29,6 +29,34 @@
   white-space: nowrap;
 }
 
+.headerRight {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.4rem;
+}
+.intentPicker {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.intentLabel {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--color-text-muted, #94a3b8);
+  white-space: nowrap;
+}
+.intentSelect {
+  font: inherit;
+  font-size: 0.8rem;
+  padding: 0.25rem 0.5rem;
+  border-radius: 8px;
+  border: 1px solid var(--color-border, #e2e8f0);
+  background: var(--color-surface, #fff);
+  color: var(--color-text, #1e293b);
+  cursor: pointer;
+}
+
 /* ── Methodology (collapsible) ── */
 .methodology {
   border: 1px solid var(--color-border, #e2e8f0);
@@ -264,6 +292,22 @@
   font-size: 0.72rem;
   color: var(--color-text-muted, #94a3b8);
   text-transform: capitalize;
+}
+
+/* Secondary signals that didn't change the status (e.g. "volume down"). */
+.annotation {
+  display: inline-block;
+  margin-top: 0.2rem;
+  margin-right: 0.3rem;
+  padding: 0.05rem 0.35rem;
+  border-radius: 6px;
+  border: 1px solid var(--color-border, #e2e8f0);
+  background: var(--color-bg-subtle, #f8fafc);
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: var(--color-text-muted, #94a3b8);
+  white-space: nowrap;
+  cursor: help;
 }
 
 .lastDate { display: block; }
