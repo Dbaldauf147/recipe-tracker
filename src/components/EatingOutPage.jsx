@@ -1686,7 +1686,10 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState('all');
   const [activeCuisine, setActiveCuisine] = useState(null);
-  const [activeLocation, setActiveLocation] = useState(null);
+  // Default the neighborhood filter to Williamsburg (the app's home area — also
+  // the map's default center). Case-insensitive match downstream, so the exact
+  // stored casing doesn't matter; toggling the Williamsburg pill clears it.
+  const [activeLocation, setActiveLocation] = useState('Williamsburg');
   const [activeBucket, setActiveBucket] = useState(null);
   const [activeCategory, setActiveCategory] = useState(initialCategory);
   const [showRetired, setShowRetired] = useState(false);
@@ -2529,6 +2532,36 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
               </span>
             )}
           </form>
+
+          {/* Neighborhood filter pills — one per location in use, most-used
+              first, above the bucket row. Toggling the active one clears it. */}
+          {(() => {
+            const isActiveLoc = (name) =>
+              !!activeLocation && activeLocation.toLowerCase() === name.toLowerCase();
+            const neighborhoods = locationEntries.filter(l => l.count > 0);
+            // Keep the active neighborhood visible even if the current filters
+            // drop its count to 0, so it can always be toggled back off.
+            if (activeLocation && !neighborhoods.some(l => isActiveLoc(l.name))) {
+              const existing = locationEntries.find(l => isActiveLoc(l.name));
+              neighborhoods.push(existing || { name: activeLocation, count: 0 });
+            }
+            neighborhoods.sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+            if (neighborhoods.length === 0) return null;
+            return (
+              <div className={styles.tagFilterRow}>
+                {neighborhoods.map(l => (
+                  <button
+                    key={`loc-${l.name}`}
+                    type="button"
+                    className={`${styles.tagFilter} ${isActiveLoc(l.name) ? styles.tagFilterActive : ''}`}
+                    onClick={() => setActiveLocation(isActiveLoc(l.name) ? null : l.name)}
+                  >
+                    📍 {l.name} ({l.count})
+                  </button>
+                ))}
+              </div>
+            );
+          })()}
 
           <div className={styles.tagFilterRow}>
             {BUCKETS.map(b => (
