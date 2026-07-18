@@ -633,6 +633,13 @@
 .saunaPinned {
   border-style: solid;
 }
+/* A logged sauna (real workout history) — solid chip, click to remove it. */
+.saunaLogged {
+  cursor: pointer;
+}
+.saunaLogged:hover {
+  background: #fed7aa;
+}
 /* Ghost affordance on upcoming days with no sauna: click to add one. */
 .saunaOff {
   color: var(--color-text-muted);

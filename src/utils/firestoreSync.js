@@ -1843,6 +1843,25 @@ export async function saveOwnerRestaurants(ownerUid, restaurants) {
 }
 
 /**
+ * Save the Eating Out master vocabulary lists (the curated Cuisines and
+ * Categories a user manages from the ⚙ Settings panel). These seed the
+ * autocomplete + sidebar; free-text tags on individual spots still work, so
+ * this is a soft source of truth, not an enforced allow-list.
+ */
+export async function saveOwnerEatingOutLists(ownerUid, { cuisines, categories }) {
+  if (!ownerUid) throw new Error('saveOwnerEatingOutLists: ownerUid required');
+  const ref = doc(db, 'users', ownerUid);
+  await setDoc(
+    ref,
+    {
+      eatingOutCuisines: Array.isArray(cuisines) ? cuisines : [],
+      eatingOutCategories: Array.isArray(categories) ? categories : [],
+    },
+    { merge: true },
+  );
+}
+
+/**
  * Toggle sharing all recipes with a friend.
  * When enabled, the friend can browse all your recipes.
  */

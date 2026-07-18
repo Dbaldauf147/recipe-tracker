@@ -732,6 +732,42 @@ export function HabitsPage({ onBack, user }) {
     setAutomations(next);
     if (user?.uid) saveField(user.uid, 'habitAutomations', next).catch(() => {});
   }
+
+  // "Auto-skip rest days" — a one-tap wrapper over the Automatic engine's
+  // workout rule. On = an enabled prepday `workout_logged` rule that marks the
+  // habit Did-it on workout days and (via elseMark) Skip on a finished rest day
+  // (a past day with no workout). Off = remove our rule, or just drop the skip
+  // if the user has customized it into something else.
+  const workoutRuleFor = (habitId) => (automations || []).find(
+    r => r?.habitId === habitId && r.source === 'prepday' && r.trigger === 'workout_logged',
+  );
+  const isWorkoutAutoSkipOn = (habitId) => {
+    const r = workoutRuleFor(habitId);
+    return !!(r && r.enabled && r.elseMark === 'skipped');
+  };
+  function setWorkoutAutoSkip(habitId, on) {
+    const existing = workoutRuleFor(habitId);
+    if (on) {
+      if (existing) {
+        persistAutomations(automations.map(r => r.id === existing.id
+          ? { ...r, enabled: true, mark: r.mark || 'done', elseMark: 'skipped' }
+          : r));
+      } else {
+        persistAutomations([...(automations || []), {
+          id: makeHabitId(), habitId, source: 'prepday', trigger: 'workout_logged',
+          threshold: '', mark: 'done', elseMark: 'skipped', enabled: true, logic: '',
+        }]);
+      }
+      return;
+    }
+    if (!existing) return;
+    // Only remove the rule outright when it's the plain one we created; if it
+    // carries other customization, just stop the skip so we don't nuke it.
+    const isOurs = existing.mark === 'done' && existing.elseMark === 'skipped' && !existing.threshold;
+    persistAutomations(isOurs
+      ? automations.filter(r => r.id !== existing.id)
+      : automations.map(r => r.id === existing.id ? { ...r, elseMark: '' } : r));
+  }
   // Set (dateStr = 'YYYY-MM-DD') or clear (empty) the manual next-log date for a
   // cadence. Empty removes the key so the section falls back to auto-compute.
   function setNextLogDate(cadence, dateStr) {
@@ -997,6 +1033,8 @@ export function HabitsPage({ onBack, user }) {
           onUpdate={updateHabit}
           onDelete={(id) => { deleteHabit(id); setOpenHabitId(null); }}
           onClose={() => setOpenHabitId(null)}
+          autoSkipOn={isWorkoutAutoSkipOn(openHabit.id)}
+          onToggleAutoSkip={(on) => setWorkoutAutoSkip(openHabit.id, on)}
         />
       )}
 
@@ -3397,7 +3435,7 @@ function HabitsTable({ habits, onUpdate, onDelete, onOpen, onBulkUpdate, onBulkD
 // Full habit editor popup. Opened by clicking a habit's name on the Habits
 // tab. Every edit persists immediately via onUpdate (which saves to Firestore).
 // The headline control is the tracking-cadence selector.
-function HabitDetailModal({ habit, onUpdate, onDelete, onClose }) {
+function HabitDetailModal({ habit, onUpdate, onDelete, onClose, autoSkipOn = false, onToggleAutoSkip }) {
   const h = habit;
   const cadence = (h.cadence || '').trim();
   const field = (key, label, opts = {}) => (
@@ -3488,6 +3526,38 @@ function HabitDetailModal({ habit, onUpdate, onDelete, onClose }) {
             </div>
             <div style={{ fontSize: '0.72rem', color: 'var(--color-text-muted)', marginTop: 6, lineHeight: 1.4 }}>
               Untracked days (e.g. weekends) don't count toward completion and don't show a reminder.
+            </div>
+          </div>
+        )}
+
+        {/* Auto-skip rest days — one-tap wrapper over the Automatic engine's
+            workout rule. Daily habits only (the rest-day skip is per-day). */}
+        {cadenceCanon(cadence) === 'Daily' && onToggleAutoSkip && (
+          <div style={{ marginBottom: '1.1rem' }}>
+            <div style={{ ...fieldLabel, marginBottom: 6 }}>Workout tracking</div>
+            <button
+              type="button"
+              onClick={() => onToggleAutoSkip(!autoSkipOn)}
+              aria-pressed={autoSkipOn}
+              style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10,
+                width: '100%', padding: '0.6rem 0.8rem', borderRadius: 10, cursor: 'pointer',
+                border: `1px solid ${autoSkipOn ? '#16a34a' : 'var(--color-border, #e2e8f0)'}`,
+                background: autoSkipOn ? '#16a34a14' : 'var(--color-surface, #fff)',
+                fontSize: '0.9rem', fontWeight: 600, color: 'var(--color-text)', textAlign: 'left',
+              }}
+            >
+              <span>🏋️ Auto-skip rest days</span>
+              <span style={{
+                fontSize: '0.72rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.4,
+                color: autoSkipOn ? '#fff' : 'var(--color-text-muted)',
+                background: autoSkipOn ? '#16a34a' : 'var(--color-surface-alt, #f1f5f9)',
+                border: `1px solid ${autoSkipOn ? '#16a34a' : 'var(--color-border, #e2e8f0)'}`,
+                borderRadius: 999, padding: '2px 10px',
+              }}>{autoSkipOn ? 'On' : 'Off'}</span>
+            </button>
+            <div style={{ fontSize: '0.72rem', color: 'var(--color-text-muted)', marginTop: 6, lineHeight: 1.4 }}>
+              Marks this habit <strong>Skip</strong> on a finished day with no workout logged, and <strong>Did it</strong> on days you work out. Runs hourly, never changes today. Adds a rule you can fine-tune on the Automatic tab.
             </div>
           </div>
         )}

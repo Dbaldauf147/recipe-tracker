@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { RecipeCombobox, DailyTrackerPage, MealsTrackedChart, HistoryChart, ServingsChart, KpiAlerts, DailySupplementsPanel, saveDailyLog } from './DailyTrackerPage';
 import { workoutCalendarCategory, CAL_ICON } from './WorkoutPage';
-import { loadField, saveField } from '../utils/firestoreSync';
+import { loadField, saveField, newWorkoutId } from '../utils/firestoreSync';
 import {
   hasGoogleToken, storeTokenFromPopup, disconnectGoogle,
   openGoogleAuthPopup, fetchGoogleCalendars, fetchGoogleEvents, parseEventDate, SELECTED_KEY,
@@ -422,30 +422,99 @@ export function WeekPlanPage({ recipes, getRecipe, user, weeklyPlan = [], weekly
     if (user?.uid) saveField(user.uid, 'saunaOverrides', next).catch(() => {});
   }, [saunaOverrides, suggestedSaunaDates, todayKey, user?.uid]);
 
+  // Write the workouts array everywhere the app expects it: the local mirror
+  // (same 'sunday-workout-log' key WorkoutPage owns), our own state, and the
+  // diff-aware per-workout Firestore writer. saveField('workoutLog') only
+  // upserts/deletes the rows that actually changed, so this is a ~1-doc write.
+  const persistWorkouts = useCallback((next) => {
+    setWorkoutsRaw(next);
+    try { localStorage.setItem('sunday-workout-log', JSON.stringify(next)); } catch { /* quota or disabled storage */ }
+    if (user?.uid) saveField(user.uid, 'workoutLog', next).catch(() => {});
+  }, [user?.uid]);
+
+  // Log a real sauna day into workout history for `dateStr`: flip sauna:true on
+  // an existing workout that date, or create a sauna-only day (empty entries).
+  // Mirrors WorkoutPage.logSaunaDay so both surfaces write the same shape; the
+  // Week Plan then reads it back as the solid "🧖 Sauna" logged chip. Read
+  // fresh from localStorage so we never clobber a concurrent Workout-page save.
+  const logSaunaForDate = useCallback((dateStr) => {
+    const current = loadWorkoutsRaw();
+    const existing = current.find(w => w?.date === dateStr);
+    const workout = existing
+      ? { ...existing, sauna: true, savedAt: new Date().toISOString() }
+      : { id: newWorkoutId(), date: dateStr, gym: '', workoutType: '', entries: [], sauna: true, savedAt: new Date().toISOString() };
+    const next = [workout, ...current.filter(w => w?.date !== dateStr)]
+      .sort((a, b) => (b.date || '').localeCompare(a.date || '') || (a.savedAt || '').localeCompare(b.savedAt || ''));
+    persistWorkouts(next);
+  }, [persistWorkouts]);
+
+  // Un-log a sauna from `dateStr`: drop a sauna-only day entirely, or just clear
+  // the flag on a day that also has logged exercises (keep the workout itself).
+  const removeSaunaForDate = useCallback((dateStr) => {
+    const current = loadWorkoutsRaw();
+    const existing = current.find(w => w?.date === dateStr && w?.sauna);
+    if (!existing) return;
+    const hasExercises = Array.isArray(existing.entries) && existing.entries.length > 0;
+    let next;
+    if (hasExercises) {
+      const { sauna, ...rest } = existing; // eslint-disable-line no-unused-vars
+      next = [{ ...rest, savedAt: new Date().toISOString() }, ...current.filter(w => w?.date !== dateStr)];
+    } else {
+      next = current.filter(w => !(w?.date === dateStr && w?.sauna));
+    }
+    next = next.sort((a, b) => (b.date || '').localeCompare(a.date || '') || (a.savedAt || '').localeCompare(b.savedAt || ''));
+    persistWorkouts(next);
+  }, [persistWorkouts]);
+
   // The 🧖 chip under a workout cell. A logged sauna is a plain (solid) chip;
   // upcoming days get a clickable chip — dashed when suggested, ghosted when not
   // — so the weekly goal is visible and adjustable straight from the grid.
   const renderSaunaChip = useCallback((dateStr) => {
+    // A real logged sauna (workout.sauna) — solid chip, click to un-log it.
     if (saunaDates.has(dateStr)) {
-      return <span className={styles.workoutSauna} title="Sauna logged on the mobile app">🧖 Sauna</span>;
+      return (
+        <button
+          type="button"
+          className={`${styles.workoutSauna} ${styles.saunaLogged}`}
+          onClick={(e) => { e.stopPropagation(); removeSaunaForDate(dateStr); }}
+          title="Sauna logged — click to remove from workout history"
+        >
+          🧖 Sauna
+        </button>
+      );
     }
     if (dateStr < todayKey) return null;
     const on = suggestedSaunaDates.has(dateStr);
     const pinned = saunaOverrides[dateStr] === true;
-    const title = on
-      ? (pinned ? 'Sauna pinned to this day — click to remove' : `Suggested to hit your goal of ${saunaGoal} saunas/week — click to remove`)
-      : 'Click to add a sauna this day';
+    // A goal-suggested (or pinned) day is a plan, not history — clicking it
+    // dismisses the suggestion (so the Google Calendar sync drops it too).
+    if (on) {
+      const title = pinned
+        ? 'Sauna pinned to this day — click to remove from plan'
+        : `Suggested to hit your goal of ${saunaGoal} saunas/week — click to remove from plan`;
+      return (
+        <button
+          type="button"
+          className={`${styles.workoutSauna} ${styles.saunaSuggested}${pinned ? ` ${styles.saunaPinned}` : ''}`}
+          onClick={(e) => { e.stopPropagation(); toggleSaunaDay(dateStr); }}
+          title={title}
+        >
+          🧖 Sauna
+        </button>
+      );
+    }
+    // Off — click logs a real sauna day straight into workout history.
     return (
       <button
         type="button"
-        className={`${styles.workoutSauna} ${on ? styles.saunaSuggested : styles.saunaOff}${pinned ? ` ${styles.saunaPinned}` : ''}`}
-        onClick={(e) => { e.stopPropagation(); toggleSaunaDay(dateStr); }}
-        title={title}
+        className={`${styles.workoutSauna} ${styles.saunaOff}`}
+        onClick={(e) => { e.stopPropagation(); logSaunaForDate(dateStr); }}
+        title="Click to log a sauna day"
       >
-        🧖 {on ? 'Sauna' : 'Add'}
+        🧖 Add
       </button>
     );
-  }, [saunaDates, suggestedSaunaDates, saunaOverrides, saunaGoal, todayKey, toggleSaunaDay]);
+  }, [saunaDates, suggestedSaunaDates, saunaOverrides, saunaGoal, todayKey, toggleSaunaDay, logSaunaForDate, removeSaunaForDate]);
 
   // Render the workout cell for a given date (Prepare table). A recorded workout
   // wins; otherwise show the days-since suggestion with an editable dropdown of

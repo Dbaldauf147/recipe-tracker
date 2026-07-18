@@ -4,7 +4,7 @@ import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { db } from '../firebase';
-import { saveOwnerRestaurants } from '../utils/firestoreSync';
+import { saveOwnerRestaurants, saveOwnerEatingOutLists, saveField } from '../utils/firestoreSync';
 import {
   splitTsv,
   detectHasHeader,
@@ -16,6 +16,7 @@ import {
 } from '../utils/restaurantImport';
 import { downloadRestaurantsCsv } from '../utils/restaurantExport';
 import { loadMyEatingOutVotes, setEatingOutVote, saveEatingOutOrder } from '../utils/firestoreSync';
+import { EatingOutFriendsPanel } from './EatingOutFriendsPanel';
 import styles from './EatingOutPage.module.css';
 
 // Medal characters keyed by rank (1, 2, 3).
@@ -72,15 +73,59 @@ const FILTERS = [
 // Higher-level buckets a spot can belong to. A spot can be in SEVERAL (a brewpub
 // is Lunch/Dinner and Drinking), stored as `buckets: string[]`. This replaces the
 // old single-valued `mealType`; see bucketsOf for the migration.
-const BUCKETS = [
+//
+// The list is USER-EDITABLE (stored on users/{uid}.eatingOutBuckets, shared with
+// mobile). DEFAULT_BUCKETS is the seed used until the user has saved their own.
+const DEFAULT_BUCKETS = [
   { key: 'breakfast', label: 'Breakfast', icon: '🍳' },
   { key: 'lunch-dinner', label: 'Lunch / Dinner', icon: '🍽️' },
   { key: 'drinking', label: 'Drinking', icon: '🍸' },
   { key: 'coffee', label: 'Coffee', icon: '☕' },
   { key: 'going-out', label: 'Going Out', icon: '🎉' },
 ];
-const BUCKET_KEYS = new Set(BUCKETS.map(b => b.key));
+// Module-level mirror of the active list, so the plain helpers below stay
+// call-site-compatible. The page updates it via applyBucketConfig whenever the
+// config loads or is edited — always from a snapshot/event callback (which is
+// then followed by a state update to re-render), never during render itself.
+let BUCKETS = DEFAULT_BUCKETS.slice();
+let BUCKET_KEYS = new Set(BUCKETS.map(b => b.key));
 const bucketLabel = (key) => BUCKETS.find(b => b.key === key)?.label || '';
+
+// Keep only well-formed {key,label,icon}; drop blanks and duplicate keys.
+function sanitizeBucketConfig(list) {
+  if (!Array.isArray(list)) return [];
+  const seen = new Set();
+  const out = [];
+  for (const b of list) {
+    if (!b || typeof b !== 'object') continue;
+    const key = typeof b.key === 'string' ? b.key.trim() : '';
+    const label = typeof b.label === 'string' ? b.label.trim() : '';
+    if (!key || !label || seen.has(key)) continue;
+    seen.add(key);
+    out.push({ key, label, icon: (typeof b.icon === 'string' && b.icon.trim()) ? b.icon.trim() : '🍴' });
+  }
+  return out;
+}
+// The effective list: a saved config, else the defaults.
+function effectiveBucketConfig(list) {
+  const clean = sanitizeBucketConfig(list);
+  return clean.length ? clean : DEFAULT_BUCKETS.slice();
+}
+function applyBucketConfig(list) {
+  BUCKETS = effectiveBucketConfig(list);
+  BUCKET_KEYS = new Set(BUCKETS.map(b => b.key));
+}
+// Slugify a label into a stable, unique key. Frozen once assigned so later
+// renames never orphan the spots already tagged with it.
+function makeBucketKey(label, used) {
+  let base = (label || '').toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+  if (!base) base = 'bucket';
+  let key = base;
+  let n = 2;
+  while (used.has(key)) key = `${base}-${n++}`;
+  used.add(key);
+  return key;
+}
 
 // A spot's buckets, migrating from the legacy single `mealType` when the array
 // isn't there yet. The old 'other'/'all' values have no bucket equivalent, so
@@ -1676,7 +1721,250 @@ function RestaurantTable({ items, onRowClick, myRestaurantIds, bulkUpdate, bulkD
   );
 }
 
-export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends = [], onClose, initialCategory = null }) {
+// One list (Cuisines or Categories) inside the ⚙ popup. This is the old
+// left-sidebar menu relocated here: every row filters the page on click (and
+// closes the popup), and each row carries a hover control to manage the master
+// list — remove a curated entry, or add an in-use-but-unlisted tag. Edits
+// persist immediately (onSetValues), so filtering and managing never collide.
+function MasterListSection({ title, help, itemPrefix = '', values, counts, activeFilter, onFilter, onSetValues, placeholder }) {
+  const [draft, setDraft] = useState('');
+
+  const add = (raw) => {
+    const cleaned = (raw || '').trim();
+    if (!cleaned) return;
+    if (values.some(v => v.toLowerCase() === cleaned.toLowerCase())) { setDraft(''); return; }
+    onSetValues([...values, cleaned]);
+    setDraft('');
+  };
+  const remove = (name) => onSetValues(values.filter(v => v !== name));
+
+  // Tags used on a spot (mine or a friend's) that aren't curated yet — offered
+  // as "+ add to list" so the master list stays the source for the menu.
+  const listedLower = new Set(values.map(v => v.toLowerCase()));
+  const notListed = Array.from(counts.keys())
+    .filter(n => !listedLower.has(n.toLowerCase()))
+    .sort((a, b) => a.localeCompare(b));
+
+  const sortedValues = [...values].sort((a, b) => a.localeCompare(b));
+
+  return (
+    <div className={styles.masterSection}>
+      <div className={styles.sidebarHeader}>
+        <span className={styles.sidebarTitle}>{title}</span>
+        <span className={styles.sidebarCount}>{values.length}</span>
+      </div>
+      <p className={styles.hintText}>{help}</p>
+
+      <button
+        type="button"
+        className={`${styles.sidebarItem} ${!activeFilter ? styles.sidebarItemActive : ''}`}
+        onClick={() => onFilter(null)}
+      >
+        <span className={styles.sidebarItemName}>All {title.toLowerCase()}</span>
+      </button>
+
+      {sortedValues.length === 0 && notListed.length === 0 && (
+        <div className={styles.sidebarEmpty}>Nothing yet — add one below.</div>
+      )}
+
+      {sortedValues.map(v => {
+        const n = counts.get(v) || 0;
+        return (
+          <div key={`v-${v}`} className={styles.sidebarItemRow}>
+            <button
+              type="button"
+              className={`${styles.sidebarItem} ${activeFilter === v ? styles.sidebarItemActive : ''} ${n === 0 ? styles.sidebarItemDim : ''}`}
+              onClick={() => onFilter(v)}
+            >
+              <span className={styles.sidebarItemName}>{itemPrefix}{v}</span>
+              <span className={styles.sidebarItemCount}>{n}</span>
+            </button>
+            <button
+              type="button"
+              className={styles.sidebarRenameBtn}
+              onClick={() => remove(v)}
+              title={`Remove "${v}" from the list`}
+              aria-label={`Remove ${v}`}
+            >
+              ✕
+            </button>
+          </div>
+        );
+      })}
+
+      {notListed.length > 0 && (
+        <p className={styles.masterSubhead}>In use, not on your list</p>
+      )}
+      {notListed.map(n => (
+        <div key={`u-${n}`} className={styles.sidebarItemRow}>
+          <button
+            type="button"
+            className={`${styles.sidebarItem} ${activeFilter === n ? styles.sidebarItemActive : ''}`}
+            onClick={() => onFilter(n)}
+          >
+            <span className={styles.sidebarItemName}>{itemPrefix}{n}</span>
+            <span className={styles.sidebarItemCount}>{counts.get(n)}</span>
+          </button>
+          <button
+            type="button"
+            className={styles.sidebarRenameBtn}
+            onClick={() => add(n)}
+            title={`Add "${n}" to the list`}
+            aria-label={`Add ${n} to the list`}
+          >
+            +
+          </button>
+        </div>
+      ))}
+
+      <input
+        type="text"
+        className={styles.input}
+        value={draft}
+        onChange={e => setDraft(e.target.value)}
+        onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); add(draft); } }}
+        onBlur={() => add(draft)}
+        placeholder={placeholder}
+      />
+    </div>
+  );
+}
+
+// Editor for the bucket list itself — add, rename, re-icon, reorder, delete.
+// Keys are frozen once assigned (rename only touches the label) so existing spot
+// assignments never break. Deleting a bucket just removes its definition; spots
+// tagged with it fall back to Unsorted (bucketsOf filters unknown keys). Save
+// writes users/{uid}.eatingOutBuckets, shared with mobile.
+function BucketSettingsModal({ buckets, counts, onSave, onClose }) {
+  // Editable draft: each row keeps its original key (undefined for new rows).
+  const [rows, setRows] = useState(() => buckets.map(b => ({ key: b.key, label: b.label, icon: b.icon })));
+
+  const setRow = (i, patch) => setRows(rs => rs.map((r, j) => (j === i ? { ...r, ...patch } : r)));
+  const addRow = () => setRows(rs => [...rs, { key: undefined, label: '', icon: '🍴' }]);
+  const removeRow = (i) => setRows(rs => rs.filter((_, j) => j !== i));
+  const move = (i, dir) => setRows(rs => {
+    const j = i + dir;
+    if (j < 0 || j >= rs.length) return rs;
+    const next = rs.slice();
+    [next[i], next[j]] = [next[j], next[i]];
+    return next;
+  });
+
+  const handleSave = () => {
+    // Assign keys to new rows (slug of label, unique), drop blank-label rows.
+    const used = new Set(rows.map(r => r.key).filter(Boolean));
+    const out = [];
+    for (const r of rows) {
+      const label = (r.label || '').trim();
+      if (!label) continue;
+      const key = r.key || makeBucketKey(label, used);
+      out.push({ key, label, icon: (r.icon || '').trim() || '🍴' });
+    }
+    onSave(out);
+    onClose();
+  };
+
+  return (
+    <div className={styles.modalOverlay} onClick={onClose}>
+      <div className={styles.modal} onClick={e => e.stopPropagation()}>
+        <div className={styles.modalHeader}>
+          <h2 className={styles.modalTitle}>Edit buckets</h2>
+          <button type="button" className={styles.iconBtn} onClick={onClose}>✕</button>
+        </div>
+        <div className={styles.modalBody}>
+          <p className={styles.hintText} style={{ marginTop: 0 }}>
+            Rename a bucket or change its emoji, reorder with ▲▼, or ＋ add your own.
+            Deleting a bucket just moves its spots to Unsorted — nothing is lost.
+          </p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {rows.map((r, i) => (
+              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <input
+                  className={styles.input}
+                  style={{ width: 52, textAlign: 'center', flex: '0 0 auto' }}
+                  value={r.icon}
+                  onChange={e => setRow(i, { icon: e.target.value })}
+                  aria-label="Emoji"
+                  maxLength={4}
+                />
+                <input
+                  className={styles.input}
+                  style={{ flex: 1 }}
+                  value={r.label}
+                  onChange={e => setRow(i, { label: e.target.value })}
+                  placeholder="Bucket name"
+                  aria-label="Bucket name"
+                />
+                {r.key && counts?.get(r.key) ? (
+                  <span className={styles.hintText} style={{ flex: '0 0 auto' }} title="spots in this bucket">{counts.get(r.key)}</span>
+                ) : null}
+                <button type="button" className={styles.iconBtn} onClick={() => move(i, -1)} disabled={i === 0} title="Move up">▲</button>
+                <button type="button" className={styles.iconBtn} onClick={() => move(i, 1)} disabled={i === rows.length - 1} title="Move down">▼</button>
+                <button type="button" className={styles.iconBtn} onClick={() => removeRow(i)} title="Delete bucket">🗑️</button>
+              </div>
+            ))}
+          </div>
+          <button type="button" className={styles.secondaryBtn} style={{ marginTop: 12 }} onClick={addRow}>＋ Add bucket</button>
+        </div>
+        <div className={styles.modalFooter}>
+          <div className={styles.footerSpacer} />
+          <button type="button" className={styles.iconBtn} onClick={onClose}>Cancel</button>
+          <button type="button" className={styles.primaryBtn} onClick={handleSave}>Save</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// The ⚙ popup: the single home for Cuisines & Categories. Filter the page from
+// here (click a row) and manage the master lists in the same place. Soft source
+// of truth — the lists seed the menu + edit-modal suggestions, but free-text
+// tags on an individual spot still work.
+function MasterListSettingsModal({
+  cuisines, categories, cuisineCounts, categoryCounts,
+  activeCuisine, activeCategory, onFilterCuisine, onFilterCategory,
+  onSetCuisines, onSetCategories, onClose,
+}) {
+  return (
+    <div className={styles.modalOverlay} onClick={onClose}>
+      <div className={styles.modal} onClick={e => e.stopPropagation()}>
+        <div className={styles.modalHeader}>
+          <h2 className={styles.modalTitle}>Cuisines & Categories</h2>
+          <button type="button" className={styles.iconBtn} onClick={onClose}>✕</button>
+        </div>
+        <div className={styles.modalBody}>
+          <MasterListSection
+            title="Cuisines"
+            help="Click one to filter the list. Hover a row to remove it, or ＋ an in-use tag to add it."
+            values={cuisines}
+            counts={cuisineCounts}
+            activeFilter={activeCuisine}
+            onFilter={onFilterCuisine}
+            onSetValues={onSetCuisines}
+            placeholder="Add a cuisine and press Enter"
+          />
+          <MasterListSection
+            title="Categories"
+            help="Voting buckets (e.g. Date night). Click one to filter; hover to remove or ＋ add."
+            itemPrefix="🏷 "
+            values={categories}
+            counts={categoryCounts}
+            activeFilter={activeCategory}
+            onFilter={onFilterCategory}
+            onSetValues={onSetCategories}
+            placeholder="Add a category and press Enter"
+          />
+        </div>
+        <div className={styles.modalFooter}>
+          <div className={styles.footerSpacer} />
+          <button type="button" className={styles.primaryBtn} onClick={onClose}>Done</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends = [], onClose, initialCategory = null, onFriendsChanged }) {
   // Per-owner restaurant arrays. Shape:
   //   { [ownerUid]: { username, restaurants } }
   // `user.uid` is always present (my own list). Each entry from
@@ -1686,7 +1974,10 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState('all');
   const [activeCuisine, setActiveCuisine] = useState(null);
-  const [activeLocation, setActiveLocation] = useState(null);
+  // Default the neighborhood filter to Williamsburg (the app's home area — also
+  // the map's default center). Case-insensitive match downstream, so the exact
+  // stored casing doesn't matter; toggling the Williamsburg pill clears it.
+  const [activeLocation, setActiveLocation] = useState('Williamsburg');
   const [activeBucket, setActiveBucket] = useState(null);
   const [activeCategory, setActiveCategory] = useState(initialCategory);
   const [showRetired, setShowRetired] = useState(false);
@@ -1696,6 +1987,19 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
   const [editing, setEditing] = useState(null);
   const [adding, setAdding] = useState(false);
   const [bulkOpen, setBulkOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [bucketsOpen, setBucketsOpen] = useState(false);
+  const [friendsOpen, setFriendsOpen] = useState(false);
+  // The user's editable bucket list (users/{uid}.eatingOutBuckets), mirrored into
+  // the module-level BUCKETS by applyBucketConfig so the helpers see it. Seeds
+  // from DEFAULT_BUCKETS until they've saved their own.
+  const [bucketConfig, setBucketConfig] = useState(DEFAULT_BUCKETS);
+  // My curated master vocabulary, loaded from my own user doc. `null` = never
+  // saved (so the settings editor seeds itself from whatever tags are already
+  // in use). These seed suggestions + the sidebar; they don't restrict what
+  // can be typed on a spot — see cuisineSuggestions / categorySuggestions.
+  const [masterCuisines, setMasterCuisines] = useState(null);
+  const [masterCategories, setMasterCategories] = useState(null);
   // Default to List view — it's where the ranking controls live, so voting is
   // visible without switching. (Table/Map remain one tap away.)
   const [viewMode, setViewMode] = useState('list');
@@ -1745,6 +2049,18 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
           const data = snap.data() || {};
           const restaurants = Array.isArray(data.restaurants) ? data.restaurants : [];
           const username = uid === user.uid ? null : (sharerMeta[uid] || data.username || 'friend');
+          if (uid === user.uid) {
+            // Master vocabulary lives on my own doc only. Keep `null` when the
+            // fields are absent so the editor knows to seed from used tags.
+            setMasterCuisines(Array.isArray(data.eatingOutCuisines) ? data.eatingOutCuisines : null);
+            setMasterCategories(Array.isArray(data.eatingOutCategories) ? data.eatingOutCategories : null);
+            // Bucket definitions are editable + shared with mobile. Mirror into
+            // the module-level BUCKETS (in this callback, before the re-render)
+            // so every helper/chip reflects the saved list.
+            const eff = effectiveBucketConfig(data.eatingOutBuckets);
+            applyBucketConfig(eff);
+            setBucketConfig(eff);
+          }
           setOwnerData(prev => ({
             ...prev,
             [uid]: { username, restaurants },
@@ -1780,11 +2096,14 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
     return out;
   }, [ownerData, user?.uid]);
 
+  // Suggestions + sidebar draw from the curated master list AND any tag already
+  // in use, so the master list drives the vocabulary without ever hiding a tag
+  // that's actually on a spot (soft source of truth).
   const cuisineSuggestions = useMemo(() => {
-    const set = new Set();
+    const set = new Set(masterCuisines || []);
     for (const r of restaurants) for (const c of (r.cuisines || [])) set.add(c);
-    return Array.from(set).sort();
-  }, [restaurants]);
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
+  }, [restaurants, masterCuisines]);
 
   const locationSuggestions = useMemo(() => {
     const set = new Set();
@@ -1793,28 +2112,11 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
   }, [restaurants]);
 
   const categorySuggestions = useMemo(() => {
-    const set = new Set();
+    const set = new Set(masterCategories || []);
     for (const r of restaurants) for (const c of (r.categories || [])) set.add(c);
-    return Array.from(set).sort();
-  }, [restaurants]);
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
+  }, [restaurants, masterCategories]);
 
-  // Counts respect all *other* active filters so the sidebar reflects what
-  // the user would actually see if they clicked. Each side ignores its own
-  // active selection so unselecting is always reachable.
-  const cuisineEntries = useMemo(() => {
-    const counts = new Map();
-    for (const r of restaurants) {
-      if (!showRetired && r.frequency === 'retired') continue;
-      if (filter !== 'all' && r.status !== filter) continue;
-      if (activeLocation && !(r.locations || []).some(l => l.toLowerCase() === activeLocation.toLowerCase())) continue;
-      if (activeBucket && !restaurantMatchesBucket(r, activeBucket)) continue;
-      if (activeCategory && !(r.categories || []).some(c => c.toLowerCase() === activeCategory.toLowerCase())) continue;
-      for (const c of (r.cuisines || [])) {
-        counts.set(c, (counts.get(c) || 0) + 1);
-      }
-    }
-    return cuisineSuggestions.map(c => ({ name: c, count: counts.get(c) || 0 }));
-  }, [restaurants, cuisineSuggestions, filter, activeLocation, activeBucket, activeCategory, showRetired]);
 
   const locationEntries = useMemo(() => {
     const counts = new Map();
@@ -1847,21 +2149,6 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
     () => new Set((ownerData[user?.uid]?.restaurants || []).map(r => r.id)),
     [ownerData, user?.uid],
   );
-
-  const categoryEntries = useMemo(() => {
-    const counts = new Map();
-    for (const r of restaurants) {
-      if (!showRetired && r.frequency === 'retired') continue;
-      if (filter !== 'all' && r.status !== filter) continue;
-      if (activeCuisine && !(r.cuisines || []).some(c => c.toLowerCase() === activeCuisine.toLowerCase())) continue;
-      if (activeLocation && !(r.locations || []).some(l => l.toLowerCase() === activeLocation.toLowerCase())) continue;
-      if (activeBucket && !restaurantMatchesBucket(r, activeBucket)) continue;
-      for (const c of (r.categories || [])) {
-        counts.set(c, (counts.get(c) || 0) + 1);
-      }
-    }
-    return categorySuggestions.map(c => ({ name: c, count: counts.get(c) || 0 }));
-  }, [restaurants, categorySuggestions, filter, activeCuisine, activeLocation, activeBucket, showRetired]);
 
   // The active ranking dimension: ranking now works over a dedicated category,
   // OR over the cuisine/location you've selected — so your existing tags are
@@ -1909,6 +2196,16 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
     // Otherwise the list stays in master order — each owner's `restaurants`
     // array order IS the shared ranking (rank = position; renumbered within
     // whatever filter is active). The ▲▼ controls reorder that array.
+    //
+    // Float "want to try" spots above already-visited ones so the next places
+    // to try surface at the top. Array.sort is stable, so each status group
+    // keeps its manual ▲▼ ranking order within the partition. Skipped when the
+    // status filter already narrows to a single group (no-op then anyway).
+    else {
+      list = [...list].sort((a, b) =>
+        (a.status === 'visited' ? 1 : 0) - (b.status === 'visited' ? 1 : 0),
+      );
+    }
     return list;
   }, [restaurants, filter, activeCuisine, activeLocation, activeBucket, activeCategory, showRetired, search, proximityCenter]);
 
@@ -1938,6 +2235,97 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
       alert(`Save to ${whose} failed — changes are local only.\n\n${reason}\n\nFirestore rules may not allow edits to a friend's shared list yet.`);
     }
   }, [user?.uid, ownerData]);
+
+  // Save the curated master lists (from the ⚙ Settings panel) to my own doc,
+  // optimistically so the sidebar/suggestions update immediately.
+  const persistMasterLists = useCallback(async (cuisines, categories) => {
+    if (!user?.uid) return;
+    setMasterCuisines(cuisines);
+    setMasterCategories(categories);
+    try {
+      await saveOwnerEatingOutLists(user.uid, { cuisines, categories });
+    } catch (err) {
+      console.error('Failed to save Eating Out master lists:', err);
+      alert(`Couldn't save your cuisine/category lists — ${err?.message || 'try again'}`);
+    }
+  }, [user?.uid]);
+
+  // Save the edited bucket list to my own doc (shared with mobile). Apply
+  // locally first (optimistic + so the UI updates even before/without a write),
+  // then persist when signed in.
+  const persistBuckets = useCallback(async (list) => {
+    const eff = effectiveBucketConfig(list);
+    applyBucketConfig(eff);
+    setBucketConfig(eff);
+    // If the active bucket filter was just deleted, clear it so the list isn't
+    // stuck filtering on a bucket that no longer exists.
+    setActiveBucket(prev => (prev && prev !== 'unsorted' && !eff.some(b => b.key === prev)) ? null : prev);
+    if (!user?.uid) return;
+    try {
+      await saveField(user.uid, 'eatingOutBuckets', eff);
+    } catch (err) {
+      console.error('Failed to save buckets:', err);
+      alert(`Couldn't save your buckets — ${err?.message || 'try again'}`);
+    }
+  }, [user?.uid]);
+
+  // How many of MY spots sit in each bucket — shown next to each row in the
+  // editor. `valid` ties the count to the current config so a delete/rename
+  // recomputes (and keeps the dependency honest for the linter).
+  const myBucketCounts = useMemo(() => {
+    const valid = new Set(bucketConfig.map(b => b.key));
+    const counts = new Map();
+    for (const r of (ownerData[user?.uid]?.restaurants || [])) {
+      for (const k of bucketsOf(r)) if (valid.has(k)) counts.set(k, (counts.get(k) || 0) + 1);
+    }
+    return counts;
+  }, [ownerData, user?.uid, bucketConfig]);
+
+  // Usage counts across MY OWN spots only (the master list is mine to curate;
+  // friends' shared lists aren't). Drives the "· N in use" hints in Settings.
+  const myCuisineCounts = useMemo(() => {
+    const counts = new Map();
+    for (const r of (ownerData[user?.uid]?.restaurants || [])) {
+      for (const c of (r.cuisines || [])) counts.set(c, (counts.get(c) || 0) + 1);
+    }
+    return counts;
+  }, [ownerData, user?.uid]);
+
+  const myCategoryCounts = useMemo(() => {
+    const counts = new Map();
+    for (const r of (ownerData[user?.uid]?.restaurants || [])) {
+      for (const c of (r.categories || [])) counts.set(c, (counts.get(c) || 0) + 1);
+    }
+    return counts;
+  }, [ownerData, user?.uid]);
+
+  // Usage across ALL visible spots (mine + friends'). These drive the counts +
+  // the "in use, not listed" rows in the ⚙ popup, so filtering by a friend's
+  // cuisine is reachable even if I've never used it myself.
+  const allCuisineCounts = useMemo(() => {
+    const counts = new Map();
+    for (const r of restaurants) for (const c of (r.cuisines || [])) counts.set(c, (counts.get(c) || 0) + 1);
+    return counts;
+  }, [restaurants]);
+  const allCategoryCounts = useMemo(() => {
+    const counts = new Map();
+    for (const r of restaurants) for (const c of (r.categories || [])) counts.set(c, (counts.get(c) || 0) + 1);
+    return counts;
+  }, [restaurants]);
+
+  // The list shown/edited in the ⚙ popup. Until I've saved a curated list,
+  // fall back to MY OWN tags (seeded) so the menu isn't empty; friends' tags
+  // stay out of my personal list but remain reachable via "in use, not listed".
+  const seededCuisines = useMemo(
+    () => Array.from(myCuisineCounts.keys()).sort((a, b) => a.localeCompare(b)),
+    [myCuisineCounts],
+  );
+  const seededCategories = useMemo(
+    () => Array.from(myCategoryCounts.keys()).sort((a, b) => a.localeCompare(b)),
+    [myCategoryCounts],
+  );
+  const effectiveMasterCuisines = masterCuisines ?? seededCuisines;
+  const effectiveMasterCategories = masterCategories ?? seededCategories;
 
   // Pull my eating-out votes once when the user is known. Subsequent
   // updates use the local handleVote which writes through to Firestore.
@@ -2347,81 +2735,30 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
         <button type="button" className={styles.secondaryBtn} onClick={() => setBulkOpen(true)}>
           Bulk import
         </button>
+        <button
+          type="button"
+          className={styles.secondaryBtn}
+          onClick={() => setFriendsOpen(true)}
+          title="Add a friend and share your Eating Out list both ways"
+        >
+          👥 Friends
+        </button>
+        <button
+          type="button"
+          className={styles.secondaryBtn}
+          onClick={() => setSettingsOpen(true)}
+          title="Filter and manage cuisines & categories"
+        >
+          ⚙ Cuisines / Categories
+        </button>
         <button type="button" className={styles.primaryBtn} onClick={() => setAdding(true)}>
           + Add restaurant
         </button>
       </div>
 
       <div className={styles.layout}>
-        <aside className={styles.sidebar}>
-          <div className={styles.sidebarColumns}>
-            <div className={styles.sidebarPanel}>
-              <div className={styles.sidebarHeader}>
-                <span className={styles.sidebarTitle}>Cuisines</span>
-                <span className={styles.sidebarCount}>{cuisineEntries.length}</span>
-              </div>
-              <button
-                type="button"
-                className={`${styles.sidebarItem} ${!activeCuisine ? styles.sidebarItemActive : ''}`}
-                onClick={() => setActiveCuisine(null)}
-              >
-                <span className={styles.sidebarItemName}>All cuisines</span>
-              </button>
-              {cuisineEntries.length === 0 ? (
-                <div className={styles.sidebarEmpty}>No cuisines yet.</div>
-              ) : (
-                cuisineEntries.map(c => (
-                  <button
-                    key={`c-${c.name}`}
-                    type="button"
-                    className={`${styles.sidebarItem} ${activeCuisine === c.name ? styles.sidebarItemActive : ''} ${c.count === 0 ? styles.sidebarItemDim : ''}`}
-                    onClick={() => setActiveCuisine(activeCuisine === c.name ? null : c.name)}
-                  >
-                    <span className={styles.sidebarItemName}>{c.name}</span>
-                    <span className={styles.sidebarItemCount}>{c.count}</span>
-                  </button>
-                ))
-              )}
-            </div>
-
-            {/* Locations menu intentionally hidden — use the "Near…" search bar
-                above the list to type a neighborhood or address instead. The
-                activeLocation filter state is kept for the rename flow + any
-                deep links, but there's no longer a sidebar list for it. */}
-
-            <div className={styles.sidebarPanel}>
-              <div className={styles.sidebarHeader}>
-                <span className={styles.sidebarTitle}>Categories</span>
-                <span className={styles.sidebarCount}>{categoryEntries.length}</span>
-              </div>
-              <button
-                type="button"
-                className={`${styles.sidebarItem} ${!activeCategory ? styles.sidebarItemActive : ''}`}
-                onClick={() => setActiveCategory(null)}
-              >
-                <span className={styles.sidebarItemName}>All categories</span>
-              </button>
-              {categoryEntries.length === 0 ? (
-                <div className={styles.sidebarEmpty}>
-                  No categories yet. Add one in the edit modal — pick a category, then vote your top 3.
-                </div>
-              ) : (
-                categoryEntries.map(c => (
-                  <button
-                    key={`cat-${c.name}`}
-                    type="button"
-                    className={`${styles.sidebarItem} ${activeCategory === c.name ? styles.sidebarItemActive : ''} ${c.count === 0 ? styles.sidebarItemDim : ''}`}
-                    onClick={() => selectCategory(c.name)}
-                  >
-                    <span className={styles.sidebarItemName}>🏷 {c.name}</span>
-                    <span className={styles.sidebarItemCount}>{c.count}</span>
-                  </button>
-                ))
-              )}
-            </div>
-          </div>
-        </aside>
-
+        {/* Cuisines & Categories menus moved into the ⚙ popup (header). The
+            active filter is surfaced as a removable chip in the toolbar below. */}
         <main className={styles.main}>
           {geocodingProgress && (
             <div className={styles.geocodingBanner}>
@@ -2503,6 +2840,39 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
             )}
           </div>
 
+          {(activeCuisine || activeCategory) && (
+            <div className={styles.activeFilters}>
+              <span className={styles.activeFiltersLabel}>Filtered:</span>
+              {activeCuisine && (
+                <button
+                  type="button"
+                  className={styles.activeFilterChip}
+                  onClick={() => setActiveCuisine(null)}
+                  title="Clear cuisine filter"
+                >
+                  {activeCuisine} <span className={styles.activeFilterX}>✕</span>
+                </button>
+              )}
+              {activeCategory && (
+                <button
+                  type="button"
+                  className={styles.activeFilterChip}
+                  onClick={() => setActiveCategory(null)}
+                  title="Clear category filter"
+                >
+                  🏷 {activeCategory} <span className={styles.activeFilterX}>✕</span>
+                </button>
+              )}
+              <button
+                type="button"
+                className={styles.activeFiltersManage}
+                onClick={() => setSettingsOpen(true)}
+              >
+                ⚙ Change
+              </button>
+            </div>
+          )}
+
           <form className={styles.proximityRow} onSubmit={handleProximity}>
             <input
               type="text"
@@ -2529,6 +2899,36 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
               </span>
             )}
           </form>
+
+          {/* Neighborhood filter pills — one per location in use, most-used
+              first, above the bucket row. Toggling the active one clears it. */}
+          {(() => {
+            const isActiveLoc = (name) =>
+              !!activeLocation && activeLocation.toLowerCase() === name.toLowerCase();
+            const neighborhoods = locationEntries.filter(l => l.count > 0);
+            // Keep the active neighborhood visible even if the current filters
+            // drop its count to 0, so it can always be toggled back off.
+            if (activeLocation && !neighborhoods.some(l => isActiveLoc(l.name))) {
+              const existing = locationEntries.find(l => isActiveLoc(l.name));
+              neighborhoods.push(existing || { name: activeLocation, count: 0 });
+            }
+            neighborhoods.sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+            if (neighborhoods.length === 0) return null;
+            return (
+              <div className={styles.tagFilterRow}>
+                {neighborhoods.map(l => (
+                  <button
+                    key={`loc-${l.name}`}
+                    type="button"
+                    className={`${styles.tagFilter} ${isActiveLoc(l.name) ? styles.tagFilterActive : ''}`}
+                    onClick={() => setActiveLocation(isActiveLoc(l.name) ? null : l.name)}
+                  >
+                    📍 {l.name} ({l.count})
+                  </button>
+                ))}
+              </div>
+            );
+          })()}
 
           <div className={styles.tagFilterRow}>
             {BUCKETS.map(b => (
@@ -2560,6 +2960,14 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
                 {showRetired ? `Hide retired (${retiredCount})` : `Show retired (${retiredCount})`}
               </button>
             )}
+            <button
+              type="button"
+              className={styles.tagFilter}
+              onClick={() => setBucketsOpen(true)}
+              title="Add, rename, reorder or remove buckets"
+            >
+              ✎ Edit buckets
+            </button>
           </div>
 
           {loading ? (
@@ -2656,6 +3064,39 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
           existing={ownerData[user?.uid]?.restaurants || []}
           onClose={() => setBulkOpen(false)}
           onImport={handleBulkImport}
+        />
+      )}
+      {bucketsOpen && (
+        <BucketSettingsModal
+          buckets={bucketConfig}
+          counts={myBucketCounts}
+          onSave={persistBuckets}
+          onClose={() => setBucketsOpen(false)}
+        />
+      )}
+      {settingsOpen && (
+        <MasterListSettingsModal
+          cuisines={effectiveMasterCuisines}
+          categories={effectiveMasterCategories}
+          cuisineCounts={allCuisineCounts}
+          categoryCounts={allCategoryCounts}
+          activeCuisine={activeCuisine}
+          activeCategory={activeCategory}
+          // Filtering closes the popup so the results are visible immediately.
+          onFilterCuisine={(name) => { setActiveCuisine(name); setSettingsOpen(false); }}
+          onFilterCategory={(name) => { selectCategory(name); setSettingsOpen(false); }}
+          // Managing auto-saves. Persist BOTH lists (using the effective value of
+          // the untouched one) so a first edit doesn't wipe the seeded other list.
+          onSetCuisines={(next) => persistMasterLists(next, effectiveMasterCategories)}
+          onSetCategories={(next) => persistMasterLists(effectiveMasterCuisines, next)}
+          onClose={() => setSettingsOpen(false)}
+        />
+      )}
+      {friendsOpen && (
+        <EatingOutFriendsPanel
+          user={user}
+          onClose={() => setFriendsOpen(false)}
+          onFriendsChanged={onFriendsChanged}
         />
       )}
     </div>

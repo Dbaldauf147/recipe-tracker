@@ -3096,9 +3096,39 @@ export function WorkoutPage({ onBack, user }) {
     setEntries(prev => prev.filter((_, i) => i !== idx));
   }
 
+  // Log a sauna for the selected day without needing any exercises. If a
+  // workout already exists that day, just flip its sauna flag on (keeping its
+  // exercises); otherwise create a sauna-only day. Mirrors the mobile 🧖 flag
+  // and feeds the Week Plan's weekly sauna goal.
+  function logSaunaDay() {
+    const existingForDate = workouts.find(w => w.date === selectedDate);
+    const workout = existingForDate
+      ? { ...existingForDate, sauna: true, savedAt: new Date().toISOString() }
+      : {
+          id: newWorkoutId(),
+          date: selectedDate,
+          gym,
+          workoutType,
+          entries: [],
+          sauna: true,
+          savedAt: new Date().toISOString(),
+        };
+    const next = [workout, ...workouts.filter(w => w.date !== selectedDate)]
+      .sort((a, b) => b.date.localeCompare(a.date));
+    setWorkouts(next);
+    saveWorkouts(next, user?.uid);
+    setSauna(true);
+    userPickedDateRef.current = false;
+    alert(existingForDate && (existingForDate.entries || []).length > 0
+      ? 'Sauna added to this day! 🧖'
+      : 'Sauna day logged! 🧖');
+  }
+
   function saveWorkout() {
     const validEntries = entries.filter(e => e.group && e.exercise);
-    if (validEntries.length === 0) return;
+    // Nothing to log unless there's at least one exercise OR the sauna toggle
+    // is on — a sauna-only day is a valid log.
+    if (validEntries.length === 0 && !sauna) return;
 
     // Only log exercises the user actually marked complete (green cells).
     // Un-completed rows are treated as "planned but skipped today" — they
@@ -3143,7 +3173,7 @@ export function WorkoutPage({ onBack, user }) {
     // next visibility change — the user is unlikely to want to keep logging
     // against a past date once they've committed one.
     userPickedDateRef.current = false;
-    alert('Workout saved!');
+    alert(validEntries.length === 0 ? 'Sauna day logged! 🧖' : 'Workout saved!');
   }
 
   // Auto-save the in-progress draft to Firestore so other devices (mobile)
@@ -3251,7 +3281,8 @@ export function WorkoutPage({ onBack, user }) {
   function deleteHistoryEntry(wkey, originalIdx) {
     const next = workouts
       .map(w => workoutKey(w) === wkey ? { ...w, entries: w.entries.filter((_, i) => i !== originalIdx) } : w)
-      .filter(w => w.entries.length > 0);
+      // Keep a day that still has exercises OR is a logged sauna day.
+      .filter(w => w.entries.length > 0 || w.sauna);
     commitWorkouts(next);
   }
   function deleteHistoryDay(wkey) {
@@ -3398,7 +3429,8 @@ export function WorkoutPage({ onBack, user }) {
         if (!idxSet) return w;
         return { ...w, entries: w.entries.filter((_, i) => !idxSet.has(i)) };
       })
-      .filter(w => w.entries.length > 0);
+      // Keep a day that still has exercises OR is a logged sauna day.
+      .filter(w => w.entries.length > 0 || w.sauna);
     commitWorkouts(next);
     clearSelectedRows();
   }
@@ -4058,6 +4090,14 @@ export function WorkoutPage({ onBack, user }) {
             >
               🧖 Sauna{sauna ? '  ✓' : ''}
             </button>
+            <button
+              type="button"
+              className={styles.saunaLogBtn}
+              onClick={logSaunaDay}
+              title="Log a sauna for this day — no exercises needed"
+            >
+              ＋ Log sauna day
+            </button>
           </div>
 
           <input
@@ -4375,6 +4415,13 @@ export function WorkoutPage({ onBack, user }) {
               visible.forEach(({ e, originalIdx }, idx) => {
                 flatRows.push({ w, e, originalIdx, isFirstOfDay: idx === 0, dayCount: visible.length });
               });
+              // A sauna-only day has no exercise rows — surface it as a single
+              // "🧖 Sauna day" row so it's visible + deletable. Skip when an
+              // entry-level filter is active (it has no exercises to match).
+              const entryFilterActive = historyGroup || historyExercise || cs.group || cs.exercise || cs.notes || cs.weight;
+              if (visible.length === 0 && w.sauna && !entryFilterActive) {
+                flatRows.push({ w, e: null, originalIdx: -1, isFirstOfDay: true, dayCount: 1, saunaOnly: true });
+              }
             }
             const visibleKeys = flatRows.map(({ w, originalIdx }) => rowKey(workoutKey(w), originalIdx));
             const visibleSelectedCount = visibleKeys.reduce((n, k) => n + (selectedRows.has(k) ? 1 : 0), 0);
@@ -4539,7 +4586,56 @@ export function WorkoutPage({ onBack, user }) {
                     </tr>
                   </thead>
                   <tbody>
-                    {flatRows.map(({ w, e, originalIdx, isFirstOfDay, dayCount }, ri) => {
+                    {flatRows.map(({ w, e, originalIdx, isFirstOfDay, dayCount, saunaOnly }, ri) => {
+                      // Sauna-only day: one compact row, no exercise cells.
+                      if (saunaOnly) {
+                        const wk = workoutKey(w);
+                        return (
+                          <tr key={`${wk}-sauna`} className={styles.historyRowDayStart}>
+                            <td className={styles.logSelectCell} />
+                            <td className={styles.historyMetaCell}>
+                              <input
+                                type="date"
+                                className={styles.historyDateInput}
+                                value={w.date}
+                                onChange={ev => setHistoryDate(wk, ev.target.value)}
+                                title="Edit date"
+                              />
+                              <button
+                                className={styles.historyDeleteDayBtn}
+                                onClick={() => deleteHistoryDay(wk)}
+                                title={`Delete the ${w.date} sauna day`}
+                                type="button"
+                              >Delete day</button>
+                            </td>
+                            <td className={styles.historyMetaCell}>
+                              <select
+                                className={styles.historyGymSelect}
+                                style={{ marginTop: 0 }}
+                                value={w.gym || ''}
+                                onChange={ev => setHistoryGymForDate(wk, ev.target.value)}
+                                title="Edit location"
+                              >
+                                {w.gym && !gyms.includes(w.gym) && <option value={w.gym}>{w.gym}</option>}
+                                {gyms.map(g => <option key={g} value={g}>{g}</option>)}
+                              </select>
+                            </td>
+                            <td className={styles.historyMetaCell} style={{ borderRight: '1px solid var(--color-border)' }}>
+                              <select
+                                className={styles.historyTypeSelect}
+                                style={{ marginTop: 0 }}
+                                value={w.workoutType || ''}
+                                onChange={ev => setHistoryWorkoutType(wk, ev.target.value)}
+                                title="Tag this workout's type"
+                              >
+                                <option value="">No type</option>
+                                {workoutTypes.map(t => <option key={t} value={t}>{t}</option>)}
+                              </select>
+                            </td>
+                            <td colSpan={11} className={styles.saunaOnlyCell}>🧖 Sauna day</td>
+                          </tr>
+                        );
+                      }
                       const setsArr = Array.isArray(e.sets) ? e.sets : (e.sets ? Object.values(e.sets) : []);
                       const setVals = [0, 1, 2, 3].map(si => {
                         const v = setsArr[si];
@@ -4583,6 +4679,9 @@ export function WorkoutPage({ onBack, user }) {
                               onChange={ev => setHistoryDate(wk, ev.target.value)}
                               title="Edit date"
                             />
+                            {isFirstOfDay && w.sauna && (
+                              <span className={styles.historySaunaBadge} title="Sauna logged this day">🧖</span>
+                            )}
                             {isFirstOfDay && (
                               <button
                                 className={styles.historyDeleteDayBtn}

@@ -43,14 +43,9 @@
 
 .layout {
   display: grid;
-  grid-template-columns: 360px 1fr;
+  grid-template-columns: 1fr;
   gap: 1.5rem;
   align-items: start;
-}
-@media (max-width: 900px) {
-  .layout {
-    grid-template-columns: 1fr;
-  }
 }
 
 .sidebar {
@@ -623,6 +618,78 @@
   font-size: 0.8rem;
 }
 .chipRemove:hover { color: #dc2626; }
+
+/* ⚙ Settings — master list (Cuisines / Categories) editor */
+.masterSection {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding-bottom: 1.1rem;
+  margin-bottom: 1.1rem;
+  border-bottom: 1px solid var(--color-border);
+}
+.masterSection:last-child {
+  border-bottom: none;
+  margin-bottom: 0;
+  padding-bottom: 0;
+}
+.masterChipCount {
+  color: var(--color-text-muted);
+  font-weight: 500;
+  font-size: 0.75rem;
+}
+.masterSubhead {
+  margin: 0.6rem 0 0.1rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+/* Active cuisine/category filter, surfaced in the toolbar since the menus now
+   live in the ⚙ popup. */
+.activeFilters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+}
+.activeFiltersLabel {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--color-text-muted);
+}
+.activeFilterChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  background: var(--color-accent);
+  color: white;
+  border: none;
+  border-radius: 999px;
+  padding: 0.25rem 0.7rem;
+  font-family: inherit;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.activeFilterChip:hover { filter: brightness(1.08); }
+.activeFilterX {
+  font-size: 0.72rem;
+  opacity: 0.85;
+}
+.activeFiltersManage {
+  background: none;
+  border: none;
+  color: var(--color-accent);
+  font-family: inherit;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0.25rem 0.35rem;
+}
+.activeFiltersManage:hover { text-decoration: underline; }
 
 /* Per-restaurant meals editor (inside EditModal) */
 .mealsEditor {

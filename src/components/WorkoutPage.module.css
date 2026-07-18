@@ -170,7 +170,37 @@
 .workoutTypePillActive:hover { color: #fff; opacity: 0.9; }
 .saunaRow {
   display: flex;
+  align-items: center;
+  gap: 0.5rem;
   margin-bottom: 0.75rem;
+}
+/* Quick "log a sauna day" — sauna-only, no exercises needed. */
+.saunaLogBtn {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.4rem 0.9rem;
+  border: 1px dashed #16a34a;
+  border-radius: 999px;
+  background: none;
+  color: #16a34a;
+  font-family: inherit;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.saunaLogBtn:hover { background: #16a34a; color: #fff; }
+/* Sauna markers in the History table. */
+.historySaunaBadge {
+  margin-left: 0.35rem;
+  font-size: 0.95rem;
+  vertical-align: middle;
+}
+.saunaOnlyCell {
+  padding: 0.5rem 0.75rem;
+  color: #16a34a;
+  font-weight: 600;
+  font-size: 0.9rem;
 }
 .saunaToggle {
   display: inline-flex;

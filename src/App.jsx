@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo } from 'react';
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useRecipes } from './hooks/useRecipes';
 import { useAuth } from './contexts/AuthContext';
 import { saveField, getPendingRequests, getPendingSharedRecipes, loadFriends, loadFriendShoppingList, loadFriendEatingOut, getUsername } from './utils/firestoreSync';
@@ -280,54 +280,52 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
   // Friends who have voted on MY eating-out list (their top-3 picks).
   // Each entry: { uid, username, votes: [r1, r2, r3] }.
   const [eatingOutVotesFromFriends, setEatingOutVotesFromFriends] = useState([]);
-  useEffect(() => {
+  // Load (and re-load, via onFriendsChanged) the lists friends share with me.
+  // Extracted so the Eating Out friends panel can refresh it after adding /
+  // accepting a friend, making the new friend's spots appear without a reload.
+  const refreshEatingOutFriends = useCallback(async () => {
     if (!user?.uid) {
       setSharedFromFriends([]);
       setSharedEatingOutFromFriends([]);
       setEatingOutVotesFromFriends([]);
       return;
     }
-    let cancelled = false;
-    (async () => {
-      try {
-        const friends = await loadFriends(user.uid);
-        const shoppingSharers = friends.filter(f => f.hasSharedShoppingWithMe);
-        const eatingOutSharers = friends.filter(f => f.hasSharedEatingOutWithMe);
-        const [shoppingLists, eatingOutLists] = await Promise.all([
-          Promise.all(shoppingSharers.map(async f => {
-            const data = await loadFriendShoppingList(f.uid);
-            return {
-              uid: f.uid,
-              username: data.username || f.username || f.displayName || 'friend',
-              meals: data.meals || [],
-            };
+    try {
+      const friends = await loadFriends(user.uid);
+      const shoppingSharers = friends.filter(f => f.hasSharedShoppingWithMe);
+      const eatingOutSharers = friends.filter(f => f.hasSharedEatingOutWithMe);
+      const [shoppingLists, eatingOutLists] = await Promise.all([
+        Promise.all(shoppingSharers.map(async f => {
+          const data = await loadFriendShoppingList(f.uid);
+          return {
+            uid: f.uid,
+            username: data.username || f.username || f.displayName || 'friend',
+            meals: data.meals || [],
+          };
+        })),
+        Promise.all(eatingOutSharers.map(async f => {
+          const data = await loadFriendEatingOut(f.uid);
+          return {
+            uid: f.uid,
+            username: data.username || f.username || f.displayName || 'friend',
+            restaurants: data.restaurants || [],
+          };
+        })),
+      ]);
+      setSharedFromFriends(shoppingLists.filter(l => l.meals.length > 0));
+      setSharedEatingOutFromFriends(eatingOutLists.filter(l => l.restaurants.length > 0));
+      setEatingOutVotesFromFriends(
+        friends
+          .filter(f => f.votesOnMyEatingOutByCategory && Object.keys(f.votesOnMyEatingOutByCategory).length > 0)
+          .map(f => ({
+            uid: f.uid,
+            username: f.username || f.displayName || 'friend',
+            votesByCategory: f.votesOnMyEatingOutByCategory,
           })),
-          Promise.all(eatingOutSharers.map(async f => {
-            const data = await loadFriendEatingOut(f.uid);
-            return {
-              uid: f.uid,
-              username: data.username || f.username || f.displayName || 'friend',
-              restaurants: data.restaurants || [],
-            };
-          })),
-        ]);
-        if (!cancelled) {
-          setSharedFromFriends(shoppingLists.filter(l => l.meals.length > 0));
-          setSharedEatingOutFromFriends(eatingOutLists.filter(l => l.restaurants.length > 0));
-          setEatingOutVotesFromFriends(
-            friends
-              .filter(f => f.votesOnMyEatingOutByCategory && Object.keys(f.votesOnMyEatingOutByCategory).length > 0)
-              .map(f => ({
-                uid: f.uid,
-                username: f.username || f.displayName || 'friend',
-                votesByCategory: f.votesOnMyEatingOutByCategory,
-              })),
-          );
-        }
-      } catch { /* ignore */ }
-    })();
-    return () => { cancelled = true; };
+      );
+    } catch { /* ignore */ }
   }, [user?.uid]);
+  useEffect(() => { refreshEatingOutFriends(); }, [refreshEatingOutFriends]);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
   const [viewRecipeId, setViewRecipeId] = useState(null);
@@ -1054,6 +1052,7 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
             sharedFromFriends={sharedEatingOutFromFriends}
             votesFromFriends={eatingOutVotesFromFriends}
             initialCategory={pendingEatingOutCategory}
+            onFriendsChanged={refreshEatingOutFriends}
             onClose={() => { setPendingEatingOutCategory(null); goBack(); }}
           />
         ) : view === 'history' ? (
