@@ -1092,16 +1092,32 @@ function BulkImportModal({ onClose, onImport, existing }) {
   );
 }
 
-function RestaurantCard({ r, distanceMiles, rank, canMoveUp, canMoveDown, onMoveUp, onMoveDown, onClick, compact }) {
+function RestaurantCard({ r, distanceMiles, rank, canMoveUp, canMoveDown, onMoveUp, onMoveDown, onClick, compact, drag }) {
   const isRetired = r.frequency === 'retired';
   // Stop card click from firing when the user taps a vote button.
   function stop(e) { e.stopPropagation(); }
+
+  // Drag-to-reorder: spread the handlers onto the card root and show feedback —
+  // dim while dragging, a top line on the row you're about to drop onto.
+  const d = drag || {};
+  const dragHandlers = d.draggable ? {
+    draggable: true,
+    onDragStart: d.onDragStart,
+    onDragOver: d.onDragOver,
+    onDrop: d.onDrop,
+    onDragEnd: d.onDragEnd,
+  } : {};
+  const dragStyle = d.dragging
+    ? { opacity: 0.4 }
+    : d.over
+      ? { boxShadow: 'inset 0 3px 0 0 #2563eb' }
+      : undefined;
 
   // Compact list row: just rank + name (and the ▲▼ reorder arrows). Keeps the
   // ranked list dense so many places fit on screen at once; tap to open details.
   if (compact) {
     return (
-      <button type="button" className={`${styles.cardCompact} ${isRetired ? styles.cardRetired : ''}`} onClick={onClick}>
+      <button type="button" {...dragHandlers} style={dragStyle} className={`${styles.cardCompact} ${isRetired ? styles.cardRetired : ''}`} onClick={onClick}>
         {rank != null && <span className={styles.compactRank}>{rank}</span>}
         <span className={styles.compactName}>{r.name}</span>
         {r.status === 'want-to-try' && <span className={styles.wantBadge}>Want to try</span>}
@@ -1135,7 +1151,7 @@ function RestaurantCard({ r, distanceMiles, rank, canMoveUp, canMoveDown, onMove
   }
 
   return (
-    <button type="button" className={`${styles.card} ${isRetired ? styles.cardRetired : ''}`} onClick={onClick}>
+    <button type="button" {...dragHandlers} style={dragStyle} className={`${styles.card} ${isRetired ? styles.cardRetired : ''}`} onClick={onClick}>
       {r.imageUrl
         ? <img src={r.imageUrl} alt="" className={styles.cardImage} />
         : <div className={`${styles.cardImage} ${styles.cardImagePlaceholder}`}>🍽️</div>}
@@ -2415,6 +2431,29 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
     persistOwner(ownerUid, arr);
   }, [visible, ownerData, persistOwner]);
 
+  // Drag-and-drop reorder: move `draggedId` into `targetId`'s slot within the
+  // same owner's master array (dropping onto a row places the dragged spot just
+  // before it). Same-owner only — dropping across owners is a no-op. Persists
+  // optimistically like handleRankMove.
+  const handleRankDrop = useCallback((draggedId, targetId) => {
+    if (!draggedId || !targetId || draggedId === targetId) return;
+    const dragged = visible.find(r => r.id === draggedId);
+    const target = visible.find(r => r.id === targetId);
+    if (!dragged || !target || dragged._ownerUid !== target._ownerUid) return;
+    const ownerUid = dragged._ownerUid;
+    const arr = [...(ownerData[ownerUid]?.restaurants || [])];
+    const from = arr.findIndex(r => r.id === draggedId);
+    if (from < 0) return;
+    const [moved] = arr.splice(from, 1);
+    const to = arr.findIndex(r => r.id === targetId); // recomputed after removal
+    if (to < 0) { return; }
+    arr.splice(to, 0, moved);
+    persistOwner(ownerUid, arr);
+  }, [visible, ownerData, persistOwner]);
+  // Which row is being dragged / hovered as a drop target (for visual feedback).
+  const [dragId, setDragId] = useState(null);
+  const [dragOverId, setDragOverId] = useState(null);
+
   // Friends' votes on MY restaurants, indexed by restaurantId. Flattens
   // per-category votes into a list of { username, rank, category }.
   const friendVotesByRestaurant = useMemo(() => {
@@ -2708,7 +2747,6 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
   return (
     <div className={styles.page}>
       <div className={styles.header}>
-        <button type="button" className={styles.backBtn} onClick={onClose}>← Back</button>
         <h1 className={styles.title}>Eating Out</h1>
         <button
           type="button"
@@ -3029,6 +3067,15 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
                     canMoveDown={showRank && oi >= 0 && oi < seq.length - 1}
                     onMoveUp={showRank ? () => handleRankMove(r.id, 'up') : null}
                     onMoveDown={showRank ? () => handleRankMove(r.id, 'down') : null}
+                    drag={showRank ? {
+                      draggable: true,
+                      dragging: dragId === r.id,
+                      over: dragOverId === r.id && dragId && dragId !== r.id,
+                      onDragStart: (e) => { setDragId(r.id); e.dataTransfer.effectAllowed = 'move'; try { e.dataTransfer.setData('text/plain', r.id); } catch { /* some browsers */ } },
+                      onDragOver: (e) => { if (dragId && dragId !== r.id) { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; if (dragOverId !== r.id) setDragOverId(r.id); } },
+                      onDrop: (e) => { e.preventDefault(); if (dragId) handleRankDrop(dragId, r.id); setDragId(null); setDragOverId(null); },
+                      onDragEnd: () => { setDragId(null); setDragOverId(null); },
+                    } : null}
                     onClick={() => setEditing(r)}
                   />
                 );
