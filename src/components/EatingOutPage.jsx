@@ -15,7 +15,7 @@ import {
   IMPORT_FIELDS,
 } from '../utils/restaurantImport';
 import { downloadRestaurantsCsv } from '../utils/restaurantExport';
-import { loadMyEatingOutVotes, setEatingOutVote, saveEatingOutOrder } from '../utils/firestoreSync';
+import { loadMyEatingOutVotes, setEatingOutVote, saveEatingOutOrder, LEGACY_VOTE_CATEGORY, subscribeSpotComments, addSpotComment, deleteSpotComment } from '../utils/firestoreSync';
 import { EatingOutFriendsPanel } from './EatingOutFriendsPanel';
 import styles from './EatingOutPage.module.css';
 
@@ -479,7 +479,169 @@ function MealsEditor({ value, onChange, restaurantName }) {
   );
 }
 
-function EditModal({ initial, onSave, onClose, onDelete, cuisineSuggestions, locationSuggestions, categorySuggestions = [] }) {
+// Your personal 🥇🥈🥉 ranking of a spot within the active dimension (category /
+// cuisine / location, or "Overall" when no filter is active). Writes to YOUR OWN
+// user doc via onVote → setEatingOutVote, so it works on a friend's spot too
+// without touching their data. `votes` is my full eatingOutVotes map.
+function RankControl({ ownerUid, spotId, dimKey, dimLabel, votes, onVote }) {
+  const list = votes?.[ownerUid]?.[dimKey] || [];
+  const idx = list.indexOf(spotId);
+  const current = idx >= 0 && idx < 3 ? idx + 1 : null;
+  const labels = { 1: '1st', 2: '2nd', 3: '3rd' };
+  return (
+    <div>
+      <div className={styles.fieldLabel}>Your ranking · {dimLabel || 'Overall'}</div>
+      <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+        {[1, 2, 3].map(n => (
+          <button
+            key={n}
+            type="button"
+            onClick={() => onVote(ownerUid, dimKey, spotId, current === n ? null : n)}
+            style={{
+              padding: '0.4rem 0.7rem',
+              borderRadius: 999,
+              border: '1px solid var(--color-border)',
+              cursor: 'pointer',
+              fontWeight: 600,
+              background: current === n ? 'var(--color-accent, #2563eb)' : 'var(--color-surface)',
+              color: current === n ? '#fff' : 'var(--color-text)',
+            }}
+          >
+            {RANK_MEDAL[n]} {labels[n]}
+          </button>
+        ))}
+        {current && (
+          <button
+            type="button"
+            onClick={() => onVote(ownerUid, dimKey, spotId, null)}
+            style={{ padding: '0.4rem 0.7rem', borderRadius: 999, border: '1px solid var(--color-border)', background: 'var(--color-surface)', cursor: 'pointer', color: 'var(--color-text-muted)' }}
+          >
+            Clear
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// Shared comment thread for a spot, keyed by (ownerUid, spotId). Both the owner
+// and anyone they've shared the list with can read + post (Firestore rules must
+// permit the `eatingOutComments` collection).
+function SpotComments({ ownerUid, spotId, user }) {
+  const [comments, setComments] = useState([]);
+  const [text, setText] = useState('');
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    if (!ownerUid || !spotId) return undefined;
+    const unsub = subscribeSpotComments(ownerUid, spotId, setComments);
+    return () => { if (unsub) unsub(); };
+  }, [ownerUid, spotId]);
+
+  const submit = async () => {
+    const t = text.trim();
+    if (!t || !user?.uid) return;
+    setBusy(true);
+    try {
+      await addSpotComment(ownerUid, spotId, {
+        authorUid: user.uid,
+        authorUsername: user.displayName || '',
+        text: t,
+      });
+      setText('');
+    } catch (err) {
+      alert(`Couldn't post comment — ${err?.message || 'try again'}.\n\nIf this keeps failing, the eatingOutComments Firestore rules may not be in place yet.`);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div>
+      <div className={styles.fieldLabel}>Comments</div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', marginBottom: '0.5rem' }}>
+        {comments.length === 0 ? (
+          <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--color-text-muted)' }}>No comments yet — start the conversation.</p>
+        ) : (
+          comments.map(c => (
+            <div key={c.id} style={{ display: 'flex', alignItems: 'baseline', gap: '0.4rem', fontSize: '0.88rem' }}>
+              <strong style={{ whiteSpace: 'nowrap' }}>
+                {c.authorUid === user?.uid ? 'You' : (c.authorUsername ? `@${c.authorUsername}` : 'Friend')}:
+              </strong>
+              <span style={{ flex: 1, wordBreak: 'break-word' }}>{c.text}</span>
+              {c.authorUid === user?.uid && (
+                <button
+                  type="button"
+                  onClick={() => deleteSpotComment(c.id)}
+                  title="Delete"
+                  style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--color-text-muted)' }}
+                >
+                  ✕
+                </button>
+              )}
+            </div>
+          ))
+        )}
+      </div>
+      <div style={{ display: 'flex', gap: '0.5rem' }}>
+        <input
+          className={styles.input}
+          style={{ flex: 1 }}
+          type="text"
+          value={text}
+          onChange={e => setText(e.target.value)}
+          onKeyDown={e => e.key === 'Enter' && submit()}
+          placeholder="Add a comment…"
+        />
+        <button type="button" className={styles.primaryBtn} onClick={submit} disabled={busy || !text.trim()}>
+          Post
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// Read-only detail sheet for a spot a FRIEND added: their info + your personal
+// ranking + the shared comment thread. No editing (that stays owner-only).
+function SpotDetailModal({ spot, dimKey, dimLabel, votes, onVote, user, onClose }) {
+  const meta = [
+    (spot.cuisines || []).join(', '),
+    (spot.locations || []).join(', '),
+    spot.status === 'want-to-try' ? 'Want to try' : 'Visited',
+  ].filter(Boolean).join(' · ');
+  return (
+    <div className={styles.modalOverlay} onClick={onClose}>
+      <div className={styles.modal} onClick={e => e.stopPropagation()}>
+        <div className={styles.modalHeader}>
+          <h2 className={styles.modalTitle}>
+            {spot.name}
+            {spot._ownerUsername && (
+              <span style={{ marginLeft: '0.5rem', fontSize: '0.8rem', fontWeight: 500, color: 'var(--color-text-muted)' }}>
+                shared by @{spot._ownerUsername}
+              </span>
+            )}
+          </h2>
+          <button type="button" className={styles.iconBtn} onClick={onClose}>✕</button>
+        </div>
+        <div className={styles.modalBody} style={{ gap: '1rem' }}>
+          {meta && <p style={{ margin: 0, fontSize: '0.9rem', color: 'var(--color-text-muted)' }}>{meta}</p>}
+          {spot.dish && <p style={{ margin: 0, fontSize: '0.9rem' }}><strong>What to order:</strong> {spot.dish}</p>}
+          {spot.notes && <p style={{ margin: 0, fontSize: '0.9rem' }}>{spot.notes}</p>}
+          {spot.url && (
+            <a href={spot.url} target="_blank" rel="noreferrer" style={{ fontSize: '0.85rem' }}>Open link ↗</a>
+          )}
+          <RankControl ownerUid={spot._ownerUid} spotId={spot.id} dimKey={dimKey} dimLabel={dimLabel} votes={votes} onVote={onVote} />
+          <SpotComments ownerUid={spot._ownerUid} spotId={spot.id} user={user} />
+        </div>
+        <div className={styles.modalFooter}>
+          <span className={styles.footerSpacer} />
+          <button type="button" className={styles.primaryBtn} onClick={onClose}>Done</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function EditModal({ initial, onSave, onClose, onDelete, cuisineSuggestions, locationSuggestions, categorySuggestions = [], user, dimKey, dimLabel, votes, onVote }) {
   const [name, setName] = useState(initial.name || '');
   const [url, setUrl] = useState(initial.url || '');
   const [imageUrl, setImageUrl] = useState(initial.imageUrl || '');
@@ -814,6 +976,16 @@ function EditModal({ initial, onSave, onClose, onDelete, cuisineSuggestions, loc
             <>
               <label className={styles.fieldLabel}>Pulled from URL</label>
               <p className={styles.hintText}>{description}</p>
+            </>
+          )}
+
+          {/* Ranking + shared comments — only for an existing spot (a brand-new
+              one has no id/thread yet). Works for your own spots and, if this
+              modal is ever opened for a friend's, keys to that owner. */}
+          {initial.id && user?.uid && onVote && (
+            <>
+              <RankControl ownerUid={initial._ownerUid || user.uid} spotId={initial.id} dimKey={dimKey} dimLabel={dimLabel} votes={votes} onVote={onVote} />
+              <SpotComments ownerUid={initial._ownerUid || user.uid} spotId={initial.id} user={user} />
             </>
           )}
         </div>
@@ -2001,6 +2173,7 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
   const [proximityCenter, setProximityCenter] = useState(null);
   const [proximityResolving, setProximityResolving] = useState(false);
   const [editing, setEditing] = useState(null);
+  const [viewing, setViewing] = useState(null); // friend's spot → rank + comment sheet
   const [adding, setAdding] = useState(false);
   const [bulkOpen, setBulkOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -2177,6 +2350,19 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
     if (activeLocation) return { key: `location:${activeLocation}`, label: activeLocation };
     return null;
   }, [activeCategory, activeCuisine, activeLocation]);
+
+  // Dimension a personal ranking is stored under — the active filter, or an
+  // "Overall" bucket (LEGACY_VOTE_CATEGORY) when nothing is filtered. Passed to
+  // the rank pickers in the edit/detail modals.
+  const rankKey = rankDim?.key || LEGACY_VOTE_CATEGORY;
+  const rankLabel = rankDim?.label || 'Overall';
+
+  // Tapping a spot: my own opens the editor; a friend's opens the read-only
+  // rank + comment sheet (no editing someone else's list).
+  const openSpot = useCallback((r) => {
+    if (r._isMine) setEditing(r);
+    else setViewing(r);
+  }, []);
 
   const visible = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -2418,7 +2604,10 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
     const target = visible.find(r => r.id === restaurantId);
     if (!target) return;
     const ownerUid = target._ownerUid;
-    const sameOwner = visible.filter(r => r._ownerUid === ownerUid);
+    // Reorder within the item's own group — Want-to-try and Ranked (Visited)
+    // are shown as separate sections, so ▲▼ shouldn't swap across the divide.
+    const isWant = target.status === 'want-to-try';
+    const sameOwner = visible.filter(r => r._ownerUid === ownerUid && (r.status === 'want-to-try') === isWant);
     const vi = sameOwner.findIndex(r => r.id === restaurantId);
     const vj = dir === 'up' ? vi - 1 : vi + 1;
     if (vi < 0 || vj < 0 || vj >= sameOwner.length) return;
@@ -3011,11 +3200,11 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
           {loading ? (
             <div className={styles.empty}>Loading…</div>
           ) : viewMode === 'map' ? (
-            <RestaurantMapView items={visible} onSelect={setEditing} />
+            <RestaurantMapView items={visible} onSelect={openSpot} />
           ) : viewMode === 'table' ? (
             <RestaurantTable
               items={visible}
-              onRowClick={setEditing}
+              onRowClick={openSpot}
               myRestaurantIds={myRestaurantIds}
               bulkUpdate={bulkUpdate}
               bulkDelete={bulkDelete}
@@ -3051,23 +3240,27 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
               )}
             </div>
           ) : (
-            <div className={listDensity === 'compact' ? styles.gridCompact : styles.grid}>
-              {visible.map((r, i) => {
-                const showRank = !proximityCenter;
-                const seq = ownerSeq[r._ownerUid] || [];
+            (() => {
+              const showRank = !proximityCenter;
+              const gridClass = listDensity === 'compact' ? styles.gridCompact : styles.grid;
+              const labelStyle = { fontSize: '0.78rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', opacity: 0.55, margin: '10px 2px 2px' };
+              // rank == null → not numbered and not reorderable (Want-to-try, or
+              // proximity mode). seq is the item's own group's per-owner sequence.
+              const renderCard = (r, rank, seq) => {
                 const oi = seq.indexOf(r.id);
+                const canReorder = rank != null;
                 return (
                   <RestaurantCard
                     key={`${r._ownerUid}:${r.id}`}
                     r={r}
                     compact={listDensity === 'compact'}
                     distanceMiles={r._distance}
-                    rank={showRank ? i + 1 : null}
-                    canMoveUp={showRank && oi > 0}
-                    canMoveDown={showRank && oi >= 0 && oi < seq.length - 1}
-                    onMoveUp={showRank ? () => handleRankMove(r.id, 'up') : null}
-                    onMoveDown={showRank ? () => handleRankMove(r.id, 'down') : null}
-                    drag={showRank ? {
+                    rank={rank}
+                    canMoveUp={canReorder && oi > 0}
+                    canMoveDown={canReorder && oi >= 0 && oi < seq.length - 1}
+                    onMoveUp={canReorder ? () => handleRankMove(r.id, 'up') : null}
+                    onMoveDown={canReorder ? () => handleRankMove(r.id, 'down') : null}
+                    drag={canReorder ? {
                       draggable: true,
                       dragging: dragId === r.id,
                       over: dragOverId === r.id && dragId && dragId !== r.id,
@@ -3076,11 +3269,36 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
                       onDrop: (e) => { e.preventDefault(); if (dragId) handleRankDrop(dragId, r.id); setDragId(null); setDragOverId(null); },
                       onDragEnd: () => { setDragId(null); setDragOverId(null); },
                     } : null}
-                    onClick={() => setEditing(r)}
+                    onClick={() => openSpot(r)}
                   />
                 );
-              })}
-            </div>
+              };
+              if (!showRank) {
+                return <div className={gridClass}>{visible.map(r => renderCard(r, null, []))}</div>;
+              }
+              // Want-to-try floats above, unnumbered; the numbered ranking below
+              // is just the spots I've ranked (Visited).
+              const wantGroup = visible.filter(r => r.status === 'want-to-try');
+              const rankedGroup = visible.filter(r => r.status !== 'want-to-try');
+              const rankedSeqByOwner = {};
+              for (const r of rankedGroup) (rankedSeqByOwner[r._ownerUid] = rankedSeqByOwner[r._ownerUid] || []).push(r.id);
+              return (
+                <>
+                  {wantGroup.length > 0 && (
+                    <>
+                      <div style={labelStyle}>Want to try ({wantGroup.length})</div>
+                      <div className={gridClass}>{wantGroup.map(r => renderCard(r, null, []))}</div>
+                    </>
+                  )}
+                  {rankedGroup.length > 0 && (
+                    <>
+                      {wantGroup.length > 0 && <div style={labelStyle}>Ranked</div>}
+                      <div className={gridClass}>{rankedGroup.map((r, i) => renderCard(r, i + 1, rankedSeqByOwner[r._ownerUid] || []))}</div>
+                    </>
+                  )}
+                </>
+              );
+            })()
           )}
         </main>
       </div>
@@ -3104,6 +3322,22 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
           onSave={handleSave}
           onClose={() => setEditing(null)}
           onDelete={() => handleDelete(editing)}
+          user={user}
+          dimKey={rankKey}
+          dimLabel={rankLabel}
+          votes={myEatingOutVotes}
+          onVote={handleVoteOnRestaurant}
+        />
+      )}
+      {viewing && (
+        <SpotDetailModal
+          spot={viewing}
+          dimKey={rankKey}
+          dimLabel={rankLabel}
+          votes={myEatingOutVotes}
+          onVote={handleVoteOnRestaurant}
+          user={user}
+          onClose={() => setViewing(null)}
         />
       )}
       {bulkOpen && (
