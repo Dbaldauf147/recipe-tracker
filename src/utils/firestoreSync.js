@@ -1842,6 +1842,53 @@ export async function saveOwnerRestaurants(ownerUid, restaurants) {
   await setDoc(ref, { restaurants }, { merge: true });
 }
 
+/* ── Shared per-spot comments ────────────────────────────────────────────────
+ * A top-level `eatingOutComments` collection both the spot's owner and anyone
+ * they've shared their Eating Out list with can read AND write — so friends can
+ * discuss a place regardless of who added it. A spot `id` is only unique within
+ * one owner's list, so every comment is keyed by the (ownerUid, spotId) PAIR.
+ *
+ * Requires Firestore rules that allow authenticated users to read/write
+ * `eatingOutComments` docs (see the rules block shared with the app owner).
+ * Each doc: { ownerUid, spotId, authorUid, authorUsername, text, createdAt }.
+ */
+export function subscribeSpotComments(ownerUid, spotId, cb) {
+  if (!ownerUid || !spotId) { cb([]); return () => {}; }
+  const q = query(
+    collection(db, 'eatingOutComments'),
+    where('ownerUid', '==', ownerUid),
+    where('spotId', '==', spotId),
+  );
+  return onSnapshot(
+    q,
+    snap => {
+      const list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      // Oldest first (chat order). createdAt is an ISO string.
+      list.sort((a, b) => String(a.createdAt || '').localeCompare(String(b.createdAt || '')));
+      cb(list);
+    },
+    () => cb([]), // rules not yet in place / offline — fail soft to empty
+  );
+}
+
+export async function addSpotComment(ownerUid, spotId, { authorUid, authorUsername, text }) {
+  const clean = (text || '').trim();
+  if (!ownerUid || !spotId || !authorUid || !clean) return;
+  await addDoc(collection(db, 'eatingOutComments'), {
+    ownerUid,
+    spotId,
+    authorUid,
+    authorUsername: authorUsername || '',
+    text: clean.slice(0, 2000),
+    createdAt: new Date().toISOString(),
+  });
+}
+
+export async function deleteSpotComment(commentId) {
+  if (!commentId) return;
+  await deleteDoc(doc(db, 'eatingOutComments', commentId));
+}
+
 /**
  * Save the Eating Out master vocabulary lists (the curated Cuisines and
  * Categories a user manages from the ⚙ Settings panel). These seed the
