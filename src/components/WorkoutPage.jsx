@@ -3096,32 +3096,41 @@ export function WorkoutPage({ onBack, user }) {
     setEntries(prev => prev.filter((_, i) => i !== idx));
   }
 
-  // Log a sauna for the selected day without needing any exercises. If a
-  // workout already exists that day, just flip its sauna flag on (keeping its
-  // exercises); otherwise create a sauna-only day. Mirrors the mobile 🧖 flag
-  // and feeds the Week Plan's weekly sauna goal.
-  function logSaunaDay() {
-    const existingForDate = workouts.find(w => w.date === selectedDate);
-    const workout = existingForDate
-      ? { ...existingForDate, sauna: true, savedAt: new Date().toISOString() }
-      : {
-          id: newWorkoutId(),
-          date: selectedDate,
-          gym,
-          workoutType,
-          entries: [],
-          sauna: true,
-          savedAt: new Date().toISOString(),
-        };
-    const next = [workout, ...workouts.filter(w => w.date !== selectedDate)]
-      .sort((a, b) => b.date.localeCompare(a.date));
-    setWorkouts(next);
-    saveWorkouts(next, user?.uid);
-    setSauna(true);
+  // The 🧖 Sauna pill IS the sauna log — no separate button. Turning it on
+  // records a sauna for the selected day; turning it off removes it. Feeds the
+  // Week Plan's weekly sauna goal. When mid-logging a real workout (exercises
+  // entered) we only flip the flag and let Save write it onto that workout, so
+  // we never strand a separate sauna-only day.
+  function toggleSauna() {
+    const next = !sauna;
+    setSauna(next);
     userPickedDateRef.current = false;
-    alert(existingForDate && (existingForDate.entries || []).length > 0
-      ? 'Sauna added to this day! 🧖'
-      : 'Sauna day logged! 🧖');
+    if (entries.some(e => e.group && e.exercise)) return; // Save persists it.
+    const existingForDate = workouts.find(w => w.date === selectedDate);
+    if (next) {
+      // Flag the existing workout that day (keep its exercises), else create a
+      // sauna-only day.
+      const workout = existingForDate
+        ? { ...existingForDate, sauna: true, savedAt: new Date().toISOString() }
+        : { id: newWorkoutId(), date: selectedDate, gym, workoutType, entries: [], sauna: true, savedAt: new Date().toISOString() };
+      const nextList = [workout, ...workouts.filter(w => w.date !== selectedDate)].sort((a, b) => b.date.localeCompare(a.date));
+      setWorkouts(nextList);
+      saveWorkouts(nextList, user?.uid);
+    } else if (existingForDate?.sauna) {
+      // Un-log: drop a sauna-only day, or clear the flag on a day that also has
+      // exercises.
+      const withoutDate = workouts.filter(w => w.date !== selectedDate);
+      let nextList;
+      if ((existingForDate.entries || []).length > 0) {
+        const { sauna: _s, ...rest } = existingForDate;
+        nextList = [{ ...rest, savedAt: new Date().toISOString() }, ...withoutDate];
+      } else {
+        nextList = withoutDate;
+      }
+      nextList = nextList.sort((a, b) => b.date.localeCompare(a.date));
+      setWorkouts(nextList);
+      saveWorkouts(nextList, user?.uid);
+    }
   }
 
   function saveWorkout() {
@@ -3803,7 +3812,6 @@ export function WorkoutPage({ onBack, user }) {
   return (
     <div className={styles.page}>
       <div className={styles.header}>
-        <button className={styles.backBtn} onClick={onBack}>← Back</button>
         <h1 className={styles.title}>Workout Tracker</h1>
         <button
           className={styles.backBtn}
@@ -4084,19 +4092,11 @@ export function WorkoutPage({ onBack, user }) {
             <button
               type="button"
               className={`${styles.saunaToggle} ${sauna ? styles.saunaToggleActive : ''}`}
-              onClick={() => setSauna(v => !v)}
+              onClick={toggleSauna}
               aria-pressed={sauna}
-              title="Did this session include a sauna?"
+              title="Log a sauna for this day (tap again to remove)"
             >
               🧖 Sauna{sauna ? '  ✓' : ''}
-            </button>
-            <button
-              type="button"
-              className={styles.saunaLogBtn}
-              onClick={logSaunaDay}
-              title="Log a sauna for this day — no exercises needed"
-            >
-              ＋ Log sauna day
             </button>
           </div>
 
