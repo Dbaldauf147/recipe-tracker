@@ -3,6 +3,7 @@ import { onAuthStateChanged, signInWithPopup, signOut, createUserWithEmailAndPas
 import { auth, googleProvider, facebookProvider, appleProvider } from '../firebase';
 import { loadUserData, migrateToFirestore, hydrateLocalStorage, saveField, recordLogin, subscribeToUserData, loadPendingSetup, backupAllUserData } from '../utils/firestoreSync';
 import { syncMealImages, clearImageCache } from '../utils/generateMealImage';
+import { syncExerciseImages, clearExerciseImageCache } from '../utils/exerciseImages';
 
 const AuthContext = createContext(null);
 
@@ -88,6 +89,7 @@ export function AuthProvider({ children }) {
         if (prevUid && prevUid !== firebaseUser.uid) {
           clearAppStorage();
           clearImageCache();
+          clearExerciseImageCache();
         }
         localStorage.setItem('sunday-current-uid', firebaseUser.uid);
         setDataReady(false);
@@ -158,6 +160,8 @@ export function AuthProvider({ children }) {
 
         // Sync meal images between Firestore and localStorage
         await syncMealImages(firebaseUser.uid).catch(() => {});
+        // Sync user-uploaded custom exercise photos into the memory cache
+        syncExerciseImages(firebaseUser.uid).catch(() => {});
 
         // Add pending shared recipe to user's recipes after hydration
         if (pendingRecipe) {
@@ -444,6 +448,7 @@ export function AuthProvider({ children }) {
   async function logOut() {
     clearAppStorage();
     clearImageCache();
+    clearExerciseImageCache();
     if (isGuestRef.current) {
       isGuestRef.current = false;
       setIsGuest(false);

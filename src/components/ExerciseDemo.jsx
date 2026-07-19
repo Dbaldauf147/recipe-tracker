@@ -1,5 +1,85 @@
 import { useEffect, useRef, useState } from 'react';
 import { MuscleBodyMap, toMuscleList } from './MuscleMap';
+import {
+  getCachedExerciseImage, uploadExerciseImage, deleteExerciseImage,
+} from '../utils/exerciseImages';
+
+/**
+ * A user-uploaded custom photo for `name`, or null. Re-reads whenever the
+ * exercise-image cache changes (upload, delete, or the login-time sync), so the
+ * thumbnail and popup update the moment a photo is added or removed.
+ */
+export function useCustomExerciseImage(name) {
+  const [img, setImg] = useState(() => getCachedExerciseImage(name));
+  useEffect(() => {
+    const read = () => setImg(getCachedExerciseImage(name));
+    read();
+    window.addEventListener('exercise-images-synced', read);
+    return () => window.removeEventListener('exercise-images-synced', read);
+  }, [name]);
+  return img;
+}
+
+/**
+ * Upload / replace / remove control for an exercise's custom photo. Shown inside
+ * the demo popup. A custom photo replaces the auto-matched form demo everywhere.
+ */
+function ExerciseImageControls({ name, hasCustom }) {
+  const inputRef = useRef(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+
+  async function onPick(e) {
+    const file = e.target.files?.[0];
+    e.target.value = ''; // allow re-picking the same file
+    if (!file) return;
+    setErr('');
+    setBusy(true);
+    try {
+      await uploadExerciseImage(name, file);
+    } catch {
+      setErr('Upload failed. Try a different image.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function onRemove() {
+    setBusy(true);
+    try { await deleteExerciseImage(name); } finally { setBusy(false); }
+  }
+
+  return (
+    <div style={{ marginTop: 10, display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
+      <input ref={inputRef} type="file" accept="image/*" onChange={onPick} style={{ display: 'none' }} />
+      <button
+        type="button"
+        onClick={() => inputRef.current?.click()}
+        disabled={busy}
+        style={{
+          border: '1px solid var(--color-accent)', background: 'var(--color-accent)', color: '#fff',
+          borderRadius: 8, padding: '6px 12px', fontSize: '0.82rem', fontWeight: 700,
+          cursor: busy ? 'default' : 'pointer', opacity: busy ? 0.6 : 1,
+        }}
+      >
+        {busy ? 'Uploading…' : hasCustom ? '📷 Replace photo' : '📷 Upload your own photo'}
+      </button>
+      {hasCustom && !busy && (
+        <button
+          type="button"
+          onClick={onRemove}
+          style={{
+            border: '1px solid var(--color-border)', background: 'transparent', color: 'var(--color-text-muted)',
+            borderRadius: 8, padding: '6px 12px', fontSize: '0.82rem', fontWeight: 700, cursor: 'pointer',
+          }}
+        >
+          Remove
+        </button>
+      )}
+      {err && <span style={{ color: '#dc2626', fontSize: '0.8rem' }}>{err}</span>}
+    </div>
+  );
+}
 
 // Matched exercise demos from the public-domain free-exercise-db, via the
 // /api/exercise-demo endpoint. Cached in localStorage so repeat opens are
@@ -121,6 +201,7 @@ export function ExerciseDemoThumb({ name, onOpen, size = 56 }) {
   }, [visible]);
 
   const { demo, loading } = useExerciseDemoMatch(name, visible);
+  const custom = useCustomExerciseImage(name);
   const imgs = demo?.images || [];
 
   useEffect(() => {
@@ -130,6 +211,22 @@ export function ExerciseDemoThumb({ name, onOpen, size = 56 }) {
   }, [imgs.length]);
 
   const box = { width: size, height: size, borderRadius: 8, flexShrink: 0 };
+
+  // A user-uploaded photo wins over the auto-matched form demo.
+  if (custom) {
+    return (
+      <div ref={ref} style={box}>
+        <button
+          type="button"
+          onClick={() => onOpen?.(name)}
+          title={`${name} — your photo`}
+          style={{ ...box, position: 'relative', overflow: 'hidden', padding: 0, cursor: 'pointer', border: '1px solid var(--color-border)', background: '#fff' }}
+        >
+          <img src={custom} alt="" loading="lazy" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div ref={ref} style={box}>
@@ -168,6 +265,7 @@ export function ExerciseDemo({ name, fallbackPrimary, fallbackSecondary, showMus
   const [flip, setFlip] = useState(false);
   const [showSteps, setShowSteps] = useState(false);
   const { demo, aiImage, loading } = useExerciseDemoMatch(name, true);
+  const custom = useCustomExerciseImage(name);
 
   // Body-map muscles: prefer the matched demo's data; otherwise fall back to the
   // exercise's own library Primary/Secondary columns, so the map shows for every
@@ -183,6 +281,21 @@ export function ExerciseDemo({ name, fallbackPrimary, fallbackSecondary, showMus
     return () => clearInterval(id);
   }, [demo]);
 
+  // A user-uploaded photo wins over the auto demo / AI illustration. Still show
+  // the muscle map, and the controls to replace or remove it.
+  if (custom) {
+    return (
+      <div>
+        <div style={{ position: 'relative', width: '100%', aspectRatio: '1.3', borderRadius: 12, overflow: 'hidden', background: '#fff', border: '1px solid var(--color-border)' }}>
+          <img src={custom} alt="" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
+          <span style={{ position: 'absolute', top: 8, right: 8, background: 'rgba(0,0,0,0.55)', color: '#fff', fontSize: 10, fontWeight: 700, borderRadius: 999, padding: '2px 8px' }}>📷 Your photo</span>
+        </div>
+        {showMuscleMap && <MuscleBodyMap primary={mapPrimary} secondary={mapSecondary} />}
+        <ExerciseImageControls name={name} hasCustom />
+      </div>
+    );
+  }
+
   if (loading) {
     return <div style={{ padding: '0.75rem 0', color: 'var(--color-text-muted)' }}>Finding a demo…</div>;
   }
@@ -197,6 +310,7 @@ export function ExerciseDemo({ name, fallbackPrimary, fallbackSecondary, showMus
           No form photos for this one — here’s an AI illustration instead.
         </div>
         {showMuscleMap && <MuscleBodyMap primary={mapPrimary} secondary={mapSecondary} />}
+        <ExerciseImageControls name={name} />
       </div>
     );
   }
@@ -207,6 +321,7 @@ export function ExerciseDemo({ name, fallbackPrimary, fallbackSecondary, showMus
         <div style={{ padding: '0.5rem 0', color: 'var(--color-text-muted)', fontStyle: 'italic', fontSize: '0.88rem' }}>
           No form demo found for this name. Try a more standard name (e.g. “Barbell Bench Press”).
         </div>
+        <ExerciseImageControls name={name} />
       </div>
     );
   }
@@ -262,6 +377,8 @@ export function ExerciseDemo({ name, fallbackPrimary, fallbackSecondary, showMus
           )}
         </div>
       )}
+
+      <ExerciseImageControls name={name} />
     </div>
   );
 }
