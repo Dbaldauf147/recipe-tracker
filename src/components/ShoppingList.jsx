@@ -1362,8 +1362,8 @@ export function ShoppingList({ weeklyRecipes, weeklyServings = {}, extraItems = 
                       <tr
                         key={`${section.id}-${i}`}
                         className={done ? styles.checkedRow : ''}
-                        onClick={() => openItemPopup(item.ingredient, section.id, item.recipes)}
-                        title="Click for ingredient details · use the checkbox to cross off"
+                        onClick={() => toggleItem(key)}
+                        title="Click to cross off · click the name to edit"
                         style={{ cursor: 'pointer' }}
                       >
                         <td className={styles.checkCell}>
@@ -1510,7 +1510,17 @@ export function ShoppingList({ weeklyRecipes, weeklyServings = {}, extraItems = 
                             </>
                           );
                         })()}
-                        <td>{item.ingredient}</td>
+                        <td>
+                          {/* Row click crosses the item off; the name is the one
+                              spot that instead opens the item editor. */}
+                          <span
+                            onClick={e => { e.stopPropagation(); openItemPopup(item.ingredient, section.id, item.recipes); }}
+                            style={{ cursor: 'pointer' }}
+                            title="Click to edit this item"
+                          >
+                            {item.ingredient}
+                          </span>
+                        </td>
                         <td className={styles.linkCol} onClick={e => e.stopPropagation()}>
                           {link ? (
                             <>
