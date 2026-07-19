@@ -1500,7 +1500,7 @@ function TrackIngredientInline({ onAdd, onBack }) {
 }
 
 /* ── AI Estimate (restaurant meal) ── */
-function AiEstimateInline({ onAdd, onBack, initialDescription = '' }) {
+function AiEstimateInline({ onAdd, onBack, initialDescription = '', eatingOutSpot = null }) {
   const [description, setDescription] = useState(initialDescription);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -1565,6 +1565,9 @@ For each ingredient, include a "nutrition" object with estimated calories, prote
       timestamp: new Date().toISOString(),
       nutrition,
       estimated: true,
+      // When this estimate was started from the Eating Out flow, tag it so it
+      // counts toward the Week Plan's "Ate out" tally like a saved-spot meal.
+      ...(eatingOutSpot ? { eatingOut: true, restaurantId: eatingOutSpot.id } : {}),
     });
   }
 
@@ -1747,7 +1750,7 @@ function EatingOutInline({ user, onAdd, onBack, onEstimate }) {
                 <button
                   className={styles.trackMenuBtn}
                   style={{ marginTop: '0.5rem' }}
-                  onClick={() => onEstimate(selected.name)}
+                  onClick={() => onEstimate(selected)}
                 >
                   <div className={styles.trackMenuBtnInfo}>
                     <span className={styles.trackMenuBtnLabel}>✨ Estimate a different meal</span>
@@ -1763,7 +1766,7 @@ function EatingOutInline({ user, onAdd, onBack, onEstimate }) {
               {onEstimate ? (
                 <button
                   className={styles.trackMenuBtn}
-                  onClick={() => onEstimate(selected.name)}
+                  onClick={() => onEstimate(selected)}
                 >
                   <div className={styles.trackMenuBtnInfo}>
                     <span className={styles.trackMenuBtnLabel}>✨ Estimate what you ate</span>
@@ -5916,15 +5919,16 @@ export function DailyTrackerPage({ recipes, getRecipe, onClose, user, weeklyPlan
             ) : addModal.mode === 'ai-estimate' ? (
               <AiEstimateInline
                 onAdd={(entry) => { addEntry(entry, addModal.targetDate, addModal.targetSlot); setAddModal(null); }}
-                onBack={() => setAddModal(prev => ({ ...prev, mode: null, estimatePrefill: undefined }))}
+                onBack={() => setAddModal(prev => ({ ...prev, mode: null, estimatePrefill: undefined, eatingOutSpot: undefined }))}
                 initialDescription={addModal.estimatePrefill || ''}
+                eatingOutSpot={addModal.eatingOutSpot || null}
               />
             ) : addModal.mode === 'eating-out' ? (
               <EatingOutInline
                 user={user}
                 onAdd={(entry) => { addEntry(entry, addModal.targetDate, addModal.targetSlot); setAddModal(null); }}
                 onBack={() => setAddModal(prev => ({ ...prev, mode: null }))}
-                onEstimate={(spotName) => setAddModal(prev => ({ ...prev, mode: 'ai-estimate', estimatePrefill: spotName ? `${spotName}: ` : '' }))}
+                onEstimate={(spot) => setAddModal(prev => ({ ...prev, mode: 'ai-estimate', estimatePrefill: spot?.name ? `${spot.name}: ` : '', eatingOutSpot: spot ? { id: spot.id, name: spot.name } : null }))}
               />
             ) : null}
           </div>
