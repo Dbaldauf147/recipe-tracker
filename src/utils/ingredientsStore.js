@@ -44,6 +44,9 @@ export const INGREDIENT_FIELDS = [
   { key: 'minShelf',      csvIdx: 41, label: 'Min Shelf (days)' },
   { key: 'maxShelf',      csvIdx: 42, label: 'Max Shelf (days)' },
   { key: 'grocerySection', csvIdx: 43, label: 'Grocery Section' },
+  // Which store you buy this at (e.g. Trader Joe's). Client-side / Firestore
+  // only — drives the "Add all from <store>" bulk-add on the store lists page.
+  { key: 'store',          label: 'Store' },
 ];
 
 function parseCSVLine(line) {

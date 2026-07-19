@@ -1,6 +1,7 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { ShoppingList } from './ShoppingList';
 import { saveField } from '../utils/firestoreSync';
+import { loadIngredients } from '../utils/ingredientsStore';
 import styles from './SavedShoppingLists.module.css';
 
 const STORE_LISTS_KEY = 'sunday-store-lists';
@@ -17,6 +18,12 @@ function loadStoreLists() {
 
 function newListId() {
   return 'sl_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+}
+
+// Normalize a store / brand / list name to letters+digits only, so a list named
+// "Trader Joes" matches an ingredient branded "Trader Joe's".
+function normStore(s) {
+  return (s || '').toLowerCase().replace(/[^a-z0-9]+/g, '');
 }
 
 // Named, persistent store-specific shopping lists (e.g. Whole Foods, Costco).
@@ -107,6 +114,37 @@ export function SavedShoppingLists({ user }) {
     });
   }, [activeId, user]);
 
+  // Ingredient names to bulk-add for the active list: those whose `store` OR
+  // `brand` matches the list's NAME — so a "Trader Joes" list pulls every
+  // ingredient branded/tagged "Trader Joe's". Punctuation/case-normalized so
+  // the apostrophe difference doesn't matter. Skips items already on the list.
+  const listMatches = useMemo(() => {
+    if (!activeList) return [];
+    const target = normStore(activeList.name);
+    if (!target) return [];
+    const rows = loadIngredients() || [];
+    const existing = new Set((activeList.items || []).map(it => (it.ingredient || '').toLowerCase().trim()));
+    const seen = new Set();
+    const out = [];
+    for (const r of rows) {
+      if (normStore(r.store) !== target && normStore(r.brand) !== target) continue;
+      const name = (r.ingredient || '').trim();
+      if (!name) continue;
+      const key = name.toLowerCase();
+      if (existing.has(key) || seen.has(key)) continue;
+      seen.add(key);
+      out.push(name);
+    }
+    return out;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeList, lists]);
+
+  const bulkAddMatches = useCallback(() => {
+    if (!activeList || listMatches.length === 0) return;
+    const items = listMatches.map(name => ({ ingredient: name, quantity: '', measurement: '' }));
+    persist(lists.map(l => l.id === activeId ? { ...l, items: [...l.items, ...items] } : l));
+  }, [activeList, listMatches, lists, activeId, persist]);
+
   return (
     <div className={styles.wrap}>
       <div className={styles.listTabs}>
@@ -176,14 +214,40 @@ export function SavedShoppingLists({ user }) {
       </div>
 
       {activeList ? (
-        <ShoppingList
-          key={activeList.id}
-          weeklyRecipes={[]}
-          extraItems={activeList.items}
-          onAddCustomItem={addItem}
-          onDismissItem={removeItem}
-          user={user}
-        />
+        <>
+          {listMatches.length > 0 ? (
+            <div style={{ margin: '0.5rem 0' }}>
+              <button
+                type="button"
+                onClick={bulkAddMatches}
+                style={{
+                  padding: '0.5rem 0.9rem',
+                  borderRadius: 8,
+                  border: '1px solid var(--color-accent, #2563eb)',
+                  background: 'var(--color-accent, #2563eb)',
+                  color: '#fff',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                }}
+                title={`Add every ingredient branded or tagged “${activeList.name}” that isn't already on this list`}
+              >
+                + Add all {listMatches.length} “{activeList.name}” item{listMatches.length === 1 ? '' : 's'}
+              </button>
+            </div>
+          ) : (
+            <div style={{ margin: '0.5rem 0', fontSize: '0.85rem', color: 'var(--color-text-muted)' }}>
+              Tip: name this list after a store or brand (e.g. “Trader Joe's”), or tag ingredients with a Store, to bulk-add them here.
+            </div>
+          )}
+          <ShoppingList
+            key={activeList.id}
+            weeklyRecipes={[]}
+            extraItems={activeList.items}
+            onAddCustomItem={addItem}
+            onDismissItem={removeItem}
+            user={user}
+          />
+        </>
       ) : (
         <div className={styles.empty}>
           No store lists yet. Create one with <strong>+ New list</strong> to start adding items.

@@ -21,7 +21,7 @@ const DISPLAY_KEYS = [
   'fiber', 'sugar', 'saturatedFat', 'addedSugar', 'sodium', 'potassium',
   'vitaminB12', 'vitaminC', 'magnesium', 'zinc', 'iron', 'calcium',
   'leucine', 'omega3', 'proteinPerCal', 'fiberPerCal', 'notes',
-  'lastBought', 'storage', 'minShelf', 'maxShelf', 'processed', 'link',
+  'store', 'lastBought', 'storage', 'minShelf', 'maxShelf', 'processed', 'link',
 ];
 
 const FIELD_MAP = Object.fromEntries(INGREDIENT_FIELDS.map(f => [f.key, f]));
@@ -60,7 +60,7 @@ function fmtVal(val) {
 }
 
 const COL_WIDTHS_KEY = 'sunday-ingredients-col-widths';
-const DEFAULT_WIDTHS = { ingredient: 220, measurement: 70, notes: 100, link: 80, storage: 70, lastBought: 140 };
+const DEFAULT_WIDTHS = { ingredient: 220, measurement: 70, notes: 100, link: 80, storage: 70, store: 120, lastBought: 140 };
 
 function loadColWidths() {
   try {
