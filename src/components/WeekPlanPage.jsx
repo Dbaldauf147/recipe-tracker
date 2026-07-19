@@ -257,6 +257,14 @@ function buildWorkoutsByDate(workouts, typeCategories) {
   const m = new Map();
   for (const w of workouts || []) {
     if (!w?.date) continue;
+    // A sauna-only day (logged sauna with no exercises and no workout type) is a
+    // placeholder that just carries the `sauna` flag — the 🧖 chip renders it from
+    // saunaDates. It isn't a strength session, so skip it here; otherwise
+    // workoutCalendarCategory would default the typeless record to "weights" and
+    // the cell would show a phantom "🏋️ Weights".
+    const hasEntries = Array.isArray(w.entries) && w.entries.length > 0;
+    const hasType = (w.workoutType || '').trim().length > 0;
+    if (!hasEntries && !hasType) continue;
     const cat = workoutCalendarCategory(w, typeCategories);
     const label = (w.workoutType || '').trim();
     const key = `${cat}|${label.toLowerCase()}`;
@@ -583,9 +591,13 @@ export function WeekPlanPage({ recipes, getRecipe, user, weeklyPlan = [], weekly
     }
     window.addEventListener('firestore-sync', refresh);
     window.addEventListener('storage', refresh);
+    // The % of Meals Tracked chart edits the shared goal and fires this — keep
+    // the Week goals · meals tile in sync when it changes.
+    window.addEventListener('goals-updated', refresh);
     return () => {
       window.removeEventListener('firestore-sync', refresh);
       window.removeEventListener('storage', refresh);
+      window.removeEventListener('goals-updated', refresh);
     };
   }, []);
 
@@ -922,6 +934,42 @@ export function WeekPlanPage({ recipes, getRecipe, user, weeklyPlan = [], weekly
     return saunaDays.size;
   }, [workoutsRaw, days]);
 
+  // This week's meal tracking: what % of the main meals (breakfast/lunch/dinner)
+  // across the ELAPSED days of the visible week were logged or marked skipped —
+  // same per-day definition as MealsTrackedChart — plus the total number of
+  // meals eaten out. Only days up to today count toward the %, so a fresh week
+  // isn't pinned near 0 by its still-to-come days. Eating-out spans all 7 days.
+  const mealStats = useMemo(() => {
+    const MAIN = ['breakfast', 'lunch', 'dinner'];
+    let trackedSlots = 0;
+    let totalSlots = 0;
+    let ateOut = 0;
+    for (const date of days) {
+      const day = dailyLog[date] || {};
+      const entries = Array.isArray(day.entries) ? day.entries : [];
+      for (const e of entries) if (e?.eatingOut) ateOut += 1;
+      if (date > todayKey) continue; // future days don't count toward tracked %
+      totalSlots += MAIN.length;
+      if (day.daySkipped) { trackedSlots += MAIN.length; continue; }
+      const skipped = Array.isArray(day.skippedMeals) ? day.skippedMeals : [];
+      const accounted = new Set();
+      for (const e of entries) if (MAIN.includes(e.mealSlot)) accounted.add(e.mealSlot);
+      for (const s of skipped) if (MAIN.includes(s)) accounted.add(s);
+      trackedSlots += accounted.size;
+    }
+    const pct = totalSlots > 0 ? Math.round((trackedSlots / totalSlots) * 100) : null;
+    return { pct, ateOut, hasElapsed: totalSlots > 0 };
+  }, [days, dailyLog, todayKey]);
+
+  // Weekly meals-tracked target — reuses the same `dailyMealsTrackedPct` goal the
+  // % of Meals Tracked chart edits (stored in sunday-nutrition-goals). Defaults
+  // to 50% when unset, per the "at least 50% tracked" target.
+  const mealsTrackedGoal = useMemo(() => {
+    const v = nutritionGoals?.dailyMealsTrackedPct;
+    if (v == null || isNaN(Number(v))) return 50;
+    return Math.max(0, Math.min(100, Number(v)));
+  }, [nutritionGoals]);
+
   // Distribute the "This Week" recipes across the visible week by servings:
   // each recipe fills one day-slot per serving (breakfast recipes → breakfast,
   // everything else → dinner), round-robin across the 7 days. Non-destructive:
@@ -1224,6 +1272,36 @@ export function WeekPlanPage({ recipes, getRecipe, user, weeklyPlan = [], weekly
                   {met ? <span className={styles.wGoalCheck}>✓</span>
                     : planned > 0 && <span className={styles.wGoalPlanned}>+{planned}</span>}
                 </span>
+              );
+            })()}
+          </div>
+        </div>
+        <div className={styles.goalsBlock}>
+          <h2 className={styles.goalsHeading}>Week goals · meals</h2>
+          <div className={styles.workoutGoalsRow}>
+            {(() => {
+              const { pct, ateOut, hasElapsed } = mealStats;
+              const met = hasElapsed && pct >= mealsTrackedGoal;
+              const trackedTitle = hasElapsed
+                ? `${pct}% of this week's meals tracked so far (goal ${mealsTrackedGoal}%). Counts breakfast, lunch & dinner logged or marked skipped, through today. Edit the goal on the “% of Meals Tracked” chart below.`
+                : 'No days have elapsed in this week yet.';
+              return (
+                <>
+                  <span title={trackedTitle} className={`${styles.wGoal}${met ? ` ${styles.wGoalMet}` : ''}`}>
+                    <span className={styles.wGoalIcon}>🍽️</span>
+                    <span className={styles.wGoalLabel}>Tracked</span>
+                    <span className={styles.wGoalCount}>{hasElapsed ? `${pct}%` : '—'}/{mealsTrackedGoal}%</span>
+                    {met && <span className={styles.wGoalCheck}>✓</span>}
+                  </span>
+                  <span
+                    title={`${ateOut} meal${ateOut === 1 ? '' : 's'} eaten out this week`}
+                    className={styles.wGoal}
+                  >
+                    <span className={styles.wGoalIcon}>🍔</span>
+                    <span className={styles.wGoalLabel}>Ate out</span>
+                    <span className={styles.wGoalCount}>{ateOut}</span>
+                  </span>
+                </>
               );
             })()}
           </div>
