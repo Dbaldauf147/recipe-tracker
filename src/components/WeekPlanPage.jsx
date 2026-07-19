@@ -934,22 +934,19 @@ export function WeekPlanPage({ recipes, getRecipe, user, weeklyPlan = [], weekly
     return saunaDays.size;
   }, [workoutsRaw, days]);
 
-  // This week's meal tracking: what % of the main meals (breakfast/lunch/dinner)
-  // across the ELAPSED days of the visible week were logged or marked skipped —
-  // same per-day definition as MealsTrackedChart — plus the total number of
-  // meals eaten out. Only days up to today count toward the %, so a fresh week
-  // isn't pinned near 0 by its still-to-come days. Eating-out spans all 7 days.
+  // This week's meal tracking: what % of the whole week's main meals
+  // (breakfast/lunch/dinner across all 7 days = 21 slots) were logged or marked
+  // skipped — same per-day definition as MealsTrackedChart — plus the total
+  // number of meals eaten out. Denominator is the full week, so the tile climbs
+  // toward 100% as the week is filled in. Eating-out spans all 7 days too.
   const mealStats = useMemo(() => {
     const MAIN = ['breakfast', 'lunch', 'dinner'];
     let trackedSlots = 0;
-    let totalSlots = 0;
     let ateOut = 0;
     for (const date of days) {
       const day = dailyLog[date] || {};
       const entries = Array.isArray(day.entries) ? day.entries : [];
       for (const e of entries) if (e?.eatingOut) ateOut += 1;
-      if (date > todayKey) continue; // future days don't count toward tracked %
-      totalSlots += MAIN.length;
       if (day.daySkipped) { trackedSlots += MAIN.length; continue; }
       const skipped = Array.isArray(day.skippedMeals) ? day.skippedMeals : [];
       const accounted = new Set();
@@ -957,9 +954,10 @@ export function WeekPlanPage({ recipes, getRecipe, user, weeklyPlan = [], weekly
       for (const s of skipped) if (MAIN.includes(s)) accounted.add(s);
       trackedSlots += accounted.size;
     }
-    const pct = totalSlots > 0 ? Math.round((trackedSlots / totalSlots) * 100) : null;
-    return { pct, ateOut, hasElapsed: totalSlots > 0 };
-  }, [days, dailyLog, todayKey]);
+    const totalSlots = days.length * MAIN.length; // full week: 7 × 3 = 21
+    const pct = totalSlots > 0 ? Math.round((trackedSlots / totalSlots) * 100) : 0;
+    return { pct, ateOut };
+  }, [days, dailyLog]);
 
   // Weekly meals-tracked target — reuses the same `dailyMealsTrackedPct` goal the
   // % of Meals Tracked chart edits (stored in sunday-nutrition-goals). Defaults
@@ -1280,17 +1278,15 @@ export function WeekPlanPage({ recipes, getRecipe, user, weeklyPlan = [], weekly
           <h2 className={styles.goalsHeading}>Week goals · meals</h2>
           <div className={styles.workoutGoalsRow}>
             {(() => {
-              const { pct, ateOut, hasElapsed } = mealStats;
-              const met = hasElapsed && pct >= mealsTrackedGoal;
-              const trackedTitle = hasElapsed
-                ? `${pct}% of this week's meals tracked so far (goal ${mealsTrackedGoal}%). Counts breakfast, lunch & dinner logged or marked skipped, through today. Edit the goal on the “% of Meals Tracked” chart below.`
-                : 'No days have elapsed in this week yet.';
+              const { pct, ateOut } = mealStats;
+              const met = pct >= mealsTrackedGoal;
+              const trackedTitle = `${pct}% of this week's meals tracked (breakfast, lunch & dinner across all 7 days, logged or marked skipped; goal ${mealsTrackedGoal}%). Edit the goal on the “% of Meals Tracked” chart below.`;
               return (
                 <>
                   <span title={trackedTitle} className={`${styles.wGoal}${met ? ` ${styles.wGoalMet}` : ''}`}>
                     <span className={styles.wGoalIcon}>🍽️</span>
                     <span className={styles.wGoalLabel}>Tracked</span>
-                    <span className={styles.wGoalCount}>{hasElapsed ? `${pct}%` : '—'}/{mealsTrackedGoal}%</span>
+                    <span className={styles.wGoalCount}>{pct}%/{mealsTrackedGoal}%</span>
                     {met && <span className={styles.wGoalCheck}>✓</span>}
                   </span>
                   <span
