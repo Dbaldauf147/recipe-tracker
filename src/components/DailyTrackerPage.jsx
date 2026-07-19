@@ -3824,7 +3824,7 @@ function CookPicker({ date, weeklyPlan, recipes, selected, onCommit }) {
 
 /* ── Main Page ── */
 /* ── Weekly View ── */
-function WeeklyView({ dailyLog, date, recipes, onDayClick, onMoveEntry, onAddToSlot, onViewRecipe, onRemoveLastEntry, onEditEntry, onSelectDate, mode = 'log', weeklyPlan = [], onSetCookRecipes, onDropCookRecipeInSlot, prepareAnchor, renderDayWorkout, renderDayEvents }) {
+function WeeklyView({ dailyLog, date, recipes, onDayClick, onMoveEntry, onAddToSlot, onViewRecipe, onRemoveLastEntry, onEditEntry, onSelectDate, mode = 'log', weeklyPlan = [], onSetCookRecipes, onDropCookRecipeInSlot, onToggleEatingOut, prepareAnchor, renderDayWorkout, renderDayEvents }) {
   const goals = loadGoals();
   const macroKeys = ['calories', 'protein', 'carbs', 'fat'];
   // Fruit & vegetable servings get their own rows below Daily macros.
@@ -3895,6 +3895,9 @@ function WeeklyView({ dailyLog, date, recipes, onDayClick, onMoveEntry, onAddToS
       fullDay: mainMealEntries >= 3,
       isPast: dateStr < todayStr(),
       cookRecipes: Array.isArray(dayData.cookRecipes) ? dayData.cookRecipes : [],
+      // Slots the user marked "eating out — won't be tracked" (greyed, counts as
+      // an eating-out meal, and the drag-spread skips them). Mirrors skippedMeals.
+      eatingOutMeals: Array.isArray(dayData.eatingOutMeals) ? dayData.eatingOutMeals : [],
     });
   }
 
@@ -4145,10 +4148,21 @@ function WeeklyView({ dailyLog, date, recipes, onDayClick, onMoveEntry, onAddToS
                           onClick={e => { e.stopPropagation(); onAddToSlot(day.dateStr, slot); }}
                           title={`Add to ${MEAL_LABELS[slot]}`}
                         >+</button>
+                        {mode === 'prepare' && slot !== 'snack' && onToggleEatingOut && (
+                          <button
+                            className={`${styles.weeklySlotEatOutBtn} ${day.eatingOutMeals.includes(slot) ? styles.weeklySlotEatOutBtnActive : ''}`}
+                            onClick={e => { e.stopPropagation(); onToggleEatingOut(day.dateStr, slot); }}
+                            title={day.eatingOutMeals.includes(slot)
+                              ? `Eating out — click to track ${MEAL_LABELS[slot]} again`
+                              : `Mark ${MEAL_LABELS[slot]} as eating out (won't be tracked)`}
+                          >×</button>
+                        )}
                       </div>
                     </div>
                     {day.daySkipped ? (
                       <span className={styles.weeklyColSkipped}>Not Tracked</span>
+                    ) : day.eatingOutMeals.includes(slot) ? (
+                      <span className={styles.weeklyColEatingOut} title="Eating out — not tracked. Click × to track this meal again.">🍔 Eating out</span>
                     ) : day.skippedMeals.includes(slot) ? (
                       <span className={styles.weeklyColSkippedMeal}>Skipped</span>
                     ) : day.bySlot[slot].length > 0 ? day.bySlot[slot].map((item) => (
@@ -5241,6 +5255,25 @@ export function DailyTrackerPage({ recipes, getRecipe, onClose, user, weeklyPlan
     });
   }
 
+  // Mark/unmark a (date, slot) as "eating out — won't be tracked". Greyed in the
+  // grid, counts as an eating-out meal on the Week Plan, and the drag-spread
+  // skips it. Stored per-day on `eatingOutMeals` (mirrors skippedMeals), which
+  // slimLogForFirestore preserves, so it syncs with no schema change.
+  function toggleEatingOut(targetDate, slot) {
+    const d = targetDate || date;
+    setDailyLog(prev => {
+      const next = { ...prev };
+      if (!next[d]) next[d] = { entries: [] };
+      const current = next[d].eatingOutMeals || [];
+      const updated = current.includes(slot)
+        ? current.filter(s => s !== slot)
+        : [...current, slot];
+      next[d] = { ...next[d], eatingOutMeals: updated };
+      saveDailyLog(next, user);
+      return next;
+    });
+  }
+
   function addEntry(entry, targetDate, targetSlot) {
     const d = targetDate || date;
     // Single ingredients always go to snack slot; otherwise use targetSlot, then entry's mealSlot
@@ -5329,6 +5362,8 @@ export function DailyTrackerPage({ recipes, getRecipe, onClose, user, weeklyPlan
         const dayData = next[d];
         if (dayData.daySkipped) continue;
         if ((dayData.skippedMeals || []).includes(slot)) continue;
+        // Eating-out (not-tracked) slots are jumped over by the spread.
+        if ((dayData.eatingOutMeals || []).includes(slot)) continue;
         // Consecutive EMPTY days forward — skip a day whose slot is already filled.
         if ((dayData.entries || []).some(e => (e.mealSlot || 'snack') === slot)) continue;
 
@@ -5466,6 +5501,8 @@ export function DailyTrackerPage({ recipes, getRecipe, onClose, user, weeklyPlan
             if (dayData.daySkipped) continue;
             const skipped = dayData.skippedMeals || [];
             if (skipped.includes(slot)) continue;
+            // Eating-out (not-tracked) slots are jumped over by the auto-spread.
+            if ((dayData.eatingOutMeals || []).includes(slot)) continue;
             if ((dayData.entries || []).some(e => (e.mealSlot || 'snack') === slot)) continue;
             // Honor user vacates: the user removed or moved an auto entry out
             // of this exact (recipe, date, slot) — don't refill it.
@@ -5691,7 +5728,7 @@ export function DailyTrackerPage({ recipes, getRecipe, onClose, user, weeklyPlan
       )}
       <div className={styles.weeklyWithCal}>
         <div className={styles.weeklyWithCalLeft}>
-          <WeeklyView dailyLog={dailyLog} date={date} recipes={recipes} onDayClick={(d) => setDate(d)} onMoveEntry={moveEntry} onAddToSlot={handleAddToSlot} onViewRecipe={(id) => setViewRecipeId(id)} onRemoveLastEntry={removeLastEntry} onEditEntry={(entryId, dateStr) => setEditModal({ entryId, dateStr })} onSelectDate={(d) => setDate(d)} mode={prepareOnly ? 'prepare' : viewMode} weeklyPlan={weeklyPlan} onSetCookRecipes={setCookRecipes} onDropCookRecipeInSlot={placeCookRecipeInSlot} prepareAnchor={prepareAnchorStr} renderDayWorkout={prepareOnly ? renderDayWorkout : undefined} renderDayEvents={prepareOnly ? renderDayEvents : undefined} />
+          <WeeklyView dailyLog={dailyLog} date={date} recipes={recipes} onDayClick={(d) => setDate(d)} onMoveEntry={moveEntry} onAddToSlot={handleAddToSlot} onViewRecipe={(id) => setViewRecipeId(id)} onRemoveLastEntry={removeLastEntry} onEditEntry={(entryId, dateStr) => setEditModal({ entryId, dateStr })} onSelectDate={(d) => setDate(d)} mode={prepareOnly ? 'prepare' : viewMode} weeklyPlan={weeklyPlan} onSetCookRecipes={setCookRecipes} onDropCookRecipeInSlot={placeCookRecipeInSlot} onToggleEatingOut={toggleEatingOut} prepareAnchor={prepareAnchorStr} renderDayWorkout={prepareOnly ? renderDayWorkout : undefined} renderDayEvents={prepareOnly ? renderDayEvents : undefined} />
         </div>
         {!prepareOnly && (
         <div className={styles.weeklyWithCalRight}>

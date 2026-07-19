@@ -946,12 +946,18 @@ export function WeekPlanPage({ recipes, getRecipe, user, weeklyPlan = [], weekly
     for (const date of days) {
       const day = dailyLog[date] || {};
       const entries = Array.isArray(day.entries) ? day.entries : [];
+      const eatOutMarks = Array.isArray(day.eatingOutMeals) ? day.eatingOutMeals : [];
+      // Ate out = logged eating-out entries + planned "eating out" grid marks.
       for (const e of entries) if (e?.eatingOut) ateOut += 1;
+      for (const s of eatOutMarks) if (MAIN.includes(s)) ateOut += 1;
       if (day.daySkipped) { trackedSlots += MAIN.length; continue; }
       const skipped = Array.isArray(day.skippedMeals) ? day.skippedMeals : [];
       const accounted = new Set();
       for (const e of entries) if (MAIN.includes(e.mealSlot)) accounted.add(e.mealSlot);
       for (const s of skipped) if (MAIN.includes(s)) accounted.add(s);
+      // Deciding a meal is "eating out" accounts for that slot (like a skip), so
+      // it doesn't count against the tracked %.
+      for (const s of eatOutMarks) if (MAIN.includes(s)) accounted.add(s);
       trackedSlots += accounted.size;
     }
     const totalSlots = days.length * MAIN.length; // full week: 7 × 3 = 21

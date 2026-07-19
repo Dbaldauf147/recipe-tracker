@@ -2750,6 +2750,36 @@
   color: #fff;
 }
 
+/* "Eating out / won't be tracked" toggle — sits next to − and + in the cell. */
+.weeklySlotEatOutBtn {
+  background: none;
+  border: 1px solid var(--color-border);
+  border-radius: 50%;
+  width: 20px;
+  height: 20px;
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  padding: 0;
+}
+
+.weeklySlotEatOutBtn:hover {
+  background: var(--color-text-muted);
+  border-color: var(--color-text-muted);
+  color: #fff;
+}
+
+.weeklySlotEatOutBtnActive {
+  background: var(--color-text-muted);
+  border-color: var(--color-text-muted);
+  color: #fff;
+}
+
 .weeklySlotDragOver {
   background: var(--color-accent-light, rgba(201, 100, 66, 0.12));
   border-radius: 4px;
@@ -2815,6 +2845,18 @@
   background: var(--color-surface);
   border-radius: 4px;
   border: 1px solid var(--color-border-light, #f0f0f0);
+}
+
+/* "Eating out — not tracked": greyed, muted, like a skipped meal but tagged. */
+.weeklyColEatingOut {
+  font-size: 0.82rem;
+  font-style: italic;
+  color: var(--color-text-muted);
+  line-height: 1.35;
+  padding: 0.3rem 0.45rem;
+  background: var(--color-surface);
+  border-radius: 4px;
+  border: 1px dashed var(--color-border);
 }
 
 .weeklyColNotTracked {
