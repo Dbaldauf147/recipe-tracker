@@ -1145,7 +1145,28 @@ export async function migrateToFirestore(uid) {
  * with the newer updatedAt timestamp. Recipes that exist in only
  * one array are included as-is.
  */
-function mergeRecipeArrays(localRecipes, remoteRecipes) {
+// Collect the set of recipe ids that have been deleted (on this or any other
+// device). Source of truth is the synced `deletedRecipeIds` list; we also fold in
+// ids from the local id-list and the object graveyard for backward-compat with
+// deletions made before deletedRecipeIds existed.
+function collectTombstonedIds(userData) {
+  const ids = new Set();
+  try {
+    const localIds = JSON.parse(localStorage.getItem('recipe-tracker-deleted-ids') || '[]');
+    if (Array.isArray(localIds)) for (const id of localIds) if (id) ids.add(id);
+  } catch { /* ignore */ }
+  try {
+    const localDel = JSON.parse(localStorage.getItem('recipe-tracker-deleted') || '[]');
+    if (Array.isArray(localDel)) for (const d of localDel) if (d && d.id) ids.add(d.id);
+  } catch { /* ignore */ }
+  if (userData) {
+    if (Array.isArray(userData.deletedRecipeIds)) for (const id of userData.deletedRecipeIds) if (id) ids.add(id);
+    if (Array.isArray(userData.deletedRecipes)) for (const d of userData.deletedRecipes) if (d && d.id) ids.add(d.id);
+  }
+  return ids;
+}
+
+function mergeRecipeArrays(localRecipes, remoteRecipes, deletedIds = new Set()) {
   const localMap = new Map();
   for (const r of localRecipes) if (r.id) localMap.set(r.id, r);
 
@@ -1156,6 +1177,7 @@ function mergeRecipeArrays(localRecipes, remoteRecipes) {
 
   // Process all remote recipes
   for (const [id, remote] of remoteMap) {
+    if (deletedIds.has(id)) continue; // deleted on some device — never resurrect
     const local = localMap.get(id);
     if (!local) {
       // Remote-only: only include if we haven't recently edited locally
@@ -1173,6 +1195,7 @@ function mergeRecipeArrays(localRecipes, remoteRecipes) {
 
   // Add recipes that only exist locally (newly added on this device)
   for (const [id, local] of localMap) {
+    if (deletedIds.has(id)) continue; // deleted — don't re-add from a stale local copy
     if (!merged.has(id)) {
       merged.set(id, local);
     }
@@ -1199,19 +1222,36 @@ function mergeRecipeArrays(localRecipes, remoteRecipes) {
     }
   }
 
-  return Array.from(merged.values());
+  // Final guard: never return a tombstoned recipe, whatever path added it.
+  return Array.from(merged.values()).filter(r => !deletedIds.has(r.id));
 }
 
 export function hydrateLocalStorage(userData, uid) {
   if (!userData) return;
+
+  // Union-hydrate the synced deletion tombstones BEFORE merging recipes, so this
+  // device learns about deletes made elsewhere and never re-adds them. Union (not
+  // overwrite) so a local tombstone that hasn't synced yet isn't dropped; if the
+  // union grew, push it back so other devices converge too.
+  try {
+    const localIds = JSON.parse(localStorage.getItem('recipe-tracker-deleted-ids') || '[]');
+    const remoteIds = Array.isArray(userData.deletedRecipeIds) ? userData.deletedRecipeIds : [];
+    const union = Array.from(new Set([...(Array.isArray(localIds) ? localIds : []), ...remoteIds]));
+    localStorage.setItem('recipe-tracker-deleted-ids', JSON.stringify(union));
+    if (union.length !== remoteIds.length) {
+      const user = auth.currentUser;
+      if (user) saveField(user.uid, 'deletedRecipeIds', union).catch(() => {});
+    }
+  } catch { /* ignore */ }
 
   // Merge recipes by ID instead of overwriting, so edits on different
   // devices to different recipes don't clobber each other.
   if (!window.__recipesLocalEdit) {
     const remoteRecipes = userData.recipes || [];
     try {
+      const tombstoned = collectTombstonedIds(userData);
       const localRecipes = JSON.parse(localStorage.getItem('recipe-tracker-recipes') || '[]');
-      const merged = mergeRecipeArrays(localRecipes, remoteRecipes);
+      const merged = mergeRecipeArrays(localRecipes, remoteRecipes, tombstoned);
       localStorage.setItem('recipe-tracker-recipes', JSON.stringify(merged));
 
       // If merge result differs from remote, push merged version back

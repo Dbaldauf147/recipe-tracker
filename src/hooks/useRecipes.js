@@ -146,6 +146,15 @@ function save(recipes) {
 const DELETED_KEY = 'recipe-tracker-deleted';
 const MAX_DELETED = 200;
 
+// Synced deletion tombstones — the id list is the cross-device source of truth
+// that suppresses resurrection. The full-object graveyard above (`deletedRecipes`)
+// powers the restore UI; this lean id list is what every merge path consults so a
+// delete on ANY device (web or the PrepDay mobile app) sticks everywhere and can't
+// be re-added by a stale copy still held by another device. Mirrored to the
+// Firestore user-doc field `deletedRecipeIds`.
+const DELETED_IDS_KEY = 'recipe-tracker-deleted-ids';
+const MAX_DELETED_IDS = 1000;
+
 function loadDeleted() {
   try {
     const data = localStorage.getItem(DELETED_KEY);
@@ -161,6 +170,52 @@ function saveDeleted(list) {
   } catch { /* storage full or unavailable */ }
   const user = auth.currentUser;
   if (user) saveField(user.uid, 'deletedRecipes', list).catch(err => console.error('[deletedRecipes] sync failed', err));
+}
+
+function loadDeletedIds() {
+  try {
+    const data = localStorage.getItem(DELETED_IDS_KEY);
+    const arr = data ? JSON.parse(data) : [];
+    return Array.isArray(arr) ? arr : [];
+  } catch {
+    return [];
+  }
+}
+
+// Add an id to the synced tombstone list (newest first, capped). Called for
+// EVERY delete — including `shared-link` stubs that are skipped by the graveyard —
+// so nothing a stale device holds can silently re-add it.
+function addTombstone(id) {
+  if (!id) return;
+  const next = [id, ...loadDeletedIds().filter(x => x !== id)].slice(0, MAX_DELETED_IDS);
+  try {
+    localStorage.setItem(DELETED_IDS_KEY, JSON.stringify(next));
+  } catch { /* storage full or unavailable */ }
+  const user = auth.currentUser;
+  if (user) saveField(user.uid, 'deletedRecipeIds', next).catch(err => console.error('[deletedRecipeIds] sync failed', err));
+}
+
+// Drop an id from the tombstone list (used when a recipe is intentionally
+// restored so a same-id copy would no longer be suppressed).
+function removeTombstone(id) {
+  if (!id) return;
+  const cur = loadDeletedIds();
+  if (!cur.includes(id)) return;
+  const next = cur.filter(x => x !== id);
+  try {
+    localStorage.setItem(DELETED_IDS_KEY, JSON.stringify(next));
+  } catch { /* storage full or unavailable */ }
+  const user = auth.currentUser;
+  if (user) saveField(user.uid, 'deletedRecipeIds', next).catch(err => console.error('[deletedRecipeIds] sync failed', err));
+}
+
+// The set of recipe ids that must never be resurrected on this device: the
+// synced id list plus, for backward-compat, any ids still in the object graveyard
+// (deletions made before deletedRecipeIds existed).
+function tombstonedIdSet() {
+  const ids = new Set(loadDeletedIds());
+  for (const d of loadDeleted()) if (d && d.id) ids.add(d.id);
+  return ids;
 }
 
 function makeDeletionId() {
@@ -346,7 +401,11 @@ export function useRecipes() {
               byTitle.set(key, r);
             }
           }
-          const result = Array.from(merged.values());
+          // Drop anything that's been deleted (on this or any other device).
+          // Without this, a recipe still held remotely by another device would
+          // be treated as "remote-only" and re-added here.
+          const tombstoned = tombstonedIdSet();
+          const result = Array.from(merged.values()).filter(r => !tombstoned.has(r.id));
           localStorage.setItem(STORAGE_KEY, JSON.stringify(result));
           setRecipes(result);
         }).catch(() => {});
@@ -441,6 +500,10 @@ export function useRecipes() {
       save(next);
       return next;
     });
+    // Record a synced tombstone for EVERY delete so the deletion is durable
+    // across devices (a delete here can't be undone by a stale copy on the phone
+    // or another browser). Done even for shared-link stubs, which the graveyard skips.
+    addTombstone(id);
     // Log to the graveyard so it can be viewed / restored from Meal History.
     // Link stubs are pointers, not owned recipes — don't archive those.
     if (removed && removed.source !== 'shared-link') {
@@ -461,6 +524,9 @@ export function useRecipes() {
     if (!entry) return null;
     // eslint-disable-next-line no-unused-vars
     const { deletedAt, deletionId: _dropId, id: _oldId, createdAt: _c, updatedAt: _u, ...recipe } = entry;
+    // Lift the tombstone on the old id so a restore isn't re-suppressed. (addRecipe
+    // mints a fresh id anyway, but keep the list clean.)
+    removeTombstone(_oldId);
     const restored = addRecipe(recipe);
     setDeletedRecipes(prevDel => {
       const nextDel = prevDel.filter(d => d.deletionId !== deletionId);
