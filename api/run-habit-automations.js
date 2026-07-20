@@ -10,8 +10,17 @@
 // REST-DAY / "otherwise" MARK: a daily rule may set `elseMark` — the mark to
 // apply when the trigger did NOT fire on a day that's already over (the
 // look-back day). e.g. a "workout logged → Did it" rule with elseMark 'skipped'
-// auto-logs a rest day (no workout) as a Skip. Never applied to today (activity
-// may still come) or to non-daily cadences (a past day isn't a finished period).
+// auto-logs a rest day (no workout) as a Skip. Normally never applied to today
+// (activity may still come) or to non-daily cadences (a past day isn't a
+// finished period).
+//
+// PLANNED REST DAYS: the ONE exception to "never today". The Week Plan writes
+// the dates it resolved to Rest into the user doc's `plannedRestDates` (see
+// WeekPlanPage) — the suggestion depends on staleness ranking + per-day
+// overrides, which this cron can't recompute. A `workout_logged` rule whose
+// date is on that list is a DECIDED rest day, not a day still waiting for a
+// workout, so its skip is applied the same day. Note a sauna-only placeholder
+// workout (no exercises, no type) is ignored below so it can't mask a rest day.
 //
 // SOURCES:
 //   - 'prepday'   → evaluated here (reads dailyLog / weightLog / workouts).
@@ -301,10 +310,23 @@ export default async function handler(req, res) {
             .where('date', 'in', DAYS.map(dd => dd.dateKey)).get();
           for (const wd of wSnap.docs) {
             const w = wd.data();
+            // A sauna-only day is a placeholder carrying just the `sauna` flag —
+            // no exercises, no workout type. It isn't a workout, so it must not
+            // mask a rest day (mirrors WeekPlanPage.buildWorkoutsByDate).
+            const hasEntries = Array.isArray(w.entries) && w.entries.length > 0;
+            const hasType = String(w.workoutType || '').trim().length > 0;
+            if (!hasEntries && !hasType) continue;
             (workoutsByDate[w.date] = workoutsByDate[w.date] || []).push(w);
           }
         } catch { /* leave empty → workout rules see no workouts */ }
       }
+
+      // Dates the Week Plan resolved to REST (written by WeekPlanPage). A day on
+      // this list is a decided rest day, so the rest-day skip can apply the same
+      // day instead of waiting for the day to be over.
+      const plannedRestDates = new Set(
+        Array.isArray(data.plannedRestDates) ? data.plannedRestDates : [],
+      );
 
       // Work on a clone of habitLog; only fill empty cells. `habitLogAuto`
       // mirrors habitLog and records the mark the engine wrote, so the UI can
@@ -381,14 +403,21 @@ export default async function handler(req, res) {
           // (the look-back day, never today), since today's workout/meal/etc.
           // may still be logged later. Non-daily cadences are skipped: a single
           // past day isn't a finished week/month, so "no trigger yet" ≠ missed.
+          // A workout day the Week Plan resolved to REST is a decision, not a
+          // day still waiting for activity — so its skip applies immediately,
+          // today included, rather than waiting for the day to be over.
+          const plannedRest = rule.trigger === 'workout_logged'
+            && plannedRestDates.has(dayCtx.dateKey);
+
           let mark;
           if (fired) {
             summary.triggersFired++;
             mark = VALID_MARKS.has(rule.mark) ? rule.mark : 'done';
           } else {
-            if (isDaily && dayIsOver && VALID_MARKS.has(rule.elseMark)) {
+            if (isDaily && (dayIsOver || plannedRest) && VALID_MARKS.has(rule.elseMark)) {
               mark = rule.elseMark;
               summary.elseMarksApplied++;
+              if (plannedRest && !dayIsOver) summary.plannedRestMarks = (summary.plannedRestMarks || 0) + 1;
             } else {
               recordStatus(dayIsOver ? `${phr.neg} → not recorded` : `${phr.neg} yet — this ${isDaily ? 'day' : 'period'} isn't over`);
               continue;
@@ -396,13 +425,13 @@ export default async function handler(req, res) {
           }
 
           const isElse = !fired;
+          const restNote = !isElse ? '' : plannedRest ? ' (planned rest day)' : ' (rest day)';
+          const elseReason = `${isElse ? phr.neg : phr.pos} → ${markLabel(mark)}${restNote}`;
           const bucket = { ...(nextLog[key] || {}) };
           if (bucket[rule.habitId] !== undefined) {
             summary.cellsAlreadySet++;
             const wasAuto = habitLogAuto[key]?.[rule.habitId] !== undefined;
-            recordStatus(wasAuto
-              ? `${isElse ? phr.neg : phr.pos} → ${markLabel(mark)}${isElse ? ' (rest day)' : ''}`
-              : 'You recorded this yourself');
+            recordStatus(wasAuto ? elseReason : 'You recorded this yourself');
             continue;
           }
           // Respect a manual erase: an empty cell that the engine previously
@@ -417,7 +446,7 @@ export default async function handler(req, res) {
           bucket[rule.habitId] = mark;
           nextLog[key] = bucket;
           nextAuto[key] = { ...(nextAuto[key] || {}), [rule.habitId]: mark };
-          recordStatus(`${isElse ? phr.neg : phr.pos} → ${markLabel(mark)}${isElse ? ' (rest day)' : ''}`);
+          recordStatus(elseReason);
           changed++;
         }
       }

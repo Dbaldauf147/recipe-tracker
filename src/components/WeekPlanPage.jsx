@@ -383,6 +383,55 @@ export function WeekPlanPage({ recipes, getRecipe, user, weeklyPlan = [], weekly
     [rankedTypes, weekWorkoutPlan, workoutTypes, recordedWeekIdxs, recordedWeekTypes]
   );
 
+  // ── Persist the resolved REST days (`plannedRestDates`) ──
+  // The rest-day suggestion is computed here (staleness ranking + your per-day
+  // overrides + what's already logged); the habit-automation cron can't
+  // recompute it, so it can't tell a planned rest day from "hasn't happened
+  // yet". We write the resolved rest DATES so the cron can auto-skip the
+  // workout habit on them — including today, since a planned rest day is a
+  // decision, not a day still waiting for a workout.
+  //
+  // Only written while viewing the CURRENT week: resolvedWorkoutPlan is always
+  // the current week's resolution (recordedWeekIdxs is anchored to today), so
+  // mapping it onto another week's dates would persist a guess. The cron only
+  // ever looks at today/yesterday, so the current week is all it needs.
+  const [plannedRestStored, setPlannedRestStored] = useState(null); // null = not loaded yet
+
+  useEffect(() => {
+    if (!user?.uid) return;
+    let cancelled = false;
+    loadField(user.uid, 'plannedRestDates')
+      .then(v => { if (!cancelled) setPlannedRestStored(Array.isArray(v) ? v : []); })
+      .catch(() => { if (!cancelled) setPlannedRestStored([]); });
+    return () => { cancelled = true; };
+  }, [user?.uid]);
+
+  const isCurrentWeek = useMemo(
+    () => isoDate(weekStart) === isoDate(sundayOf(new Date())),
+    [weekStart]
+  );
+
+  // Dates in the visible week the plan resolves to Rest (auto-suggested or pinned).
+  const weekRestDates = useMemo(
+    () => days.filter(d => resolvedWorkoutPlan[sundayIndexOf(d)]?.value === 'rest'),
+    [days, resolvedWorkoutPlan]
+  );
+
+  useEffect(() => {
+    if (!user?.uid || plannedRestStored == null || !isCurrentWeek) return;
+    const inWeek = new Set(days);
+    const lo = isoDate(addDays(new Date(), -14));
+    const hi = isoDate(addDays(new Date(), 28));
+    const next = [...new Set([
+      ...plannedRestStored.filter(d => !inWeek.has(d)), // leave other weeks alone
+      ...weekRestDates,
+    ])].filter(d => d >= lo && d <= hi).sort();
+    // Compare sorted-to-sorted so a no-op render can't start a write loop.
+    if (JSON.stringify(next) === JSON.stringify([...plannedRestStored].sort())) return;
+    setPlannedRestStored(next);
+    saveField(user.uid, 'plannedRestDates', next).catch(() => {});
+  }, [user?.uid, plannedRestStored, weekRestDates, days, isCurrentWeek]);
+
   // value: a workout type, 'rest', or '__auto' (clears the day so it re-suggests).
   const setWorkoutCategory = useCallback((dayIndex, value) => {
     const next = { ...(weekWorkoutPlan || {}) };
