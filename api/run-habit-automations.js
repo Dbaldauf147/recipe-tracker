@@ -234,6 +234,9 @@ export default async function handler(req, res) {
     rulesEvaluated: 0, triggersFired: 0, elseMarksApplied: 0, cellsAlreadySet: 0,
     erasesRespected: 0, unsupported: 0, dryRun,
   };
+  // dryRun-only: per-evaluation breakdown + the planned rest dates we read, so a
+  // "why didn't it mark?" question can be answered without guessing.
+  if (dryRun) { summary.details = []; summary.plannedRestDatesSeen = {}; }
 
   // Rally reach-out count per date, fetched at most once per date per run (the
   // same baldaufdan account backs every rally rule) and cached by dateKey. A
@@ -327,6 +330,10 @@ export default async function handler(req, res) {
       const plannedRestDates = new Set(
         Array.isArray(data.plannedRestDates) ? data.plannedRestDates : [],
       );
+      if (dryRun) {
+        summary.plannedRestDatesSeen[uid] = Array.isArray(data.plannedRestDates)
+          ? data.plannedRestDates : '(field missing)';
+      }
 
       // Work on a clone of habitLog; only fill empty cells. `habitLogAuto`
       // mirrors habitLog and records the mark the engine wrote, so the UI can
@@ -379,6 +386,28 @@ export default async function handler(req, res) {
           const dayIsOver = dayCtx.dateKey !== when.dateKey; // look-back day, not today
           const phr = triggerPhrasing(rule);
 
+          // A workout day the Week Plan resolved to REST is a decision, not a
+          // day still waiting for activity — so its skip applies immediately,
+          // today included, rather than waiting for the day to be over.
+          const plannedRest = rule.trigger === 'workout_logged'
+            && plannedRestDates.has(dayCtx.dateKey);
+
+          // ?dryRun=1 returns a per-evaluation breakdown so it's possible to see
+          // exactly which guard a rule hit without writing anything.
+          const detail = dryRun ? {
+            habit: habit.name || habit.habit || rule.habitId,
+            cadence: habit.cadence || '(daily)', habitStatus: habit.status || '',
+            source: rule.source, trigger: rule.trigger,
+            mark: rule.mark, elseMark: rule.elseMark ?? null,
+            day: dayCtx.dateKey, isDaily, dayIsOver, plannedRest,
+          } : null;
+          const emit = (outcome) => {
+            if (!detail) return;
+            detail.fired = fired;
+            detail.outcome = outcome;
+            summary.details.push(detail);
+          };
+
           // Records the "why" for this cell unless today already wrote it (today
           // runs first, so its status wins for a shared non-daily period key).
           const recordStatus = (reason) => {
@@ -394,6 +423,7 @@ export default async function handler(req, res) {
             recordStatus(rule.source === 'rally' || rule.source === 'gratitude'
               ? `Couldn't reach ${srcLabel(rule.source)} to check ${phr.noun}`
               : `${phr.noun === 'this' ? 'This trigger' : phr.noun} can't be auto-checked`);
+            emit('unsupported');
             continue;
           }
 
@@ -403,12 +433,6 @@ export default async function handler(req, res) {
           // (the look-back day, never today), since today's workout/meal/etc.
           // may still be logged later. Non-daily cadences are skipped: a single
           // past day isn't a finished week/month, so "no trigger yet" ≠ missed.
-          // A workout day the Week Plan resolved to REST is a decision, not a
-          // day still waiting for activity — so its skip applies immediately,
-          // today included, rather than waiting for the day to be over.
-          const plannedRest = rule.trigger === 'workout_logged'
-            && plannedRestDates.has(dayCtx.dateKey);
-
           let mark;
           if (fired) {
             summary.triggersFired++;
@@ -420,6 +444,9 @@ export default async function handler(req, res) {
               if (plannedRest && !dayIsOver) summary.plannedRestMarks = (summary.plannedRestMarks || 0) + 1;
             } else {
               recordStatus(dayIsOver ? `${phr.neg} → not recorded` : `${phr.neg} yet — this ${isDaily ? 'day' : 'period'} isn't over`);
+              emit(!isDaily ? 'else-skipped:not-daily'
+                : !VALID_MARKS.has(rule.elseMark) ? 'else-skipped:no-elseMark'
+                : 'else-skipped:day-not-over-and-not-planned-rest');
               continue;
             }
           }
@@ -432,6 +459,7 @@ export default async function handler(req, res) {
             summary.cellsAlreadySet++;
             const wasAuto = habitLogAuto[key]?.[rule.habitId] !== undefined;
             recordStatus(wasAuto ? elseReason : 'You recorded this yourself');
+            emit(`cell-already-set:${JSON.stringify(bucket[rule.habitId])}${wasAuto ? ' (auto)' : ' (manual)'}`);
             continue;
           }
           // Respect a manual erase: an empty cell that the engine previously
@@ -441,12 +469,14 @@ export default async function handler(req, res) {
           if (habitLogAuto[key]?.[rule.habitId] !== undefined) {
             summary.erasesRespected++;
             recordStatus('You cleared this — left empty');
+            emit('erase-respected');
             continue;
           }
           bucket[rule.habitId] = mark;
           nextLog[key] = bucket;
           nextAuto[key] = { ...(nextAuto[key] || {}), [rule.habitId]: mark };
           recordStatus(elseReason);
+          emit(`APPLIED:${mark}`);
           changed++;
         }
       }
