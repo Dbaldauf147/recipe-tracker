@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { saveField, loadField, loadHabitAutoStatus } from '../utils/firestoreSync';
 import { HABIT_FIELDS, seedHabits, makeHabitId } from '../data/habitsSeed';
 import { yesterdayDate, yesterdayDayKey, yesterdayUnloggedHabits } from '../utils/habitOutstanding';
@@ -11,6 +11,7 @@ import { yesterdayDate, yesterdayDayKey, yesterdayUnloggedHabits } from '../util
 const SUB_TABS = [
   { id: 'kpi', label: 'KPI' },
   { id: 'routines', label: 'Routines' },
+  { id: 'charts', label: 'Charts' },
   { id: 'automatic', label: 'Automatic' },
   { id: 'autoreview', label: 'Auto Review' },
   { id: 'history', label: 'History' },
@@ -1372,6 +1373,7 @@ export function HabitsPage({ onBack, user }) {
       {tab === 'automatic' && <AutomaticView habits={habits} automations={automations} habitLog={habitLog} habitLogAuto={habitLogAuto} onChange={persistAutomations} />}
       {tab === 'autoreview' && <AutoReviewView habits={habits} onUpdate={updateHabit} onOpen={setOpenHabitId} />}
       {tab === 'onhold' && <OnHoldView habits={habits} onUpdate={updateHabit} />}
+      {tab === 'charts' && <ChartsView habits={habits} habitLog={habitLog} />}
       {tab === 'history' && <HistoryView habitLog={habitLog} habits={habits} autoTrackedIds={autoTrackedIds} autoStatusFor={autoStatusFor} onImport={mergeHabitLog} openMenu={(habitId, key, label) => setDayMenu({ habitId, key, label })} />}
       {tab === 'habits' && (
         <HabitsTable habits={habits} onUpdate={updateHabit} onDelete={deleteHabit} onOpen={setOpenHabitId} onBulkUpdate={bulkUpdate} onBulkDelete={bulkDelete} />
@@ -2779,6 +2781,406 @@ function RoutineSection({ cadenceName, list, habitLog, habitLogAuto, streaks, au
 
 // On Hold tab: paused habits, kept off the Routines/Daily lists. "Resume"
 // returns a habit to Not Started; the status dropdown can set any other status.
+// ---------------------------------------------------------------------------
+// Charts — a port of the mobile Habits "Charts" tab (PrepDay
+// src/components/HabitsScreen.tsx ChartsView). One habit at a time as a stacked
+// bar over time: green = did it (incl. Above & Beyond), red = no, grey = skip,
+// hatched = tracked periods with no entry. A dashed line traces the per-bucket
+// "done" count. Range presets zoom 7 days → 10 years and − / + step the bar
+// count one at a time; a bar/pie toggle switches between the time series and
+// the whole-range breakdown.
+//
+// ⚠️ Keep in sync with the mobile ChartsView — same buckets, same colours, same
+// clamps — so both apps tell the same story about the same habit.
+// ---------------------------------------------------------------------------
+const CHART_RANGES = [
+  { id: '10y', label: '10y', unit: 'year', count: 10 },
+  { id: '5y', label: '5y', unit: 'year', count: 5 },
+  { id: '35m', label: '35m', unit: 'month', count: 35 },
+  { id: '13m', label: '13m', unit: 'month', count: 13 },
+  { id: '13w', label: '13w', unit: 'week', count: 13 },
+  { id: '6w', label: '6w', unit: 'week', count: 6 },
+  { id: '30d', label: '30d', unit: 'day', count: 30 },
+];
+const RANGE_LIMITS = {
+  day: { min: 7, max: 90 },
+  week: { min: 2, max: 52 },
+  month: { min: 2, max: 60 },
+  year: { min: 2, max: 25 },
+};
+const UNIT_NOUN = { day: 'day', week: 'week', month: 'month', year: 'year' };
+const SUBUNIT_NOUN = { day: 'DAYS', week: 'WEEKS', month: 'MONTHS', year: 'YEARS' };
+const CHART_MUTED = '#64748b';
+const CHART_BORDER = '#e2e8f0';
+const CHART_SURFACE_ALT = '#f1f5f9';
+
+// The habit's own logging period — one sub-unit is one chance to log.
+function subUnitFor(cadence) {
+  switch (cadenceCanon(cadence)) {
+    case 'Weekly': return 'week';
+    case 'Monthly': return 'month';
+    case 'Annually': return 'year';
+    default: return 'day';
+  }
+}
+function unitStart(d, u) {
+  if (u === 'week') return new Date(d.getFullYear(), d.getMonth(), d.getDate() - d.getDay());
+  if (u === 'month') return new Date(d.getFullYear(), d.getMonth(), 1);
+  if (u === 'year') return new Date(d.getFullYear(), 0, 1);
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate());
+}
+function stepSubUnit(d, u) {
+  const x = new Date(d);
+  if (u === 'day') x.setDate(x.getDate() + 1);
+  else if (u === 'week') x.setDate(x.getDate() + 7);
+  else if (u === 'month') x.setMonth(x.getMonth() + 1);
+  else x.setFullYear(x.getFullYear() + 1);
+  return x;
+}
+function prevBucket(d, u) {
+  if (u === 'day') return new Date(d.getFullYear(), d.getMonth(), d.getDate() - 1);
+  if (u === 'week') return new Date(d.getFullYear(), d.getMonth(), d.getDate() - 7);
+  if (u === 'month') return new Date(d.getFullYear(), d.getMonth() - 1, 1);
+  return new Date(d.getFullYear() - 1, 0, 1);
+}
+function bucketAxisLabel(d, u) {
+  if (u === 'day' || u === 'week') return String(d.getDate());
+  if (u === 'month') return 'JFMAMJJASOND'[d.getMonth()];
+  return `'${String(d.getFullYear()).slice(2)}`;
+}
+// SVG pie-slice path from angle a0→a1 (radians, 0 = 3 o'clock).
+function arcPath(cx, cy, r, a0, a1) {
+  const x0 = cx + r * Math.cos(a0), y0 = cy + r * Math.sin(a0);
+  const x1 = cx + r * Math.cos(a1), y1 = cy + r * Math.sin(a1);
+  const large = a1 - a0 > Math.PI ? 1 : 0;
+  return `M ${cx} ${cy} L ${x0} ${y0} A ${r} ${r} 0 ${large} 1 ${x1} ${y1} Z`;
+}
+
+function ChartsView({ habits, habitLog }) {
+  const [range, setRange] = useState({ unit: 'month', count: 13 });
+  const [mode, setMode] = useState('bar');
+  const [selId, setSelId] = useState(null);
+
+  // Only Daily/Weekly habits are chartable, and the parked / auto-tracked
+  // statuses are left out — they aren't logged by hand.
+  const pickable = useMemo(
+    () => habits
+      .filter(h => ['Daily', 'Weekly'].includes(cadenceCanon(h.cadence)))
+      .filter(h => !['Automatically', 'Abandoned', 'On Hold', 'Not Started', 'Havent Started'].includes((h.status || '').trim()))
+      .sort((a, b) => (a.name || '').localeCompare(b.name || '')),
+    [habits],
+  );
+  const logCount = useCallback((id) => {
+    let n = 0;
+    for (const k in habitLog) if (habitLog[k][id] !== undefined) n++;
+    return n;
+  }, [habitLog]);
+  // Default to (and recover to) the most-logged habit so the chart isn't blank.
+  useEffect(() => {
+    if (selId && pickable.some(h => h.id === selId)) return;
+    let best = null, bestN = -1;
+    for (const h of pickable) { const n = logCount(h.id); if (n > bestN) { bestN = n; best = h.id; } }
+    setSelId(best);
+  }, [pickable, selId, logCount]);
+
+  const habit = useMemo(() => pickable.find(h => h.id === selId) || null, [pickable, selId]);
+
+  const { buckets, maxTotal, subUnit, agg, rangeStart } = useMemo(() => {
+    const base = { buckets: [], maxTotal: 1, subUnit: 'day', agg: { done: 0, missed: 0, skipped: 0, unlogged: 0 }, rangeStart: new Date() };
+    if (!habit) return base;
+    const sub = subUnitFor(habit.cadence);
+    const now = new Date();
+    const starts = [];
+    let bs = unitStart(now, range.unit);
+    for (let i = 0; i < range.count; i++) { starts.unshift(new Date(bs)); bs = prevBucket(bs, range.unit); }
+    const buckets = starts.map(st => ({ start: st, label: bucketAxisLabel(st, range.unit), done: 0, missed: 0, skipped: 0, unlogged: 0, total: 0 }));
+    // Day bars get one label per calendar day, which turns to mush past a
+    // fortnight — keep every 5th, counting back from today.
+    if (range.unit === 'day' && buckets.length > 14) {
+      const last = buckets.length - 1;
+      buckets.forEach((b, i) => { if ((last - i) % 5 !== 0) b.label = ''; });
+    }
+    const startTimes = starts.map(s => s.getTime());
+    const idxFor = (t) => { let j = -1; for (let k = 0; k < startTimes.length; k++) { if (startTimes[k] <= t) j = k; else break; } return j; };
+    // Floor at the habit's first logged period so periods before it existed
+    // aren't drawn as all-hatched "no entry".
+    let firstTs = Infinity;
+    for (const k in habitLog) { if (habitLog[k][habit.id] !== undefined) { const ts = periodStart(k); if (ts < firstTs) firstTs = ts; } }
+    // periodStart() is a UTC instant; rebuild it as a LOCAL calendar date so the
+    // floor doesn't slip a day earlier in negative-UTC zones.
+    let floor = now;
+    if (isFinite(firstTs)) { const f = new Date(firstTs); floor = new Date(f.getUTCFullYear(), f.getUTCMonth(), f.getUTCDate()); }
+    let cur = unitStart(new Date(Math.max(starts[0].getTime(), floor.getTime())), sub);
+    const agg = { done: 0, missed: 0, skipped: 0, unlogged: 0 };
+    let guard = 0;
+    // Guard sized for the widest range (25 years of daily sub-units).
+    while (cur.getTime() <= now.getTime() && guard++ < 20000) {
+      // Daily habits skip weekdays they don't track (e.g. weekends off).
+      if (!(sub === 'day' && !tracksDate(habit, cur))) {
+        const idx = idxFor(cur.getTime());
+        if (idx >= 0) {
+          const mk = (habitLog[periodKey(habit.cadence, cur)] || {})[habit.id];
+          const b = buckets[idx];
+          if (mk === 'done' || mk === 'exceeded') { b.done++; agg.done++; }
+          else if (mk === 'missed') { b.missed++; agg.missed++; }
+          else if (mk === 'skipped') { b.skipped++; agg.skipped++; }
+          else { b.unlogged++; agg.unlogged++; }
+          b.total++;
+        }
+      }
+      cur = stepSubUnit(cur, sub);
+    }
+    const maxTotal = Math.max(1, ...buckets.map(b => b.total));
+    return { buckets, maxTotal, subUnit: sub, agg, rangeStart: starts[0] };
+  }, [habit, habitLog, range]);
+
+  // One click = one more / one fewer bucket, i.e. one more/fewer bar.
+  const step = (dir) => setRange(r => {
+    const { min, max } = RANGE_LIMITS[r.unit];
+    return { ...r, count: Math.min(max, Math.max(min, r.count + dir)) };
+  });
+  const barCount = buckets.length || range.count;
+  const unitNoun = UNIT_NOUN[range.unit];
+  const atMin = range.count <= RANGE_LIMITS[range.unit].min;
+  const atMax = range.count >= RANGE_LIMITS[range.unit].max;
+
+  // Geometry — fixed viewBox scaled to the container, so it stays crisp and
+  // responsive instead of tracking window width the way the phone does.
+  const chartW = 900;
+  const chartH = 230;
+  const axisH = 18;
+  const barSlot = buckets.length ? chartW / buckets.length : chartW;
+  const barW = Math.max(6, barSlot * 0.7);
+  const yScale = chartH / maxTotal;
+  const trendPts = buckets.map((b, i) => `${(i * barSlot + barSlot / 2).toFixed(1)},${(chartH - b.done * yScale).toFixed(1)}`).join(' ');
+
+  const dateSub = habit
+    ? `${rangeStart.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })} — ${new Date().toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} (today)`
+    : '';
+
+  // Pie (whole-range breakdown)
+  const pieSlices = [
+    { k: 'done', v: agg.done, color: MARK_META.done.color, label: 'Did it' },
+    { k: 'missed', v: agg.missed, color: MARK_META.missed.color, label: 'No' },
+    { k: 'skipped', v: agg.skipped, color: MARK_META.skipped.color, label: 'Skip' },
+    { k: 'unlogged', v: agg.unlogged, color: CHART_BORDER, label: 'No entry' },
+  ].filter(d => d.v > 0);
+  const pieTotal = pieSlices.reduce((s, d) => s + d.v, 0) || 1;
+  const pieR = 100;
+  const pieCx = chartW / 2;
+  const pieCy = pieR + 12;
+  let pieA = -Math.PI / 2;
+  const pieArcs = pieSlices.map(d => {
+    const a1 = pieA + (d.v / pieTotal) * 2 * Math.PI;
+    const path = arcPath(pieCx, pieCy, pieR, pieA, a1);
+    pieA = a1;
+    return { ...d, path, pct: Math.round((d.v / pieTotal) * 100) };
+  });
+
+  const segBtn = (on) => ({
+    padding: '0.35rem 1.6rem', borderRadius: 999, border: 'none', cursor: 'pointer',
+    fontSize: '0.8rem', fontWeight: 700,
+    background: on ? ACCENT : 'transparent', color: on ? '#fff' : CHART_MUTED,
+  });
+  const legendDot = (color, hollow) => ({
+    width: 11, height: 11, borderRadius: 3, background: color,
+    border: hollow ? `1px solid ${CHART_BORDER}` : 'none', flexShrink: 0,
+  });
+
+  return (
+    <div>
+      {/* bar / pie toggle */}
+      <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 8 }}>
+        <div style={{ display: 'flex', background: CHART_SURFACE_ALT, borderRadius: 999, padding: 3 }}>
+          <button onClick={() => setMode('bar')} style={segBtn(mode === 'bar')}>Bars</button>
+          <button onClick={() => setMode('pie')} style={segBtn(mode === 'pie')}>Pie</button>
+        </div>
+      </div>
+
+      {!habit ? (
+        <p style={{ color: 'var(--color-text-muted)', textAlign: 'center' }}>No daily or weekly habits to chart yet.</p>
+      ) : (
+        <>
+          <div style={{ fontSize: '1.15rem', fontWeight: 800, textAlign: 'center' }}>{habit.name || 'Untitled'}</div>
+          <div style={{ fontSize: '0.85rem', color: 'var(--color-text-muted)', textAlign: 'center', marginBottom: 12 }}>{dateSub}</div>
+
+          {mode === 'bar' ? (
+            <svg viewBox={`0 0 ${chartW} ${chartH + axisH}`} style={{ width: '100%', height: 'auto', display: 'block' }}>
+              <defs>
+                <pattern id="habitHatch" patternUnits="userSpaceOnUse" width={6} height={6} patternTransform="rotate(45)">
+                  <rect width={6} height={6} fill={CHART_SURFACE_ALT} />
+                  <line x1={0} y1={0} x2={0} y2={6} stroke={CHART_BORDER} strokeWidth={2} />
+                </pattern>
+              </defs>
+              {/* y-axis top note, e.g. "31 DAYS". Meaningless on day bars — each
+                  holds exactly one sub-unit, so it would just read "1 DAYS". */}
+              {range.unit !== 'day' && (
+                <text x={chartW} y={11} fontSize={10} fill={CHART_MUTED} textAnchor="end" fontWeight="700">
+                  {`${maxTotal} ${SUBUNIT_NOUN[subUnit]}`}
+                </text>
+              )}
+              {buckets.map((b, i) => {
+                const x = i * barSlot + (barSlot - barW) / 2;
+                const cx = i * barSlot + barSlot / 2;
+                let y = chartH;
+                // On day bars every segment count is 1, so the numbers add
+                // nothing but clutter — the colour already says it.
+                const showN = range.unit !== 'day';
+                const segs = [
+                  { h: b.done * yScale, fill: MARK_META.done.color, n: b.done },
+                  { h: b.missed * yScale, fill: MARK_META.missed.color, n: b.missed },
+                  { h: b.skipped * yScale, fill: MARK_META.skipped.color, n: b.skipped },
+                  { h: b.unlogged * yScale, fill: 'url(#habitHatch)', n: b.unlogged, muted: true },
+                ];
+                return (
+                  <g key={i}>
+                    {segs.map((sg, si) => {
+                      if (sg.h <= 0) return null;
+                      const top = y - sg.h;
+                      y = top;
+                      return (
+                        <g key={si}>
+                          <rect x={x} y={top} width={barW} height={sg.h} fill={sg.fill} rx={2} />
+                          {showN && sg.h >= 15 && sg.n > 0 && (
+                            <text x={cx} y={top + sg.h / 2 + 4} fontSize={11} fontWeight="700" fill={sg.muted ? CHART_MUTED : '#fff'} textAnchor="middle">{sg.n}</text>
+                          )}
+                        </g>
+                      );
+                    })}
+                    <text x={cx} y={chartH + axisH - 4} fontSize={10} fill={CHART_MUTED} textAnchor="middle">{b.label}</text>
+                  </g>
+                );
+              })}
+              {buckets.length > 1 && (
+                <polyline points={trendPts} fill="none" stroke="#4d7c0f" strokeWidth={2} strokeDasharray="2,4" strokeLinecap="round" />
+              )}
+            </svg>
+          ) : (
+            <svg viewBox={`0 0 ${chartW} ${pieR * 2 + 24}`} style={{ width: '100%', height: 'auto', display: 'block', maxHeight: 240 }}>
+              {pieArcs.length === 1
+                ? <circle cx={pieCx} cy={pieCy} r={pieR} fill={pieArcs[0].color} />
+                : pieArcs.map((a, i) => <path key={i} d={a.path} fill={a.color} />)}
+            </svg>
+          )}
+
+          {mode === 'pie' && (
+            <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 6, width: 220, marginLeft: 'auto', marginRight: 'auto' }}>
+              {pieArcs.length === 0 ? (
+                <p style={{ color: 'var(--color-text-muted)', fontStyle: 'italic' }}>No entries in this range yet.</p>
+              ) : pieArcs.map(a => (
+                <div key={a.k} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span style={legendDot(a.color, a.k === 'unlogged')} />
+                  <span style={{ fontSize: '0.78rem', color: 'var(--color-text-muted)', fontWeight: 600 }}>{a.label}</span>
+                  <span style={{ fontSize: '0.78rem', fontWeight: 700, marginLeft: 'auto' }}>{a.v} · {a.pct}%</span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Presets: 10y 5y 35m 13m 13w 6w 30d — each sets both unit and count. */}
+          <div style={{ display: 'flex', justifyContent: 'center', marginTop: 12 }}>
+            <div style={{ display: 'flex', background: CHART_SURFACE_ALT, borderRadius: 999, padding: 3 }}>
+              {CHART_RANGES.map(r => {
+                const on = range.unit === r.unit && range.count === r.count;
+                return (
+                  <button
+                    key={r.id}
+                    onClick={() => setRange({ unit: r.unit, count: r.count })}
+                    style={{
+                      padding: '0.3rem 0.7rem', borderRadius: 999, cursor: 'pointer',
+                      fontSize: '0.75rem', fontWeight: 700,
+                      background: on ? 'var(--color-surface, #fff)' : 'transparent',
+                      border: on ? `1px solid ${CHART_BORDER}` : '1px solid transparent',
+                      color: on ? 'var(--color-text)' : CHART_MUTED,
+                    }}
+                  >
+                    {r.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* − N bars + : the live bar count sits between the two buttons, so a
+              click visibly adds or removes one bar from the chart above. */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 14, marginTop: 10 }}>
+            <button
+              onClick={() => step(-1)}
+              disabled={atMin}
+              title={atMin ? `Minimum ${RANGE_LIMITS[range.unit].min} bars` : 'One fewer bar'}
+              style={{
+                width: 30, height: 30, borderRadius: 15, border: 'none', background: CHART_SURFACE_ALT,
+                color: CHART_MUTED, fontSize: '1.1rem', lineHeight: 1, fontWeight: 700,
+                cursor: atMin ? 'not-allowed' : 'pointer', opacity: atMin ? 0.45 : 1,
+              }}
+            >
+              −
+            </button>
+            <span style={{ fontSize: '0.85rem', fontWeight: 800, minWidth: 62, textAlign: 'center' }}>
+              {barCount} bar{barCount === 1 ? '' : 's'}
+            </span>
+            <button
+              onClick={() => step(1)}
+              disabled={atMax}
+              title={atMax ? `Maximum ${RANGE_LIMITS[range.unit].max} bars` : 'One more bar'}
+              style={{
+                width: 30, height: 30, borderRadius: 15, border: 'none', background: CHART_SURFACE_ALT,
+                color: CHART_MUTED, fontSize: '1.1rem', lineHeight: 1, fontWeight: 700,
+                cursor: atMax ? 'not-allowed' : 'pointer', opacity: atMax ? 0.45 : 1,
+              }}
+            >
+              +
+            </button>
+          </div>
+          <div style={{ fontSize: '0.72rem', fontWeight: 700, color: CHART_MUTED, textAlign: 'center', marginTop: 6 }}>
+            One bar per {unitNoun}
+          </div>
+
+          {/* Legend for the bar bands */}
+          {mode === 'bar' && (
+            <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: 14, marginTop: 12 }}>
+              {[['Did it', MARK_META.done.color], ['No', MARK_META.missed.color], ['Skip', MARK_META.skipped.color]].map(([lbl, col]) => (
+                <div key={lbl} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span style={legendDot(col)} />
+                  <span style={{ fontSize: '0.78rem', color: 'var(--color-text-muted)', fontWeight: 600 }}>{lbl}</span>
+                </div>
+              ))}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span style={legendDot(CHART_SURFACE_ALT, true)} />
+                <span style={{ fontSize: '0.78rem', color: 'var(--color-text-muted)', fontWeight: 600 }}>No entry</span>
+              </div>
+            </div>
+          )}
+        </>
+      )}
+
+      {/* Habit picker — same list as the phone, capped so a long habit list
+          doesn't push the chart off screen. */}
+      <div style={{ marginTop: 18, borderTop: `1px solid ${CHART_BORDER}`, maxHeight: 320, overflowY: 'auto' }}>
+        {pickable.map(h => {
+          const on = selId === h.id;
+          return (
+            <button
+              key={h.id}
+              onClick={() => setSelId(h.id)}
+              style={{
+                display: 'flex', alignItems: 'center', width: '100%', textAlign: 'left',
+                padding: '0.7rem 0.5rem', border: 'none', borderBottom: `1px solid ${CHART_BORDER}`,
+                background: on ? `${ACCENT}14` : 'transparent', cursor: 'pointer',
+                fontSize: '0.9rem', fontWeight: on ? 800 : 600,
+                color: on ? ACCENT : 'var(--color-text)',
+              }}
+            >
+              <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{h.name || 'Untitled'}</span>
+              {on && <span>✓</span>}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function OnHoldView({ habits, onUpdate }) {
   const onHold = useMemo(
     () => habits
