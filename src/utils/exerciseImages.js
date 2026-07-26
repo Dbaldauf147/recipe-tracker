@@ -15,8 +15,22 @@ import { db, auth } from '../firebase';
 const MAX_SIZE = 800; // max width/height in pixels
 const QUALITY = 0.7;  // JPEG compression quality
 
-// In-memory cache (slug -> dataUrl), populated by syncExerciseImages on login.
-// Firestore is the source of truth; this is for instant synchronous reads.
+// Framing (see renderFramedImage): the saved `dataUrl` is pre-cropped to the
+// same aspect ratio the demo popup renders, so every consumer — web thumbnail,
+// web popup, and the read-only mobile app — shows exactly what was framed here
+// without needing to know anything about the transform.
+export const FRAME_ASPECT = 1.3; // width / height, matches the ExerciseDemo box
+const FRAME_OUT_W = 800;         // baked output width in pixels
+// Panning/zoom is stored alongside the photo so "Adjust" can reopen where you
+// left off. Fractions of the frame, so they're resolution-independent.
+export const DEFAULT_TRANSFORM = { zoom: 1, ox: 0, oy: 0 };
+// Skip persisting the un-cropped original once the doc would get close to
+// Firestore's 1 MB limit — the crop still saves, it just can't be re-widened.
+const MAX_DOC_CHARS = 700 * 1024;
+
+// In-memory cache (slug -> { dataUrl, source, transform }), populated by
+// syncExerciseImages on login. Firestore is the source of truth; this is for
+// instant synchronous reads.
 const memoryCache = {};
 
 /**
@@ -34,7 +48,7 @@ export function exerciseImageKey(name) {
 }
 
 /** Compress an image File to a smaller JPEG data URL via canvas. */
-function compressImage(file) {
+export function compressImage(file) {
   return new Promise((resolve, reject) => {
     const img = new Image();
     img.onload = () => {
@@ -55,29 +69,98 @@ function compressImage(file) {
   });
 }
 
+/**
+ * Where an image sits inside a frame, for a given transform. Shared by the live
+ * preview (frame = the on-screen box) and the bake (frame = the output canvas)
+ * so what you drag is exactly what gets saved.
+ *
+ * Starts from a "cover" fit — the whole frame is always filled — then applies
+ * `zoom` and an offset expressed as a fraction of the frame, so the same numbers
+ * describe the same framing at any pixel size.
+ */
+export function framedLayout({ naturalW, naturalH, frameW, frameH, transform }) {
+  const t = { ...DEFAULT_TRANSFORM, ...(transform || {}) };
+  const cover = Math.max(frameW / naturalW, frameH / naturalH);
+  const scale = cover * (t.zoom > 0 ? t.zoom : 1);
+  const width = naturalW * scale;
+  const height = naturalH * scale;
+  // Clamp the pan so an edge can never be dragged inside the frame.
+  const maxOx = Math.max(0, (width - frameW) / 2) / frameW;
+  const maxOy = Math.max(0, (height - frameH) / 2) / frameH;
+  const ox = Math.min(maxOx, Math.max(-maxOx, t.ox || 0));
+  const oy = Math.min(maxOy, Math.max(-maxOy, t.oy || 0));
+  return {
+    width, height, ox, oy, maxOx, maxOy,
+    left: frameW / 2 + ox * frameW - width / 2,
+    top: frameH / 2 + oy * frameH - height / 2,
+  };
+}
+
+/**
+ * Bake a transform into a new JPEG cropped to FRAME_ASPECT — this is what gets
+ * stored as `dataUrl` and rendered everywhere, including the mobile app, which
+ * knows nothing about transforms.
+ */
+export function renderFramedImage(srcDataUrl, transform) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      const frameW = FRAME_OUT_W;
+      const frameH = Math.round(FRAME_OUT_W / FRAME_ASPECT);
+      const { width, height, left, top } = framedLayout({
+        naturalW: img.naturalWidth, naturalH: img.naturalHeight, frameW, frameH, transform,
+      });
+      const canvas = document.createElement('canvas');
+      canvas.width = frameW;
+      canvas.height = frameH;
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = '#fff';
+      ctx.fillRect(0, 0, frameW, frameH);
+      ctx.drawImage(img, left, top, width, height);
+      resolve(canvas.toDataURL('image/jpeg', QUALITY));
+    };
+    img.onerror = () => reject(new Error('Failed to load image'));
+    img.src = srcDataUrl;
+  });
+}
+
 /** Notify render-time consumers (thumbnails, popup) that the cache changed. */
 function notifyChanged() {
   try { window.dispatchEvent(new Event('exercise-images-synced')); } catch { /* SSR */ }
 }
 
-/** Synchronous cache read for an exercise name. */
+/** Synchronous cache read for an exercise name — the framed, ready-to-show photo. */
 export function getCachedExerciseImage(name) {
+  return memoryCache[exerciseImageKey(name)]?.dataUrl || null;
+}
+
+/**
+ * The whole cached record — { dataUrl, source, transform } — for the adjuster,
+ * which reopens on the un-cropped `source` (when we still have it) so a photo
+ * can be re-framed without losing what an earlier crop cut off.
+ */
+export function getCachedExerciseImageRecord(name) {
   return memoryCache[exerciseImageKey(name)] || null;
 }
 
 /**
- * Compress + save a custom photo for an exercise, to memory + Firestore.
- * Returns the compressed data URL. Requires a signed-in user to persist.
+ * Save a framed photo for an exercise, to memory + Firestore. `dataUrl` is the
+ * baked crop everything renders; `source`/`transform` are kept so Adjust can
+ * reopen it. Requires a signed-in user to persist.
  */
-export async function uploadExerciseImage(name, file) {
-  const dataUrl = await compressImage(file);
+export async function saveExerciseImage(name, { dataUrl, source, transform }) {
   const key = exerciseImageKey(name);
-  memoryCache[key] = dataUrl;
+  const record = { dataUrl, source: source || null, transform: transform || { ...DEFAULT_TRANSFORM } };
+  memoryCache[key] = record;
   notifyChanged();
   const uid = auth.currentUser?.uid;
   if (uid) {
+    const payload = { dataUrl, name: (name || '').trim(), transform: record.transform };
+    // Keep the original only while the doc stays comfortably under Firestore's
+    // 1 MB cap; the crop itself is never at risk.
+    if (source && dataUrl.length + source.length < MAX_DOC_CHARS) payload.source = source;
     try {
-      await setDoc(doc(db, 'users', uid, 'exerciseImages', key), { dataUrl, name: (name || '').trim() });
+      await setDoc(doc(db, 'users', uid, 'exerciseImages', key), payload);
     } catch (err) {
       console.error('[exerciseImage] save failed:', err);
     }
@@ -105,7 +188,16 @@ export async function syncExerciseImages(uid) {
   if (!uid) return;
   try {
     const snap = await getDocs(collection(db, 'users', uid, 'exerciseImages'));
-    snap.forEach(d => { memoryCache[d.id] = d.data().dataUrl; });
+    snap.forEach(d => {
+      const v = d.data() || {};
+      memoryCache[d.id] = {
+        dataUrl: v.dataUrl,
+        // Photos saved before framing existed have no stored original; the
+        // adjuster falls back to re-framing the saved image itself.
+        source: v.source || null,
+        transform: v.transform || { ...DEFAULT_TRANSFORM },
+      };
+    });
     notifyChanged();
   } catch (err) {
     console.error('[exerciseImage] sync failed:', err);

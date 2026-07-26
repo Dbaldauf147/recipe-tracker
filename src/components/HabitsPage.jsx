@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { saveField, loadField, loadHabitAutoStatus } from '../utils/firestoreSync';
 import { HABIT_FIELDS, seedHabits, makeHabitId } from '../data/habitsSeed';
+import { yesterdayDate, yesterdayDayKey, yesterdayUnloggedHabits } from '../utils/habitOutstanding';
 
 // Personal habit tracker (Atomic Habits: Cue → Craving → Response → Reward).
 // Gated to baldaufdan@gmail.com in App.jsx. Data lives on the user doc under
@@ -32,6 +33,9 @@ const CADENCE_OPTIONS = ['Daily', 'Weekly', 'Monthly', 'Annually'];
 // Section order for the Routines tab, which groups by cadence/frequency.
 const CADENCE_RANK = { Daily: 0, Weekly: 1, Monthly: 2, Annually: 3 };
 const ACCENT = '#3B6B9C';
+// Dismissal of the "yesterday never got logged" banner, stored as the day key it
+// was dismissed for. Mirrors the mobile app's AsyncStorage key.
+const Y_DISMISS_KEY = 'prepday-habits-yesterday-dismissed';
 
 function routineType(routine) {
   const r = (routine || '').trim();
@@ -452,7 +456,8 @@ const DAY_MENU_OPTIONS = [
 
 // ---- Automatic habit tracking (config + reference hub) ---------------------
 // Rules are stored on the user doc as `habitAutomations`: an array of
-// { id, habitId, source, trigger, threshold, mark, enabled, logic }. This tab
+// { id, habitId, source, trigger, threshold, mark, elseMark, streakMark,
+// enabled, logic }. This tab
 // is the control panel where the rules are authored; the engine that actually
 // fires them (reading Prep Day entries / HealthKit / webhook events and calling
 // setMark) is wired up separately. Sources + triggers are curated below.
@@ -463,6 +468,16 @@ const AUTO_SOURCES = [
   { id: 'healthkit', label: 'Apple Health', icon: '❤️', blurb: 'Reads HealthKit metrics from the iOS app (steps, workouts, sleep, mindfulness).' },
   { id: 'external', label: 'External / webhook', icon: '🔗', blurb: 'Another tool POSTs an event to Prep Day to mark the habit.' },
 ];
+// The mark a rule uses for a day that's part of a 2+-day run of "trigger never
+// fired" — a gap rather than a single rest day. MUST mirror streakMarkFor() in
+// api/run-habit-automations.js: never configured → No (✕) for a workout rule,
+// off for everything else; '' → off (the plain else mark applies).
+function streakMarkOf(rule) {
+  if (rule?.streakMark === undefined) {
+    return rule?.trigger === 'workout_logged' ? 'missed' : '';
+  }
+  return MARK_META[rule.streakMark] ? rule.streakMark : '';
+}
 const AUTO_TRIGGERS = {
   prepday: [
     { id: 'workout_logged', label: 'A workout is logged that day' },
@@ -526,6 +541,144 @@ const WEEKDAY_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 function trackDaysLabel(trackDays) {
   const set = new Set(Array.isArray(trackDays) ? trackDays : []);
   return [1, 2, 3, 4, 5, 6, 0].filter(wd => set.has(wd)).map(wd => WEEKDAY_SHORT[wd]).join(', ');
+}
+
+// ---- Per-habit weekly day (Weekly habits only) --------------------------
+// A Weekly habit can pin the day of the week it's due on, overriding the
+// section's shared schedule. Only the DAY is overridden — the every-N-weeks
+// interval and log anchor stay section-level; the habit is still logged once
+// per week. Stored on the habit as `weekDays`: an array of day names (currently
+// a single day). Absent/empty → use the section schedule (the default). Ignored
+// for non-Weekly cadences. Shared with mobile via the `habits` field.
+function habitWeekDays(h) {
+  return (cadenceCanon(h?.cadence) === 'Weekly' && Array.isArray(h?.weekDays) && h.weekDays.length)
+    ? h.weekDays : null;
+}
+// The weekday offset (0=Sun … 6=Sat, i.e. the offset within the Sun–Sat week) a
+// pinned Weekly habit is due on. null → not pinned (falls back to the section's
+// shared schedule, which counts as due all week for the badge).
+function weeklyDueOffset(h) {
+  const own = habitWeekDays(h);
+  if (!own) return null;
+  const idxs = own.map(d => WD_NAMES.indexOf(d)).filter(n => n >= 0);
+  return idxs.length ? Math.max(...idxs) : null;
+}
+// Has a pinned Weekly habit's day arrived yet this week? Before its day → not
+// yet due, so it doesn't nag early. Not pinned → always "due" (legacy default).
+function weeklyDueYet(h, date = new Date()) {
+  const off = weeklyDueOffset(h);
+  return off == null ? true : date.getDay() >= off;
+}
+// "Sun" short label for a pinned Weekly habit's day, or '' when it isn't pinned.
+function habitWeekDayLabel(h) {
+  const own = habitWeekDays(h);
+  if (!own) return '';
+  const idx = WD_NAMES.indexOf(own[0]);
+  return idx >= 0 ? WEEKDAY_SHORT[idx] : '';
+}
+
+// ---- "Past due": a scheduled occurrence has already gone by, still empty ----
+// Distinct from the current-period "unlogged" red dot (which fires the instant a
+// period opens). Past due means the moment the habit was supposed to be logged
+// has ALREADY passed with the cell left blank:
+//   Daily   — tracked weekdays in the last 7 days *before today* with no mark.
+//             Anchored on the habit's first-ever log so a brand-new habit isn't
+//             read as a week of misses, and off-days (trackDays) are skipped.
+//             Today itself is never counted — it's still in progress.
+//   Weekly  — a pinned day (weekDays) that already passed earlier this week
+//             while the week's cell is empty. Unpinned weeklies have no fixed
+//             day, so they read as merely "due", never past due mid-week.
+//   Monthly / Annually — the scheduled day-of-period (from the section's
+//             habitNextLog recurrence) already passed this period, still empty.
+// Every-N-period schedules (repeatEvery > 1) are left out of the non-daily check
+// to avoid flagging an off-period's passed day as a miss.
+// Returns { count, label } (label = short human reason) or null when not past due.
+const PAST_DUE_DAILY_LOOKBACK = 7;
+function habitPastDue(h, habitLog, nextLogMap, today = new Date()) {
+  const canon = cadenceCanon(h?.cadence);
+  const log = habitLog || {};
+  const t0 = startOfDayLocal(today);
+
+  if (canon === 'Daily') {
+    // Earliest day this habit was ever logged (string compare is chronological
+    // on YYYY-MM-DD keys — no timezone math needed).
+    let firstDayKey = null;
+    for (const k in log) {
+      if (cadenceOfKey(k) !== 'Daily') continue;
+      if (log[k] && log[k][h.id] !== undefined && (firstDayKey === null || k < firstDayKey)) firstDayKey = k;
+    }
+    if (firstDayKey === null) return null; // never logged → "new", not "past due"
+    const missed = [];
+    for (let i = 1; i <= PAST_DUE_DAILY_LOOKBACK; i++) {
+      const d = addDaysLocal(t0, -i);
+      const k = dayKey(d);
+      if (k < firstDayKey) continue;                 // before the habit existed
+      if (!tracksDate(h, d)) continue;               // off-day (e.g. weekends)
+      if ((log[k] || {})[h.id] !== undefined) continue; // already has a mark
+      missed.push(d);
+    }
+    if (missed.length === 0) return null;
+    missed.reverse(); // oldest → newest for a natural "Tue, Wed" read
+    return { count: missed.length, label: `${missed.map(d => WEEKDAY_SHORT[d.getDay()]).join(', ')} left empty` };
+  }
+
+  // Non-daily: only past due when THIS period's cell is still empty.
+  if ((log[periodKey(canon, today)] || {})[h.id] !== undefined) return null;
+  const rec = (nextLogMap && nextLogMap[canon]) || defaultRec(canon);
+  if ((Number(rec.repeatEvery) || 1) > 1) return null; // every-N interval → skip
+
+  if (canon === 'Weekly') {
+    const off = weeklyDueOffset(h);
+    if (off == null) return null;         // unpinned → "due", never past due
+    if (t0.getDay() <= off) return null;  // its day hasn't passed yet this week
+    return { count: 1, label: `Due ${WEEKDAY_SHORT[off]}, still empty` };
+  }
+
+  // Monthly / Annually — find this period's scheduled date and see if it passed.
+  const start = canon === 'Monthly'
+    ? new Date(t0.getFullYear(), t0.getMonth(), 1)
+    : new Date(t0.getFullYear(), 0, 1);
+  const end = canon === 'Monthly'
+    ? new Date(t0.getFullYear(), t0.getMonth() + 1, 0)
+    : new Date(t0.getFullYear(), 11, 31);
+  let sched = null;
+  for (const d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+    if (isScheduledDay(canon, rec, d)) { sched = new Date(d); break; }
+  }
+  if (!sched || startOfDayLocal(sched).getTime() >= t0.getTime()) return null;
+  return { count: 1, label: `Due ${MONTH_ABBR[sched.getMonth()]} ${sched.getDate()}, still empty` };
+}
+
+// A Daily habit's off-days (weekdays not in its trackDays) count as a "skip" —
+// derived on the fly, never written to the log. This tallies those derived
+// skips for the stats/breakdowns, enumerating every day from the earliest
+// logged entry through today so the counts match what the calendars show. An
+// explicit mark on an off-day always wins (it's a real user action). Returns
+// { byMonth: Map<'YYYY-MM', count>, total }.
+function offDaySkips(habits, habitLog) {
+  const daily = (habits || []).filter(hasCustomTrackDays);
+  const empty = { byMonth: new Map(), total: 0 };
+  if (daily.length === 0 || !habitLog) return empty;
+  let minTs = Infinity;
+  for (const k in habitLog) { const ts = periodStart(k); if (ts && ts < minTs) minTs = ts; }
+  if (!isFinite(minTs)) return empty;
+  const start = new Date(minTs); start.setHours(0, 0, 0, 0);
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const byMonth = new Map();
+  let total = 0;
+  for (const d = new Date(start); d <= today; d.setDate(d.getDate() + 1)) {
+    const wd = d.getDay();
+    const key = dayKey(d);
+    const dayMarks = habitLog[key];
+    for (const h of daily) {
+      if (habitTrackDays(h).includes(wd)) continue;      // tracked weekday → not a skip
+      if (dayMarks && dayMarks[h.id]) continue;          // explicit mark wins
+      total++;
+      const mKey = key.slice(0, 7);                      // 'YYYY-MM' (matches byMonth bucketing)
+      byMonth.set(mKey, (byMonth.get(mKey) || 0) + 1);
+    }
+  }
+  return { byMonth, total };
 }
 
 // Period keys in the rolling KPI window for a habit's cadence: last 30 days
@@ -607,6 +760,99 @@ function habitKpiTooltip(h, habitLog) {
     + trackedNote;
 }
 
+// ---- All-time completion count + streaks ----------------------------------
+// Walks a habit's whole history period by period — from the first mark it ever
+// got through the current period — and reports:
+//   completed  — every period marked "Did it" or "Above & Beyond"
+//   current    — the run of completions ending now (an unmarked CURRENT period
+//                doesn't break it; the day/week isn't over yet)
+//   longest    — the best run ever, plus the period keys it spans
+// Streak rules: a completion extends the run. A Skip — explicit, or a Daily
+// habit's untracked weekday — is neutral: it neither extends nor breaks. A "No"
+// or an unmarked past period breaks it (same as the KPI, where unlogged counts
+// as missed). The cadence decides what one "period" is, so a Weekly habit's
+// streak counts weeks, not days.
+const STREAK_MAX_PERIODS = 4000; // ~11 years of daily history — loop backstop
+const EMPTY_STREAK = { completed: 0, current: 0, longest: 0, longestStart: null, longestEnd: null, firstKey: null };
+// Stats live in one Map<habitId, stats> built at the page level (walking a whole
+// history per habit is too costly to redo per render) — this reads out of it.
+const streakOf = (streaks, h) => (streaks && streaks.get(h?.id)) || EMPTY_STREAK;
+function habitStreakStats(h, habitLog) {
+  const empty = EMPTY_STREAK;
+  const id = h?.id;
+  const log = habitLog || {};
+  if (!id) return empty;
+  const canon = cadenceCanon(h.cadence);
+
+  // Earliest period this habit was ever marked — the start of its history.
+  let firstTs = null, firstKey = null;
+  for (const k in log) {
+    if (cadenceOfKey(k) !== canon) continue;
+    if (log[k] && log[k][id] !== undefined) {
+      const ts = periodStart(k);
+      if (firstTs === null || ts < firstTs) { firstTs = ts; firstKey = k; }
+    }
+  }
+  if (firstTs === null) return empty;
+
+  // periodStart() returns a UTC instant; step through LOCAL dates so periodKey()
+  // (which reads local date parts) lands on the same keys the log uses.
+  const s = new Date(firstTs);
+  const cursor = new Date(s.getUTCFullYear(), s.getUTCMonth(), s.getUTCDate());
+  const todayKey = periodKey(canon);
+  const today = startOfDayLocal(new Date());
+
+  let completed = 0, run = 0, runStart = null;
+  let current = 0, longest = 0, longestStart = null, longestEnd = null;
+  for (let i = 0; i < STREAK_MAX_PERIODS; i++) {
+    if (startOfDayLocal(cursor) > today) break;
+    const key = periodKey(canon, cursor);
+    const mark = log[key] ? log[key][id] : undefined;
+    // Daily habits limited to certain weekdays: an off-day with no explicit mark
+    // is a derived skip — neutral, exactly as the strip renders it.
+    const offDay = canon === 'Daily' && !mark && !tracksDate(h, cursor);
+
+    if (mark === 'done' || mark === 'exceeded') {
+      completed++;
+      if (run === 0) runStart = key;
+      run++;
+      if (run > longest) { longest = run; longestStart = runStart; longestEnd = key; }
+    } else if (mark === 'skipped' || offDay) {
+      // Neutral — carries the run across without extending it.
+    } else if (mark === 'missed') {
+      run = 0; runStart = null;
+    } else if (key !== todayKey) {
+      run = 0; runStart = null; // unmarked past period → break
+    }
+    if (key === todayKey) { current = run; break; }
+
+    if (canon === 'Weekly') cursor.setDate(cursor.getDate() + 7);
+    else if (canon === 'Monthly') cursor.setMonth(cursor.getMonth() + 1);
+    else if (canon === 'Annually') cursor.setFullYear(cursor.getFullYear() + 1);
+    else cursor.setDate(cursor.getDate() + 1);
+  }
+  return { completed, current, longest, longestStart, longestEnd, firstKey };
+}
+
+// Plural period noun for the streak read-outs ("12 days", "3 weeks").
+function periodNounPlural(cadence, n) {
+  const noun = periodNoun(cadence);
+  return `${n} ${noun}${n === 1 ? '' : 's'}`;
+}
+
+// Hover text for a habit's streak badge / stat tile — spells out the counts and
+// the rules behind them so the number is never a mystery.
+function habitStreakTooltip(h, st) {
+  const noun = periodNoun(h.cadence);
+  const lines = [
+    `${periodNounPlural(h.cadence, st.completed)} completed all-time`,
+    `Current streak: ${periodNounPlural(h.cadence, st.current)}`,
+    `Longest streak: ${periodNounPlural(h.cadence, st.longest)}${st.longestStart ? ` (${periodLabel(st.longestStart)}${st.longestEnd && st.longestEnd !== st.longestStart ? ` → ${periodLabel(st.longestEnd)}` : ''})` : ''}`,
+    `Skips don’t break a streak — a “No” or an empty past ${noun} does.`,
+  ];
+  return lines.join('\n');
+}
+
 // Targets a pasted habits column can map to (the editable fields + Cadence).
 const HABIT_IMPORT_TARGETS = [...HABIT_FIELDS, { key: 'cadence', label: 'Cadence' }];
 // Header text → field key, for auto-mapping pasted columns.
@@ -634,9 +880,16 @@ export function HabitsPage({ onBack, user }) {
   // Automatic-tracking rules (see AUTO_SOURCES). Stored on the user doc as
   // `habitAutomations`; authored on the Automatic tab.
   const [automations, setAutomations] = useState([]);
-  // Habit ids that are tracked automatically — i.e. have at least one enabled
-  // automation rule targeting them. Drives the "(A)" badge shown next to the
-  // habit's name in the Routines / History tables.
+  // All-time completions + streaks, computed once per (habits, log) change —
+  // walking the whole history is O(periods) per habit, so the Routines rows, the
+  // KPI board and the habit popup all read from this one map.
+  const streaks = useMemo(() => {
+    const m = new Map();
+    for (const h of habits) m.set(h.id, habitStreakStats(h, habitLog));
+    return m;
+  }, [habits, habitLog]);
+  // Habits whose id is targeted by an enabled automation rule. Drives the "(A)"
+  // badge shown next to the habit's name in the Routines / History tables.
   const autoTrackedIds = useMemo(() => {
     const s = new Set();
     for (const r of automations || []) {
@@ -692,6 +945,13 @@ export function HabitsPage({ onBack, user }) {
   const [moveHabitId, setMoveHabitId] = useState(null);
   // The routine pending deletion (shows the delete-routine confirm modal).
   const [deleteRoutineName, setDeleteRoutineName] = useState(null);
+  // "Yesterday never got logged" banner: whether its backfill panel is expanded,
+  // and the day key it was dismissed FOR (persisted, so hiding it today doesn't
+  // hide tomorrow's).
+  const [yOpen, setYOpen] = useState(false);
+  const [yDismissedKey, setYDismissedKey] = useState(() => {
+    try { return localStorage.getItem(Y_DISMISS_KEY); } catch { return null; }
+  });
   const openHabit = openHabitId ? habits.find(h => h.id === openHabitId) || null : null;
   const moveHabit = moveHabitId ? habits.find(h => h.id === moveHabitId) || null : null;
 
@@ -736,8 +996,9 @@ export function HabitsPage({ onBack, user }) {
   // "Auto-skip rest days" — a one-tap wrapper over the Automatic engine's
   // workout rule. On = an enabled prepday `workout_logged` rule that marks the
   // habit Did-it on workout days and (via elseMark) Skip on a finished rest day
-  // (a past day with no workout). Off = remove our rule, or just drop the skip
-  // if the user has customized it into something else.
+  // (a past day with no workout) — or No ✕ once that's the 2nd day in a row with
+  // no workout (streakMark, defaulted by the engine). Off = remove our rule, or
+  // just drop the skip if the user has customized it into something else.
   const workoutRuleFor = (habitId) => (automations || []).find(
     r => r?.habitId === habitId && r.source === 'prepday' && r.trigger === 'workout_logged',
   );
@@ -962,6 +1223,22 @@ export function HabitsPage({ onBack, user }) {
     return { routines, daily, autoreview };
   }, [habits, habitLog]);
 
+  // Daily habits that were due YESTERDAY and never got a mark. A different kind
+  // of warning from the red badges above: that day is over, so these are gaps in
+  // the record until they're backfilled — not something still in progress today.
+  const yesterdayNeeds = useMemo(
+    () => yesterdayUnloggedHabits(habits, habitLog, automations),
+    [habits, habitLog, automations],
+  );
+  const yKey = yesterdayDayKey();
+  const yLabel = yesterdayDate().toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' });
+  const showYesterdayBanner = yesterdayNeeds.length > 0 && yDismissedKey !== yKey;
+  function dismissYesterday() {
+    setYDismissedKey(yKey);
+    setYOpen(false);
+    try { localStorage.setItem(Y_DISMISS_KEY, yKey); } catch { /* private mode */ }
+  }
+
   if (loading) {
     return (
       <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--color-text-muted)' }}>Loading habits…</div>
@@ -981,6 +1258,79 @@ export function HabitsPage({ onBack, user }) {
       <p style={{ fontSize: '0.88rem', color: 'var(--color-text-muted)', margin: '0 0 0.75rem', lineHeight: 1.45 }}>
         Cue → Craving → Response → Reward. The cue is about <em>noticing</em> the reward; the craving is about <em>wanting</em> it.
       </p>
+
+      {/* Yesterday's gaps. Deliberately a DIFFERENT warning from the red
+          current-period badges — orange, past-tense, dismissible, and above the
+          sub-tabs so it shows on every tab — because a finished day can only be
+          fixed by backfilling it. */}
+      {showYesterdayBanner && (
+        <div
+          role="alert"
+          style={{
+            margin: '0 0 0.85rem', padding: '0.6rem 0.8rem',
+            border: '1px solid #fdba74', borderLeft: '4px solid #ea580c',
+            borderRadius: 8, background: '#fff7ed',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+            <span style={{ fontSize: '0.95rem', lineHeight: 1.3 }} aria-hidden="true">🕐</span>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: '0.85rem', fontWeight: 800, color: '#9a3412' }}>
+                Yesterday · {yesterdayNeeds.length} habit{yesterdayNeeds.length > 1 ? 's' : ''} never logged
+              </div>
+              <div style={{ fontSize: '0.78rem', color: '#b45309', marginTop: 2 }}>
+                {yesterdayNeeds.slice(0, 6).map(h => h.name || 'Untitled').join(', ')}
+                {yesterdayNeeds.length > 6 ? ` +${yesterdayNeeds.length - 6} more` : ''}
+              </div>
+              <button
+                onClick={() => setYOpen(o => !o)}
+                style={{
+                  marginTop: 7, padding: '0.32rem 0.75rem', borderRadius: 7, border: 'none',
+                  background: '#ea580c', color: '#fff', fontSize: '0.76rem', fontWeight: 700, cursor: 'pointer',
+                }}
+              >
+                {yOpen ? 'Hide' : 'Log yesterday'}
+              </button>
+            </div>
+            <button
+              onClick={dismissYesterday}
+              title="Dismiss until tomorrow"
+              style={{ border: 'none', background: 'none', color: '#c2410c', fontSize: '0.9rem', cursor: 'pointer', lineHeight: 1, padding: 2 }}
+            >
+              ✕
+            </button>
+          </div>
+
+          {/* Backfill panel — writes straight to yesterday's day key via the same
+              path as the day-menu, so rows drop off as they're marked. */}
+          {yOpen && (
+            <div style={{ marginTop: 10, paddingTop: 8, borderTop: '1px solid #fed7aa', display: 'flex', flexDirection: 'column', gap: 7 }}>
+              <div style={{ fontSize: '0.72rem', fontWeight: 700, color: '#9a3412', textTransform: 'uppercase', letterSpacing: 0.4 }}>
+                {yLabel}
+              </div>
+              {yesterdayNeeds.map(h => (
+                <div key={h.id} style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: '0.8rem', fontWeight: 700, minWidth: 170 }}>{h.name || 'Untitled'}</span>
+                  {MARK_ORDER.map(m => (
+                    <button
+                      key={m}
+                      onClick={() => setMarkForKey(h.id, yKey, m)}
+                      title={`${MARK_META[m].label} — ${yLabel}`}
+                      style={{
+                        fontSize: '0.72rem', fontWeight: 700, padding: '0.28rem 0.55rem', borderRadius: 7,
+                        border: `1px solid ${MARK_META[m].color}`, background: MARK_META[m].color + '14',
+                        color: MARK_META[m].color, cursor: 'pointer',
+                      }}
+                    >
+                      {MARK_META[m].icon} {MARK_META[m].short}
+                    </button>
+                  ))}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Sub-tabs */}
       <div style={{ display: 'flex', gap: 4, borderBottom: '1px solid var(--color-border, #e2e8f0)', marginBottom: '1rem' }}>
@@ -1017,8 +1367,8 @@ export function HabitsPage({ onBack, user }) {
         })}
       </div>
 
-      {tab === 'kpi' && <KpiView habits={habits} habitLog={habitLog} />}
-      {tab === 'routines' && <RoutinesView habits={habits} habitLog={habitLog} habitLogAuto={habitLogAuto} autoTrackedIds={autoTrackedIds} autoStatusFor={autoStatusFor} nextLogMap={habitNextLog} onSetNextLog={setNextLogDate} onUpdate={updateHabit} openMenu={(habitId, key, label) => setDayMenu({ habitId, key, label })} onMove={setMoveHabitId} onReorder={reorderHabits} onSetRoutine={setHabitRoutine} onRenameRoutine={renameRoutine} onDeleteRoutine={setDeleteRoutineName} onBulkMark={setMarksForCells} onOpen={setOpenHabitId} />}
+      {tab === 'kpi' && <KpiView habits={habits} habitLog={habitLog} streaks={streaks} />}
+      {tab === 'routines' && <RoutinesView habits={habits} habitLog={habitLog} habitLogAuto={habitLogAuto} streaks={streaks} autoTrackedIds={autoTrackedIds} autoStatusFor={autoStatusFor} nextLogMap={habitNextLog} onSetNextLog={setNextLogDate} onUpdate={updateHabit} openMenu={(habitId, key, label) => setDayMenu({ habitId, key, label })} onMove={setMoveHabitId} onReorder={reorderHabits} onSetRoutine={setHabitRoutine} onRenameRoutine={renameRoutine} onDeleteRoutine={setDeleteRoutineName} onBulkMark={setMarksForCells} onOpen={setOpenHabitId} />}
       {tab === 'automatic' && <AutomaticView habits={habits} automations={automations} habitLog={habitLog} habitLogAuto={habitLogAuto} onChange={persistAutomations} />}
       {tab === 'autoreview' && <AutoReviewView habits={habits} onUpdate={updateHabit} onOpen={setOpenHabitId} />}
       {tab === 'onhold' && <OnHoldView habits={habits} onUpdate={updateHabit} />}
@@ -1030,6 +1380,7 @@ export function HabitsPage({ onBack, user }) {
       {openHabit && (
         <HabitDetailModal
           habit={openHabit}
+          streak={streaks.get(openHabit.id)}
           onUpdate={updateHabit}
           onDelete={(id) => { deleteHabit(id); setOpenHabitId(null); }}
           onClose={() => setOpenHabitId(null)}
@@ -1205,7 +1556,120 @@ function GratitudeGoal({ heading = true }) {
   return <GoalTile heading={heading} title="Gratitude" count={data.loggedCount} goal={data.goal || GRATITUDE_GOAL} noun="gratitude lines logged today" source="Gratitude" />;
 }
 
-function KpiView({ habits, habitLog }) {
+// Sort options for the streak table — each is a key on habitStreakStats().
+const STREAK_SORTS = [
+  { key: 'longest', label: 'Longest streak' },
+  { key: 'current', label: 'Current streak' },
+  { key: 'completed', label: 'Completed' },
+];
+
+// "Streaks by habit" — all-time completion count + current/longest streak for
+// every habit with any logged history, ranked. The bar shows each habit's
+// longest streak against the best one on the board.
+function StreaksSection({ habits, streaks }) {
+  const [sortKey, setSortKey] = useState('longest');
+  const [showAll, setShowAll] = useState(false);
+  const rows = useMemo(() => {
+    const list = habits
+      .map(h => ({ h, st: streakOf(streaks, h) }))
+      .filter(r => r.st.firstKey); // no marks ever → nothing to rank
+    list.sort((a, b) => (b.st[sortKey] - a.st[sortKey])
+      || (b.st.longest - a.st.longest)
+      || (b.st.completed - a.st.completed)
+      || (a.h.name || '').localeCompare(b.h.name || ''));
+    return list;
+  }, [habits, streaks, sortKey]);
+  const maxLongest = Math.max(1, ...rows.map(r => r.st.longest));
+  const shown = showAll ? rows : rows.slice(0, 12);
+
+  const cellHead = { fontSize: '0.68rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.4, color: 'var(--color-text-muted, #64748b)', padding: '0.3rem 0.4rem', whiteSpace: 'nowrap' };
+  const cell = { padding: '0.35rem 0.4rem', fontSize: '0.82rem', borderTop: '1px solid var(--color-border, #e2e8f0)' };
+  // width:1% shrinks a column to its content — every column but "When" is sized
+  // that way, so the counts sit right beside the habit name instead of drifting
+  // to the far edge, and the bar column soaks up the leftover width.
+  const fitCol = { width: '1%', whiteSpace: 'nowrap' };
+
+  return (
+    <>
+      <h3 style={{ fontSize: '0.95rem', margin: '1.5rem 0 0.35rem' }}>Streaks by habit</h3>
+      <p style={{ fontSize: '0.78rem', color: 'var(--color-text-muted)', margin: '0 0 0.6rem', lineHeight: 1.5 }}>
+        Every period marked “Did it” or “Above & Beyond”, all-time. A <strong>Skip</strong> (including a Daily habit's off-days) carries a streak across; a “No” or an empty past period breaks it. Weekly habits count weeks, monthly count months.
+      </p>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: '0.5rem', flexWrap: 'wrap' }}>
+        <span style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--color-text-muted)' }}>Sort by</span>
+        {STREAK_SORTS.map(s => (
+          <button
+            key={s.key}
+            onClick={() => setSortKey(s.key)}
+            style={{
+              padding: '0.2rem 0.6rem', borderRadius: 999, cursor: 'pointer', fontSize: '0.72rem', fontWeight: 700,
+              border: `1px solid ${sortKey === s.key ? ACCENT : 'var(--color-border, #e2e8f0)'}`,
+              background: sortKey === s.key ? ACCENT + '14' : 'var(--color-surface, #fff)',
+              color: sortKey === s.key ? ACCENT : 'var(--color-text-muted, #64748b)',
+            }}
+          >{s.label}</button>
+        ))}
+      </div>
+      {rows.length === 0 ? (
+        <p style={{ color: 'var(--color-text-muted)', fontSize: '0.82rem' }}>No marks logged yet.</p>
+      ) : (
+        <div style={{ overflowX: 'auto', maxWidth: 720 }}>
+          <table style={{ borderCollapse: 'collapse', width: '100%' }}>
+            <thead>
+              <tr>
+                <th style={{ ...cellHead, ...fitCol, textAlign: 'left' }}>Habit</th>
+                <th style={{ ...cellHead, ...fitCol, textAlign: 'right' }} title="Periods marked “Did it” or “Above & Beyond”, all-time">Completed</th>
+                <th style={{ ...cellHead, ...fitCol, textAlign: 'right' }} title="The run ending right now — today (or this week/month) still counts as open">Current</th>
+                <th style={{ ...cellHead, ...fitCol, textAlign: 'right' }} title="The best run ever">Longest</th>
+                <th style={{ ...cellHead, textAlign: 'left', paddingLeft: '1rem' }}>When</th>
+              </tr>
+            </thead>
+            <tbody>
+              {shown.map(({ h, st }) => {
+                const noun = periodNoun(h.cadence);
+                const isPB = st.longest > 1 && st.current === st.longest;
+                return (
+                  <tr key={h.id} title={habitStreakTooltip(h, st)} style={{ cursor: 'help' }}>
+                    <td style={{ ...cell, ...fitCol, fontWeight: 600, maxWidth: 240, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                        {h.name || <em style={{ color: '#aaa' }}>untitled</em>}
+                        <span style={cadenceTag}>{cadenceCanon(h.cadence)}</span>
+                      </span>
+                    </td>
+                    <td style={{ ...cell, ...fitCol, textAlign: 'right', fontWeight: 700 }}>{st.completed}</td>
+                    <td style={{ ...cell, ...fitCol, textAlign: 'right', fontWeight: 700, color: st.current > 0 ? '#c2410c' : '#cbd5e1' }}>
+                      {st.current > 0 ? `🔥${st.current}` : '—'}
+                    </td>
+                    <td style={{ ...cell, ...fitCol, textAlign: 'right', fontWeight: 800, color: ACCENT }}>
+                      {st.longest}{isPB && <span title="Currently at your personal best" style={{ fontSize: '0.62rem', fontWeight: 800, color: '#c2410c', marginLeft: 4 }}>PB</span>}
+                    </td>
+                    <td style={{ ...cell, paddingLeft: '1rem' }}>
+                      <div style={{ height: 8, background: '#eef2f6', borderRadius: 5, overflow: 'hidden', marginBottom: 3 }}>
+                        <div style={{ width: `${Math.round((st.longest / maxLongest) * 100)}%`, height: '100%', background: ACCENT }} />
+                      </div>
+                      <span style={{ fontSize: '0.68rem', color: 'var(--color-text-muted)', whiteSpace: 'nowrap' }}>
+                        {st.longestStart
+                          ? `${periodLabel(st.longestStart)}${st.longestEnd && st.longestEnd !== st.longestStart ? ` → ${periodLabel(st.longestEnd)}` : ''}`
+                          : `No ${noun} completed yet`}
+                      </span>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+          {rows.length > shown.length && (
+            <button onClick={() => setShowAll(true)} style={{ marginTop: 8, border: 'none', background: 'none', padding: 0, cursor: 'pointer', color: ACCENT, fontSize: '0.78rem', fontWeight: 700 }}>
+              Show all {rows.length} habits
+            </button>
+          )}
+        </div>
+      )}
+    </>
+  );
+}
+
+function KpiView({ habits, habitLog, streaks }) {
   const stats = useMemo(() => {
     const byStatus = {};
     const byType = { daily: 0, weekly: 0, monthly: 0, other: 0, unsorted: 0 };
@@ -1218,14 +1682,24 @@ function KpiView({ habits, habitLog }) {
       if (p != null) { pctSum += p; pctCount++; }
     }
     const active = habits.filter(h => !['Abandoned', 'Not Started', 'Havent Started', 'On Hold'].includes((h.status || '').trim())).length;
+    // Headline streak numbers: the single best run on the board, and how many
+    // habits are on a live streak right now.
+    let best = null, onStreak = 0;
+    for (const h of habits) {
+      const st = streakOf(streaks, h);
+      if (st.current >= 2) onStreak++;
+      if (!best || st.longest > best.st.longest) best = { h, st };
+    }
     return {
       total: habits.length,
       active,
       avgPct: pctCount ? Math.round(pctSum / pctCount) : null,
       byStatus: Object.entries(byStatus).sort((a, b) => b[1] - a[1]),
       byType,
+      best: best && best.st.longest > 0 ? best : null,
+      onStreak,
     };
-  }, [habits, habitLog]);
+  }, [habits, habitLog, streaks]);
 
   // Logged marks bucketed into calendar months, newest first — a time series of
   // how the log breaks down by mark (Above & Beyond / Did it / Skip / No). Any
@@ -1245,10 +1719,16 @@ function KpiView({ habits, habitLog }) {
         if (bucket[mk] != null) { bucket[mk]++; bucket.total++; }
       }
     }
+    // Fold in derived off-day skips (Daily habits limited to certain weekdays).
+    for (const [mKey, n] of offDaySkips(habits, habitLog).byMonth) {
+      let bucket = map.get(mKey);
+      if (!bucket) { bucket = { exceeded: 0, done: 0, skipped: 0, missed: 0, total: 0 }; map.set(mKey, bucket); }
+      bucket.skipped += n; bucket.total += n;
+    }
     const rows = [...map.entries()].sort((a, b) => b[0].localeCompare(a[0]));
     const maxTotal = Math.max(1, ...rows.map(([, b]) => b.total));
     return { rows, maxTotal };
-  }, [habitLog]);
+  }, [habitLog, habits]);
 
   return (
     <div>
@@ -1256,6 +1736,13 @@ function KpiView({ habits, habitLog }) {
         <Kpi label="Total habits" value={stats.total} />
         <Kpi label="Active" value={stats.active} />
         <Kpi label="Avg completion" value={stats.avgPct == null ? '—' : `${stats.avgPct}%`} />
+        <Kpi
+          label="Best streak"
+          value={stats.best ? periodNounPlural(stats.best.h.cadence, stats.best.st.longest) : '—'}
+          hint={stats.best ? stats.best.h.name : null}
+          title={stats.best ? habitStreakTooltip(stats.best.h, stats.best.st) : undefined}
+        />
+        <Kpi label="On a streak" value={stats.onStreak} title="Habits currently on a run of 2 or more completed periods" />
         <Kpi label="Daily" value={stats.byType.daily} />
         <Kpi label="Weekly" value={stats.byType.weekly} />
         <Kpi label="Monthly" value={stats.byType.monthly} />
@@ -1278,6 +1765,8 @@ function KpiView({ habits, habitLog }) {
           );
         })}
       </div>
+
+      <StreaksSection habits={habits} streaks={streaks} />
 
       <h3 style={{ fontSize: '0.95rem', margin: '1.5rem 0 0.35rem' }}>Logged by month</h3>
       <p style={{ fontSize: '0.78rem', color: 'var(--color-text-muted)', margin: '0 0 0.6rem' }}>Every mark you logged, grouped by the month it falls in — newest first.</p>
@@ -1324,11 +1813,14 @@ function KpiView({ habits, habitLog }) {
   );
 }
 
-function Kpi({ label, value }) {
+function Kpi({ label, value, hint, title }) {
   return (
-    <div style={{ background: 'var(--color-surface, #fff)', border: '1px solid var(--color-border, #e2e8f0)', borderRadius: 12, padding: '0.85rem 1.1rem', minWidth: 120 }}>
-      <div style={{ fontSize: '1.5rem', fontWeight: 800, color: ACCENT, lineHeight: 1 }}>{value}</div>
+    <div title={title} style={{ background: 'var(--color-surface, #fff)', border: '1px solid var(--color-border, #e2e8f0)', borderRadius: 12, padding: '0.85rem 1.1rem', minWidth: 120, maxWidth: 200, cursor: title ? 'help' : 'default' }}>
+      <div style={{ fontSize: '1.5rem', fontWeight: 800, color: ACCENT, lineHeight: 1.1 }}>{value}</div>
       <div style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', marginTop: 4, textTransform: 'uppercase', letterSpacing: 0.4 }}>{label}</div>
+      {hint && (
+        <div style={{ fontSize: '0.7rem', color: 'var(--color-text-secondary, #475569)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{hint}</div>
+      )}
     </div>
   );
 }
@@ -1356,7 +1848,7 @@ function StatusSelect({ value, muted, onChange }) {
   );
 }
 
-function RoutinesView({ habits, habitLog, habitLogAuto, autoTrackedIds = new Set(), autoStatusFor = () => '', nextLogMap, onSetNextLog, onUpdate, openMenu, onMove, onReorder, onSetRoutine, onRenameRoutine, onDeleteRoutine, onBulkMark, onOpen }) {
+function RoutinesView({ habits, habitLog, habitLogAuto, streaks, autoTrackedIds = new Set(), autoStatusFor = () => '', nextLogMap, onSetNextLog, onUpdate, openMenu, onMove, onReorder, onSetRoutine, onRenameRoutine, onDeleteRoutine, onBulkMark, onOpen }) {
   // All routine names the user has, in the canonical routine order, for the
   // per-habit routine dropdown.
   const routineOptions = useMemo(() => {
@@ -1407,13 +1899,30 @@ function RoutinesView({ habits, habitLog, habitLogAuto, autoTrackedIds = new Set
       let n = 0;
       for (const h of list) {
         if ((h.status || '').trim() === 'Automatically') continue;
-        if (tracksDate(h) && (habitLog[periodKey(h.cadence)] || {})[h.id] === undefined) n++;
+        if ((habitLog[periodKey(h.cadence)] || {})[h.id] !== undefined) continue; // logged
+        const due = cadenceCanon(h.cadence) === 'Weekly' ? weeklyDueYet(h) : tracksDate(h);
+        if (due) n++;
       }
       counts[cadence] = n;
     }
     return counts;
   }, [groups, habitLog]);
   const totalUnlogged = cadenceUnlogged.Daily + cadenceUnlogged.Weekly + cadenceUnlogged.Monthly + cadenceUnlogged.Annually;
+
+  // Habits whose scheduled occurrence has already passed with the log left
+  // empty — scoped to the current view so the banner matches the rows on screen
+  // (the per-row "Past due" badge in RoutineSection uses the same helper).
+  const pastDueList = useMemo(() => {
+    const out = [];
+    for (const [, list] of visibleGroups) {
+      for (const h of list) {
+        if ((h.status || '').trim() === 'Automatically') continue; // auto-tracked, not the user's to log
+        const info = habitPastDue(h, habitLog, nextLogMap);
+        if (info) out.push({ h, ...info });
+      }
+    }
+    return out;
+  }, [visibleGroups, habitLog, nextLogMap]);
 
   // Search any habit by name — including On Hold habits that don't show in the
   // routines — so you can find one and see its status anywhere.
@@ -1505,6 +2014,35 @@ function RoutinesView({ habits, habitLog, habitLogAuto, autoTrackedIds = new Set
         })}
       </div>
 
+      {/* Past-due warning: scheduled occurrences that already went by unlogged. */}
+      {pastDueList.length > 0 && (
+        <div
+          role="alert"
+          style={{
+            display: 'flex', flexDirection: 'column', gap: 4,
+            margin: '0 0 0.85rem', padding: '0.6rem 0.8rem',
+            border: '1px solid #fca5a5', borderLeft: '4px solid #dc2626',
+            borderRadius: 8, background: '#fef2f2',
+          }}
+        >
+          <div style={{ fontSize: '0.82rem', fontWeight: 800, color: '#b91c1c' }}>
+            ⚠ {pastDueList.length} habit{pastDueList.length > 1 ? 's' : ''} past due
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+            {pastDueList.slice(0, 8).map(({ h, label }) => (
+              <div key={h.id} style={{ fontSize: '0.76rem', color: '#7f1d1d' }}>
+                • <strong style={{ fontWeight: 700 }}>{h.name || 'Untitled'}</strong> — {label}
+              </div>
+            ))}
+            {pastDueList.length > 8 && (
+              <div style={{ fontSize: '0.76rem', color: '#b91c1c', fontWeight: 600 }}>
+                +{pastDueList.length - 8} more
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {visibleGroups.length === 0 ? (
         <p style={{ color: 'var(--color-text-muted)' }}>
           No {(VIEW_TABS.find(t => t.id === view)?.label || view).toLowerCase()} habits.
@@ -1512,7 +2050,7 @@ function RoutinesView({ habits, habitLog, habitLogAuto, autoTrackedIds = new Set
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1.4rem' }}>
           {visibleGroups.map(([cadenceName, list]) => (
-            <RoutineSection key={cadenceName} cadenceName={cadenceName} list={list} habitLog={habitLog} habitLogAuto={habitLogAuto} autoTrackedIds={autoTrackedIds} autoStatusFor={autoStatusFor} nextLogOverride={(nextLogMap || {})[cadenceName] || ''} onSetNextLog={onSetNextLog} onUpdate={onUpdate} openMenu={openMenu} routineOptions={routineOptions} onReorder={onReorder} onSetRoutine={onSetRoutine} onBulkMark={onBulkMark} onOpen={onOpen} />
+            <RoutineSection key={cadenceName} cadenceName={cadenceName} list={list} habitLog={habitLog} habitLogAuto={habitLogAuto} streaks={streaks} autoTrackedIds={autoTrackedIds} autoStatusFor={autoStatusFor} nextLogOverride={(nextLogMap || {})[cadenceName] || ''} onSetNextLog={onSetNextLog} onUpdate={onUpdate} openMenu={openMenu} routineOptions={routineOptions} onReorder={onReorder} onSetRoutine={onSetRoutine} onBulkMark={onBulkMark} onOpen={onOpen} />
           ))}
         </div>
       )}
@@ -1540,9 +2078,13 @@ function WeekStrip({ habit, habitId, habitName, habitLog, habitLogAuto, openMenu
     const d = new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + i);
     const key = dayKey(d);
     const label = d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
-    const mark = habitLog[key] ? habitLog[key][habitId] : undefined;
+    const explicit = habitLog[key] ? habitLog[key][habitId] : undefined;
     const tracked = habit ? tracksDate(habit, d) : true;
-    return { key, label, letter: WEEKDAY_ABBR[i][0], isToday: key === today, mark, tracked, auto: isAutoMark(habitLogAuto, key, habitId, mark) };
+    // Off-days (weekday not in trackDays) read as a derived Skip — shown but not
+    // stored. An explicit mark always wins.
+    const offSkip = !explicit && !tracked;
+    const mark = explicit || (offSkip ? 'skipped' : undefined);
+    return { key, label, letter: WEEKDAY_ABBR[i][0], isToday: key === today, mark, tracked, offSkip, auto: isAutoMark(habitLogAuto, key, habitId, explicit) };
   });
   return (
     <div style={{ display: 'flex', gap: 4 }}>
@@ -1550,17 +2092,17 @@ function WeekStrip({ habit, habitId, habitName, habitLog, habitLogAuto, openMenu
         <button
           key={d.key}
           onClick={() => openMenu(habitId, d.key, `${habitName || 'Habit'} · ${d.label}`)}
-          title={d.tracked ? d.label : `${d.label} · off day (not tracked)`}
+          title={d.offSkip ? `${d.label} · off day — counts as a skip` : d.label}
           style={{
             flex: 1, textAlign: 'center', borderRadius: 6, padding: '3px 0', cursor: 'pointer',
             // A logged mark's colour (green for "Did it") always wins over today's
             // blue highlight, so a completed day reads as green even when it's today.
             border: `1px solid ${d.mark ? MARK_META[d.mark].color + (d.isToday ? '' : '55') : (d.isToday ? ACCENT : '#eef2f6')}`,
             background: d.mark ? MARK_META[d.mark].color + (d.isToday ? '22' : '12') : (d.isToday ? ACCENT + '0f' : 'var(--color-surface, #fff)'),
-            // Off days (e.g. weekends for a weekday habit) are dimmed and, when
-            // unlogged, show a dash instead of the "log me" dot — they don't
-            // count toward completion. A pre-existing mark still shows.
-            opacity: d.tracked || d.mark ? 1 : 0.4,
+            // Off days (e.g. weekends for a weekday habit) show a derived Skip (⏭),
+            // dimmed so they read as auto rather than a mark you tapped. An explicit
+            // mark shows full-strength.
+            opacity: d.offSkip ? 0.55 : 1,
           }}
         >
           <div style={{ fontSize: '0.58rem', fontWeight: 700, color: d.mark ? MARK_META[d.mark].color : (d.isToday ? ACCENT : '#94a3b8') }}>{d.letter}</div>
@@ -1749,7 +2291,7 @@ function DeleteRoutineModal({ name, count, onUnsort, onDeleteHabits, onClose }) 
 // One cadence section (Daily / Weekly / …). Inside it, habits are split into
 // their named routine (or "No routine"), and can be dragged to reorder within
 // a routine. Grab the ⠿ handle to drag; each row has a routine dropdown.
-function RoutineSection({ cadenceName, list, habitLog, habitLogAuto, autoTrackedIds = new Set(), autoStatusFor = () => '', nextLogOverride, onSetNextLog, onUpdate, openMenu, routineOptions, onReorder, onSetRoutine, onBulkMark, onOpen }) {
+function RoutineSection({ cadenceName, list, habitLog, habitLogAuto, streaks, autoTrackedIds = new Set(), autoStatusFor = () => '', nextLogOverride, onSetNextLog, onUpdate, openMenu, routineOptions, onReorder, onSetRoutine, onBulkMark, onOpen }) {
   const [drag, setDrag] = useState(null); // { id, groupKey }
   const [editingNext, setEditingNext] = useState(false);
   // Weekly table bulk-edit: when on, clicking cells/headers/rows selects them
@@ -1787,11 +2329,21 @@ function RoutineSection({ cadenceName, list, habitLog, habitLogAuto, autoTracked
     return [220, ...Array(weekCols.length).fill(periodColW), 46, 130];
   });
   const isAuto = h => (h.status || '').trim() === 'Automatically';
-  const activeList = list.filter(h => !isAuto(h));
-  const autoList = list.filter(isAuto);
+  // The "Automatic" block at the bottom is only for habits an enabled rule logs
+  // on its own. Habits with the manual `status:'Automatically'` opt-out sit in
+  // their routine group with everything else (green "A" badge, still loggable) —
+  // they're just never counted as needing a mark. Mirrors the mobile Routines tab.
+  const activeList = list.filter(h => !autoTrackedIds.has(h.id));
+  const autoList = list.filter(h => autoTrackedIds.has(h.id));
   // Red count of trackable habits whose current period is still unlogged
   // (daily habits that are off today don't count as needing a mark).
-  const uncompleted = activeList.filter(h => tracksDate(h) && (habitLog[periodKey(h.cadence)] || {})[h.id] === undefined).length;
+  const uncompleted = activeList.filter(h => {
+    if (isAuto(h)) return false; // established — not the user's to log
+    if ((habitLog[periodKey(h.cadence)] || {})[h.id] !== undefined) return false; // already logged
+    // A pinned Weekly habit isn't "due" until its day of the week arrives.
+    if (cadenceCanon(h.cadence) === 'Weekly') return weeklyDueYet(h);
+    return tracksDate(h);
+  }).length;
 
   // Sub-group active habits by routine. activeList is already sorted
   // (routine rank → manual order → name), so groups emerge in routine order and
@@ -1887,7 +2439,13 @@ function RoutineSection({ cadenceName, list, habitLog, habitLogAuto, autoTracked
   // opening the single-cell menu. Automatic (muted) habits render read-only.
   const weeklyRow = (h, muted, groupKey, groupItems) => {
     const pct = habitKpi(h, habitLog);
+    const streak = streakOf(streaks, h);
     const dragging = drag?.id === h.id;
+    // Scheduled occurrence already gone by, still empty (same helper the top-of-
+    // page banner uses). Automatic habits aren't the user's to log, so skip them.
+    const pastDue = (muted || isAuto(h)) ? null : habitPastDue(h, habitLog, {
+      [cadenceCanon(h.cadence)]: (nextLogOverride && typeof nextLogOverride === 'object') ? nextLogOverride : undefined,
+    });
     const rowSel = !muted && weekCols.length > 0 && weekCols.every(w => selected.has(cellId(h.id, w.key)));
     const tdBase = { borderBottom: `1px solid ${borderCol}`, padding: '3px 6px' };
     return (
@@ -1912,9 +2470,59 @@ function RoutineSection({ cadenceName, list, habitLog, habitLogAuto, autoTracked
               onClick={bulkMode && !muted ? () => toggleRow(h.id) : undefined}
               onDoubleClick={() => onOpen?.(h.id)}
               title={bulkMode && !muted ? 'Click to select this habit’s whole row (double-click to open)' : 'Double-click to open habit'}
-              style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: '0.82rem', fontWeight: 600, color: muted ? '#94a3b8' : 'inherit', cursor: bulkMode && !muted ? 'pointer' : 'default', textDecoration: rowSel ? 'underline' : 'none' }}
+              style={{ flex: '0 1 auto', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: '0.82rem', fontWeight: 600, color: muted ? '#94a3b8' : 'inherit', cursor: bulkMode && !muted ? 'pointer' : 'default', textDecoration: rowSel ? 'underline' : 'none' }}
             >{h.name || <em style={{ color: '#aaa' }}>untitled</em>}</span>
+            {habitWeekDayLabel(h) && (
+              <span
+                title={`Scheduled for ${capWord(habitWeekDays(h)[0])}`}
+                style={{ flexShrink: 0, fontSize: '0.62rem', fontWeight: 700, color: ACCENT, background: ACCENT + '14', border: `1px solid ${ACCENT}33`, borderRadius: 5, padding: '1px 5px', lineHeight: 1.4 }}
+              >{habitWeekDayLabel(h)}</span>
+            )}
             {autoTrackedIds.has(h.id) && <AutoNameBadge />}
+            {/* Status "Automatically" rows sit inline with the rest now, so the
+                badge is what tells them apart (the old "Automatic" heading did). */}
+            {!autoTrackedIds.has(h.id) && isAuto(h) && <AutoNameBadge title="Status: Automatically — no need to log" />}
+            {/* One streak pill, not two. On a live run (2+) it shows 🔥current;
+                when that run ties the all-time best it turns gold with 🏆 (you're
+                AT your record — no need for a second badge). With no live run,
+                show the muted all-time best 🏆longest instead. */}
+            {(() => {
+              const onRun = streak.current >= 2;
+              const atBest = onRun && streak.current === streak.longest;
+              if (onRun) {
+                return (
+                  <span
+                    title={habitStreakTooltip(h, streak)}
+                    style={{
+                      flexShrink: 0, fontSize: '0.62rem', fontWeight: 800, borderRadius: 5, padding: '1px 5px',
+                      lineHeight: 1.4, whiteSpace: 'nowrap', cursor: 'help',
+                      color: atBest ? '#a16207' : '#c2410c',
+                      background: atBest ? '#fef9c3' : '#ffedd5',
+                      border: `1px solid ${atBest ? '#eab308' : '#fed7aa'}`,
+                    }}
+                  >{atBest ? '🏆' : '🔥'}{streak.current}</span>
+                );
+              }
+              if (streak.longest >= 2) {
+                return (
+                  <span
+                    title={habitStreakTooltip(h, streak)}
+                    style={{
+                      flexShrink: 0, fontSize: '0.62rem', fontWeight: 700, borderRadius: 5, padding: '1px 5px',
+                      lineHeight: 1.4, whiteSpace: 'nowrap', cursor: 'help',
+                      color: '#94a3b8', background: '#f1f5f9', border: '1px solid #e2e8f0',
+                    }}
+                  >🏆{streak.longest}</span>
+                );
+              }
+              return null;
+            })()}
+            {pastDue && (
+              <span
+                title={`Past due — ${pastDue.label}`}
+                style={{ flexShrink: 0, fontSize: '0.62rem', fontWeight: 800, color: '#fff', background: '#dc2626', border: '1px solid #dc2626', borderRadius: 5, padding: '1px 5px', lineHeight: 1.4, whiteSpace: 'nowrap' }}
+              >Past due{pastDue.count > 1 ? ` ·${pastDue.count}` : ''}</span>
+            )}
           </div>
         </td>
         {weekCols.map(w => {
@@ -1925,10 +2533,12 @@ function RoutineSection({ cadenceName, list, habitLog, habitLogAuto, autoTracked
           // (mirrors the old day-strip) so untracked days read as inactive.
           const off = !muted && w.date && cadenceCanon(h.cadence) === 'Daily' && !tracksDate(h, w.date);
           const disabled = muted || off;
+          // Off-days show a derived Skip (⏭) — not stored, not clickable.
+          const shown = mark || (off ? 'skipped' : undefined);
           // Auto-tracked habits: explain on hover why this cell was / wasn't
           // auto-recorded, appended to the normal date/action tooltip.
           const autoTip = off ? '' : autoStatusFor(h.id, w.key, mark);
-          const baseTip = off ? 'Not tracked on this day' : (muted ? '' : (bulkMode ? 'Click to select' : w.fullLabel));
+          const baseTip = off ? 'Off day — counts as a skip' : (muted ? '' : (bulkMode ? 'Click to select' : w.fullLabel));
           const cellTitle = [baseTip, autoTip].filter(Boolean).join(' — ') || undefined;
           return (
             <td key={w.key} title={disabled ? cellTitle : undefined} style={{ ...tdBase, padding: 2, borderLeft: `1px ${w.isNext ? 'dashed' : 'solid'} ${borderCol}`, textAlign: 'center', background: off ? '#f8fafc' : ((w.isCurrent && !mark) ? ACCENT + '08' : undefined) }}>
@@ -1941,20 +2551,21 @@ function RoutineSection({ cadenceName, list, habitLog, habitLogAuto, autoTracked
                   cursor: disabled ? 'default' : 'pointer', borderRadius: 5,
                   // A logged mark's colour (green for "Did it") always wins over the
                   // current-period blue tint, so a completed cell reads as green.
-                  border: sel ? `2px solid ${ACCENT}` : (mark ? `1px solid ${MARK_META[mark].color}66` : '1px solid transparent'),
-                  background: sel ? ACCENT + '22' : (mark ? MARK_META[mark].color + '22' : 'transparent'),
-                  color: mark ? MARK_META[mark].color : '#d1d5db', fontWeight: 800, fontSize: '0.9rem',
-                  opacity: off ? 0.3 : (w.isNext && !mark && !sel ? 0.5 : 1),
+                  border: sel ? `2px solid ${ACCENT}` : (shown ? `1px solid ${MARK_META[shown].color}66` : '1px solid transparent'),
+                  background: sel ? ACCENT + '22' : (shown ? MARK_META[shown].color + '22' : 'transparent'),
+                  color: shown ? MARK_META[shown].color : '#d1d5db', fontWeight: 800, fontSize: '0.9rem',
+                  // Derived off-day skips render dimmer than a mark you tapped.
+                  opacity: off ? 0.5 : (w.isNext && !mark && !sel ? 0.5 : 1),
                 }}
               >
-                {off ? '' : (mark ? MARK_META[mark].icon : '·')}
+                {shown ? MARK_META[shown].icon : '·'}
                 {auto && <span title="Automatically logged" style={{ fontSize: '0.5rem', fontWeight: 800, color: '#2563eb', verticalAlign: 'super', marginLeft: 1 }}>A</span>}
               </button>
             </td>
           );
         })}
         {/* % completion + routine dropdown live on the far right. */}
-        <td title={habitKpiTooltip(h, habitLog)} style={{ ...tdBase, borderLeft: `1px solid ${borderCol}`, textAlign: 'center', fontSize: '0.78rem', color: muted ? '#cbd5e1' : 'var(--color-text-muted)', cursor: 'help' }}>{pct != null ? `${pct}%` : ''}</td>
+        <td title={`${habitKpiTooltip(h, habitLog)}\n\n${habitStreakTooltip(h, streak)}`} style={{ ...tdBase, borderLeft: `1px solid ${borderCol}`, textAlign: 'center', fontSize: '0.78rem', color: muted ? '#cbd5e1' : 'var(--color-text-muted)', cursor: 'help' }}>{pct != null ? `${pct}%` : ''}</td>
         <td style={{ ...tdBase, borderLeft: `1px solid ${borderCol}`, textAlign: 'center' }}>
           {!bulkMode && (
             <select
@@ -1980,6 +2591,28 @@ function RoutineSection({ cadenceName, list, habitLog, habitLogAuto, autoTracked
   // Next date the user will need to log this cadence's habits.
   const nextLog = (() => {
     const today = new Date();
+    // Weekly with per-habit pinned days: each habit's own day overrides the
+    // section day (the every-N-weeks interval/anchor stay section-level). Show
+    // the SOONEST upcoming habit, and "Due now" once any pinned day has arrived
+    // this week (mirrors the uncompleted badge). Falls through to the shared
+    // logic below when no habit in this section is pinned.
+    if (canon === 'Weekly' && activeList.some(h => habitWeekDays(h))) {
+      let soonest = null, anyDueNow = false;
+      for (const h of activeList) {
+        const loggedThisWeek = (habitLog[periodKey('Weekly')] || {})[h.id] !== undefined;
+        if (!loggedThisWeek && weeklyDueYet(h, today)) anyDueNow = true;
+        const own = habitWeekDays(h);
+        const hRec = own ? { ...(rec || defaultRec('Weekly')), weekDays: own } : rec;
+        if (hRec) {
+          const { date } = nextRecurrenceDate('Weekly', hRec, [h], habitLog, loggedThisWeek);
+          if (!soonest || date < soonest) soonest = date;
+        }
+      }
+      if (anyDueNow) return { dueNow: true, date: today, isRecurring: true };
+      if (soonest) return { dueNow: false, date: soonest, isRecurring: true };
+      const d = sundayOf(today); d.setDate(d.getDate() + 7);
+      return { dueNow: false, date: d, isRecurring: false };
+    }
     if (rec) {
       const { date, dueNow } = nextRecurrenceDate(canon, rec, activeList, habitLog, uncompleted === 0);
       return { dueNow, date, isRecurring: true };
@@ -2454,6 +3087,25 @@ function AutomaticView({ habits, automations, habitLog = {}, habitLogAuto = {}, 
                         </select>
                       </>
                     )}
+                    {/* Two finished days in a row with no trigger is a gap, not a
+                        rest day — this mark beats "else" on the 2nd day and every
+                        day after. Unset on a workout rule = No (✕). */}
+                    {habit && cadenceCanon(habit.cadence) === 'Daily' && r.source === 'prepday' && (
+                      <>
+                        <span
+                          style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)' }}
+                          title="Applied to a past day when the trigger didn't fire on it OR on the day before — 2+ days in a row. Beats the else mark. Never marks today."
+                        >· 2 days in a row →</span>
+                        <select
+                          value={streakMarkOf(r)}
+                          onChange={e => updateRule(r.id, { streakMark: e.target.value })}
+                          style={{ ...selectStyle, color: streakMarkOf(r) ? MARK_META[streakMarkOf(r)]?.color : undefined, fontWeight: streakMarkOf(r) ? 700 : 400 }}
+                        >
+                          <option value="">— same as else</option>
+                          {MARK_ORDER.map(m => <option key={m} value={m}>{MARK_META[m].icon} {MARK_META[m].label}</option>)}
+                        </select>
+                      </>
+                    )}
                   </div>
 
                   {/* Row 2.5: live status — the habit's mark this cycle and the one before */}
@@ -2796,21 +3448,29 @@ function renderHistoryRow(h, isAuto, cols, currentKey, habitLog, openMenu, autoT
       </td>
       {cols.map(c => {
         const mk = habitLog[c.key] ? habitLog[c.key][h.id] : undefined;
-        const assumeDone = isAuto && !mk && c.key <= currentKey;
+        // Off-day for a Daily habit with no explicit mark → derived Skip (⏭).
+        let offSkip = false;
+        if (!mk && cadenceCanon(h.cadence) === 'Daily') {
+          const ts = periodStart(c.key);
+          if (ts) offSkip = !tracksDate(h, new Date(ts));
+        }
+        const assumeDone = isAuto && !mk && !offSkip && c.key <= currentKey;
         // For auto-tracked habits, hover shows why the cell was / wasn't recorded.
         const autoTip = autoStatusFor(h.id, c.key, mk);
         return (
           <td
             key={c.key}
             onClick={() => openMenu(h.id, c.key, `${h.name || 'Habit'} · ${periodLabel(c.key)}`)}
-            title={autoTip || 'Edit'}
+            title={offSkip ? 'Off day — counts as a skip' : (autoTip || 'Edit')}
             style={{ ...histCellTd, cursor: 'pointer', background: c.key === currentKey ? ACCENT + '0a' : rowBg }}
           >
             {mk
               ? <span title={MARK_META[mk].label} style={{ color: MARK_META[mk].color, fontWeight: 800, fontSize: '0.9rem' }}>{MARK_META[mk].icon}</span>
-              : assumeDone
-                ? <span title="Automatic — assumed done" style={{ color: MARK_META.done.color, opacity: 0.4, fontWeight: 800, fontSize: '0.9rem' }}>{MARK_META.done.icon}</span>
-                : <span style={{ color: '#d1d5db' }}>·</span>}
+              : offSkip
+                ? <span title="Off day — counts as a skip" style={{ color: MARK_META.skipped.color, opacity: 0.5, fontWeight: 800, fontSize: '0.9rem' }}>{MARK_META.skipped.icon}</span>
+                : assumeDone
+                  ? <span title="Automatic — assumed done" style={{ color: MARK_META.done.color, opacity: 0.4, fontWeight: 800, fontSize: '0.9rem' }}>{MARK_META.done.icon}</span>
+                  : <span style={{ color: '#d1d5db' }}>·</span>}
           </td>
         );
       })}
@@ -2853,8 +3513,10 @@ function HistoryView({ habitLog, habits, onImport, openMenu, autoTrackedIds = ne
   const totals = useMemo(() => {
     const t = { exceeded: 0, done: 0, skipped: 0, missed: 0 };
     for (const k in habitLog) for (const id in habitLog[k]) { const mk = habitLog[k][id]; if (t[mk] != null) t[mk]++; }
+    // Derived off-day skips (Daily habits limited to certain weekdays) count too.
+    t.skipped += offDaySkips(habits, habitLog).total;
     return t;
-  }, [habitLog]);
+  }, [habitLog, habits]);
   const loggedIds = useMemo(() => {
     const s = new Set();
     for (const k in habitLog) for (const id in habitLog[k]) s.add(id);
@@ -3435,9 +4097,10 @@ function HabitsTable({ habits, onUpdate, onDelete, onOpen, onBulkUpdate, onBulkD
 // Full habit editor popup. Opened by clicking a habit's name on the Habits
 // tab. Every edit persists immediately via onUpdate (which saves to Firestore).
 // The headline control is the tracking-cadence selector.
-function HabitDetailModal({ habit, onUpdate, onDelete, onClose, autoSkipOn = false, onToggleAutoSkip }) {
+function HabitDetailModal({ habit, streak: streakProp, onUpdate, onDelete, onClose, autoSkipOn = false, onToggleAutoSkip }) {
   const h = habit;
   const cadence = (h.cadence || '').trim();
+  const streak = streakProp || EMPTY_STREAK;
   const field = (key, label, opts = {}) => (
     <label style={fieldWrap}>
       <span style={fieldLabel}>{label}</span>
@@ -3466,6 +4129,28 @@ function HabitDetailModal({ habit, onUpdate, onDelete, onClose, autoSkipOn = fal
           />
           <button onClick={onClose} aria-label="Close" style={{ border: 'none', background: 'none', fontSize: '1.5rem', lineHeight: 1, cursor: 'pointer', color: 'var(--color-text-muted)' }}>×</button>
         </div>
+
+        {/* All-time record — completions + streaks, read straight from the log */}
+        {streak.firstKey && (
+          <div style={{ display: 'flex', gap: 8, marginBottom: '1.1rem', flexWrap: 'wrap' }} title={habitStreakTooltip(h, streak)}>
+            {[
+              { label: `${capWord(periodNoun(cadence))}s completed`, value: streak.completed, color: ACCENT },
+              { label: 'Current streak', value: streak.current > 0 ? `🔥 ${streak.current}` : '—', color: streak.current > 0 ? '#c2410c' : '#94a3b8' },
+              { label: 'Longest streak', value: streak.longest, color: ACCENT },
+            ].map(s => (
+              <div key={s.label} style={{ flex: '1 1 120px', background: 'var(--color-surface-alt, #f8fafc)', border: '1px solid var(--color-border, #e2e8f0)', borderRadius: 10, padding: '0.55rem 0.7rem', cursor: 'help' }}>
+                <div style={{ fontSize: '1.25rem', fontWeight: 800, color: s.color, lineHeight: 1.1 }}>{s.value}</div>
+                <div style={{ fontSize: '0.66rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.4, color: 'var(--color-text-muted, #64748b)', marginTop: 2 }}>{s.label}</div>
+              </div>
+            ))}
+          </div>
+        )}
+        {streak.longestStart && (
+          <div style={{ fontSize: '0.72rem', color: 'var(--color-text-muted)', margin: '-0.8rem 0 1.1rem', lineHeight: 1.4 }}>
+            Best run: {periodLabel(streak.longestStart)}{streak.longestEnd && streak.longestEnd !== streak.longestStart ? ` → ${periodLabel(streak.longestEnd)}` : ''}
+            {' · '}since {periodLabel(streak.firstKey)}
+          </div>
+        )}
 
         {/* Tracking cadence — the core of this popup */}
         <div style={{ marginBottom: '1.1rem' }}>
@@ -3530,6 +4215,39 @@ function HabitDetailModal({ habit, onUpdate, onDelete, onClose, autoSkipOn = fal
           </div>
         )}
 
+        {/* Day of week — only for Weekly habits. Pins this habit to one day,
+            overriding the Weekly section's shared schedule. Off = section default. */}
+        {cadenceCanon(cadence) === 'Weekly' && (
+          <div style={{ marginBottom: '1.1rem' }}>
+            <div style={{ ...fieldLabel, marginBottom: 6 }}>Day of week</div>
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+              {[{ wd: 0, l: 'Sun' }, { wd: 1, l: 'Mon' }, { wd: 2, l: 'Tue' }, { wd: 3, l: 'Wed' }, { wd: 4, l: 'Thu' }, { wd: 5, l: 'Fri' }, { wd: 6, l: 'Sat' }].map(({ wd, l }) => {
+                const on = (habitWeekDays(h) || [])[0] === WD_NAMES[wd];
+                return (
+                  <button
+                    key={wd}
+                    type="button"
+                    // Single day: pick replaces, tapping the active one clears
+                    // back to the section default ([] = not pinned).
+                    onClick={() => onUpdate(h.id, 'weekDays', on ? [] : [WD_NAMES[wd]])}
+                    style={{
+                      minWidth: 46, padding: '0.45rem 0.6rem', borderRadius: 999, cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600,
+                      border: `1px solid ${on ? ACCENT : 'var(--color-border, #e2e8f0)'}`,
+                      background: on ? ACCENT : 'var(--color-surface, #fff)',
+                      color: on ? '#fff' : 'var(--color-text-muted, #64748b)',
+                    }}
+                  >
+                    {l}
+                  </button>
+                );
+              })}
+            </div>
+            <div style={{ fontSize: '0.72rem', color: 'var(--color-text-muted)', marginTop: 6, lineHeight: 1.4 }}>
+              Pins this habit to one day — it won't show as due until that day, and the Routines “Next log” reflects it. Leave off to use the Weekly section's shared schedule. Still logged once per week.
+            </div>
+          </div>
+        )}
+
         {/* Auto-skip rest days — one-tap wrapper over the Automatic engine's
             workout rule. Daily habits only (the rest-day skip is per-day). */}
         {cadenceCanon(cadence) === 'Daily' && onToggleAutoSkip && (
@@ -3557,7 +4275,7 @@ function HabitDetailModal({ habit, onUpdate, onDelete, onClose, autoSkipOn = fal
               }}>{autoSkipOn ? 'On' : 'Off'}</span>
             </button>
             <div style={{ fontSize: '0.72rem', color: 'var(--color-text-muted)', marginTop: 6, lineHeight: 1.4 }}>
-              Marks this habit <strong>Skip</strong> on a finished day with no workout logged, and <strong>Did it</strong> on days you work out. Runs hourly, never changes today. Adds a rule you can fine-tune on the Automatic tab.
+              Marks this habit <strong>Skip</strong> on a finished day with no workout logged, and <strong>Did it</strong> on days you work out. Two or more days in a row with no workout get a <strong>No&nbsp;✕</strong> instead of a Skip. Runs hourly, never changes today. Adds a rule you can fine-tune on the Automatic tab.
             </div>
           </div>
         )}

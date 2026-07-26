@@ -50,7 +50,10 @@ const HEADER_HINTS = [
   [/^description$|scraped/i, 'description'],
   [/^takenJoanne$|taken[\s_-]?joanne/i, 'takenJoanne'],
 
-  [/^place$|name|restaurant|spot/i, 'name'],
+  // "Title" is the place-name column in Google Maps / Takeout saved-list
+  // exports; "Comment"/"Note" carry the user's note there.
+  [/^place$|^title$|name|restaurant|spot/i, 'name'],
+  [/^comment$/i, 'notes'],
   [/^meal$|^when$|when to eat/i, 'mealAndFrequency'],
   // Exact "categories" (the exporter header) → the voting categories field,
   // before the broader cuisine matcher below so it isn't swallowed.

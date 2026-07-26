@@ -1929,6 +1929,92 @@ export async function deleteSpotComment(commentId) {
   await deleteDoc(doc(db, 'eatingOutComments', commentId));
 }
 
+/* ---- Collaborative per-place ratings ------------------------------------
+ * A top-level `eatingOutRatings` collection, same model as `eatingOutComments`:
+ * both a spot's owner and anyone they've shared their Eating Out list with can
+ * read every rating and write their OWN. Each place is keyed by the
+ * (ownerUid, spotId) pair; each voter has exactly ONE doc per place, at the
+ * deterministic id `${ownerUid}__${spotId}__${authorUid}`, so re-submitting
+ * updates that voter's scores in place and can never touch anyone else's.
+ *
+ * Requires Firestore rules allowing authed users to read `eatingOutRatings`
+ * and to create/update/delete only docs whose `authorUid` is their own uid
+ * (see the rules block shared with the app owner).
+ * Each doc: { ownerUid, spotId, authorUid, authorUsername,
+ *             scores: { food, service, atmosphere, price }, updatedAt }.
+ */
+function ratingDocId(ownerUid, spotId, authorUid) {
+  return `${ownerUid}__${spotId}__${authorUid}`;
+}
+
+// Live per-spot ratings (all voters) — for the place's detail/edit view.
+export function subscribeSpotRatings(ownerUid, spotId, cb) {
+  if (!ownerUid || !spotId) { cb([]); return () => {}; }
+  const q = query(
+    collection(db, 'eatingOutRatings'),
+    where('ownerUid', '==', ownerUid),
+    where('spotId', '==', spotId),
+  );
+  return onSnapshot(
+    q,
+    snap => cb(snap.docs.map(d => ({ id: d.id, ...d.data() }))),
+    () => cb([]), // rules not yet in place / offline — fail soft to empty
+  );
+}
+
+// Live ratings for every visible owner's spots — for the compact card badges.
+// Returns a map keyed by `${ownerUid}__${spotId}` → array of rating docs.
+// Firestore `in` takes up to 30 values, so owners are chunked and merged.
+export function subscribeEatingOutRatings(ownerUids, cb) {
+  const owners = [...new Set((ownerUids || []).filter(Boolean))];
+  if (owners.length === 0) { cb({}); return () => {}; }
+  const chunks = [];
+  for (let i = 0; i < owners.length; i += 30) chunks.push(owners.slice(i, i + 30));
+  const byChunk = chunks.map(() => []);
+  const emit = () => {
+    const map = {};
+    for (const docs of byChunk) {
+      for (const d of docs) {
+        const key = `${d.ownerUid}__${d.spotId}`;
+        (map[key] = map[key] || []).push(d);
+      }
+    }
+    cb(map);
+  };
+  const unsubs = chunks.map((chunk, i) => onSnapshot(
+    query(collection(db, 'eatingOutRatings'), where('ownerUid', 'in', chunk)),
+    snap => { byChunk[i] = snap.docs.map(d => ({ id: d.id, ...d.data() })); emit(); },
+    () => { byChunk[i] = []; emit(); },
+  ));
+  return () => unsubs.forEach(u => u && u());
+}
+
+// Upsert the current user's scores for a place. `scores` is a map of
+// category → (1–5 | null). When every category is empty the doc is removed.
+export async function setEatingOutRating(ownerUid, spotId, { authorUid, authorUsername, scores }) {
+  if (!ownerUid || !spotId || !authorUid) return;
+  const clean = {};
+  for (const k of ['food', 'service', 'atmosphere', 'price']) {
+    const v = scores?.[k];
+    clean[k] = (typeof v === 'number' && v >= 1 && v <= 5) ? Math.round(v) : null;
+  }
+  const ref = doc(db, 'eatingOutRatings', ratingDocId(ownerUid, spotId, authorUid));
+  if (Object.values(clean).every(v => v == null)) { await deleteDoc(ref); return; }
+  await setDoc(ref, {
+    ownerUid,
+    spotId,
+    authorUid,
+    authorUsername: authorUsername || '',
+    scores: clean,
+    updatedAt: new Date().toISOString(),
+  }, { merge: true });
+}
+
+export async function deleteEatingOutRating(ownerUid, spotId, authorUid) {
+  if (!ownerUid || !spotId || !authorUid) return;
+  await deleteDoc(doc(db, 'eatingOutRatings', ratingDocId(ownerUid, spotId, authorUid)));
+}
+
 /**
  * Save the Eating Out master vocabulary lists (the curated Cuisines and
  * Categories a user manages from the ⚙ Settings panel). These seed the

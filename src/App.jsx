@@ -1,8 +1,9 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useRecipes } from './hooks/useRecipes';
 import { useAuth } from './contexts/AuthContext';
-import { saveField, getPendingRequests, getPendingSharedRecipes, loadFriends, loadFriendShoppingList, loadFriendEatingOut, getUsername } from './utils/firestoreSync';
+import { saveField, loadField, getPendingRequests, getPendingSharedRecipes, loadFriends, loadFriendShoppingList, loadFriendEatingOut, getUsername } from './utils/firestoreSync';
 import { trackPageView } from './utils/trackPageView';
+import { countOutstandingHabits } from './utils/habitOutstanding';
 import { RecipeList } from './components/RecipeList';
 import { RecipeDetail } from './components/RecipeDetail';
 import { WeightTracker, checkWeighReminder } from './components/WeightTracker';
@@ -346,6 +347,7 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
     } catch { return false; }
   })();
   const [pendingCount, setPendingCount] = useState(0);
+  const [habitsOutstanding, setHabitsOutstanding] = useState(0);
   const [ingredientsVersion, setIngredientsVersion] = useState(0);
   const [myUsername, setMyUsername] = useState(null);
   const settingsRef = useRef(null);
@@ -445,6 +447,28 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
     const interval = setInterval(checkRequests, 30000);
     return () => { cancelled = true; clearInterval(interval); };
   }, [user?.uid]);
+
+  // Outstanding-habits count for the left-nav badge. Only the Habits-nav owner
+  // sees the menu item, so only fetch for them. Reloads on navigation (so
+  // logging a habit then leaving the page updates the badge) plus a periodic
+  // tick to roll over at the end of a day/week/period. Mirrors the Habits
+  // page's totalUnlogged via countOutstandingHabits.
+  useEffect(() => {
+    if (user?.email !== 'baldaufdan@gmail.com') { setHabitsOutstanding(0); return; }
+    let cancelled = false;
+    async function refreshHabits() {
+      try {
+        const [habits, habitLog] = await Promise.all([
+          loadField(user.uid, 'habits'),
+          loadField(user.uid, 'habitLog'),
+        ]);
+        if (!cancelled) setHabitsOutstanding(countOutstandingHabits(habits, habitLog));
+      } catch {}
+    }
+    refreshHabits();
+    const interval = setInterval(refreshHabits, 60000);
+    return () => { cancelled = true; clearInterval(interval); };
+  }, [user?.uid, user?.email, view]);
 
   // Pre-load ingredient database from Firestore so localStorage cache is fresh
   useEffect(() => {
@@ -795,6 +819,9 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
               >
                 <span className={`material-symbols-outlined ${styles.sidebarIcon}`}>{item.icon}</span>
                 {item.label}
+                {item.action === 'habits' && habitsOutstanding > 0 && (
+                  <span className={styles.navCountBadge}>{habitsOutstanding}</span>
+                )}
               </button>
             );
           })}

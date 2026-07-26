@@ -211,15 +211,18 @@ function resolveAnchor(after, present) {
 // Start/end minutes for the kinds actually happening on one day. A kind chained
 // to an absent anchor (cooking "after workout" on a rest day) falls back to its
 // own clock time rather than vanishing; reference cycles fall back the same way.
-function resolveDayTimes(settings, presentKinds) {
+// `durationOverrides` lets a kind use a per-day length instead of its fixed
+// setting — cooking passes the recipe's prep + cook time here (see the handler).
+function resolveDayTimes(settings, presentKinds, durationOverrides = {}) {
   const s = settings;
   const present = new Set(presentKinds);
   const out = {};
   const resolving = new Set();
+  const durOf = (kind, cfg) => clamp(Math.round(Number(durationOverrides[kind]) || cfg.durationMin), 5, 12 * 60);
   function place(kind) {
     if (out[kind]) return out[kind];
     const cfg = s[kind];
-    if (resolving.has(kind)) return { startMin: parseHHMM(cfg.time), endMin: parseHHMM(cfg.time) + cfg.durationMin };
+    if (resolving.has(kind)) return { startMin: parseHHMM(cfg.time), endMin: parseHHMM(cfg.time) + durOf(kind, cfg) };
     resolving.add(kind);
     let startMin = parseHHMM(cfg.time);
     if (cfg.startMode === 'after' && cfg.after) {
@@ -228,7 +231,7 @@ function resolveDayTimes(settings, presentKinds) {
     }
     resolving.delete(kind);
     startMin = clamp(startMin, 0, MAX_MIN - 5);
-    out[kind] = { startMin, endMin: clamp(startMin + cfg.durationMin, startMin + 5, MAX_MIN) };
+    out[kind] = { startMin, endMin: clamp(startMin + durOf(kind, cfg), startMin + 5, MAX_MIN) };
     return out[kind];
   }
   for (const kind of KIND_KEYS) if (present.has(kind)) place(kind);
@@ -306,20 +309,60 @@ function timedSlot(dateStr, startMin, endMin) {
 // "HH:MM" of an event's start/end dateTime (empty for all-day → forces a re-time).
 const hhmm = (dt) => (dt || '').slice(11, 16);
 
-// Recipe titles being cooked on each day, from the Prepare grid. Union of the
-// day's explicit `cookRecipes` list and any entries flagged `cooked` (the first
-// day of a forward fill — the day it's actually made, not the leftovers).
-function cookNamesByDate(log, recipesById, windowStart, windowEndStr) {
+// Parse a recipe's free-text prep/cook time into whole minutes. Handles the
+// shapes users actually type — "15 min", "30 minutes", "1 hour", "1 hr 30 min",
+// "1.5 hours", "1h30m", a bare "45", and ISO 8601 ("PT1H30M"). Returns 0 when
+// nothing parses (so an unlabelled time contributes nothing to the total).
+function parseDurationMin(str) {
+  const s = String(str || '').trim().toLowerCase();
+  if (!s) return 0;
+  const iso = /^pt(?:(\d+)h)?(?:(\d+)m)?$/.exec(s.replace(/\s+/g, ''));
+  if (iso && (iso[1] || iso[2])) return (+(iso[1] || 0)) * 60 + (+(iso[2] || 0));
+  let total = 0, matched = false, mm;
+  const hRe = /(\d+(?:\.\d+)?)\s*(?:hours?|hrs?|h)/g;
+  while ((mm = hRe.exec(s))) { total += Math.round(parseFloat(mm[1]) * 60); matched = true; }
+  const mRe = /(\d+)\s*(?:minutes?|mins?|m)/g;
+  while ((mm = mRe.exec(s))) { total += +mm[1]; matched = true; }
+  if (matched) return total;
+  const n = /^(\d+(?:\.\d+)?)$/.exec(s);
+  return n ? Math.round(parseFloat(n[1])) : 0;
+}
+
+// What's being cooked on each day, from the Prepare grid: a label (the recipe
+// titles) plus how long the event should run. Union of the day's explicit
+// `cookRecipes` list and any entries flagged `cooked` (the first day of a
+// forward fill — the day it's actually made, not the leftovers). The duration
+// is the SUM of each cooked recipe's prep + cook time; when none of the day's
+// recipes list a time it falls back to `defaultMin` (the cooking gear setting).
+function cookInfoByDate(log, recipes, windowStart, windowEndStr, defaultMin) {
+  const byId = {}, byTitle = {};
+  for (const r of (recipes || [])) {
+    if (!r) continue;
+    if (r.id) byId[r.id] = r;
+    const t = String(r.title || '').trim().toLowerCase();
+    if (t && !(t in byTitle)) byTitle[t] = r;
+  }
+  const recipeMinutes = (r) => (r ? parseDurationMin(r.prepTime) + parseDurationMin(r.cookTime) : 0);
   const out = {};
   for (const [dateStr, day] of Object.entries(log || {})) {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) continue;
     if (dateStr < windowStart || dateStr > windowEndStr) continue;
     const names = [];
     const seen = new Set();
-    const push = (n) => { const t = String(n || '').trim(); if (t && !seen.has(t)) { seen.add(t); names.push(t); } };
-    for (const id of (Array.isArray(day?.cookRecipes) ? day.cookRecipes : [])) push(recipesById[id]);
-    for (const e of (Array.isArray(day?.entries) ? day.entries : [])) if (e?.cooked === true) push(e.recipeName || recipesById[e.recipeId]);
-    if (names.length) out[dateStr] = names.join(', ');
+    let sumMin = 0;
+    const add = (recipe, fallbackName) => {
+      const title = String((recipe && recipe.title) || fallbackName || '').trim();
+      if (!title || seen.has(title)) return;
+      seen.add(title);
+      names.push(title);
+      sumMin += recipeMinutes(recipe);
+    };
+    for (const id of (Array.isArray(day?.cookRecipes) ? day.cookRecipes : [])) add(byId[id], null);
+    for (const e of (Array.isArray(day?.entries) ? day.entries : [])) {
+      if (e?.cooked !== true) continue;
+      add(byId[e.recipeId] || byTitle[String(e.recipeName || '').trim().toLowerCase()], e.recipeName);
+    }
+    if (names.length) out[dateStr] = { label: names.join(', '), durationMin: sumMin > 0 ? sumMin : defaultMin };
   }
   return out;
 }
@@ -336,9 +379,18 @@ export default async function handler(req, res) {
   const todayDt = utcOf(e.y, e.m, e.d);
   const todayStr = isoOf(todayDt);
   const week0Sun = sundayOf(todayDt);           // this week's Sunday
-  const windowStart = todayStr;                 // don't touch past days
+  const windowStart = todayStr;                 // don't CREATE/PATCH past days
   const windowEndDt = addDays(week0Sun, 13);    // through next week's Saturday
   const windowEndStr = isoOf(windowEndDt);
+  // We LIST events from further back so stale past-day suggestions get cleaned
+  // up. A suggested workout event (e.g. yoga) is created while its day is today
+  // or future; if the day passes without the workout happening, that event is
+  // now a past-day plan that never occurred. `desired` is only ever built for
+  // today-forward (past days are skipped when planning), so any listed past-day
+  // event falls out of `desired` and the delete loop removes it — leaving the
+  // grid from showing a suggestion that looks like it happened. This only ever
+  // enables DELETION in the past; creation/patching stays gated on windowStart.
+  const listStart = isoOf(addDays(todayDt, -28));
 
   const summary = { scanned: 0, eligible: 0, synced: 0, created: 0, patched: 0, deleted: 0, calendarsCreated: 0, calendarsRenamed: 0, errors: [], dryRun };
 
@@ -425,9 +477,7 @@ export default async function handler(req, res) {
             recipes = rSnap.exists ? (rSnap.data()?.recipes || []) : [];
           } catch { recipes = []; }
           if (!recipes.length && Array.isArray(data.recipes)) recipes = data.recipes; // pre-migration
-          const recipesById = {};
-          for (const r of recipes) if (r?.id) recipesById[r.id] = r.title;
-          cookByDate = cookNamesByDate(log, recipesById, windowStart, windowEndStr);
+          cookByDate = cookInfoByDate(log, recipes, windowStart, windowEndStr, settings.cooking.durationMin);
         } catch { cookByDate = {}; }
 
         // Desired events, keyed `${date}|${kind}` so a day can hold all three.
@@ -442,9 +492,11 @@ export default async function handler(req, res) {
           if (workoutByDate[date]) present.push(workoutByDate[date].kind);
           if (saunaDates.has(date)) present.push('sauna');
           if (cookByDate[date]) present.push('cooking');
-          const times = resolveDayTimes(settings, present);
+          // Cooking runs for the day's total recipe time (prep + cook); other
+          // kinds keep their fixed setting.
+          const times = resolveDayTimes(settings, present, { cooking: cookByDate[date]?.durationMin });
           for (const kind of present) {
-            const label = isWorkoutKind(kind) ? workoutByDate[date].label : kind === 'cooking' ? cookByDate[date] : '';
+            const label = isWorkoutKind(kind) ? workoutByDate[date].label : kind === 'cooking' ? cookByDate[date].label : '';
             desired[`${date}|${kind}`] = {
               date, kind, label,
               title: titleFor(kind, label),
@@ -475,7 +527,7 @@ export default async function handler(req, res) {
         // List our tagged events in the window.
         const params = new URLSearchParams({
           privateExtendedProperty: 'prepDayWorkout=true',
-          timeMin: `${windowStart}T00:00:00Z`,
+          timeMin: `${listStart}T00:00:00Z`,
           timeMax: `${windowEndStr}T23:59:59Z`,
           singleEvents: 'true',
           maxResults: '250',

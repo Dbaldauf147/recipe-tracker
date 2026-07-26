@@ -383,6 +383,26 @@
   100% { transform: scale(1); }
 }
 
+/* Red count badge on a left-nav item (outstanding habits). Sits at the right
+   edge of the flex row via margin-left:auto — no absolute positioning needed. */
+.navCountBadge {
+  margin-left: auto;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  background: #dc2626;
+  color: #fff;
+  font-size: 0.65rem;
+  font-weight: 700;
+  border-radius: var(--radius-full);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  flex-shrink: 0;
+  animation: badgePop 0.3s ease;
+}
+
 .menuBadge {
   margin-left: auto;
   min-width: 18px;

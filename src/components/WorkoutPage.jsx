@@ -28,20 +28,6 @@ function isWarmUp(name) {
 
 const MUSCLE_GROUPS = ['Chest', 'Back', 'Legs', 'Shoulders', 'Biceps', 'Triceps', 'Abs', 'Forearms', 'Cardio', 'Yoga', 'Heat', 'Whole Body'];
 
-const EXERCISES_BY_GROUP = {
-  Chest: ['Warm up', 'Butterfly', 'Cable crossover low to high', 'Cable flys declined', 'Chest press', 'Close grip bench press', 'Decline Barbell Press', 'Decline press', 'Decline push-up', 'Dips', 'Dumbbell flys', 'Dumbbell press', 'Dumbbell press inclined', 'Dumbbell squeeze press', 'Incline press', 'Incline push-up', 'Inclined Barbell Press', 'Inclined machine press', 'Inclined smith machine press'],
-  Back: ['Warm up', 'Back extensions', 'Back extensions - machine', 'Bent-over dumbbell row', 'Bent-over smith machine row', 'Cable lat pullover', 'Chin ups', 'Face pulls', 'Lat pull down (wide grip)', 'Lat pull downs (bar)', 'Lat pull downs (bar) underhand grip', 'Lat pull downs (machine)', 'Lat pulldown (vbar grip)', 'Middle grip row', 'One arm rows', 'Plate-loaded low row', 'Pull-ups', 'Seated cable row', 'Seated neutral grip row', 'Seated pronated machine row', 'Seated vertical row machine', 'Single arm cable row', 'Single arm lat pulldown', 'Standing bent-over dumbbell row', 'T bar machine', 'Two arm cable row', 'Weighted pull-up', 'Wide grip row'],
-  Legs: ['Warm up', 'Air squats', 'Barbell squats', 'Bulgarian split squat', 'Calf raise', 'Curtsey lunges', 'Deadlifts', 'Dumbbell deadlift', 'Glute bridges', 'Good mornings', 'Hamstring curls', 'Hip thrust_barbell', 'Jump rope', 'Leg extensions', 'Leg press', 'Leg press calf raise', 'Romanian deadlifts - barbell', 'Romanian deadlifts - dumbbell', 'Seated abductors', 'Single leg extension', 'Single leg press', 'Squats - Barbell', 'Squats - Smith machine', 'Sumo squat', 'Sumo squat cable machine', 'Walk', 'Wall squats'],
-  Shoulders: ['Warm up', 'Arm raises', 'Arm raises - Lateral', 'Cable lateral raise', 'Dumbbell shoulder press', 'Face pull', 'Shoulder press'],
-  Biceps: ['Warm up', 'Bar curls', 'Barbell Curls', 'Bayesian bicep curl', 'Bicep curl', 'Bicep curl machine', 'Bicep hammer curls', 'Hammer rope curls', 'Preacher curl', 'Reverse bar bell curls'],
-  Triceps: ['Warm up', 'Cable tricep kickback', 'Extension', 'Seated tricep', 'Triangle pushup', 'Tricep push down machine', 'Tricep pushdown', 'Tricep rope pushdowns'],
-  Abs: ['Warm up', 'Ab crunch machine', 'Ab roller', 'Cable crunches', 'Cable woodchoppers', 'Cable woodchoppers - High to low', 'Deadbug', 'Dragon flag abs', 'Elbow plank', 'Hanging leg raise', 'Hanging leg raises knees bent', 'Hanging leg raises legs straight', 'Heel taps', 'Kneeling halo', 'Leg raises', 'Pallof press', 'Plank', 'Seated cable crunch', 'Side bend', 'Toe touches'],
-  Forearms: ['Warm up', 'Wrist curls', 'Wrist extensions', 'Reverse wrist curls', 'Farmer walks'],
-  Cardio: ['Walk', 'Run', 'Bike', 'Recumbent upright bike', 'Jump rope', 'Rowing machine', 'Elliptical', 'Stair climber'],
-  Yoga: ['Yoga flow', 'Stretching', 'Foam rolling', 'Bikram hot yoga', 'Vinyasa', 'Yin'],
-  Heat: ['Sauna', 'Hottub', 'Steam room'],
-  'Whole Body': ['Warm up', 'Circuit training', 'HIIT'],
-};
 
 const DEFAULT_GYMS = ['Edge South Tower', 'Home', 'Other'];
 const GYMS_KEY = 'sunday-workout-gyms';
@@ -2429,17 +2415,16 @@ export function WorkoutPage({ onBack, user }) {
   const [customExercises, setCustomExercises] = useState([]);
   const [hiddenExercises, setHiddenExercises] = useState([]);
 
-  // Resolve the visible exercise list for a muscle group, merging every place
-  // an exercise can live so the web stays in sync with the mobile app:
-  //   - EXERCISES_BY_GROUP defaults
-  //   - user's exerciseLibrary entries effectively in this group
+  // Resolve the visible exercise list for a muscle group from the user's own
+  // data only (so the web stays in sync with the mobile app):
+  //   - user's exerciseLibrary entries (the Exercises table) in this group
   //   - user's customExercises (the mobile-only field) for this group
-  //   - minus anything in hiddenExercises (defaults the user hid on mobile)
-  // Deduped case-insensitively and sorted alphabetically.
+  //   - minus anything in hiddenExercises
+  // No hardcoded defaults: an exercise the user hasn't added to their Exercises
+  // table never appears in the picker. Deduped case-insensitively, sorted.
   function exercisesForGroup(group) {
     if (!group) return [];
     const groupLc = group.toLowerCase();
-    const builtin = EXERCISES_BY_GROUP[group] || [];
     const libraryForGroup = [];
     for (const item of exerciseLibrary || []) {
       if (item?.retired || !item?.exercise) continue;
@@ -2454,7 +2439,7 @@ export function WorkoutPage({ onBack, user }) {
     const hiddenLc = new Set((hiddenExercises || []).map(n => String(n).toLowerCase()));
     const seen = new Set();
     const merged = [];
-    for (const name of [...builtin, ...libraryForGroup, ...custom]) {
+    for (const name of [...libraryForGroup, ...custom]) {
       const key = name.toLowerCase();
       if (seen.has(key)) continue;
       seen.add(key);
@@ -3363,22 +3348,11 @@ export function WorkoutPage({ onBack, user }) {
   // exercise library, and the customExercises mirror (deduping any collision the
   // rename creates). Multiple distinct selected exercises all collapse to the
   // new name (a merge).
-  function bulkRenameExercise(newNameRaw) {
-    const newName = (newNameRaw || '').trim();
-    if (!newName || selectedRows.size === 0) return;
-    const byKey = selectionByKey();
-    const oldSet = new Set();
-    for (const w of workouts) {
-      const idxSet = byKey.get(workoutKey(w));
-      if (!idxSet) continue;
-      w.entries.forEach((e, i) => { if (idxSet.has(i) && e.exercise) oldSet.add(e.exercise.trim().toLowerCase()); });
-    }
-    oldSet.delete(newName.toLowerCase()); // renaming to the same name is a no-op
-    if (oldSet.size === 0) { setBulkRenameInput(''); clearSelectedRows(); return; }
-
-    const n = oldSet.size;
-    if (!window.confirm(`Rename ${n === 1 ? 'this exercise' : `these ${n} exercises`} to "${newName}" everywhere — in all logged workouts and your exercise library? This can't be undone.`)) return;
-
+  // Rename every exercise whose lowercased name is in `oldSet` to `newName`,
+  // across all three places a name lives. Shared by the History bulk-rename bar
+  // and the Exercise Library name cell so both propagate identically. Callers
+  // own their own guards/confirm; this just applies the change.
+  function applyExerciseRename(oldSet, newName) {
     // 1) Every matching workout entry across ALL workouts.
     const nextWorkouts = workouts.map(w => {
       let changed = false;
@@ -3417,6 +3391,64 @@ export function WorkoutPage({ onBack, user }) {
     }
     setCustomExercises(nextCustom);
     if (user?.uid) saveField(user.uid, 'customExercises', nextCustom).catch(() => {});
+  }
+
+  // Editing the name cell in the Exercise Library table renames that exercise
+  // EVERYWHERE (logged workouts + library + customExercises), so History /
+  // Charts / Progress — which read names off `workouts` — follow along instead
+  // of stranding the old name on all past entries. Returns false when the user
+  // backs out, so the cell can revert to the old name.
+  function renameExerciseFromLibrary(oldNameRaw, newNameRaw) {
+    const from = (oldNameRaw || '').trim();
+    const to = (newNameRaw || '').trim();
+    if (!from || !to || from === to) return false;
+    // Lowercased match, but NOT the bulk bar's "same name is a no-op" drop — a
+    // case-only fix ("bench press" → "Bench Press") is a real rename here.
+    const oldSet = new Set([from.toLowerCase()]);
+
+    // How much history this rewrites, and whether it merges into an existing
+    // exercise — both worth stating before doing something undoable.
+    let affected = 0;
+    for (const w of workouts) {
+      for (const e of (w.entries || [])) {
+        if (e.exercise && e.exercise.trim().toLowerCase() === from.toLowerCase()) affected++;
+      }
+    }
+    const collides = (exerciseLibrary || []).some(it => {
+      const n = (it?.exercise || '').trim().toLowerCase();
+      return n && n === to.toLowerCase() && n !== from.toLowerCase();
+    });
+
+    // Nothing logged and no merge → a plain relabel; don't nag.
+    if (affected > 0 || collides) {
+      const parts = [`Rename "${from}" to "${to}" everywhere?`];
+      if (affected > 0) parts.push(`This updates ${affected} logged workout ${affected === 1 ? 'entry' : 'entries'}.`);
+      if (collides) parts.push(`"${to}" already exists — the two will be merged into one.`);
+      parts.push("This can't be undone.");
+      if (!window.confirm(parts.join('\n\n'))) return false;
+    }
+
+    applyExerciseRename(oldSet, to);
+    return true;
+  }
+
+  function bulkRenameExercise(newNameRaw) {
+    const newName = (newNameRaw || '').trim();
+    if (!newName || selectedRows.size === 0) return;
+    const byKey = selectionByKey();
+    const oldSet = new Set();
+    for (const w of workouts) {
+      const idxSet = byKey.get(workoutKey(w));
+      if (!idxSet) continue;
+      w.entries.forEach((e, i) => { if (idxSet.has(i) && e.exercise) oldSet.add(e.exercise.trim().toLowerCase()); });
+    }
+    oldSet.delete(newName.toLowerCase()); // renaming to the same name is a no-op
+    if (oldSet.size === 0) { setBulkRenameInput(''); clearSelectedRows(); return; }
+
+    const n = oldSet.size;
+    if (!window.confirm(`Rename ${n === 1 ? 'this exercise' : `these ${n} exercises`} to "${newName}" everywhere — in all logged workouts and your exercise library? This can't be undone.`)) return;
+
+    applyExerciseRename(oldSet, newName);
 
     setBulkRenameInput('');
     clearSelectedRows();
@@ -5224,6 +5256,7 @@ export function WorkoutPage({ onBack, user }) {
       {viewMode === 'exercises' && (
         <ExerciseLibrary
           library={exerciseLibrary}
+          onRenameExercise={renameExerciseFromLibrary}
           onChange={(next) => {
             // Diff to detect deletions so we can also drop the matching
             // customExercises entry — otherwise the snapshot backfill

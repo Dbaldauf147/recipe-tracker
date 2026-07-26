@@ -15,7 +15,7 @@ import {
   IMPORT_FIELDS,
 } from '../utils/restaurantImport';
 import { downloadRestaurantsCsv } from '../utils/restaurantExport';
-import { loadMyEatingOutVotes, setEatingOutVote, saveEatingOutOrder, LEGACY_VOTE_CATEGORY, subscribeSpotComments, addSpotComment, deleteSpotComment } from '../utils/firestoreSync';
+import { loadMyEatingOutVotes, setEatingOutVote, saveEatingOutOrder, LEGACY_VOTE_CATEGORY, subscribeSpotComments, addSpotComment, deleteSpotComment, subscribeSpotRatings, subscribeEatingOutRatings, setEatingOutRating } from '../utils/firestoreSync';
 import { EatingOutFriendsPanel } from './EatingOutFriendsPanel';
 import styles from './EatingOutPage.module.css';
 
@@ -600,6 +600,157 @@ function SpotComments({ ownerUid, spotId, user }) {
   );
 }
 
+// The 4 collaborative rating categories (1–5 each). `key` is the stored field,
+// `label` the UI text. Overall = mean of the category averages that have votes.
+const RATING_CATEGORIES = [
+  { key: 'food', label: 'Food & Drink Quality' },
+  { key: 'service', label: 'Service' },
+  { key: 'atmosphere', label: 'Atmosphere' },
+  { key: 'price', label: 'Price' },
+];
+
+// Fold a spot's rating docs into per-category averages, an overall average,
+// and the voter count. Pure — safe to call in render.
+function aggregateSpotRatings(docs) {
+  const acc = {};
+  for (const c of RATING_CATEGORIES) acc[c.key] = { sum: 0, count: 0 };
+  let voterCount = 0;
+  for (const d of docs || []) {
+    const s = d.scores || {};
+    let rated = false;
+    for (const c of RATING_CATEGORIES) {
+      const v = s[c.key];
+      if (typeof v === 'number' && v >= 1 && v <= 5) { acc[c.key].sum += v; acc[c.key].count++; rated = true; }
+    }
+    if (rated) voterCount++;
+  }
+  const perCategory = {};
+  const catAvgs = [];
+  for (const c of RATING_CATEGORIES) {
+    const { sum, count } = acc[c.key];
+    const avg = count ? sum / count : null;
+    perCategory[c.key] = { avg, count };
+    if (avg != null) catAvgs.push(avg);
+  }
+  const overall = catAvgs.length ? catAvgs.reduce((a, b) => a + b, 0) / catAvgs.length : null;
+  return { perCategory, overall, voterCount };
+}
+
+// Small read-only star row (rounds to the nearest whole star) for aggregate
+// display. The interactive input reuses <StarRating/>.
+function StarsStatic({ value, size = 15 }) {
+  const rounded = Math.round(value || 0);
+  return (
+    <span className={styles.stars} style={{ gap: 1 }}>
+      {[1, 2, 3, 4, 5].map(n => (
+        <span key={n} className={n <= rounded ? styles.starFilled : styles.starEmpty} style={{ fontSize: size }}>
+          {n <= rounded ? '★' : '☆'}
+        </span>
+      ))}
+    </span>
+  );
+}
+
+// Collaborative ratings for one spot: your 1–5 input across the 4 categories,
+// the aggregate across all voters, and an expandable per-person breakdown.
+// Keyed by (ownerUid, spotId) like the comment thread; each collaborator writes
+// only their own doc (deterministic id in setEatingOutRating).
+function SpotRatings({ ownerUid, spotId, user }) {
+  const [docs, setDocs] = useState([]);
+  const [expanded, setExpanded] = useState(false);
+  // Local copy of MY scores for instant feedback; re-synced from the live doc.
+  const [myScores, setMyScores] = useState({});
+
+  useEffect(() => {
+    if (!ownerUid || !spotId) return undefined;
+    const unsub = subscribeSpotRatings(ownerUid, spotId, setDocs);
+    return () => { if (unsub) unsub(); };
+  }, [ownerUid, spotId]);
+
+  const myDoc = useMemo(() => docs.find(d => d.authorUid === user?.uid), [docs, user?.uid]);
+  useEffect(() => { setMyScores(myDoc?.scores || {}); }, [myDoc]);
+
+  const agg = useMemo(() => aggregateSpotRatings(docs), [docs]);
+
+  const setCategory = (key, value) => {
+    const next = { ...myScores, [key]: value };
+    setMyScores(next); // optimistic
+    setEatingOutRating(ownerUid, spotId, {
+      authorUid: user.uid,
+      authorUsername: user.displayName || '',
+      scores: next,
+    }).catch(err => {
+      alert(`Couldn't save your rating — ${err?.message || 'try again'}.\n\nIf this keeps failing, the eatingOutRatings Firestore rules may not be in place yet.`);
+    });
+  };
+
+  const fmt = n => (n == null ? '–' : n.toFixed(1));
+
+  return (
+    <div>
+      <div className={styles.fieldLabel}>Ratings</div>
+
+      {/* Aggregate summary */}
+      <div className={styles.ratingSummary}>
+        {agg.voterCount > 0 ? (
+          <>
+            <div className={styles.ratingOverall}>
+              <StarsStatic value={agg.overall} size={18} />
+              <span className={styles.ratingOverallNum}>{fmt(agg.overall)}</span>
+              <span className={styles.ratingCount}>
+                {agg.voterCount} {agg.voterCount === 1 ? 'person' : 'people'}
+              </span>
+            </div>
+            <div className={styles.ratingCats}>
+              {RATING_CATEGORIES.map(c => (
+                <span key={c.key} className={styles.ratingCatChip}>
+                  {c.label.split(' ')[0]} <strong>{fmt(agg.perCategory[c.key].avg)}</strong>
+                </span>
+              ))}
+            </div>
+            <button type="button" className={styles.ratingExpandBtn} onClick={() => setExpanded(e => !e)}>
+              {expanded ? 'Hide individual ratings' : 'See everyone’s ratings'}
+            </button>
+          </>
+        ) : (
+          <p className={styles.ratingEmpty}>No ratings yet — be the first.</p>
+        )}
+      </div>
+
+      {/* Per-person breakdown */}
+      {expanded && agg.voterCount > 0 && (
+        <div className={styles.ratingBreakdown}>
+          {docs.map(d => (
+            <div key={d.id} className={styles.ratingPersonRow}>
+              <strong className={styles.ratingPersonName}>
+                {d.authorUid === user?.uid ? 'You' : (d.authorUsername ? `@${d.authorUsername}` : 'Friend')}
+              </strong>
+              <span className={styles.ratingPersonScores}>
+                {RATING_CATEGORIES.map(c => (
+                  <span key={c.key} className={styles.ratingPersonScore} title={c.label}>
+                    {c.label.split(' ')[0]} {d.scores?.[c.key] ?? '–'}
+                  </span>
+                ))}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* My input — quick 1–5 per category */}
+      <div className={styles.ratingInput}>
+        <div className={styles.ratingInputTitle}>Your rating</div>
+        {RATING_CATEGORIES.map(c => (
+          <div key={c.key} className={styles.ratingInputRow}>
+            <span className={styles.ratingInputLabel}>{c.label}</span>
+            <StarRating value={myScores[c.key] ?? null} onChange={v => setCategory(c.key, v)} size={20} />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // Read-only detail sheet for a spot a FRIEND added: their info + your personal
 // ranking + the shared comment thread. No editing (that stays owner-only).
 function SpotDetailModal({ spot, dimKey, dimLabel, votes, onVote, user, onClose }) {
@@ -630,6 +781,7 @@ function SpotDetailModal({ spot, dimKey, dimLabel, votes, onVote, user, onClose 
             <a href={spot.url} target="_blank" rel="noreferrer" style={{ fontSize: '0.85rem' }}>Open link ↗</a>
           )}
           <RankControl ownerUid={spot._ownerUid} spotId={spot.id} dimKey={dimKey} dimLabel={dimLabel} votes={votes} onVote={onVote} />
+          <SpotRatings ownerUid={spot._ownerUid} spotId={spot.id} user={user} />
           <SpotComments ownerUid={spot._ownerUid} spotId={spot.id} user={user} />
         </div>
         <div className={styles.modalFooter}>
@@ -985,6 +1137,7 @@ function EditModal({ initial, onSave, onClose, onDelete, cuisineSuggestions, loc
           {initial.id && user?.uid && onVote && (
             <>
               <RankControl ownerUid={initial._ownerUid || user.uid} spotId={initial.id} dimKey={dimKey} dimLabel={dimLabel} votes={votes} onVote={onVote} />
+              <SpotRatings ownerUid={initial._ownerUid || user.uid} spotId={initial.id} user={user} />
               <SpotComments ownerUid={initial._ownerUid || user.uid} spotId={initial.id} user={user} />
             </>
           )}
@@ -1264,7 +1417,7 @@ function BulkImportModal({ onClose, onImport, existing }) {
   );
 }
 
-function RestaurantCard({ r, distanceMiles, rank, canMoveUp, canMoveDown, onMoveUp, onMoveDown, onClick, compact, drag }) {
+function RestaurantCard({ r, ratingAgg, distanceMiles, rank, canMoveUp, canMoveDown, onMoveUp, onMoveDown, onClick, compact, drag }) {
   const isRetired = r.frequency === 'retired';
   // Stop card click from firing when the user taps a vote button.
   function stop(e) { e.stopPropagation(); }
@@ -1335,6 +1488,14 @@ function RestaurantCard({ r, distanceMiles, rank, canMoveUp, canMoveDown, onMove
           {!r._isMine && r._ownerUsername && (
             <span className={styles.ownerChip} title={`Shared by @${r._ownerUsername}`}>
               @{r._ownerUsername}
+            </span>
+          )}
+          {ratingAgg && ratingAgg.voterCount > 0 && (
+            <span
+              className={styles.cardRatingBadge}
+              title={`Group rating ${ratingAgg.overall.toFixed(1)}/5 · ${ratingAgg.voterCount} ${ratingAgg.voterCount === 1 ? 'vote' : 'votes'}`}
+            >
+              ★ {ratingAgg.overall.toFixed(1)} · {ratingAgg.voterCount}
             </span>
           )}
         </div>
@@ -2209,6 +2370,10 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
   // Unified ranking: full ordered list per (ownerUid, dimensionKey). The Table
   // view ▲▼ reorders the whole list; the List/mobile 🥇🥈🥉 medals are its top 3.
   const [myEatingOutVotes, setMyEatingOutVotes] = useState({});
+  // Live collaborative ratings for every visible owner's spots, keyed
+  // `${ownerUid}__${spotId}` → rating docs. Feeds the compact card badge; the
+  // detail/edit view subscribes per-spot for the full input + breakdown.
+  const [ratingsBySpot, setRatingsBySpot] = useState({});
 
   // Subscribe to my own doc + every friend who has shared their list with me.
   // Each subscription updates only its slice of ownerData so changes by either
@@ -2266,6 +2431,15 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
     });
     return () => { unsubs.forEach(u => u && u()); };
   }, [user?.uid, sharerUids, sharerMeta]);
+
+  // Live ratings for every visible owner's spots (one subscription for the whole
+  // list) so cards can show a compact aggregate without a listener each.
+  useEffect(() => {
+    if (!user?.uid) { setRatingsBySpot({}); return undefined; }
+    const ownerUids = [user.uid, ...sharerUids.split('|').filter(Boolean)];
+    const unsub = subscribeEatingOutRatings(ownerUids, setRatingsBySpot);
+    return () => { if (unsub) unsub(); };
+  }, [user?.uid, sharerUids]);
 
   // Tag each restaurant with the owner so downstream logic (persist, badges,
   // voting) knows where each row came from.
@@ -3253,6 +3427,7 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
                   <RestaurantCard
                     key={`${r._ownerUid}:${r.id}`}
                     r={r}
+                    ratingAgg={aggregateSpotRatings(ratingsBySpot[`${r._ownerUid}__${r.id}`] || [])}
                     compact={listDensity === 'compact'}
                     distanceMiles={r._distance}
                     rank={rank}

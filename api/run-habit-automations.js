@@ -14,6 +14,15 @@
 // (activity may still come) or to non-daily cadences (a past day isn't a
 // finished period).
 //
+// STREAK / "two days in a row" MARK: one day off is a rest day, two or more in
+// a row is a gap. When a daily prepday rule's trigger didn't fire on a finished
+// day AND it also didn't fire the day BEFORE it, the rule's `streakMark` wins
+// over `elseMark` — so the 2nd (and 3rd, 4th…) day of a no-workout run is
+// marked "No" (✕) instead of Skip. Unset on a workout_logged rule = 'missed'
+// (the behaviour the user asked for); '' / 'none' turns it off. Only ever
+// applied to a day that's already over — today can still turn into a workout,
+// planned rest day or not. Also applies with no elseMark set at all.
+//
 // PLANNED REST DAYS: the ONE exception to "never today". The Week Plan writes
 // the dates it resolved to Rest into the user doc's `plannedRestDates` (see
 // WeekPlanPage) — the suggestion depends on staleness ranking + per-day
@@ -88,6 +97,18 @@ function triggerPhrasing(rule) {
     case 'gratitude_goal': return { pos: 'Gratitude goal met', neg: "Gratitude goal wasn't met", noun: 'gratitude entries' };
     default: return { pos: 'Trigger met', neg: 'Trigger not met', noun: 'this' };
   }
+}
+
+// The mark for a day that's part of a 2+-day run of "trigger never fired" — a
+// gap rather than a single rest day. Rule field `streakMark`:
+//   undefined (never configured) → 'missed' for workout rules, off otherwise
+//   'exceeded'|'done'|'skipped'|'missed' → that mark
+//   '' / 'none' / anything else → off (the plain elseMark applies instead)
+function streakMarkFor(rule) {
+  if (rule.streakMark === undefined) {
+    return rule.trigger === 'workout_logged' ? 'missed' : null;
+  }
+  return VALID_MARKS.has(rule.streakMark) ? rule.streakMark : null;
 }
 
 const pad2 = (n) => String(n).padStart(2, '0');
@@ -231,8 +252,8 @@ export default async function handler(req, res) {
   const DAYS = [when, easternYesterday(when)];
   const summary = {
     scanned: 0, usersWithRules: 0, usersMarked: 0, marksApplied: 0,
-    rulesEvaluated: 0, triggersFired: 0, elseMarksApplied: 0, cellsAlreadySet: 0,
-    erasesRespected: 0, unsupported: 0, dryRun,
+    rulesEvaluated: 0, triggersFired: 0, elseMarksApplied: 0, streakMarksApplied: 0,
+    cellsAlreadySet: 0, erasesRespected: 0, unsupported: 0, dryRun,
   };
   // dryRun-only: per-evaluation breakdown + the planned rest dates we read, so a
   // "why didn't it mark?" question can be answered without guessing.
@@ -305,12 +326,16 @@ export default async function handler(req, res) {
       } catch { /* treat as no data */ }
 
       // Workouts are only needed if a rule uses them — fetch once for the days
-      // we're processing and group by dateKey.
+      // we're processing PLUS one extra day back (the streak check asks whether
+      // the day before a finished day also had no workout) and group by dateKey.
       const workoutsByDate = {};
       if (rules.some(r => r.trigger === 'workout_logged')) {
+        const wantDates = [...new Set(
+          [...DAYS, easternYesterday(DAYS[DAYS.length - 1])].map(dd => dd.dateKey),
+        )];
         try {
           const wSnap = await db.collection(`users/${uid}/workouts`)
-            .where('date', 'in', DAYS.map(dd => dd.dateKey)).get();
+            .where('date', 'in', wantDates).get();
           for (const wd of wSnap.docs) {
             const w = wd.data();
             // A sauna-only day is a placeholder carrying just the `sauna` flag —
@@ -365,6 +390,15 @@ export default async function handler(req, res) {
         const day = logMap[dayCtx.dateKey] || null;
         const workoutsForDay = () => workoutsByDate[dayCtx.dateKey] || [];
         const ctx = { day, weightLog, dateKey: dayCtx.dateKey, workoutsForDay };
+        // Same context for the day BEFORE this one, so a rule can tell a single
+        // rest day from the 2nd+ day of a gap (streakMarkFor).
+        const prevDay = easternYesterday(dayCtx);
+        const prevCtx = {
+          day: logMap[prevDay.dateKey] || null,
+          weightLog,
+          dateKey: prevDay.dateKey,
+          workoutsForDay: () => workoutsByDate[prevDay.dateKey] || [],
+        };
 
         for (const rule of rules) {
           summary.rulesEvaluated++;
@@ -398,7 +432,7 @@ export default async function handler(req, res) {
             habit: habit.name || habit.habit || rule.habitId,
             cadence: habit.cadence || '(daily)', habitStatus: habit.status || '',
             source: rule.source, trigger: rule.trigger,
-            mark: rule.mark, elseMark: rule.elseMark ?? null,
+            mark: rule.mark, elseMark: rule.elseMark ?? null, streakMark: streakMarkFor(rule),
             day: dayCtx.dateKey, isDaily, dayIsOver, plannedRest,
           } : null;
           const emit = (outcome) => {
@@ -433,12 +467,26 @@ export default async function handler(req, res) {
           // (the look-back day, never today), since today's workout/meal/etc.
           // may still be logged later. Non-daily cadences are skipped: a single
           // past day isn't a finished week/month, so "no trigger yet" ≠ missed.
+          //
+          // Two finished days in a row with nothing logged beat the elseMark:
+          // that's a gap, not a rest day, so `streakMark` (✕ No, by default, for
+          // a workout rule) applies instead — even when no elseMark is set.
           let mark;
+          let isStreak = false;
           if (fired) {
             summary.triggersFired++;
             mark = VALID_MARKS.has(rule.mark) ? rule.mark : 'done';
           } else {
-            if (isDaily && (dayIsOver || plannedRest) && VALID_MARKS.has(rule.elseMark)) {
+            const streak = (isDaily && dayIsOver && rule.source === 'prepday'
+              && streakMarkFor(rule)
+              && evalPrepdayTrigger(rule.trigger, prevCtx, habit) === false)
+              ? streakMarkFor(rule) : null;
+            if (streak) {
+              mark = streak;
+              isStreak = true;
+              summary.streakMarksApplied++;
+              if (detail) detail.streakApplied = true;
+            } else if (isDaily && (dayIsOver || plannedRest) && VALID_MARKS.has(rule.elseMark)) {
               mark = rule.elseMark;
               summary.elseMarksApplied++;
               if (plannedRest && !dayIsOver) summary.plannedRestMarks = (summary.plannedRestMarks || 0) + 1;
@@ -452,21 +500,32 @@ export default async function handler(req, res) {
           }
 
           const isElse = !fired;
-          const restNote = !isElse ? '' : plannedRest ? ' (planned rest day)' : ' (rest day)';
-          const elseReason = `${isElse ? phr.neg : phr.pos} → ${markLabel(mark)}${restNote}`;
+          const restNote = !isElse ? '' : isStreak ? ' (2 days in a row)' : plannedRest ? ' (planned rest day)' : ' (rest day)';
+          const elseReason = isStreak
+            ? `${phr.neg} the day before either → ${markLabel(mark)}${restNote}`
+            : `${isElse ? phr.neg : phr.pos} → ${markLabel(mark)}${restNote}`;
           const bucket = { ...(nextLog[key] || {}) };
           if (bucket[rule.habitId] !== undefined) {
-            summary.cellsAlreadySet++;
+            const current = bucket[rule.habitId];
             const wasAuto = habitLogAuto[key]?.[rule.habitId] !== undefined;
-            recordStatus(wasAuto ? elseReason : 'You recorded this yourself');
-            emit(`cell-already-set:${JSON.stringify(bucket[rule.habitId])}${wasAuto ? ' (auto)' : ' (manual)'}`);
-            continue;
-          }
-          // Respect a manual erase: an empty cell that the engine previously
-          // auto-set (still recorded in the persisted habitLogAuto) was cleared
-          // by the user on purpose — don't refill it. `habitLogAuto` is the
-          // original persisted map, so this only catches erases from prior runs.
-          if (habitLogAuto[key]?.[rule.habitId] !== undefined) {
+            // The one allowed overwrite: a cell WE auto-set (still matching what
+            // we recorded, so the user hasn't touched it) that we now know was
+            // day 2+ of a gap. Without this a Skip written earlier — e.g. the
+            // same-day planned-rest skip — would keep the ✕ from ever landing.
+            const canEscalate = isStreak && wasAuto
+              && habitLogAuto[key][rule.habitId] === current && current !== mark;
+            if (!canEscalate) {
+              summary.cellsAlreadySet++;
+              recordStatus(wasAuto ? elseReason : 'You recorded this yourself');
+              emit(`cell-already-set:${JSON.stringify(current)}${wasAuto ? ' (auto)' : ' (manual)'}`);
+              continue;
+            }
+            summary.streakEscalations = (summary.streakEscalations || 0) + 1;
+          } else if (habitLogAuto[key]?.[rule.habitId] !== undefined) {
+            // Respect a manual erase: an empty cell that the engine previously
+            // auto-set (still recorded in the persisted habitLogAuto) was cleared
+            // by the user on purpose — don't refill it. `habitLogAuto` is the
+            // original persisted map, so this only catches erases from prior runs.
             summary.erasesRespected++;
             recordStatus('You cleared this — left empty');
             emit('erase-respected');

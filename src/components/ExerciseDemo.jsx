@@ -1,7 +1,9 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { MuscleBodyMap, toMuscleList } from './MuscleMap';
 import {
-  getCachedExerciseImage, uploadExerciseImage, deleteExerciseImage,
+  getCachedExerciseImage, getCachedExerciseImageRecord, compressImage,
+  renderFramedImage, saveExerciseImage, deleteExerciseImage,
+  framedLayout, FRAME_ASPECT, DEFAULT_TRANSFORM,
 } from '../utils/exerciseImages';
 
 /**
@@ -20,14 +22,193 @@ export function useCustomExerciseImage(name) {
   return img;
 }
 
+const MIN_ZOOM = 1;
+const MAX_ZOOM = 4;
+
 /**
- * Upload / replace / remove control for an exercise's custom photo. Shown inside
+ * Drag-to-pan + zoom framing dialog, opened right after picking a photo and
+ * again from "Adjust". The frame matches the aspect ratio the demo popup
+ * renders, and Save bakes the framing into the stored image — so the thumbnail,
+ * the popup, and the (read-only) mobile app all show exactly this crop.
+ */
+function ExerciseImageAdjuster({ name, source, initialTransform, onSaved, onClose }) {
+  const frameRef = useRef(null);
+  const dragRef = useRef(null);
+  const [frame, setFrame] = useState({ w: 0, h: 0 });
+  const [natural, setNatural] = useState(null); // { w, h }
+  const [transform, setTransform] = useState(() => ({ ...DEFAULT_TRANSFORM, ...(initialTransform || {}) }));
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+
+  // Track the frame's rendered size so the preview math matches the bake.
+  useEffect(() => {
+    const el = frameRef.current;
+    if (!el) return;
+    const measure = () => setFrame({ w: el.clientWidth, h: el.clientHeight });
+    measure();
+    if (typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  useEffect(() => {
+    const img = new Image();
+    img.onload = () => setNatural({ w: img.naturalWidth, h: img.naturalHeight });
+    img.onerror = () => setErr("Couldn't read that image.");
+    img.src = source;
+  }, [source]);
+
+  const layout = natural && frame.w
+    ? framedLayout({ naturalW: natural.w, naturalH: natural.h, frameW: frame.w, frameH: frame.h, transform })
+    : null;
+
+  // Pan in frame-fractions so the stored offset is resolution-independent, and
+  // clamp against the current zoom so an edge never enters the frame.
+  const nudge = useCallback((dxPx, dyPx) => {
+    if (!frame.w || !natural) return;
+    setTransform(t => {
+      const l = framedLayout({
+        naturalW: natural.w, naturalH: natural.h, frameW: frame.w, frameH: frame.h,
+        transform: { ...t, ox: (t.ox || 0) + dxPx / frame.w, oy: (t.oy || 0) + dyPx / frame.h },
+      });
+      return { ...t, ox: l.ox, oy: l.oy };
+    });
+  }, [frame.w, frame.h, natural]);
+
+  function onPointerDown(e) {
+    if (!layout) return;
+    e.currentTarget.setPointerCapture(e.pointerId);
+    dragRef.current = { x: e.clientX, y: e.clientY };
+  }
+  function onPointerMove(e) {
+    const d = dragRef.current;
+    if (!d) return;
+    nudge(e.clientX - d.x, e.clientY - d.y);
+    dragRef.current = { x: e.clientX, y: e.clientY };
+  }
+  function onPointerUp(e) {
+    dragRef.current = null;
+    try { e.currentTarget.releasePointerCapture(e.pointerId); } catch { /* already released */ }
+  }
+
+  function setZoom(z) {
+    setTransform(t => ({ ...t, zoom: Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, z)) }));
+    // Re-clamp the pan: zooming out can leave the old offset out of bounds.
+    nudge(0, 0);
+  }
+
+  async function onSave() {
+    setBusy(true);
+    setErr('');
+    try {
+      const dataUrl = await renderFramedImage(source, transform);
+      await saveExerciseImage(name, { dataUrl, source, transform });
+      onSaved?.();
+      onClose();
+    } catch {
+      setErr('Saving failed. Try a different image.');
+      setBusy(false);
+    }
+  }
+
+  const btn = (extra = {}) => ({
+    borderRadius: 8, padding: '7px 14px', fontSize: '0.85rem', fontWeight: 700,
+    cursor: busy ? 'default' : 'pointer', opacity: busy ? 0.6 : 1, ...extra,
+  });
+
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 1100,
+        display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem',
+      }}
+    >
+      <div
+        onClick={e => e.stopPropagation()}
+        style={{
+          background: 'var(--color-bg, #fff)', borderRadius: 14, padding: '1rem',
+          width: 'min(94vw, 460px)', boxShadow: '0 10px 40px rgba(0,0,0,0.3)',
+        }}
+      >
+        <div style={{ fontWeight: 800, fontSize: '0.95rem', marginBottom: 8 }}>Position your photo</div>
+        <div
+          ref={frameRef}
+          onPointerDown={onPointerDown}
+          onPointerMove={onPointerMove}
+          onPointerUp={onPointerUp}
+          onPointerCancel={onPointerUp}
+          style={{
+            position: 'relative', width: '100%', aspectRatio: String(FRAME_ASPECT),
+            borderRadius: 12, overflow: 'hidden', background: '#0f172a',
+            border: '1px solid var(--color-border)', cursor: 'grab', touchAction: 'none',
+          }}
+        >
+          {layout && (
+            <img
+              src={source}
+              alt=""
+              draggable={false}
+              style={{
+                position: 'absolute',
+                left: layout.left, top: layout.top, width: layout.width, height: layout.height,
+                maxWidth: 'none', userSelect: 'none', pointerEvents: 'none',
+              }}
+            />
+          )}
+          {/* Centering guides — the frame edges are the crop. */}
+          <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', boxShadow: 'inset 0 0 0 1px rgba(255,255,255,0.35)' }} />
+          <div style={{ position: 'absolute', left: '50%', top: 0, bottom: 0, width: 1, background: 'rgba(255,255,255,0.25)', pointerEvents: 'none' }} />
+          <div style={{ position: 'absolute', top: '50%', left: 0, right: 0, height: 1, background: 'rgba(255,255,255,0.25)', pointerEvents: 'none' }} />
+        </div>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 10 }}>
+          <span style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)' }}>Zoom</span>
+          <input
+            type="range"
+            min={MIN_ZOOM} max={MAX_ZOOM} step={0.01}
+            value={transform.zoom}
+            onChange={e => setZoom(Number(e.target.value))}
+            style={{ flex: 1 }}
+          />
+          <button
+            type="button"
+            onClick={() => setTransform({ ...DEFAULT_TRANSFORM })}
+            style={btn({ border: '1px solid var(--color-border)', background: 'transparent', color: 'var(--color-text-muted)', padding: '5px 10px', fontSize: '0.78rem' })}
+          >
+            Center
+          </button>
+        </div>
+        <div style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', marginTop: 6 }}>
+          Drag the photo to move it. Everything outside the frame is cropped off.
+        </div>
+
+        {err && <div style={{ color: '#dc2626', fontSize: '0.8rem', marginTop: 6 }}>{err}</div>}
+
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 12 }}>
+          <button type="button" onClick={onClose} disabled={busy} style={btn({ border: '1px solid var(--color-border)', background: 'transparent', color: 'var(--color-text-muted)' })}>
+            Cancel
+          </button>
+          <button type="button" onClick={onSave} disabled={busy || !layout} style={btn({ border: '1px solid var(--color-accent)', background: 'var(--color-accent)', color: '#fff' })}>
+            {busy ? 'Saving…' : 'Save photo'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Upload / adjust / remove control for an exercise's custom photo. Shown inside
  * the demo popup. A custom photo replaces the auto-matched form demo everywhere.
  */
 function ExerciseImageControls({ name, hasCustom }) {
   const inputRef = useRef(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
+  // { source, transform } while the framing dialog is open; null when closed.
+  const [editing, setEditing] = useState(null);
 
   async function onPick(e) {
     const file = e.target.files?.[0];
@@ -36,12 +217,25 @@ function ExerciseImageControls({ name, hasCustom }) {
     setErr('');
     setBusy(true);
     try {
-      await uploadExerciseImage(name, file);
+      // Shrink first, then frame it — nothing is saved until Save is pressed.
+      const source = await compressImage(file);
+      setEditing({ source, transform: { ...DEFAULT_TRANSFORM } });
     } catch {
       setErr('Upload failed. Try a different image.');
     } finally {
       setBusy(false);
     }
+  }
+
+  function onAdjust() {
+    const rec = getCachedExerciseImageRecord(name);
+    if (!rec) return;
+    // Re-frame the untouched original when we still have it; otherwise the saved
+    // crop is all there is — and its transform is already baked in, so start
+    // that one from centered rather than applying the offsets twice.
+    setEditing(rec.source
+      ? { source: rec.source, transform: rec.transform || { ...DEFAULT_TRANSFORM } }
+      : { source: rec.dataUrl, transform: { ...DEFAULT_TRANSFORM } });
   }
 
   async function onRemove() {
@@ -51,6 +245,14 @@ function ExerciseImageControls({ name, hasCustom }) {
 
   return (
     <div style={{ marginTop: 10, display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
+      {editing && (
+        <ExerciseImageAdjuster
+          name={name}
+          source={editing.source}
+          initialTransform={editing.transform}
+          onClose={() => setEditing(null)}
+        />
+      )}
       <input ref={inputRef} type="file" accept="image/*" onChange={onPick} style={{ display: 'none' }} />
       <button
         type="button"
@@ -64,6 +266,18 @@ function ExerciseImageControls({ name, hasCustom }) {
       >
         {busy ? 'Uploading…' : hasCustom ? '📷 Replace photo' : '📷 Upload your own photo'}
       </button>
+      {hasCustom && !busy && (
+        <button
+          type="button"
+          onClick={onAdjust}
+          style={{
+            border: '1px solid var(--color-border)', background: 'transparent', color: 'var(--color-text)',
+            borderRadius: 8, padding: '6px 12px', fontSize: '0.82rem', fontWeight: 700, cursor: 'pointer',
+          }}
+        >
+          ✥ Adjust
+        </button>
+      )}
       {hasCustom && !busy && (
         <button
           type="button"
@@ -286,7 +500,8 @@ export function ExerciseDemo({ name, fallbackPrimary, fallbackSecondary, showMus
   if (custom) {
     return (
       <div>
-        <div style={{ position: 'relative', width: '100%', aspectRatio: '1.3', borderRadius: 12, overflow: 'hidden', background: '#fff', border: '1px solid var(--color-border)' }}>
+        {/* Same aspect the adjuster framed to, so what you positioned is what shows. */}
+        <div style={{ position: 'relative', width: '100%', aspectRatio: String(FRAME_ASPECT), borderRadius: 12, overflow: 'hidden', background: '#fff', border: '1px solid var(--color-border)' }}>
           <img src={custom} alt="" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
           <span style={{ position: 'absolute', top: 8, right: 8, background: 'rgba(0,0,0,0.55)', color: '#fff', fontSize: 10, fontWeight: 700, borderRadius: 999, padding: '2px 8px' }}>📷 Your photo</span>
         </div>

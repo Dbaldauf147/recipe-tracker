@@ -81,6 +81,78 @@ function weeklyDueYet(h, date = new Date()) {
 // imported-but-not-yet-started habit.
 const EXCLUDED_STATUSES = new Set(['On Hold', 'Abandoned', 'Automatically', 'Not Started', 'Havent Started']);
 
+// ---- "Yesterday never got logged" — a different warning from the counts above ----
+// The outstanding count nags about a period still IN PROGRESS; this one is about
+// a day that is OVER, so an empty cell is a permanent gap in the record unless
+// it gets backfilled. Deliberately narrow so the banner means one thing:
+//   • DAILY cadence only — a weekly/monthly/yearly period spanning yesterday
+//     isn't over, so it can't have been "missed yesterday".
+//   • Strictly yesterday. Older gaps belong to HabitsPage's 7-day past-due card.
+//   • Off-days (trackDays) don't count — the habit wasn't due yesterday.
+//   • Parked / auto-tracked habits are excluded, same as the badge.
+//   • A habit with no daily history at or before yesterday reads as NEW, not
+//     missed (same first-log anchor as HabitsPage's habitPastDue), so a habit
+//     added today never nags about a day it didn't exist for.
+// ⚠️ MIRRORS PrepDay/src/utils/habitTracking.ts `yesterdayUnloggedHabits` — keep
+// the two in sync so both apps warn about exactly the same habits.
+const DAY_KEY_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+/** Local-midnight Date for yesterday (never UTC — habit day keys are local). */
+export function yesterdayDate(now = new Date()) {
+  return new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
+}
+
+/** The habitLog day key ("YYYY-MM-DD") a yesterday backfill writes to. */
+export function yesterdayDayKey(now = new Date()) {
+  return dayKey(yesterdayDate(now));
+}
+
+/**
+ * The Daily habits that were due yesterday and never got a mark.
+ * @param {Array} habits    the user's `habits` array
+ * @param {Object} habitLog the user's `habitLog` map (periodKey -> {habitId: mark})
+ * @param {Array} [automations] the user's `habitAutomations` rules
+ * @param {Date} [now]
+ * @returns {Array} the habit objects, in `habits` order
+ */
+export function yesterdayUnloggedHabits(habits, habitLog, automations, now = new Date()) {
+  if (!Array.isArray(habits)) return [];
+  const log = habitLog && typeof habitLog === 'object' ? habitLog : {};
+  const y = yesterdayDate(now);
+  const yKey = dayKey(y);
+  // Habits an ENABLED automation rule fills in — the cron logs them, not you.
+  const autoIds = new Set(
+    (Array.isArray(automations) ? automations : [])
+      .filter(r => r && r.enabled && r.habitId)
+      .map(r => r.habitId),
+  );
+
+  // Earliest DAY key each habit was ever marked. YYYY-MM-DD sorts
+  // chronologically as a plain string, so this needs no date math.
+  const firstDay = new Map();
+  for (const k in log) {
+    if (!DAY_KEY_RE.test(k)) continue;
+    for (const id in (log[k] || {})) {
+      const cur = firstDay.get(id);
+      if (cur === undefined || k < cur) firstDay.set(id, k);
+    }
+  }
+
+  const out = [];
+  for (const h of habits) {
+    if (!h) continue;
+    if (cadenceCanon(h.cadence) !== 'Daily') continue;
+    if (EXCLUDED_STATUSES.has((h.status || '').trim())) continue;
+    if (autoIds.has(h.id)) continue;
+    if (!tracksDate(h, y)) continue;                    // off-day → wasn't due
+    if ((log[yKey] || {})[h.id] !== undefined) continue; // already marked
+    const first = firstDay.get(h.id);
+    if (first === undefined || first > yKey) continue;   // brand new → not a miss
+    out.push(h);
+  }
+  return out;
+}
+
 /**
  * How many habits still need logging for their current period.
  * @param {Array} habits   the user's `habits` array

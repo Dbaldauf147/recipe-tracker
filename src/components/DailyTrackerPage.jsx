@@ -1500,11 +1500,15 @@ function TrackIngredientInline({ onAdd, onBack }) {
 }
 
 /* ── AI Estimate (restaurant meal) ── */
-function AiEstimateInline({ onAdd, onBack, initialDescription = '', eatingOutSpot = null }) {
+function AiEstimateInline({ onAdd, onBack, initialDescription = '', eatingOutSpot = null, onSaveSpotMeal }) {
   const [description, setDescription] = useState(initialDescription);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [result, setResult] = useState(null);
+  // When this estimate came from the Eating Out flow, offer to remember it on
+  // that spot so it becomes a one-tap option there next time. Default on.
+  const canSaveToSpot = !!(eatingOutSpot && onSaveSpotMeal);
+  const [saveToSpot, setSaveToSpot] = useState(true);
 
   async function handleEstimate() {
     if (!description.trim()) return;
@@ -1550,6 +1554,19 @@ For each ingredient, include a "nutrition" object with estimated calories, prote
       carbs: macros.carbs || 0,
       fat: macros.fat || 0,
     };
+    // Remember this estimate as a saved meal on the spot, so it shows up as a
+    // one-tap option there next time (mirrors the Eating Out page meal shape).
+    if (canSaveToSpot && saveToSpot) {
+      onSaveSpotMeal(eatingOutSpot.id, {
+        id: uuid(),
+        name: result.title || description.trim(),
+        calories: Math.round(nutrition.calories) || 0,
+        protein: Math.round(nutrition.protein) || 0,
+        carbs: Math.round(nutrition.carbs) || 0,
+        fat: Math.round(nutrition.fat) || 0,
+        source: 'ai',
+      });
+    }
     onAdd({
       id: uuid(),
       type: 'custom_meal',
@@ -1630,6 +1647,12 @@ For each ingredient, include a "nutrition" object with estimated calories, prote
             </div>
           )}
           <p className={styles.aiEstimateHint}>Not right? Edit your description above and re-estimate.</p>
+          {canSaveToSpot && (
+            <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', margin: '0.25rem 0 0.6rem', fontSize: '0.9rem', cursor: 'pointer' }}>
+              <input type="checkbox" checked={saveToSpot} onChange={e => setSaveToSpot(e.target.checked)} />
+              <span>Save to <strong>{eatingOutSpot.name}</strong> so it's an option next time</span>
+            </label>
+          )}
           <div className={styles.formRow} style={{ gap: '0.5rem' }}>
             <button className={styles.addBtn} onClick={handleAdd}>Add to Meal Log</button>
             <button className={styles.addBtnSecondary} onClick={handleEstimate} disabled={loading || !description.trim()}>
@@ -1643,7 +1666,7 @@ For each ingredient, include a "nutrition" object with estimated calories, prote
 }
 
 /* ── Eating Out (pick one of your saved spots, then a meal or an estimate) ── */
-function EatingOutInline({ user, onAdd, onBack, onEstimate }) {
+function EatingOutInline({ user, onAdd, onBack, onEstimate, recentSpotIds = [] }) {
   const [restaurants, setRestaurants] = useState(null); // null = loading
   const [query, setQuery] = useState('');
   const [selected, setSelected] = useState(null); // chosen restaurant
@@ -1667,9 +1690,33 @@ function EatingOutInline({ user, onAdd, onBack, onEstimate }) {
   const matchesQuery = r => !q
     || (r.name || '').toLowerCase().includes(q)
     || (Array.isArray(r.locations) && r.locations.some(l => (l || '').toLowerCase().includes(q)));
-  const filtered = spots.filter(matchesQuery).sort((a, b) =>
-    (mealCountOf(a) ? 0 : 1) - (mealCountOf(b) ? 0 : 1) || (a.name || '').localeCompare(b.name || ''),
-  );
+  // The 5 places you most recently ate out at, pinned to the top (in recency
+  // order) so the usual spots are one tap away. They're excluded from the main
+  // A–Z list below so they don't appear twice.
+  const recentSpots = recentSpotIds
+    .map(id => spots.find(r => r.id === id))
+    .filter(Boolean)
+    .filter(matchesQuery)
+    .slice(0, 5);
+  const recentShown = new Set(recentSpots.map(r => r.id));
+  const filtered = spots
+    .filter(matchesQuery)
+    .filter(r => !recentShown.has(r.id))
+    .sort((a, b) =>
+      (mealCountOf(a) ? 0 : 1) - (mealCountOf(b) ? 0 : 1) || (a.name || '').localeCompare(b.name || ''),
+    );
+
+  const renderSpotBtn = (r) => {
+    const n = mealCountOf(r);
+    return (
+      <button key={r.id} className={styles.eatingOutSpotBtn} onClick={() => setSelected(r)}>
+        <span className={styles.eatingOutSpotName}>{r.name}</span>
+        <span className={styles.eatingOutSpotCount}>
+          {n ? `${n} meal${n === 1 ? '' : 's'} ` : 'Estimate '}&rsaquo;
+        </span>
+      </button>
+    );
+  };
 
   function logMeal(restaurant, meal) {
     onAdd({
@@ -1713,19 +1760,18 @@ function EatingOutInline({ user, onAdd, onBack, onEstimate }) {
             placeholder="Search your spots…"
             autoFocus
           />
+          {recentSpots.length > 0 && (
+            <>
+              <div className={styles.eatingOutGroupLabel}>Recent</div>
+              <div className={styles.eatingOutList}>
+                {recentSpots.map(renderSpotBtn)}
+              </div>
+              {filtered.length > 0 && <div className={styles.eatingOutGroupLabel}>All spots</div>}
+            </>
+          )}
           <div className={styles.eatingOutList}>
-            {filtered.map(r => {
-              const n = mealCountOf(r);
-              return (
-                <button key={r.id} className={styles.eatingOutSpotBtn} onClick={() => setSelected(r)}>
-                  <span className={styles.eatingOutSpotName}>{r.name}</span>
-                  <span className={styles.eatingOutSpotCount}>
-                    {n ? `${n} meal${n === 1 ? '' : 's'} ` : 'Estimate '}&rsaquo;
-                  </span>
-                </button>
-              );
-            })}
-            {filtered.length === 0 && (
+            {filtered.map(renderSpotBtn)}
+            {recentSpots.length === 0 && filtered.length === 0 && (
               <p className={styles.aiEstimateHint}>No spots match “{query}”.</p>
             )}
           </div>
@@ -2706,11 +2752,11 @@ function EntryRow({ entry, onDelete, goalKeys, onEdit, onUpdateEntry, getRecipe 
         <MealScoreBadge nutrition={n} />
         {isEditable ? (
           <button className={styles.entryNameBtn} onClick={() => onEdit && onEdit(entry)}>
-            {name} <span className={styles.editHint}>edit</span>
+            {entry.eatingOut && <span className={styles.eatingOutTag} title="Eating out — counts toward your weekly eating-out goal">🍔</span>}{name} <span className={styles.editHint}>edit</span>
           </button>
         ) : (
           <button className={styles.entryNameBtn} onClick={() => setExpanded(p => !p)}>
-            {name} {entry.brand && <span className={styles.entryBrand}>{entry.brand}</span>} {(entry.customWeight || entry.ingredientWeights) && <span className={styles.editHint}>{entry.customWeight ? `${entry.customWeight}g` : 'custom'}</span>}
+            {entry.eatingOut && <span className={styles.eatingOutTag} title="Eating out — counts toward your weekly eating-out goal">🍔</span>}{name} {entry.brand && <span className={styles.entryBrand}>{entry.brand}</span>} {(entry.customWeight || entry.ingredientWeights) && <span className={styles.editHint}>{entry.customWeight ? `${entry.customWeight}g` : 'custom'}</span>}
           </button>
         )}
         <span className={styles.entryPortion}>
@@ -3824,7 +3870,7 @@ function CookPicker({ date, weeklyPlan, recipes, selected, onCommit }) {
 
 /* ── Main Page ── */
 /* ── Weekly View ── */
-function WeeklyView({ dailyLog, date, recipes, onDayClick, onMoveEntry, onAddToSlot, onViewRecipe, onRemoveLastEntry, onEditEntry, onSelectDate, mode = 'log', weeklyPlan = [], onSetCookRecipes, onDropCookRecipeInSlot, onToggleEatingOut, prepareAnchor, renderDayWorkout, renderDayEvents }) {
+function WeeklyView({ dailyLog, date, recipes, onDayClick, onMoveEntry, onAddToSlot, onViewRecipe, onRemoveLastEntry, onEditEntry, onSelectDate, mode = 'log', weeklyPlan = [], onSetCookRecipes, onDropCookRecipeInSlot, onToggleEatingOut, onPickEatOut, prepareAnchor, renderDayWorkout, renderDayEvents }) {
   const goals = loadGoals();
   const macroKeys = ['calories', 'protein', 'carbs', 'fat'];
   // Fruit & vegetable servings get their own rows below Daily macros.
@@ -4162,7 +4208,16 @@ function WeeklyView({ dailyLog, date, recipes, onDayClick, onMoveEntry, onAddToS
                     {day.daySkipped ? (
                       <span className={styles.weeklyColSkipped}>Not Tracked</span>
                     ) : day.eatingOutMeals.includes(slot) ? (
-                      <span className={styles.weeklyColEatingOut} title="Eating out — not tracked. Click × to track this meal again.">🍔 Eating out</span>
+                      (mode === 'prepare' && onPickEatOut) ? (
+                        <button
+                          type="button"
+                          className={`${styles.weeklyColEatingOut} ${styles.weeklyColEatingOutBtn}`}
+                          onClick={e => { e.stopPropagation(); onPickEatOut(day.dateStr, slot); }}
+                          title="Eating out — click to pick where you ate. (Use × above to track this meal normally again.)"
+                        >🍔 Eating out — pick a place</button>
+                      ) : (
+                        <span className={styles.weeklyColEatingOut} title="Eating out — not tracked. Click × to track this meal again.">🍔 Eating out</span>
+                      )
                     ) : day.skippedMeals.includes(slot) ? (
                       <span className={styles.weeklyColSkippedMeal}>Skipped</span>
                     ) : day.bySlot[slot].length > 0 ? day.bySlot[slot].map((item) => (
@@ -4189,6 +4244,7 @@ function WeeklyView({ dailyLog, date, recipes, onDayClick, onMoveEntry, onAddToS
                           {item.entry?.cooked && (
                             <span className={styles.cookedIcon} title="Cook this on this day" aria-label="Cook this on this day">🍳</span>
                           )}
+                          {item.entry?.eatingOut && <span className={styles.eatingOutTag} title="Eating out — counts toward your weekly eating-out goal">🍔 </span>}
                           {item.name}
                           {item.entry?.brand && <span className={styles.entryBrand}>{item.entry.brand}</span>}
                           {item.entry?.autoSuggested && <span className={styles.suggestedTag}>auto</span>}
@@ -5282,7 +5338,13 @@ export function DailyTrackerPage({ recipes, getRecipe, onClose, user, weeklyPlan
     setDailyLog(prev => {
       const next = { ...prev };
       if (!next[d]) next[d] = { entries: [] };
-      next[d] = { ...next[d], entries: [...next[d].entries, finalEntry] };
+      const dayNext = { ...next[d], entries: [...next[d].entries, finalEntry] };
+      // Logging a real eating-out meal supersedes the "eating out — not tracked"
+      // placeholder for that slot, so the meal itself shows in the grid.
+      if (entry.eatingOut && Array.isArray(dayNext.eatingOutMeals) && dayNext.eatingOutMeals.includes(slot)) {
+        dayNext.eatingOutMeals = dayNext.eatingOutMeals.filter(s => s !== slot);
+      }
+      next[d] = dayNext;
       saveDailyLog(next, user);
       return next;
     });
@@ -5693,6 +5755,54 @@ export function DailyTrackerPage({ recipes, getRecipe, onClose, user, weeklyPlan
     setAddModal({ targetDate, targetSlot });
   }
 
+  // Clicking a "🍔 Eating out" placeholder in the Week Plan grid jumps straight
+  // into the Eating Out picker for that slot, so you can choose the spot you
+  // actually ate at. Logging one clears the placeholder (see addEntry).
+  function handlePickEatOut(targetDate, targetSlot) {
+    setQuickPickRecipeId('');
+    setAddModal({ targetDate, targetSlot, mode: 'eating-out' });
+  }
+
+  // The restaurant ids you most recently logged an eating-out meal at, most
+  // recent first — the Eating Out picker pins the top 5 so your usual spots are
+  // one tap away.
+  const recentEatOutSpotIds = useMemo(() => {
+    const rows = [];
+    for (const [d, day] of Object.entries(dailyLog || {})) {
+      for (const e of (day?.entries || [])) {
+        if (e?.eatingOut && e.restaurantId) rows.push({ id: e.restaurantId, ts: e.timestamp || d });
+      }
+    }
+    rows.sort((a, b) => String(b.ts).localeCompare(String(a.ts)));
+    const seen = new Set();
+    const out = [];
+    for (const r of rows) {
+      if (seen.has(r.id)) continue;
+      seen.add(r.id);
+      out.push(r.id);
+      if (out.length >= 5) break;
+    }
+    return out;
+  }, [dailyLog]);
+
+  // Append an AI-estimated meal to a saved Eating Out spot so it becomes a
+  // one-tap option there next time. Read-modify-write on the shared
+  // `restaurants` user-doc field (mirrors the Eating Out page meal shape).
+  async function saveEatingOutMeal(spotId, meal) {
+    if (!user?.uid || !spotId || !meal) return;
+    try {
+      const list = await loadField(user.uid, 'restaurants');
+      const arr = Array.isArray(list) ? list : [];
+      const idx = arr.findIndex(r => r?.id === spotId);
+      if (idx === -1) return; // spot deleted since it was picked
+      const r = arr[idx];
+      const meals = Array.isArray(r.meals) ? r.meals : [];
+      const next = [...arr];
+      next[idx] = { ...r, meals: [...meals, meal] };
+      await saveField(user.uid, 'restaurants', next);
+    } catch { /* non-fatal: the meal was still logged, just not remembered */ }
+  }
+
   // Today's main-meal coverage (mirrors the send-meal-prompt reminder logic):
   // breakfast/lunch/dinner entries + any skipped slots count toward the 3.
   const missTodayData = dailyLog[todayStr()] || {};
@@ -5728,7 +5838,7 @@ export function DailyTrackerPage({ recipes, getRecipe, onClose, user, weeklyPlan
       )}
       <div className={styles.weeklyWithCal}>
         <div className={styles.weeklyWithCalLeft}>
-          <WeeklyView dailyLog={dailyLog} date={date} recipes={recipes} onDayClick={(d) => setDate(d)} onMoveEntry={moveEntry} onAddToSlot={handleAddToSlot} onViewRecipe={(id) => setViewRecipeId(id)} onRemoveLastEntry={removeLastEntry} onEditEntry={(entryId, dateStr) => setEditModal({ entryId, dateStr })} onSelectDate={(d) => setDate(d)} mode={prepareOnly ? 'prepare' : viewMode} weeklyPlan={weeklyPlan} onSetCookRecipes={setCookRecipes} onDropCookRecipeInSlot={placeCookRecipeInSlot} onToggleEatingOut={toggleEatingOut} prepareAnchor={prepareAnchorStr} renderDayWorkout={prepareOnly ? renderDayWorkout : undefined} renderDayEvents={prepareOnly ? renderDayEvents : undefined} />
+          <WeeklyView dailyLog={dailyLog} date={date} recipes={recipes} onDayClick={(d) => setDate(d)} onMoveEntry={moveEntry} onAddToSlot={handleAddToSlot} onViewRecipe={(id) => setViewRecipeId(id)} onRemoveLastEntry={removeLastEntry} onEditEntry={(entryId, dateStr) => setEditModal({ entryId, dateStr })} onSelectDate={(d) => setDate(d)} mode={prepareOnly ? 'prepare' : viewMode} weeklyPlan={weeklyPlan} onSetCookRecipes={setCookRecipes} onDropCookRecipeInSlot={placeCookRecipeInSlot} onToggleEatingOut={toggleEatingOut} onPickEatOut={handlePickEatOut} prepareAnchor={prepareAnchorStr} renderDayWorkout={prepareOnly ? renderDayWorkout : undefined} renderDayEvents={prepareOnly ? renderDayEvents : undefined} />
         </div>
         {!prepareOnly && (
         <div className={styles.weeklyWithCalRight}>
@@ -5959,6 +6069,7 @@ export function DailyTrackerPage({ recipes, getRecipe, onClose, user, weeklyPlan
                 onBack={() => setAddModal(prev => ({ ...prev, mode: null, estimatePrefill: undefined, eatingOutSpot: undefined }))}
                 initialDescription={addModal.estimatePrefill || ''}
                 eatingOutSpot={addModal.eatingOutSpot || null}
+                onSaveSpotMeal={saveEatingOutMeal}
               />
             ) : addModal.mode === 'eating-out' ? (
               <EatingOutInline
@@ -5966,6 +6077,7 @@ export function DailyTrackerPage({ recipes, getRecipe, onClose, user, weeklyPlan
                 onAdd={(entry) => { addEntry(entry, addModal.targetDate, addModal.targetSlot); setAddModal(null); }}
                 onBack={() => setAddModal(prev => ({ ...prev, mode: null }))}
                 onEstimate={(spot) => setAddModal(prev => ({ ...prev, mode: 'ai-estimate', estimatePrefill: spot?.name ? `${spot.name}: ` : '', eatingOutSpot: spot ? { id: spot.id, name: spot.name } : null }))}
+                recentSpotIds={recentEatOutSpotIds}
               />
             ) : null}
           </div>

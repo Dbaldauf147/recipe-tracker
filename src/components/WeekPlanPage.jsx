@@ -598,10 +598,14 @@ export function WeekPlanPage({ recipes, getRecipe, user, weeklyPlan = [], weekly
     }
     const idx = sundayIndexOf(dateStr);
     let cell = resolvedWorkoutPlan[idx] || { value: 'rest', isAuto: true };
-    // A past day with no recorded workout + an auto (non-manual) plan means the
-    // suggested workout never actually happened — show it as a Rest day instead
-    // of a misleading "Cardio · auto". Manual plans are left as the user set them.
-    if (dateStr < isoDate(new Date()) && cell.isAuto && cell.value !== 'rest') {
+    // A past day with no recorded workout means the planned workout never
+    // actually happened — show it as a Rest day instead of a misleading "Yoga"
+    // that reads as if it were logged. This branch is only reached when nothing
+    // was recorded for the date (recorded days return above), so it applies to
+    // both auto suggestions AND manual weekly-plan picks: weekWorkoutPlan is a
+    // recurring weekday template, so a past unlogged day of it is history, not a
+    // plan. Today and future days keep their planned type.
+    if (dateStr < isoDate(new Date()) && cell.value !== 'rest') {
       cell = { value: 'rest', isAuto: true };
     }
     const isRest = cell.value === 'rest';

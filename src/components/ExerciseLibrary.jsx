@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useRef } from 'react';
 import styles from './ExerciseLibrary.module.css';
 import { ExerciseDemo, ExerciseDemoThumb } from './ExerciseDemo';
 
@@ -181,8 +181,16 @@ function videoSourceLabel(url) {
   return '↗';
 }
 
-export function ExerciseLibrary({ library, onChange }) {
+export function ExerciseLibrary({ library, onChange, onRenameExercise }) {
   const [search, setSearch] = useState('');
+  // The name cell is a DRAFT while focused: renaming propagates to every logged
+  // workout, so it must fire once on commit (blur/Enter) — never per keystroke,
+  // which would rewrite history to each half-typed prefix. `null` = not editing.
+  const [nameDraft, setNameDraft] = useState(null); // { idx, value }
+  // Escape sets this synchronously before blurring. A ref, not state: the blur
+  // handler runs before a state update lands, so it would still read the old
+  // draft and commit the very rename we're trying to abandon.
+  const cancelNameEditRef = useRef(false);
   const [groupFilter, setGroupFilter] = useState('');
   const [showRetired, setShowRetired] = useState(false);
   const [topOnly, setTopOnly] = useState(false);
@@ -208,6 +216,27 @@ export function ExerciseLibrary({ library, onChange }) {
 
   function updateRow(originalIdx, field, value) {
     onChange(library.map((row, i) => i === originalIdx ? { ...row, [field]: value } : row));
+  }
+
+  // Commit the in-progress name edit for a row. A rename of an EXISTING named
+  // exercise is handed to onRenameExercise, which owns the library write too (it
+  // also merges collisions) — so we deliberately don't updateRow on that path.
+  // Naming a blank new row, or clearing a name, is just a plain cell edit.
+  function commitName(originalIdx) {
+    if (cancelNameEditRef.current) { cancelNameEditRef.current = false; setNameDraft(null); return; }
+    const draft = nameDraft;
+    if (!draft || draft.idx !== originalIdx) return;
+    setNameDraft(null);
+    const oldName = (library[originalIdx]?.exercise || '').trim();
+    const newName = draft.value.trim();
+    if (newName === oldName) return;
+    if (!oldName || !newName || !onRenameExercise) {
+      updateRow(originalIdx, 'exercise', draft.value);
+      return;
+    }
+    // Declined (cancelled confirm) → draft is already cleared, so the input
+    // falls back to the untouched row value and the old name reappears.
+    onRenameExercise(oldName, newName);
   }
   function addRow() {
     onChange([blankExercise(), ...library]);
@@ -283,6 +312,38 @@ export function ExerciseLibrary({ library, onChange }) {
     return arr;
   }, [filtered, sort, COLUMNS]);
 
+  function csvCell(v) {
+    const s = v == null ? '' : String(v);
+    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  }
+
+  function handleExport() {
+    const cols = [
+      { header: 'Exercise', get: e => e.exercise },
+      { header: 'Nickname', get: e => e.nickname || '' },
+      { header: 'Muscle Group', get: e => effectiveMuscleGroup(e) },
+      { header: 'Primary Muscles', get: e => e.primaryMuscles || '' },
+      { header: 'Secondary Muscles', get: e => e.secondaryMuscles || '' },
+      { header: 'Videos', get: e => (e.videos || []).join(', ') },
+      { header: 'Alternative', get: e => e.alternative || '' },
+      { header: 'Retired', get: e => (e.retired ? 'Yes' : '') },
+      { header: 'Top', get: e => (e.top ? 'x' : '') },
+      { header: 'Date Added', get: e => formatAddedDate(e.addedAt) },
+    ];
+    const rows = sorted.map(({ e }) => cols.map(c => csvCell(c.get(e))).join(','));
+    const csv = [cols.map(c => c.header).join(','), ...rows].join('\r\n');
+    const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    const stamp = new Date().toISOString().slice(0, 10);
+    a.href = url;
+    a.download = `exercises-${stamp}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+
   function handleParseImport() {
     setImportError('');
     try {
@@ -346,6 +407,14 @@ export function ExerciseLibrary({ library, onChange }) {
         </label>
         <button className={styles.primaryBtn} onClick={addRow}>+ Add exercise</button>
         <button className={styles.secondaryBtn} onClick={() => setShowImport(true)}>Re-import</button>
+        <button
+          className={styles.secondaryBtn}
+          onClick={handleExport}
+          disabled={filtered.length === 0}
+          title="Download the currently shown exercises as a CSV"
+        >
+          Export CSV
+        </button>
       </div>
 
       <div className={styles.count}>
@@ -407,8 +476,16 @@ export function ExerciseLibrary({ library, onChange }) {
                     >★</button>
                     <input
                       className={`${styles.cellInput} ${styles.exNameInput}`}
-                      value={e.exercise}
-                      onChange={ev => updateRow(originalIdx, 'exercise', ev.target.value)}
+                      value={nameDraft?.idx === originalIdx ? nameDraft.value : e.exercise}
+                      onFocus={() => setNameDraft({ idx: originalIdx, value: e.exercise || '' })}
+                      onChange={ev => setNameDraft({ idx: originalIdx, value: ev.target.value })}
+                      onBlur={() => commitName(originalIdx)}
+                      onKeyDown={ev => {
+                        if (ev.key === 'Enter') { ev.preventDefault(); ev.currentTarget.blur(); }
+                        // Abandon the edit — the ref makes blur skip the commit,
+                        // so the row's existing name comes back.
+                        else if (ev.key === 'Escape') { cancelNameEditRef.current = true; ev.currentTarget.blur(); }
+                      }}
                       placeholder="Exercise name"
                     />
                   </div>

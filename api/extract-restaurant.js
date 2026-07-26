@@ -128,7 +128,10 @@ async function extractFromGenericUrl(url) {
 //   www.google.com/maps/place/Place+Name/@40.7128,-74.0060,15z/data=...
 //   maps.google.com/?q=...
 function isGoogleMapsUrl(url) {
-  return /(?:^|\.)(?:google\.com\/maps|maps\.google\.com|maps\.app\.goo\.gl|goo\.gl\/maps)/i.test(url);
+  // Host must start right after "//" or a subdomain "." — but NOT be anchored so
+  // tightly that `https://maps.google.com` (host right after the slashes) is
+  // missed. Covers google.<tld>/maps, maps.google.<tld>, and the short forms.
+  return /(?:\/\/|\.)(?:google\.[a-z.]+\/maps|maps\.google\.[a-z.]+|maps\.app\.goo\.gl|goo\.gl\/maps)/i.test(url);
 }
 
 async function resolveRedirect(url) {
@@ -164,42 +167,54 @@ async function fetchGoogleMapsHtml(url) {
 }
 
 async function extractFromGoogleMaps(url) {
-  // Short forms need to redirect to the canonical /maps/place/... URL first.
-  const isShort = /maps\.app\.goo\.gl|goo\.gl\/maps/i.test(url);
-
-  // Always fetch the HTML — that's the most reliable source for the place
-  // name (og:title) regardless of URL shape, and resolves the redirect at
-  // the same time.
-  const { html, finalUrl } = await fetchGoogleMapsHtml(isShort ? url : url);
+  // Fetch the page following redirects — this resolves short links
+  // (maps.app.goo.gl / goo.gl/maps) to the canonical /maps/place/<Name>/@lat,lng
+  // URL, which is where we read the name and coords from.
+  const { html, finalUrl } = await fetchGoogleMapsHtml(url);
   const longUrl = finalUrl || url;
 
-  // Name candidates, in priority order:
-  //   1. /maps/place/<Name>/ segment of the resolved URL
-  //   2. og:title / twitter:title from the page (handles CID URLs, /search,
-  //      and any future URL shape Google introduces)
-  //   3. ?q=Name / ?query=Name fallback
+  // Name candidates, in priority order. The URL is the reliable source: Google
+  // now serves a generic og:title/<title> of just "Google Maps" to non-JS
+  // clients, so the page metadata can't be trusted for the place name.
+  //   1. /maps/place/<Name>/ segment of the URL (resolved, then original)
+  //   2. ?q=Name / ?query=Name from the URL
+  //   3. og:title / twitter:title — only when it's a real title, not the
+  //      "Google Maps" placeholder Google serves to servers
+  const isCoordPair = (s) => /^-?\d+(?:\.\d+)?,\s*-?\d+(?:\.\d+)?$/.test(s);
+  const decodePlus = (s) => {
+    try { return decodeURIComponent(s.replace(/\+/g, ' ')).trim(); }
+    catch { return s.replace(/\+/g, ' ').trim(); }
+  };
   let name = '';
-  const placeMatch = longUrl.match(/\/maps\/place\/([^/?#@]+)/i);
-  if (placeMatch) {
-    try { name = decodeURIComponent(placeMatch[1].replace(/\+/g, ' ')).trim(); }
-    catch { name = placeMatch[1].replace(/\+/g, ' ').trim(); }
+  // A short link can redirect to a URL that drops the /place/<Name> segment, so
+  // check the original url too — the user may have pasted the full place URL.
+  for (const u of [longUrl, url]) {
+    const m = u && u.match(/\/maps\/place\/([^/?#@]+)/i);
+    if (m && m[1]) {
+      const cand = decodePlus(m[1]);
+      if (cand && !isCoordPair(cand)) { name = cand; break; }
+    }
+  }
+  if (!name) {
+    for (const u of [longUrl, url]) {
+      const m = u && u.match(/[?&](?:q|query)=([^&]+)/i);
+      if (m && m[1]) {
+        const cand = decodePlus(m[1]);
+        if (cand && !isCoordPair(cand)) { name = cand; break; }
+      }
+    }
   }
   if (!name && html) {
     const ogTitle = metaContent(html, 'og:title') || metaContent(html, 'twitter:title');
     if (ogTitle) {
-      // Google formats og:title as "Place Name · Address" or "Place Name -
-      // Google Maps". Strip the trailing separator + tail.
-      name = ogTitle
+      // Google formats a real og:title as "Place Name · Address" or "Place Name
+      // - Google Maps"; strip the trailing separator + tail, then discard the
+      // bare "Google Maps" placeholder so it never becomes the name.
+      const cleaned = ogTitle
         .replace(/\s+[-·–|]\s+Google\s+Maps\s*$/i, '')
         .split(/\s+[·•]\s+/)[0]
         .trim();
-    }
-  }
-  if (!name) {
-    const qMatch = longUrl.match(/[?&](?:q|query)=([^&]+)/i);
-    if (qMatch) {
-      try { name = decodeURIComponent(qMatch[1].replace(/\+/g, ' ')).trim(); }
-      catch { /* ignore */ }
+      if (cleaned && !/^google\s+maps$/i.test(cleaned)) name = cleaned;
     }
   }
 
