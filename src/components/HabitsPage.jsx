@@ -1851,6 +1851,10 @@ function StatusSelect({ value, muted, onChange }) {
 }
 
 function RoutinesView({ habits, habitLog, habitLogAuto, streaks, autoTrackedIds = new Set(), autoStatusFor = () => '', nextLogMap, onSetNextLog, onUpdate, openMenu, onMove, onReorder, onSetRoutine, onRenameRoutine, onDeleteRoutine, onBulkMark, onOpen }) {
+  // Habits parked on `status:'Automatically'` are established — tracked for you,
+  // never yours to log — so they're hidden from the routine groups by default
+  // and revealed by the toggle below. Mirrors the mobile Routines tab.
+  const [showAutoStatus, setShowAutoStatus] = useState(false);
   // All routine names the user has, in the canonical routine order, for the
   // per-habit routine dropdown.
   const routineOptions = useMemo(() => {
@@ -1891,6 +1895,17 @@ function RoutinesView({ habits, habitLog, habitLogAuto, streaks, autoTrackedIds 
     if (view === 'all') return groups;
     return groups.filter(([cadence]) => cadence === VIEW_TO_CADENCE[view]);
   }, [groups, view]);
+
+  // How many hidden `status:'Automatically'` habits the toggle would reveal.
+  // Scoped to the sections on screen (and excluding rule-automated habits, which
+  // have their own "Automatic" block) so the number matches what actually appears.
+  const autoStatusCount = useMemo(
+    () => visibleGroups.reduce(
+      (n, [, list]) => n + list.filter(h => !autoTrackedIds.has(h.id) && (h.status || '').trim() === 'Automatically').length,
+      0,
+    ),
+    [visibleGroups, autoTrackedIds],
+  );
 
   // Per-cadence count of active habits still unlogged for their current period —
   // drives the red badges on the All / Daily / Weekly / Monthly / Yearly tabs.
@@ -2016,6 +2031,22 @@ function RoutinesView({ habits, habitLog, habitLogAuto, streaks, autoTrackedIds 
         })}
       </div>
 
+      {/* Reveal the hidden "Automatically" habits. Counted across the sections
+          currently in view, so the number always matches what the toggle adds. */}
+      {autoStatusCount > 0 && (
+        <button
+          onClick={() => setShowAutoStatus(v => !v)}
+          style={{
+            display: 'inline-flex', alignItems: 'center', gap: 6,
+            margin: '0 0 0.7rem', padding: '0.3rem 0.7rem', borderRadius: 999,
+            border: '1px solid var(--color-border, #e2e8f0)', background: 'transparent',
+            color: 'var(--color-text-muted, #64748b)', fontSize: '0.75rem', fontWeight: 700, cursor: 'pointer',
+          }}
+        >
+          {showAutoStatus ? '🙈' : '👁'} {showAutoStatus ? 'Hide' : 'Show'} {autoStatusCount} “Automatically” habit{autoStatusCount > 1 ? 's' : ''}
+        </button>
+      )}
+
       {/* Past-due warning: scheduled occurrences that already went by unlogged. */}
       {pastDueList.length > 0 && (
         <div
@@ -2052,7 +2083,7 @@ function RoutinesView({ habits, habitLog, habitLogAuto, streaks, autoTrackedIds 
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1.4rem' }}>
           {visibleGroups.map(([cadenceName, list]) => (
-            <RoutineSection key={cadenceName} cadenceName={cadenceName} list={list} habitLog={habitLog} habitLogAuto={habitLogAuto} streaks={streaks} autoTrackedIds={autoTrackedIds} autoStatusFor={autoStatusFor} nextLogOverride={(nextLogMap || {})[cadenceName] || ''} onSetNextLog={onSetNextLog} onUpdate={onUpdate} openMenu={openMenu} routineOptions={routineOptions} onReorder={onReorder} onSetRoutine={onSetRoutine} onBulkMark={onBulkMark} onOpen={onOpen} />
+            <RoutineSection key={cadenceName} cadenceName={cadenceName} list={list} habitLog={habitLog} habitLogAuto={habitLogAuto} streaks={streaks} autoTrackedIds={autoTrackedIds} autoStatusFor={autoStatusFor} nextLogOverride={(nextLogMap || {})[cadenceName] || ''} onSetNextLog={onSetNextLog} onUpdate={onUpdate} openMenu={openMenu} routineOptions={routineOptions} onReorder={onReorder} onSetRoutine={onSetRoutine} onBulkMark={onBulkMark} onOpen={onOpen} showAutoStatus={showAutoStatus} />
           ))}
         </div>
       )}
@@ -2293,7 +2324,7 @@ function DeleteRoutineModal({ name, count, onUnsort, onDeleteHabits, onClose }) 
 // One cadence section (Daily / Weekly / …). Inside it, habits are split into
 // their named routine (or "No routine"), and can be dragged to reorder within
 // a routine. Grab the ⠿ handle to drag; each row has a routine dropdown.
-function RoutineSection({ cadenceName, list, habitLog, habitLogAuto, streaks, autoTrackedIds = new Set(), autoStatusFor = () => '', nextLogOverride, onSetNextLog, onUpdate, openMenu, routineOptions, onReorder, onSetRoutine, onBulkMark, onOpen }) {
+function RoutineSection({ cadenceName, list, habitLog, habitLogAuto, streaks, autoTrackedIds = new Set(), autoStatusFor = () => '', nextLogOverride, onSetNextLog, onUpdate, openMenu, routineOptions, onReorder, onSetRoutine, onBulkMark, onOpen, showAutoStatus = false }) {
   const [drag, setDrag] = useState(null); // { id, groupKey }
   const [editingNext, setEditingNext] = useState(false);
   // Weekly table bulk-edit: when on, clicking cells/headers/rows selects them
@@ -2331,12 +2362,16 @@ function RoutineSection({ cadenceName, list, habitLog, habitLogAuto, streaks, au
     return [220, ...Array(weekCols.length).fill(periodColW), 46, 130];
   });
   const isAuto = h => (h.status || '').trim() === 'Automatically';
-  // The "Automatic" block at the bottom is only for habits an enabled rule logs
-  // on its own. Habits with the manual `status:'Automatically'` opt-out sit in
-  // their routine group with everything else (green "A" badge, still loggable) —
-  // they're just never counted as needing a mark. Mirrors the mobile Routines tab.
-  const activeList = list.filter(h => !autoTrackedIds.has(h.id));
+  // Three buckets, mirroring the mobile Routines tab:
+  //   activeList     — what you actually log by hand; the only rows shown by default
+  //   autoList       — an enabled rule logs these on its own ("Automatic" block)
+  //   statusAutoList — the manual `status:'Automatically'` opt-out: established
+  //                    habits you no longer track. HIDDEN by default (they aren't
+  //                    yours to log, so they just pad the list), revealed by the
+  //                    "Show N Automatically habits" toggle above the sections.
+  const activeList = list.filter(h => !autoTrackedIds.has(h.id) && !isAuto(h));
   const autoList = list.filter(h => autoTrackedIds.has(h.id));
+  const statusAutoList = list.filter(h => !autoTrackedIds.has(h.id) && isAuto(h));
   // Red count of trackable habits whose current period is still unlogged
   // (daily habits that are off today don't count as needing a mark).
   const uncompleted = activeList.filter(h => {
@@ -2769,6 +2804,14 @@ function RoutineSection({ cadenceName, list, habitLog, habitLogAuto, streaks, au
                     <td colSpan={3 + weekCols.length} style={{ padding: '0.55rem 6px 0.15rem', fontSize: '0.7rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: '#94a3b8' }}>Automatic</td>
                   </tr>
                   {autoList.map(h => weeklyRow(h, true, (h.routine || '').trim(), autoList))}
+                </tbody>
+              )}
+              {showAutoStatus && statusAutoList.length > 0 && (
+                <tbody>
+                  <tr>
+                    <td colSpan={3 + weekCols.length} style={{ padding: '0.55rem 6px 0.15rem', fontSize: '0.7rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: '#94a3b8' }}>Automatically (status)</td>
+                  </tr>
+                  {statusAutoList.map(h => weeklyRow(h, true, (h.routine || '').trim(), statusAutoList))}
                 </tbody>
               )}
             </table>
