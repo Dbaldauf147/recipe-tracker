@@ -5609,8 +5609,30 @@ export function DailyTrackerPage({ recipes, getRecipe, onClose, user, weeklyPlan
       }
     }
     if (!changed) return;
-    setDailyLog(next);
-    saveDailyLog(next, user);
+    // Commit FUNCTIONALLY, and touch only auto-suggested entries on the visible
+    // days. `next` was cloned from the `dailyLog` this effect closed over, so
+    // writing it wholesale reverts anything that changed in between — and
+    // because it persists in the same breath, that revert reaches storage too.
+    // That's a whole-day wipe when a manual entry landed in the gap (two
+    // DailyTrackerPage instances share this log: the daily page and the one the
+    // Week Plan embeds, plus incoming Firestore syncs).
+    //
+    // Manual entries are never this rebuild's to remove — it only ever owns the
+    // `autoSuggested` set — so re-apply that set on top of the LATEST state
+    // rather than overwriting it, and leave dates outside the week alone.
+    setDailyLog(prev => {
+      const merged = { ...prev };
+      for (const d of days) {
+        const rebuiltAuto = (next[d]?.entries || []).filter(e => e.autoSuggested);
+        const base = prev[d];
+        const keptManual = (base?.entries || []).filter(e => !e.autoSuggested);
+        if (!base && rebuiltAuto.length === 0) continue;
+        const entries = [...keptManual, ...rebuiltAuto];
+        merged[d] = base ? { ...base, entries } : { entries };
+      }
+      saveDailyLog(merged, user);
+      return merged;
+    });
   }, [prepareOnly, viewMode, dailyLog, weeklyPlan, weeklyServings, recipes, user, prepareAnchorStr]);
 
   const [editModal, setEditModal] = useState(null); // { entryId, dateStr } or null
