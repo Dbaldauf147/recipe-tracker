@@ -3766,13 +3766,19 @@ const HISTORY_CADENCES = [
 ];
 
 // Map a cell value (yes/no/skip/gold or ✓/✕/⏭/★ and common synonyms) to a mark.
+// Emoji variation selectors / ZWJ come along for the ride when a cell is
+// pasted from Sheets ("✅" is often U+2705 U+FE0F) and would otherwise miss
+// every lookup below, so strip them before matching. Surrounding quotes too.
+function normalizeMarkCell(v) {
+  return (v || '').replace(/[️‍]/g, '').replace(/^["']+|["']+$/g, '').trim().toLowerCase();
+}
 function parseMarkValue(v) {
-  const x = (v || '').trim().toLowerCase();
+  const x = normalizeMarkCell(v);
   if (!x) return undefined;
-  if (['gold', '★', 'star', 'above', 'exceeded', 'above & beyond', 'a&b', '++', 'great'].includes(x)) return 'exceeded';
-  if (['yes', 'y', 'done', 'did', 'true', '1', '✓', '✔', 'x'].includes(x)) return 'done';
-  if (['skip', 'skipped', 's', '⏭', '-', '–'].includes(x)) return 'skipped';
-  if (['no', 'n', 'missed', 'miss', 'false', '0', '✕', '✗'].includes(x)) return 'missed';
+  if (['gold', '★', '⭐', '🌟', '🏆', 'star', 'above', 'exceeded', 'above & beyond', 'above and beyond', 'a&b', '++', '2', 'great'].includes(x)) return 'exceeded';
+  if (['yes', 'y', 'done', 'did', 'did it', 'true', 't', '1', '✓', '✔', '✅', '☑', '🗸', '👍', 'x', 'complete', 'completed', 'ok'].includes(x)) return 'done';
+  if (['skip', 'skipped', 's', '⏭', '-', '–', '—', 'n/a', 'na', 'rest', 'off'].includes(x)) return 'skipped';
+  if (['no', 'n', 'missed', 'miss', 'false', 'f', '0', '✕', '✗', '❌', '✖', '🚫', '👎', 'fail', 'failed'].includes(x)) return 'missed';
   return undefined;
 }
 
@@ -3821,6 +3827,9 @@ function buildHistoryIncoming(text, habits, mapping) {
   const incoming = {};
   let marks = 0;
   const dateSet = new Set();
+  // Cell values in mapped columns that didn't match any known token, counted so
+  // the import can say WHAT it ignored instead of silently dropping the lot.
+  const unknown = new Map();
   for (let r = 1; r < lines.length; r++) {
     const cells = lines[r].split('\t');
     const dk = parseDateKey(cells[0]);
@@ -3831,7 +3840,11 @@ function buildHistoryIncoming(text, habits, mapping) {
       const habit = habitById.get(mapping[c]);
       if (!habit) continue;
       const mark = parseMarkValue(cells[c + 1]);
-      if (!mark) continue;
+      if (!mark) {
+        const raw = normalizeMarkCell(cells[c + 1]);
+        if (raw) unknown.set(raw, (unknown.get(raw) || 0) + 1);
+        continue;
+      }
       const key = periodKey(habit.cadence, dateObj);
       if (!incoming[key]) incoming[key] = {};
       incoming[key][habit.id] = mark;
@@ -3839,7 +3852,14 @@ function buildHistoryIncoming(text, habits, mapping) {
       dateSet.add(dk);
     }
   }
-  return { incoming, marks, dates: dateSet.size };
+  const ignored = [...unknown.entries()].sort((a, b) => b[1] - a[1]);
+  return {
+    incoming,
+    marks,
+    dates: dateSet.size,
+    ignored,
+    ignoredTotal: ignored.reduce((n, [, c]) => n + c, 0),
+  };
 }
 
 // One habit row in the History grid. `isAuto` habits ("Automatically" status)
@@ -4110,11 +4130,25 @@ function HistoryView({ habitLog, habits, onImport, openMenu, autoTrackedIds = ne
             )}
 
             {importResult && (
-              <p style={{ fontSize: '0.82rem', margin: '0.6rem 0 0', color: importResult.marks > 0 ? '#16a34a' : '#dc2626' }}>
-                {importResult.marks > 0
-                  ? `Imported ${importResult.marks} mark${importResult.marks > 1 ? 's' : ''} across ${importResult.dates} date${importResult.dates > 1 ? 's' : ''}.`
-                  : 'Nothing imported — check the date column and that at least one column is mapped.'}
-              </p>
+              <>
+                <p style={{ fontSize: '0.82rem', margin: '0.6rem 0 0', color: importResult.marks > 0 ? '#16a34a' : '#dc2626' }}>
+                  {importResult.marks > 0
+                    ? `Imported ${importResult.marks} mark${importResult.marks > 1 ? 's' : ''} across ${importResult.dates} date${importResult.dates > 1 ? 's' : ''}.`
+                    : 'Nothing imported — check the date column and that at least one column is mapped.'}
+                </p>
+                {/* Say WHAT was dropped. A sheet whose "done" cell is a value
+                    this parser doesn't know (an emoji, a word) would otherwise
+                    import only the values it does know — looking like the
+                    import half-worked for no visible reason. */}
+                {importResult.ignoredTotal > 0 && (
+                  <p style={{ fontSize: '0.78rem', margin: '0.35rem 0 0', color: '#b45309' }}>
+                    Ignored {importResult.ignoredTotal} cell{importResult.ignoredTotal > 1 ? 's' : ''} whose value wasn’t recognised:{' '}
+                    {importResult.ignored.slice(0, 6).map(([val, n]) => `“${val}” ×${n}`).join(', ')}
+                    {importResult.ignored.length > 6 ? `, +${importResult.ignored.length - 6} more` : ''}.
+                    {' '}Recognised: yes/y/done/1/✓/✅/x · no/n/missed/0/✗/❌ · skip/s/-/n/a · gold/★/++.
+                  </p>
+                )}
+              </>
             )}
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', marginTop: '0.75rem' }}>
               <button onClick={() => setImportOpen(false)} style={ghostBtn}>Close</button>
