@@ -2809,6 +2809,9 @@ const RANGE_LIMITS = {
   year: { min: 2, max: 25 },
 };
 const UNIT_NOUN = { day: 'day', week: 'week', month: 'month', year: 'year' };
+// Pill suffix, so the selected preset can re-label itself to the live count
+// once − / + moves it off the preset (13m → 11m).
+const UNIT_SUFFIX = { day: 'd', week: 'w', month: 'm', year: 'y' };
 const SUBUNIT_NOUN = { day: 'DAYS', week: 'WEEKS', month: 'MONTHS', year: 'YEARS' };
 const CHART_MUTED = '#64748b';
 const CHART_BORDER = '#e2e8f0';
@@ -2858,6 +2861,9 @@ function arcPath(cx, cy, r, a0, a1) {
 
 function ChartsView({ habits, habitLog }) {
   const [range, setRange] = useState({ unit: 'month', count: 13 });
+  // Which pill is selected. It stays selected while − / + step the count and
+  // re-labels itself to the live range, so the row always shows where you are.
+  const [activeId, setActiveId] = useState('13m');
   const [mode, setMode] = useState('bar');
   const [selId, setSelId] = useState(null);
 
@@ -3081,11 +3087,11 @@ function ChartsView({ habits, habitLog }) {
           <div style={{ display: 'flex', justifyContent: 'center', marginTop: 12 }}>
             <div style={{ display: 'flex', background: CHART_SURFACE_ALT, borderRadius: 999, padding: 3 }}>
               {CHART_RANGES.map(r => {
-                const on = range.unit === r.unit && range.count === r.count;
+                const on = r.id === activeId;
                 return (
                   <button
                     key={r.id}
-                    onClick={() => setRange({ unit: r.unit, count: r.count })}
+                    onClick={() => { setRange({ unit: r.unit, count: r.count }); setActiveId(r.id); }}
                     style={{
                       padding: '0.3rem 0.7rem', borderRadius: 999, cursor: 'pointer',
                       fontSize: '0.75rem', fontWeight: 700,
@@ -3094,7 +3100,7 @@ function ChartsView({ habits, habitLog }) {
                       color: on ? 'var(--color-text)' : CHART_MUTED,
                     }}
                   >
-                    {r.label}
+                    {on ? `${range.count}${UNIT_SUFFIX[range.unit]}` : r.label}
                   </button>
                 );
               })}
