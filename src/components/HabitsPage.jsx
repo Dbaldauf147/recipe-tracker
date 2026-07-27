@@ -1096,11 +1096,25 @@ export function HabitsPage({ onBack, user }) {
     });
   }
   // Merge an imported history map ({ key: { habitId: mark } }) into habitLog.
-  function mergeHabitLog(incoming) {
+  // `clearBlanks` ({ periodKey: Set(habitId) }) undoes the stray Skip marks an
+  // earlier import wrote for every dash in the sheet. Deliberately narrow: only
+  // a 'skipped' mark is removed, so a Did it / No you logged by hand on a day
+  // the sheet says nothing about survives.
+  function mergeHabitLog(incoming, clearBlanks) {
     setHabitLog(prev => {
       const next = { ...prev };
       for (const key of Object.keys(incoming)) {
         next[key] = { ...(next[key] || {}), ...incoming[key] };
+      }
+      for (const key of Object.keys(clearBlanks || {})) {
+        if (!next[key]) continue;
+        let row = next[key];
+        for (const id of clearBlanks[key]) {
+          if (row[id] !== 'skipped') continue;
+          if (row === next[key]) row = next[key] = { ...row };
+          delete row[id];
+        }
+        if (Object.keys(next[key]).length === 0) delete next[key];
       }
       if (user?.uid) saveField(user.uid, 'habitLog', next).catch(() => {});
       return next;
@@ -3883,6 +3897,10 @@ function buildHistoryIncoming(text, habits, mapping) {
   // Cell values in mapped columns that didn't match any known token, counted so
   // the import can say WHAT it ignored instead of silently dropping the lot.
   const unknown = new Map();
+  // Periods the sheet leaves blank (a dash). An earlier build read those as
+  // Skip and wrote them into the log, so the import offers to take them back
+  // out — see `clearBlanks` in mergeHabitLog.
+  const blanks = {};
   for (let r = 1; r < lines.length; r++) {
     const cells = lines[r].split('\t');
     const dk = parseDateKey(cells[0]);
@@ -3896,6 +3914,10 @@ function buildHistoryIncoming(text, habits, mapping) {
       if (!mark) {
         const raw = normalizeMarkCell(cells[c + 1]);
         if (raw && !isBlankMarkCell(raw)) unknown.set(raw, (unknown.get(raw) || 0) + 1);
+        else {
+          const bk = periodKey(habit.cadence, dateObj);
+          (blanks[bk] || (blanks[bk] = new Set())).add(habit.id);
+        }
         continue;
       }
       const key = periodKey(habit.cadence, dateObj);
@@ -3905,6 +3927,12 @@ function buildHistoryIncoming(text, habits, mapping) {
       dateSet.add(dk);
     }
   }
+  // A weekly/monthly habit shares one period key across many rows, so a period
+  // with any real value isn't blank no matter how many dashes sit beside it.
+  for (const key of Object.keys(blanks)) {
+    for (const id of [...blanks[key]]) if (incoming[key]?.[id] !== undefined) blanks[key].delete(id);
+    if (blanks[key].size === 0) delete blanks[key];
+  }
   const ignored = [...unknown.entries()].sort((a, b) => b[1] - a[1]);
   return {
     incoming,
@@ -3912,6 +3940,7 @@ function buildHistoryIncoming(text, habits, mapping) {
     dates: dateSet.size,
     ignored,
     ignoredTotal: ignored.reduce((n, [, c]) => n + c, 0),
+    blanks,
   };
 }
 
@@ -3968,6 +3997,9 @@ function HistoryView({ habitLog, habits, onImport, openMenu, autoTrackedIds = ne
   const [importOpen, setImportOpen] = useState(false);
   const [importText, setImportText] = useState('');
   const [importResult, setImportResult] = useState(null);
+  // On by default: an earlier build turned every dash into a Skip, so the usual
+  // reason to re-import is to undo that.
+  const [clearStraySkips, setClearStraySkips] = useState(true);
   // Column → habit-id mapping ('' = ignore). Auto-filled by name, editable.
   const [mapping, setMapping] = useState([]);
 
@@ -3988,8 +4020,14 @@ function HistoryView({ habitLog, habits, onImport, openMenu, autoTrackedIds = ne
 
   function runImport() {
     const res = buildHistoryIncoming(importText, habits, mapping);
-    if (res.marks > 0) onImport(res.incoming);
-    setImportResult(res);
+    const toClear = clearStraySkips ? res.blanks : {};
+    // Count what will actually go: only periods currently holding a 'skipped'.
+    let cleared = 0;
+    for (const k of Object.keys(toClear)) {
+      for (const id of toClear[k]) if (habitLog[k]?.[id] === 'skipped') cleared++;
+    }
+    if (res.marks > 0 || cleared > 0) onImport(res.incoming, toClear);
+    setImportResult({ ...res, cleared });
   }
   const totals = useMemo(() => {
     const t = { exceeded: 0, done: 0, skipped: 0, missed: 0 };
@@ -4188,6 +4226,7 @@ function HistoryView({ habitLog, habits, onImport, openMenu, autoTrackedIds = ne
                   {importResult.marks > 0
                     ? `Imported ${importResult.marks} mark${importResult.marks > 1 ? 's' : ''} across ${importResult.dates} date${importResult.dates > 1 ? 's' : ''}.`
                     : 'Nothing imported — check the date column and that at least one column is mapped.'}
+                  {importResult.cleared > 0 && ` Cleared ${importResult.cleared} stray Skip mark${importResult.cleared > 1 ? 's' : ''} on blank days.`}
                 </p>
                 {/* Say WHAT was dropped. A sheet whose "done" cell is a value
                     this parser doesn't know (an emoji, a word) would otherwise
@@ -4203,6 +4242,20 @@ function HistoryView({ habitLog, habits, onImport, openMenu, autoTrackedIds = ne
                 )}
               </>
             )}
+            {/* Undo for the dash-as-Skip bug: a blank cell means the day was
+                never logged, so any Skip sitting on it is an artefact. */}
+            <label style={{ display: 'flex', alignItems: 'flex-start', gap: 7, marginTop: '0.7rem', fontSize: '0.78rem', color: 'var(--color-text-muted)', cursor: 'pointer' }}>
+              <input
+                type="checkbox"
+                checked={clearStraySkips}
+                onChange={e => { setClearStraySkips(e.target.checked); setImportResult(null); }}
+                style={{ marginTop: 2 }}
+              />
+              <span>
+                Also clear stray <strong>Skip</strong> marks where the sheet is blank. Only Skips are removed —
+                a Did it / No you logged by hand on a day the sheet says nothing about stays put.
+              </span>
+            </label>
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', marginTop: '0.75rem' }}>
               <button onClick={() => setImportOpen(false)} style={ghostBtn}>Close</button>
               <button onClick={runImport} style={primaryBtn} disabled={!dateRows || mapping.every(v => !v)}>Import</button>
