@@ -3815,13 +3815,23 @@ const HISTORY_CADENCES = [
 function normalizeMarkCell(v) {
   return (v || '').replace(/[️‍]/g, '').replace(/^["']+|["']+$/g, '').trim().toLowerCase();
 }
+// A dash (or n/a) is how a spreadsheet writes "nothing here" — the habit didn't
+// exist yet, or the day was never filled in. Treating those as a Skip mark
+// backfills the log with tens of thousands of skips that never happened, so
+// they're blanks, and they're not reported as unrecognised either.
+const BLANK_MARK_CELLS = ['', '-', '--', '–', '—', 'n/a', 'na', 'none'];
+function isBlankMarkCell(v) {
+  return BLANK_MARK_CELLS.includes(normalizeMarkCell(v));
+}
 function parseMarkValue(v) {
   const x = normalizeMarkCell(v);
   if (!x) return undefined;
   if (['gold', '★', '⭐', '🌟', '🏆', 'star', 'above', 'exceeded', 'above & beyond', 'above and beyond', 'a&b', '++', '2', 'great'].includes(x)) return 'exceeded';
-  if (['yes', 'y', 'done', 'did', 'did it', 'true', 't', '1', '✓', '✔', '✅', '☑', '🗸', '👍', 'x', 'complete', 'completed', 'ok'].includes(x)) return 'done';
-  if (['skip', 'skipped', 's', '⏭', '-', '–', '—', 'n/a', 'na', 'rest', 'off'].includes(x)) return 'skipped';
-  if (['no', 'n', 'missed', 'miss', 'false', 'f', '0', '✕', '✗', '❌', '✖', '🚫', '👎', 'fail', 'failed'].includes(x)) return 'missed';
+  // "Green" / "Red" are the red-amber-green vocabulary of the original habit
+  // spreadsheet — green = did it, red = didn't.
+  if (['green', 'yes', 'y', 'done', 'did', 'did it', 'true', 't', '1', '✓', '✔', '✅', '☑', '🗸', '👍', 'x', 'complete', 'completed', 'ok'].includes(x)) return 'done';
+  if (['skip', 'skipped', 's', '⏭', 'rest', 'off'].includes(x)) return 'skipped';
+  if (['red', 'no', 'n', 'missed', 'miss', 'false', 'f', '0', '✕', '✗', '❌', '✖', '🚫', '👎', 'fail', 'failed'].includes(x)) return 'missed';
   return undefined;
 }
 
@@ -3885,7 +3895,7 @@ function buildHistoryIncoming(text, habits, mapping) {
       const mark = parseMarkValue(cells[c + 1]);
       if (!mark) {
         const raw = normalizeMarkCell(cells[c + 1]);
-        if (raw) unknown.set(raw, (unknown.get(raw) || 0) + 1);
+        if (raw && !isBlankMarkCell(raw)) unknown.set(raw, (unknown.get(raw) || 0) + 1);
         continue;
       }
       const key = periodKey(habit.cadence, dateObj);
@@ -4188,7 +4198,7 @@ function HistoryView({ habitLog, habits, onImport, openMenu, autoTrackedIds = ne
                     Ignored {importResult.ignoredTotal} cell{importResult.ignoredTotal > 1 ? 's' : ''} whose value wasn’t recognised:{' '}
                     {importResult.ignored.slice(0, 6).map(([val, n]) => `“${val}” ×${n}`).join(', ')}
                     {importResult.ignored.length > 6 ? `, +${importResult.ignored.length - 6} more` : ''}.
-                    {' '}Recognised: yes/y/done/1/✓/✅/x · no/n/missed/0/✗/❌ · skip/s/-/n/a · gold/★/++.
+                    {' '}Recognised: Green/yes/done/1/✓/✅/x · Red/no/missed/0/✗/❌ · Skip/s/rest · gold/★/++. A dash or n/a counts as no entry.
                   </p>
                 )}
               </>
