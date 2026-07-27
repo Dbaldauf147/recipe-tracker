@@ -1,12 +1,14 @@
 import { useState, useMemo, useRef } from 'react';
 import styles from './ExerciseLibrary.module.css';
 import { ExerciseDemo, ExerciseDemoThumb } from './ExerciseDemo';
+import { EXERCISE_TYPES, effectiveExerciseType, normalizeExerciseType } from '../utils/exerciseTypes';
 
 const HEADER_ALIASES = {
   exercise: ['workout', 'exercise', 'exercises', 'name'],
   primaryMuscles: ['primary muscles', 'primary'],
   secondaryMuscles: ['secondary muscles', 'secondary'],
   group: ['group'],
+  exerciseType: ['type', 'exercise type'],
   thisWeek: ['this week'],
   lastWeek: ['last week'],
   alternative: ['alternative', 'alt'],
@@ -101,6 +103,9 @@ export function parseExerciseLibrary(text) {
       primaryMuscles: idx.primaryMuscles >= 0 ? cleanCell(cells[idx.primaryMuscles]) : '',
       secondaryMuscles: idx.secondaryMuscles >= 0 ? cleanCell(cells[idx.secondaryMuscles]) : '',
       group: idx.group >= 0 ? cleanCell(cells[idx.group]) : '',
+      // Round-trips the exported "Type" column; unrecognised values fall back
+      // to '' so the picker re-infers rather than inventing a third bucket.
+      exerciseType: idx.exerciseType >= 0 ? normalizeExerciseType(cells[idx.exerciseType]) : '',
       thisWeek: idx.thisWeek >= 0 ? toInt(cells[idx.thisWeek]) : 0,
       lastWeek: idx.lastWeek >= 0 ? toInt(cells[idx.lastWeek]) : 0,
       alternative: retired ? '' : alternative,
@@ -155,6 +160,7 @@ function blankExercise() {
     secondaryMuscles: '',
     group: '',
     muscleGroup: '',
+    exerciseType: '',
     thisWeek: 0,
     lastWeek: 0,
     alternative: '',
@@ -205,6 +211,7 @@ export function ExerciseLibrary({ library, onChange, onRenameExercise }) {
   const COLUMNS = useMemo(() => [
     { key: 'exercise', label: 'Exercise', cls: 'colName', searchable: true, sortable: true, get: e => e.exercise },
     { key: 'demo', label: 'Demo', cls: 'colDemo', searchable: false, sortable: false, get: () => '' },
+    { key: 'exerciseType', label: 'Type', cls: 'colExerciseType', searchable: true, sortable: true, get: e => effectiveExerciseType(e, effectiveMuscleGroup(e)) },
     { key: 'muscleGroup', label: 'Muscle Group', cls: 'colMuscleGroup', searchable: true, sortable: true, get: e => effectiveMuscleGroup(e) },
     { key: 'primary', label: 'Primary', cls: 'colMuscles', searchable: true, sortable: true, get: e => e.primaryMuscles },
     { key: 'secondary', label: 'Secondary', cls: 'colMuscles', searchable: true, sortable: true, get: e => e.secondaryMuscles },
@@ -321,6 +328,7 @@ export function ExerciseLibrary({ library, onChange, onRenameExercise }) {
     const cols = [
       { header: 'Exercise', get: e => e.exercise },
       { header: 'Nickname', get: e => e.nickname || '' },
+      { header: 'Type', get: e => effectiveExerciseType(e, effectiveMuscleGroup(e)) },
       { header: 'Muscle Group', get: e => effectiveMuscleGroup(e) },
       { header: 'Primary Muscles', get: e => e.primaryMuscles || '' },
       { header: 'Secondary Muscles', get: e => e.secondaryMuscles || '' },
@@ -506,6 +514,25 @@ export function ExerciseLibrary({ library, onChange, onRenameExercise }) {
                 </td>
                 <td className={styles.colDemo}>
                   <ExerciseDemoThumb name={e.exercise} onOpen={setDemoName} />
+                </td>
+                <td>
+                  {/* Blank = inferred from the name (see effectiveExerciseType),
+                      so the placeholder shows what the picker will actually use. */}
+                  <select
+                    className={styles.cellInput}
+                    value={normalizeExerciseType(e.exerciseType)}
+                    onChange={ev => updateRow(originalIdx, 'exerciseType', ev.target.value)}
+                    title={
+                      normalizeExerciseType(e.exerciseType)
+                        ? undefined
+                        : `Auto-detected: ${effectiveExerciseType(e, effectiveMuscleGroup(e))}`
+                    }
+                  >
+                    <option value="">
+                      {`Auto (${effectiveExerciseType(e, effectiveMuscleGroup(e))})`}
+                    </option>
+                    {EXERCISE_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                  </select>
                 </td>
                 <td>
                   <input

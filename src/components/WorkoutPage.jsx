@@ -7,6 +7,7 @@ import { saveField, loadField, saveWorkoutDraft, clearWorkoutDraft, newWorkoutId
 import { exportWorkoutHistoryToCSV } from '../utils/exportData';
 import { parseSetValue, formatSeconds, computeSetStats } from '../utils/setValue';
 import { ExerciseLibrary, effectiveMuscleGroup } from './ExerciseLibrary';
+import { EXERCISE_TYPES, DEFAULT_EXERCISE_TYPE, effectiveExerciseType, normalizeExerciseType } from '../utils/exerciseTypes';
 import { BodyHeatmap } from './BodyHeatmap';
 import { ExerciseDemo } from './ExerciseDemo';
 import ExerciseProgressTracker from './ExerciseProgressTracker';
@@ -121,10 +122,14 @@ const LOG_COLUMN_DEFS = [
   { id: 'exercise', default: 220, min: 120 },
   { id: 'notes', default: 220, min: 120 },
   { id: 'time', default: 60, min: 40 },
-  { id: 's1', default: 44, min: 32 },
-  { id: 's2', default: 44, min: 32 },
-  { id: 's3', default: 44, min: 32 },
-  { id: 's4', default: 44, min: 32 },
+  // Set columns hold the reps input plus the 16px ✓ completion toggle. min was
+  // raised past the old 44px default on purpose: loadColWidths drops any saved
+  // width below `min`, so previously-resized columns migrate up to the new
+  // default instead of squeezing the toggle out.
+  { id: 's1', default: 62, min: 50 },
+  { id: 's2', default: 62, min: 50 },
+  { id: 's3', default: 62, min: 50 },
+  { id: 's4', default: 62, min: 50 },
   { id: 'weight', default: 80, min: 60 },
   { id: 'per', default: 80, min: 64 },
   { id: 'total', default: 70, min: 50 },
@@ -1945,11 +1950,19 @@ function ExerciseSelector({ value, options, disabled, muscleGroup, onChange, onA
   );
 }
 
-// Centered modal that picks (muscleGroup, exercise) in two steps.
-// Step 1 shows the muscle-group grid. Step 2 shows that group's exercises
-// plus an inline "Add new" affordance. Confirming step 2 fires onPick with
-// both fields so the row gets group + exercise atomically.
-function GroupExercisePicker({ initialGroup, exercisesForGroup, addExerciseToLibrary, onPick, onClose }) {
+// Centered modal that picks (exerciseType, muscleGroup, exercise) in three
+// steps. Step 1 is the discipline — Strength Training or Stretching. Step 2
+// shows the muscle groups holding exercises of that discipline. Step 3 shows
+// that group's exercises plus an inline "Add new" affordance. Confirming
+// step 3 fires onPick with group + exercise so the row gets both atomically;
+// the discipline itself isn't stored on the row, it lives on the exercise.
+function GroupExercisePicker({
+  initialGroup, initialType, exercisesForGroup, groupsForType,
+  addExerciseToLibrary, onPick, onClose,
+}) {
+  // Reopening a row that already has an exercise resumes at step 3, exactly
+  // like the old two-step picker did — the back buttons walk up from there.
+  const [type, setType] = useState(initialGroup ? (initialType || DEFAULT_EXERCISE_TYPE) : '');
   const [group, setGroup] = useState(initialGroup || '');
   const [adding, setAdding] = useState(false);
   const [newName, setNewName] = useState('');
@@ -1958,16 +1971,17 @@ function GroupExercisePicker({ initialGroup, exercisesForGroup, addExerciseToLib
   useEffect(() => {
     function onKey(e) {
       if (e.key === 'Escape') onClose();
-      else if (e.key === 'Backspace' && group && !adding && !query) {
-        // Quick back-step from step 2 → step 1 when nothing's typed.
-        setGroup('');
+      else if (e.key === 'Backspace' && !adding && !query) {
+        // Quick back-step up one level when nothing's typed.
+        if (group) setGroup('');
+        else if (type) setType('');
       }
     }
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
-  }, [group, adding, query, onClose]);
+  }, [group, type, adding, query, onClose]);
 
-  const options = group ? exercisesForGroup(group) : [];
+  const options = group ? exercisesForGroup(group, type) : [];
   const filtered = query
     ? options.filter(o => o.toLowerCase().includes(query.toLowerCase()))
     : options;
@@ -1979,10 +1993,16 @@ function GroupExercisePicker({ initialGroup, exercisesForGroup, addExerciseToLib
   function commitNew() {
     const name = newName.trim();
     if (!name) return;
-    if (addExerciseToLibrary(name, group)) {
+    if (addExerciseToLibrary(name, group, type)) {
       onPick(group, name);
     }
   }
+
+  const title = group
+    ? `${group} — pick an exercise`
+    : type
+      ? `${type} — pick a muscle group`
+      : 'What are you doing?';
 
   return createPortal(
     <div className={styles.pickerOverlay} onMouseDown={onClose}>
@@ -1992,16 +2012,31 @@ function GroupExercisePicker({ initialGroup, exercisesForGroup, addExerciseToLib
             <button type="button" className={styles.pickerBack} onClick={() => { setGroup(''); setAdding(false); setNewName(''); setQuery(''); }}>
               ← Groups
             </button>
+          ) : type ? (
+            <button type="button" className={styles.pickerBack} onClick={() => { setType(''); setAdding(false); setNewName(''); setQuery(''); }}>
+              ← Back
+            </button>
           ) : <span />}
-          <h3 className={styles.pickerTitle}>
-            {group ? `${group} — pick an exercise` : 'Pick a muscle group'}
-          </h3>
+          <h3 className={styles.pickerTitle}>{title}</h3>
           <button type="button" className={styles.pickerClose} onClick={onClose} aria-label="Close">✕</button>
         </div>
 
-        {!group ? (
+        {!type ? (
           <div className={styles.pickerGroupGrid}>
-            {MUSCLE_GROUPS.map(g => (
+            {EXERCISE_TYPES.map(t => (
+              <button
+                key={t}
+                type="button"
+                className={`${styles.pickerGroupBtn} ${styles.pickerTypeBtn}`}
+                onClick={() => setType(t)}
+              >
+                {t}
+              </button>
+            ))}
+          </div>
+        ) : !group ? (
+          <div className={styles.pickerGroupGrid}>
+            {groupsForType(type).map(g => (
               <button
                 key={g}
                 type="button"
@@ -2025,7 +2060,7 @@ function GroupExercisePicker({ initialGroup, exercisesForGroup, addExerciseToLib
             <div className={styles.pickerExerciseList}>
               {filtered.length === 0 && !adding ? (
                 <div className={styles.pickerEmpty}>
-                  No exercises {query ? `matching "${query}"` : `in ${group}`} yet.
+                  No {type.toLowerCase()} exercises {query ? `matching "${query}"` : `in ${group}`} yet.
                 </div>
               ) : (
                 filtered.map(ex => (
@@ -2059,7 +2094,7 @@ function GroupExercisePicker({ initialGroup, exercisesForGroup, addExerciseToLib
               </div>
             ) : (
               <button type="button" className={styles.pickerAddNew} onClick={() => setAdding(true)}>
-                + Add new {group} exercise
+                + Add new {group} {type.toLowerCase()} exercise
               </button>
             )}
           </>
@@ -2422,18 +2457,25 @@ export function WorkoutPage({ onBack, user }) {
   //   - minus anything in hiddenExercises
   // No hardcoded defaults: an exercise the user hasn't added to their Exercises
   // table never appears in the picker. Deduped case-insensitively, sorted.
-  function exercisesForGroup(group) {
+  // `exerciseType` (optional) narrows the list to one discipline — 'Strength
+  // Training' or 'Stretching' — which is the step the picker asks about before
+  // the muscle group. Omitted (the dropdowns elsewhere on the page) = no
+  // filtering, so those keep showing the whole group.
+  function exercisesForGroup(group, exerciseType) {
     if (!group) return [];
     const groupLc = group.toLowerCase();
+    const wantType = normalizeExerciseType(exerciseType);
     const libraryForGroup = [];
     for (const item of exerciseLibrary || []) {
       if (item?.retired || !item?.exercise) continue;
-      if (effectiveMuscleGroup(item)?.toLowerCase() === groupLc) {
-        libraryForGroup.push(item.exercise);
-      }
+      const mg = effectiveMuscleGroup(item);
+      if (mg?.toLowerCase() !== groupLc) continue;
+      if (wantType && effectiveExerciseType(item, mg) !== wantType) continue;
+      libraryForGroup.push(item.exercise);
     }
     const custom = (customExercises || [])
       .filter(e => (e?.muscleGroup || '').toLowerCase() === groupLc)
+      .filter(e => !wantType || effectiveExerciseType(e, e?.muscleGroup) === wantType)
       .map(e => e?.name)
       .filter(Boolean);
     const hiddenLc = new Set((hiddenExercises || []).map(n => String(n).toLowerCase()));
@@ -2448,6 +2490,34 @@ export function WorkoutPage({ onBack, user }) {
     }
     merged.sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
     return merged;
+  }
+
+  // Muscle groups worth showing once a type is chosen: only those holding at
+  // least one exercise of that type. A type with nothing tagged to it yet
+  // (a fresh Stretching list) falls back to the full grid so the user can
+  // still drill in and add the first one.
+  function groupsForType(exerciseType) {
+    const wantType = normalizeExerciseType(exerciseType);
+    if (!wantType) return [...MUSCLE_GROUPS];
+    const hit = MUSCLE_GROUPS.filter(g => exercisesForGroup(g, wantType).length > 0);
+    return hit.length > 0 ? hit : [...MUSCLE_GROUPS];
+  }
+
+  // The discipline a logged exercise belongs to, resolved by name against the
+  // user's own data. Used to reopen the picker on the right step when editing
+  // a row that already has an exercise.
+  function exerciseTypeForName(name) {
+    const lower = String(name || '').trim().toLowerCase();
+    if (!lower) return '';
+    const row = (exerciseLibrary || []).find(
+      e => e?.exercise && e.exercise.trim().toLowerCase() === lower,
+    );
+    if (row) return effectiveExerciseType(row, effectiveMuscleGroup(row));
+    const custom = (customExercises || []).find(
+      e => e?.name && e.name.trim().toLowerCase() === lower,
+    );
+    if (custom) return effectiveExerciseType(custom, custom.muscleGroup);
+    return '';
   }
 
   // Live-subscribe to the exerciseLibrary field on the user doc so
@@ -2922,8 +2992,10 @@ export function WorkoutPage({ onBack, user }) {
   }
 
   // Creates a new exercise in the library, tagged to `muscleGroup` so it
-  // shows up in that group's dropdown on the very next render.
-  function addExerciseToLibrary(name, muscleGroup) {
+  // shows up in that group's dropdown on the very next render. `exerciseType`
+  // (Strength Training / Stretching) is stored too when the caller knows it,
+  // so a stretch added from the Stretching branch of the picker stays there.
+  function addExerciseToLibrary(name, muscleGroup, exerciseType) {
     const trimmed = String(name || '').trim();
     if (!trimmed) return false;
     const lower = trimmed.toLowerCase();
@@ -2934,12 +3006,14 @@ export function WorkoutPage({ onBack, user }) {
       alert(`"${dup.exercise}" already exists in your exercises.`);
       return false;
     }
+    const type = normalizeExerciseType(exerciseType);
     const newEx = {
       exercise: trimmed,
       primaryMuscles: '',
       secondaryMuscles: '',
       group: '',
       muscleGroup: muscleGroup || '',
+      exerciseType: type,
       thisWeek: 0,
       lastWeek: 0,
       alternative: '',
@@ -2960,7 +3034,7 @@ export function WorkoutPage({ onBack, user }) {
         e => e?.name && e.name.trim().toLowerCase() === lower
       );
       if (!dupCustom) {
-        customNext.push({ name: trimmed, muscleGroup });
+        customNext.push({ name: trimmed, muscleGroup, ...(type ? { exerciseType: type } : {}) });
         setCustomExercises(customNext);
         saveField(user.uid, 'customExercises', customNext).catch(() => {});
       }
@@ -3233,6 +3307,24 @@ export function WorkoutPage({ onBack, user }) {
         while (sets.length < 4) sets.push('');
         sets[setIdx] = value;
         return enrichEntry({ ...e, sets });
+      });
+      return { ...w, entries };
+    });
+    commitWorkouts(next);
+  }
+
+  // Toggle a past workout's green (completed) set. The log table has had this
+  // since the feature shipped; History could only display the flag, so a set
+  // forgotten mid-workout could never be marked done after the fact.
+  function toggleHistorySetDone(wkey, originalIdx, setIdx) {
+    const next = workouts.map(w => {
+      if (workoutKey(w) !== wkey) return w;
+      const entries = w.entries.map((e, i) => {
+        if (i !== originalIdx) return e;
+        const setDone = Array.isArray(e.setDone) ? [...e.setDone] : [false, false, false, false];
+        while (setDone.length < 4) setDone.push(false);
+        setDone[setIdx] = !setDone[setIdx];
+        return enrichEntry({ ...e, setDone });
       });
       return { ...w, entries };
     });
@@ -4277,15 +4369,29 @@ export function WorkoutPage({ onBack, user }) {
                             onClick={() => toggleSetDone(i, si)}
                             title={done ? 'Click to un-mark this set' : 'Click to mark this set complete'}
                           >
-                            <input
-                              className={`${styles.logCell} ${styles.logSetInput} ${editedCls(`set${si}`)}`}
-                              type="text"
-                              inputMode="text"
-                              value={s}
-                              onChange={e => updateSet(i, si, e.target.value)}
-                              onClick={e => e.stopPropagation()}
-                              title="Reps (12), seconds (30s), minutes (2m), hours (1h), or m:ss (1:30)"
-                            />
+                            {/* The reps input fills the cell, so the <td> click
+                                above is only reachable via a sliver of padding.
+                                This button is the real target; the input keeps
+                                swallowing clicks so typing still works. */}
+                            <div className={styles.logSetCellInner}>
+                              <input
+                                className={`${styles.logCell} ${styles.logSetInput} ${editedCls(`set${si}`)}`}
+                                type="text"
+                                inputMode="text"
+                                value={s}
+                                onChange={e => updateSet(i, si, e.target.value)}
+                                onClick={e => e.stopPropagation()}
+                                title="Reps (12), seconds (30s), minutes (2m), hours (1h), or m:ss (1:30)"
+                              />
+                              <button
+                                type="button"
+                                className={`${styles.setDoneBtn} ${done ? styles.setDoneBtnOn : ''}`}
+                                onClick={e => { e.stopPropagation(); toggleSetDone(i, si); }}
+                                aria-pressed={done}
+                                aria-label={`Set ${si + 1} complete`}
+                                title={done ? 'Mark this set not done' : 'Mark this set complete'}
+                              >✓</button>
+                            </div>
                             {entry.useSetWeights && (
                               <WeightInput
                                 className={`${styles.logCell} ${styles.logSetWeightInput} ${editedCls(`setWeight${si}`)}`}
@@ -4345,7 +4451,9 @@ export function WorkoutPage({ onBack, user }) {
           {pickerIdx != null && entries[pickerIdx] && (
             <GroupExercisePicker
               initialGroup={entries[pickerIdx].group}
+              initialType={exerciseTypeForName(entries[pickerIdx].exercise)}
               exercisesForGroup={exercisesForGroup}
+              groupsForType={groupsForType}
               addExerciseToLibrary={addExerciseToLibrary}
               onPick={(group, exercise) => {
                 setEntries(prev => prev.map((e, i) => i === pickerIdx
@@ -4796,22 +4904,35 @@ export function WorkoutPage({ onBack, user }) {
                               <td
                                 key={si}
                                 className={done ? styles.logSetCellDone : styles.logSetCell}
-                                title={done ? 'Marked complete in the original workout' : undefined}
+                                onClick={() => toggleHistorySetDone(wk, originalIdx, si)}
+                                title={done ? 'Click to un-mark this set' : 'Click to mark this set complete'}
                               >
-                                <input
-                                  className={`${styles.logCell} ${styles.logSetInput}`}
-                                  type="text"
-                                  inputMode="text"
-                                  value={reps}
-                                  onChange={ev => updateHistorySetField(wk, originalIdx, si, ev.target.value)}
-                                  title="Reps (12), seconds (30s), minutes (2m), hours (1h), or m:ss (1:30)"
-                                />
+                                <div className={styles.logSetCellInner}>
+                                  <input
+                                    className={`${styles.logCell} ${styles.logSetInput}`}
+                                    type="text"
+                                    inputMode="text"
+                                    value={reps}
+                                    onChange={ev => updateHistorySetField(wk, originalIdx, si, ev.target.value)}
+                                    onClick={ev => ev.stopPropagation()}
+                                    title="Reps (12), seconds (30s), minutes (2m), hours (1h), or m:ss (1:30)"
+                                  />
+                                  <button
+                                    type="button"
+                                    className={`${styles.setDoneBtn} ${done ? styles.setDoneBtnOn : ''}`}
+                                    onClick={ev => { ev.stopPropagation(); toggleHistorySetDone(wk, originalIdx, si); }}
+                                    aria-pressed={done}
+                                    aria-label={`Set ${si + 1} complete`}
+                                    title={done ? 'Mark this set not done' : 'Mark this set complete'}
+                                  >✓</button>
+                                </div>
                                 {e.useSetWeights && (
                                   <WeightInput
                                     className={`${styles.logCell} ${styles.logSetWeightInput}`}
                                     valueLb={setWeightVals[si]}
                                     unit={weightUnit}
                                     onCommitLb={v => updateHistorySetWeight(wk, originalIdx, si, v)}
+                                    onClick={ev => ev.stopPropagation()}
                                     title={`Set ${si + 1} weight`}
                                   />
                                 )}

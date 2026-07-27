@@ -371,7 +371,8 @@
 }
 .logTable {
   width: 100%;
-  min-width: 940px;
+  /* 4 set columns grew 44px → 62px to fit the ✓ toggle. */
+  min-width: 1012px;
   border-collapse: collapse;
   font-size: 0.85rem;
 }
@@ -435,7 +436,8 @@
 .logExerciseCol { width: auto; min-width: 180px; }
 .logNotesCol { width: 25%; min-width: 160px; }
 .logTimeCol { width: 56px; }
-.logSetCol { width: 44px; text-align: center !important; }
+/* Wide enough for the reps input plus the 16px ✓ completion toggle. */
+.logSetCol { width: 62px; min-width: 62px; text-align: center !important; }
 .logWeightCol { width: 70px; text-align: right !important; }
 .logPerCol { width: 80px; text-align: center !important; }
 .logTotalCol { width: 60px; text-align: right !important; }
@@ -481,11 +483,62 @@ td.logPerCell.manuallyEdited {
   -moz-appearance: textfield;
 }
 
-/* Click-to-complete: clicking anywhere in a rep cell (including the
-   number itself) toggles the set as done, turning the cell green so a
-   partially-finished row is easy to scan mid-workout. The reps stay
-   visible inside the green cell — editing is unchanged: click into the
-   input, type, blur. */
+/* Click-to-complete: the ✓ button in each rep cell toggles the set as done,
+   turning the cell green so a partially-finished row is easy to scan
+   mid-workout. The cell background is a second, more forgiving target for
+   the same toggle. The reps input keeps its own click (stopPropagation), so
+   editing is unchanged: click into the input, type, blur. */
+.logSetCellInner {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+/* The History table is auto-layout (no colgroup), so `width` on .logSetCol is
+   only a hint and greedy columns like Notes will squeeze the set cells until
+   the reps are clipped behind the ✓. A real min-width on the input gives the
+   cell a min-content floor the browser has to honour. */
+.logSetCellInner .logSetInput {
+  flex: 1 1 auto;
+  min-width: 28px;
+  padding-left: 0.15rem;
+  padding-right: 0.15rem;
+}
+.setDoneBtn {
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--color-border);
+  border-radius: 50%;
+  background: var(--color-surface);
+  color: transparent;
+  font-size: 0.62rem;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+  transition: background-color 0.12s ease, border-color 0.12s ease, color 0.12s ease;
+}
+.setDoneBtn:hover {
+  border-color: #16a34a;
+  color: rgba(22, 163, 74, 0.5);
+}
+.setDoneBtn:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
+}
+.setDoneBtnOn {
+  background: #16a34a;
+  border-color: #16a34a;
+  color: #fff;
+}
+.setDoneBtnOn:hover {
+  background: #15803d;
+  border-color: #15803d;
+  color: #fff;
+}
 .logSetCell {
   cursor: pointer;
   transition: background-color 0.12s ease;
@@ -1239,6 +1292,14 @@ td.logPerCell.manuallyEdited {
 }
 .pickerGroupBtn:hover { background: #EEF2FF; border-color: #4338CA; color: #4338CA; }
 .pickerGroupBtn:active { transform: scale(0.97); }
+
+/* Step 1 (Strength Training / Stretching) reuses the group grid but as two
+   full-width stacked tiles — only two choices, so the 3-up layout looks lost. */
+.pickerTypeBtn {
+  grid-column: 1 / -1;
+  padding: 1.35rem 0.75rem;
+  font-size: 1.05rem;
+}
 
 .pickerSearch {
   margin: 1rem 1rem 0.5rem;
