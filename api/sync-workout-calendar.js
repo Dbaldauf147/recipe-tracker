@@ -329,11 +329,17 @@ async function ensureCalendar(accessToken, existingId) {
 // Workout events keep the type's own name as the label; the icon comes from its
 // category, matching the Week Plan grid.
 const WORKOUT_ICON = { weights: '🏋️', cardio: '🏃', yoga: '🧘' };
-const titleFor = (kind, label) => (
-  isWorkoutKind(kind) ? `${WORKOUT_ICON[kind]} ${label}`
+// Invitations lead with the event title in the email header, and a bare
+// "🏋️ Push" landing in someone's inbox says nothing about where it came from.
+// Events that actually invite a guest get branded; solo events keep the short
+// title so the calendar grid stays readable on days nobody's invited.
+const TITLE_PREFIX = 'Prep Day · ';
+const titleFor = (kind, label, branded = false) => {
+  const base = isWorkoutKind(kind) ? `${WORKOUT_ICON[kind]} ${label}`
     : kind === 'sauna' ? '🧖 Sauna'
-      : label ? `🍳 Cook: ${label}` : '🍳 Cooking'
-);
+      : label ? `🍳 Cook: ${label}` : '🍳 Cooking';
+  return branded ? `${TITLE_PREFIX}${base}` : base;
+};
 function timedSlot(dateStr, startMin, endMin) {
   return {
     start: { dateTime: `${dateStr}T${minToHHMM(startMin)}:00`, timeZone: TZ },
@@ -535,7 +541,10 @@ export default async function handler(req, res) {
             const label = isWorkoutKind(kind) ? workoutByDate[date].label : kind === 'cooking' ? cookByDate[date].label : '';
             desired[`${date}|${kind}`] = {
               date, kind, label,
-              title: titleFor(kind, label),
+              // Branded only while a guest is configured. Turning the guest on
+              // or off retitles existing events on the next sync, since the
+              // title is part of the diff below.
+              title: titleFor(kind, label, !!guestEmail),
               startMin: times[kind].startMin,
               endMin: times[kind].endMin,
             };

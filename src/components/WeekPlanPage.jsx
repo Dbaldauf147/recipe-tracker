@@ -1314,8 +1314,8 @@ export function WeekPlanPage({ recipes, getRecipe, user, weeklyPlan = [], weekly
                   {guestEmailInvalid
                     ? 'Not a valid email address — nobody will be invited until this is fixed.'
                     : syncSettings.guestEmail
-                      ? <>Every event above is created with <strong>{syncSettings.guestEmail}</strong> as a guest, and Google emails them the invite. Clear the box to stop inviting them — existing events drop them on the next sync.</>
-                      : 'Optional. Add someone here and every workout, sauna and cooking event gets created with them as a guest — Google emails them the invite. Leave empty to invite nobody.'}
+                      ? <>Every event above is created with <strong>{syncSettings.guestEmail}</strong> as a guest, and Google emails them the invite. While someone’s invited, events are titled “<strong>Prep Day · 🏋️ Push</strong>” so the invitation email says where it came from. Clear the box to stop inviting them — existing events drop them and go back to the short title on the next sync.</>
+                      : 'Optional. Add someone here and every workout, sauna and cooking event gets created with them as a guest — Google emails them the invite, and those events get titled “Prep Day · …” so the invitation says where it came from. Leave empty to invite nobody.'}
                 </div>
                 {/* One line per workout category — now that the three can be
                     timed apart, a single example day wouldn't show the split. */}
