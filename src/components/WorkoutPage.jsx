@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { ComposedChart, Area, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, BarChart, Bar, ReferenceLine } from 'recharts';
 import { doc, collection, onSnapshot } from 'firebase/firestore';
@@ -8,6 +8,8 @@ import { exportWorkoutHistoryToCSV } from '../utils/exportData';
 import { parseSetValue, formatSeconds, computeSetStats } from '../utils/setValue';
 import { ExerciseLibrary, effectiveMuscleGroup } from './ExerciseLibrary';
 import { EXERCISE_TYPES, DEFAULT_EXERCISE_TYPE, effectiveExerciseType, normalizeExerciseType } from '../utils/exerciseTypes';
+import { StretchRoutines } from './StretchRoutines';
+import { normalizeRoutine, buildCueSequence } from '../utils/stretchRoutine';
 import { BodyHeatmap } from './BodyHeatmap';
 import { ExerciseDemo } from './ExerciseDemo';
 import ExerciseProgressTracker from './ExerciseProgressTracker';
@@ -2449,6 +2451,22 @@ export function WorkoutPage({ onBack, user }) {
   // live on the user doc so the picker matches across web + iOS.
   const [customExercises, setCustomExercises] = useState([]);
   const [hiddenExercises, setHiddenExercises] = useState([]);
+  // Guided stretch routines. Same user-doc field the mobile app reads and
+  // writes (`stretchRoutines`), so a routine built here plays on the phone.
+  const [stretchRoutines, setStretchRoutines] = useState([]);
+  useEffect(() => {
+    if (!user?.uid) return;
+    let cancelled = false;
+    loadField(user.uid, 'stretchRoutines').then(v => {
+      if (cancelled || !Array.isArray(v)) return;
+      setStretchRoutines(v.map(normalizeRoutine).filter(Boolean));
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [user?.uid]);
+  const saveStretchRoutines = useCallback((next) => {
+    setStretchRoutines(next);
+    if (user?.uid) saveField(user.uid, 'stretchRoutines', next).catch(() => {});
+  }, [user?.uid]);
 
   // Resolve the visible exercise list for a muscle group from the user's own
   // data only (so the web stays in sync with the mobile app):
@@ -2501,6 +2519,48 @@ export function WorkoutPage({ onBack, user }) {
     if (!wantType) return [...MUSCLE_GROUPS];
     const hit = MUSCLE_GROUPS.filter(g => exercisesForGroup(g, wantType).length > 0);
     return hit.length > 0 ? hit : [...MUSCLE_GROUPS];
+  }
+
+  // Every Stretching-tagged exercise, across all muscle groups — the pool the
+  // routine builder offers. Same source as the picker's Stretching branch.
+  function stretchExerciseNames() {
+    const set = new Set();
+    for (const g of MUSCLE_GROUPS) for (const n of exercisesForGroup(g, 'Stretching')) set.add(n);
+    return [...set].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+  }
+
+  // Log a finished routine as a workout on the selected date. Each pose becomes
+  // an entry whose first set is its hold written as a duration ("40s") — a
+  // shape parseSetValue already understands, so it feeds History, Charts and
+  // the calendar sync with no special-casing.
+  function logStretchRoutine(routine, poseNames) {
+    if (!poseNames || poseNames.length === 0) return;
+    const holdByName = new Map();
+    for (const cue of buildCueSequence(routine)) {
+      if (cue.kind !== 'hold') continue;
+      holdByName.set(cue.stepName, (holdByName.get(cue.stepName) || 0) + cue.seconds);
+    }
+    const newEntries = poseNames.map(name => enrichEntry({
+      group: 'Yoga',
+      exercise: name,
+      sets: [`${holdByName.get(name) ?? routine.holdSec}s`, '', '', ''],
+      setDone: [true, false, false, false],
+      weight: '',
+      perArm: false,
+      notes: routine.name,
+      time: '',
+    }));
+    const workout = {
+      id: newWorkoutId(),
+      date: selectedDate,
+      gym,
+      workoutType: 'Yoga',
+      entries: newEntries,
+      savedAt: new Date().toISOString(),
+    };
+    const next = [...workouts, workout].sort((a, b) => b.date.localeCompare(a.date));
+    commitWorkouts(next);
+    alert(`Logged ${newEntries.length} pose${newEntries.length === 1 ? '' : 's'} from "${routine.name}".`);
   }
 
   // The discipline a logged exercise belongs to, resolved by name against the
@@ -3948,13 +4008,14 @@ export function WorkoutPage({ onBack, user }) {
       </div>
 
       <div className={styles.tabs}>
-        {['log', 'calendar', 'history', 'charts', 'progress', 'body', 'exercises', 'steps', 'sleep', 'stats'].map(tab => (
+        {['log', 'calendar', 'history', 'charts', 'progress', 'stretch', 'body', 'exercises', 'steps', 'sleep', 'stats'].map(tab => (
           <button key={tab} className={`${styles.tab} ${viewMode === tab ? styles.tabActive : ''}`} onClick={() => setViewMode(tab)}>
             {tab === 'log' ? 'Log Workout'
               : tab === 'history' ? 'History'
               : tab === 'calendar' ? 'Calendar'
               : tab === 'charts' ? 'Charts'
               : tab === 'progress' ? 'Progress'
+              : tab === 'stretch' ? 'Stretch'
               : tab === 'body' ? 'Body Map'
               : tab === 'exercises' ? 'Exercises'
               : tab === 'steps' ? 'Steps'
@@ -5419,6 +5480,15 @@ export function WorkoutPage({ onBack, user }) {
 
       {viewMode === 'progress' && (
         <ExerciseProgressTracker workouts={workouts} weightUnit={weightUnit} exerciseLibrary={exerciseLibrary} user={user} />
+      )}
+
+      {viewMode === 'stretch' && (
+        <StretchRoutines
+          routines={stretchRoutines}
+          onChange={saveStretchRoutines}
+          stretchOptions={stretchExerciseNames()}
+          onLogRoutine={logStretchRoutine}
+        />
       )}
 
       {viewMode === 'stats' && (
