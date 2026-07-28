@@ -185,22 +185,52 @@ async function extractFromGoogleMaps(url) {
     try { return decodeURIComponent(s.replace(/\+/g, ' ')).trim(); }
     catch { return s.replace(/\+/g, ' ').trim(); }
   };
+  // A ?q= can hold a machine identifier rather than a place name — those must
+  // never become the restaurant's name.
+  // Matches anywhere, not just at the start: a candidate can arrive percent-
+  // encoded (…/maps/place/%3Fq%3Dplace_id:ChIJ…) and only look like a query
+  // fragment once decoded.
+  const isIdentifier = (s) =>
+    /(?:^|[?&/])(?:place_id|cid|ftid|q)\s*[:=]\s*(?:place_id:|0x|ChIJ|[\d.,+-]+$)/i.test(s)
+    || /(?:place_id|ftid)\s*[:=]/i.test(s)
+    || /^0x[0-9a-f]+/i.test(s)
+    || /^[?&]/.test(s);
+  const usable = (s) => !!s && !isCoordPair(s) && !isIdentifier(s);
+
+  // Candidate URLs, best first. A short link (maps.app.goo.gl) doesn't always
+  // answer with a 302 we can follow — sometimes it's an interstitial page whose
+  // BODY carries the real destination, in which case r.url is still the short
+  // link and the name would be lost. So mine the HTML for the canonical link, a
+  // meta-refresh target, and any /maps/place/ URL it mentions.
+  const candidateUrls = [longUrl, url];
+  if (html) {
+    const canonical = html.match(/<link[^>]+rel=["']canonical["'][^>]+href=["']([^"']+)["']/i)
+      || html.match(/<link[^>]+href=["']([^"']+)["'][^>]+rel=["']canonical["']/i);
+    if (canonical && canonical[1]) candidateUrls.push(decodeEntities(canonical[1]));
+    const refresh = html.match(/<meta[^>]+http-equiv=["']refresh["'][^>]+content=["'][^"']*url=([^"';]+)/i);
+    if (refresh && refresh[1]) candidateUrls.push(decodeEntities(refresh[1].trim().replace(/^['"]|['"]$/g, '')));
+    for (const m of html.matchAll(/https?:\/\/[^"'\s\\<>]*\/maps\/place\/[^"'\s\\<>]+/gi)) {
+      candidateUrls.push(decodeEntities(m[0]));
+      if (candidateUrls.length > 12) break; // one is enough; don't scan a whole SPA payload
+    }
+  }
+
   let name = '';
-  // A short link can redirect to a URL that drops the /place/<Name> segment, so
-  // check the original url too — the user may have pasted the full place URL.
-  for (const u of [longUrl, url]) {
+  // 1. /maps/place/<Name>/ — the reliable source.
+  for (const u of candidateUrls) {
     const m = u && u.match(/\/maps\/place\/([^/?#@]+)/i);
     if (m && m[1]) {
       const cand = decodePlus(m[1]);
-      if (cand && !isCoordPair(cand)) { name = cand; break; }
+      if (usable(cand)) { name = cand; break; }
     }
   }
+  // 2. ?q=Name / ?query=Name.
   if (!name) {
-    for (const u of [longUrl, url]) {
+    for (const u of candidateUrls) {
       const m = u && u.match(/[?&](?:q|query)=([^&]+)/i);
       if (m && m[1]) {
         const cand = decodePlus(m[1]);
-        if (cand && !isCoordPair(cand)) { name = cand; break; }
+        if (usable(cand)) { name = cand; break; }
       }
     }
   }
