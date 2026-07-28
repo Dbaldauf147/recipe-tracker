@@ -184,6 +184,38 @@ function minToHHMM(min) {
   const v = clamp(Math.round(min), 0, MAX_MIN);
   return `${pad2(Math.floor(v / 60))}:${pad2(v % 60)}`;
 }
+// Mirrored from src/utils/calendarSyncSettings.js — change both. The guest
+// logic is covered by src/utils/calendarSyncSettings.test.js; keep this copy
+// identical so those tests mean something here.
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+function normalizeGuestEmail(s) {
+  const v = String(s || '').trim().toLowerCase();
+  return EMAIL_RE.test(v) ? v : '';
+}
+// See the long comment on resolveEventGuests in the shared util: this compares
+// only "is our guest present / is a superseded one still there", never the
+// whole attendee list, because Google adds the organiser to `attendees` and a
+// list comparison would re-notify the guest on every hourly run.
+function resolveEventGuests(ev, guestEmail, prevGuest) {
+  const want = normalizeGuestEmail(guestEmail);
+  const prev = normalizeGuestEmail(prevGuest);
+  const attendees = Array.isArray(ev?.attendees) ? ev.attendees : [];
+  const emails = new Set(attendees.map(a => String(a?.email || '').trim().toLowerCase()));
+  const missing = !!want && !emails.has(want);
+  const stale = !!prev && prev !== want && emails.has(prev);
+  if (!missing && !stale) return { changed: false, attendees: null };
+  const kept = attendees
+    .filter(a => !(stale && String(a?.email || '').trim().toLowerCase() === prev))
+    .map(a => ({
+      email: a.email,
+      ...(a.responseStatus ? { responseStatus: a.responseStatus } : {}),
+      ...(a.optional ? { optional: true } : {}),
+    }));
+  if (want && !kept.some(a => String(a.email || '').trim().toLowerCase() === want)) {
+    kept.push({ email: want });
+  }
+  return { changed: true, attendees: kept };
+}
 function normalizeSyncSettings(raw) {
   const src = (raw && typeof raw === 'object') ? raw : {};
   // Pre-category docs had ONE `workout` entry covering every category.
@@ -202,6 +234,8 @@ function normalizeSyncSettings(raw) {
       durationMin: clamp(Math.round(Number(v.durationMin) || d.durationMin), 5, 12 * 60),
     };
   }
+  // Standing guest invited to every synced event. Empty = nobody, the default.
+  out.guestEmail = normalizeGuestEmail(src.guestEmail);
   return out;
 }
 function resolveAnchor(after, present) {
@@ -392,7 +426,7 @@ export default async function handler(req, res) {
   // enables DELETION in the past; creation/patching stays gated on windowStart.
   const listStart = isoOf(addDays(todayDt, -28));
 
-  const summary = { scanned: 0, eligible: 0, synced: 0, created: 0, patched: 0, deleted: 0, calendarsCreated: 0, calendarsRenamed: 0, errors: [], dryRun };
+  const summary = { scanned: 0, eligible: 0, synced: 0, created: 0, patched: 0, deleted: 0, invited: 0, calendarsCreated: 0, calendarsRenamed: 0, errors: [], dryRun };
 
   try {
     const snap = await db.collection('users').get();
@@ -406,6 +440,8 @@ export default async function handler(req, res) {
 
       try {
         const settings = normalizeSyncSettings(data.calendarSyncSettings);
+        // Standing guest on every event this user syncs. '' = invite nobody.
+        const guestEmail = settings.guestEmail || '';
         const workoutTypes = Array.isArray(data.workoutTypes) ? data.workoutTypes : [];
         const typeSkipDates = (data.workoutTypeSkipDates && typeof data.workoutTypeSkipDates === 'object') ? data.workoutTypeSkipDates : {};
         // type name → 'weights' | 'cardio' | 'yoga'. Drives which timing row a
@@ -551,17 +587,30 @@ export default async function handler(req, res) {
           const ev = existing.get(key);
           const priv = { prepDayWorkout: 'true', prepDayKind: want.kind };
           if (isWorkoutKind(want.kind)) priv.workoutType = want.label;
+          // Remember who we invited, so changing or clearing the setting later
+          // can remove exactly that address and leave guests the user added by
+          // hand in Google alone.
+          if (guestEmail) priv.prepDayGuest = guestEmail;
           const body = {
             summary: want.title,
             ...timedSlot(want.date, want.startMin, want.endMin),
             extendedProperties: { private: priv },
           };
           if (!ev) {
-            await gcal(accessToken, `/calendars/${encodeURIComponent(calendarId)}/events`, {
-              method: 'POST',
-              body: { ...body, transparency: 'transparent' },
-            });
+            await gcal(
+              accessToken,
+              `/calendars/${encodeURIComponent(calendarId)}/events${guestEmail ? '?sendUpdates=all' : ''}`,
+              {
+                method: 'POST',
+                body: {
+                  ...body,
+                  transparency: 'transparent',
+                  ...(guestEmail ? { attendees: [{ email: guestEmail }] } : {}),
+                },
+              },
+            );
             summary.created++;
+            if (guestEmail) summary.invited++;
             continue;
           }
           const isAllDay = !!ev.start?.date; // legacy all-day event → re-time it
@@ -571,18 +620,37 @@ export default async function handler(req, res) {
           // old tag, so this also re-tags it with its category.
           const tagMismatch = ev.extendedProperties?.private?.prepDayKind !== want.kind
             || (isWorkoutKind(want.kind) && ev.extendedProperties?.private?.workoutType !== want.label);
-          if (ev.summary !== want.title || tagMismatch || isAllDay || timeMismatch) {
-            await gcal(accessToken, `/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(ev.id)}`, {
-              method: 'PATCH',
-              body,
-            });
+
+          const prevGuest = ev.extendedProperties?.private?.prepDayGuest || '';
+          const guests = resolveEventGuests(ev, guestEmail, prevGuest);
+          const hadAttendees = Array.isArray(ev.attendees) && ev.attendees.length > 0;
+
+          if (ev.summary !== want.title || tagMismatch || isAllDay || timeMismatch || guests.changed) {
+            const patchBody = { ...body };
+            // Clearing the setting must also clear the stored tag, or the stale
+            // address would look "previously added" forever.
+            if (!guestEmail && prevGuest) patchBody.extendedProperties = { private: { ...priv, prepDayGuest: '' } };
+            if (guests.changed) patchBody.attendees = guests.attendees;
+            const notify = guests.changed || hadAttendees || !!guestEmail;
+            await gcal(
+              accessToken,
+              `/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(ev.id)}${notify ? '?sendUpdates=all' : ''}`,
+              { method: 'PATCH', body: patchBody },
+            );
             summary.patched++;
+            if (guests.changed && guestEmail) summary.invited++;
           }
         }
-        // Delete tagged events no longer planned.
+        // Delete tagged events no longer planned. If anyone was invited, cancel
+        // properly so the guest's copy disappears too rather than lingering.
         for (const [key, ev] of existing) {
           if (!desired[key]) {
-            await gcal(accessToken, `/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(ev.id)}`, { method: 'DELETE' });
+            const hadGuests = Array.isArray(ev.attendees) && ev.attendees.length > 0;
+            await gcal(
+              accessToken,
+              `/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(ev.id)}${hadGuests ? '?sendUpdates=all' : ''}`,
+              { method: 'DELETE' },
+            );
             summary.deleted++;
           }
         }

@@ -244,6 +244,7 @@
 }
 .syncGearSelect,
 .syncGearTime,
+.syncGearEmail,
 .syncGearMins {
   border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);
@@ -254,6 +255,11 @@
 }
 .syncGearTime { width: 96px; }
 .syncGearMins { width: 60px; }
+/* Wider than the time/number fields — an address needs the room. */
+.syncGearEmail { width: 166px; }
+.syncGearEmail[aria-invalid='true'] {
+  border-color: var(--color-danger, #dc2626);
+}
 .syncGearChained {
   width: 96px;
   font-size: var(--font-size-xs);

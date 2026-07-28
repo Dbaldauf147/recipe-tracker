@@ -44,6 +44,20 @@ export const DEFAULT_CALENDAR_SYNC_SETTINGS = {
 
 const MAX_MIN = 24 * 60 - 1; // 23:59 — events never roll past midnight
 
+// Optional standing guest added to every synced event, stored alongside the
+// per-kind timing as `guestEmail`. Empty string = nobody is invited, which is
+// the default — this only ever emails someone once it's deliberately filled in.
+// Deliberately one address: a shared "who am I training with" invite, not a
+// distribution list.
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+export function isValidGuestEmail(s) {
+  return EMAIL_RE.test(String(s || '').trim());
+}
+export function normalizeGuestEmail(s) {
+  const v = String(s || '').trim().toLowerCase();
+  return EMAIL_RE.test(v) ? v : '';
+}
+
 export function parseHHMM(s) {
   const m = /^(\d{1,2}):(\d{2})$/.exec(String(s || ''));
   if (!m) return 0;
@@ -83,7 +97,52 @@ export function normalizeCalendarSyncSettings(raw) {
       durationMin: clamp(Math.round(Number(v.durationMin) || d.durationMin), 5, 12 * 60),
     };
   }
+  // Not a kind — carried through so the per-kind loop above can stay keyed on
+  // KIND_KEYS without dropping it on every save.
+  out.guestEmail = normalizeGuestEmail(src.guestEmail);
   return out;
+}
+
+/**
+ * Decide what to do about the standing guest on one already-existing Google
+ * event. Returns { changed, attendees } — `attendees` is only meaningful when
+ * `changed` is true, and is the full replacement list for a PATCH.
+ *
+ * Deliberately NOT a whole-list comparison. Google adds the organiser to
+ * `attendees` as soon as an event has any, so "desired list === current list"
+ * would mismatch on every run — and since the sync cron runs hourly with
+ * sendUpdates=all, that would re-email the guest every hour. So this asks only
+ * two questions: is the configured guest present, and is one we added earlier
+ * still hanging around after the setting changed.
+ *
+ * `prevGuest` is the address recorded on the event when we last added it
+ * (extendedProperties.private.prepDayGuest), which is what lets a change or a
+ * clear remove exactly our own invitee and leave guests the user added by hand
+ * in Google untouched.
+ *
+ * MIRRORED SERVER-SIDE in api/sync-workout-calendar.js — change both.
+ */
+export function resolveEventGuests(ev, guestEmail, prevGuest) {
+  const want = normalizeGuestEmail(guestEmail);
+  const prev = normalizeGuestEmail(prevGuest);
+  const attendees = Array.isArray(ev?.attendees) ? ev.attendees : [];
+  const emails = new Set(attendees.map(a => String(a?.email || '').trim().toLowerCase()));
+  const missing = !!want && !emails.has(want);
+  const stale = !!prev && prev !== want && emails.has(prev);
+  if (!missing && !stale) return { changed: false, attendees: null };
+  const kept = attendees
+    .filter(a => !(stale && String(a?.email || '').trim().toLowerCase() === prev))
+    // Preserve each remaining guest's RSVP — rebuilding as bare {email} would
+    // reset everyone to "needsAction" and re-prompt them.
+    .map(a => ({
+      email: a.email,
+      ...(a.responseStatus ? { responseStatus: a.responseStatus } : {}),
+      ...(a.optional ? { optional: true } : {}),
+    }));
+  if (want && !kept.some(a => String(a.email || '').trim().toLowerCase() === want)) {
+    kept.push({ email: want });
+  }
+  return { changed: true, attendees: kept };
 }
 
 // Which kind an anchor actually points at on a day, or null if it isn't there.

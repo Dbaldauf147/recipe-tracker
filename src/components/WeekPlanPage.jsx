@@ -9,6 +9,7 @@ import {
 import {
   SYNC_KINDS, WORKOUT_KINDS, ANY_WORKOUT, DEFAULT_CALENDAR_SYNC_SETTINGS,
   normalizeCalendarSyncSettings, anchorOptionsFor, previewOrder, minToHHMM,
+  isValidGuestEmail,
 } from '../utils/calendarSyncSettings';
 import {
   DEFAULT_SAUNA_GOAL, MAX_SAUNA_GOAL, normalizeSaunaGoal, normalizeSaunaOverrides,
@@ -696,6 +697,10 @@ export function WeekPlanPage({ recipes, getRecipe, user, weeklyPlan = [], weekly
   const [autoSyncWorkouts, setAutoSyncWorkouts] = useState(false);
   const [workoutCalId, setWorkoutCalId] = useState('');
   const [syncSettings, setSyncSettings] = useState(DEFAULT_CALENDAR_SYNC_SETTINGS);
+  // Raw text for the standing-guest field. Declared up here with the rest of the
+  // calendar-sync state because the hydrate effect below seeds it — same reason
+  // the others live here rather than beside their updater.
+  const [guestEmailDraft, setGuestEmailDraft] = useState('');
 
   // Hydrate the calendar-sync fields from the user doc. Kept next to their state
   // so the setters aren't referenced above their declaration.
@@ -705,7 +710,13 @@ export function WeekPlanPage({ recipes, getRecipe, user, weeklyPlan = [], weekly
     loadField(user.uid, 'googleCalendarAutoSync').then(v => { if (!cancelled) setAutoSyncWorkouts(v === true); }).catch(() => {});
     loadField(user.uid, 'googleWorkoutCalendarId').then(v => { if (!cancelled && typeof v === 'string') setWorkoutCalId(v); }).catch(() => {});
     loadField(user.uid, 'calendarSyncSettings').then(v => {
-      if (!cancelled && v && typeof v === 'object') setSyncSettings(normalizeCalendarSyncSettings(v));
+      if (cancelled || !v || typeof v !== 'object') return;
+      const norm = normalizeCalendarSyncSettings(v);
+      setSyncSettings(norm);
+      // Seed the guest field's draft here rather than deriving it from
+      // syncSettings on every render — the stored value is lowercased, which
+      // would rewrite the box under the cursor while the user types.
+      setGuestEmailDraft(norm.guestEmail || '');
     }).catch(() => {});
     return () => { cancelled = true; };
   }, [user?.uid]);
@@ -742,6 +753,27 @@ export function WeekPlanPage({ recipes, getRecipe, user, weeklyPlan = [], weekly
     }, 600);
   }, [syncSettings, user?.uid]);
   useEffect(() => () => clearTimeout(syncSaveTimer.current), []);
+
+  // Standing guest on every synced event (draft state declared with the other
+  // calendar-sync fields above). The input holds raw text so an in-progress
+  // address isn't fought by normalization; only a valid address — or a
+  // deliberate blank, meaning "invite nobody" — is ever persisted, so a
+  // half-typed string can never reach the cron and get the wrong person emailed.
+  const guestEmailInvalid = guestEmailDraft.trim() !== '' && !isValidGuestEmail(guestEmailDraft);
+  const guestSaveTimer = useRef(null);
+  const updateGuestEmail = useCallback((raw) => {
+    setGuestEmailDraft(raw);
+    const trimmed = raw.trim();
+    if (trimmed !== '' && !isValidGuestEmail(trimmed)) return;
+    const next = normalizeCalendarSyncSettings({ ...syncSettings, guestEmail: trimmed });
+    setSyncSettings(next);
+    if (!user?.uid) return;
+    clearTimeout(guestSaveTimer.current);
+    guestSaveTimer.current = setTimeout(() => {
+      saveField(user.uid, 'calendarSyncSettings', next).catch(() => {});
+    }, 600);
+  }, [syncSettings, user?.uid]);
+  useEffect(() => () => clearTimeout(guestSaveTimer.current), []);
 
   // Weekly sauna goal. Local-first + debounced for the same reason as the timing
   // fields: the number input fires per keystroke.
@@ -1265,6 +1297,25 @@ export function WeekPlanPage({ recipes, getRecipe, user, weeklyPlan = [], weekly
                     aria-label="Weekly sauna goal"
                   />
                   <span className={styles.syncGearUnit}>per week</span>
+                </div>
+                <div className={styles.syncGearRow}>
+                  <span className={styles.syncGearKind}>✉️ Invite guest</span>
+                  <input
+                    type="email"
+                    className={styles.syncGearEmail}
+                    placeholder="nobody@example.com"
+                    value={guestEmailDraft}
+                    onChange={e => updateGuestEmail(e.target.value)}
+                    aria-label="Guest email added to every synced event"
+                    aria-invalid={guestEmailInvalid}
+                  />
+                </div>
+                <div className={styles.syncGearNote}>
+                  {guestEmailInvalid
+                    ? 'Not a valid email address — nobody will be invited until this is fixed.'
+                    : syncSettings.guestEmail
+                      ? <>Every event above is created with <strong>{syncSettings.guestEmail}</strong> as a guest, and Google emails them the invite. Clear the box to stop inviting them — existing events drop them on the next sync.</>
+                      : 'Optional. Add someone here and every workout, sauna and cooking event gets created with them as a guest — Google emails them the invite. Leave empty to invite nobody.'}
                 </div>
                 {/* One line per workout category — now that the three can be
                     timed apart, a single example day wouldn't show the split. */}
