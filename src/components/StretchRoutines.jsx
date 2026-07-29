@@ -4,6 +4,9 @@ import {
   buildCueSequence, routineDurationSec, normalizeRoutine, emptyRoutine, newId, mmss,
   DEFAULT_HOLD_SEC, DEFAULT_TRANSITION_SEC, MIN_SEC, MAX_SEC,
 } from '../utils/stretchRoutine';
+import {
+  formatStretchDuration, clampGoalMin, STRETCH_GOAL_WINDOW_DAYS, MIN_GOAL_MIN, MAX_GOAL_MIN,
+} from '../utils/stretchGoal';
 
 // ── Cue tones ─────────────────────────────────────────────────────────────
 // Synthesised through Web Audio rather than shipped as files: no asset to
@@ -257,7 +260,7 @@ function Player({ routine, onClose, onLog }) {
 }
 
 // ── Tab ───────────────────────────────────────────────────────────────────
-export function StretchRoutines({ routines, onChange, stretchOptions, onLogRoutine }) {
+export function StretchRoutines({ routines, onChange, stretchOptions, onLogRoutine, goalRows, goalMin, onGoalMinChange }) {
   const [editing, setEditing] = useState(null);
   const [playing, setPlaying] = useState(null);
   const [addQuery, setAddQuery] = useState('');
@@ -382,6 +385,51 @@ export function StretchRoutines({ routines, onChange, stretchOptions, onLogRouti
 
   return (
     <div className={styles.wrap}>
+      {/* Goal board. Time held per muscle group over a rolling window, which is
+          the unit stretching is actually dosed in — furthest-behind first, so
+          what needs attention leads. */}
+      <div className={styles.goalCard}>
+        <div className={styles.goalHead}>
+          <span className={styles.goalTitle}>Last {STRETCH_GOAL_WINDOW_DAYS} days</span>
+          <span className={styles.goalEdit}>
+            <input
+              type="number"
+              className={styles.goalInput}
+              min={MIN_GOAL_MIN}
+              max={MAX_GOAL_MIN}
+              value={goalMin}
+              onChange={e => onGoalMinChange(e.target.value)}
+              onBlur={e => onGoalMinChange(clampGoalMin(e.target.value))}
+              aria-label="Stretch goal in minutes per muscle group"
+            />
+            <span className={styles.unit}>min / muscle group</span>
+          </span>
+        </div>
+        {(!goalRows || goalRows.length === 0) ? (
+          <div className={styles.empty}>
+            Tag some exercises as “Stretching” and log a routine — each muscle group you stretch
+            shows its progress toward {goalMin} minutes here.
+          </div>
+        ) : (
+          <div className={styles.goalRows}>
+            {goalRows.map(r => (
+              <div key={r.group} className={styles.goalRow}>
+                <span className={styles.goalGroup}>{r.group}</span>
+                <span className={styles.goalTrack}>
+                  <span
+                    className={`${styles.goalFill} ${r.met ? styles.goalFillMet : ''}`}
+                    style={{ width: `${r.pct * 100}%` }}
+                  />
+                </span>
+                <span className={`${styles.goalTime} ${r.met ? styles.goalTimeMet : ''}`}>
+                  {r.met ? '✓ ' : ''}{formatStretchDuration(r.seconds)}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
       <div className={styles.headRow}>
         <h3 className={styles.h3}>Stretch routines</h3>
         <button className={styles.primaryBtn} onClick={() => setEditing(emptyRoutine())}>+ New routine</button>

@@ -105,6 +105,58 @@
   padding: 0.4rem 0;
 }
 
+/* Goal board */
+.goalCard {
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  background: var(--color-surface);
+  padding: 0.75rem 0.9rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  max-width: 620px;
+}
+.goalHead { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+.goalTitle {
+  font-size: 0.7rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-text-muted);
+}
+.goalEdit { display: flex; align-items: center; gap: 0.35rem; }
+.goalInput {
+  width: 58px;
+  padding: 0.2rem 0.35rem;
+  border: 1px solid var(--color-border);
+  border-radius: 5px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: 0.8rem;
+  font-family: inherit;
+  text-align: center;
+}
+.goalRows { display: flex; flex-direction: column; gap: 0.3rem; }
+.goalRow { display: flex; align-items: center; gap: 0.6rem; }
+.goalGroup { width: 96px; font-size: 0.82rem; color: var(--color-text); }
+.goalTrack {
+  flex: 1;
+  height: 8px;
+  border-radius: 4px;
+  background: var(--color-surface-alt);
+  overflow: hidden;
+}
+.goalFill { display: block; height: 100%; background: var(--color-accent); }
+.goalFillMet { background: #16a34a; }
+.goalTime {
+  width: 74px;
+  text-align: right;
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+.goalTimeMet { color: #16a34a; font-weight: 700; }
+
 /* Routine cards */
 .cards { display: flex; flex-direction: column; gap: 0.5rem; }
 .card {

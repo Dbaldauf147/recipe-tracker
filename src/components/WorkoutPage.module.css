@@ -7,6 +7,10 @@
 .tab { padding: 0.5rem 1rem; border: 1px solid var(--color-border); border-radius: 8px; background: var(--color-surface); font-size: 0.85rem; font-weight: 600; color: var(--color-text-muted); cursor: pointer; font-family: inherit; transition: all 0.15s; }
 .tab:hover { border-color: var(--color-accent); color: var(--color-accent); }
 .tabActive { background: var(--color-accent); border-color: var(--color-accent); color: #fff; }
+/* .tab:hover (0,2,0) outranks .tabActive (0,1,0), so without this the active
+   tab's label turns accent-on-accent — invisible — whenever the cursor rests on
+   it, which is exactly what happens right after you click it. */
+.tabActive:hover { color: #fff; border-color: var(--color-accent); }
 
 /* Log */
 .dateRow { display: flex; gap: 0.75rem; margin-bottom: 1rem; }

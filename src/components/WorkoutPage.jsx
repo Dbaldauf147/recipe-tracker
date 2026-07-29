@@ -10,6 +10,9 @@ import { ExerciseLibrary, effectiveMuscleGroup } from './ExerciseLibrary';
 import { EXERCISE_TYPES, DEFAULT_EXERCISE_TYPE, effectiveExerciseType, normalizeExerciseType } from '../utils/exerciseTypes';
 import { StretchRoutines } from './StretchRoutines';
 import { normalizeRoutine, buildCueSequence } from '../utils/stretchRoutine';
+import {
+  stretchSecondsByGroup, stretchGoalProgress, clampGoalMin, DEFAULT_STRETCH_GOAL_MIN,
+} from '../utils/stretchGoal';
 import { BodyHeatmap } from './BodyHeatmap';
 import { ExerciseDemo } from './ExerciseDemo';
 import ExerciseProgressTracker from './ExerciseProgressTracker';
@@ -2482,6 +2485,29 @@ export function WorkoutPage({ onBack, user }) {
     setStretchRoutines(next);
     if (user?.uid) saveField(user.uid, 'stretchRoutines', next).catch(() => {});
   }, [user?.uid]);
+  // Per-muscle-group stretch goal, in minutes over a rolling window. Shared with
+  // the phone via users/{uid}.stretchGoalMin.
+  const [stretchGoalMin, setStretchGoalMin] = useState(DEFAULT_STRETCH_GOAL_MIN);
+  useEffect(() => {
+    if (!user?.uid) return;
+    let cancelled = false;
+    loadField(user.uid, 'stretchGoalMin')
+      .then(v => { if (!cancelled && v != null) setStretchGoalMin(clampGoalMin(v)); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [user?.uid]);
+  const goalSaveTimer = useRef(null);
+  const updateStretchGoalMin = useCallback((raw) => {
+    // Local-first so typing stays responsive; debounced because a number input
+    // fires per keystroke.
+    setStretchGoalMin(raw);
+    if (!user?.uid) return;
+    clearTimeout(goalSaveTimer.current);
+    goalSaveTimer.current = setTimeout(() => {
+      saveField(user.uid, 'stretchGoalMin', clampGoalMin(raw)).catch(() => {});
+    }, 700);
+  }, [user?.uid]);
+  useEffect(() => () => clearTimeout(goalSaveTimer.current), []);
 
   // Resolve the visible exercise list for a muscle group from the user's own
   // data only (so the web stays in sync with the mobile app):
@@ -2536,12 +2562,40 @@ export function WorkoutPage({ onBack, user }) {
     return hit.length > 0 ? hit : [...MUSCLE_GROUPS];
   }
 
+  // Muscle group an exercise belongs to, by name, from the user's own data.
+  function muscleGroupForExercise(name) {
+    const lower = String(name || '').trim().toLowerCase();
+    if (!lower) return '';
+    const row = (exerciseLibrary || []).find(
+      e => e?.exercise && e.exercise.trim().toLowerCase() === lower,
+    );
+    if (row) return effectiveMuscleGroup(row) || '';
+    const custom = (customExercises || []).find(
+      e => e?.name && e.name.trim().toLowerCase() === lower,
+    );
+    return (custom?.muscleGroup || '').trim();
+  }
+
   // Every Stretching-tagged exercise, across all muscle groups — the pool the
   // routine builder offers. Same source as the picker's Stretching branch.
   function stretchExerciseNames() {
     const set = new Set();
     for (const g of MUSCLE_GROUPS) for (const n of exercisesForGroup(g, 'Stretching')) set.add(n);
     return [...set].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+  }
+
+  // Goal board rows. `isStretch` keys off the exercise's resolved type, so a
+  // timed plank in the same session doesn't inflate the Abs stretch total.
+  function stretchGoalRows() {
+    const names = stretchExerciseNames();
+    const stretchSet = new Set(names.map(n => n.toLowerCase()));
+    const groupsWithStretches = new Set();
+    for (const n of names) {
+      const g = muscleGroupForExercise(n);
+      if (g) groupsWithStretches.add(g);
+    }
+    const secs = stretchSecondsByGroup(workouts, n => stretchSet.has(n.trim().toLowerCase()));
+    return stretchGoalProgress(secs, [...groupsWithStretches], stretchGoalMin);
   }
 
   // Log a finished routine as a workout on the selected date. Each pose becomes
@@ -2556,7 +2610,10 @@ export function WorkoutPage({ onBack, user }) {
       holdByName.set(cue.stepName, (holdByName.get(cue.stepName) || 0) + cue.seconds);
     }
     const newEntries = poseNames.map(name => enrichEntry({
-      group: 'Yoga',
+      // The pose's OWN muscle group, not a blanket "Yoga" — that's what lets the
+      // per-group stretch goal (and Charts, and History filters) tell a hamstring
+      // session from a shoulder one. Yoga only as a last resort.
+      group: muscleGroupForExercise(name) || 'Yoga',
       exercise: name,
       sets: [`${holdByName.get(name) ?? routine.holdSec}s`, '', '', ''],
       setDone: [true, false, false, false],
@@ -5521,6 +5578,9 @@ export function WorkoutPage({ onBack, user }) {
           onChange={saveStretchRoutines}
           stretchOptions={stretchExerciseNames()}
           onLogRoutine={logStretchRoutine}
+          goalRows={stretchGoalRows()}
+          goalMin={stretchGoalMin}
+          onGoalMinChange={updateStretchGoalMin}
         />
       )}
 
