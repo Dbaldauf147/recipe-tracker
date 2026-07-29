@@ -260,7 +260,10 @@ function Player({ routine, onClose, onLog }) {
 }
 
 // ── Tab ───────────────────────────────────────────────────────────────────
-export function StretchRoutines({ routines, onChange, stretchOptions, onLogRoutine, goalRows, goalMin, onGoalMinChange }) {
+export function StretchRoutines({
+  routines, onChange, stretchOptions, onLogRoutine, goalRows, goalMin, onGoalMinChange,
+  workoutTypes = [], habits = [], defaultWorkoutType = 'Yoga',
+}) {
   const [editing, setEditing] = useState(null);
   const [playing, setPlaying] = useState(null);
   const [addQuery, setAddQuery] = useState('');
@@ -296,6 +299,13 @@ export function StretchRoutines({ routines, onChange, stretchOptions, onLogRouti
       return { ...e, steps };
     });
   }, []);
+
+  // Name of a linked habit, or '' if it's unset or has since been deleted —
+  // a stale link shouldn't render a blank chip.
+  const habitName = useCallback((habitId) => {
+    if (!habitId) return '';
+    return habits.find(h => h.id === habitId)?.name || '';
+  }, [habits]);
 
   const suggestions = useMemo(() => {
     const q = addQuery.trim().toLowerCase();
@@ -344,6 +354,35 @@ export function StretchRoutines({ routines, onChange, stretchOptions, onLogRouti
           </div>
         </div>
 
+        {/* Where a finished run of this routine lands. Both are per routine
+            because a yoga flow and a five-minute desk-stretch aren't the same
+            workout, and only one of them is the habit you're tracking. */}
+        <div className={styles.linkRow}>
+          <div className={styles.linkField}>
+            <label className={styles.label}>Logs to</label>
+            <select
+              className={styles.select}
+              value={editing.workoutType || ''}
+              onChange={e => setEditing({ ...editing, workoutType: e.target.value })}
+            >
+              <option value="">{defaultWorkoutType} (default)</option>
+              {workoutTypes.map(t => <option key={t} value={t}>{t}</option>)}
+            </select>
+          </div>
+          <div className={styles.linkField}>
+            <label className={styles.label}>Marks habit</label>
+            <select
+              className={styles.select}
+              value={editing.habitId || ''}
+              onChange={e => setEditing({ ...editing, habitId: e.target.value })}
+              disabled={habits.length === 0}
+            >
+              <option value="">None</option>
+              {habits.map(h => <option key={h.id} value={h.id}>{h.name}</option>)}
+            </select>
+          </div>
+        </div>
+
         <label className={styles.label}>Poses ({editing.steps.length})</label>
         {editing.steps.length === 0 && <div className={styles.empty}>No poses yet — add your first below.</div>}
         <ol className={styles.stepList}>
@@ -386,8 +425,9 @@ export function StretchRoutines({ routines, onChange, stretchOptions, onLogRouti
   return (
     <div className={styles.wrap}>
       {/* Goal board. Time held per muscle group over a rolling window, which is
-          the unit stretching is actually dosed in — furthest-behind first, so
-          what needs attention leads. */}
+          the unit stretching is actually dosed in. Always the same seven regions
+          in body order, so a neglected one shows as an empty bar rather than
+          quietly dropping off the board. */}
       <div className={styles.goalCard}>
         <div className={styles.goalHead}>
           <span className={styles.goalTitle}>Last {STRETCH_GOAL_WINDOW_DAYS} days</span>
@@ -407,10 +447,17 @@ export function StretchRoutines({ routines, onChange, stretchOptions, onLogRouti
         </div>
         {(!goalRows || goalRows.length === 0) ? (
           <div className={styles.empty}>
-            Tag some exercises as “Stretching” and log a routine — each muscle group you stretch
-            shows its progress toward {goalMin} minutes here.
+            Tag some exercises as “Stretching” and log a routine — each of the seven main
+            muscle groups shows its progress toward {goalMin} minutes here.
           </div>
         ) : (
+          <>
+          {goalRows.every(r => r.seconds === 0) && (
+            <div className={styles.empty}>
+              Nothing held yet this week — tag exercises as “Stretching” and log a routine
+              to fill these in.
+            </div>
+          )}
           <div className={styles.goalRows}>
             {goalRows.map(r => (
               <div key={r.group} className={styles.goalRow}>
@@ -427,6 +474,7 @@ export function StretchRoutines({ routines, onChange, stretchOptions, onLogRouti
               </div>
             ))}
           </div>
+          </>
         )}
       </div>
 
@@ -450,6 +498,14 @@ export function StretchRoutines({ routines, onChange, stretchOptions, onLogRouti
               <div className={styles.cardName}>{r.name}</div>
               <div className={styles.cardMeta}>
                 {r.steps.length} pose{r.steps.length === 1 ? '' : 's'} · {mmss(routineDurationSec(r))} · {r.holdSec}s hold / {r.transitionSec}s move
+              </div>
+              {/* Where it lands, visible without opening the routine — the
+                  whole point of asking is not having to guess afterwards. */}
+              <div className={styles.cardLinks}>
+                <span className={styles.chip}>Logs to {r.workoutType || defaultWorkoutType}</span>
+                {habitName(r.habitId) && (
+                  <span className={styles.chip}>Marks {habitName(r.habitId)}</span>
+                )}
               </div>
             </button>
             <button

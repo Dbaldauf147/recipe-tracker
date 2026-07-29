@@ -2,10 +2,11 @@
 // current period right now. Used for the left-nav red count badge.
 //
 // ⚠️ MIRRORS the Habits page's `totalUnlogged` (src/components/HabitsPage.jsx:
-// `groups` + `cadenceUnlogged`) so the badge equals the number shown on the
-// Habits "All" tab. The tracking helpers below are copied from HabitsPage —
-// keep them in sync if that logic changes (per-weekday trackDays, per-habit
-// weekly weekDays, Sunday-anchored week key, excluded statuses).
+// `groups` + `cadenceUnlogged.manual`) so the badge equals the red number shown
+// on the Habits "All" tab — MANUAL habits only; rule-automated ones are the grey
+// `countAutoPendingHabits` half. The tracking helpers below are copied from
+// HabitsPage — keep them in sync if that logic changes (per-weekday trackDays,
+// per-habit weekly weekDays, Sunday-anchored week key, excluded statuses).
 
 const pad2 = (n) => String(n).padStart(2, '0');
 
@@ -36,7 +37,12 @@ function weekKey(d) {
   return isoWeekKey(new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1));
 }
 
-function periodKey(cadence, date = new Date()) {
+/**
+ * The habitLog key for the period a date falls in, per cadence. Exported
+ * because anything that marks a habit from OUTSIDE the Habits page (the stretch
+ * player logging its linked habit) has to write the same cell HabitsPage reads.
+ */
+export function periodKey(cadence, date = new Date()) {
   switch (cadenceCanon(cadence)) {
     case 'Weekly': return weekKey(date);
     case 'Monthly': return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}`;
@@ -153,22 +159,55 @@ export function yesterdayUnloggedHabits(habits, habitLog, automations, now = new
   return out;
 }
 
+/** The ids of habits an ENABLED automation rule fills in — the cron logs them,
+ *  so they are never the user's to log. Distinct from the manual
+ *  `status:'Automatically'` opt-out, which EXCLUDED_STATUSES already drops. */
+function autoTrackedIds(automations) {
+  return new Set(
+    (Array.isArray(automations) ? automations : [])
+      .filter(r => r && r.enabled && r.habitId)
+      .map(r => r.habitId),
+  );
+}
+
 /**
- * How many habits still need logging for their current period.
+ * How many habits still need logging for their current period. MANUAL habits
+ * only — rule-automated ones are counted separately by `countAutoPendingHabits`
+ * and shown grey, so the red nav badge always means "your work", matching the
+ * Habits page's manual/automatic split and the mobile app's red dot.
  * @param {Array} habits   the user's `habits` array
  * @param {Object} habitLog the user's `habitLog` map (periodKey -> {habitId: mark})
+ * @param {Array} [automations] the user's `habitAutomations` rules
  * @returns {number}
  */
-export function countOutstandingHabits(habits, habitLog) {
-  if (!Array.isArray(habits)) return 0;
+export function countOutstandingHabits(habits, habitLog, automations) {
+  return countHabitsNeedingLog(habits, habitLog, automations).manual;
+}
+
+/**
+ * The rule-automated half of the same outstanding set: habits an enabled
+ * automation rule will fill in that have no mark yet this period.
+ * @returns {number}
+ */
+export function countAutoPendingHabits(habits, habitLog, automations) {
+  return countHabitsNeedingLog(habits, habitLog, automations).auto;
+}
+
+/** Shared walk behind both counts above. @returns {{manual:number, auto:number}} */
+export function countHabitsNeedingLog(habits, habitLog, automations) {
+  if (!Array.isArray(habits)) return { manual: 0, auto: 0 };
   const log = habitLog && typeof habitLog === 'object' ? habitLog : {};
-  let n = 0;
+  const autoIds = autoTrackedIds(automations);
+  let manual = 0;
+  let auto = 0;
   for (const h of habits) {
     if (!h) continue;
     if (EXCLUDED_STATUSES.has((h.status || '').trim())) continue;
     if ((log[periodKey(h.cadence)] || {})[h.id] !== undefined) continue; // already logged
     const due = cadenceCanon(h.cadence) === 'Weekly' ? weeklyDueYet(h) : tracksDate(h);
-    if (due) n++;
+    if (!due) continue;
+    if (autoIds.has(h.id)) auto++;
+    else manual++;
   }
-  return n;
+  return { manual, auto };
 }

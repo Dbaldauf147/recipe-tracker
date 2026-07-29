@@ -11,8 +11,10 @@ import { EXERCISE_TYPES, DEFAULT_EXERCISE_TYPE, effectiveExerciseType, normalize
 import { StretchRoutines } from './StretchRoutines';
 import { normalizeRoutine, buildCueSequence } from '../utils/stretchRoutine';
 import {
-  stretchSecondsByGroup, stretchGoalProgress, clampGoalMin, DEFAULT_STRETCH_GOAL_MIN,
+  stretchSecondsByRegion, stretchGoalProgress, clampGoalMin, DEFAULT_STRETCH_GOAL_MIN,
 } from '../utils/stretchGoal';
+import { loadHabitLog, saveHabitLog } from '../utils/habitLogYears';
+import { periodKey } from '../utils/habitOutstanding';
 import { BodyHeatmap } from './BodyHeatmap';
 import { ExerciseDemo } from './ExerciseDemo';
 import ExerciseProgressTracker from './ExerciseProgressTracker';
@@ -121,6 +123,10 @@ function WeightInput({ valueLb, unit, onCommitLb, className, style, placeholder,
 }
 
 const DEFAULT_WORKOUT_TYPES = ['Push', 'Pull', 'Legs', 'Full Body', 'Yoga'];
+
+// The workout a stretch routine files itself under when it hasn't picked one —
+// what every routine did before the per-routine choice existed.
+const STRETCH_DEFAULT_WORKOUT_TYPE = 'Yoga';
 
 const LOG_COLUMN_DEFS = [
   { id: 'group', default: 100, min: 60 },
@@ -2485,6 +2491,26 @@ export function WorkoutPage({ onBack, user }) {
     setStretchRoutines(next);
     if (user?.uid) saveField(user.uid, 'stretchRoutines', next).catch(() => {});
   }, [user?.uid]);
+  // Habits, for the "marks habit" link on a routine. Read-only here — the
+  // Habits page owns editing them; this page only ever writes a habitLog cell.
+  // Parked and never-started habits are left out of the picker: linking a
+  // routine to one you've shelved would quietly resurrect it in the KPIs.
+  const [habits, setHabits] = useState([]);
+  useEffect(() => {
+    if (!user?.uid) return;
+    let cancelled = false;
+    loadField(user.uid, 'habits').then(v => {
+      if (cancelled || !Array.isArray(v)) return;
+      const parked = new Set(['on hold', 'abandoned', 'not started', 'havent started']);
+      setHabits(
+        v.filter(h => h?.id && String(h?.name || '').trim()
+            && !parked.has(String(h?.status || '').trim().toLowerCase()))
+          .map(h => ({ id: h.id, name: String(h.name).trim(), cadence: h.cadence }))
+          .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })),
+      );
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [user?.uid]);
   // Per-muscle-group stretch goal, in minutes over a rolling window. Shared with
   // the phone via users/{uid}.stretchGoalMin.
   const [stretchGoalMin, setStretchGoalMin] = useState(DEFAULT_STRETCH_GOAL_MIN);
@@ -2584,25 +2610,42 @@ export function WorkoutPage({ onBack, user }) {
     return [...set].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
   }
 
-  // Goal board rows. `isStretch` keys off the exercise's resolved type, so a
-  // timed plank in the same session doesn't inflate the Abs stretch total.
+  // Goal board rows — always the seven body regions, whatever is tagged.
+  // `isStretch` keys off the exercise's resolved type, so a timed plank in the
+  // same session doesn't inflate the Abdominals stretch total.
   function stretchGoalRows() {
-    const names = stretchExerciseNames();
-    const stretchSet = new Set(names.map(n => n.toLowerCase()));
-    const groupsWithStretches = new Set();
-    for (const n of names) {
-      const g = muscleGroupForExercise(n);
-      if (g) groupsWithStretches.add(g);
-    }
-    const secs = stretchSecondsByGroup(workouts, n => stretchSet.has(n.trim().toLowerCase()));
-    return stretchGoalProgress(secs, [...groupsWithStretches], stretchGoalMin);
+    const stretchSet = new Set(stretchExerciseNames().map(n => n.toLowerCase()));
+    const secs = stretchSecondsByRegion(workouts, n => stretchSet.has(n.trim().toLowerCase()));
+    return stretchGoalProgress(secs, stretchGoalMin);
+  }
+
+  // Mark the habit a routine is linked to, for the period the logged date falls
+  // in. Returns a line to append to the confirmation, or '' when there's nothing
+  // linked.
+  //
+  // Deliberately NOT an automation rule: the habit stays a MANUAL one, so it
+  // still shows up in the needs-logging counts on days the stretching happened
+  // away from the app, and a mark made here can be changed or erased by hand
+  // without an engine refilling it. Only ever fills an EMPTY cell — a mark
+  // already there (including one the user set by hand) always wins.
+  async function markRoutineHabit(routine) {
+    if (!routine?.habitId || !user?.uid) return '';
+    const habit = habits.find(h => h.id === routine.habitId);
+    if (!habit) return ''; // link points at a habit that's since been deleted
+    const [y, m, d] = selectedDate.split('-').map(Number);
+    const key = periodKey(habit.cadence, new Date(y, m - 1, d));
+    const log = await loadHabitLog(user.uid);
+    if (log?.[key]?.[habit.id]) return `\n\n“${habit.name}” was already logged for this period.`;
+    const next = { ...log, [key]: { ...(log[key] || {}), [habit.id]: 'done' } };
+    await saveHabitLog(user.uid, next, [key]);
+    return `\n\n✓ Marked habit: ${habit.name}`;
   }
 
   // Log a finished routine as a workout on the selected date. Each pose becomes
   // an entry whose first set is its hold written as a duration ("40s") — a
   // shape parseSetValue already understands, so it feeds History, Charts and
   // the calendar sync with no special-casing.
-  function logStretchRoutine(routine, poseNames) {
+  async function logStretchRoutine(routine, poseNames) {
     if (!poseNames || poseNames.length === 0) return;
     const holdByName = new Map();
     for (const cue of buildCueSequence(routine)) {
@@ -2622,17 +2665,32 @@ export function WorkoutPage({ onBack, user }) {
       notes: routine.name,
       time: '',
     }));
+    // The routine's own workout type, so a yoga flow and a desk-stretch don't
+    // pile into the same bucket. Unset falls back to Yoga, which is what every
+    // routine did before the field existed.
+    const workoutType = routine.workoutType || STRETCH_DEFAULT_WORKOUT_TYPE;
     const workout = {
       id: newWorkoutId(),
       date: selectedDate,
       gym,
-      workoutType: 'Yoga',
+      workoutType,
       entries: newEntries,
       savedAt: new Date().toISOString(),
     };
     const next = [...workouts, workout].sort((a, b) => b.date.localeCompare(a.date));
     commitWorkouts(next);
-    alert(`Logged ${newEntries.length} pose${newEntries.length === 1 ? '' : 's'} from "${routine.name}".`);
+
+    let habitLine = '';
+    try {
+      habitLine = await markRoutineHabit(routine);
+    } catch (err) {
+      console.error('[stretch] habit mark failed', err);
+      habitLine = '\n\nCouldn’t mark the linked habit — log it by hand on the Habits page.';
+    }
+    alert(
+      `Logged ${newEntries.length} pose${newEntries.length === 1 ? '' : 's'} from "${routine.name}"`
+      + ` to your ${workoutType} workout.${habitLine}`,
+    );
   }
 
   // The discipline a logged exercise belongs to, resolved by name against the
@@ -5581,6 +5639,9 @@ export function WorkoutPage({ onBack, user }) {
           goalRows={stretchGoalRows()}
           goalMin={stretchGoalMin}
           onGoalMinChange={updateStretchGoalMin}
+          workoutTypes={workoutTypes}
+          habits={habits}
+          defaultWorkoutType={STRETCH_DEFAULT_WORKOUT_TYPE}
         />
       )}
 

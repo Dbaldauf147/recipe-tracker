@@ -46,6 +46,13 @@ export function normalizeRoutine(raw) {
     steps,
     holdSec: clampSec(raw.holdSec, DEFAULT_HOLD_SEC),
     transitionSec: clampSec(raw.transitionSec, DEFAULT_TRANSITION_SEC),
+    // Which workout this routine files itself under when logged. '' → the
+    // caller's fallback (Yoga), which is what every routine did before the
+    // field existed. Carried through here rather than defaulted so a routine
+    // saved on the other app doesn't lose the choice on the next round-trip.
+    workoutType: String(raw.workoutType || '').trim(),
+    // Habit marked done on completion. '' → none. See onLogRoutine.
+    habitId: String(raw.habitId || '').trim(),
     updatedAt: typeof raw.updatedAt === 'string' ? raw.updatedAt : new Date().toISOString(),
   };
 }
@@ -57,6 +64,8 @@ export function emptyRoutine(name = '') {
     steps: [],
     holdSec: DEFAULT_HOLD_SEC,
     transitionSec: DEFAULT_TRANSITION_SEC,
+    workoutType: '',
+    habitId: '',
     updatedAt: new Date().toISOString(),
   };
 }

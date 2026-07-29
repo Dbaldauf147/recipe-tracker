@@ -77,6 +77,29 @@ test('normalized routines survive a round-trip unchanged', () => {
   assert.equal(twice.transitionSec, once.transitionSec);
 });
 
+test('the workout-type and habit links survive normalization', () => {
+  const n = normalizeRoutine({
+    name: 'Morning Stretch', steps: [{ name: 'Pigeon' }],
+    workoutType: 'Stretch', habitId: 'h-42',
+  });
+  assert.equal(n.workoutType, 'Stretch');
+  assert.equal(n.habitId, 'h-42');
+  // The regression this guards: the other app re-normalizes every routine it
+  // reads and writes the result straight back, so a field dropped here is a
+  // setting the user loses the moment they touch a routine on the phone.
+  const twice = normalizeRoutine(n);
+  assert.equal(twice.workoutType, 'Stretch');
+  assert.equal(twice.habitId, 'h-42');
+});
+
+test('a routine with no links normalizes to empty strings, not undefined', () => {
+  const n = normalizeRoutine({ name: 'A', steps: [{ name: 'x' }] });
+  assert.equal(n.workoutType, '', 'caller falls back to Yoga on empty');
+  assert.equal(n.habitId, '');
+  // Firestore rejects undefined values, so these must never be absent.
+  assert.ok(!Object.values(n).includes(undefined));
+});
+
 test('mmss formats the clock', () => {
   assert.equal(mmss(0), '0:00');
   assert.equal(mmss(9), '0:09');

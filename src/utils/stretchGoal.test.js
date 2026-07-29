@@ -1,8 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  stretchSecondsByGroup, stretchGoalProgress, windowStartDate,
-  formatStretchDuration, clampGoalMin, DEFAULT_STRETCH_GOAL_MIN, MAX_GOAL_MIN,
+  stretchSecondsByRegion, stretchGoalProgress, stretchRegionFor, windowStartDate,
+  formatStretchDuration, clampGoalMin, STRETCH_REGIONS,
+  DEFAULT_STRETCH_GOAL_MIN, MAX_GOAL_MIN,
 } from './stretchGoal.js';
 
 // Fixed "today" so the rolling window is deterministic.
@@ -12,37 +13,77 @@ const daysAgo = (n) => {
   const p = v => String(v).padStart(2, '0');
   return `${x.getFullYear()}-${p(x.getMonth() + 1)}-${p(x.getDate())}`;
 };
-const isStretch = (n) => n.toLowerCase().includes('stretch');
+const isStretch = (n) => n.toLowerCase().includes('stretch') || n.toLowerCase().includes('pose');
 
 test('window covers today back through day 6 inclusive', () => {
   assert.equal(windowStartDate(TODAY), '2026-07-22');
   assert.equal(windowStartDate(TODAY, 1), '2026-07-28');
 });
 
-test('sums held time per muscle group inside the window', () => {
-  const secs = stretchSecondsByGroup([
+test('the app\'s muscle groups fold into the seven regions', () => {
+  assert.equal(stretchRegionFor('Overhead reach stretch', 'Triceps'), 'Arms');
+  assert.equal(stretchRegionFor('Wrist stretch', 'Forearms'), 'Arms');
+  assert.equal(stretchRegionFor('Side bend stretch', 'Abs'), 'Abdominals');
+  assert.equal(stretchRegionFor('Hamstring stretch', 'Legs'), 'Legs');
+  assert.equal(stretchRegionFor('Doorway stretch', 'Chest'), 'Chest');
+  assert.equal(stretchRegionFor('Lat stretch', 'Back'), 'Back');
+  assert.equal(stretchRegionFor('Cross-body stretch', 'Shoulders'), 'Shoulders');
+});
+
+test('hip and glute work is read off the pose name, overriding the group', () => {
+  // The app has no Hips/Glutes muscle group — these get filed under Legs or
+  // Yoga, so without the name override the region would never fill.
+  assert.equal(stretchRegionFor('Pigeon pose', 'Legs'), 'Hips/Glutes');
+  assert.equal(stretchRegionFor('Couch stretch', 'Yoga'), 'Hips/Glutes');
+  assert.equal(stretchRegionFor('Glute bridge stretch', 'Legs'), 'Hips/Glutes');
+  assert.equal(stretchRegionFor('90/90 stretch', ''), 'Hips/Glutes');
+  // ...but a plain leg stretch stays in Legs.
+  assert.equal(stretchRegionFor('Standing quad stretch', 'Legs'), 'Legs');
+});
+
+test('a group that says nothing about the body falls back to the name', () => {
+  assert.equal(stretchRegionFor('Cat-cow', 'Yoga'), 'Back');
+  assert.equal(stretchRegionFor('Calf stretch', 'Whole Body'), 'Legs');
+  assert.equal(stretchRegionFor('Neck stretch', ''), 'Shoulders');
+  assert.equal(stretchRegionFor('Mystery flow', 'Yoga'), '', 'unattributable stays unattributed');
+});
+
+test('sums held time per region inside the window', () => {
+  const secs = stretchSecondsByRegion([
     { date: daysAgo(0), entries: [{ exercise: 'Pigeon stretch', group: 'Legs', totalSeconds: 240 }] },
     { date: daysAgo(3), entries: [{ exercise: 'Hamstring stretch', group: 'Legs', totalSeconds: 400 }] },
     { date: daysAgo(6), entries: [{ exercise: 'Shoulder stretch', group: 'Shoulders', totalSeconds: 120 }] },
   ], isStretch, TODAY);
-  assert.equal(secs.Legs, 640);
+  assert.equal(secs.Legs, 400);
+  assert.equal(secs['Hips/Glutes'], 240, 'pigeon lands in hips, not legs');
   assert.equal(secs.Shoulders, 120);
+});
+
+test('the finer arm groups sum into one Arms total', () => {
+  const secs = stretchSecondsByRegion([
+    { date: daysAgo(0), entries: [
+      { exercise: 'Bicep stretch', group: 'Biceps', totalSeconds: 60 },
+      { exercise: 'Tricep stretch', group: 'Triceps', totalSeconds: 90 },
+      { exercise: 'Forearm stretch', group: 'Forearms', totalSeconds: 30 },
+    ] },
+  ], isStretch, TODAY);
+  assert.deepEqual(secs, { Arms: 180 });
 });
 
 test('a timed exercise that is not a stretch does not count', () => {
   // The regression this guards: a 3-minute plank logged in the same session
-  // would otherwise show up as three minutes of "Abs stretching".
-  const secs = stretchSecondsByGroup([
+  // would otherwise show up as three minutes of "Abdominals stretching".
+  const secs = stretchSecondsByRegion([
     { date: daysAgo(0), entries: [
       { exercise: 'Plank', group: 'Abs', totalSeconds: 180 },
       { exercise: 'Ab stretch', group: 'Abs', totalSeconds: 60 },
     ] },
   ], isStretch, TODAY);
-  assert.equal(secs.Abs, 60, 'only the stretch counts');
+  assert.equal(secs.Abdominals, 60, 'only the stretch counts');
 });
 
 test('work outside the window is excluded', () => {
-  const secs = stretchSecondsByGroup(
+  const secs = stretchSecondsByRegion(
     [{ date: daysAgo(7), entries: [{ exercise: 'Old stretch', group: 'Back', totalSeconds: 999 }] }],
     isStretch, TODAY,
   );
@@ -50,7 +91,7 @@ test('work outside the window is excluded', () => {
 });
 
 test('entries with no duration contribute nothing', () => {
-  const secs = stretchSecondsByGroup([
+  const secs = stretchSecondsByRegion([
     { date: daysAgo(0), entries: [
       { exercise: 'Rep stretch', group: 'Legs', totalSeconds: 0 },
       { exercise: 'Rep stretch', group: 'Legs' },
@@ -59,32 +100,31 @@ test('entries with no duration contribute nothing', () => {
   assert.deepEqual(secs, {});
 });
 
-test('an untagged group falls into Other rather than vanishing', () => {
-  const secs = stretchSecondsByGroup(
+test('time that maps to no region is left off rather than mis-filed', () => {
+  const secs = stretchSecondsByRegion(
     [{ date: daysAgo(0), entries: [{ exercise: 'Mystery stretch', totalSeconds: 90 }] }],
     isStretch, TODAY,
   );
-  assert.equal(secs.Other, 90);
+  assert.deepEqual(secs, {});
 });
 
-test('progress rows: furthest behind leads, pct caps, met at the goal', () => {
-  const rows = stretchGoalProgress({ Legs: 640, Shoulders: 120 }, ['Legs', 'Shoulders', 'Chest'], 10);
-  assert.equal(rows[0].group, 'Chest', 'a group with nothing logged leads the board');
-  assert.equal(rows[0].seconds, 0);
+test('progress rows: all seven regions, in body order, pct caps, met at the goal', () => {
+  const rows = stretchGoalProgress({ Legs: 640, Shoulders: 120 }, 10);
+  assert.deepEqual(rows.map(r => r.group), STRETCH_REGIONS);
+  assert.deepEqual(
+    STRETCH_REGIONS,
+    ['Chest', 'Back', 'Shoulders', 'Arms', 'Abdominals', 'Hips/Glutes', 'Legs'],
+  );
   const legs = rows.find(r => r.group === 'Legs');
   assert.equal(legs.met, true, '640s clears the 600s goal');
   assert.equal(legs.pct, 1, 'pct never exceeds 1');
   assert.equal(rows.find(r => r.group === 'Shoulders').met, false);
-});
-
-test('a group with history but no current tagging still shows', () => {
-  const rows = stretchGoalProgress({ Back: 300 }, ['Legs'], 10);
-  assert.ok(rows.some(r => r.group === 'Back'), 'logged time is never dropped off the board');
+  assert.equal(rows.find(r => r.group === 'Chest').seconds, 0, 'an unstretched region still shows');
 });
 
 test('goal is exactly met at the boundary', () => {
-  const rows = stretchGoalProgress({ Legs: 600 }, ['Legs'], 10);
-  assert.equal(rows[0].met, true, '600s == 10min counts as met');
+  const rows = stretchGoalProgress({ Legs: 600 }, 10);
+  assert.equal(rows.find(r => r.group === 'Legs').met, true, '600s == 10min counts as met');
 });
 
 test('goal clamping', () => {
@@ -105,8 +145,8 @@ test('duration formatting', () => {
 });
 
 test('empty and malformed input is handled without throwing', () => {
-  assert.deepEqual(stretchSecondsByGroup([], isStretch, TODAY), {});
-  assert.deepEqual(stretchSecondsByGroup(null, isStretch, TODAY), {});
-  assert.deepEqual(stretchSecondsByGroup([{ }], isStretch, TODAY), {});
-  assert.deepEqual(stretchGoalProgress({}, [], 10), []);
+  assert.deepEqual(stretchSecondsByRegion([], isStretch, TODAY), {});
+  assert.deepEqual(stretchSecondsByRegion(null, isStretch, TODAY), {});
+  assert.deepEqual(stretchSecondsByRegion([{ }], isStretch, TODAY), {});
+  assert.equal(stretchGoalProgress({}, 10).length, 7);
 });

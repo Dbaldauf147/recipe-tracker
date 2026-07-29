@@ -62,6 +62,41 @@
   border-radius: 999px;
   padding: 0.25rem 0.7rem;
 }
+/* "Logs to" / "Marks habit" — where a finished run of the routine lands. */
+.linkRow {
+  display: flex;
+  gap: 1.25rem;
+  flex-wrap: wrap;
+  margin-top: 0.2rem;
+}
+.linkField { display: flex; flex-direction: column; gap: 0.15rem; }
+.select {
+  padding: 0.45rem 0.5rem;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: 0.85rem;
+  font-family: inherit;
+  min-width: 170px;
+}
+.select:disabled { opacity: 0.5; }
+.cardLinks {
+  display: flex;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+  margin-top: 0.3rem;
+}
+.chip {
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: var(--color-text-secondary);
+  background: var(--color-surface-alt);
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  padding: 0.1rem 0.45rem;
+}
+
 .primaryBtn {
   background: var(--color-accent);
   color: #fff;
