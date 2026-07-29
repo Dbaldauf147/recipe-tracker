@@ -186,7 +186,22 @@ function loadLibrary() {
 
 function saveLibrary(data, uid) {
   localStorage.setItem(LIBRARY_KEY, JSON.stringify(data));
-  if (uid) saveField(uid, 'exerciseLibrary', data);
+  if (uid) {
+    saveField(uid, 'exerciseLibrary', data).catch(err => {
+      // This used to be fire-and-forget, so a rejected write looked like the
+      // exercise saved — it just vanished on the next reload. The likeliest
+      // rejection is the 1 MiB per-document cap: exerciseLibrary shares the
+      // user doc with habitLog, habits, ingredientsDb and the rest, and
+      // Firestore refuses any write that would push the doc past the limit.
+      const msg = String(err?.message || err);
+      const sizeRelated = /too large|exceeds|maximum|INVALID_ARGUMENT|longer than/i.test(msg);
+      alert(sizeRelated
+        ? 'Could not save the exercise: your profile document has hit Firestore\'s 1 MB limit, '
+          + 'so nothing new can be written to it. Check the storage banner — something needs to '
+          + 'move out of the main profile before new exercises will stick.'
+        : `Could not save the exercise: ${msg}`);
+    });
+  }
 }
 
 function loadWorkoutTypes() {
@@ -3063,6 +3078,24 @@ export function WorkoutPage({ onBack, user }) {
       e => e?.exercise && e.exercise.trim().toLowerCase() === lower
     );
     if (dup) {
+      // A retired or hidden row is invisible in the picker, so refusing the add
+      // left no way to get the exercise back — it just looked like adding was
+      // broken. Bring it back instead of blocking.
+      const isHidden = (hiddenExercises || []).some(n => String(n).toLowerCase() === lower);
+      if (dup.retired || isHidden) {
+        if (dup.retired) {
+          const revived = (exerciseLibrary || []).map(e =>
+            e === dup ? { ...e, retired: false, muscleGroup: e.muscleGroup || muscleGroup || '' } : e);
+          setExerciseLibrary(revived);
+          saveLibrary(revived, user?.uid);
+        }
+        if (isHidden) {
+          const nextHidden = (hiddenExercises || []).filter(n => String(n).toLowerCase() !== lower);
+          setHiddenExercises(nextHidden);
+          if (user?.uid) saveField(user.uid, 'hiddenExercises', nextHidden).catch(() => {});
+        }
+        return true;
+      }
       alert(`"${dup.exercise}" already exists in your exercises.`);
       return false;
     }
