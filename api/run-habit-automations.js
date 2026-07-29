@@ -30,6 +30,11 @@
 // date is on that list is a DECIDED rest day, not a day still waiting for a
 // workout, so its skip is applied the same day. Note a sauna-only placeholder
 // workout (no exercises, no type) is ignored below so it can't mask a rest day.
+// Because that skip is a guess made BEFORE the day happened, it is provisional:
+// if a workout of any kind is logged afterwards — a yoga session, a cardio day,
+// an unplanned lift — the skip is replaced by the rule's mark (the ✓). That
+// correction runs for today/yesterday in the main loop and, for days already
+// past, in the workout backfill over the last WORKOUT_BACKFILL_DAYS.
 //
 // SOURCES:
 //   - 'prepday'   → evaluated here (reads dailyLog / weightLog / workouts).
@@ -46,8 +51,11 @@
 //                   /api/habit-event (webhook receiver), not polled.
 //
 // SAFETY / IDEMPOTENCY:
-//   - Only fills an EMPTY habitLog cell. Never overwrites a mark the user (or a
-//     prior run) already set, so re-runs are no-ops and manual marks always win.
+//   - Only fills an EMPTY habitLog cell, with one exception: a cell THIS ENGINE
+//     wrote and that still holds exactly what we recorded may be corrected — a
+//     provisional rest-day Skip becomes the ✓ once the workout is logged, or the
+//     ✕ once it's day 2+ of a gap. A mark you set (or edited) is never touched,
+//     so re-runs are no-ops and manual marks always win.
 //   - RESPECTS MANUAL ERASES: if the engine auto-set a cell before (it's still
 //     recorded in habitLogAuto) but the cell is now empty in habitLog, the user
 //     cleared it on purpose — so we leave it empty instead of refilling it every
@@ -56,15 +64,18 @@
 //   - Never shrinks habitLog: it reads the current map, adds keys, writes back.
 //   - Natural opt-in: a user with no enabled prepday rules is skipped entirely.
 //
-// STORAGE (mirrors the app): habits, habitLog, habitAutomations, weightLog are
-// fields on the main user doc users/{uid}; dailyLog is users/{uid}/data/dailyLog
-// (.log map); workouts are docs under users/{uid}/workouts (v2, each has .date).
+// STORAGE (mirrors the app): habits, habitAutomations, weightLog are fields on
+// the main user doc users/{uid}; habitLog is one document per calendar year at
+// users/{uid}/habitLog/{YYYY} (see api/_data/habitLogYears.js — it outgrew the
+// user doc's index limit); dailyLog is users/{uid}/data/dailyLog (.log map);
+// workouts are docs under users/{uid}/workouts (v2, each has .date).
 //
 // Auth: Vercel cron sends `Authorization: Bearer <CRON_SECRET>`. Manual runs
 // need that header or ?secret=... . Add ?dryRun=1 to evaluate without writing.
 
 import { initializeApp, cert, getApps } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
+import { loadHabitLogAdmin, saveHabitLogYearsAdmin, yearsForKeys } from './_data/habitLogYears.js';
 
 if (getApps().length === 0) {
   const serviceAccount = process.env.FIREBASE_SERVICE_ACCOUNT
@@ -136,6 +147,21 @@ function easternYesterday(ref) {
   const anchor = new Date(Date.UTC(ref.y, ref.m - 1, ref.d, 12));
   anchor.setUTCDate(anchor.getUTCDate() - 1);
   return eastern(anchor);
+}
+
+// How far back the workout backfill looks. A rest-day Skip written before the
+// workout happened stays wrong forever otherwise — the main loop only ever
+// touches today and yesterday.
+const WORKOUT_BACKFILL_DAYS = 28;
+
+// The Eastern date keys for the backfill window, most recent first.
+function backfillDateKeys(ref) {
+  const out = [];
+  for (let i = 0; i < WORKOUT_BACKFILL_DAYS; i++) {
+    const anchor = new Date(Date.UTC(ref.y, ref.m - 1, ref.d - i, 12));
+    out.push(eastern(anchor).dateKey);
+  }
+  return out;
 }
 
 // ISO-8601 week key, e.g. "2026-W25" — mirrors HabitsPage.isoWeekKey.
@@ -328,14 +354,22 @@ export default async function handler(req, res) {
       // Workouts are only needed if a rule uses them — fetch once for the days
       // we're processing PLUS one extra day back (the streak check asks whether
       // the day before a finished day also had no workout) and group by dateKey.
+      // The window is widened to WORKOUT_BACKFILL_DAYS so the backfill below can
+      // repair older days whose rest-day skip a workout has since disproved.
       const workoutsByDate = {};
       if (rules.some(r => r.trigger === 'workout_logged')) {
-        const wantDates = [...new Set(
-          [...DAYS, easternYesterday(DAYS[DAYS.length - 1])].map(dd => dd.dateKey),
-        )];
+        const wantDates = [...new Set([
+          ...[...DAYS, easternYesterday(DAYS[DAYS.length - 1])].map(dd => dd.dateKey),
+          ...backfillDateKeys(when),
+        ])];
         try {
-          const wSnap = await db.collection(`users/${uid}/workouts`)
-            .where('date', 'in', wantDates).get();
+          const wSnap = { docs: [] };
+          // `in` takes at most 30 values, so the window goes out in chunks.
+          for (let i = 0; i < wantDates.length; i += 30) {
+            const chunk = await db.collection(`users/${uid}/workouts`)
+              .where('date', 'in', wantDates.slice(i, i + 30)).get();
+            wSnap.docs.push(...chunk.docs);
+          }
           for (const wd of wSnap.docs) {
             const w = wd.data();
             // A sauna-only day is a placeholder carrying just the `sauna` flag —
@@ -364,7 +398,11 @@ export default async function handler(req, res) {
       // mirrors habitLog and records the mark the engine wrote, so the UI can
       // badge auto-set cells with "(A)". Comparing habitLogAuto[k][id] to the
       // live habitLog value means a hand-edit/erase self-clears the badge.
-      const habitLog = (data.habitLog && typeof data.habitLog === 'object') ? data.habitLog : {};
+      // The marks live in users/{uid}/habitLog/{YYYY}. loadHabitLogAdmin also
+      // folds in the legacy user-doc field for anyone who hasn't opened the app
+      // since the move, so the engine never evaluates against an empty history
+      // and re-fills cells the user already marked.
+      const habitLog = await loadHabitLogAdmin(db, uid, data);
       const nextLog = { ...habitLog };
       const habitLogAuto = (data.habitLogAuto && typeof data.habitLogAuto === 'object') ? data.habitLogAuto : {};
       const nextAuto = { ...habitLogAuto };
@@ -508,19 +546,27 @@ export default async function handler(req, res) {
           if (bucket[rule.habitId] !== undefined) {
             const current = bucket[rule.habitId];
             const wasAuto = habitLogAuto[key]?.[rule.habitId] !== undefined;
-            // The one allowed overwrite: a cell WE auto-set (still matching what
-            // we recorded, so the user hasn't touched it) that we now know was
-            // day 2+ of a gap. Without this a Skip written earlier — e.g. the
-            // same-day planned-rest skip — would keep the ✕ from ever landing.
-            const canEscalate = isStreak && wasAuto
-              && habitLogAuto[key][rule.habitId] === current && current !== mark;
-            if (!canEscalate) {
+            // A cell WE auto-set that still matches what we recorded — the user
+            // hasn't touched it, so we're allowed to correct our own guess.
+            const untouched = wasAuto && habitLogAuto[key][rule.habitId] === current && current !== mark;
+            // (1) We now know the day was day 2+ of a gap. Without this a Skip
+            //     written earlier — e.g. the same-day planned-rest skip — would
+            //     keep the ✕ from ever landing.
+            const canEscalate = isStreak && untouched;
+            // (2) The activity ACTUALLY HAPPENED after we wrote a negative mark.
+            //     The planned-rest skip is applied same-day, before the day is
+            //     over, so a yoga/cardio/gym session logged later that afternoon
+            //     must replace it with the ✓ — the plan said rest, the day says
+            //     otherwise, and what happened wins.
+            const canPromote = fired && untouched;
+            if (!canEscalate && !canPromote) {
               summary.cellsAlreadySet++;
               recordStatus(wasAuto ? elseReason : 'You recorded this yourself');
               emit(`cell-already-set:${JSON.stringify(current)}${wasAuto ? ' (auto)' : ' (manual)'}`);
               continue;
             }
-            summary.streakEscalations = (summary.streakEscalations || 0) + 1;
+            if (canPromote) summary.promotions = (summary.promotions || 0) + 1;
+            else summary.streakEscalations = (summary.streakEscalations || 0) + 1;
           } else if (habitLogAuto[key]?.[rule.habitId] !== undefined) {
             // Respect a manual erase: an empty cell that the engine previously
             // auto-set (still recorded in the persisted habitLogAuto) was cleared
@@ -566,6 +612,41 @@ export default async function handler(req, res) {
         }
       }
 
+      // Workout backfill: a day the plan called Rest gets its Skip written that
+      // same morning, before the day has happened. If a workout was logged after
+      // that — a yoga session, a cardio day, an unplanned lift — the Skip is
+      // simply wrong, and the main loop above only ever revisits today and
+      // yesterday. So walk the recent window and repair those days: promote our
+      // own Skip/✕ to the rule's mark wherever a workout exists, and fill cells
+      // that were never marked at all. Manual marks and manual erases are left
+      // exactly as they are, same as everywhere else in this engine.
+      for (const rule of rules) {
+        if (rule.trigger !== 'workout_logged') continue;
+        const habit = habitById.get(rule.habitId);
+        if (!habit) continue;
+        // Daily only: a weekly/monthly cell spans days, so "this day had a
+        // workout" doesn't tell us the whole period's mark is wrong.
+        if (['weekly', 'monthly', 'annually'].includes((habit.cadence || '').trim().toLowerCase())) continue;
+        const mark = VALID_MARKS.has(rule.mark) ? rule.mark : 'done';
+        for (const dk of backfillDateKeys(when)) {
+          if (!(workoutsByDate[dk] || []).length) continue; // no workout that day
+          const bucket = { ...(nextLog[dk] || {}) };
+          const current = bucket[rule.habitId];
+          if (current === mark) continue;                                  // already right
+          const autoMark = habitLogAuto[dk]?.[rule.habitId];
+          if (current === undefined) {
+            if (autoMark !== undefined) continue;   // you cleared it — leave it empty
+          } else if (autoMark === undefined || autoMark !== current) {
+            continue;                               // your mark, or one you edited — never touch
+          }
+          bucket[rule.habitId] = mark;
+          nextLog[dk] = bucket;
+          nextAuto[dk] = { ...(nextAuto[dk] || {}), [rule.habitId]: mark };
+          summary.workoutBackfills = (summary.workoutBackfills || 0) + 1;
+          changed++;
+        }
+      }
+
       // Prune status entries older than the retention window so the doc stays
       // bounded (drop stale cells; drop a period key once it's fully empty).
       const cutoffIso = new Date(Date.now() - STATUS_KEEP_DAYS * 86400000).toISOString();
@@ -583,7 +664,14 @@ export default async function handler(req, res) {
 
       if (!dryRun) {
         try {
-          if (changed > 0) await docSnap.ref.update({ habitLog: nextLog, habitLogAuto: nextAuto });
+          if (changed > 0) {
+            // Only the years the engine actually touched get rewritten. Writing
+            // habitLog back onto the user doc would recreate the field whose
+            // index entries were rejecting every write to that document.
+            const touchedKeys = Object.keys(nextLog).filter(k => nextLog[k] !== habitLog[k]);
+            await saveHabitLogYearsAdmin(db, uid, nextLog, yearsForKeys(touchedKeys));
+            await docSnap.ref.update({ habitLogAuto: nextAuto });
+          }
           if (statusChanged) {
             await db.doc(`users/${uid}/data/habitAutoStatus`).set({ status: nextStatus, updatedAt: nowIso }, { merge: false });
           }

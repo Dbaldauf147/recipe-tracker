@@ -1,15 +1,18 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { saveField, loadUserData, saveDailyLogToFirestore, saveRecipesToFirestore, listDailyLogRecoveryPoints, previewDailyLogMerge, mergeRestoreDailyLog, normalizeDailyLog, previewDailyLogMergeMap, mergeRestoreDailyLogMap } from '../utils/firestoreSync';
+import { loadHabitLog, saveHabitLog } from '../utils/habitLogYears';
 import styles from './AccountSettings.module.css';
 
 // User-doc fields included in a full backup / restore (the big blobs —
 // dailyLog, recipes, workoutLog — are handled separately below).
+// habitLog is NOT here: the marks moved to users/{uid}/habitLog/{YYYY}, so the
+// backup reads and restores them through loadHabitLog/saveHabitLog instead.
 const BACKUP_FIELDS = [
   'weightLog', 'weeklyPlan', 'weeklyServings', 'planHistory', 'habits',
-  // Habit tracking: the marks (habitLog) + rules/derived state, so a restore
-  // brings back the whole tracker, not just the habit definitions.
-  'habitLog', 'habitAutomations', 'habitLogAuto', 'habitNextLog',
+  // Habit tracking: the rules + derived state, so a restore brings back the
+  // whole tracker, not just the habit definitions.
+  'habitAutomations', 'habitLogAuto', 'habitNextLog',
   'bodyStats', 'nutritionGoals', 'reminderSettings', 'groceryCategories',
   'groceryItemSections', 'shopLinks', 'restaurants', 'eatingOutVotes',
   'eatingOutOrder', 'keyIngredients', 'userDiet', 'userLocation',
@@ -157,6 +160,10 @@ export function AccountSettings({ user, onClose }) {
     try {
       const data = await loadUserData(user.uid);
       if (!data) throw new Error('Could not read your data.');
+      // habitLog lives in its own subcollection now, so loadUserData doesn't
+      // carry it. Fold it back in under the same key the file has always used —
+      // old backups stay restorable and new ones keep the habit history.
+      data.habitLog = await loadHabitLog(user.uid);
       const payload = { app: 'prep-day', exportedAt: new Date().toISOString(), uid: user.uid, data };
       const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
@@ -185,6 +192,11 @@ export function AccountSettings({ user, onClose }) {
       if (data.dailyLog && typeof data.dailyLog === 'object') { await saveDailyLogToFirestore(user.uid, data.dailyLog); n++; }
       if (Array.isArray(data.recipes)) { await saveRecipesToFirestore(user.uid, data.recipes); n++; }
       if (Array.isArray(data.workoutLog)) { await saveField(user.uid, 'workoutLog', data.workoutLog); n++; }
+      // Marks go to the year documents. Restoring the whole log rewrites every
+      // year it covers, so no touchedKeys are passed.
+      if (data.habitLog && typeof data.habitLog === 'object') {
+        try { await saveHabitLog(user.uid, data.habitLog); n++; } catch (e) { /* guard may block a shrink; skip */ }
+      }
       for (const f of BACKUP_FIELDS) {
         if (data[f] !== undefined) { try { await saveField(user.uid, f, data[f]); n++; } catch (e) { /* guard may block a shrink; skip */ } }
       }

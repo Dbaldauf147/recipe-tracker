@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { saveField, loadField, loadHabitAutoStatus } from '../utils/firestoreSync';
+import { loadHabitLog, saveHabitLog } from '../utils/habitLogYears';
 import { HABIT_FIELDS, seedHabits, makeHabitId } from '../data/habitsSeed';
 import { yesterdayDate, yesterdayDayKey, yesterdayUnloggedHabits } from '../utils/habitOutstanding';
 
@@ -962,7 +963,9 @@ export function HabitsPage({ onBack, user }) {
       try {
         const [remote, remoteLog, remoteAuto, remoteLogAuto, remoteNextLog, remoteAutoStatus] = await Promise.all([
           user?.uid ? loadField(user.uid, 'habits') : null,
-          user?.uid ? loadField(user.uid, 'habitLog') : null,
+          // Reads users/{uid}/habitLog/{YYYY}, migrating the legacy user-doc
+          // field across on the first load after deploy.
+          user?.uid ? loadHabitLog(user.uid) : null,
           user?.uid ? loadField(user.uid, 'habitAutomations') : null,
           user?.uid ? loadField(user.uid, 'habitLogAuto') : null,
           user?.uid ? loadField(user.uid, 'habitNextLog') : null,
@@ -1049,17 +1052,46 @@ export function HabitsPage({ onBack, user }) {
     return bucket ? bucket[h.id] : undefined;
   }
 
+  // Taking a cell back from the automation engine. `habitLogAuto` is how the
+  // engine remembers which cells are ITS work: it may revise its own guess (a
+  // rest-day Skip becomes a ✓ once a workout turns up), but never a mark you
+  // made. So the moment you pick a mark by hand, drop the cell from that map —
+  // that's what makes a manual override permanent instead of lasting until the
+  // next hourly run.
+  //
+  // A manual ERASE deliberately keeps the entry: an empty cell the engine once
+  // filled is how it knows you cleared it on purpose and it mustn't refill.
+  function claimCellsFromEngine(cells) {
+    setHabitLogAuto(prev => {
+      let touched = false;
+      const next = { ...prev };
+      for (const { habitId, key } of cells) {
+        if (next[key]?.[habitId] === undefined) continue;
+        const bucket = { ...next[key] };
+        delete bucket[habitId];
+        if (Object.keys(bucket).length === 0) delete next[key];
+        else next[key] = bucket;
+        touched = true;
+      }
+      if (!touched) return prev;
+      if (user?.uid) saveField(user.uid, 'habitLogAuto', next).catch(() => {});
+      return next;
+    });
+  }
+
   // Toggle a habit's mark for its current period. Tapping the active mark
-  // again clears it. Persists the whole habitLog to Firestore (web↔mobile).
+  // again clears it. Persists to Firestore (web↔mobile) — only the year the
+  // mark belongs to is rewritten, not the whole history.
   function onMark(h, mark) {
     const key = periodKey(h.cadence);
+    if (markOf(h) !== mark) claimCellsFromEngine([{ habitId: h.id, key }]); // setting, not toggling off
     setHabitLog(prev => {
       const bucket = { ...(prev[key] || {}) };
       if (bucket[h.id] === mark) delete bucket[h.id];
       else bucket[h.id] = mark;
       const next = { ...prev, [key]: bucket };
       if (Object.keys(bucket).length === 0) delete next[key];
-      if (user?.uid) saveField(user.uid, 'habitLog', next).catch(() => {});
+      if (user?.uid) saveHabitLog(user.uid, next, [key]).catch(() => {});
       return next;
     });
   }
@@ -1067,13 +1099,14 @@ export function HabitsPage({ onBack, user }) {
   // key — used by the day-menu so you can edit any day in the week strip, not
   // just today.
   function setMarkForKey(habitId, key, mark) {
+    if (mark) claimCellsFromEngine([{ habitId, key }]);
     setHabitLog(prev => {
       const bucket = { ...(prev[key] || {}) };
       if (!mark) delete bucket[habitId];
       else bucket[habitId] = mark;
       const next = { ...prev, [key]: bucket };
       if (Object.keys(bucket).length === 0) delete next[key];
-      if (user?.uid) saveField(user.uid, 'habitLog', next).catch(() => {});
+      if (user?.uid) saveHabitLog(user.uid, next, [key]).catch(() => {});
       return next;
     });
   }
@@ -1082,6 +1115,7 @@ export function HabitsPage({ onBack, user }) {
   // update + one Firestore write for the whole batch.
   function setMarksForCells(cells, mark) {
     if (!cells || cells.length === 0) return;
+    if (mark) claimCellsFromEngine(cells);
     setHabitLog(prev => {
       const next = { ...prev };
       for (const { habitId, key } of cells) {
@@ -1091,7 +1125,7 @@ export function HabitsPage({ onBack, user }) {
         if (Object.keys(bucket).length === 0) delete next[key];
         else next[key] = bucket;
       }
-      if (user?.uid) saveField(user.uid, 'habitLog', next).catch(() => {});
+      if (user?.uid) saveHabitLog(user.uid, next, cells.map(c => c.key)).catch(() => {});
       return next;
     });
   }
@@ -1116,7 +1150,8 @@ export function HabitsPage({ onBack, user }) {
         }
         if (Object.keys(next[key]).length === 0) delete next[key];
       }
-      if (user?.uid) saveField(user.uid, 'habitLog', next).catch(() => {});
+      const touched = [...Object.keys(incoming), ...Object.keys(clearBlanks || {})];
+      if (user?.uid) saveHabitLog(user.uid, next, touched).catch(() => {});
       return next;
     });
   }
@@ -1212,9 +1247,14 @@ export function HabitsPage({ onBack, user }) {
 
   // Red count badges per sub-tab: how many items still need action.
   //  • Routines / Daily Routine — active habits (not parked, not-yet-started, or
-  //    on autopilot) with no mark yet for their current cadence period.
+  //    on autopilot) with no mark yet for their current cadence period. Only
+  //    MANUAL ones — a habit an enabled automation rule fills in isn't yours to
+  //    log, so it never holds a red badge (mirrors the mobile app).
   //  • Auto Review — automatic habits not confirmed for the current month.
-  // Tabs with nothing to complete (KPI/Automatic/History/On Hold/Habits) get 0.
+  // `auto` is the rule-automated half of that same outstanding set, surfaced
+  // separately (grey) by the split summary below rather than adding to any red
+  // count. Tabs with nothing to complete (KPI/Automatic/History/On Hold/Habits)
+  // get 0.
   const tabBadges = useMemo(() => {
     const isActive = (h) => {
       const st = (h.status || '').trim();
@@ -1227,16 +1267,20 @@ export function HabitsPage({ onBack, user }) {
       return !(bucket && bucket[h.id]);
     };
     const currentMonth = periodKey('Monthly');
-    let routines = 0, daily = 0, autoreview = 0;
+    let routines = 0, daily = 0, autoreview = 0, auto = 0;
     for (const h of habits) {
       if (isActive(h) && needsMark(h)) {
-        routines++;
-        if (routineType(h.routine) === 'daily') daily++;
+        if (autoTrackedIds.has(h.id)) {
+          auto++; // the automation engine will fill this one in
+        } else {
+          routines++;
+          if (routineType(h.routine) === 'daily') daily++;
+        }
       }
       if ((h.status || '').trim() === 'Automatically' && (h.autoConfirmedMonth || '') !== currentMonth) autoreview++;
     }
-    return { routines, daily, autoreview };
-  }, [habits, habitLog]);
+    return { routines, daily, autoreview, auto };
+  }, [habits, habitLog, autoTrackedIds]);
 
   // Daily habits that were due YESTERDAY and never got a mark. A different kind
   // of warning from the red badges above: that day is over, so these are gaps in
@@ -1382,6 +1426,34 @@ export function HabitsPage({ onBack, user }) {
         })}
       </div>
 
+      {/* Manual (you) vs automatic (the automation engine) split of what's still
+          outstanding this period, so the two counts never blur together. Red =
+          yours to log; grey = a rule will fill it in. Mirrors the same summary
+          on the mobile Habits screen. */}
+      {(tabBadges.routines > 0 || tabBadges.auto > 0) && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: '1.1rem', flexWrap: 'wrap', margin: '-0.5rem 0 0.9rem', padding: '0 0.15rem' }}>
+          {tabBadges.routines > 0 ? (
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.82rem', color: 'var(--color-text, #0f172a)' }}>
+              <span style={{ width: 9, height: 9, borderRadius: 999, background: '#dc2626' }} aria-hidden="true" />
+              <span><strong style={{ fontWeight: 800, color: '#dc2626' }}>{tabBadges.routines}</strong> to log</span>
+            </span>
+          ) : (
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.82rem', color: 'var(--color-text-muted, #64748b)' }}>
+              <span aria-hidden="true">✓</span> All manual habits logged
+            </span>
+          )}
+          {tabBadges.auto > 0 && (
+            <span
+              title="Tracked automatically — an enabled rule on the Automatic tab fills these in"
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.82rem', color: 'var(--color-text-muted, #64748b)' }}
+            >
+              <span aria-hidden="true">⟳</span>
+              <span><strong style={{ fontWeight: 800, color: 'var(--color-text-secondary, #475569)' }}>{tabBadges.auto}</strong> automatic</span>
+            </span>
+          )}
+        </div>
+      )}
+
       {tab === 'kpi' && <KpiView habits={habits} habitLog={habitLog} streaks={streaks} />}
       {tab === 'routines' && <RoutinesView habits={habits} habitLog={habitLog} habitLogAuto={habitLogAuto} streaks={streaks} autoTrackedIds={autoTrackedIds} autoStatusFor={autoStatusFor} nextLogMap={habitNextLog} onSetNextLog={setNextLogDate} onUpdate={updateHabit} openMenu={(habitId, key, label) => setDayMenu({ habitId, key, label })} onMove={setMoveHabitId} onReorder={reorderHabits} onSetRoutine={setHabitRoutine} onRenameRoutine={renameRoutine} onDeleteRoutine={setDeleteRoutineName} onBulkMark={setMarksForCells} onOpen={setOpenHabitId} />}
       {tab === 'automatic' && <AutomaticView habits={habits} automations={automations} habitLog={habitLog} habitLogAuto={habitLogAuto} onChange={persistAutomations} />}
@@ -1409,6 +1481,13 @@ export function HabitsPage({ onBack, user }) {
         <div style={overlay} onClick={() => setDayMenu(null)}>
           <div style={{ ...modal, width: 'min(92vw, 320px)', padding: '0.9rem' }} onClick={e => e.stopPropagation()}>
             <h3 style={{ margin: '0 0 0.7rem', fontSize: '0.95rem' }}>{dayMenu.label}</h3>
+            {/* An automation rule only ever GUESSES this cell. Say plainly that a
+                mark set here wins, so overruling it doesn't feel like a fight. */}
+            {autoTrackedIds.has(dayMenu.habitId) && (
+              <p style={{ margin: '-0.35rem 0 0.7rem', fontSize: '0.74rem', lineHeight: 1.4, color: 'var(--color-text-muted, #64748b)' }}>
+                ⟳ Tracked automatically — whatever you pick here overrides the rule, and it won’t be changed back.
+              </p>
+            )}
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
               {DAY_MENU_OPTIONS.map(opt => {
                 const current = (habitLog[dayMenu.key] || {})[dayMenu.habitId];
@@ -1922,23 +2001,28 @@ function RoutinesView({ habits, habitLog, habitLogAuto, streaks, autoTrackedIds 
   );
 
   // Per-cadence count of active habits still unlogged for their current period —
-  // drives the red badges on the All / Daily / Weekly / Monthly / Yearly tabs.
+  // drives the badges on the All / Daily / Weekly / Monthly / Yearly tabs.
   // Mirrors RoutineSection's `uncompleted` (skips Automatic habits + off days).
+  // Split MANUAL (red — yours to log) from rule-AUTO (grey — the automation
+  // engine fills it in) so the red number only ever counts your own work.
   const cadenceUnlogged = useMemo(() => {
-    const counts = { Daily: 0, Weekly: 0, Monthly: 0, Annually: 0 };
+    const manual = { Daily: 0, Weekly: 0, Monthly: 0, Annually: 0 };
+    const auto = { Daily: 0, Weekly: 0, Monthly: 0, Annually: 0 };
     for (const [cadence, list] of groups) {
-      let n = 0;
       for (const h of list) {
         if ((h.status || '').trim() === 'Automatically') continue;
         if ((habitLog[periodKey(h.cadence)] || {})[h.id] !== undefined) continue; // logged
         const due = cadenceCanon(h.cadence) === 'Weekly' ? weeklyDueYet(h) : tracksDate(h);
-        if (due) n++;
+        if (!due) continue;
+        if (autoTrackedIds.has(h.id)) auto[cadence]++;
+        else manual[cadence]++;
       }
-      counts[cadence] = n;
     }
-    return counts;
-  }, [groups, habitLog]);
-  const totalUnlogged = cadenceUnlogged.Daily + cadenceUnlogged.Weekly + cadenceUnlogged.Monthly + cadenceUnlogged.Annually;
+    return { manual, auto };
+  }, [groups, habitLog, autoTrackedIds]);
+  const sumCounts = (c) => c.Daily + c.Weekly + c.Monthly + c.Annually;
+  const totalUnlogged = sumCounts(cadenceUnlogged.manual);
+  const totalAutoPending = sumCounts(cadenceUnlogged.auto);
 
   // Habits whose scheduled occurrence has already passed with the log left
   // empty — scoped to the current view so the banner matches the rows on screen
@@ -2017,7 +2101,8 @@ function RoutinesView({ habits, habitLog, habitLogAuto, streaks, autoTrackedIds 
       <div style={{ display: 'flex', gap: 4, marginBottom: '0.85rem', background: '#f1f5f9', borderRadius: 10, padding: 3, width: 'fit-content' }}>
         {VIEW_TABS.map(t => {
           const active = view === t.id;
-          const dot = t.id === 'all' ? totalUnlogged : (cadenceUnlogged[VIEW_TO_CADENCE[t.id]] || 0);
+          const dot = t.id === 'all' ? totalUnlogged : (cadenceUnlogged.manual[VIEW_TO_CADENCE[t.id]] || 0);
+          const autoDot = t.id === 'all' ? totalAutoPending : (cadenceUnlogged.auto[VIEW_TO_CADENCE[t.id]] || 0);
           return (
             <button
               key={t.id}
@@ -2034,10 +2119,18 @@ function RoutinesView({ habits, habitLog, habitLogAuto, streaks, autoTrackedIds 
               {t.label}
               {dot > 0 && (
                 <span
-                  title={`${dot} habit${dot > 1 ? 's' : ''} still unlogged`}
+                  title={`${dot} habit${dot > 1 ? 's' : ''} still for you to log`}
                   style={{ minWidth: 16, height: 16, borderRadius: 8, padding: '0 4px', background: '#dc2626', color: '#fff', fontSize: '0.62rem', fontWeight: 800, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', lineHeight: 1 }}
                 >
                   {dot}
+                </span>
+              )}
+              {autoDot > 0 && (
+                <span
+                  title={`${autoDot} habit${autoDot > 1 ? 's' : ''} tracked automatically, not yet recorded this period`}
+                  style={{ minWidth: 16, height: 16, borderRadius: 8, padding: '0 4px', background: '#e2e8f0', color: '#475569', fontSize: '0.62rem', fontWeight: 800, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', lineHeight: 1 }}
+                >
+                  {autoDot}
                 </span>
               )}
             </button>
@@ -2487,7 +2580,10 @@ function RoutineSection({ cadenceName, list, habitLog, habitLogAuto, streaks, au
   //
   // One <tr> in the table: name (+ drag / routine), status, %, then a
   // mark cell per week. In bulk mode, cells/name toggle selection instead of
-  // opening the single-cell menu. Automatic (muted) habits render read-only.
+  // opening the single-cell menu. Automatic (muted) habits are greyed and stay
+  // out of drag/bulk/past-due, but their CELLS are still clickable — the engine
+  // only ever guesses, so you can always overrule it by hand (and a mark you set
+  // yourself is never overwritten; see api/run-habit-automations.js).
   const weeklyRow = (h, muted, groupKey, groupItems) => {
     const pct = habitKpi(h, habitLog);
     const streak = streakOf(streaks, h);
@@ -2582,20 +2678,24 @@ function RoutineSection({ cadenceName, list, habitLog, habitLogAuto, streaks, au
           const sel = selected.has(cellId(h.id, w.key));
           // A Daily habit limited to certain weekdays: dim + disable its off-days
           // (mirrors the old day-strip) so untracked days read as inactive.
-          const off = !muted && w.date && cadenceCanon(h.cadence) === 'Daily' && !tracksDate(h, w.date);
-          const disabled = muted || off;
+          const off = w.date && cadenceCanon(h.cadence) === 'Daily' && !tracksDate(h, w.date);
+          const disabled = off;
           // Off-days show a derived Skip (⏭) — not stored, not clickable.
           const shown = mark || (off ? 'skipped' : undefined);
           // Auto-tracked habits: explain on hover why this cell was / wasn't
           // auto-recorded, appended to the normal date/action tooltip.
           const autoTip = off ? '' : autoStatusFor(h.id, w.key, mark);
-          const baseTip = off ? 'Off day — counts as a skip' : (muted ? '' : (bulkMode ? 'Click to select' : w.fullLabel));
+          // Automatic rows are muted but NOT read-only: the engine's guess is
+          // yours to correct, and a mark you set here is never overwritten by it.
+          const baseTip = off ? 'Off day — counts as a skip'
+            : muted ? `${w.fullLabel} — click to set this yourself`
+            : (bulkMode ? 'Click to select' : w.fullLabel);
           const cellTitle = [baseTip, autoTip].filter(Boolean).join(' — ') || undefined;
           return (
             <td key={w.key} title={disabled ? cellTitle : undefined} style={{ ...tdBase, padding: 2, borderLeft: `1px ${w.isNext ? 'dashed' : 'solid'} ${borderCol}`, textAlign: 'center', background: off ? '#f8fafc' : ((w.isCurrent && !mark) ? ACCENT + '08' : undefined) }}>
               <button
                 disabled={disabled}
-                onClick={disabled ? undefined : () => (bulkMode ? toggleCell(h.id, w.key) : openMenu(h.id, w.key, `${h.name || 'Habit'} · ${w.fullLabel}${w.isNext ? ' · upcoming' : ''}`))}
+                onClick={disabled ? undefined : () => ((bulkMode && !muted) ? toggleCell(h.id, w.key) : openMenu(h.id, w.key, `${h.name || 'Habit'} · ${w.fullLabel}${w.isNext ? ' · upcoming' : ''}`))}
                 title={cellTitle}
                 style={{
                   width: '100%', minWidth: 34, height: 26, display: 'inline-flex', alignItems: 'center', justifyContent: 'center',

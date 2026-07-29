@@ -4,6 +4,7 @@ import { useAuth } from './contexts/AuthContext';
 import { saveField, loadField, getPendingRequests, getPendingSharedRecipes, loadFriends, loadFriendShoppingList, loadFriendEatingOut, getUsername } from './utils/firestoreSync';
 import { trackPageView } from './utils/trackPageView';
 import { countOutstandingHabits } from './utils/habitOutstanding';
+import { loadHabitLog } from './utils/habitLogYears';
 import { RecipeList } from './components/RecipeList';
 import { RecipeDetail } from './components/RecipeDetail';
 import { WeightTracker, checkWeighReminder } from './components/WeightTracker';
@@ -452,17 +453,19 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
   // sees the menu item, so only fetch for them. Reloads on navigation (so
   // logging a habit then leaving the page updates the badge) plus a periodic
   // tick to roll over at the end of a day/week/period. Mirrors the Habits
-  // page's totalUnlogged via countOutstandingHabits.
+  // page's totalUnlogged via countOutstandingHabits — MANUAL habits only, so a
+  // habit an enabled automation rule fills in never turns the badge red.
   useEffect(() => {
     if (user?.email !== 'baldaufdan@gmail.com') { setHabitsOutstanding(0); return; }
     let cancelled = false;
     async function refreshHabits() {
       try {
-        const [habits, habitLog] = await Promise.all([
+        const [habits, habitLog, automations] = await Promise.all([
           loadField(user.uid, 'habits'),
-          loadField(user.uid, 'habitLog'),
+          loadHabitLog(user.uid),
+          loadField(user.uid, 'habitAutomations'),
         ]);
-        if (!cancelled) setHabitsOutstanding(countOutstandingHabits(habits, habitLog));
+        if (!cancelled) setHabitsOutstanding(countOutstandingHabits(habits, habitLog, automations));
       } catch {}
     }
     refreshHabits();

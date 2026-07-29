@@ -15,6 +15,13 @@ function countDailyLogEntries(log) {
   return n;
 }
 
+// Exported for habitLogYears.js, which owns its own guarded writes but should
+// land its snapshots in the same place as everything else. (The dependency only
+// goes that way — nothing here imports habitLogYears, so there's no cycle.)
+export async function writeDataSnapshot(uid, type, data, count) {
+  return writeSnapshot(uid, type, data, count);
+}
+
 async function writeSnapshot(uid, type, data, count) {
   try {
     const col = collection(db, 'users', uid, 'dataSnapshots');
@@ -28,7 +35,7 @@ async function writeSnapshot(uid, type, data, count) {
 }
 
 // Fire-and-forget owner alert when a guard blocks a destructive write.
-function alertGuardBlock(field, prevCount) {
+export function alertGuardBlock(field, prevCount) {
   try {
     fetch('/api/alert-data-guard', {
       method: 'POST',

@@ -8,6 +8,7 @@
 
 import { initializeApp, cert, getApps } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
+import { loadHabitLogAdmin } from './_data/habitLogYears.js';
 
 if (getApps().length === 0) {
   const serviceAccount = process.env.FIREBASE_SERVICE_ACCOUNT
@@ -80,7 +81,11 @@ export default async function handler(req, res) {
           await prune(uid, 'habits');
         }
 
-        const habitLog = udata.habitLog;
+        // Marks moved to users/{uid}/habitLog/{YYYY}; loadHabitLogAdmin reads
+        // there and still picks up the legacy user-doc field for anyone not yet
+        // migrated. Without this the daily backup would quietly start saving
+        // nothing — the one failure you'd only notice when you needed it.
+        const habitLog = await loadHabitLogAdmin(db, uid, udata);
         const habitMarks = countHabitMarks(habitLog);
         if (habitMarks > 0) {
           await db.doc(`users/${uid}/backups/habitLog_${date}`).set({
