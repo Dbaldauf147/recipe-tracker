@@ -101,10 +101,28 @@ function unitToLbStr(inputStr, unit) {
 
 // Weight input that displays/edits in the active unit while persisting lb.
 // Uses a focus buffer so decimal typing (e.g. "62.5" kg) isn't mangled by the
-// lb round-trip; commits the converted lb value on blur.
+// lb round-trip. Mirrors WeightTextInput in the mobile app's workout screen —
+// keep the two in sync.
 function WeightInput({ valueLb, unit, onCommitLb, className, style, placeholder, title, onClick }) {
   const [buf, setBuf] = useState(null); // null => not focused, show derived value
   const shown = buf != null ? buf : lbToUnitStr(valueLb, unit);
+  // Don't rewrite storage when the shown value still matches the canonical value
+  // in the active unit. Without this, merely clicking into a kg field and out
+  // again re-saved a rounded-back lb number — 132 lb displays as 59.9 kg, which
+  // converts back to 132.06 lb — silently editing a weight the user never
+  // touched and flagging the entry as changed.
+  const isUnchanged = (text) => text === lbToUnitStr(valueLb, unit);
+  // Commit on every keystroke rather than waiting for blur. Blur normally fires
+  // first when you click a button in the DOM, but not when a focused input is
+  // UNMOUNTED — which is exactly what the chart-edit popup does when it closes,
+  // so a freshly typed weight could be dropped. `buf` still drives what's
+  // displayed, so the field doesn't fight the user by re-rounding mid-typing.
+  // (This is the web half of the mobile "weights don't save" fix.)
+  const push = (text) => {
+    setBuf(text);
+    if (isUnchanged(text)) return;
+    onCommitLb(unitToLbStr(text, unit));
+  };
   return (
     <input
       className={className}
@@ -116,8 +134,14 @@ function WeightInput({ valueLb, unit, onCommitLb, className, style, placeholder,
       placeholder={placeholder != null ? placeholder : unit}
       onClick={onClick}
       onFocus={() => setBuf(lbToUnitStr(valueLb, unit))}
-      onChange={e => setBuf(e.target.value)}
-      onBlur={() => { onCommitLb(unitToLbStr(buf ?? '', unit)); setBuf(null); }}
+      onChange={e => push(e.target.value)}
+      onBlur={() => {
+        // A blur with no buffer isn't an edit — committing '' here would WIPE the
+        // stored weight.
+        if (buf == null) return;
+        if (!isUnchanged(buf)) onCommitLb(unitToLbStr(buf, unit));
+        setBuf(null);
+      }}
     />
   );
 }
