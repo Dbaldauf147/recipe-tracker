@@ -1,0 +1,202 @@
+rules_version = '2';
+
+// Prep Day Firestore rules.
+//
+// Replaces `allow read, write: if request.auth != null` on /{document=**},
+// which let ANY signed-in user read and write ANY other user's documents.
+//
+// Two constraints shape everything below:
+//
+//  1. Firestore cannot restrict FIELDS on a read. A rule either returns the
+//     whole document or nothing. So wherever a friend legitimately needs one
+//     field off someone else's user doc (username, sharing flags, weeklyPlan,
+//     eatingOutVotes), they necessarily get the rest of that document too.
+//     Narrowing that further means moving those fields out, not writing a
+//     cleverer rule.
+//
+//  2. `get` and `list` are separate. Restricting `get` while leaving `list`
+//     open to any signed-in user would defeat the point, because a query
+//     returns document data. So `list` on /users is admin-only, and the two
+//     lookup flows that used to query it (by username, by email) go through
+//     the usernames/ and userEmails/ index collections instead.
+//
+// Cross-user access that is REQUIRED by existing features, and is therefore
+// deliberately allowed:
+//   • a friend reading a friend's user doc          (loadFriends, shopping list,
+//                                                    eating-out votes)
+//   • a friend reading users/{uid}/data/recipes     (granted via sharedAccess)
+//   • a friend reading users/{uid}/mealImages/{id}  (shared-recipe image copy)
+//   • ANY signed-in user reading the admin user doc (the shared ingredientsDb
+//     still lives on it — see ADMIN_UID below)
+//   • the owner account listing /users              (admin dashboard)
+//
+// Note there are NO cross-user WRITES to user documents. A friend's vote on my
+// restaurants is stored on THEIR document keyed by my uid (setEatingOutVote), so
+// every write path here is "own document only".
+//
+// Server-side code (the crons, firebase-admin) bypasses rules entirely.
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // The owner account. Gates the admin dashboard and /users list.
+    function adminEmail() { return 'baldaufdan@gmail.com'; }
+    // The account whose user doc carries the shared ingredients database, read
+    // by every client. Mirrors EXPO_PUBLIC_ADMIN_UID in the mobile app.
+    function adminUid() { return 'LnPlQY9qAKQq8oZ2GbvvI5VSvB83'; }
+
+    function signedIn() { return request.auth != null; }
+    function isOwner(uid) { return signedIn() && request.auth.uid == uid; }
+    function isAdmin() {
+      return signedIn() && request.auth.token.email == adminEmail();
+    }
+
+    function userData(uid) {
+      return get(/databases/$(database)/documents/users/$(uid)).data;
+    }
+    // `in` on a missing/non-list field errors out, which denies the request —
+    // so default to an empty list first.
+    function listField(uid, name) {
+      return userData(uid).get(name, []);
+    }
+    function isFriendOf(uid) {
+      return signedIn() && request.auth.uid in listField(uid, 'friends');
+    }
+    function hasRecipeAccessTo(uid) {
+      return signedIn() && request.auth.uid in listField(uid, 'sharedAccess');
+    }
+
+    // ---- user documents -----------------------------------------------------
+    match /users/{uid} {
+      // See constraint (1): a friend gets the whole document, not just the
+      // fields the friend features read.
+      allow get: if isOwner(uid)
+                    || isAdmin()
+                    || isFriendOf(uid)
+                    || (signedIn() && uid == adminUid());
+      // See constraint (2): only the admin dashboard may enumerate users.
+      allow list: if isAdmin();
+      allow create, update: if isOwner(uid);
+      allow delete: if isOwner(uid) || isAdmin();
+
+      // Recipes, shared with a friend via sharedAccess.
+      match /data/recipes {
+        allow get: if isOwner(uid) || isAdmin() || hasRecipeAccessTo(uid);
+        allow write: if isOwner(uid);
+      }
+
+      // Recipe photos. A friend needs these when copying a shared recipe.
+      match /mealImages/{imageId} {
+        allow get: if isOwner(uid) || isAdmin() || isFriendOf(uid);
+        allow write: if isOwner(uid);
+      }
+
+      // Everything else under a user document — dailyLog, workouts, habitLog
+      // and habitLogAuto year docs, backups, dataSnapshots, exerciseImages,
+      // workoutDraft — is private. Rules are additive, so the two matches above
+      // only ADD friend reads on top of this.
+      match /{path=**} {
+        allow read, write: if isOwner(uid);
+      }
+    }
+
+    // ---- lookup indexes -----------------------------------------------------
+    // Public-ish maps of a username / email to a uid, so finding someone to add
+    // as a friend doesn't require reading or querying /users. A row may only be
+    // claimed for your OWN uid, which is what stops one user pointing another
+    // user's handle at themselves.
+    match /usernames/{name} {
+      allow read: if signedIn();
+      allow create: if signedIn() && request.resource.data.uid == request.auth.uid;
+      allow update, delete: if signedIn() && resource.data.uid == request.auth.uid;
+    }
+    match /userEmails/{email} {
+      allow read: if signedIn();
+      allow create: if signedIn() && request.resource.data.uid == request.auth.uid;
+      allow update, delete: if signedIn() && resource.data.uid == request.auth.uid;
+    }
+
+    // ---- friend requests ----------------------------------------------------
+    // Queried by `to` (incoming) and `from` (outgoing); both fields are on the
+    // document, so Firestore can validate those queries against this rule.
+    match /friendRequests/{requestId} {
+      allow read: if signedIn()
+                     && (resource.data.from == request.auth.uid
+                         || resource.data.to == request.auth.uid);
+      allow create: if signedIn() && request.resource.data.from == request.auth.uid;
+      // Either side can withdraw or decline.
+      allow update, delete: if signedIn()
+                               && (resource.data.from == request.auth.uid
+                                   || resource.data.to == request.auth.uid);
+    }
+
+    // ---- things shared directly with one person ------------------------------
+    match /sharedRecipes/{docId} {
+      allow read: if signedIn()
+                     && (resource.data.from == request.auth.uid
+                         || resource.data.to == request.auth.uid);
+      allow create: if signedIn() && request.resource.data.from == request.auth.uid;
+      allow update, delete: if signedIn()
+                               && (resource.data.from == request.auth.uid
+                                   || resource.data.to == request.auth.uid);
+    }
+    match /sharedMeals/{docId} {
+      allow read: if signedIn()
+                     && (resource.data.from == request.auth.uid
+                         || resource.data.to == request.auth.uid);
+      allow create: if signedIn() && request.resource.data.from == request.auth.uid;
+      allow update, delete: if signedIn()
+                               && (resource.data.from == request.auth.uid
+                                   || resource.data.to == request.auth.uid);
+    }
+
+    // ---- share-by-link ------------------------------------------------------
+    // The token IS the credential: an unguessable id anyone with the link may
+    // read. Only the creator can change or revoke it.
+    match /sharedLinks/{token} {
+      allow get: if true;
+      allow list: if false;
+      allow create: if signedIn() && request.resource.data.ownerUid == request.auth.uid;
+      allow update, delete: if signedIn() && resource.data.ownerUid == request.auth.uid;
+    }
+
+    // ---- collaborative eating-out data --------------------------------------
+    // Comments and ratings on a spot belong to a specific owner's list and are
+    // written by whoever is commenting/rating. Read is any signed-in user
+    // because both are queried by ownerUid across a friend group; the author is
+    // the only one who may edit their own row, and the list owner may remove
+    // rows from their own list.
+    match /eatingOutComments/{commentId} {
+      allow read: if signedIn();
+      allow create: if signedIn() && request.resource.data.authorUid == request.auth.uid;
+      allow update: if signedIn() && resource.data.authorUid == request.auth.uid;
+      allow delete: if signedIn()
+                       && (resource.data.authorUid == request.auth.uid
+                           || resource.data.ownerUid == request.auth.uid);
+    }
+    match /eatingOutRatings/{ratingId} {
+      allow read: if signedIn();
+      allow create, update: if signedIn()
+                               && request.resource.data.authorUid == request.auth.uid;
+      allow delete: if signedIn()
+                       && (resource.data.authorUid == request.auth.uid
+                           || resource.data.ownerUid == request.auth.uid);
+    }
+
+    // ---- pre-signup handoff -------------------------------------------------
+    // Recipes staged for someone who hasn't created an account yet, keyed by
+    // their normalized email. Only the admin (who stages it) and the person
+    // whose email it is may touch it.
+    match /pendingSetups/{email} {
+      allow read, write: if isAdmin()
+                            || (signedIn() && request.auth.token.email == email);
+    }
+
+    // ---- shared read-through cache ------------------------------------------
+    // Seasonal produce data, cached per region. Not user data.
+    match /seasonalCache/{region} {
+      allow read: if signedIn();
+      allow write: if signedIn();
+    }
+  }
+}
