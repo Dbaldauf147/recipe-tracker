@@ -44,9 +44,16 @@
 //   - 'gratitude' → evaluated here by calling the Gratitude bridge
 //                   (/api/gratitude-today) once per run and comparing today's
 //                   logged-gratitude count to the rule threshold.
-//   - 'healthkit' → NOT evaluated: HealthKit data lives on the iOS device and
-//                   isn't in Firestore yet. Needs the mobile HK→Firestore
-//                   bridge before this cron can see it. Counted as unsupported.
+//   - 'healthkit' → mostly NOT evaluated: HealthKit data lives on the iOS
+//                   device and isn't in Firestore yet. Needs the mobile
+//                   HK→Firestore bridge before this cron can see it. Counted as
+//                   unsupported. The ONE exception is 'hk_workout': a workout
+//                   logged in Prep Day itself is proof a workout happened, so
+//                   that trigger falls back to the same workout history
+//                   'workout_logged' reads and is treated as a workout rule
+//                   throughout (planned-rest days, streak mark, backfill).
+//                   Metric triggers (steps, sleep, mindful minutes…) have no
+//                   such stand-in and stay unsupported.
 //   - 'external'  → NOT evaluated here: those are pushed in by POST
 //                   /api/habit-event (webhook receiver), not polled.
 //
@@ -65,17 +72,22 @@
 //   - Natural opt-in: a user with no enabled prepday rules is skipped entirely.
 //
 // STORAGE (mirrors the app): habits, habitAutomations, weightLog are fields on
-// the main user doc users/{uid}; habitLog is one document per calendar year at
-// users/{uid}/habitLog/{YYYY} (see api/_data/habitLogYears.js — it outgrew the
-// user doc's index limit); dailyLog is users/{uid}/data/dailyLog (.log map);
-// workouts are docs under users/{uid}/workouts (v2, each has .date).
+// the main user doc users/{uid}; habitLog AND habitLogAuto are one document per
+// calendar year at users/{uid}/{field}/{YYYY} (see api/_data/habitLogYears.js —
+// habitLog outgrew the user doc's index limit and its auto mirror was on the same
+// trajectory); dailyLog is users/{uid}/data/dailyLog (.log map); workouts are
+// docs under users/{uid}/workouts (v2, each has .date).
 //
 // Auth: Vercel cron sends `Authorization: Bearer <CRON_SECRET>`. Manual runs
 // need that header or ?secret=... . Add ?dryRun=1 to evaluate without writing.
 
 import { initializeApp, cert, getApps } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
-import { loadHabitLogAdmin, saveHabitLogYearsAdmin, yearsForKeys } from './_data/habitLogYears.js';
+import {
+  loadHabitLogAdmin, saveHabitLogYearsAdmin,
+  loadHabitLogAutoAdmin, saveHabitLogAutoYearsAdmin,
+  yearsForKeys,
+} from './_data/habitLogYears.js';
 
 if (getApps().length === 0) {
   const serviceAccount = process.env.FIREBASE_SERVICE_ACCOUNT
@@ -104,10 +116,29 @@ function triggerPhrasing(rule) {
     case 'recipe_prepped': return { pos: 'A planned recipe was prepped', neg: 'No recipe was prepped', noun: 'meal prep' };
     case 'weighin_logged': return { pos: 'A weigh-in was recorded', neg: 'No weigh-in was recorded', noun: 'weigh-ins' };
     case 'workout_logged': return { pos: 'A workout was logged', neg: 'No workout was logged', noun: 'workouts' };
+    // An Apple Health workout rule is answered from Prep Day's own history (see
+    // isWorkoutTrigger), so the reason string says where the answer came from
+    // rather than implying HealthKit was read.
+    case 'hk_workout': return { pos: 'A workout was logged in Prep Day', neg: 'No workout was logged in Prep Day', noun: 'workouts' };
     case 'reach_out_goal': return { pos: 'Reach-out goal met', neg: "Reach-out goal wasn't met", noun: 'reach-outs' };
     case 'gratitude_goal': return { pos: 'Gratitude goal met', neg: "Gratitude goal wasn't met", noun: 'gratitude entries' };
     default: return { pos: 'Trigger met', neg: 'Trigger not met', noun: 'this' };
   }
+}
+
+/**
+ * Rules answered by "was a workout logged that day?".
+ *
+ * 'hk_workout' is in here because HealthKit can't be read server-side, and a
+ * workout sitting in Prep Day's own history is proof the workout happened —
+ * the fallback the whole rule would otherwise sit unevaluated without. Once a
+ * rule counts as a workout rule it gets ALL of that behaviour, not just the
+ * trigger: planned-rest days apply their skip immediately, an unset streakMark
+ * defaults to ✕, and the backfill below repairs a Skip a later workout
+ * disproved.
+ */
+function isWorkoutTrigger(rule) {
+  return rule?.trigger === 'workout_logged' || rule?.trigger === 'hk_workout';
 }
 
 // The mark for a day that's part of a 2+-day run of "trigger never fired" — a
@@ -117,7 +148,7 @@ function triggerPhrasing(rule) {
 //   '' / 'none' / anything else → off (the plain elseMark applies instead)
 function streakMarkFor(rule) {
   if (rule.streakMark === undefined) {
-    return rule.trigger === 'workout_logged' ? 'missed' : null;
+    return isWorkoutTrigger(rule) ? 'missed' : null;
   }
   return VALID_MARKS.has(rule.streakMark) ? rule.streakMark : null;
 }
@@ -232,7 +263,11 @@ function evalPrepdayTrigger(trigger, ctx, habit) {
       }
       return (weightLog || []).some(e => e && e.date === dateKey);
     }
-    case 'workout_logged': return (workoutsForDay?.() || []).length > 0;
+    case 'workout_logged':
+    // Apple Health can't be read here; a Prep Day workout stands in for it.
+    // falls through
+    case 'hk_workout':
+      return (workoutsForDay?.() || []).length > 0;
     default: return null; // 'custom' / unknown → not machine-evaluable
   }
 }
@@ -357,7 +392,7 @@ export default async function handler(req, res) {
       // The window is widened to WORKOUT_BACKFILL_DAYS so the backfill below can
       // repair older days whose rest-day skip a workout has since disproved.
       const workoutsByDate = {};
-      if (rules.some(r => r.trigger === 'workout_logged')) {
+      if (rules.some(isWorkoutTrigger)) {
         const wantDates = [...new Set([
           ...[...DAYS, easternYesterday(DAYS[DAYS.length - 1])].map(dd => dd.dateKey),
           ...backfillDateKeys(when),
@@ -404,7 +439,9 @@ export default async function handler(req, res) {
       // and re-fills cells the user already marked.
       const habitLog = await loadHabitLogAdmin(db, uid, data);
       const nextLog = { ...habitLog };
-      const habitLogAuto = (data.habitLogAuto && typeof data.habitLogAuto === 'object') ? data.habitLogAuto : {};
+      // habitLogAuto moved out of the user doc the same way, for the same reason
+      // — it mirrors habitLog cell for cell, so it was on the same trajectory.
+      const habitLogAuto = await loadHabitLogAutoAdmin(db, uid, data);
       const nextAuto = { ...habitLogAuto };
       let changed = 0;
 
@@ -461,7 +498,7 @@ export default async function handler(req, res) {
           // A workout day the Week Plan resolved to REST is a decision, not a
           // day still waiting for activity — so its skip applies immediately,
           // today included, rather than waiting for the day to be over.
-          const plannedRest = rule.trigger === 'workout_logged'
+          const plannedRest = isWorkoutTrigger(rule)
             && plannedRestDates.has(dayCtx.dateKey);
 
           // ?dryRun=1 returns a per-evaluation breakdown so it's possible to see
@@ -621,7 +658,7 @@ export default async function handler(req, res) {
       // that were never marked at all. Manual marks and manual erases are left
       // exactly as they are, same as everywhere else in this engine.
       for (const rule of rules) {
-        if (rule.trigger !== 'workout_logged') continue;
+        if (!isWorkoutTrigger(rule)) continue;
         const habit = habitById.get(rule.habitId);
         if (!habit) continue;
         // Daily only: a weekly/monthly cell spans days, so "this day had a
@@ -670,7 +707,11 @@ export default async function handler(req, res) {
             // index entries were rejecting every write to that document.
             const touchedKeys = Object.keys(nextLog).filter(k => nextLog[k] !== habitLog[k]);
             await saveHabitLogYearsAdmin(db, uid, nextLog, yearsForKeys(touchedKeys));
-            await docSnap.ref.update({ habitLogAuto: nextAuto });
+            // Same treatment for the auto mirror — writing it back onto the user
+            // doc would have re-added a field that grows one entry per auto-set
+            // cell, which is the same slow march toward the index limit.
+            const touchedAutoKeys = Object.keys(nextAuto).filter(k => nextAuto[k] !== habitLogAuto[k]);
+            await saveHabitLogAutoYearsAdmin(db, uid, nextAuto, yearsForKeys(touchedAutoKeys));
           }
           if (statusChanged) {
             await db.doc(`users/${uid}/data/habitAutoStatus`).set({ status: nextStatus, updatedAt: nowIso }, { merge: false });

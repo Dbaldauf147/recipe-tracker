@@ -23,25 +23,28 @@ export {
 };
 
 export const HABIT_LOG_VERSION = 1;
-const COLL = 'habitLog';
+// For both maps the legacy user-doc FIELD name and the subcollection name are
+// the same string, so one value identifies both locations.
+export const HABIT_LOG = 'habitLog';
+export const HABIT_LOG_AUTO = 'habitLogAuto';
 
 /**
- * The user's whole habitLog, from wherever it currently lives.
+ * One of the user's mark maps, from wherever it currently lives.
  *
  * `userData` is the already-fetched user document (both crons have one in hand,
  * so this avoids a second read). During the transition a user may have marks in
  * both places — year docs are newer, so they win per cell.
  */
-export async function loadHabitLogAdmin(db, uid, userData) {
+export async function loadMarksAdmin(db, uid, userData, field = HABIT_LOG) {
   const byYear = {};
   try {
-    const snaps = await db.collection(`users/${uid}/${COLL}`).get();
+    const snaps = await db.collection(`users/${uid}/${field}`).get();
     snaps.forEach(s => { byYear[s.id] = parseYearDoc(s.data()); });
   } catch { /* no subcollection → legacy only */ }
   let years = {};
   for (const y of Object.keys(byYear).sort()) years = { ...years, ...byYear[y] };
 
-  const legacy = userData?.habitLog;
+  const legacy = userData?.[field];
   if (legacy && typeof legacy === 'object' && countMarks(legacy) > 0) {
     return mergeLogs(legacy, years);
   }
@@ -54,15 +57,21 @@ export async function loadHabitLogAdmin(db, uid, userData) {
  * Only the touched years are rewritten. Passing no years rewrites every year
  * present in the log.
  */
-export async function saveHabitLogYearsAdmin(db, uid, log, years) {
+export async function saveMarkYearsAdmin(db, uid, log, years, field = HABIT_LOG) {
   const byYear = splitByYear(log);
   const targets = years && years.length ? years : Object.keys(byYear);
   const updatedAt = new Date().toISOString();
   await Promise.all(targets.map(year => (
-    db.doc(`users/${uid}/${COLL}/${year}`).set({
+    db.doc(`users/${uid}/${field}/${year}`).set({
       marks: JSON.stringify(byYear[year] || {}),
       v: HABIT_LOG_VERSION,
       updatedAt,
     })
   )));
 }
+
+// Named wrappers, so call sites read as what they are.
+export const loadHabitLogAdmin = (db, uid, userData) => loadMarksAdmin(db, uid, userData, HABIT_LOG);
+export const saveHabitLogYearsAdmin = (db, uid, log, years) => saveMarkYearsAdmin(db, uid, log, years, HABIT_LOG);
+export const loadHabitLogAutoAdmin = (db, uid, userData) => loadMarksAdmin(db, uid, userData, HABIT_LOG_AUTO);
+export const saveHabitLogAutoYearsAdmin = (db, uid, log, years) => saveMarkYearsAdmin(db, uid, log, years, HABIT_LOG_AUTO);

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { saveField, loadField, loadHabitAutoStatus } from '../utils/firestoreSync';
-import { loadHabitLog, saveHabitLog } from '../utils/habitLogYears';
+import { loadHabitLog, saveHabitLog, loadHabitLogAuto, saveHabitLogAuto } from '../utils/habitLogYears';
 import { HABIT_FIELDS, seedHabits, makeHabitId } from '../data/habitsSeed';
 import { yesterdayDate, yesterdayDayKey, yesterdayUnloggedHabits } from '../utils/habitOutstanding';
 
@@ -467,16 +467,21 @@ const AUTO_SOURCES = [
   { id: 'prepday', label: 'Prep Day entry', icon: '🍽️', blurb: 'Reacts to things already logged in Prep Day (workouts, meals, weigh-ins).' },
   { id: 'rally', label: 'Rally', icon: '📞', blurb: 'Reacts to activity in your Rally app — e.g. how many people you reached out to today.' },
   { id: 'gratitude', label: 'Gratitude', icon: '🙏', blurb: 'Reacts to your Gratitude app — e.g. logging all 3 of today\'s gratitudes.' },
-  { id: 'healthkit', label: 'Apple Health', icon: '❤️', blurb: 'Reads HealthKit metrics from the iOS app (steps, workouts, sleep, mindfulness).' },
+  { id: 'healthkit', label: 'Apple Health', icon: '❤️', blurb: 'Reads HealthKit metrics from the iOS app (steps, workouts, sleep, mindfulness). Only the workout trigger runs server-side today — it falls back to your Prep Day workout history; the metric ones wait on the HealthKit→Firestore bridge.' },
   { id: 'external', label: 'External / webhook', icon: '🔗', blurb: 'Another tool POSTs an event to Prep Day to mark the habit.' },
 ];
 // The mark a rule uses for a day that's part of a 2+-day run of "trigger never
 // fired" — a gap rather than a single rest day. MUST mirror streakMarkFor() in
 // api/run-habit-automations.js: never configured → No (✕) for a workout rule,
-// off for everything else; '' → off (the plain else mark applies).
+// off for everything else; '' → off (the plain else mark applies). "Workout
+// rule" includes the Apple Health workout trigger, which the engine answers
+// from Prep Day's own workout history — mirror isWorkoutTrigger() there.
+function isWorkoutTriggerRule(rule) {
+  return rule?.trigger === 'workout_logged' || rule?.trigger === 'hk_workout';
+}
 function streakMarkOf(rule) {
   if (rule?.streakMark === undefined) {
-    return rule?.trigger === 'workout_logged' ? 'missed' : '';
+    return isWorkoutTriggerRule(rule) ? 'missed' : '';
   }
   return MARK_META[rule.streakMark] ? rule.streakMark : '';
 }
@@ -501,7 +506,7 @@ const AUTO_TRIGGERS = {
     { id: 'steps', label: 'Steps reach', numeric: true, unit: 'steps' },
     { id: 'active_energy', label: 'Active energy reaches', numeric: true, unit: 'kcal' },
     { id: 'exercise_minutes', label: 'Exercise minutes reach', numeric: true, unit: 'min' },
-    { id: 'hk_workout', label: 'A Health workout is recorded' },
+    { id: 'hk_workout', label: 'A workout is recorded (Health, or logged in Prep Day)' },
     { id: 'mindful_minutes', label: 'Mindful minutes reach', numeric: true, unit: 'min' },
     { id: 'sleep_hours', label: 'Sleep reaches', numeric: true, unit: 'hrs' },
     { id: 'custom', label: 'Custom — describe in Logic' },
@@ -967,7 +972,7 @@ export function HabitsPage({ onBack, user }) {
           // field across on the first load after deploy.
           user?.uid ? loadHabitLog(user.uid) : null,
           user?.uid ? loadField(user.uid, 'habitAutomations') : null,
-          user?.uid ? loadField(user.uid, 'habitLogAuto') : null,
+          user?.uid ? loadHabitLogAuto(user.uid) : null,
           user?.uid ? loadField(user.uid, 'habitNextLog') : null,
           user?.uid ? loadHabitAutoStatus(user.uid) : null,
         ]);
@@ -1074,7 +1079,8 @@ export function HabitsPage({ onBack, user }) {
         touched = true;
       }
       if (!touched) return prev;
-      if (user?.uid) saveField(user.uid, 'habitLogAuto', next).catch(() => {});
+      // Only the years these cells fall in get rewritten (see habitLogYears).
+      if (user?.uid) saveHabitLogAuto(user.uid, next, cells.map(c => c.key)).catch(() => {});
       return next;
     });
   }
