@@ -3931,6 +3931,19 @@ export function WorkoutPage({ onBack, user }) {
     saveWorkoutTypeCategories(nextCats, user?.uid);
   }
 
+  /**
+   * How long since a workout type was last done — "today", "3d ago", "never",
+   * with "(skipped)" when the most recent thing was a skip rather than a real
+   * session. Shared by the pill row and the ✎ Edit popup so the two can't drift.
+   */
+  function sinceLabelForType(t) {
+    const effective = effectiveLastByType[t];
+    if (!effective) return 'never';
+    const days = daysSince(effective.date);
+    if (days === 0) return effective.wasSkipped ? 'skipped today' : 'today';
+    return `${days}d ago${effective.wasSkipped ? ' (skipped)' : ''}`;
+  }
+
   function addWorkoutType(name) {
     const trimmed = (name || '').trim();
     if (!trimmed || workoutTypes.some(x => x.toLowerCase() === trimmed.toLowerCase())) return;
@@ -4310,16 +4323,10 @@ export function WorkoutPage({ onBack, user }) {
           <div className={styles.workoutTypeRow}>
             <span className={styles.workoutTypeLabel}>Workout type:</span>
             {workoutTypes.map(t => {
-              const effective = effectiveLastByType[t];
-              const days = daysSince(effective?.date);
               const isSuggested = t === suggestedType && !workoutType;
               const isActive = workoutType === t;
               const lastReal = lastByType[t];
-              const subLabel = effective
-                ? (days === 0
-                    ? (effective.wasSkipped ? 'skipped today' : 'today')
-                    : `${days}d ago${effective.wasSkipped ? ' (skipped)' : ''}`)
-                : 'never';
+              const subLabel = sinceLabelForType(t);
               return (
                 <button
                   key={t}
@@ -6077,7 +6084,14 @@ export function WorkoutPage({ onBack, user }) {
                       }}
                     >
                       <span title="Drag to reorder" style={{ color: 'var(--color-text-muted)', fontSize: '0.9rem' }}>⠿</span>
-                      <span style={{ flex: 1, minWidth: 0, fontSize: '0.86rem', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t}</span>
+                      <span style={{ flex: 1, minWidth: 0, overflow: 'hidden' }}>
+                        <span style={{ display: 'block', fontSize: '0.86rem', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t}</span>
+                        {/* Same "days since" the pill row shows, so ordering the
+                            list doesn't mean guessing which one you're overdue for. */}
+                        <span style={{ display: 'block', fontSize: '0.7rem', color: 'var(--color-text-muted)', whiteSpace: 'nowrap' }}>
+                          {sinceLabelForType(t)}
+                        </span>
+                      </span>
                       <button
                         type="button"
                         onClick={() => moveWorkoutType(idx, idx - 1)}
