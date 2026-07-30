@@ -7,6 +7,7 @@ import { SavedShoppingLists } from './SavedShoppingLists';
 import { AgentCartPanel } from './AgentCartPanel';
 import { useAuth } from '../contexts/AuthContext';
 import { saveField, loadField, loadDailyLogFromFirestore } from '../utils/firestoreSync';
+import { eatenKey, lookupEatenDate } from '../utils/eatenMatch';
 import GridLayoutLib, { WidthProvider } from 'react-grid-layout';
 import 'react-grid-layout/css/styles.css';
 import styles from './ShoppingListPage.module.css';
@@ -92,25 +93,6 @@ function normalizeIngName(name) {
     .trim();
 }
 
-// Look up the most-recent eaten date for a given ingredient name from the
-// eatenMap. Tries exact match first, then contains-either-direction with a
-// 4-char floor to keep false positives down.
-function lookupEatenDate(ingredient, eatenMap) {
-  if (!eatenMap || typeof eatenMap.get !== 'function') return null;
-  const key = normalizeIngName(ingredient);
-  if (!key) return null;
-  const exact = eatenMap.get(key);
-  if (exact) return exact;
-  let best = null;
-  for (const [k, date] of eatenMap) {
-    if (k.length < 4 || key.length < 4) continue;
-    if (k.includes(key) || key.includes(k)) {
-      if (!best || date > best) best = date;
-    }
-  }
-  return best;
-}
-
 function daysSinceDate(d) {
   if (!d) return null;
   const then = new Date(d);
@@ -181,7 +163,7 @@ function buildIngredientEatenMap(getRecipe) {
         }
       }
       for (const n of names) {
-        const key = normalizeIngName(n);
+        const key = eatenKey(n);
         if (!key) continue;
         map.set(key, date); // dates are iterated ascending → last-write-wins = latest
       }

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { auth } from '../firebase';
 import { saveField } from '../utils/firestoreSync';
 import { loadIngredients } from '../utils/ingredientsStore';
+import { lookupEatenDate } from '../utils/eatenMatch';
 import styles from './GroceryStaples.module.css';
 
 function daysSince(iso) {
@@ -19,36 +20,6 @@ function sinceBg(days) {
   if (clamped <= 0) return 'transparent';
   const alpha = (clamped / 120) * 0.55;
   return `rgba(220, 38, 38, ${alpha.toFixed(2)})`;
-}
-
-// Normalize a snack name for fuzzy matching against eatenMap keys.
-function normalizeSnackName(name) {
-  return (name || '')
-    .toLowerCase()
-    .replace(/\(s\)/g, '')
-    .replace(/[_-]+/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
-// Look up the most-recent eaten date for this snack from a normalized
-// ingredient-name → ISO-date map. Tries exact then contains-either-direction.
-function lookupEatenDate(snackIngredient, eatenMap) {
-  if (!eatenMap || typeof eatenMap.get !== 'function') return null;
-  const key = normalizeSnackName(snackIngredient);
-  if (!key) return null;
-  const exact = eatenMap.get(key);
-  if (exact) return exact;
-  // Partial match — e.g. snack "rice cake white cheddar" vs recipe ingredient
-  // "rice cakes". Require ≥4 chars of overlap to keep false positives down.
-  let best = null;
-  for (const [k, date] of eatenMap) {
-    if (k.length < 4 || key.length < 4) continue;
-    if (k.includes(key) || key.includes(k)) {
-      if (!best || date > best) best = date;
-    }
-  }
-  return best;
 }
 
 export function TrackedItemsList({ storageKey, firestoreField, hideHeader, title, subtitle, highlightNames, initialItems, eatenMap }) {
@@ -230,24 +201,27 @@ export function TrackedItemsList({ storageKey, firestoreField, hideHeader, title
                     sourceDate = eatenDate || item.lastPurchased || null;
                   }
                   const since = daysSince(sourceDate);
-                  const sinceTitle = eatenDate
+                  const known = eatenDate
                     ? `Last eaten on ${eatenDate}`
                     : item.lastPurchased
                       ? `Marked purchased on ${item.lastPurchased.slice(0, 10)}`
-                      : 'Click to mark as just purchased';
+                      : 'Never marked';
+                  const sinceTitle = `${known} — click to reset to today`;
                   return (
                     <tr
                       key={i}
                       className={highlighted ? styles.highlightRow : ''}
-                      onClick={() => bumpItem(i)}
-                      title="Click to mark as just purchased (resets manual Since)"
-                      style={{ cursor: 'pointer' }}
                     >
                       <td><span className={styles.cellText}>{item.quantity}</span></td>
                       <td><span className={styles.cellText}>{item.measurement}</span></td>
                       <td><span className={styles.cellText}>{item.ingredient}</span></td>
+                      {/* Only this cell resets the date. The whole row used to be
+                          the button, so a stray click — reaching for the ×,
+                          selecting the name — silently rewrote the item's history
+                          to "today" with no undo. */}
                       <td
-                        style={{ background: sinceBg(since), textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}
+                        onClick={() => bumpItem(i)}
+                        style={{ background: sinceBg(since), textAlign: 'right', fontVariantNumeric: 'tabular-nums', cursor: 'pointer' }}
                         title={sinceTitle}
                       >
                         <span className={styles.cellText}>{since == null ? '—' : since}</span>
@@ -255,7 +229,7 @@ export function TrackedItemsList({ storageKey, firestoreField, hideHeader, title
                       <td>
                         <button
                           className={styles.removeBtn}
-                          onClick={(e) => { e.stopPropagation(); removeItem(i); }}
+                          onClick={() => removeItem(i)}
                           title="Remove"
                         >
                           &times;
