@@ -1,7 +1,7 @@
 import { createContext, useContext, useState, useEffect, useRef } from 'react';
 import { onAuthStateChanged, signInWithPopup, signOut, createUserWithEmailAndPassword, signInWithEmailAndPassword, updateProfile, sendPasswordResetEmail } from 'firebase/auth';
 import { auth, googleProvider, facebookProvider, appleProvider } from '../firebase';
-import { loadUserData, migrateToFirestore, hydrateLocalStorage, saveField, recordLogin, subscribeToUserData, loadPendingSetup, backupAllUserData } from '../utils/firestoreSync';
+import { loadUserData, migrateToFirestore, hydrateLocalStorage, saveField, recordLogin, subscribeToUserData, loadPendingSetup, backupAllUserData, syncUserLookupIndexes } from '../utils/firestoreSync';
 import { syncMealImages, clearImageCache } from '../utils/generateMealImage';
 import { syncExerciseImages, clearExerciseImageCache } from '../utils/exerciseImages';
 
@@ -100,6 +100,14 @@ export function AuthProvider({ children }) {
         if (firebaseUser.email) {
           saveField(firebaseUser.uid, 'email', firebaseUser.email.toLowerCase());
         }
+        // Refresh the lookup-index rows friend search resolves through. Doing it
+        // on every sign-in is what backfills users who predate the indexes, and
+        // what keeps a changed display name findable.
+        syncUserLookupIndexes(firebaseUser.uid, {
+          email: firebaseUser.email || '',
+          username: userData?.username || '',
+          displayName: firebaseUser.displayName || userData?.displayName || '',
+        }).catch(() => {});
         if (firebaseUser.displayName) {
           saveField(firebaseUser.uid, 'displayName', firebaseUser.displayName);
         }

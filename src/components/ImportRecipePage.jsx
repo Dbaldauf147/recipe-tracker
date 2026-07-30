@@ -5,7 +5,7 @@ import { fetchInstagramCaption } from '../utils/fetchInstagramCaption';
 import { fetchTikTokRecipe, fetchTikTokCaption } from '../utils/fetchTikTokRecipe';
 import { classifyMealType } from '../utils/classifyMealType';
 import { loadStarterRecipes } from '../utils/starterRecipes';
-import { getPendingSharedRecipes, acceptSharedRecipe, declineSharedRecipe, loadFriends, removeFriend, searchByUsername, searchByEmail, searchByName, sendFriendRequest, getUsername } from '../utils/firestoreSync';
+import { getPendingSharedRecipes, acceptSharedRecipe, declineSharedRecipe, loadFriends, removeFriend, searchByUsername, searchByEmail, sendFriendRequest, getUsername } from '../utils/firestoreSync';
 import { useAuth } from '../contexts/AuthContext';
 import { RecipeForm } from './RecipeForm';
 import styles from './ImportRecipePage.module.css';
@@ -2076,7 +2076,6 @@ export function ImportRecipePage({ onSave, onAddWithoutClose, onCancel, userReci
                   const val = friendSearch.trim().toLowerCase();
                   let result = await searchByUsername(val);
                   if (!result && val.includes('@')) result = await searchByEmail(val);
-                  if (!result) result = await searchByName(val);
                   if (!result) { setFriendStatus('User not found'); setFriendSearchResult('none'); }
                   else if (result.uid === user?.uid) { setFriendStatus("That's you!"); setFriendSearchResult('none'); }
                   else { setFriendSearchResult(result); setFriendStatus(''); }
@@ -2090,7 +2089,6 @@ export function ImportRecipePage({ onSave, onAddWithoutClose, onCancel, userReci
                 const val = friendSearch.trim().toLowerCase();
                 let result = await searchByUsername(val);
                 if (!result && val.includes('@')) result = await searchByEmail(val);
-                if (!result) result = await searchByName(val);
                 if (!result) { setFriendStatus('User not found'); setFriendSearchResult('none'); }
                 else if (result.uid === user?.uid) { setFriendStatus("That's you!"); setFriendSearchResult('none'); }
                 else { setFriendSearchResult(result); setFriendStatus(''); }

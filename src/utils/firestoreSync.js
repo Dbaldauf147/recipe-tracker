@@ -1488,6 +1488,31 @@ export function subscribeToUserData(uid, onChange) {
   return () => { unsub1(); unsub2(); };
 }
 
+/**
+ * Keep this user's lookup-index rows current: userEmails/{email} always, and
+ * usernames/{username} when they have claimed one.
+ *
+ * These rows are how someone finds a friend without reading or querying
+ * /users. They carry the display name and email so a search resolves in one
+ * document read and never touches the target's user document.
+ *
+ * Fire-and-forget on sign-in: a failure here costs discoverability until the
+ * next launch, and must never block the app from loading.
+ */
+export async function syncUserLookupIndexes(uid, { email, username, displayName } = {}) {
+  const lowerEmail = (email || '').toLowerCase().trim();
+  const lowerName = (username || '').toLowerCase().trim();
+  const row = { uid, displayName: displayName || '', username: lowerName };
+  const writes = [];
+  if (lowerEmail) {
+    writes.push(setDoc(doc(db, 'userEmails', lowerEmail), { ...row, email: lowerEmail }, { merge: true }));
+  }
+  if (lowerName) {
+    writes.push(setDoc(doc(db, 'usernames', lowerName), { ...row, email: lowerEmail }, { merge: true }));
+  }
+  await Promise.all(writes);
+}
+
 /* ── Friend-related functions ── */
 
 /**
@@ -1525,67 +1550,57 @@ export async function changeUsername(uid, oldUsername, newUsername) {
 }
 
 /**
- * Look up a user by exact username. Returns { uid, username } or null.
+ * Look up a user by exact username. Returns { uid, username, email, displayName }
+ * or null.
+ *
+ * Reads ONLY the index document. It used to follow up with a read of
+ * users/{foundUid} for the email and display name, which is a read of a
+ * stranger's document — exactly what the Firestore rules now refuse. The index
+ * carries those two fields itself instead, refreshed on every sign-in.
  */
 export async function searchByUsername(username) {
   const lower = username.toLowerCase();
   const snap = await getDoc(doc(db, 'usernames', lower));
   if (!snap.exists()) return null;
-  const foundUid = snap.data().uid;
-  // Also fetch email for notifications
-  let email = null;
-  try {
-    const userSnap = await getDoc(doc(db, 'users', foundUid));
-    if (userSnap.exists()) email = userSnap.data().email || null;
-  } catch {}
-  let displayName = null;
-  try {
-    const userSnap2 = await getDoc(doc(db, 'users', foundUid));
-    if (userSnap2.exists()) displayName = userSnap2.data().displayName || null;
-  } catch {}
-  return { uid: foundUid, username: lower, email, displayName };
+  const d = snap.data() || {};
+  return {
+    uid: d.uid,
+    username: lower,
+    email: d.email || null,
+    displayName: d.displayName || null,
+  };
 }
 
 /**
- * Look up a user by email address. Returns { uid, username, email, displayName } or null.
+ * Look up a user by email address. Returns { uid, username, email, displayName }
+ * or null.
+ *
+ * Reads the userEmails/{email} index. This used to be
+ * `query(users, where('email','==',x))` — a query over every user document,
+ * which only worked because the rules let any signed-in user list /users. The
+ * index is written on sign-in, so a user who has not signed in since this
+ * shipped is not findable by email until they do.
  */
 export async function searchByEmail(email) {
-  const lower = email.toLowerCase();
-  const q = query(collection(db, 'users'), where('email', '==', lower));
-  const snap = await getDocs(q);
-  if (snap.empty) return null;
-  // A single email can map to multiple user docs (re-signups / duplicate
-  // accounts). Returning docs[0] could address a friend request to a stale
-  // uid the person no longer logs into — so the request would never appear
-  // for them. Prefer the doc most likely to be the active account: one with
-  // a username, then the most recent lastLogin.
-  const docs = snap.docs.map(d => ({ uid: d.id, data: d.data() || {} }));
-  docs.sort((a, b) => {
-    const au = a.data.username ? 1 : 0;
-    const bu = b.data.username ? 1 : 0;
-    if (au !== bu) return bu - au;
-    return String(b.data.lastLogin || '').localeCompare(String(a.data.lastLogin || ''));
-  });
-  const best = docs[0];
-  return { uid: best.uid, username: best.data.username || '', email: lower, displayName: best.data.displayName || '' };
+  const lower = (email || '').toLowerCase().trim();
+  if (!lower) return null;
+  const snap = await getDoc(doc(db, 'userEmails', lower));
+  if (!snap.exists()) return null;
+  const d = snap.data() || {};
+  if (!d.uid) return null;
+  return {
+    uid: d.uid,
+    username: d.username || '',
+    email: lower,
+    displayName: d.displayName || '',
+  };
 }
 
-/**
- * Search for a user by display name (case-insensitive, partial match).
- * Returns first match or null.
- */
-export async function searchByName(name) {
-  const lower = name.toLowerCase().trim();
-  const snap = await getDocs(collection(db, 'users'));
-  for (const d of snap.docs) {
-    const data = d.data();
-    const displayName = (data.displayName || '').toLowerCase();
-    if (displayName && displayName.includes(lower)) {
-      return { uid: d.id, username: data.username || '', email: data.email || '', displayName: data.displayName || '' };
-    }
-  }
-  return null;
-}
+// searchByName is GONE. It fetched EVERY user document and substring-matched
+// displayName in the browser, which meant handing the client everyone's data to
+// answer "is there a Dan?". There is no rule that makes that safe, and no index
+// that makes a substring search work. Friend search is by username or email,
+// both of which resolve through a single index document.
 
 /**
  * Send a friend request from one user to another.

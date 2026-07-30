@@ -4,7 +4,6 @@ import {
   setUsername,
   searchByUsername,
   searchByEmail,
-  searchByName,
   sendFriendRequest,
   getPendingRequests,
   getSentRequests,
@@ -96,10 +95,9 @@ export function EatingOutFriendsPanel({ user, onClose, onFriendsChanged }) {
     try {
       let result = await searchByUsername(val);
       if (!result && val.includes('@')) result = await searchByEmail(val);
-      if (!result) result = await searchByName(val);
       if (!result) {
         setSearchResult('none');
-        setSearchStatus({ type: 'error', msg: 'No user found. Try their username, email, or full name.' });
+        setSearchStatus({ type: 'error', msg: 'No user found. Try their username or email address.' });
       } else if (result.uid === uid) {
         setSearchResult('none');
         setSearchStatus({ type: 'error', msg: "That's you!" });

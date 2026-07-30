@@ -5,7 +5,6 @@ import {
   changeUsername,
   searchByUsername,
   searchByEmail,
-  searchByName,
   sendFriendRequest,
   getPendingRequests,
   getSentRequests,
@@ -134,17 +133,16 @@ export function FriendsPage({ onClose, addRecipe, importRecipes }) {
     setSearchStatus(null);
     setSearchResult(null);
     try {
-      // Try username first, then email, then name
+      // Username first, then email. Both resolve through a single index
+      // document; searching by display name is gone, because answering it
+      // meant reading every user's document in the browser.
       let result = await searchByUsername(val);
       if (!result && val.includes('@')) {
         result = await searchByEmail(val);
       }
       if (!result) {
-        result = await searchByName(val);
-      }
-      if (!result) {
         setSearchResult('none');
-        setSearchStatus({ type: 'error', msg: 'User not found. Try their username, email, or full name.' });
+        setSearchStatus({ type: 'error', msg: 'User not found. Try their username or email address.' });
       } else if (result.uid === uid) {
         setSearchResult('none');
         setSearchStatus({ type: 'error', msg: "That's you!" });
