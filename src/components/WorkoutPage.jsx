@@ -2822,7 +2822,10 @@ export function WorkoutPage({ onBack, user }) {
   const [workoutTypes, setWorkoutTypes] = useState(loadWorkoutTypes);
   const [workoutTypeCategories, setWorkoutTypeCategories] = useState(loadWorkoutTypeCategories);
   const [typeSkipDates, setTypeSkipDates] = useState(loadSkipDates);
+  // ✎ Edit opens the workout-types popup: order them, set each one's category,
+  // skip or remove it. `typeDrag` is the name being dragged inside it.
   const [editingTypes, setEditingTypes] = useState(false);
+  const [typeDrag, setTypeDrag] = useState(null);
   const [addingType, setAddingType] = useState(false);
   const [newTypeName, setNewTypeName] = useState('');
   const [historyGroup, setHistoryGroup] = useState('');
@@ -3886,6 +3889,59 @@ export function WorkoutPage({ onBack, user }) {
     saveSkipDates(next, user?.uid);
   }
 
+  // --- Workout-type list edits (all from the ✎ Edit popup) ---
+  // The pill row renders `workoutTypes` in array order, so ordering the list IS
+  // ordering the row. Order is otherwise only a tie-break for the ⭐ suggestion,
+  // which ranks by how overdue each type is.
+  function commitWorkoutTypes(next) {
+    setWorkoutTypes(next);
+    saveWorkoutTypes(next, user?.uid);
+  }
+
+  /** Move a type to a new position in the row. Out-of-range indexes no-op. */
+  function moveWorkoutType(from, to) {
+    if (from === to || from < 0 || to < 0 || from >= workoutTypes.length || to >= workoutTypes.length) return;
+    const next = [...workoutTypes];
+    next.splice(to, 0, next.splice(from, 1)[0]);
+    commitWorkoutTypes(next);
+  }
+
+  function removeWorkoutType(t) {
+    if (workoutTypes.length <= 1) {
+      window.alert('Keep at least one workout type. Add a new one before removing this.');
+      return;
+    }
+    if (!window.confirm(`Remove "${t}"? Past workouts tagged "${t}" stay tagged.`)) return;
+    commitWorkoutTypes(workoutTypes.filter(x => x !== t));
+    if (workoutTypeCategories[t]) {
+      const nextCats = { ...workoutTypeCategories };
+      delete nextCats[t];
+      setWorkoutTypeCategories(nextCats);
+      saveWorkoutTypeCategories(nextCats, user?.uid);
+    }
+    if (workoutType === t) setWorkoutType('');
+  }
+
+  /** Cycle a type through weights → cardio → yoga (what it counts as on the calendar). */
+  function cycleWorkoutTypeCategory(t) {
+    const cat = workoutTypeCategories[t] || guessWorkoutCategory(t);
+    const nextCat = WORKOUT_CATEGORIES[(WORKOUT_CATEGORIES.indexOf(cat) + 1) % WORKOUT_CATEGORIES.length];
+    const nextCats = { ...workoutTypeCategories, [t]: nextCat };
+    setWorkoutTypeCategories(nextCats);
+    saveWorkoutTypeCategories(nextCats, user?.uid);
+  }
+
+  function addWorkoutType(name) {
+    const trimmed = (name || '').trim();
+    if (!trimmed || workoutTypes.some(x => x.toLowerCase() === trimmed.toLowerCase())) return;
+    commitWorkoutTypes([...workoutTypes, trimmed]);
+    // Seed an explicit category (best-effort guess from the name); editable via
+    // the category button in the popup.
+    const nextCats = { ...workoutTypeCategories, [trimmed]: guessWorkoutCategory(trimmed) };
+    setWorkoutTypeCategories(nextCats);
+    saveWorkoutTypeCategories(nextCats, user?.uid);
+  }
+
   function fillFromLast(t) {
     const last = lastByType[t];
     if (!last) return;
@@ -4264,91 +4320,6 @@ export function WorkoutPage({ onBack, user }) {
                     ? (effective.wasSkipped ? 'skipped today' : 'today')
                     : `${days}d ago${effective.wasSkipped ? ' (skipped)' : ''}`)
                 : 'never';
-              if (editingTypes) {
-                return (
-                  <span
-                    key={t}
-                    className={`${styles.workoutTypePill} ${styles.workoutTypePillEditing || ''}`}
-                    style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', cursor: 'default' }}
-                  >
-                    <span className={styles.workoutTypePillName}>{t}</span>
-                    {(() => {
-                      const cat = workoutTypeCategories[t] || guessWorkoutCategory(t);
-                      const nextCat = WORKOUT_CATEGORIES[(WORKOUT_CATEGORIES.indexOf(cat) + 1) % WORKOUT_CATEGORIES.length];
-                      return (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const nextCats = { ...workoutTypeCategories, [t]: nextCat };
-                            setWorkoutTypeCategories(nextCats);
-                            saveWorkoutTypeCategories(nextCats, user?.uid);
-                          }}
-                          title={`Category: ${cat} — click to change (counts on the calendar as ${cat})`}
-                          style={{
-                            border: '1px solid currentColor',
-                            background: 'transparent',
-                            color: 'inherit',
-                            borderRadius: '0.4rem',
-                            padding: '0.1rem 0.4rem',
-                            fontSize: '0.7rem',
-                            cursor: 'pointer',
-                          }}
-                        >
-                          {CAL_ICON[cat]} {cat}
-                        </button>
-                      );
-                    })()}
-                    <button
-                      type="button"
-                      onClick={() => skipWorkoutType(t)}
-                      title={`Skip ${t} today — resets the days-ago counter without logging a workout`}
-                      style={{
-                        border: '1px solid currentColor',
-                        background: 'transparent',
-                        color: 'inherit',
-                        borderRadius: '0.4rem',
-                        padding: '0.1rem 0.4rem',
-                        fontSize: '0.7rem',
-                        cursor: 'pointer',
-                      }}
-                    >
-                      ⏭ Skip
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (workoutTypes.length <= 1) {
-                          window.alert('Keep at least one workout type. Add a new one before removing this.');
-                          return;
-                        }
-                        if (!window.confirm(`Remove "${t}"? Past workouts tagged "${t}" stay tagged.`)) return;
-                        const next = workoutTypes.filter(x => x !== t);
-                        setWorkoutTypes(next);
-                        saveWorkoutTypes(next, user?.uid);
-                        if (workoutTypeCategories[t]) {
-                          const nextCats = { ...workoutTypeCategories };
-                          delete nextCats[t];
-                          setWorkoutTypeCategories(nextCats);
-                          saveWorkoutTypeCategories(nextCats, user?.uid);
-                        }
-                        if (workoutType === t) setWorkoutType('');
-                      }}
-                      title={`Remove "${t}" from your workout types`}
-                      style={{
-                        border: '1px solid currentColor',
-                        background: 'transparent',
-                        color: 'inherit',
-                        borderRadius: '0.4rem',
-                        padding: '0.1rem 0.4rem',
-                        fontSize: '0.7rem',
-                        cursor: 'pointer',
-                      }}
-                    >
-                      × Remove
-                    </button>
-                  </span>
-                );
-              }
               return (
                 <button
                   key={t}
@@ -4389,17 +4360,7 @@ export function WorkoutPage({ onBack, user }) {
                 value={newTypeName}
                 onChange={e => setNewTypeName(e.target.value)}
                 onBlur={() => {
-                  const name = newTypeName.trim();
-                  if (name && !workoutTypes.some(x => x.toLowerCase() === name.toLowerCase())) {
-                    const next = [...workoutTypes, name];
-                    setWorkoutTypes(next);
-                    saveWorkoutTypes(next, user?.uid);
-                    // Seed an explicit category (best-effort guess from the
-                    // name); editable via the category button in edit mode.
-                    const nextCats = { ...workoutTypeCategories, [name]: guessWorkoutCategory(name) };
-                    setWorkoutTypeCategories(nextCats);
-                    saveWorkoutTypeCategories(nextCats, user?.uid);
-                  }
+                  addWorkoutType(newTypeName);
                   setNewTypeName('');
                   setAddingType(false);
                 }}
@@ -4424,14 +4385,14 @@ export function WorkoutPage({ onBack, user }) {
             )}
             <button
               className={`${styles.workoutTypeEditBtn} ${editingTypes ? styles.workoutTypeEditBtnActive : ''}`}
-              onClick={() => setEditingTypes(v => !v)}
+              onClick={() => setEditingTypes(true)}
               type="button"
-              title={editingTypes ? 'Done editing' : 'Edit / remove workout types'}
+              title="Order, categorise, skip or remove your workout types"
             >
-              {editingTypes ? '✓ Done' : '✎ Edit'}
+              ✎ Edit
             </button>
 
-            {workoutType && lastByType[workoutType] && !editingTypes && (
+            {workoutType && lastByType[workoutType] && (
               <button
                 className={styles.workoutTypeRefill}
                 onClick={() => fillFromLast(workoutType)}
@@ -6068,6 +6029,121 @@ export function WorkoutPage({ onBack, user }) {
           </div>
         </div>
       )}
+
+      {/* Workout types popup (✎ Edit). The pill row is rendered straight from
+          `workoutTypes`, so dragging a row here — or nudging it with ↑/↓, which
+          also works on a touchscreen and with a keyboard — reorders the row
+          itself. Category / Skip / Remove moved in here too, so the row stays a
+          row of buttons instead of turning into a control panel in edit mode. */}
+      {editingTypes && (() => {
+        const close = () => { setEditingTypes(false); setTypeDrag(null); };
+        const rowBtn = {
+          border: '1px solid var(--color-border, #e2e8f0)', background: 'var(--color-surface, #fff)',
+          borderRadius: 6, padding: '0.2rem 0.45rem', fontSize: '0.75rem', cursor: 'pointer', lineHeight: 1.3,
+        };
+        return (
+          <div onClick={close} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
+            <div onClick={e => e.stopPropagation()} style={{ background: 'var(--color-surface, #fff)', borderRadius: 12, padding: '1.1rem 1.2rem', width: 'min(440px, 94vw)', maxHeight: '90vh', overflow: 'auto', boxShadow: '0 10px 40px rgba(0,0,0,0.25)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 4 }}>
+                <div style={{ fontWeight: 700, fontSize: '1rem' }}>Workout types</div>
+                <button onClick={close} type="button" style={{ background: 'none', border: 'none', fontSize: '1.4rem', cursor: 'pointer', lineHeight: 1 }}>&times;</button>
+              </div>
+              <p style={{ margin: '0 0 0.85rem', fontSize: '0.78rem', color: 'var(--color-text-muted)', lineHeight: 1.45 }}>
+                Drag a type, or use ↑ ↓, to set the order they appear in. The ⭐ suggestion still goes by
+                whichever is most overdue — this is the order of the row.
+              </p>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {workoutTypes.map((t, idx) => {
+                  const cat = workoutTypeCategories[t] || guessWorkoutCategory(t);
+                  const dragging = typeDrag === t;
+                  return (
+                    <div
+                      key={t}
+                      draggable
+                      onDragStart={() => setTypeDrag(t)}
+                      onDragEnd={() => setTypeDrag(null)}
+                      onDragOver={e => { if (typeDrag) e.preventDefault(); }}
+                      onDrop={e => {
+                        e.preventDefault();
+                        if (typeDrag) moveWorkoutType(workoutTypes.indexOf(typeDrag), idx);
+                        setTypeDrag(null);
+                      }}
+                      style={{
+                        display: 'flex', alignItems: 'center', gap: 8, padding: '0.4rem 0.5rem',
+                        border: '1px solid var(--color-border, #e2e8f0)', borderRadius: 8,
+                        background: dragging ? 'var(--color-bg-alt, #f1f5f9)' : 'transparent',
+                        opacity: dragging ? 0.6 : 1, cursor: 'grab',
+                      }}
+                    >
+                      <span title="Drag to reorder" style={{ color: 'var(--color-text-muted)', fontSize: '0.9rem' }}>⠿</span>
+                      <span style={{ flex: 1, minWidth: 0, fontSize: '0.86rem', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t}</span>
+                      <button
+                        type="button"
+                        onClick={() => moveWorkoutType(idx, idx - 1)}
+                        disabled={idx === 0}
+                        title="Move up"
+                        style={{ ...rowBtn, opacity: idx === 0 ? 0.35 : 1, cursor: idx === 0 ? 'default' : 'pointer' }}
+                      >↑</button>
+                      <button
+                        type="button"
+                        onClick={() => moveWorkoutType(idx, idx + 1)}
+                        disabled={idx === workoutTypes.length - 1}
+                        title="Move down"
+                        style={{ ...rowBtn, opacity: idx === workoutTypes.length - 1 ? 0.35 : 1, cursor: idx === workoutTypes.length - 1 ? 'default' : 'pointer' }}
+                      >↓</button>
+                      <button
+                        type="button"
+                        onClick={() => cycleWorkoutTypeCategory(t)}
+                        title={`Counts on the calendar as ${cat} — click to change`}
+                        style={rowBtn}
+                      >{CAL_ICON[cat]} {cat}</button>
+                      <button
+                        type="button"
+                        onClick={() => skipWorkoutType(t)}
+                        title={`Skip ${t} today — resets the days-ago counter without logging a workout`}
+                        style={rowBtn}
+                      >⏭</button>
+                      <button
+                        type="button"
+                        onClick={() => removeWorkoutType(t)}
+                        title={`Remove "${t}" from your workout types`}
+                        style={{ ...rowBtn, color: '#dc2626' }}
+                      >×</button>
+                    </div>
+                  );
+                })}
+              </div>
+
+              <div style={{ display: 'flex', gap: 8, marginTop: '0.9rem' }}>
+                <input
+                  type="text"
+                  value={newTypeName}
+                  onChange={e => setNewTypeName(e.target.value)}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter') { addWorkoutType(newTypeName); setNewTypeName(''); }
+                    else if (e.key === 'Escape') close();
+                  }}
+                  placeholder="Add a workout type…"
+                  style={{ flex: 1, minWidth: 0, padding: '0.4rem 0.55rem', borderRadius: 8, border: '1px solid var(--color-border, #e2e8f0)', fontSize: '0.85rem', background: 'var(--color-surface, #fff)' }}
+                />
+                <button
+                  type="button"
+                  onClick={() => { addWorkoutType(newTypeName); setNewTypeName(''); }}
+                  disabled={!newTypeName.trim()}
+                  style={{ ...rowBtn, padding: '0.4rem 0.8rem', fontWeight: 700, opacity: newTypeName.trim() ? 1 : 0.45 }}
+                >Add</button>
+              </div>
+
+              <button
+                type="button"
+                onClick={close}
+                style={{ marginTop: '0.9rem', width: '100%', padding: '0.5rem', borderRadius: 8, border: 'none', background: 'var(--color-accent, #3B6B9C)', color: '#fff', fontSize: '0.88rem', fontWeight: 700, cursor: 'pointer' }}
+              >Done</button>
+            </div>
+          </div>
+        );
+      })()}
 
       {chartEdit && (() => {
         const exLower = (chartEdit.exercise || '').trim().toLowerCase();
