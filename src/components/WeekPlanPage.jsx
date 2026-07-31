@@ -319,16 +319,9 @@ export function WeekPlanPage({ recipes, getRecipe, user, weeklyPlan = [], weekly
   );
 
   // Logged workouts grouped by date, categorized exactly like the Workout
-  // calendar (so the Week Plan shows recorded days the same way).
+  // calendar (so the Week Plan shows recorded days the same way) — stretch
+  // sessions excluded there too, which keeps the goal tally below in step.
   const workoutsByDate = useMemo(
-    () => buildWorkoutsByDate(workoutsRaw, typeCategories),
-    [workoutsRaw, typeCategories]
-  );
-  // Same, minus stretch sessions — what the workout ROW renders and what the
-  // suggestion treats as an already-trained day. The weekly goal tally below
-  // stays on the unfiltered map so it keeps matching the Workout page's
-  // per-week progress.
-  const trainedByDate = useMemo(
     () => buildWorkoutsByDate(workoutsRaw, typeCategories, stretchRoutineNames),
     [workoutsRaw, typeCategories, stretchRoutineNames]
   );
@@ -400,14 +393,14 @@ export function WeekPlanPage({ recipes, getRecipe, user, weeklyPlan = [], weekly
     const today = new Date();
     const sunday = addDays(today, -today.getDay()); // back up to Sunday
     for (let i = 0; i < 7; i++) {
-      const items = trainedByDate.get(isoDate(addDays(sunday, i))) || [];
+      const items = workoutsByDate.get(isoDate(addDays(sunday, i))) || [];
       if (items.length) {
         idxs.add(i);
         for (const it of items) if (it.label) types.add(it.label);
       }
     }
     return { recordedWeekIdxs: idxs, recordedWeekTypes: types };
-  }, [trainedByDate]);
+  }, [workoutsByDate]);
   const resolvedWorkoutPlan = useMemo(
     () => resolveWorkoutPlan(rankedTypes, weekWorkoutPlan, workoutTypes, recordedWeekIdxs, recordedWeekTypes),
     [rankedTypes, weekWorkoutPlan, workoutTypes, recordedWeekIdxs, recordedWeekTypes]
@@ -608,7 +601,7 @@ export function WeekPlanPage({ recipes, getRecipe, user, weeklyPlan = [], weekly
   // your workout types + Rest + Auto. Keyed Sun..Sat.
   const renderDayWorkout = useCallback((dateStr) => {
     const saunaChip = renderSaunaChip(dateStr);
-    const recorded = trainedByDate.get(dateStr) || [];
+    const recorded = workoutsByDate.get(dateStr) || [];
     if (recorded.length) {
       // The chip is a sibling of the open-workouts button, never inside it —
       // it's a button itself on upcoming days, and buttons can't nest.
@@ -659,7 +652,7 @@ export function WeekPlanPage({ recipes, getRecipe, user, weeklyPlan = [], weekly
         {saunaChip}
       </div>
     );
-  }, [trainedByDate, renderSaunaChip, resolvedWorkoutPlan, typeCategories, workoutTypes, setWorkoutCategory, onOpenWorkout]);
+  }, [workoutsByDate, renderSaunaChip, resolvedWorkoutPlan, typeCategories, workoutTypes, setWorkoutCategory, onOpenWorkout]);
 
   // Refresh from localStorage when a Firestore sync hydrates it, or another tab writes.
   useEffect(() => {

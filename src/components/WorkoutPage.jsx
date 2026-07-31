@@ -2186,7 +2186,7 @@ const CAL_DEFAULT_GOALS = { weights: 3, cardio: 1, yoga: 1, rest: 2 };
 
 // Month-grid calendar of training days, split into weights / cardio / yoga, with
 // per-week goal progress and a REST DAY marker on days with no logged workout.
-function WorkoutCalendarView({ workouts, user, typeCategories }) {
+function WorkoutCalendarView({ workouts, user, typeCategories, stretchRoutineNames }) {
   const now = new Date();
   const [monthStart, setMonthStart] = useState(() => new Date(now.getFullYear(), now.getMonth(), 1));
   // localStorage gives an instant value; Firestore (below) is the cross-device
@@ -2220,10 +2220,17 @@ function WorkoutCalendarView({ workouts, user, typeCategories }) {
   }
 
   // iso date -> { items: [{ label, category }] } over all workouts.
+  //
+  // Stretch sessions are left out: the player logs a finished routine as a
+  // workout so it lands in History and Charts, but a stretch isn't a training
+  // day here — it would show as a 🧘 chip and count toward the weekly yoga
+  // goal. A day with nothing but stretching reads as a rest day, same as the
+  // Week Plan's workout row. Stretching keeps its own per-region goal.
   const byDate = useMemo(() => {
     const m = {};
     for (const w of workouts || []) {
       if (!w?.date) continue;
+      if (isStretchWorkout(w, stretchRoutineNames)) continue;
       const cat = workoutCalendarCategory(w, typeCategories);
       if (!m[w.date]) m[w.date] = { items: [] };
       const label = (w.workoutType || '').trim();
@@ -2233,7 +2240,7 @@ function WorkoutCalendarView({ workouts, user, typeCategories }) {
       }
     }
     return m;
-  }, [workouts, typeCategories]);
+  }, [workouts, typeCategories, stretchRoutineNames]);
 
   const year = monthStart.getFullYear();
   const month = monthStart.getMonth();
@@ -5236,7 +5243,7 @@ export function WorkoutPage({ onBack, user }) {
       )}
 
       {viewMode === 'calendar' && (
-        <WorkoutCalendarView workouts={workouts} user={user} typeCategories={workoutTypeCategories} />
+        <WorkoutCalendarView workouts={workouts} user={user} typeCategories={workoutTypeCategories} stretchRoutineNames={stretchRoutineNames} />
       )}
 
       {viewMode === 'charts' && (() => {
