@@ -82,6 +82,29 @@ function getUserEngagement(u) {
   return { label: 'New', color: 'var(--color-text-muted)' };
 }
 
+// App logins were not recorded before this date — recordMobileLogin landed in
+// app release 1.5.1. Anyone last seen before it may have app history that was
+// never counted, so "Web" for those users means "no app login on record",
+// not "never used the app".
+const APP_LOGIN_TRACKING_SINCE = '2026-06-01';
+const APP_LOGIN_CAVEAT = `App logins are only recorded from ${new Date(`${APP_LOGIN_TRACKING_SINCE}T12:00:00`).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} (app v1.5.1). A user last seen before then may have uncounted app history.`;
+
+/**
+ * Does this user have the native app installed?
+ *
+ * `expoPushTokens` is written only by the app, when notification permission is
+ * granted (mobile src/services/notifications.ts). It's the one field on the
+ * user doc the website can never produce, which makes it the tiebreaker for
+ * "they say they use the app but every login is web" — the website is an
+ * installable PWA, so a home-screen shortcut to prep-day.com looks exactly like
+ * the app to the person using it while counting as a web login.
+ *
+ * Absence isn't proof of the opposite: declining notifications leaves no token.
+ */
+function hasAppInstalled(u) {
+  return Array.isArray(u?.expoPushTokens) && u.expoPushTokens.length > 0;
+}
+
 // Which platform(s) a user actually signs in on, from their web vs app login
 // counts. "Both" notes which side they were last seen on so a primarily-app
 // user reads differently from a primarily-web one.
@@ -147,16 +170,31 @@ const ADMIN_COLUMNS = [
     render: u => u.mobileLoginCount || 0 },
   { key: 'mobileLastLogin', label: 'Last App Login', width: 140, defaultVisible: true, sortKey: 'mobileLastLogin',
     render: u => <span title={formatDate(u.mobileLastLogin)}>{u.mobileLastLogin ? timeAgo(u.mobileLastLogin) : '—'}</span> },
-  { key: 'platform', label: 'Platform', width: 120, defaultVisible: true,
+  { key: 'platform', label: 'Platform', width: 140, defaultVisible: true,
     render: u => {
       const p = getUserPlatform(u);
-      if (p.key === 'none') return <span style={{ color: 'var(--color-text-muted)' }}>—</span>;
+      const installed = hasAppInstalled(u);
+      // The anomaly worth seeing inline: the app is on their phone, yet every
+      // login on record is web. Flagged here so it doesn't read as "web user".
+      const flag = installed && p.key !== 'app' && p.key !== 'both' ? (
+        <span title="Has the app installed, but no app login on record — they may be using the website's home-screen PWA, or aren't signed in on the app">{' '}📲</span>
+      ) : null;
+      if (p.key === 'none') {
+        return <span style={{ color: 'var(--color-text-muted)' }}>—{flag}</span>;
+      }
       return (
-        <Badge color={p.color} title={p.key === 'both' ? `Uses both — last on ${p.recent === 'app' ? 'the app' : 'the web'}` : `${p.label}-only`}>
-          {p.key === 'both' ? `Both · ${p.recent === 'app' ? '📱' : '🌐'}` : p.label}
-        </Badge>
+        <>
+          <Badge color={p.color} title={p.key === 'both' ? `Uses both — last on ${p.recent === 'app' ? 'the app' : 'the web'}` : `${p.label}-only. ${APP_LOGIN_CAVEAT}`}>
+            {p.key === 'both' ? `Both · ${p.recent === 'app' ? '📱' : '🌐'}` : p.label}
+          </Badge>
+          {flag}
+        </>
       );
     } },
+  { key: 'appInstalled', label: 'App Installed', width: 120, defaultVisible: true,
+    render: u => (hasAppInstalled(u)
+      ? <span title="Has a push token — only the native app writes one">✓</span>
+      : <span style={{ color: 'var(--color-text-muted)' }} title="No push token. Either the app isn't installed, or notifications were declined">—</span>) },
   { key: 'status', label: 'Status', width: 110, defaultVisible: true,
     render: u => { const e = getUserEngagement(u); return <Badge color={e.color}>{e.label}</Badge>; } },
 ];
@@ -721,6 +759,14 @@ export function AdminDashboard({ onClose }) {
           </div>
           <p style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', marginTop: '0.5rem' }}>
             Web = signs in on prep-day.com only · App = the mobile app only · Both = uses each at least once.
+          </p>
+          {/* Two ways this chart under-reports the app, both worth stating where
+              the numbers are read rather than in a comment nobody opens. */}
+          <p style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', marginTop: '0.35rem' }}>
+            ⚠️ {APP_LOGIN_CAVEAT} And the website is an installable PWA — someone
+            running prep-day.com from their home screen counts as Web even though it
+            looks like the app to them. The 📲 flag and the App Installed column mark
+            users whose phone has the real app but whose logins are all web.
           </p>
         </div>
       )}
