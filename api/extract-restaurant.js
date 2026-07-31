@@ -181,6 +181,30 @@ async function fetchGoogleMapsHtml(url) {
   }
 }
 
+// Google answers a datacenter IP (which is what this function is) with a CAPTCHA
+// at /sorry/index instead of the page itself. That URL is not a dead end: it
+// carries the destination we asked for in ?continue=, so unwrap it and use that.
+//
+// Doing so is not optional. The CAPTCHA URL has its OWN ?q= — the challenge
+// token — and the place name is read from ?q=, so left alone it hands back
+// "EgQS6DNxGOPvr9MG…" as the restaurant's name. An empty name is a visible
+// failure; a plausible-looking wrong one gets saved.
+function unwrapGoogleBlockPage(u) {
+  const s = String(u || '');
+  if (!/\/sorry\/|consent\.google\./i.test(s)) return s;
+  const m = s.match(/[?&]continue=([^&]+)/i);
+  if (!m) return s;
+  try { return decodeURIComponent(m[1]); } catch { return s; }
+}
+
+// A ?q= that is one long unbroken run of token characters is a machine value
+// (the CAPTCHA challenge, a signed id), not somewhere you ate. Real place names
+// this long have spaces in them.
+function looksLikeOpaqueToken(s) {
+  const v = String(s || '').trim();
+  return v.length >= 24 && !/\s/.test(v) && /^[A-Za-z0-9_-]+$/.test(v);
+}
+
 // Google's short-link redirect packs the name AND the address into one ?q=:
 // "Ivan Ramen, 25 Clinton St, New York, NY 10002". Split at the first comma
 // whose remainder looks like an address (has a digit in it), so the name is the
@@ -199,7 +223,8 @@ async function extractFromGoogleMaps(url) {
   // (maps.app.goo.gl / goo.gl/maps) to the canonical /maps/place/<Name>/@lat,lng
   // URL, which is where we read the name and coords from.
   const { html, finalUrl } = await fetchGoogleMapsHtml(url);
-  const longUrl = finalUrl || url;
+  // A CAPTCHA page still tells us where we were going — see unwrapGoogleBlockPage.
+  const longUrl = unwrapGoogleBlockPage(finalUrl || url);
 
   // Name candidates, in priority order. The URL is the reliable source: Google
   // now serves a generic og:title/<title> of just "Google Maps" to non-JS
@@ -223,14 +248,14 @@ async function extractFromGoogleMaps(url) {
     || /(?:place_id|ftid)\s*[:=]/i.test(s)
     || /^0x[0-9a-f]+/i.test(s)
     || /^[?&]/.test(s);
-  const usable = (s) => !!s && !isCoordPair(s) && !isIdentifier(s);
+  const usable = (s) => !!s && !isCoordPair(s) && !isIdentifier(s) && !looksLikeOpaqueToken(s);
 
   // Candidate URLs, best first. A short link (maps.app.goo.gl) doesn't always
   // answer with a 302 we can follow — sometimes it's an interstitial page whose
   // BODY carries the real destination, in which case r.url is still the short
   // link and the name would be lost. So mine the HTML for the canonical link, a
   // meta-refresh target, and any /maps/place/ URL it mentions.
-  const candidateUrls = [longUrl, url];
+  const candidateUrls = [longUrl, unwrapGoogleBlockPage(url)];
   if (html) {
     const canonical = html.match(/<link[^>]+rel=["']canonical["'][^>]+href=["']([^"']+)["']/i)
       || html.match(/<link[^>]+href=["']([^"']+)["'][^>]+rel=["']canonical["']/i);
