@@ -176,17 +176,63 @@ const LOG_COLUMN_DEFS = [
 const COL_WIDTHS_KEY = 'sunday-workout-log-col-widths';
 const DEFAULT_COL_WIDTHS = LOG_COLUMN_DEFS.reduce((acc, c) => { acc[c.id] = c.default; return acc; }, {});
 
-function loadColWidths() {
+// Saved widths are merged over the defaults rather than replacing them, so a
+// column added after the user last resized still gets its default, and any
+// saved width below the column's `min` is discarded (it migrates up instead of
+// staying squeezed).
+function loadWidthsFor(storageKey, defs) {
+  const defaults = defs.reduce((acc, c) => { acc[c.id] = c.default; return acc; }, {});
   try {
-    const saved = JSON.parse(localStorage.getItem(COL_WIDTHS_KEY)) || {};
-    const merged = { ...DEFAULT_COL_WIDTHS };
-    for (const c of LOG_COLUMN_DEFS) {
+    const saved = JSON.parse(localStorage.getItem(storageKey)) || {};
+    const merged = { ...defaults };
+    for (const c of defs) {
       if (typeof saved[c.id] === 'number' && saved[c.id] >= c.min) {
         merged[c.id] = saved[c.id];
       }
     }
     return merged;
-  } catch { return { ...DEFAULT_COL_WIDTHS }; }
+  } catch { return defaults; }
+}
+
+function loadColWidths() {
+  return loadWidthsFor(COL_WIDTHS_KEY, LOG_COLUMN_DEFS);
+}
+
+// History table columns. Unlike the Log table these are also hideable, so each
+// def carries a label for the "Columns" menu. `cls` is the existing CSS class
+// that supplies the cell's text alignment (widths now come from the colgroup).
+const HISTORY_COLUMN_DEFS = [
+  { id: 'select', label: 'Select', default: 34, min: 28, cls: 'logSelectCol' },
+  { id: 'date', label: 'Date', default: 150, min: 90, cls: 'historyMetaCol' },
+  { id: 'location', label: 'Location', default: 118, min: 70, cls: 'historyMetaCol' },
+  { id: 'type', label: 'Type', default: 118, min: 70, cls: 'historyMetaCol' },
+  { id: 'group', label: 'Group', default: 110, min: 60, cls: 'logGroupCol' },
+  { id: 'exercise', label: 'Exercise', default: 200, min: 120, cls: 'logExerciseCol' },
+  { id: 'notes', label: 'Notes', default: 200, min: 100, cls: 'logNotesCol' },
+  { id: 's1', label: 'Set 1', default: 62, min: 50, cls: 'logSetCol' },
+  { id: 's2', label: 'Set 2', default: 62, min: 50, cls: 'logSetCol' },
+  { id: 's3', label: 'Set 3', default: 62, min: 50, cls: 'logSetCol' },
+  { id: 's4', label: 'Set 4', default: 62, min: 50, cls: 'logSetCol' },
+  { id: 'weight', label: 'Weight', default: 88, min: 64, cls: 'logWeightCol' },
+  { id: 'per', label: 'Per leg/arm', default: 80, min: 64, cls: 'logPerCol' },
+  { id: 'total', label: 'Total', default: 70, min: 50, cls: 'logTotalCol' },
+  { id: 'remove', label: 'Delete', default: 32, min: 28, cls: 'logRemoveCol' },
+];
+const HISTORY_COL_WIDTHS_KEY = 'sunday-workout-history-col-widths';
+const HISTORY_HIDDEN_COLS_KEY = 'sunday-workout-history-hidden-cols';
+
+function loadHistoryColWidths() {
+  return loadWidthsFor(HISTORY_COL_WIDTHS_KEY, HISTORY_COLUMN_DEFS);
+}
+
+function loadHistoryHiddenCols() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(HISTORY_HIDDEN_COLS_KEY));
+    if (!Array.isArray(saved)) return [];
+    // Drop ids from an older column set so a stale entry can't hide nothing
+    // (or, worse, shift the colgroup out of step with the rendered cells).
+    return saved.filter(id => HISTORY_COLUMN_DEFS.some(c => c.id === id));
+  } catch { return []; }
 }
 
 function daysSince(dateStr) {
@@ -2622,15 +2668,41 @@ export function WorkoutPage({ onBack, user }) {
     return merged;
   }
 
-  // Muscle groups worth showing once a type is chosen: only those holding at
-  // least one exercise of that type. A type with nothing tagged to it yet
-  // (a fresh Stretching list) falls back to the full grid so the user can
-  // still drill in and add the first one.
+  // Every group the pickers should offer: the built-in catalog plus whatever
+  // groups the user's own exercises actually sit in. Libraries organised by
+  // split (Push / Pull / Snack) aren't in MUSCLE_GROUPS, and without this those
+  // exercises can't be reached from the log at all.
+  const allMuscleGroups = useMemo(() => {
+    const seen = new Set(MUSCLE_GROUPS.map(g => g.toLowerCase()));
+    const extra = [];
+    const fromData = [
+      ...(exerciseLibrary || []).filter(i => !i?.retired && i?.exercise).map(i => effectiveMuscleGroup(i) || ''),
+      ...(customExercises || []).map(e => e?.muscleGroup || ''),
+    ];
+    for (const raw of fromData) {
+      const name = String(raw).trim();
+      if (!name) continue;
+      const key = name.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      extra.push(name);
+    }
+    extra.sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+    return [...MUSCLE_GROUPS, ...extra];
+  }, [exerciseLibrary, customExercises]);
+
+  // Group order once a type is chosen: the ones already holding an exercise of
+  // that type first, then the rest. Empty groups stay on the grid so a
+  // brand-new one — an untouched Chest — can still be picked and filled.
   function groupsForType(exerciseType) {
     const wantType = normalizeExerciseType(exerciseType);
-    if (!wantType) return [...MUSCLE_GROUPS];
-    const hit = MUSCLE_GROUPS.filter(g => exercisesForGroup(g, wantType).length > 0);
-    return hit.length > 0 ? hit : [...MUSCLE_GROUPS];
+    if (!wantType) return allMuscleGroups;
+    const filled = [];
+    const empty = [];
+    for (const g of allMuscleGroups) {
+      (exercisesForGroup(g, wantType).length > 0 ? filled : empty).push(g);
+    }
+    return [...filled, ...empty];
   }
 
   // Muscle group an exercise belongs to, by name, from the user's own data.
@@ -2651,7 +2723,7 @@ export function WorkoutPage({ onBack, user }) {
   // routine builder offers. Same source as the picker's Stretching branch.
   function stretchExerciseNames() {
     const set = new Set();
-    for (const g of MUSCLE_GROUPS) for (const n of exercisesForGroup(g, 'Stretching')) set.add(n);
+    for (const g of allMuscleGroups) for (const n of exercisesForGroup(g, 'Stretching')) set.add(n);
     return [...set].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
   }
 
@@ -2939,15 +3011,18 @@ export function WorkoutPage({ onBack, user }) {
   }, [colWidths]);
   const colResizeRef = useRef(null);
 
-  function startColResize(colId, e) {
+  // Drag-to-resize is shared by the Log and History tables — the drag captures
+  // which def list / width setter it belongs to so both can use one ref.
+  function startColResize(colId, e, defs, widths, setWidths) {
     e.preventDefault();
     e.stopPropagation();
-    const def = LOG_COLUMN_DEFS.find(c => c.id === colId);
+    const def = defs.find(c => c.id === colId);
     colResizeRef.current = {
       colId,
       startX: e.clientX,
-      startWidth: colWidths[colId],
+      startWidth: widths[colId],
       minWidth: def?.min || 30,
+      setWidths,
     };
     e.currentTarget.setPointerCapture(e.pointerId);
     e.currentTarget.classList.add(styles.colResizing);
@@ -2956,25 +3031,81 @@ export function WorkoutPage({ onBack, user }) {
     const s = colResizeRef.current;
     if (!s) return;
     const next = Math.max(s.minWidth, s.startWidth + (e.clientX - s.startX));
-    setColWidths(prev => prev[s.colId] === next ? prev : ({ ...prev, [s.colId]: next }));
+    s.setWidths(prev => prev[s.colId] === next ? prev : ({ ...prev, [s.colId]: next }));
   }
   function onColResizeEnd(e) {
     if (!colResizeRef.current) return;
     colResizeRef.current = null;
     e.currentTarget.classList.remove(styles.colResizing);
   }
-  function renderColResizer(colId) {
+  function renderResizer(colId, defs, widths, setWidths) {
     return (
       <span
         className={styles.colResizer}
-        onPointerDown={ev => startColResize(colId, ev)}
+        onPointerDown={ev => startColResize(colId, ev, defs, widths, setWidths)}
         onPointerMove={onColResizeMove}
         onPointerUp={onColResizeEnd}
         onPointerCancel={onColResizeEnd}
       />
     );
   }
+  function renderColResizer(colId) {
+    return renderResizer(colId, LOG_COLUMN_DEFS, colWidths, setColWidths);
+  }
   const logTableWidth = LOG_COLUMN_DEFS.reduce((s, c) => s + (colWidths[c.id] || 0), 0);
+
+  // ---- History table columns: resizable + hideable -----------------------
+  const [historyColWidths, setHistoryColWidths] = useState(loadHistoryColWidths);
+  useEffect(() => {
+    try { localStorage.setItem(HISTORY_COL_WIDTHS_KEY, JSON.stringify(historyColWidths)); } catch {}
+  }, [historyColWidths]);
+  const [historyHiddenCols, setHistoryHiddenCols] = useState(loadHistoryHiddenCols);
+  useEffect(() => {
+    try { localStorage.setItem(HISTORY_HIDDEN_COLS_KEY, JSON.stringify(historyHiddenCols)); } catch {}
+  }, [historyHiddenCols]);
+  const [historyColMenuOpen, setHistoryColMenuOpen] = useState(false);
+  const historyColMenuRef = useRef(null);
+
+  useEffect(() => {
+    if (!historyColMenuOpen) return undefined;
+    function onDocMouseDown(ev) {
+      if (historyColMenuRef.current?.contains(ev.target)) return;
+      setHistoryColMenuOpen(false);
+    }
+    document.addEventListener('mousedown', onDocMouseDown);
+    return () => document.removeEventListener('mousedown', onDocMouseDown);
+  }, [historyColMenuOpen]);
+
+  const hiddenHistoryColSet = useMemo(() => new Set(historyHiddenCols), [historyHiddenCols]);
+  const historyColVisible = id => !hiddenHistoryColSet.has(id);
+  const visibleHistoryCols = HISTORY_COLUMN_DEFS.filter(c => historyColVisible(c.id));
+  const historyTableWidth = visibleHistoryCols.reduce((s, c) => s + (historyColWidths[c.id] || 0), 0);
+  function toggleHistoryCol(id) {
+    setHistoryHiddenCols(prev => (prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]));
+  }
+  function renderHistoryColResizer(colId) {
+    return renderResizer(colId, HISTORY_COLUMN_DEFS, historyColWidths, setHistoryColWidths);
+  }
+  // The divider between the workout-level meta columns and the exercise
+  // columns rides on whichever meta column is still visible last.
+  const lastVisibleMetaCol = ['date', 'location', 'type'].filter(id => historyColVisible(id)).slice(-1)[0];
+  function metaCellBorder(id) {
+    return id === lastVisibleMetaCol ? { borderRight: '1px solid var(--color-border)' } : undefined;
+  }
+  // A hidden column still has to skip its <th>/<td>, so every history cell is
+  // wrapped in this rather than relying on CSS display:none (which would leave
+  // the colgroup and the cells out of step).
+  function historyTh(id, content, extraProps = {}) {
+    if (!historyColVisible(id)) return null;
+    const def = HISTORY_COLUMN_DEFS.find(c => c.id === id);
+    const { className, ...rest } = extraProps;
+    return (
+      <th key={id} className={className || styles[def.cls]} {...rest}>
+        {content}
+        {renderHistoryColResizer(id)}
+      </th>
+    );
+  }
 
   async function handleLogImage(blob) {
     if (!blob) return;
@@ -4569,7 +4700,7 @@ export function WorkoutPage({ onBack, user }) {
                       <td>
                         <select className={`${styles.logCell} ${styles.logGroupSelect} ${editedCls('group')}`} value={entry.group} onChange={e => { updateEntry(i, 'group', e.target.value); pickExercise(i, ''); }}>
                           <option value="">—</option>
-                          {MUSCLE_GROUPS.map(g => <option key={g} value={g}>{g}</option>)}
+                          {allMuscleGroups.map(g => <option key={g} value={g}>{g}</option>)}
                         </select>
                       </td>
                       <td>
@@ -4759,7 +4890,7 @@ export function WorkoutPage({ onBack, user }) {
             </datalist>
             <select className={styles.groupSelect} value={historyGroup} onChange={e => setHistoryGroup(e.target.value)}>
               <option value="">All Groups</option>
-              {MUSCLE_GROUPS.map(g => <option key={g} value={g}>{g}</option>)}
+              {allMuscleGroups.map(g => <option key={g} value={g}>{g}</option>)}
             </select>
             <select className={styles.groupSelect} value={historyExercise} onChange={e => setHistoryExercise(e.target.value)}>
               <option value="">All Exercises</option>
@@ -4773,6 +4904,41 @@ export function WorkoutPage({ onBack, user }) {
               onClick={exportHistory}
               title="Download a .csv file (opens in Excel) of the currently filtered history"
             >Export</button>
+            <div className={styles.colMenuWrap} ref={historyColMenuRef}>
+              <button
+                className={styles.clearBtn}
+                onClick={() => setHistoryColMenuOpen(o => !o)}
+                title="Choose which columns to show — drag a column's right edge to resize it"
+                type="button"
+              >
+                Columns{historyHiddenCols.length > 0 ? ` (${visibleHistoryCols.length}/${HISTORY_COLUMN_DEFS.length})` : ''} ▾
+              </button>
+              {historyColMenuOpen && (
+                <div className={styles.colMenu}>
+                  <div className={styles.colMenuHint}>Drag a column&apos;s right edge to resize it.</div>
+                  {HISTORY_COLUMN_DEFS.map(c => (
+                    <label key={c.id} className={styles.colMenuItem}>
+                      <input
+                        type="checkbox"
+                        checked={historyColVisible(c.id)}
+                        onChange={() => toggleHistoryCol(c.id)}
+                      />
+                      <span>{c.label}</span>
+                    </label>
+                  ))}
+                  <div className={styles.colMenuActions}>
+                    <button type="button" className={styles.colMenuBtn} onClick={() => setHistoryHiddenCols([])}>Show all</button>
+                    <button
+                      type="button"
+                      className={styles.colMenuBtn}
+                      onClick={() => setHistoryColWidths(
+                        HISTORY_COLUMN_DEFS.reduce((acc, c) => { acc[c.id] = c.default; return acc; }, {}),
+                      )}
+                    >Reset widths</button>
+                  </div>
+                </div>
+              )}
+            </div>
             <span className={styles.historyCount}>{filteredHistory.length} workouts</span>
           </div>
           {filteredHistory.length === 0 ? (
@@ -4825,7 +4991,7 @@ export function WorkoutPage({ onBack, user }) {
                       onChange={ev => { if (ev.target.value) bulkUpdateField('group', ev.target.value); }}
                     >
                       <option value="">Set group…</option>
-                      {MUSCLE_GROUPS.map(g => <option key={g} value={g}>{g}</option>)}
+                      {allMuscleGroups.map(g => <option key={g} value={g}>{g}</option>)}
                     </select>
                     <select
                       className={styles.bulkSelect}
@@ -4837,7 +5003,7 @@ export function WorkoutPage({ onBack, user }) {
                         // Aggregate every group's visible list (defaults + customs - hidden)
                         // so bulk-edit choices match the mobile picker exactly.
                         const all = new Set();
-                        for (const g of MUSCLE_GROUPS) {
+                        for (const g of allMuscleGroups) {
                           for (const ex of exercisesForGroup(g)) all.add(ex);
                         }
                         return Array.from(all)
@@ -4909,10 +5075,18 @@ export function WorkoutPage({ onBack, user }) {
                     <button className={styles.bulkClearBtn} onClick={clearSelectedRows}>Clear</button>
                   </div>
                 )}
-                <table className={styles.logTable}>
+                <table
+                  className={styles.logTable}
+                  style={{ width: historyTableWidth, minWidth: 0, tableLayout: 'fixed' }}
+                >
+                  <colgroup>
+                    {visibleHistoryCols.map(c => (
+                      <col key={c.id} style={{ width: historyColWidths[c.id] }} />
+                    ))}
+                  </colgroup>
                   <thead>
                     <tr>
-                      <th className={styles.logSelectCol}>
+                      {historyTh('select', (
                         <input
                           type="checkbox"
                           aria-label="Select all visible"
@@ -4920,56 +5094,40 @@ export function WorkoutPage({ onBack, user }) {
                           ref={el => { if (el) el.indeterminate = someVisibleSelected; }}
                           onChange={() => setVisibleRowsSelected(visibleKeys, !allVisibleSelected)}
                         />
-                      </th>
-                      <th className={styles.historyMetaCol}>Date</th>
-                      <th className={styles.historyMetaCol}>Location</th>
-                      <th className={styles.historyMetaCol}>Type</th>
-                      <th className={styles.logGroupCol}>Group</th>
-                      <th className={styles.logExerciseCol}>Exercise</th>
-                      <th className={styles.logNotesCol}>Notes</th>
-                      <th className={styles.logSetCol} title="Set 1 reps">S1</th>
-                      <th className={styles.logSetCol}>S2</th>
-                      <th className={styles.logSetCol}>S3</th>
-                      <th className={styles.logSetCol}>S4</th>
-                      <th className={styles.logWeightCol}>Weight ({weightUnit})</th>
-                      <th className={styles.logPerCol} title="Per leg/arm">Per leg/arm</th>
-                      <th className={styles.logTotalCol}>Total</th>
-                      <th className={styles.logRemoveCol}></th>
+                      ))}
+                      {historyTh('date', 'Date')}
+                      {historyTh('location', 'Location')}
+                      {historyTh('type', 'Type')}
+                      {historyTh('group', 'Group')}
+                      {historyTh('exercise', 'Exercise')}
+                      {historyTh('notes', 'Notes')}
+                      {historyTh('s1', 'S1', { title: 'Set 1 reps' })}
+                      {historyTh('s2', 'S2')}
+                      {historyTh('s3', 'S3')}
+                      {historyTh('s4', 'S4')}
+                      {historyTh('weight', `Weight (${weightUnit})`)}
+                      {historyTh('per', 'Per leg/arm', { title: 'Per leg/arm' })}
+                      {historyTh('total', 'Total')}
+                      {historyTh('remove', '')}
                     </tr>
                     <tr className={styles.historySearchRow}>
-                      <th />
-                      {[
-                        ['date', 'historyMetaCol'], ['location', 'historyMetaCol'], ['type', 'historyMetaCol'],
-                        ['group', 'logGroupCol'], ['exercise', 'logExerciseCol'], ['notes', 'logNotesCol'],
-                      ].map(([key, col]) => (
-                        <th key={key} className={styles[col]}>
-                          <input
-                            type="text"
-                            className={styles.historySearchInput}
-                            placeholder="Search…"
-                            value={historyColSearch[key]}
-                            onChange={ev => setHistoryColSearch(s => ({ ...s, [key]: ev.target.value }))}
-                            aria-label={`Search ${key}`}
-                          />
-                        </th>
-                      ))}
-                      <th className={styles.logSetCol} />
-                      <th className={styles.logSetCol} />
-                      <th className={styles.logSetCol} />
-                      <th className={styles.logSetCol} />
-                      <th className={styles.logWeightCol}>
-                        <input
-                          type="text"
-                          className={styles.historySearchInput}
-                          placeholder="Search…"
-                          value={historyColSearch.weight}
-                          onChange={ev => setHistoryColSearch(s => ({ ...s, weight: ev.target.value }))}
-                          aria-label="Search weight"
-                        />
-                      </th>
-                      <th className={styles.logPerCol} />
-                      <th className={styles.logTotalCol} />
-                      <th className={styles.logRemoveCol} />
+                      {HISTORY_COLUMN_DEFS.filter(c => historyColVisible(c.id)).map(c => {
+                        const searchable = ['date', 'location', 'type', 'group', 'exercise', 'notes', 'weight'].includes(c.id);
+                        return (
+                          <th key={c.id} className={styles[c.cls]}>
+                            {searchable && (
+                              <input
+                                type="text"
+                                className={styles.historySearchInput}
+                                placeholder="Search…"
+                                value={historyColSearch[c.id]}
+                                onChange={ev => setHistoryColSearch(s => ({ ...s, [c.id]: ev.target.value }))}
+                                aria-label={`Search ${c.id}`}
+                              />
+                            )}
+                          </th>
+                        );
+                      })}
                     </tr>
                   </thead>
                   <tbody>
@@ -4977,49 +5135,61 @@ export function WorkoutPage({ onBack, user }) {
                       // Sauna-only day: one compact row, no exercise cells.
                       if (saunaOnly) {
                         const wk = workoutKey(w);
+                        // The filler cell has to span exactly the visible
+                        // exercise columns, or a hidden column shifts the row.
+                        const saunaSpan = visibleHistoryCols
+                          .filter(c => !['select', 'date', 'location', 'type'].includes(c.id)).length;
                         return (
                           <tr key={`${wk}-sauna`} className={styles.historyRowDayStart}>
-                            <td className={styles.logSelectCell} />
-                            <td className={styles.historyMetaCell}>
-                              <input
-                                type="date"
-                                className={styles.historyDateInput}
-                                value={w.date}
-                                onChange={ev => setHistoryDate(wk, ev.target.value)}
-                                title="Edit date"
-                              />
-                              <button
-                                className={styles.historyDeleteDayBtn}
-                                onClick={() => deleteHistoryDay(wk)}
-                                title={`Delete the ${w.date} sauna day`}
-                                type="button"
-                              >Delete day</button>
-                            </td>
-                            <td className={styles.historyMetaCell}>
-                              <select
-                                className={styles.historyGymSelect}
-                                style={{ marginTop: 0 }}
-                                value={w.gym || ''}
-                                onChange={ev => setHistoryGymForDate(wk, ev.target.value)}
-                                title="Edit location"
-                              >
-                                {w.gym && !gyms.includes(w.gym) && <option value={w.gym}>{w.gym}</option>}
-                                {gyms.map(g => <option key={g} value={g}>{g}</option>)}
-                              </select>
-                            </td>
-                            <td className={styles.historyMetaCell} style={{ borderRight: '1px solid var(--color-border)' }}>
-                              <select
-                                className={styles.historyTypeSelect}
-                                style={{ marginTop: 0 }}
-                                value={w.workoutType || ''}
-                                onChange={ev => setHistoryWorkoutType(wk, ev.target.value)}
-                                title="Tag this workout's type"
-                              >
-                                <option value="">No type</option>
-                                {workoutTypes.map(t => <option key={t} value={t}>{t}</option>)}
-                              </select>
-                            </td>
-                            <td colSpan={11} className={styles.saunaOnlyCell}>🧖 Sauna day</td>
+                            {historyColVisible('select') && <td className={styles.logSelectCell} />}
+                            {historyColVisible('date') && (
+                              <td className={styles.historyMetaCell} style={metaCellBorder('date')}>
+                                <input
+                                  type="date"
+                                  className={styles.historyDateInput}
+                                  value={w.date}
+                                  onChange={ev => setHistoryDate(wk, ev.target.value)}
+                                  title="Edit date"
+                                />
+                                <button
+                                  className={styles.historyDeleteDayBtn}
+                                  onClick={() => deleteHistoryDay(wk)}
+                                  title={`Delete the ${w.date} sauna day`}
+                                  type="button"
+                                >Delete day</button>
+                              </td>
+                            )}
+                            {historyColVisible('location') && (
+                              <td className={styles.historyMetaCell} style={metaCellBorder('location')}>
+                                <select
+                                  className={styles.historyGymSelect}
+                                  style={{ marginTop: 0 }}
+                                  value={w.gym || ''}
+                                  onChange={ev => setHistoryGymForDate(wk, ev.target.value)}
+                                  title="Edit location"
+                                >
+                                  {w.gym && !gyms.includes(w.gym) && <option value={w.gym}>{w.gym}</option>}
+                                  {gyms.map(g => <option key={g} value={g}>{g}</option>)}
+                                </select>
+                              </td>
+                            )}
+                            {historyColVisible('type') && (
+                              <td className={styles.historyMetaCell} style={metaCellBorder('type')}>
+                                <select
+                                  className={styles.historyTypeSelect}
+                                  style={{ marginTop: 0 }}
+                                  value={w.workoutType || ''}
+                                  onChange={ev => setHistoryWorkoutType(wk, ev.target.value)}
+                                  title="Tag this workout's type"
+                                >
+                                  <option value="">No type</option>
+                                  {workoutTypes.map(t => <option key={t} value={t}>{t}</option>)}
+                                </select>
+                              </td>
+                            )}
+                            {saunaSpan > 0 && (
+                              <td colSpan={saunaSpan} className={styles.saunaOnlyCell}>🧖 Sauna day</td>
+                            )}
                           </tr>
                         );
                       }
@@ -5047,105 +5217,120 @@ export function WorkoutPage({ onBack, user }) {
                           key={`${wk}-${originalIdx}`}
                           className={`${isFirstOfDay ? styles.historyRowDayStart : ''} ${isSelected ? styles.historyRowSelected : ''}`.trim() || undefined}
                         >
-                          <td className={styles.logSelectCell}>
-                            <input
-                              type="checkbox"
-                              aria-label="Select row"
-                              checked={isSelected}
-                              onChange={() => toggleRowSelected(wk, originalIdx)}
-                            />
-                          </td>
+                          {historyColVisible('select') && (
+                            <td className={styles.logSelectCell}>
+                              <input
+                                type="checkbox"
+                                aria-label="Select row"
+                                checked={isSelected}
+                                onChange={() => toggleRowSelected(wk, originalIdx)}
+                              />
+                            </td>
+                          )}
                           {/* Date / Location / Type repeat on every exercise row
                               (each edits THIS workout). Delete shows once per
                               workout block to avoid clutter. */}
-                          <td className={styles.historyMetaCell}>
-                            <input
-                              type="date"
-                              className={styles.historyDateInput}
-                              value={w.date}
-                              onChange={ev => setHistoryDate(wk, ev.target.value)}
-                              title="Edit date"
-                            />
-                            {isFirstOfDay && w.sauna && (
-                              <span className={styles.historySaunaBadge} title="Sauna logged this day">🧖</span>
-                            )}
-                            {isFirstOfDay && (
-                              <button
-                                className={styles.historyDeleteDayBtn}
-                                onClick={() => deleteHistoryDay(wk)}
-                                title={`Delete the ${w.date} workout`}
-                                type="button"
-                              >Delete day</button>
-                            )}
-                          </td>
-                          <td className={styles.historyMetaCell}>
-                            <select
-                              className={styles.historyGymSelect}
-                              style={{ marginTop: 0 }}
-                              value={w.gym || ''}
-                              onChange={ev => setHistoryGymForDate(wk, ev.target.value)}
-                              title="Edit location"
-                            >
-                              {w.gym && !gyms.includes(w.gym) && (
-                                <option value={w.gym}>{w.gym}</option>
+                          {historyColVisible('date') && (
+                            <td className={styles.historyMetaCell} style={metaCellBorder('date')}>
+                              <input
+                                type="date"
+                                className={styles.historyDateInput}
+                                value={w.date}
+                                onChange={ev => setHistoryDate(wk, ev.target.value)}
+                                title="Edit date"
+                              />
+                              {isFirstOfDay && w.sauna && (
+                                <span className={styles.historySaunaBadge} title="Sauna logged this day">🧖</span>
                               )}
-                              {gyms.map(g => <option key={g} value={g}>{g}</option>)}
-                            </select>
-                          </td>
-                          <td className={styles.historyMetaCell} style={{ borderRight: '1px solid var(--color-border)' }}>
-                            <select
-                              className={styles.historyTypeSelect}
-                              style={{ marginTop: 0 }}
-                              value={w.workoutType || ''}
-                              onChange={ev => setHistoryWorkoutType(wk, ev.target.value)}
-                              title="Tag this workout's type"
-                            >
-                              <option value="">No type</option>
-                              {workoutTypes.map(t => <option key={t} value={t}>{t}</option>)}
-                            </select>
-                          </td>
-                          <td>
-                            <select
-                              className={`${styles.logCell} ${styles.logGroupSelect}`}
-                              value={e.group || ''}
-                              onChange={ev => updateHistoryField(wk, originalIdx, 'group', ev.target.value)}
-                            >
-                              <option value="">—</option>
-                              {MUSCLE_GROUPS.map(g => <option key={g} value={g}>{g}</option>)}
-                            </select>
-                          </td>
-                          <td>
-                            <select
-                              className={`${styles.logCell} ${styles.logExerciseSelect}`}
-                              value={e.exercise || ''}
-                              onChange={ev => updateHistoryField(wk, originalIdx, 'exercise', ev.target.value)}
-                              disabled={!e.group}
-                            >
-                              <option value="">—</option>
-                              {(() => {
-                                const list = e.group ? exercisesForGroup(e.group) : [];
-                                // Keep the currently-selected exercise visible even if it
-                                // differs only in casing/whitespace from a list entry —
-                                // <select> matches value case-sensitively, so a near-miss
-                                // would render as blank instead of the saved exercise.
-                                if (e.exercise && !list.includes(e.exercise)) {
-                                  list.unshift(e.exercise);
-                                }
-                                return list.map(ex => (
-                                  <option key={ex} value={ex}>{ex}</option>
-                                ));
-                              })()}
-                            </select>
-                          </td>
-                          <td>
-                            <input
-                              className={styles.logCell}
-                              type="text"
-                              value={e.notes || ''}
-                              onChange={ev => updateHistoryField(wk, originalIdx, 'notes', ev.target.value)}
-                            />
-                          </td>
+                              {isFirstOfDay && (
+                                <button
+                                  className={styles.historyDeleteDayBtn}
+                                  onClick={() => deleteHistoryDay(wk)}
+                                  title={`Delete the ${w.date} workout`}
+                                  type="button"
+                                >Delete day</button>
+                              )}
+                            </td>
+                          )}
+                          {historyColVisible('location') && (
+                            <td className={styles.historyMetaCell} style={metaCellBorder('location')}>
+                              <select
+                                className={styles.historyGymSelect}
+                                style={{ marginTop: 0 }}
+                                value={w.gym || ''}
+                                onChange={ev => setHistoryGymForDate(wk, ev.target.value)}
+                                title="Edit location"
+                              >
+                                {w.gym && !gyms.includes(w.gym) && (
+                                  <option value={w.gym}>{w.gym}</option>
+                                )}
+                                {gyms.map(g => <option key={g} value={g}>{g}</option>)}
+                              </select>
+                            </td>
+                          )}
+                          {historyColVisible('type') && (
+                            <td className={styles.historyMetaCell} style={metaCellBorder('type')}>
+                              <select
+                                className={styles.historyTypeSelect}
+                                style={{ marginTop: 0 }}
+                                value={w.workoutType || ''}
+                                onChange={ev => setHistoryWorkoutType(wk, ev.target.value)}
+                                title="Tag this workout's type"
+                              >
+                                <option value="">No type</option>
+                                {workoutTypes.map(t => <option key={t} value={t}>{t}</option>)}
+                              </select>
+                            </td>
+                          )}
+                          {historyColVisible('group') && (
+                            <td>
+                              <select
+                                className={`${styles.logCell} ${styles.logGroupSelect}`}
+                                value={e.group || ''}
+                                onChange={ev => updateHistoryField(wk, originalIdx, 'group', ev.target.value)}
+                              >
+                                <option value="">—</option>
+                                {allMuscleGroups.map(g => <option key={g} value={g}>{g}</option>)}
+                              </select>
+                            </td>
+                          )}
+                          {historyColVisible('exercise') && (
+                            <td>
+                              <select
+                                className={`${styles.logCell} ${styles.logExerciseSelect}`}
+                                value={e.exercise || ''}
+                                onChange={ev => updateHistoryField(wk, originalIdx, 'exercise', ev.target.value)}
+                                disabled={!e.group}
+                              >
+                                <option value="">—</option>
+                                {(() => {
+                                  const list = e.group ? exercisesForGroup(e.group) : [];
+                                  // Keep the currently-selected exercise visible even if it
+                                  // differs only in casing/whitespace from a list entry —
+                                  // <select> matches value case-sensitively, so a near-miss
+                                  // would render as blank instead of the saved exercise.
+                                  if (e.exercise && !list.includes(e.exercise)) {
+                                    list.unshift(e.exercise);
+                                  }
+                                  return list.map(ex => (
+                                    <option key={ex} value={ex}>{ex}</option>
+                                  ));
+                                })()}
+                              </select>
+                            </td>
+                          )}
+                          {historyColVisible('notes') && (
+                            <td>
+                              <input
+                                className={styles.logCell}
+                                type="text"
+                                value={e.notes || ''}
+                                onChange={ev => updateHistoryField(wk, originalIdx, 'notes', ev.target.value)}
+                              />
+                            </td>
+                          )}
                           {setVals.map((reps, si) => {
+                            if (!historyColVisible(`s${si + 1}`)) return null;
                             const done = !!(e.setDone || [])[si];
                             return (
                               <td
@@ -5186,51 +5371,59 @@ export function WorkoutPage({ onBack, user }) {
                               </td>
                             );
                           })}
-                          <td>
-                            {e.useSetWeights ? (
-                              <button
-                                type="button"
-                                className={`${styles.logCell} ${styles.logWeightInput} ${styles.perSetBadge}`}
-                                onClick={() => setHistoryUseSetWeights(wk, originalIdx, false)}
-                                title="Switch back to a single weight for all sets"
-                              >
-                                PER SET
-                              </button>
-                            ) : (
-                              <span className={styles.weightCellWrap}>
-                                <WeightInput
-                                  className={`${styles.logCell} ${styles.logWeightInput}`}
-                                  valueLb={e.weight ?? ''}
-                                  unit={weightUnit}
-                                  onCommitLb={v => updateHistoryField(wk, originalIdx, 'weight', v)}
-                                  placeholder=""
-                                />
+                          {historyColVisible('weight') && (
+                            <td>
+                              {e.useSetWeights ? (
                                 <button
                                   type="button"
-                                  className={styles.perSetToggleBtn}
-                                  onClick={() => setHistoryUseSetWeights(wk, originalIdx, true)}
-                                  title="Use a different weight per set"
-                                >↕</button>
-                              </span>
-                            )}
-                          </td>
-                          <td className={styles.logPerCell}>
-                            <input
-                              type="checkbox"
-                              checked={!!e.perArm}
-                              onChange={ev => updateHistoryField(wk, originalIdx, 'perArm', ev.target.checked)}
-                              title="Per arm/leg — total doubles the weight"
-                            />
-                          </td>
-                          <td className={styles.logTotalCell}>{total > 0 ? lbToUnitNum(total, weightUnit) : ''}</td>
-                          <td className={styles.logRemoveCell}>
-                            <button
-                              className={styles.logRemoveBtn}
-                              onClick={() => deleteHistoryEntry(wk, originalIdx)}
-                              title="Delete this exercise"
-                              type="button"
-                            >×</button>
-                          </td>
+                                  className={`${styles.logCell} ${styles.logWeightInput} ${styles.perSetBadge}`}
+                                  onClick={() => setHistoryUseSetWeights(wk, originalIdx, false)}
+                                  title="Switch back to a single weight for all sets"
+                                >
+                                  PER SET
+                                </button>
+                              ) : (
+                                <span className={styles.weightCellWrap}>
+                                  <WeightInput
+                                    className={`${styles.logCell} ${styles.logWeightInput}`}
+                                    valueLb={e.weight ?? ''}
+                                    unit={weightUnit}
+                                    onCommitLb={v => updateHistoryField(wk, originalIdx, 'weight', v)}
+                                    placeholder=""
+                                  />
+                                  <button
+                                    type="button"
+                                    className={styles.perSetToggleBtn}
+                                    onClick={() => setHistoryUseSetWeights(wk, originalIdx, true)}
+                                    title="Use a different weight per set"
+                                  >↕</button>
+                                </span>
+                              )}
+                            </td>
+                          )}
+                          {historyColVisible('per') && (
+                            <td className={styles.logPerCell}>
+                              <input
+                                type="checkbox"
+                                checked={!!e.perArm}
+                                onChange={ev => updateHistoryField(wk, originalIdx, 'perArm', ev.target.checked)}
+                                title="Per arm/leg — total doubles the weight"
+                              />
+                            </td>
+                          )}
+                          {historyColVisible('total') && (
+                            <td className={styles.logTotalCell}>{total > 0 ? lbToUnitNum(total, weightUnit) : ''}</td>
+                          )}
+                          {historyColVisible('remove') && (
+                            <td className={styles.logRemoveCell}>
+                              <button
+                                className={styles.logRemoveBtn}
+                                onClick={() => deleteHistoryEntry(wk, originalIdx)}
+                                title="Delete this exercise"
+                                type="button"
+                              >×</button>
+                            </td>
+                          )}
                         </tr>
                       );
                     })}

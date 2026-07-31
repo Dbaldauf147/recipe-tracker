@@ -497,10 +497,9 @@ td.logPerCell.manuallyEdited {
   align-items: center;
   gap: 2px;
 }
-/* The History table is auto-layout (no colgroup), so `width` on .logSetCol is
-   only a hint and greedy columns like Notes will squeeze the set cells until
-   the reps are clipped behind the ✓. A real min-width on the input gives the
-   cell a min-content floor the browser has to honour. */
+/* Set cells can be dragged narrow on both tables, which would otherwise clip
+   the reps behind the ✓. A real min-width on the input gives the cell a
+   min-content floor the browser has to honour. */
 .logSetCellInner .logSetInput {
   flex: 1 1 auto;
   min-width: 28px;
@@ -881,8 +880,67 @@ td.logPerCell.manuallyEdited {
 }
 
 /* Date / Location / Type are their own repeating columns (one value per
-   exercise row) so a single-exercise filter reads like a clean spreadsheet. */
+   exercise row) so a single-exercise filter reads like a clean spreadsheet.
+   The width here is only a fallback — the History table is fixed-layout and
+   takes its widths from the colgroup (HISTORY_COLUMN_DEFS + saved overrides). */
 .historyMetaCol { width: 104px; }
+
+/* "Columns" menu on the History filter row: pick which columns render. */
+.colMenuWrap {
+  position: relative;
+  display: inline-flex;
+}
+.colMenu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 30;
+  min-width: 190px;
+  padding: 0.4rem;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+}
+.colMenuHint {
+  padding: 0.15rem 0.35rem 0.35rem;
+  font-size: 0.7rem;
+  color: var(--color-text-muted);
+  border-bottom: 1px solid var(--color-border-light);
+  margin-bottom: 0.25rem;
+}
+.colMenuItem {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.25rem 0.35rem;
+  border-radius: 5px;
+  font-size: 0.82rem;
+  color: var(--color-text);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.colMenuItem:hover { background: var(--color-surface-alt); }
+.colMenuActions {
+  display: flex;
+  gap: 0.35rem;
+  margin-top: 0.35rem;
+  padding-top: 0.35rem;
+  border-top: 1px solid var(--color-border-light);
+}
+.colMenuBtn {
+  flex: 1;
+  padding: 0.28rem 0.4rem;
+  border: 1px solid var(--color-border);
+  border-radius: 5px;
+  background: var(--color-surface-alt);
+  color: var(--color-text);
+  font-size: 0.75rem;
+  font-family: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.colMenuBtn:hover { border-color: var(--color-accent); color: var(--color-accent); }
 
 /* Per-column search row in the History table header. */
 .historySearchRow th {
