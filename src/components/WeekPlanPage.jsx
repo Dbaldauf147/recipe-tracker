@@ -15,6 +15,7 @@ import {
   DEFAULT_SAUNA_GOAL, MAX_SAUNA_GOAL, normalizeSaunaGoal, normalizeSaunaOverrides,
   pruneSaunaOverrides, resolveSaunaDates, spreadIndices,
 } from '../utils/saunaPlan';
+import { isStretchWorkout } from '../utils/stretchRoutine';
 import styles from './WeekPlanPage.module.css';
 
 const SLOTS = [
@@ -254,10 +255,18 @@ function dayMacroRows(day, goals) {
 
 // Aggregate logged workouts into date -> [{ label, category }], mirroring the
 // Workout page calendar's byDate so the Week Plan shows recorded days the same way.
-function buildWorkoutsByDate(workouts, typeCategories) {
+// A stretch session isn't a workout day here: the player logs a finished
+// routine as a workout (so it lands in History and Charts), but the Prepare
+// table's workout row is about what you trained. Showing "🧘 Stretch" there
+// reads as a logged workout AND makes the day count as already-trained, which
+// suppresses the day's suggestion. Skipped in both — the cell falls through to
+// the planned dropdown. `stretchRoutineNames` catches sessions logged before
+// the `source` tag existed (see isStretchWorkout).
+function buildWorkoutsByDate(workouts, typeCategories, stretchRoutineNames) {
   const m = new Map();
   for (const w of workouts || []) {
     if (!w?.date) continue;
+    if (isStretchWorkout(w, stretchRoutineNames)) continue;
     // A sauna-only day (logged sauna with no exercises and no workout type) is a
     // placeholder that just carries the `sauna` flag — the 🧖 chip renders it from
     // saunaDates. It isn't a strength session, so skip it here; otherwise
@@ -289,6 +298,10 @@ export function WeekPlanPage({ recipes, getRecipe, user, weeklyPlan = [], weekly
   const [typeSkipDates, setTypeSkipDates] = useState(loadTypeSkipDates);
   const [nutritionGoals, setNutritionGoals] = useState(loadNutritionGoals);
   const [dailyLog, setDailyLog] = useState(loadDailyLog);
+  // Stretch routines (user doc `stretchRoutines`), only so a session logged
+  // before the `source` tag existed can still be recognized by its routine name
+  // and kept off the workout row.
+  const [stretchRoutines, setStretchRoutines] = useState([]);
   // Weekly sauna goal + the user's per-day pin/veto decisions (user doc:
   // `saunaGoal` / `saunaOverrides`). Hydrated below; both feed resolveSaunaDates.
   const [saunaGoal, setSaunaGoal] = useState(DEFAULT_SAUNA_GOAL);
@@ -300,11 +313,24 @@ export function WeekPlanPage({ recipes, getRecipe, user, weeklyPlan = [], weekly
     [weekStart]
   );
 
+  const stretchRoutineNames = useMemo(
+    () => new Set(stretchRoutines.map(r => String(r?.name || '').trim().toLowerCase()).filter(Boolean)),
+    [stretchRoutines],
+  );
+
   // Logged workouts grouped by date, categorized exactly like the Workout
   // calendar (so the Week Plan shows recorded days the same way).
   const workoutsByDate = useMemo(
     () => buildWorkoutsByDate(workoutsRaw, typeCategories),
     [workoutsRaw, typeCategories]
+  );
+  // Same, minus stretch sessions — what the workout ROW renders and what the
+  // suggestion treats as an already-trained day. The weekly goal tally below
+  // stays on the unfiltered map so it keeps matching the Workout page's
+  // per-week progress.
+  const trainedByDate = useMemo(
+    () => buildWorkoutsByDate(workoutsRaw, typeCategories, stretchRoutineNames),
+    [workoutsRaw, typeCategories, stretchRoutineNames]
   );
 
   // Dates with a sauna logged (Workout.sauna, set on the mobile app) — drives
@@ -343,6 +369,9 @@ export function WeekPlanPage({ recipes, getRecipe, user, weeklyPlan = [], weekly
       setTypeSkipDates(remote);
       try { localStorage.setItem('sunday-workout-type-skip-dates', JSON.stringify(remote)); } catch { /* ignore */ }
     }).catch(() => { /* keep local */ });
+    loadField(user.uid, 'stretchRoutines').then(remote => {
+      if (!cancelled && Array.isArray(remote)) setStretchRoutines(remote);
+    }).catch(() => { /* tag alone still catches current sessions */ });
     loadField(user.uid, 'saunaGoal').then(remote => {
       if (!cancelled && remote != null) setSaunaGoal(normalizeSaunaGoal(remote));
     }).catch(() => { /* keep default */ });
@@ -371,14 +400,14 @@ export function WeekPlanPage({ recipes, getRecipe, user, weeklyPlan = [], weekly
     const today = new Date();
     const sunday = addDays(today, -today.getDay()); // back up to Sunday
     for (let i = 0; i < 7; i++) {
-      const items = workoutsByDate.get(isoDate(addDays(sunday, i))) || [];
+      const items = trainedByDate.get(isoDate(addDays(sunday, i))) || [];
       if (items.length) {
         idxs.add(i);
         for (const it of items) if (it.label) types.add(it.label);
       }
     }
     return { recordedWeekIdxs: idxs, recordedWeekTypes: types };
-  }, [workoutsByDate]);
+  }, [trainedByDate]);
   const resolvedWorkoutPlan = useMemo(
     () => resolveWorkoutPlan(rankedTypes, weekWorkoutPlan, workoutTypes, recordedWeekIdxs, recordedWeekTypes),
     [rankedTypes, weekWorkoutPlan, workoutTypes, recordedWeekIdxs, recordedWeekTypes]
@@ -579,7 +608,7 @@ export function WeekPlanPage({ recipes, getRecipe, user, weeklyPlan = [], weekly
   // your workout types + Rest + Auto. Keyed Sun..Sat.
   const renderDayWorkout = useCallback((dateStr) => {
     const saunaChip = renderSaunaChip(dateStr);
-    const recorded = workoutsByDate.get(dateStr) || [];
+    const recorded = trainedByDate.get(dateStr) || [];
     if (recorded.length) {
       // The chip is a sibling of the open-workouts button, never inside it —
       // it's a button itself on upcoming days, and buttons can't nest.
@@ -630,7 +659,7 @@ export function WeekPlanPage({ recipes, getRecipe, user, weeklyPlan = [], weekly
         {saunaChip}
       </div>
     );
-  }, [workoutsByDate, renderSaunaChip, resolvedWorkoutPlan, typeCategories, workoutTypes, setWorkoutCategory, onOpenWorkout]);
+  }, [trainedByDate, renderSaunaChip, resolvedWorkoutPlan, typeCategories, workoutTypes, setWorkoutCategory, onOpenWorkout]);
 
   // Refresh from localStorage when a Firestore sync hydrates it, or another tab writes.
   useEffect(() => {
