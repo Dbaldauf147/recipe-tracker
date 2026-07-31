@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { saveField, loadField, loadHabitAutoStatus } from '../utils/firestoreSync';
 import { loadHabitLog, saveHabitLog, loadHabitLogAuto, saveHabitLogAuto } from '../utils/habitLogYears';
 import { HABIT_FIELDS, seedHabits, makeHabitId } from '../data/habitsSeed';
@@ -3022,6 +3022,52 @@ function arcPath(cx, cy, r, a0, a1) {
   return `M ${cx} ${cy} L ${x0} ${y0} A ${r} ${r} 0 ${large} 1 ${x1} ${y1} Z`;
 }
 
+// Presets wide enough to be worth opening on, narrowest first. 13m is the floor
+// because it's the long-standing default; anything narrower is a deliberate
+// zoom, not something to land on.
+const FIT_STEPS = [
+  { id: '13m', unit: 'month', count: 13 },
+  { id: '35m', unit: 'month', count: 35 },
+  { id: '5y', unit: 'year', count: 5 },
+  { id: '10y', unit: 'year', count: 10 },
+];
+
+/**
+ * The range to OPEN a habit on: the narrowest one covering its whole logged
+ * span, widened past 10y by stretching the year count if the history runs
+ * deeper than that.
+ *
+ * Without this the two defaults fought each other. The habit is chosen by
+ * LIFETIME logging volume, but the window was always the last 13 months — so a
+ * habit logged 3,386 times between 2014 and 2023 opened on a window holding
+ * about 25 of them, and years of history read as "no data".
+ *
+ * Returns null when the habit has never been logged, so the caller can leave the
+ * default alone and try again once the log arrives.
+ *
+ * ⚠️ Mirrored in the mobile ChartsView — keep the two in step.
+ */
+function fitRangeToHabit(habitLog, habitId) {
+  let firstTs = Infinity;
+  for (const k in habitLog) {
+    if (!habitLog[k] || habitLog[k][habitId] === undefined) continue;
+    const ts = periodStart(k);
+    if (ts < firstTs) firstTs = ts;
+  }
+  if (!isFinite(firstTs)) return null;
+  const now = new Date();
+  for (const step of FIT_STEPS) {
+    let start = unitStart(now, step.unit);
+    for (let i = 1; i < step.count; i++) start = prevBucket(start, step.unit);
+    if (start.getTime() <= firstTs) return { ...step };
+  }
+  // Older than the widest preset — stretch the year count to reach it, clamped
+  // to what the − / + buttons allow.
+  const { min, max } = RANGE_LIMITS.year;
+  const span = now.getFullYear() - new Date(firstTs).getUTCFullYear() + 1;
+  return { id: '10y', unit: 'year', count: Math.min(max, Math.max(min, span)) };
+}
+
 function ChartsView({ habits, habitLog }) {
   const [range, setRange] = useState({ unit: 'month', count: 13 });
   // Which pill is selected. It stays selected while − / + step the count and
@@ -3051,6 +3097,20 @@ function ChartsView({ habits, habitLog }) {
     for (const h of pickable) { const n = logCount(h.id); if (n > bestN) { bestN = n; best = h.id; } }
     setSelId(best);
   }, [pickable, selId, logCount]);
+
+  // Open each habit on a range that actually contains its history. Fits ONCE
+  // per habit — recorded in the ref — so changing the range by hand sticks
+  // until you switch habits. The ref is only set when a fit was possible, so a
+  // habit selected before the log has loaded gets fitted when it arrives.
+  const fittedFor = useRef(null);
+  useEffect(() => {
+    if (!selId || fittedFor.current === selId) return;
+    const fit = fitRangeToHabit(habitLog, selId);
+    if (!fit) return;
+    fittedFor.current = selId;
+    setRange({ unit: fit.unit, count: fit.count });
+    setActiveId(fit.id);
+  }, [selId, habitLog]);
 
   const habit = useMemo(() => pickable.find(h => h.id === selId) || null, [pickable, selId]);
 
