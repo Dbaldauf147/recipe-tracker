@@ -149,13 +149,28 @@ async function resolveRedirect(url) {
   }
 }
 
+// A MOBILE user agent, and it has to stay one.
+//
+// A maps.app.goo.gl short link is a Firebase deep link. Asked with a DESKTOP
+// browser UA, Google answers 200 with a JavaScript interstitial ("Durable Deep
+// Link UI") that contains no destination at all — no redirect, no canonical to
+// the place, nothing to parse — so every short link resolved to nothing and the
+// place came through unnamed. Asked with a mobile UA (or curl's, or none), the
+// very same link answers 302 straight to
+// maps.google.com?q=<Name>,+<Address>&ftid=… , which is where the name comes
+// from. Nothing about the share source matters: ?g_st=… is only Google noting
+// which app the link was shared from, and ig / the share-extension bundle id /
+// no g_st at all behave identically.
+const MAPS_USER_AGENT =
+  'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1';
+
 async function fetchGoogleMapsHtml(url) {
   try {
     const r = await fetch(url, {
       method: 'GET',
       redirect: 'follow',
       headers: {
-        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15',
+        'User-Agent': MAPS_USER_AGENT,
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
         'Accept-Language': 'en-US,en;q=0.5',
       },
@@ -164,6 +179,19 @@ async function fetchGoogleMapsHtml(url) {
   } catch {
     return { html: '', finalUrl: url };
   }
+}
+
+// Google's short-link redirect packs the name AND the address into one ?q=:
+// "Ivan Ramen, 25 Clinton St, New York, NY 10002". Split at the first comma
+// whose remainder looks like an address (has a digit in it), so the name is the
+// name and the rest is available as the address. A name that merely contains a
+// comma ("Dave's, Inc") has no digits after it and is left whole.
+function splitNameAndAddress(q) {
+  const parts = String(q || '').split(',').map(s => s.trim()).filter(Boolean);
+  if (parts.length < 2) return { name: String(q || '').trim(), address: '' };
+  const rest = parts.slice(1).join(', ');
+  if (!/\d/.test(rest)) return { name: String(q || '').trim(), address: '' };
+  return { name: parts[0], address: rest };
 }
 
 async function extractFromGoogleMaps(url) {
@@ -224,13 +252,20 @@ async function extractFromGoogleMaps(url) {
       if (usable(cand)) { name = cand; break; }
     }
   }
-  // 2. ?q=Name / ?query=Name.
+  // 2. ?q=Name / ?query=Name — this is what a resolved short link gives us, and
+  //    it carries the address after the name.
+  let qAddress = '';
   if (!name) {
     for (const u of candidateUrls) {
       const m = u && u.match(/[?&](?:q|query)=([^&]+)/i);
       if (m && m[1]) {
         const cand = decodePlus(m[1]);
-        if (usable(cand)) { name = cand; break; }
+        if (usable(cand)) {
+          const split = splitNameAndAddress(cand);
+          name = split.name;
+          qAddress = split.address;
+          break;
+        }
       }
     }
   }
@@ -258,10 +293,11 @@ async function extractFromGoogleMaps(url) {
     if (Number.isFinite(a) && Number.isFinite(b)) { lat = a; lng = b; }
   }
 
-  // Address: og:description on Google Maps place pages is often
-  // "Address · Phone · Rating" — take the leading address chunk.
-  let address;
-  if (html) {
+  // Address: the ?q= tail when the redirect gave us one, else og:description on
+  // Google Maps place pages, which is often "Address · Phone · Rating" — take
+  // the leading address chunk.
+  let address = qAddress || undefined;
+  if (!address && html) {
     const ogDesc = metaContent(html, 'og:description');
     if (ogDesc) {
       const first = ogDesc.split(/\s+[·•]\s+/)[0].trim();
