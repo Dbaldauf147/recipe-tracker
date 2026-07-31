@@ -16,6 +16,10 @@
 // which is correct — there's no time in it to count.
 //
 // MIRRORED from the mobile app's src/utils/stretchGoal.ts — change both.
+// (stretchEntriesByRegion is web-only so far: it feeds the breakdown popup the
+// board opens on click, which the mobile board doesn't have. The filters it
+// applies are the ones the mirrored totals have always used — they're now
+// summed from it — so the two apps still agree on what counts.)
 
 export const DEFAULT_STRETCH_GOAL_MIN = 10;
 export const STRETCH_GOAL_WINDOW_DAYS = 7;
@@ -94,14 +98,15 @@ export function windowStartDate(today, days = STRETCH_GOAL_WINDOW_DAYS) {
 }
 
 /**
- * Seconds of stretching per region inside the window.
+ * The individual entries behind each region, newest first — what a region's
+ * number is actually made of, for the breakdown popup on the board.
  *
  * `isStretch(exerciseName)` decides what counts — the caller passes it because
  * only it knows the user's exerciseType tagging. Entries whose exercise isn't a
  * stretch are skipped entirely, so a 3-minute plank in the same session doesn't
  * inflate the Abdominals stretch total.
  */
-export function stretchSecondsByRegion(workouts, isStretch, today = new Date(), windowDays = STRETCH_GOAL_WINDOW_DAYS) {
+export function stretchEntriesByRegion(workouts, isStretch, today = new Date(), windowDays = STRETCH_GOAL_WINDOW_DAYS) {
   const start = windowStartDate(today, windowDays);
   const out = {};
   for (const w of workouts || []) {
@@ -109,12 +114,30 @@ export function stretchSecondsByRegion(workouts, isStretch, today = new Date(), 
     for (const e of w.entries || []) {
       const name = String(e?.exercise || '').trim();
       if (!name || !isStretch(name)) continue;
-      const secs = Number(e?.totalSeconds) || 0;
-      if (secs <= 0) continue;
+      const seconds = Number(e?.totalSeconds) || 0;
+      if (seconds <= 0) continue;
       const region = stretchRegionFor(name, e?.group);
       if (!region) continue;
-      out[region] = (out[region] || 0) + secs;
+      (out[region] = out[region] || []).push({ date: w.date, exercise: name, group: e?.group || '', seconds });
     }
+  }
+  // Newest first; within a day the longest hold leads.
+  for (const region of Object.keys(out)) {
+    out[region].sort((a, b) => (a.date === b.date ? b.seconds - a.seconds : b.date.localeCompare(a.date)));
+  }
+  return out;
+}
+
+/**
+ * Seconds of stretching per region inside the window. Summed from the entries
+ * above rather than walked separately, so the number on the board and the list
+ * behind it can never disagree about what counted.
+ */
+export function stretchSecondsByRegion(workouts, isStretch, today = new Date(), windowDays = STRETCH_GOAL_WINDOW_DAYS) {
+  const byRegion = stretchEntriesByRegion(workouts, isStretch, today, windowDays);
+  const out = {};
+  for (const region of Object.keys(byRegion)) {
+    out[region] = byRegion[region].reduce((total, e) => total + e.seconds, 0);
   }
   return out;
 }

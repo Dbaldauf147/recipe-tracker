@@ -91,6 +91,10 @@ function Player({ routine, onClose, onLog }) {
   const [remaining, setRemaining] = useState(cues[0]?.seconds ?? 0);
   const [running, setRunning] = useState(false);
   const [done, setDone] = useState(false);
+  // Result of the automatic log, shown on the completion screen: '' until the
+  // routine ends, then 'Logging…' and finally what was written (which workout,
+  // and any habit it marked).
+  const [logMsg, setLogMsg] = useState('');
   const endAtRef = useRef(null);
   const announcedRef = useRef(-1);
   const wakeRef = useRef(null);
@@ -209,6 +213,23 @@ function Player({ routine, onClose, onLog }) {
     return names;
   }, [cues, cueIdx, done]);
 
+  // Finishing the routine IS the log. Waiting for a button press meant a run
+  // you'd actually done vanished if you closed the player — the work was over
+  // and the only thing missing was a click. The ref makes it fire exactly once
+  // even though `jump` can clear `done` and let you re-cross the finish line.
+  const loggedRef = useRef(false);
+  useEffect(() => {
+    if (!done || loggedRef.current) return;
+    loggedRef.current = true;
+    setLogMsg('Logging…');
+    Promise.resolve(onLog(routine, reached))
+      .then(msg => setLogMsg(msg || 'Logged.'))
+      .catch(err => {
+        console.error('[stretch] auto-log failed', err);
+        setLogMsg('Couldn’t log this one — add it from the workout log.');
+      });
+  }, [done, onLog, routine, reached]);
+
   return (
     <div className={styles.playerOverlay} onMouseDown={close}>
       <div className={styles.player} onMouseDown={e => e.stopPropagation()}>
@@ -225,8 +246,8 @@ function Player({ routine, onClose, onLog }) {
             <div className={styles.doneMark}>✓</div>
             <div className={styles.doneTitle}>Routine complete</div>
             <div className={styles.doneSub}>{reached.length} pose{reached.length === 1 ? '' : 's'}</div>
-            <button className={styles.primaryBtn} onClick={() => onLog(routine, reached)}>Log this as a workout</button>
-            <button className={styles.ghostBtn} onClick={close}>Done</button>
+            <div className={styles.logMsg}>{logMsg}</div>
+            <button className={styles.primaryBtn} onClick={close}>Done</button>
           </div>
         ) : (
           <div className={styles.playerBody}>
@@ -261,12 +282,15 @@ function Player({ routine, onClose, onLog }) {
 
 // ── Tab ───────────────────────────────────────────────────────────────────
 export function StretchRoutines({
-  routines, onChange, stretchOptions, onLogRoutine, goalRows, goalMin, onGoalMinChange,
+  routines, onChange, stretchOptions, onLogRoutine, goalRows, goalEntries = {},
+  goalMin, onGoalMinChange,
   workoutTypes = [], habits = [], defaultWorkoutType = 'Yoga',
 }) {
   const [editing, setEditing] = useState(null);
   const [playing, setPlaying] = useState(null);
   const [addQuery, setAddQuery] = useState('');
+  // Which region's breakdown is open (the popup behind a clicked number).
+  const [goalDetail, setGoalDetail] = useState(null);
 
   const save = useCallback(() => {
     const name = editing.name.trim();
@@ -468,9 +492,16 @@ export function StretchRoutines({
                     style={{ width: `${r.pct * 100}%` }}
                   />
                 </span>
-                <span className={`${styles.goalTime} ${r.met ? styles.goalTimeMet : ''}`}>
+                {/* The number is a button: a total is only trustworthy if you
+                    can see what went into it — and a 0 is worth explaining too. */}
+                <button
+                  type="button"
+                  className={`${styles.goalTime} ${styles.goalTimeBtn} ${r.met ? styles.goalTimeMet : ''}`}
+                  onClick={() => setGoalDetail(r.group)}
+                  title={`What makes up ${r.group}?`}
+                >
                   {r.met ? '✓ ' : ''}{formatStretchDuration(r.seconds)}
-                </span>
+                </button>
               </div>
             ))}
           </div>
@@ -523,9 +554,55 @@ export function StretchRoutines({
         <Player
           routine={playing}
           onClose={() => setPlaying(null)}
-          onLog={(r, poses) => { setPlaying(null); onLogRoutine(r, poses); }}
+          // Does NOT close the player: the routine logs itself the moment it
+          // ends, and the completion screen is where the result is reported.
+          onLog={(r, poses) => onLogRoutine(r, poses)}
         />
       )}
+
+      {/* Breakdown of one region: every stretch that fed its number, newest
+          first. Opened by clicking the time on the goal board. */}
+      {goalDetail && (() => {
+        const entries = goalEntries[goalDetail] || [];
+        const total = entries.reduce((n, e) => n + e.seconds, 0);
+        const close = () => setGoalDetail(null);
+        return (
+          <div className={styles.detailOverlay} onClick={close} role="presentation">
+            <div className={styles.detailCard} onClick={e => e.stopPropagation()}>
+              <div className={styles.detailHead}>
+                <div>
+                  <div className={styles.detailTitle}>{goalDetail}</div>
+                  <div className={styles.detailSub}>
+                    {formatStretchDuration(total)} over the last {STRETCH_GOAL_WINDOW_DAYS} days
+                    {entries.length > 0 && ` · ${entries.length} stretch${entries.length === 1 ? '' : 'es'}`}
+                  </div>
+                </div>
+                <button className={styles.detailClose} onClick={close} type="button" aria-label="Close">&times;</button>
+              </div>
+              {entries.length === 0 ? (
+                <div className={styles.empty}>
+                  Nothing counted toward {goalDetail} this week. Time comes from stretches
+                  logged with a <strong>duration</strong> (“40s”) — a stretch logged with plain
+                  rep counts has no time in it to count, and an exercise not tagged
+                  “Stretching” doesn’t count at all.
+                </div>
+              ) : (
+                <ul className={styles.detailList}>
+                  {entries.map((e, i) => (
+                    <li key={`${e.date}-${e.exercise}-${i}`} className={styles.detailItem}>
+                      <span className={styles.detailName}>{e.exercise}</span>
+                      <span className={styles.detailMeta}>
+                        {e.group ? `${e.group} · ` : ''}{e.date}
+                      </span>
+                      <span className={styles.detailSecs}>{formatStretchDuration(e.seconds)}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }

@@ -64,6 +64,15 @@ export function splitMuscles(s) {
   return String(s || '').split(/[,;/&]/).map(x => x.trim()).filter(Boolean);
 }
 
+// Two lenses on the same logged work. Stretching is shaded by TIME HELD rather
+// than how often a muscle came up: a stretch's dose is minutes, and one 40s
+// hold is not the same as one set of squats. See stretchGoal.js, which doses
+// the goal board the same way.
+const MODES = [
+  { id: 'train', label: 'All work' },
+  { id: 'stretch', label: 'Stretching' },
+];
+
 const WINDOWS = [
   { id: '7d', label: '7 days', days: 7 },
   { id: '30d', label: '30 days', days: 30 },
@@ -84,10 +93,18 @@ function inWindow(dateStr, days) {
 const HIGHLIGHTED_COLORS = ['#CFDFEE', '#A8C4DE', '#7FA5CB', '#5A85B5', '#3F7AB0', '#3B6B9C'];
 const BODY_COLOR = '#EBF0F5';
 
-export function BodyHeatmap({ workouts, exerciseLibrary }) {
+/**
+ * `isStretch(exerciseName)` tells the two modes apart. It comes from the caller
+ * because only it knows the user's exerciseType tagging (library rows AND
+ * custom exercises). Omitted → the Stretching lens is hidden rather than shown
+ * empty, since without it nothing can be classified.
+ */
+export function BodyHeatmap({ workouts, exerciseLibrary, isStretch }) {
   const [windowId, setWindowId] = useState('30d');
+  const [mode, setMode] = useState('train');
   const [selected, setSelected] = useState(null); // { muscle, data: { exercises, frequency } }
   const win = WINDOWS.find(w => w.id === windowId) || WINDOWS[1];
+  const stretchMode = mode === 'stretch' && typeof isStretch === 'function';
 
   const libByExercise = useMemo(() => {
     const map = {};
@@ -110,8 +127,28 @@ export function BodyHeatmap({ workouts, exerciseLibrary }) {
       if (!inWindow(w.date, win.days)) continue;
       for (const e of w.entries || []) {
         if (!e.exercise) continue;
+        // The stretch lens sees only stretches, so a timed plank can't shade
+        // the abs as "stretched". The other lens is left as it was — every
+        // piece of logged work — rather than quietly losing entries.
+        if (stretchMode && !isStretch(e.exercise)) continue;
         const key = e.exercise.trim().toLowerCase();
         const lib = libByExercise[key];
+
+        if (stretchMode) {
+          // Minutes held, so the shade answers "how much stretching has this
+          // muscle actually had?". A stretch logged in reps has no time in it
+          // and contributes nothing — the same rule the goal board uses.
+          const mins = Math.round((Number(e.totalSeconds) || 0) / 60);
+          if (mins < 1) continue;
+          const muscles = lib && (lib.primary.length || lib.secondary.length)
+            ? [...new Set([...lib.primary, ...lib.secondary])]
+            : GROUP_MUSCLES[e.group];
+          // Primary/secondary isn't a meaningful split for a held stretch: the
+          // pose lengthens the whole chain for the same minutes.
+          if (muscles?.length) items.push({ name: e.exercise, muscles, frequency: mins });
+          continue;
+        }
+
         if (lib && (lib.primary.length || lib.secondary.length)) {
           if (lib.primary.length) {
             items.push({ name: e.exercise, muscles: lib.primary, frequency: 2 });
@@ -126,20 +163,32 @@ export function BodyHeatmap({ workouts, exerciseLibrary }) {
       }
     }
     return items;
-  }, [workouts, win.days, libByExercise]);
+  }, [workouts, win.days, libByExercise, stretchMode, isStretch]);
 
   const totalEngagements = useMemo(
     () => exerciseData.reduce((acc, it) => acc + it.muscles.length * (it.frequency || 1), 0),
     [exerciseData]
   );
 
+  // Minutes held across the window — the honest headline for the stretch lens,
+  // where muscle-engagements would just be minutes multiplied by however many
+  // muscles a pose happens to touch.
+  const totalStretchMin = useMemo(
+    () => (stretchMode ? exerciseData.reduce((acc, it) => acc + (it.frequency || 0), 0) : 0),
+    [exerciseData, stretchMode],
+  );
+
   const sessionCount = useMemo(() => {
     const dates = new Set();
     for (const w of workouts || []) {
-      if (inWindow(w.date, win.days)) dates.add(w.date);
+      if (!inWindow(w.date, win.days)) continue;
+      // In the stretch lens a "session" is a day you actually stretched, not
+      // any day you trained.
+      if (stretchMode && !(w.entries || []).some(e => e.exercise && isStretch(e.exercise))) continue;
+      dates.add(w.date);
     }
     return dates.size;
-  }, [workouts, win.days]);
+  }, [workouts, win.days, stretchMode, isStretch]);
 
   function handleClick(stat) {
     setSelected(stat);
@@ -147,6 +196,25 @@ export function BodyHeatmap({ workouts, exerciseLibrary }) {
 
   return (
     <div className={styles.wrap}>
+      {typeof isStretch === 'function' && (
+        <div className={styles.controls}>
+          <span className={styles.controlsLabel}>Show</span>
+          {MODES.map(m => (
+            <button
+              key={m.id}
+              type="button"
+              className={`${styles.windowBtn} ${mode === m.id ? styles.windowBtnActive : ''}`}
+              onClick={() => { setMode(m.id); setSelected(null); }}
+              title={m.id === 'stretch'
+                ? 'Only exercises tagged Stretching, shaded by minutes held'
+                : 'Everything logged, shaded by how often each muscle came up'}
+            >
+              {m.label}
+            </button>
+          ))}
+        </div>
+      )}
+
       <div className={styles.controls}>
         <span className={styles.controlsLabel}>Window</span>
         {WINDOWS.map(w => (
@@ -160,7 +228,9 @@ export function BodyHeatmap({ workouts, exerciseLibrary }) {
           </button>
         ))}
         <span className={styles.summary}>
-          {sessionCount} session{sessionCount === 1 ? '' : 's'} · {totalEngagements} muscle-engagements
+          {sessionCount} session{sessionCount === 1 ? '' : 's'} · {stretchMode
+            ? `${totalStretchMin} min held`
+            : `${totalEngagements} muscle-engagements`}
         </span>
       </div>
 
@@ -198,7 +268,7 @@ export function BodyHeatmap({ workouts, exerciseLibrary }) {
           <div className={styles.detailHeader}>
             <strong className={styles.detailMuscle}>{selected.muscle}</strong>
             <span className={styles.detailFreq}>
-              freq {selected.data?.frequency ?? 0} · {win.label}
+              {stretchMode ? `${selected.data?.frequency ?? 0} min` : `freq ${selected.data?.frequency ?? 0}`} · {win.label}
             </span>
             <button type="button" className={styles.detailClose} onClick={() => setSelected(null)} aria-label="Close">×</button>
           </div>
@@ -214,7 +284,11 @@ export function BodyHeatmap({ workouts, exerciseLibrary }) {
               })}
             </ul>
           ) : (
-            <div className={styles.detailEmpty}>No exercises logged for this muscle in this window.</div>
+            <div className={styles.detailEmpty}>
+              {stretchMode
+                ? 'Nothing stretched for this muscle in this window.'
+                : 'No exercises logged for this muscle in this window.'}
+            </div>
           )}
         </div>
       )}
@@ -224,7 +298,12 @@ export function BodyHeatmap({ workouts, exerciseLibrary }) {
         <div className={styles.legendBar}>
           <div className={styles.legendChip} style={{ background: BODY_COLOR }} title="No work" />
           {HIGHLIGHTED_COLORS.map((c, i) => (
-            <div key={i} className={styles.legendChip} style={{ background: c }} title={`Frequency ≥ ${i + 1}`} />
+            <div
+              key={i}
+              className={styles.legendChip}
+              style={{ background: c }}
+              title={stretchMode ? `${i + 1}+ min held` : `Frequency ≥ ${i + 1}`}
+            />
           ))}
         </div>
         <span className={styles.legendLabel}>More</span>
@@ -233,7 +312,9 @@ export function BodyHeatmap({ workouts, exerciseLibrary }) {
 
       {totalEngagements === 0 && (
         <div className={styles.empty}>
-          No workouts logged in this window. Switch to a longer window or log a workout to start filling in the heatmap.
+          {stretchMode
+            ? 'No stretching held in this window. Tag exercises as “Stretching” and log a routine — poses logged in reps rather than time don’t shade anything, since there are no minutes to count.'
+            : 'No workouts logged in this window. Switch to a longer window or log a workout to start filling in the heatmap.'}
         </div>
       )}
     </div>

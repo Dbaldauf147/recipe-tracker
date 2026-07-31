@@ -364,3 +364,14 @@
   .clock { font-size: 3.2rem; }
   .poseName { font-size: 1.35rem; }
 }
+
+/* Result of the automatic log, on the player's completion screen. */
+.logMsg {
+  font-size: 0.85rem;
+  color: var(--color-text-secondary);
+  text-align: center;
+  white-space: pre-line;
+  min-height: 2.4em;
+  max-width: 34ch;
+  line-height: 1.4;
+}

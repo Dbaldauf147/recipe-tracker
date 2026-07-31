@@ -9,9 +9,12 @@ import { parseSetValue, formatSeconds, computeSetStats } from '../utils/setValue
 import { ExerciseLibrary, effectiveMuscleGroup } from './ExerciseLibrary';
 import { EXERCISE_TYPES, DEFAULT_EXERCISE_TYPE, effectiveExerciseType, normalizeExerciseType } from '../utils/exerciseTypes';
 import { StretchRoutines } from './StretchRoutines';
-import { normalizeRoutine, buildCueSequence } from '../utils/stretchRoutine';
 import {
-  stretchSecondsByRegion, stretchGoalProgress, clampGoalMin, DEFAULT_STRETCH_GOAL_MIN,
+  normalizeRoutine, buildCueSequence, isStretchWorkout, STRETCH_WORKOUT_SOURCE,
+} from '../utils/stretchRoutine';
+import {
+  stretchSecondsByRegion, stretchEntriesByRegion, stretchGoalProgress, clampGoalMin,
+  DEFAULT_STRETCH_GOAL_MIN,
 } from '../utils/stretchGoal';
 import { loadHabitLog, saveHabitLog } from '../utils/habitLogYears';
 import { periodKey } from '../utils/habitOutstanding';
@@ -2515,6 +2518,17 @@ export function WorkoutPage({ onBack, user }) {
     setStretchRoutines(next);
     if (user?.uid) saveField(user.uid, 'stretchRoutines', next).catch(() => {});
   }, [user?.uid]);
+  // Routine names, for recognising stretch workouts logged before they carried
+  // a `source` tag — the player writes the routine name into every entry's
+  // notes. See isStretchWorkout.
+  const stretchRoutineNames = useMemo(
+    () => new Set(stretchRoutines.map(r => String(r?.name || '').trim().toLowerCase()).filter(Boolean)),
+    [stretchRoutines],
+  );
+  const isStretchLog = useCallback(
+    (w) => isStretchWorkout(w, stretchRoutineNames),
+    [stretchRoutineNames],
+  );
   // Habits, for the "marks habit" link on a routine. Read-only here — the
   // Habits page owns editing them; this page only ever writes a habitLog cell.
   // Parked and never-started habits are left out of the picker: linking a
@@ -2634,13 +2648,31 @@ export function WorkoutPage({ onBack, user }) {
     return [...set].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
   }
 
+  // Is this exercise one of the user's Stretching-tagged ones? Shared by the
+  // goal board and the body map's stretch lens so both agree on what counts.
+  // Memoised: the body map calls this once per logged entry, so rebuilding the
+  // set per call would walk the whole library thousands of times a render.
+  const stretchNameSet = useMemo(
+    () => new Set(stretchExerciseNames().map(n => n.toLowerCase())),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [exerciseLibrary, customExercises],
+  );
+  const isStretchExercise = useCallback(
+    (name) => stretchNameSet.has(String(name || '').trim().toLowerCase()),
+    [stretchNameSet],
+  );
+
   // Goal board rows — always the seven body regions, whatever is tagged.
   // `isStretch` keys off the exercise's resolved type, so a timed plank in the
   // same session doesn't inflate the Abdominals stretch total.
   function stretchGoalRows() {
-    const stretchSet = new Set(stretchExerciseNames().map(n => n.toLowerCase()));
-    const secs = stretchSecondsByRegion(workouts, n => stretchSet.has(n.trim().toLowerCase()));
+    const secs = stretchSecondsByRegion(workouts, isStretchExercise);
     return stretchGoalProgress(secs, stretchGoalMin);
+  }
+
+  // The entries behind each row, so clicking a number can show what made it.
+  function stretchGoalEntries() {
+    return stretchEntriesByRegion(workouts, isStretchExercise);
   }
 
   // Mark the habit a routine is linked to, for the period the logged date falls
@@ -2699,6 +2731,9 @@ export function WorkoutPage({ onBack, user }) {
       gym,
       workoutType,
       entries: newEntries,
+      // Marks this as the player's work, so the day's log editor leaves it
+      // alone — it belongs in History, not in the rows you're still filling in.
+      source: STRETCH_WORKOUT_SOURCE,
       savedAt: new Date().toISOString(),
     };
     const next = [...workouts, workout].sort((a, b) => b.date.localeCompare(a.date));
@@ -2711,10 +2746,11 @@ export function WorkoutPage({ onBack, user }) {
       console.error('[stretch] habit mark failed', err);
       habitLine = '\n\nCouldn’t mark the linked habit — log it by hand on the Habits page.';
     }
-    alert(
-      `Logged ${newEntries.length} pose${newEntries.length === 1 ? '' : 's'} from "${routine.name}"`
-      + ` to your ${workoutType} workout.${habitLine}`,
-    );
+    // Returned rather than alerted: the player logs automatically when the
+    // routine ends, and an alert firing on its own at that moment would be an
+    // interruption. The completion screen shows this instead.
+    return `Logged ${newEntries.length} pose${newEntries.length === 1 ? '' : 's'}`
+      + ` to your ${workoutType} workout.${habitLine}`;
   }
 
   // The discipline a logged exercise belongs to, resolved by name against the
@@ -3106,9 +3142,12 @@ export function WorkoutPage({ onBack, user }) {
     URL.revokeObjectURL(url);
   }
 
-  // Load today's workout if it exists
+  // Load today's workout if it exists. Stretch sessions are skipped: the player
+  // logs them complete, so they belong in History rather than reopening as rows
+  // to edit — and treating one as "the workout for this date" would make Save
+  // reuse its id and overwrite the poses.
   useEffect(() => {
-    const existing = workouts.find(w => w.date === selectedDate);
+    const existing = workouts.find(w => w.date === selectedDate && !isStretchLog(w));
     if (existing) {
       setGym(existing.gym || gyms[0] || '');
       setWorkoutType(existing.workoutType || '');
@@ -3400,20 +3439,20 @@ export function WorkoutPage({ onBack, user }) {
     setSauna(next);
     userPickedDateRef.current = false;
     if (entries.some(e => e.group && e.exercise)) return; // Save persists it.
-    const existingForDate = workouts.find(w => w.date === selectedDate);
+    const existingForDate = workouts.find(w => w.date === selectedDate && !isStretchLog(w));
     if (next) {
       // Flag the existing workout that day (keep its exercises), else create a
       // sauna-only day.
       const workout = existingForDate
         ? { ...existingForDate, sauna: true, savedAt: new Date().toISOString() }
         : { id: newWorkoutId(), date: selectedDate, gym, workoutType, entries: [], sauna: true, savedAt: new Date().toISOString() };
-      const nextList = [workout, ...workouts.filter(w => w.date !== selectedDate)].sort((a, b) => b.date.localeCompare(a.date));
+      const nextList = [workout, ...workouts.filter(w => w.date !== selectedDate || isStretchLog(w))].sort((a, b) => b.date.localeCompare(a.date));
       setWorkouts(nextList);
       saveWorkouts(nextList, user?.uid);
     } else if (existingForDate?.sauna) {
       // Un-log: drop a sauna-only day, or clear the flag on a day that also has
       // exercises.
-      const withoutDate = workouts.filter(w => w.date !== selectedDate);
+      const withoutDate = workouts.filter(w => w.date !== selectedDate || isStretchLog(w));
       let nextList;
       if ((existingForDate.entries || []).length > 0) {
         const { sauna: _s, ...rest } = existingForDate;
@@ -3448,7 +3487,7 @@ export function WorkoutPage({ onBack, user }) {
     // Preserve the existing workout id for this date so the per-day
     // Firestore writer updates that doc in place rather than treating it
     // as a brand-new workout + orphaning the old one.
-    const existingForDate = workouts.find(w => w.date === selectedDate);
+    const existingForDate = workouts.find(w => w.date === selectedDate && !isStretchLog(w));
     const workout = {
       id: existingForDate?.id || newWorkoutId(),
       date: selectedDate,
@@ -3467,7 +3506,7 @@ export function WorkoutPage({ onBack, user }) {
         return rest;
       });
     }
-    const next = [workout, ...workouts.filter(w => w.date !== selectedDate)].sort((a, b) => b.date.localeCompare(a.date));
+    const next = [workout, ...workouts.filter(w => w.date !== selectedDate || isStretchLog(w))].sort((a, b) => b.date.localeCompare(a.date));
     setWorkouts(next);
     saveWorkouts(next, user?.uid);
     // Clear the in-progress draft so mobile stops showing the unsaved version.
@@ -5572,7 +5611,11 @@ export function WorkoutPage({ onBack, user }) {
       })()}
 
       {viewMode === 'body' && (
-        <BodyHeatmap workouts={workouts} exerciseLibrary={exerciseLibrary} />
+        <BodyHeatmap
+          workouts={workouts}
+          exerciseLibrary={exerciseLibrary}
+          isStretch={isStretchExercise}
+        />
       )}
 
       {viewMode === 'exercises' && (
@@ -5629,6 +5672,7 @@ export function WorkoutPage({ onBack, user }) {
           stretchOptions={stretchExerciseNames()}
           onLogRoutine={logStretchRoutine}
           goalRows={stretchGoalRows()}
+          goalEntries={stretchGoalEntries()}
           goalMin={stretchGoalMin}
           onGoalMinChange={updateStretchGoalMin}
           workoutTypes={workoutTypes}

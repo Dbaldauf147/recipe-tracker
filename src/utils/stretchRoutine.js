@@ -57,6 +57,31 @@ export function normalizeRoutine(raw) {
   };
 }
 
+/** `source` stamped on a workout the stretch player wrote. */
+export const STRETCH_WORKOUT_SOURCE = 'stretch';
+
+/**
+ * Was this workout written by the stretch player rather than logged by hand?
+ *
+ * The day's log editor uses this to leave stretch sessions alone: a finished
+ * routine belongs in History, not spread across the rows you're still filling
+ * in. It also keeps the editor from treating one as "the workout for this
+ * date" — saving would then reuse its id and overwrite the poses, or drop the
+ * workout from the list entirely.
+ *
+ * `routineNames` is a Set of lowercased routine names, for workouts logged
+ * before the tag existed: the player writes the routine name into every
+ * entry's `notes`, so a workout whose every entry names a routine you still
+ * have is one of ours. Pass an empty Set to match on the tag alone.
+ */
+export function isStretchWorkout(w, routineNames) {
+  if (!w) return false;
+  if (w.source === STRETCH_WORKOUT_SOURCE) return true;
+  const entries = Array.isArray(w.entries) ? w.entries : [];
+  if (entries.length === 0 || !routineNames || routineNames.size === 0) return false;
+  return entries.every(e => routineNames.has(String(e?.notes || '').trim().toLowerCase()));
+}
+
 export function emptyRoutine(name = '') {
   return {
     id: newId(),

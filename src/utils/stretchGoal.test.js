@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  stretchSecondsByRegion, stretchGoalProgress, stretchRegionFor, windowStartDate,
+  stretchSecondsByRegion, stretchEntriesByRegion, stretchGoalProgress, stretchRegionFor, windowStartDate,
   formatStretchDuration, clampGoalMin, STRETCH_REGIONS,
   DEFAULT_STRETCH_GOAL_MIN, MAX_GOAL_MIN,
 } from './stretchGoal.js';
@@ -148,5 +148,42 @@ test('empty and malformed input is handled without throwing', () => {
   assert.deepEqual(stretchSecondsByRegion([], isStretch, TODAY), {});
   assert.deepEqual(stretchSecondsByRegion(null, isStretch, TODAY), {});
   assert.deepEqual(stretchSecondsByRegion([{ }], isStretch, TODAY), {});
+  assert.deepEqual(stretchEntriesByRegion(null, isStretch, TODAY), {});
   assert.equal(stretchGoalProgress({}, 10).length, 7);
+});
+
+// The breakdown behind a region's number, for the popup the board opens.
+const BREAKDOWN_WORKOUTS = [
+  { date: daysAgo(0), entries: [
+    { exercise: 'Hamstring stretch', group: 'Legs', totalSeconds: 60 },
+    { exercise: 'Calf stretch', group: 'Legs', totalSeconds: 90 },
+  ] },
+  { date: daysAgo(3), entries: [
+    { exercise: 'Quad stretch', group: 'Legs', totalSeconds: 40 },
+    { exercise: 'Bench press', group: 'Chest', totalSeconds: 300 }, // not a stretch
+    { exercise: 'Doorway stretch', group: 'Chest', totalSeconds: 30 },
+  ] },
+  { date: daysAgo(9), entries: [ // outside the window
+    { exercise: 'Pigeon pose', group: 'Legs', totalSeconds: 120 },
+  ] },
+];
+
+test('entries list what a region total is made of, newest first', () => {
+  const byRegion = stretchEntriesByRegion(BREAKDOWN_WORKOUTS, isStretch, TODAY);
+  assert.deepEqual(byRegion.Legs.map(e => e.exercise), ['Calf stretch', 'Hamstring stretch', 'Quad stretch']);
+  assert.deepEqual(byRegion.Legs.map(e => e.seconds), [90, 60, 40]);
+  assert.deepEqual(byRegion.Chest.map(e => e.exercise), ['Doorway stretch']);
+  assert.equal(byRegion.Legs[0].date, daysAgo(0));
+});
+
+test('entries obey the same filters as the totals, and sum to them', () => {
+  const byRegion = stretchEntriesByRegion(BREAKDOWN_WORKOUTS, isStretch, TODAY);
+  const totals = stretchSecondsByRegion(BREAKDOWN_WORKOUTS, isStretch, TODAY);
+  for (const region of Object.keys(totals)) {
+    assert.equal(byRegion[region].reduce((n, e) => n + e.seconds, 0), totals[region]);
+  }
+  // The non-stretch bench press and the out-of-window pigeon pose are in neither.
+  assert.equal(totals.Legs, 190);
+  assert.equal(totals.Chest, 30);
+  assert.ok(!byRegion.Chest.some(e => e.exercise === 'Bench press'));
 });

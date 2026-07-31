@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  buildCueSequence, routineDurationSec, normalizeRoutine, emptyRoutine, mmss,
+  buildCueSequence, routineDurationSec, normalizeRoutine, emptyRoutine, mmss, isStretchWorkout,
   DEFAULT_HOLD_SEC, DEFAULT_TRANSITION_SEC, MAX_SEC,
 } from './stretchRoutine.js';
 
@@ -98,6 +98,31 @@ test('a routine with no links normalizes to empty strings, not undefined', () =>
   assert.equal(n.habitId, '');
   // Firestore rejects undefined values, so these must never be absent.
   assert.ok(!Object.values(n).includes(undefined));
+});
+
+test('a stretch-logged workout is recognised by its tag', () => {
+  assert.equal(isStretchWorkout({ source: 'stretch', entries: [] }), true);
+  assert.equal(isStretchWorkout({ entries: [{ exercise: 'Bench Press' }] }), false);
+  assert.equal(isStretchWorkout(null), false);
+});
+
+test('a stretch workout logged before the tag is recognised by routine name', () => {
+  // The player writes the routine name into every entry's notes, which is all
+  // the older workouts have to go on. Without this the day's log editor would
+  // reopen them as editable rows — and saving would overwrite the poses.
+  const names = new Set(['morning stretch']);
+  const legacy = {
+    entries: [{ exercise: 'Pigeon', notes: 'Morning Stretch' }, { exercise: 'Frog', notes: 'Morning Stretch' }],
+  };
+  assert.equal(isStretchWorkout(legacy, names), true);
+  // A hand-logged workout that happens to share the date is untouched.
+  assert.equal(isStretchWorkout({ entries: [{ exercise: 'Squat', notes: '' }] }, names), false);
+  // One stretch entry among real ones isn't a stretch session.
+  assert.equal(isStretchWorkout({
+    entries: [{ exercise: 'Pigeon', notes: 'Morning Stretch' }, { exercise: 'Squat', notes: '' }],
+  }, names), false);
+  // No routine names known yet (routines not loaded) → tag-only matching.
+  assert.equal(isStretchWorkout(legacy, new Set()), false);
 });
 
 test('mmss formats the clock', () => {
