@@ -375,3 +375,79 @@
   max-width: 34ch;
   line-height: 1.4;
 }
+
+/* Goal-board time is a button — it opens the breakdown of what made it up.
+   Styled as a button only on hover/focus so the board still reads as a row of
+   numbers rather than a row of controls. */
+.goalTimeBtn {
+  border: 1px solid transparent;
+  background: none;
+  padding: 1px 4px;
+  border-radius: 5px;
+  cursor: pointer;
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+}
+.goalTimeBtn:hover,
+.goalTimeBtn:focus-visible {
+  border-color: var(--color-border);
+  background: var(--color-bg-alt, #f1f5f9);
+}
+
+/* Region breakdown popup */
+.detailOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 1rem;
+}
+.detailCard {
+  background: var(--color-surface, #fff);
+  border-radius: 12px;
+  padding: 1rem 1.1rem;
+  width: min(420px, 100%);
+  max-height: 80vh;
+  overflow: auto;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.25);
+}
+.detailHead {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+.detailTitle { font-size: 1rem; font-weight: 700; }
+.detailSub { font-size: 0.76rem; color: var(--color-text-muted); margin-top: 2px; }
+.detailClose {
+  border: none;
+  background: none;
+  font-size: 1.4rem;
+  line-height: 1;
+  cursor: pointer;
+  color: var(--color-text-muted);
+  padding: 0 2px;
+}
+.detailList { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.detailItem {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0 0.6rem;
+  padding: 0.4rem 0.15rem;
+  border-bottom: 1px solid var(--color-border);
+}
+.detailItem:last-child { border-bottom: none; }
+.detailName { font-size: 0.85rem; font-weight: 600; }
+.detailMeta { grid-column: 1; font-size: 0.72rem; color: var(--color-text-muted); }
+.detailSecs {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  align-self: center;
+  font-size: 0.82rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text-secondary);
+}
