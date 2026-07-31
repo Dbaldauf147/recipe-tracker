@@ -802,6 +802,24 @@ test('an exercise with no green sets at all reports a null lastDate', () => {
   assert.equal(r.lastDate, null);
 });
 
+test('lastLoggedDate is the last session logged, green or not', () => {
+  // What the Last column falls back to. Without it, imported history (which
+  // never carries setDone) showed a blank date AND skipped the staleness
+  // check, so a lift untouched for weeks never went amber.
+  const r = analyzeOne('Row', [
+    { daysAgo: 30, weight: 100, sets: ['5'], setDone: [true] },
+    { daysAgo: 2, weight: 100, sets: ['5'], setDone: [false] },
+  ]);
+  assert.equal(r.lastDate, key(30), 'completion still tracks green only');
+  assert.equal(r.lastLoggedDate, key(2), 'fallback sees the ungreen session');
+});
+
+test('lastLoggedDate is set even when nothing was ever marked complete', () => {
+  const r = analyzeOne('Row', [{ daysAgo: 5, weight: 100, sets: ['5'] }]);
+  assert.equal(r.lastDate, null);
+  assert.equal(r.lastLoggedDate, key(5));
+});
+
 test('empty and unmeasurable input is handled without throwing', () => {
   assert.deepEqual(analyzeProgress([], null, { now: NOW }).progressing, []);
   assert.deepEqual(analyzeProgress(undefined, null, { now: NOW }).nobaseline, []);

@@ -74,17 +74,32 @@ function daysSince(dateStr) {
 // Last-workout cell: the date plus a "days ago" indicator (amber when stale).
 // `staleAfter` is per-exercise and adaptive — 2× that lift's own median logging
 // gap — so a twice-weekly lift flags sooner than a once-a-month one.
-function LastCell({ dateStr, staleAfter = 14 }) {
-  const n = daysSince(dateStr);
+function LastCell({ dateStr, loggedDateStr, staleAfter = 14 }) {
+  // `dateStr` is the last COMPLETED (green) session. Imported history and
+  // workouts saved without ticking a set have none, which used to leave the
+  // cell blank — no date, and no staleness check either, so a lift untouched
+  // for weeks looked fine. Fall back to the last logged session, shown muted
+  // so "I finished this" still reads differently from "it was on the list".
+  const unconfirmed = !dateStr && !!loggedDateStr;
+  const shown = dateStr || loggedDateStr;
+  const n = daysSince(shown);
   const rel = n == null ? '' : n <= 0 ? 'today' : n === 1 ? 'yesterday' : `${n}d ago`;
   const stale = n != null && n >= staleAfter;
+  const staleTitle = stale
+    ? `No log in ${n} days — this lift is usually trained every ~${Math.round(staleAfter / 2)} days`
+    : undefined;
   return (
     <td className={styles.num}>
-      <span className={styles.lastDate}>{fmtDate(dateStr)}</span>
+      <span
+        className={`${styles.lastDate}${unconfirmed ? ` ${styles.lastUnconfirmed}` : ''}`}
+        title={unconfirmed ? 'Logged, but no sets were marked complete' : undefined}
+      >
+        {fmtDate(shown)}{unconfirmed ? '*' : ''}
+      </span>
       {rel && (
         <span
           className={`${styles.lastAgo}${stale ? ` ${styles.lastStale}` : ''}`}
-          title={stale ? `No log in ${n} days — this lift is usually trained every ~${Math.round(staleAfter / 2)} days` : undefined}
+          title={staleTitle}
         >{rel}</span>
       )}
     </td>
@@ -180,7 +195,7 @@ function ExerciseRow({ r, unit, onHide, onOpenChart }) {
         )}
       </td>
       <td className={styles.num}>{r.sessions}</td>
-      <LastCell dateStr={r.lastDate} staleAfter={r.staleAfterDays} />
+      <LastCell dateStr={r.lastDate} loggedDateStr={r.lastLoggedDate} staleAfter={r.staleAfterDays} />
       <td className={styles.num}>{fmtValue(r.metric, r.baseline ?? r.last, unit)}</td>
       <td className={`${styles.num} ${styles.strong}`}>{fmtValue(r.metric, r.recent, unit)}</td>
       <td className={styles.num}><DeltaCell r={r} unit={unit} /></td>
@@ -229,7 +244,7 @@ function StatusSection({ status, rows, unit, onHide, onOpenChart }) {
                     {r.group && <span className={styles.exGroup}>{r.group}</span>}
                   </td>
                   <td className={styles.num}>{r.sessions}</td>
-                  <LastCell dateStr={r.lastDate} staleAfter={r.staleAfterDays} />
+                  <LastCell dateStr={r.lastDate} loggedDateStr={r.lastLoggedDate} staleAfter={r.staleAfterDays} />
                   <td className={styles.num}>{fmtValue(r.metric, r.last, unit)}</td>
                   <td className={styles.num}>{fmtValue(r.metric, r.best, unit)}</td>
                   <td className={`${styles.num} ${styles.dim}`}>{noBaselineHint(r)}</td>

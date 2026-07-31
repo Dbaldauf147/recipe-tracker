@@ -457,7 +457,15 @@ function analyzeExercise(name, group, history, options) {
   const best = Math.max(...raw);
   if (!(best > 0)) return null; // nothing measurable (e.g. all-empty sets)
   const last = raw[n - 1];
+  // Last time a set was actually COMPLETED (green). Null when nothing in the
+  // window was marked done — imported history and workouts saved without
+  // ticking any set never carry setDone.
   const lastDate = greenDates.size ? [...greenDates].sort().pop() : null;
+  // Last time the exercise was logged at all, green or not. The UI falls back
+  // to this so every row has a real date and the staleness check can run —
+  // without it an exercise untouched for weeks showed a blank cell and could
+  // never go amber, which is the opposite of what the amber is for.
+  const lastLoggedDate = usable[usable.length - 1].date;
 
   const firstDay = series[0].day;
   const spanDays = series[n - 1].day - firstDay;
@@ -477,7 +485,7 @@ function analyzeExercise(name, group, history, options) {
   const intent = resolveIntent(name, options);
 
   const baseResult = {
-    name, group, metric, sessions: n, series, best, last, lastDate,
+    name, group, metric, sessions: n, series, best, last, lastDate, lastLoggedDate,
     staleAfterDays, discontinuity, intent,
     spanDays, medianGapDays: medGap,
   };

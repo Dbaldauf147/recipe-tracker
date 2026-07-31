@@ -311,6 +311,9 @@
 }
 
 .lastDate { display: block; }
+/* Logged, but no set was ever marked complete — the date is real, the
+   completion isn't, so it reads dimmer and carries a * . */
+.lastUnconfirmed { color: var(--color-text-muted, #94a3b8); font-style: italic; }
 .lastAgo {
   display: block;
   font-size: 0.72rem;
