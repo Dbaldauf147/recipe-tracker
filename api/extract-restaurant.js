@@ -205,6 +205,40 @@ function looksLikeOpaqueToken(s) {
   return v.length >= 24 && !/\s/.test(v) && /^[A-Za-z0-9_-]+$/.test(v);
 }
 
+// A short link resolves to ?q=<Name>,+<Address> with no coordinates in it — the
+// @lat,lng segment only exists on a full /maps/place/ URL — so a share-link
+// import would save without a map pin. We have a street address though, and the
+// app already geocodes addresses for free through Nominatim, so use it.
+//
+// Mirrors api/geocode.js (same endpoint, same User-Agent per Nominatim's usage
+// policy, same normalized shape) — kept as a direct call rather than a self-
+// request so this doesn't need to know its own deployment URL. Best-effort: a
+// failure here just means no pin, which is where we started.
+async function geocodeAddress(query) {
+  const q = String(query || '').trim();
+  if (!q) return null;
+  try {
+    const r = await fetch(
+      `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(q)}`,
+      {
+        headers: {
+          'User-Agent': 'PrepDay/1.0 (https://prep-day.com; baldaufdan@gmail.com)',
+          'Accept': 'application/json',
+          'Accept-Language': 'en',
+        },
+      },
+    );
+    if (!r.ok) return null;
+    const data = await r.json();
+    const top = Array.isArray(data) ? data[0] : null;
+    const lat = parseFloat(top?.lat);
+    const lng = parseFloat(top?.lon);
+    return Number.isFinite(lat) && Number.isFinite(lng) ? { lat, lng } : null;
+  } catch {
+    return null;
+  }
+}
+
 // Google's short-link redirect packs the name AND the address into one ?q=:
 // "Ivan Ramen, 25 Clinton St, New York, NY 10002". Split at the first comma
 // whose remainder looks like an address (has a digit in it), so the name is the
@@ -329,6 +363,13 @@ async function extractFromGoogleMaps(url) {
       // Heuristic: looks like an address if it contains a digit (street #).
       if (first && /\d/.test(first)) address = first;
     }
+  }
+
+  // No @lat,lng in the URL (every short link) — fall back to geocoding the
+  // address the redirect gave us, so the spot still lands on the map.
+  if (lat == null && address) {
+    const geo = await geocodeAddress(name ? `${name}, ${address}` : address);
+    if (geo) { lat = geo.lat; lng = geo.lng; }
   }
 
   // og:image fallback for the card preview.
