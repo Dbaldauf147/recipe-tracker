@@ -907,6 +907,11 @@
    it explicitly in both the input column and the read-only friend columns. */
 .ratingTableYou .stars,
 .ratingTableFriend .stars { justify-content: center; }
+/* StarRating's "Clear" link would sit inside the centered flex row and shove
+   your stars left of the friend columns they line up against. Tapping a set
+   star already clears it (see StarRating's onClick), so the link is redundant
+   here — the hint under the table says so. */
+.ratingTableYou .starsClear { display: none; }
 .ratingTableFriend { color: var(--color-text-muted); }
 .ratingTableBlank { color: var(--color-text-muted); }
 .ratingTableHint {

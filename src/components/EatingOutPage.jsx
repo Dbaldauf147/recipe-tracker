@@ -780,7 +780,7 @@ function SpotRatings({ ownerUid, spotId, user }) {
           </tfoot>
         </table>
       </div>
-      <p className={styles.ratingTableHint}>Tap your stars to rate — saves as you go.</p>
+      <p className={styles.ratingTableHint}>Tap your stars to rate — saves as you go. Tap the same star again to clear it.</p>
     </div>
   );
 }
