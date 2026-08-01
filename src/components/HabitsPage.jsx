@@ -967,6 +967,9 @@ export function HabitsPage({ onBack, user }) {
   // Set to a habit id to force its normal edit popup even when it would
   // otherwise open the review (the "Edit this habit" button in there).
   const [detailForId, setDetailForId] = useState(null);
+  // The habit "+ Add habit" just created, so closing without naming it can
+  // discard the row instead of leaving a blank one behind.
+  const [newHabitId, setNewHabitId] = useState(null);
   // The day-menu popup: { habitId, key, label } for the cell being edited.
   const [dayMenu, setDayMenu] = useState(null);
   // The "move to routine" popup (by habit id), opened by double-clicking a
@@ -987,7 +990,19 @@ export function HabitsPage({ onBack, user }) {
   // that habit's own settings. `detailForId` is compared to the open id rather
   // than being a boolean, so it can't leak onto the next habit you open.
   const reviewHabitOpen = !!openHabit && isReviewHabit(openHabit) && detailForId !== openHabit.id;
-  const closeHabitPopup = useCallback(() => { setOpenHabitId(null); setDetailForId(null); }, []);
+  // Closing the popup for a habit that was just created and never named
+  // discards it. "+ Add habit" has to write the row before the popup can edit
+  // it (the editor saves per keystroke), so without this, opening the form and
+  // changing your mind would leave a blank habit behind every time.
+  const closeHabitPopup = useCallback(() => {
+    if (newHabitId && openHabitId === newHabitId) {
+      const h = habits.find(x => x.id === newHabitId);
+      if (h && !(h.name || '').trim()) persist(habits.filter(x => x.id !== newHabitId));
+    }
+    setNewHabitId(null);
+    setOpenHabitId(null);
+    setDetailForId(null);
+  }, [newHabitId, openHabitId, habits]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1202,11 +1217,19 @@ export function HabitsPage({ onBack, user }) {
   function setHabitRoutine(id, routine) {
     persist(habits.map(h => (h.id === id ? { ...h, routine, order: '' } : h)));
   }
+  // Opens the habit popup to fill in, rather than dropping a blank row into the
+  // Habits table for you to find and edit inline. The row is still written
+  // first because the editor saves per keystroke — closeHabitPopup discards it
+  // again if you never give it a name.
   function addHabit() {
     const blank = { id: makeHabitId() };
     HABIT_FIELDS.forEach(f => { blank[f.key] = ''; });
     persist([...habits, blank]);
-    setTab('habits');
+    setNewHabitId(blank.id);
+    setOpenHabitId(blank.id);
+    // Force the edit popup: without this, typing a name like "Habit Review"
+    // would swap the form out for the review mid-keystroke.
+    setDetailForId(blank.id);
   }
   function deleteHabit(id) {
     persist(habits.filter(h => h.id !== id));
@@ -1583,6 +1606,7 @@ export function HabitsPage({ onBack, user }) {
           onClose={closeHabitPopup}
           autoSkipOn={isWorkoutAutoSkipOn(openHabit.id)}
           onToggleAutoSkip={(on) => setWorkoutAutoSkip(openHabit.id, on)}
+          isNew={openHabit.id === newHabitId}
         />
       )}
 
@@ -5001,7 +5025,7 @@ function HabitsTable({ habits, onUpdate, onDelete, onOpen, onBulkUpdate, onBulkD
 // Full habit editor popup. Opened by clicking a habit's name on the Habits
 // tab. Every edit persists immediately via onUpdate (which saves to Firestore).
 // The headline control is the tracking-cadence selector.
-function HabitDetailModal({ habit, streak: streakProp, onUpdate, onDelete, onClose, autoSkipOn = false, onToggleAutoSkip }) {
+function HabitDetailModal({ habit, streak: streakProp, onUpdate, onDelete, onClose, autoSkipOn = false, onToggleAutoSkip, isNew = false }) {
   const h = habit;
   const cadence = (h.cadence || '').trim();
   const streak = streakProp || EMPTY_STREAK;
@@ -5024,15 +5048,23 @@ function HabitDetailModal({ habit, streak: streakProp, onUpdate, onDelete, onClo
   return (
     <div style={overlay} onClick={onClose}>
       <div style={{ ...modal, maxHeight: '88vh', overflowY: 'auto' }} onClick={e => e.stopPropagation()}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: '0.9rem' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: isNew ? '0.35rem' : '0.9rem' }}>
+          {/* Autofocused on a new habit so you can just start typing. */}
           <input
             value={h.name || ''}
             onChange={e => onUpdate(h.id, 'name', e.target.value)}
             placeholder="Habit name"
+            autoFocus={isNew}
             style={{ flex: 1, fontSize: '1.15rem', fontWeight: 700, border: 'none', borderBottom: '2px solid var(--color-border, #e2e8f0)', padding: '4px 2px', outline: 'none', background: 'transparent' }}
           />
           <button onClick={onClose} aria-label="Close" style={{ border: 'none', background: 'none', fontSize: '1.5rem', lineHeight: 1, cursor: 'pointer', color: 'var(--color-text-muted)' }}>×</button>
         </div>
+        {isNew && (
+          <p style={{ margin: '0 0 0.9rem', fontSize: '0.74rem', lineHeight: 1.45, color: 'var(--color-text-muted, #64748b)' }}>
+            New habit — fill in what you know. Everything saves as you type; close without
+            naming it and it’s discarded.
+          </p>
+        )}
 
         {/* All-time record — completions + streaks, read straight from the log */}
         {streak.firstKey && (
