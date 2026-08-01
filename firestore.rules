@@ -91,6 +91,15 @@ service cloud.firestore {
         allow write: if isOwner(uid);
       }
 
+      // Eating-out photos, keyed by spot id. A friend viewing a shared list
+      // needs these to see the places' pictures. Write stays owner-only, like
+      // every other cross-user surface here — a friend rates and comments on
+      // your spot (separate collections), but never writes to your document.
+      match /eatingOutImages/{spotId} {
+        allow get: if isOwner(uid) || isAdmin() || isFriendOf(uid);
+        allow write: if isOwner(uid);
+      }
+
       // Everything else under a user document — dailyLog, workouts, habitLog
       // and habitLogAuto year docs, backups, dataSnapshots, exerciseImages,
       // workoutDraft — is private. Rules are additive, so the two matches above

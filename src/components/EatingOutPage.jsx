@@ -15,12 +15,12 @@ import {
   IMPORT_FIELDS,
 } from '../utils/restaurantImport';
 import { downloadRestaurantsCsv } from '../utils/restaurantExport';
-import { loadMyEatingOutVotes, setEatingOutVote, saveEatingOutOrder, LEGACY_VOTE_CATEGORY, subscribeSpotComments, addSpotComment, deleteSpotComment, subscribeSpotRatings, subscribeEatingOutRatings, setEatingOutRating } from '../utils/firestoreSync';
+import { saveEatingOutOrder, subscribeSpotComments, addSpotComment, deleteSpotComment, subscribeSpotRatings, subscribeEatingOutRatings, setEatingOutRating, loadSpotImage, saveSpotImage, deleteSpotImage } from '../utils/firestoreSync';
+// Canvas resize helper shared with the exercise-photo uploader — same ≤800px
+// JPEG budget, so a spot photo can't push its doc near Firestore's 1 MB cap.
+import { compressImage } from '../utils/exerciseImages';
 import { EatingOutFriendsPanel } from './EatingOutFriendsPanel';
 import styles from './EatingOutPage.module.css';
-
-// Medal characters keyed by rank (1, 2, 3).
-const RANK_MEDAL = { 1: '🥇', 2: '🥈', 3: '🥉' };
 
 const VISITED_COLOR = '#10b981';
 const WANT_COLOR = '#f59e0b';
@@ -484,48 +484,93 @@ function MealsEditor({ value, onChange, restaurantName }) {
   );
 }
 
-// Your personal 🥇🥈🥉 ranking of a spot within the active dimension (category /
-// cuisine / location, or "Overall" when no filter is active). Writes to YOUR OWN
-// user doc via onVote → setEatingOutVote, so it works on a friend's spot too
-// without touching their data. `votes` is my full eatingOutVotes map.
-function RankControl({ ownerUid, spotId, dimKey, dimLabel, votes, onVote }) {
-  const list = votes?.[ownerUid]?.[dimKey] || [];
-  const idx = list.indexOf(spotId);
-  const current = idx >= 0 && idx < 3 ? idx + 1 : null;
-  const labels = { 1: '1st', 2: '2nd', 3: '3rd' };
+// The photo uploaded for a spot (users/{ownerUid}/eatingOutImages/{spotId}),
+// shared with the mobile app — upload on either and it shows on both. An
+// uploaded photo wins over the image scraped from the place's link wherever
+// both exist. Fetched per open modal, never per card, so browsing the list
+// stays one read per spot you actually look at.
+//
+// The loaded photo is tagged with the spot it belongs to, and read back only
+// when that tag still matches. That keeps the previous spot's photo from
+// flashing in a reused modal, without a synchronous reset inside the effect.
+function useSpotPhoto(ownerUid, spotId) {
+  const key = ownerUid && spotId ? `${ownerUid}__${spotId}` : '';
+  const [entry, setEntry] = useState({ key: '', url: null });
+  useEffect(() => {
+    if (!key) return undefined;
+    let cancelled = false;
+    loadSpotImage(ownerUid, spotId).then(url => { if (!cancelled) setEntry({ key, url }); });
+    return () => { cancelled = true; };
+  }, [key, ownerUid, spotId]);
+  const setPhoto = useCallback(url => setEntry({ key, url }), [key]);
+  return [entry.key === key ? entry.url : null, setPhoto];
+}
+
+// Photo block in the restaurant editor: the current picture plus upload /
+// replace / remove. The file is compressed through the same canvas helper the
+// exercise photos use (≤800px JPEG) so the doc stays far under Firestore's
+// 1 MB cap. Owner-only — Firestore refuses cross-user writes.
+function SpotPhotoEditor({ ownerUid, spotId, fallbackUrl }) {
+  const [photo, setPhoto] = useSpotPhoto(ownerUid, spotId);
+  const [busy, setBusy] = useState(false);
+  const inputRef = useRef(null);
+
+  const handleFile = async (file) => {
+    if (!file) return;
+    setBusy(true);
+    try {
+      const dataUrl = await compressImage(file);
+      await saveSpotImage(ownerUid, spotId, dataUrl);
+      setPhoto(dataUrl);
+    } catch (err) {
+      alert(`Couldn't save that photo — ${err?.message || 'try again'}`);
+    } finally {
+      setBusy(false);
+      if (inputRef.current) inputRef.current.value = ''; // let the same file be re-picked
+    }
+  };
+
+  const handleRemove = async () => {
+    if (!window.confirm('Remove the photo you uploaded for this place?')) return;
+    setBusy(true);
+    try {
+      await deleteSpotImage(ownerUid, spotId);
+      setPhoto(null);
+    } catch (err) {
+      alert(`Couldn't remove it — ${err?.message || 'try again'}`);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const shown = photo || fallbackUrl || '';
   return (
-    <div>
-      <div className={styles.fieldLabel}>Your ranking · {dimLabel || 'Overall'}</div>
+    <>
+      <label className={styles.fieldLabel}>Photo</label>
+      {shown
+        ? <img src={shown} alt="" className={styles.previewImg} />
+        : <p className={styles.hintText}>No photo yet.</p>}
+      {photo && fallbackUrl && (
+        <p className={styles.hintText}>Your photo is showing instead of the one pulled from the link.</p>
+      )}
+      <input
+        ref={inputRef}
+        type="file"
+        accept="image/*"
+        style={{ display: 'none' }}
+        onChange={e => handleFile(e.target.files?.[0])}
+      />
       <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-        {[1, 2, 3].map(n => (
-          <button
-            key={n}
-            type="button"
-            onClick={() => onVote(ownerUid, dimKey, spotId, current === n ? null : n)}
-            style={{
-              padding: '0.4rem 0.7rem',
-              borderRadius: 999,
-              border: '1px solid var(--color-border)',
-              cursor: 'pointer',
-              fontWeight: 600,
-              background: current === n ? 'var(--color-accent, #2563eb)' : 'var(--color-surface)',
-              color: current === n ? '#fff' : 'var(--color-text)',
-            }}
-          >
-            {RANK_MEDAL[n]} {labels[n]}
-          </button>
-        ))}
-        {current && (
-          <button
-            type="button"
-            onClick={() => onVote(ownerUid, dimKey, spotId, null)}
-            style={{ padding: '0.4rem 0.7rem', borderRadius: 999, border: '1px solid var(--color-border)', background: 'var(--color-surface)', cursor: 'pointer', color: 'var(--color-text-muted)' }}
-          >
-            Clear
+        <button type="button" className={styles.fetchBtn} disabled={busy} onClick={() => inputRef.current?.click()}>
+          {busy ? 'Saving…' : photo ? 'Replace photo' : 'Upload photo'}
+        </button>
+        {photo && (
+          <button type="button" className={styles.fetchBtn} disabled={busy} onClick={handleRemove}>
+            Remove
           </button>
         )}
       </div>
-    </div>
+    </>
   );
 }
 
@@ -924,9 +969,11 @@ function SpotRatings({ ownerUid, spotId, spot, user }) {
   );
 }
 
-// Read-only detail sheet for a spot a FRIEND added: their info + your personal
-// ranking + the shared comment thread. No editing (that stays owner-only).
-function SpotDetailModal({ spot, dimKey, dimLabel, votes, onVote, user, onClose }) {
+// Read-only detail sheet for a spot a FRIEND added: their info + the shared
+// ratings and comment thread. No editing (that stays owner-only).
+function SpotDetailModal({ spot, user, onClose }) {
+  const [uploadedPhoto] = useSpotPhoto(spot._ownerUid, spot.id);
+  const photo = uploadedPhoto || spot.imageUrl || '';
   const meta = [
     (spot.cuisines || []).join(', '),
     (spot.locations || []).join(', '),
@@ -947,13 +994,13 @@ function SpotDetailModal({ spot, dimKey, dimLabel, votes, onVote, user, onClose 
           <button type="button" className={styles.iconBtn} onClick={onClose}>✕</button>
         </div>
         <div className={styles.modalBody} style={{ gap: '1rem' }}>
+          {photo && <img src={photo} alt="" className={styles.previewImg} />}
           {meta && <p style={{ margin: 0, fontSize: '0.9rem', color: 'var(--color-text-muted)' }}>{meta}</p>}
           {spot.dish && <p style={{ margin: 0, fontSize: '0.9rem' }}><strong>What to order:</strong> {spot.dish}</p>}
           {spot.notes && <p style={{ margin: 0, fontSize: '0.9rem' }}>{spot.notes}</p>}
           {spot.url && (
             <a href={spot.url} target="_blank" rel="noreferrer" style={{ fontSize: '0.85rem' }}>Open link ↗</a>
           )}
-          <RankControl ownerUid={spot._ownerUid} spotId={spot.id} dimKey={dimKey} dimLabel={dimLabel} votes={votes} onVote={onVote} />
           <SpotRatings ownerUid={spot._ownerUid} spotId={spot.id} spot={spot} user={user} />
           <SpotComments ownerUid={spot._ownerUid} spotId={spot.id} user={user} />
         </div>
@@ -966,7 +1013,7 @@ function SpotDetailModal({ spot, dimKey, dimLabel, votes, onVote, user, onClose 
   );
 }
 
-function EditModal({ initial, onSave, onClose, onDelete, cuisineSuggestions, locationSuggestions, categorySuggestions = [], user, dimKey, dimLabel, votes, onVote }) {
+function EditModal({ initial, onSave, onClose, onDelete, cuisineSuggestions, locationSuggestions, categorySuggestions = [], user }) {
   const [name, setName] = useState(initial.name || '');
   const [url, setUrl] = useState(initial.url || '');
   const [imageUrl, setImageUrl] = useState(initial.imageUrl || '');
@@ -1109,12 +1156,18 @@ function EditModal({ initial, onSave, onClose, onDelete, cuisineSuggestions, loc
             </button>
           </div>
 
-          {imageUrl && (
+          {/* Photos are keyed by the place's id, so a brand-new one shows just
+              the link preview until it's saved. Own spots only — a photo is
+              written under the owner's uid. */}
+          {initial.id && user?.uid && (!initial._ownerUid || initial._ownerUid === user.uid) ? (
+            <SpotPhotoEditor ownerUid={user.uid} spotId={initial.id} fallbackUrl={imageUrl} />
+          ) : imageUrl ? (
             <>
               <label className={styles.fieldLabel}>Preview</label>
               <img src={imageUrl} alt="" className={styles.previewImg} />
+              {!initial.id && <p className={styles.hintText}>Save this place to add your own photo.</p>}
             </>
-          )}
+          ) : null}
 
           <label className={styles.fieldLabel}>Name</label>
           <input
@@ -1304,12 +1357,11 @@ function EditModal({ initial, onSave, onClose, onDelete, cuisineSuggestions, loc
             </>
           )}
 
-          {/* Ranking + shared comments — only for an existing spot (a brand-new
+          {/* Ratings + shared comments — only for an existing spot (a brand-new
               one has no id/thread yet). Works for your own spots and, if this
               modal is ever opened for a friend's, keys to that owner. */}
-          {initial.id && user?.uid && onVote && (
+          {initial.id && user?.uid && (
             <>
-              <RankControl ownerUid={initial._ownerUid || user.uid} spotId={initial.id} dimKey={dimKey} dimLabel={dimLabel} votes={votes} onVote={onVote} />
               {/* `buckets` (the live edit state), not `initial` — retagging a
                   spot swaps the rating rows immediately, before you hit Save. */}
               <SpotRatings
@@ -2625,11 +2677,6 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
   }, []);
   const [geocodingProgress, setGeocodingProgress] = useState(null);
   const cancelGeocodeRef = useRef(false);
-  // My ranked top-3 picks, keyed by (ownerUid, category).
-  // Shape: { [ownerUid]: { [category]: [restaurantId1, restaurantId2, restaurantId3] } }.
-  // Unified ranking: full ordered list per (ownerUid, dimensionKey). The Table
-  // view ▲▼ reorders the whole list; the List/mobile 🥇🥈🥉 medals are its top 3.
-  const [myEatingOutVotes, setMyEatingOutVotes] = useState({});
   // Live collaborative ratings for every visible owner's spots, keyed
   // `${ownerUid}__${spotId}` → rating docs. Feeds the compact card badge; the
   // detail/edit view subscribes per-spot for the full input + breakdown.
@@ -2773,26 +2820,8 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
     [ownerData, user?.uid],
   );
 
-  // The active ranking dimension: ranking now works over a dedicated category,
-  // OR over the cuisine/location you've selected — so your existing tags are
-  // votable with no extra tagging. `key` is what we store votes under (cuisine
-  // and location are namespaced so they never collide with each other or with a
-  // real category); `label` is what we show. A category wins if both are set.
-  const rankDim = useMemo(() => {
-    if (activeCategory) return { key: activeCategory, label: activeCategory };
-    if (activeCuisine) return { key: `cuisine:${activeCuisine}`, label: activeCuisine };
-    if (activeLocation) return { key: `location:${activeLocation}`, label: activeLocation };
-    return null;
-  }, [activeCategory, activeCuisine, activeLocation]);
-
-  // Dimension a personal ranking is stored under — the active filter, or an
-  // "Overall" bucket (LEGACY_VOTE_CATEGORY) when nothing is filtered. Passed to
-  // the rank pickers in the edit/detail modals.
-  const rankKey = rankDim?.key || LEGACY_VOTE_CATEGORY;
-  const rankLabel = rankDim?.label || 'Overall';
-
   // Tapping a spot: my own opens the editor; a friend's opens the read-only
-  // rank + comment sheet (no editing someone else's list).
+  // ratings + comment sheet (no editing someone else's list).
   const openSpot = useCallback((r) => {
     if (r._isMine) setEditing(r);
     else setViewing(r);
@@ -2962,66 +2991,6 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
   );
   const effectiveMasterCuisines = masterCuisines ?? seededCuisines;
   const effectiveMasterCategories = masterCategories ?? seededCategories;
-
-  // Pull my eating-out votes once when the user is known. Subsequent
-  // updates use the local handleVote which writes through to Firestore.
-  useEffect(() => {
-    if (!user?.uid) { setMyEatingOutVotes({}); return; }
-    let cancelled = false;
-    loadMyEatingOutVotes(user.uid)
-      .then(v => { if (!cancelled) setMyEatingOutVotes(v || {}); })
-      .catch(() => { /* keep empty */ });
-    return () => { cancelled = true; };
-  }, [user?.uid]);
-
-  const handleVoteOnRestaurant = useCallback(async (ownerUid, category, restaurantId, rank) => {
-    if (!user?.uid || !category) return;
-    setMyEatingOutVotes(prev => {
-      const next = { ...prev };
-      const byCat = { ...(next[ownerUid] || {}) };
-      let list = Array.isArray(byCat[category]) ? byCat[category].filter(id => id !== restaurantId) : [];
-      if (rank === 1 || rank === 2 || rank === 3) {
-        const idx = Math.min(rank - 1, list.length);
-        list = [...list.slice(0, idx), restaurantId, ...list.slice(idx)];
-      }
-      if (list.length === 0) delete byCat[category];
-      else byCat[category] = list;
-      if (Object.keys(byCat).length === 0) delete next[ownerUid];
-      else next[ownerUid] = byCat;
-      return next;
-    });
-    try {
-      await setEatingOutVote(user.uid, ownerUid, category, restaurantId, rank);
-    } catch (err) {
-      console.error('Failed to save vote:', err);
-      alert(`Couldn't save your vote — ${err?.message || 'try again'}`);
-    }
-  }, [user?.uid]);
-
-  // Does a restaurant belong to the active ranking dimension (cuisine/location/
-  // category)? Used to build the ordered list the ▲▼ arrows reorder.
-  const matchesRankDim = useCallback((r) => {
-    if (activeCategory) return (r.categories || []).some(c => c.toLowerCase() === activeCategory.toLowerCase());
-    if (activeCuisine) return (r.cuisines || []).some(c => c.toLowerCase() === activeCuisine.toLowerCase());
-    if (activeLocation) return (r.locations || []).some(l => l.toLowerCase() === activeLocation.toLowerCase());
-    return false;
-  }, [activeCategory, activeCuisine, activeLocation]);
-
-  // The full ranked id list for the active dimension, over MY OWN list: saved
-  // order first (for spots still in the dimension), then any not-yet-ranked
-  // spots appended alphabetically. This is what positions + ▲▼ act on.
-  const myRankOrder = useMemo(() => {
-    if (!user?.uid || !rankDim) return [];
-    const mine = (ownerData[user.uid]?.restaurants || []).filter(matchesRankDim);
-    const byId = new Map(mine.map(r => [r.id, r]));
-    const stored = (myEatingOutVotes[user.uid]?.[rankDim.key] || []).filter(id => byId.has(id));
-    const storedSet = new Set(stored);
-    const rest = mine
-      .filter(r => !storedSet.has(r.id))
-      .sort((a, b) => (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' }))
-      .map(r => r.id);
-    return [...stored, ...rest];
-  }, [user?.uid, rankDim, ownerData, myEatingOutVotes, matchesRankDim]);
 
   // Rank = the item's 1-based position in the currently-visible (filtered) list,
   // which is itself in master order. So numbers auto-renumber when you filter.
@@ -3758,19 +3727,11 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
           onClose={() => setEditing(null)}
           onDelete={() => handleDelete(editing)}
           user={user}
-          dimKey={rankKey}
-          dimLabel={rankLabel}
-          votes={myEatingOutVotes}
-          onVote={handleVoteOnRestaurant}
         />
       )}
       {viewing && (
         <SpotDetailModal
           spot={viewing}
-          dimKey={rankKey}
-          dimLabel={rankLabel}
-          votes={myEatingOutVotes}
-          onVote={handleVoteOnRestaurant}
           user={user}
           onClose={() => setViewing(null)}
         />

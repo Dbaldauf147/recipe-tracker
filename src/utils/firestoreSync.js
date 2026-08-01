@@ -1965,6 +1965,39 @@ export async function deleteSpotComment(commentId) {
  * Each doc: { ownerUid, spotId, authorUid, authorUsername,
  *             scores: { food, service, atmosphere, price }, updatedAt }.
  */
+/**
+ * A photo uploaded for an eating-out spot, stored at
+ * `users/{ownerUid}/eatingOutImages/{spotId}` as a `dataUrl` — a sibling of
+ * mealImages, kept off the user doc so the restaurants field stays well under
+ * Firestore's 1 MB cap. The mobile app writes these; the website reads them so
+ * a photo added on your phone shows up here too. Friends may read (rules), so
+ * photos travel with a shared list.
+ */
+export async function loadSpotImage(ownerUid, spotId) {
+  if (!ownerUid || !spotId) return null;
+  try {
+    const snap = await getDoc(doc(db, 'users', ownerUid, 'eatingOutImages', spotId));
+    if (!snap.exists()) return null;
+    const url = snap.data()?.dataUrl;
+    return typeof url === 'string' && url ? url : null;
+  } catch {
+    return null; // no access / offline — just show no photo
+  }
+}
+
+/** Save (or replace) a spot's photo. `dataUrl` must already be compressed —
+ *  callers run the file through compressImage (canvas, ≤800px JPEG) first. */
+export async function saveSpotImage(uid, spotId, dataUrl) {
+  if (!uid || !spotId || !dataUrl) return;
+  await setDoc(doc(db, 'users', uid, 'eatingOutImages', spotId), { dataUrl }, { merge: true });
+}
+
+/** Remove a spot's uploaded photo. */
+export async function deleteSpotImage(uid, spotId) {
+  if (!uid || !spotId) return;
+  await deleteDoc(doc(db, 'users', uid, 'eatingOutImages', spotId));
+}
+
 function ratingDocId(ownerUid, spotId, authorUid) {
   return `${ownerUid}__${spotId}__${authorUid}`;
 }
