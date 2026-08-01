@@ -36,9 +36,16 @@ const DEMOTED_FROM_AUTOMATIC_STATUS = 'Most Days';
 // Opening it goes straight to the automatic check-in instead of the usual edit
 // popup — the point of the habit is the review, not its own settings (which are
 // still one click away inside).
-const REVIEW_HABIT_NAMES = new Set(['habit review', 'habits review', 'review habits']);
+//
+// Matched loosely (any name with both words, in either order, plus a bare
+// "review") rather than against a fixed list: "Monthly Habit Review", "Review
+// habits 📋" and "Habit review" should all behave the same, and an exact-match
+// list silently does nothing when the name is one word off.
 function isReviewHabit(h) {
-  return REVIEW_HABIT_NAMES.has((h?.name || '').trim().toLowerCase());
+  const name = (h?.name || '').trim().toLowerCase();
+  if (!name) return false;
+  if (name === 'review') return true;
+  return name.includes('review') && name.includes('habit');
 }
 // Tracking cadence chosen per-habit in the habit popup. Stored on the habit as
 // `cadence` (NOT part of HABIT_FIELDS, so the paste-from-sheet column mapping
@@ -2670,6 +2677,7 @@ function RoutineSection({ cadenceName, list, habitLog, habitLogAuto, streaks, au
       [cadenceCanon(h.cadence)]: (nextLogOverride && typeof nextLogOverride === 'object') ? nextLogOverride : undefined,
     });
     const rowSel = !muted && weekCols.length > 0 && weekCols.every(w => selected.has(cellId(h.id, w.key)));
+    const reviewHabit = isReviewHabit(h);
     const tdBase = { borderBottom: `1px solid ${borderCol}`, padding: '3px 6px' };
     return (
       <tr
@@ -2689,12 +2697,33 @@ function RoutineSection({ cadenceName, list, habitLog, habitLogAuto, streaks, au
                 style={{ cursor: 'grab', color: '#cbd5e1', fontSize: '0.9rem', userSelect: 'none', lineHeight: 1 }}
               >⠿</span>
             )}
+            {/* Every other habit opens on double-click (single click is row-select
+                in bulk mode, and a stray click while marking shouldn't throw a
+                popup up). The review habit is the exception: it's a button you
+                press to DO something, so one click runs it. */}
             <span
-              onClick={bulkMode && !muted ? () => toggleRow(h.id) : undefined}
+              onClick={
+                bulkMode && !muted ? () => toggleRow(h.id)
+                  : (reviewHabit ? () => onOpen?.(h.id) : undefined)
+              }
               onDoubleClick={() => onOpen?.(h.id)}
-              title={bulkMode && !muted ? 'Click to select this habit’s whole row (double-click to open)' : 'Double-click to open habit'}
-              style={{ flex: '0 1 auto', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: '0.82rem', fontWeight: 600, color: muted ? '#94a3b8' : 'inherit', cursor: bulkMode && !muted ? 'pointer' : 'default', textDecoration: rowSel ? 'underline' : 'none' }}
+              title={
+                bulkMode && !muted ? 'Click to select this habit’s whole row (double-click to open)'
+                  : reviewHabit ? 'Click to review your automatic habits'
+                    : 'Double-click to open habit'
+              }
+              style={{ flex: '0 1 auto', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: '0.82rem', fontWeight: 600, color: muted ? '#94a3b8' : 'inherit', cursor: (bulkMode && !muted) || reviewHabit ? 'pointer' : 'default', textDecoration: rowSel ? 'underline' : 'none' }}
             >{h.name || <em style={{ color: '#aaa' }}>untitled</em>}</span>
+            {/* Says out loud that this row does something when you click it —
+                otherwise it looks identical to every other habit. */}
+            {reviewHabit && !bulkMode && (
+              <button
+                type="button"
+                onClick={() => onOpen?.(h.id)}
+                title="Review your automatic habits"
+                style={{ flexShrink: 0, fontSize: '0.62rem', fontWeight: 700, color: ACCENT, background: ACCENT + '14', border: `1px solid ${ACCENT}33`, borderRadius: 5, padding: '1px 5px', lineHeight: 1.4, cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap' }}
+              >🔁 Review</button>
+            )}
             {habitWeekDayLabel(h) && (
               <span
                 title={`Scheduled for ${capWord(habitWeekDays(h)[0])}`}
