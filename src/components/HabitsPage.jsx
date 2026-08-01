@@ -28,6 +28,18 @@ const PARKED_STATUSES = [ON_HOLD_STATUS, 'Abandoned'];
 
 const DAILY_ROUTINES = ['Morning', 'Lunch', 'Afternoon', 'After Work', 'Bedtime'];
 const STATUS_OPTIONS = ['Automatically', 'Most Days', 'Some Days', 'Rarely', 'On Hold', 'Not Started', 'Abandoned'];
+// Where a habit lands when you say it's no longer running on autopilot. "Most
+// Days" rather than blank: it stopped being automatic, it didn't stop existing.
+const DEMOTED_FROM_AUTOMATIC_STATUS = 'Most Days';
+
+// A habit whose whole job is running the review, e.g. a monthly "Habit Review".
+// Opening it goes straight to the automatic check-in instead of the usual edit
+// popup — the point of the habit is the review, not its own settings (which are
+// still one click away inside).
+const REVIEW_HABIT_NAMES = new Set(['habit review', 'habits review', 'review habits']);
+function isReviewHabit(h) {
+  return REVIEW_HABIT_NAMES.has((h?.name || '').trim().toLowerCase());
+}
 // Tracking cadence chosen per-habit in the habit popup. Stored on the habit as
 // `cadence` (NOT part of HABIT_FIELDS, so the paste-from-sheet column mapping
 // stays aligned to the spreadsheet).
@@ -945,6 +957,9 @@ export function HabitsPage({ onBack, user }) {
   // Which habit's detail popup is open (by id). Derived from habits each render
   // so edits/deletes keep the popup in sync.
   const [openHabitId, setOpenHabitId] = useState(null);
+  // Set to a habit id to force its normal edit popup even when it would
+  // otherwise open the review (the "Edit this habit" button in there).
+  const [detailForId, setDetailForId] = useState(null);
   // The day-menu popup: { habitId, key, label } for the cell being edited.
   const [dayMenu, setDayMenu] = useState(null);
   // The "move to routine" popup (by habit id), opened by double-clicking a
@@ -961,6 +976,11 @@ export function HabitsPage({ onBack, user }) {
   });
   const openHabit = openHabitId ? habits.find(h => h.id === openHabitId) || null : null;
   const moveHabit = moveHabitId ? habits.find(h => h.id === moveHabitId) || null : null;
+  // Opening the review habit shows the automatic check-in, unless you asked for
+  // that habit's own settings. `detailForId` is compared to the open id rather
+  // than being a boolean, so it can't leak onto the next habit you open.
+  const reviewHabitOpen = !!openHabit && isReviewHabit(openHabit) && detailForId !== openHabit.id;
+  const closeHabitPopup = useCallback(() => { setOpenHabitId(null); setDetailForId(null); }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -1471,13 +1491,58 @@ export function HabitsPage({ onBack, user }) {
         <HabitsTable habits={habits} onUpdate={updateHabit} onDelete={deleteHabit} onOpen={setOpenHabitId} onBulkUpdate={bulkUpdate} onBulkDelete={bulkDelete} />
       )}
 
-      {openHabit && (
+      {/* Opening the "Habit Review" habit runs the review rather than editing
+          the habit. `detailForId` is the escape hatch — it only matches the one
+          habit you asked to edit, so opening any OTHER habit from inside the
+          review (by clicking its name) still lands on its normal popup. */}
+      {reviewHabitOpen && (
+        <div style={overlay} onClick={closeHabitPopup}>
+          <div
+            style={{ ...modal, width: 'min(96vw, 780px)', maxHeight: '86vh', overflowY: 'auto' }}
+            onClick={e => e.stopPropagation()}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: '0.9rem' }}>
+              <h3 style={{ margin: 0, fontSize: '1.05rem', flex: 1 }}>
+                {openHabit.name} · are these still automatic?
+              </h3>
+              <button
+                type="button"
+                onClick={closeHabitPopup}
+                aria-label="Close"
+                style={{ border: 'none', background: 'none', fontSize: '1.2rem', cursor: 'pointer', color: 'var(--color-text-muted, #64748b)' }}
+              >✕</button>
+            </div>
+            {/* Clicking a name in the list means "edit that habit", so force the
+                detail popup — otherwise a review habit that is itself marked
+                Automatically would just re-open this same modal. */}
+            <AutoReviewView
+              habits={habits}
+              onUpdate={updateHabit}
+              onOpen={id => { setOpenHabitId(id); setDetailForId(id); }}
+            />
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: '1.1rem', paddingTop: '0.8rem', borderTop: '1px solid var(--color-border, #e2e8f0)' }}>
+              <button
+                type="button"
+                onClick={() => setDetailForId(openHabit.id)}
+                style={{ border: '1px solid var(--color-border, #e2e8f0)', background: 'none', borderRadius: 8, padding: '0.4rem 0.8rem', fontSize: '0.82rem', cursor: 'pointer', fontFamily: 'inherit', color: 'inherit' }}
+              >Edit this habit</button>
+              <button
+                type="button"
+                onClick={closeHabitPopup}
+                style={{ border: 'none', background: ACCENT, color: '#fff', borderRadius: 8, padding: '0.4rem 0.9rem', fontSize: '0.82rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}
+              >Done</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {openHabit && !reviewHabitOpen && (
         <HabitDetailModal
           habit={openHabit}
           streak={streaks.get(openHabit.id)}
           onUpdate={updateHabit}
-          onDelete={(id) => { deleteHabit(id); setOpenHabitId(null); }}
-          onClose={() => setOpenHabitId(null)}
+          onDelete={(id) => { deleteHabit(id); closeHabitPopup(); }}
+          onClose={closeHabitPopup}
           autoSkipOn={isWorkoutAutoSkipOn(openHabit.id)}
           onToggleAutoSkip={(on) => setWorkoutAutoSkip(openHabit.id, on)}
         />
@@ -3483,6 +3548,18 @@ function AutoReviewView({ habits, onUpdate, onOpen }) {
     onUpdate(h.id, 'autoConfirmedMonth', confirmed ? '' : currentMonth);
   }
 
+  // The other half of the review: this one ISN'T automatic any more. Drops it
+  // back into the routines you actually log, and clears the confirmation so it
+  // doesn't come back next month still looking checked off.
+  function demote(h) {
+    if (!window.confirm(
+      `“${h.name || 'This habit'}” is no longer automatic?\n\n`
+      + `It moves back to “${DEMOTED_FROM_AUTOMATIC_STATUS}” and starts showing in your routines to log again.`,
+    )) return;
+    onUpdate(h.id, 'status', DEMOTED_FROM_AUTOMATIC_STATUS);
+    onUpdate(h.id, 'autoConfirmedMonth', '');
+  }
+
   return (
     <div>
       {/* Prompt banner */}
@@ -3491,7 +3568,8 @@ function AutoReviewView({ habits, onUpdate, onOpen }) {
         <div style={{ flex: 1, minWidth: 220 }}>
           <div style={{ fontWeight: 700, fontSize: '0.95rem' }}>Monthly automatic check-in · {monthLabel}</div>
           <div style={{ fontSize: '0.82rem', color: 'var(--color-text-muted)', lineHeight: 1.45 }}>
-            Once a month, confirm each habit is still running on autopilot by checking its box. The boxes reset at the start of every month.
+            Once a month, go through each one: tick the box if it’s still running on autopilot,
+            or “Not any more” to put it back in your routines. The boxes reset at the start of every month.
           </div>
         </div>
         <span style={{ fontSize: '0.72rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.4, color: pending === 0 ? '#166534' : '#b45309', background: pending === 0 ? '#dcfce7' : '#fef3c7', border: `1px solid ${pending === 0 ? '#bbf7d0' : '#fde68a'}`, borderRadius: 999, padding: '3px 10px', whiteSpace: 'nowrap' }}>
@@ -3518,6 +3596,12 @@ function AutoReviewView({ habits, onUpdate, onOpen }) {
                       {h.name || <em style={{ color: '#aaa' }}>untitled</em>}
                     </button>
                     {(h.cadence || '').trim() && <span style={cadenceTag}>{h.cadence}</span>}
+                    <button
+                      type="button"
+                      onClick={() => demote(h)}
+                      title={`No longer automatic — move back to “${DEMOTED_FROM_AUTOMATIC_STATUS}”`}
+                      style={{ border: '1px solid var(--color-border, #e2e8f0)', background: 'none', borderRadius: 999, padding: '2px 9px', fontSize: '0.7rem', fontWeight: 600, color: 'var(--color-text-muted, #64748b)', cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap' }}
+                    >Not any more</button>
                     {confirmed
                       ? <span style={{ fontSize: '0.72rem', fontWeight: 600, color: '#16a34a', whiteSpace: 'nowrap' }}>Confirmed</span>
                       : <span style={{ fontSize: '0.72rem', fontWeight: 600, color: '#b45309', whiteSpace: 'nowrap' }}>Needs check</span>}
