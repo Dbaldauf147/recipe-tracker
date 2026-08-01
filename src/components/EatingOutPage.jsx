@@ -92,6 +92,8 @@ let BUCKET_KEYS = new Set(BUCKETS.map(b => b.key));
 const bucketLabel = (key) => BUCKETS.find(b => b.key === key)?.label || '';
 
 // Keep only well-formed {key,label,icon}; drop blanks and duplicate keys.
+// `ratingCategories` is optional and only carried when it has usable rows —
+// an absent one means "use the built-in set for this bucket".
 function sanitizeBucketConfig(list) {
   if (!Array.isArray(list)) return [];
   const seen = new Set();
@@ -102,7 +104,10 @@ function sanitizeBucketConfig(list) {
     const label = typeof b.label === 'string' ? b.label.trim() : '';
     if (!key || !label || seen.has(key)) continue;
     seen.add(key);
-    out.push({ key, label, icon: (typeof b.icon === 'string' && b.icon.trim()) ? b.icon.trim() : '🍴' });
+    const bucket = { key, label, icon: (typeof b.icon === 'string' && b.icon.trim()) ? b.icon.trim() : '🍴' };
+    const cats = sanitizeRatingCategories(b.ratingCategories);
+    if (cats.length) bucket.ratingCategories = cats;
+    out.push(bucket);
   }
   return out;
 }
@@ -600,36 +605,153 @@ function SpotComments({ ownerUid, spotId, user }) {
   );
 }
 
-// The 4 collaborative rating categories (1–5 each). `key` is the stored field,
-// `label` the UI text. Overall = mean of the category averages that have votes.
-const RATING_CATEGORIES = [
+// Collaborative rating categories (1–5 each). `key` is the stored field inside
+// a rating doc's `scores`, `label` the UI text.
+//
+// The set is PER BUCKET: rating a coffee shop on the same axes as a dinner
+// spot never made sense. `food` stays the universal primary-quality axis and is
+// RELABELLED per bucket rather than given a new key, so a spot recategorised
+// from Lunch/Dinner to Coffee keeps the votes it already has. These four keys
+// are frozen for that reason; bucket-specific extras get their own.
+const BASE_RATING_CATEGORIES = [
   { key: 'food', label: 'Food & Drink Quality' },
   { key: 'service', label: 'Service' },
   { key: 'atmosphere', label: 'Atmosphere' },
   { key: 'price', label: 'Price' },
 ];
+const SERVICE_ATMOSPHERE_PRICE = [
+  { key: 'service', label: 'Service' },
+  { key: 'atmosphere', label: 'Atmosphere' },
+  { key: 'price', label: 'Price' },
+];
+
+// Built-in defaults for the stock buckets. A bucket's own saved
+// `ratingCategories` wins over this; a custom bucket with neither falls back to
+// BASE_RATING_CATEGORIES.
+const DEFAULT_BUCKET_RATING_CATEGORIES = {
+  breakfast: [
+    { key: 'food', label: 'Food' },
+    { key: 'coffee', label: 'Coffee' },
+    ...SERVICE_ATMOSPHERE_PRICE,
+  ],
+  'lunch-dinner': [{ key: 'food', label: 'Food' }, ...SERVICE_ATMOSPHERE_PRICE],
+  drinking: [{ key: 'food', label: 'Drinks' }, ...SERVICE_ATMOSPHERE_PRICE],
+  coffee: [{ key: 'food', label: 'Coffee' }, ...SERVICE_ATMOSPHERE_PRICE],
+  // Music gets its own key rather than relabelling `food`: on a club, an old
+  // "Food & Drink Quality" vote isn't a statement about the music, and
+  // relabelling it would put words in the voter's mouth. It survives as a
+  // preserved row instead (see ratingCategoriesForSpot).
+  'going-out': [{ key: 'music', label: 'Music & Crowd' }, ...SERVICE_ATMOSPHERE_PRICE],
+};
+
+// Keep only well-formed {key,label} pairs, first key wins.
+function sanitizeRatingCategories(list) {
+  if (!Array.isArray(list)) return [];
+  const seen = new Set();
+  const out = [];
+  for (const c of list) {
+    if (!c || typeof c !== 'object') continue;
+    const key = typeof c.key === 'string' ? c.key.trim() : '';
+    const label = typeof c.label === 'string' ? c.label.trim() : '';
+    if (!key || !label || seen.has(key)) continue;
+    seen.add(key);
+    out.push({ key, label });
+  }
+  return out;
+}
+
+// Slug for a user-added category. NOT uniquified across buckets on purpose: two
+// buckets that both add "Vibe" should share the key so the scores mean the same
+// thing and aggregate together.
+function makeRatingKey(label) {
+  const base = (label || '').toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+  return base || 'rating';
+}
+
+/** The categories one bucket rates on. */
+function bucketRatingCategories(bucketKey) {
+  const saved = sanitizeRatingCategories(BUCKETS.find(b => b.key === bucketKey)?.ratingCategories);
+  if (saved.length) return saved;
+  return DEFAULT_BUCKET_RATING_CATEGORIES[bucketKey] || BASE_RATING_CATEGORIES;
+}
+
+// Best-known label for a stored key, for scores whose category has since been
+// removed or which came from a bucket this spot is no longer in.
+function ratingLabelFor(key) {
+  for (const b of BUCKETS) {
+    const hit = sanitizeRatingCategories(b.ratingCategories).find(c => c.key === key);
+    if (hit) return hit.label;
+  }
+  for (const list of Object.values(DEFAULT_BUCKET_RATING_CATEGORIES)) {
+    const hit = list.find(c => c.key === key);
+    if (hit) return hit.label;
+  }
+  const base = BASE_RATING_CATEGORIES.find(c => c.key === key);
+  if (base) return base.label;
+  return key.replace(/-/g, ' ').replace(/^./, ch => ch.toUpperCase());
+}
+
+/**
+ * The rows to show for one spot: the union of its buckets' categories, in
+ * bucket order, plus any key that already has a vote but isn't in that union.
+ *
+ * Two buckets can label the same key differently (Breakfast calls `food`
+ * "Food", Coffee calls it "Coffee") — the spot's FIRST bucket wins, so the
+ * table is deterministic rather than depending on doc arrival order. The
+ * trailing preserved rows are why changing a spot's buckets never loses a
+ * rating: it stops being asked for, but what was already given still shows.
+ */
+function ratingCategoriesForSpot(r, docs) {
+  const keys = bucketsOf(r || {});
+  const out = [];
+  const seen = new Set();
+  for (const k of keys) {
+    for (const c of bucketRatingCategories(k)) {
+      if (seen.has(c.key)) continue;
+      seen.add(c.key);
+      out.push(c);
+    }
+  }
+  if (out.length === 0) {
+    for (const c of BASE_RATING_CATEGORIES) { seen.add(c.key); out.push(c); }
+  }
+  for (const d of docs || []) {
+    for (const [key, v] of Object.entries(d?.scores || {})) {
+      if (seen.has(key) || !(typeof v === 'number' && v >= 1 && v <= 5)) continue;
+      seen.add(key);
+      out.push({ key, label: ratingLabelFor(key), preserved: true });
+    }
+  }
+  return out;
+}
 
 // Fold a spot's rating docs into per-category averages, an overall average,
 // and the voter count. Pure — safe to call in render.
+//
+// Deliberately key-AGNOSTIC: it averages whatever categories were actually
+// scored rather than a fixed list, so the card badge is right no matter which
+// bucket's categories a spot was rated on (and a category later removed from a
+// bucket still counts toward the spot's overall).
 function aggregateSpotRatings(docs) {
   const acc = {};
-  for (const c of RATING_CATEGORIES) acc[c.key] = { sum: 0, count: 0 };
   let voterCount = 0;
   for (const d of docs || []) {
     const s = d.scores || {};
     let rated = false;
-    for (const c of RATING_CATEGORIES) {
-      const v = s[c.key];
-      if (typeof v === 'number' && v >= 1 && v <= 5) { acc[c.key].sum += v; acc[c.key].count++; rated = true; }
+    for (const [key, v] of Object.entries(s)) {
+      if (!(typeof v === 'number' && v >= 1 && v <= 5)) continue;
+      if (!acc[key]) acc[key] = { sum: 0, count: 0 };
+      acc[key].sum += v;
+      acc[key].count++;
+      rated = true;
     }
     if (rated) voterCount++;
   }
   const perCategory = {};
   const catAvgs = [];
-  for (const c of RATING_CATEGORIES) {
-    const { sum, count } = acc[c.key];
+  for (const [key, { sum, count }] of Object.entries(acc)) {
     const avg = count ? sum / count : null;
-    perCategory[c.key] = { avg, count };
+    perCategory[key] = { avg, count };
     if (avg != null) catAvgs.push(avg);
   }
   const overall = catAvgs.length ? catAvgs.reduce((a, b) => a + b, 0) / catAvgs.length : null;
@@ -652,21 +774,21 @@ function StarsStatic({ value, size = 15 }) {
 }
 
 // Mean of the categories someone actually scored, or null if they scored none.
-// Matches how the group `overall` is derived in aggregateSpotRatings.
+// Matches how the group `overall` is derived in aggregateSpotRatings — over
+// whatever keys are present, not a fixed list.
 function overallOfScores(scores) {
-  const vals = RATING_CATEGORIES
-    .map(c => scores?.[c.key])
+  const vals = Object.values(scores || {})
     .filter(v => typeof v === 'number' && v >= 1 && v <= 5);
   return vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null;
 }
 
-// Collaborative ratings for one spot: a table of the 4 categories with YOUR
-// stars (clickable) in the first column and one read-only column per person
-// who's rated it, so you can see who gave what side by side. The group
-// aggregate sits above it. Keyed by (ownerUid, spotId) like the comment thread;
-// each collaborator writes only their own doc (deterministic id in
-// setEatingOutRating).
-function SpotRatings({ ownerUid, spotId, user }) {
+// Collaborative ratings for one spot: a table of the categories ITS BUCKETS
+// rate on, with YOUR stars (clickable) in the first column and one read-only
+// column per person who's rated it, so you can see who gave what side by side.
+// The group aggregate sits above it. Keyed by (ownerUid, spotId) like the
+// comment thread; each collaborator writes only their own doc (deterministic id
+// in setEatingOutRating).
+function SpotRatings({ ownerUid, spotId, spot, user }) {
   const [docs, setDocs] = useState([]);
   // Local copy of MY scores for instant feedback; re-synced from the live doc.
   const [myScores, setMyScores] = useState({});
@@ -681,6 +803,11 @@ function SpotRatings({ ownerUid, spotId, user }) {
   useEffect(() => { setMyScores(myDoc?.scores || {}); }, [myDoc]);
 
   const agg = useMemo(() => aggregateSpotRatings(docs), [docs]);
+  const categories = useMemo(() => ratingCategoriesForSpot(spot, docs), [spot, docs]);
+  const bucketNames = useMemo(
+    () => bucketsOf(spot || {}).map(bucketLabel).filter(Boolean).join(' + '),
+    [spot],
+  );
 
   // Everyone but me who has actually scored something — one table column each.
   // Sorted by name so the columns don't reshuffle as docs stream in.
@@ -720,9 +847,9 @@ function SpotRatings({ ownerUid, spotId, user }) {
               </span>
             </div>
             <div className={styles.ratingCats}>
-              {RATING_CATEGORIES.map(c => (
+              {categories.map(c => (
                 <span key={c.key} className={styles.ratingCatChip}>
-                  {c.label.split(' ')[0]} <strong>{fmt(agg.perCategory[c.key].avg)}</strong>
+                  {c.label.split(' ')[0]} <strong>{fmt(agg.perCategory[c.key]?.avg)}</strong>
                 </span>
               ))}
             </div>
@@ -749,9 +876,15 @@ function SpotRatings({ ownerUid, spotId, user }) {
             </tr>
           </thead>
           <tbody>
-            {RATING_CATEGORIES.map(c => (
+            {categories.map(c => (
               <tr key={c.key}>
-                <th scope="row" className={styles.ratingTableCat}>{c.label}</th>
+                <th
+                  scope="row"
+                  className={styles.ratingTableCat}
+                  title={c.preserved ? 'Rated before this spot’s buckets changed — kept so the vote isn’t lost' : undefined}
+                >
+                  {c.label}{c.preserved ? ' *' : ''}
+                </th>
                 <td className={styles.ratingTableYou}>
                   <StarRating value={myScores[c.key] ?? null} onChange={v => setCategory(c.key, v)} size={18} />
                 </td>
@@ -780,7 +913,13 @@ function SpotRatings({ ownerUid, spotId, user }) {
           </tfoot>
         </table>
       </div>
-      <p className={styles.ratingTableHint}>Tap your stars to rate — saves as you go. Tap the same star again to clear it.</p>
+      <p className={styles.ratingTableHint}>
+        Tap your stars to rate — saves as you go. Tap the same star again to clear it.
+        {' '}{bucketNames
+          ? `Categories come from the ${bucketNames} bucket${bucketsOf(spot || {}).length > 1 ? 's' : ''} — change them under ✎ Edit buckets.`
+          : 'Put this spot in a bucket to rate it on that bucket’s categories.'}
+        {categories.some(c => c.preserved) && ' Rows marked * were rated under a different bucket and are kept for the record.'}
+      </p>
     </div>
   );
 }
@@ -815,7 +954,7 @@ function SpotDetailModal({ spot, dimKey, dimLabel, votes, onVote, user, onClose 
             <a href={spot.url} target="_blank" rel="noreferrer" style={{ fontSize: '0.85rem' }}>Open link ↗</a>
           )}
           <RankControl ownerUid={spot._ownerUid} spotId={spot.id} dimKey={dimKey} dimLabel={dimLabel} votes={votes} onVote={onVote} />
-          <SpotRatings ownerUid={spot._ownerUid} spotId={spot.id} user={user} />
+          <SpotRatings ownerUid={spot._ownerUid} spotId={spot.id} spot={spot} user={user} />
           <SpotComments ownerUid={spot._ownerUid} spotId={spot.id} user={user} />
         </div>
         <div className={styles.modalFooter}>
@@ -1171,7 +1310,14 @@ function EditModal({ initial, onSave, onClose, onDelete, cuisineSuggestions, loc
           {initial.id && user?.uid && onVote && (
             <>
               <RankControl ownerUid={initial._ownerUid || user.uid} spotId={initial.id} dimKey={dimKey} dimLabel={dimLabel} votes={votes} onVote={onVote} />
-              <SpotRatings ownerUid={initial._ownerUid || user.uid} spotId={initial.id} user={user} />
+              {/* `buckets` (the live edit state), not `initial` — retagging a
+                  spot swaps the rating rows immediately, before you hit Save. */}
+              <SpotRatings
+                ownerUid={initial._ownerUid || user.uid}
+                spotId={initial.id}
+                spot={{ ...initial, buckets }}
+                user={user}
+              />
               <SpotComments ownerUid={initial._ownerUid || user.uid} spotId={initial.id} user={user} />
             </>
           )}
@@ -2220,7 +2366,19 @@ function MasterListSection({ title, help, itemPrefix = '', values, counts, activ
 // writes users/{uid}.eatingOutBuckets, shared with mobile.
 function BucketSettingsModal({ buckets, counts, onSave, onClose }) {
   // Editable draft: each row keeps its original key (undefined for new rows).
-  const [rows, setRows] = useState(() => buckets.map(b => ({ key: b.key, label: b.label, icon: b.icon })));
+  // `ratingCategories` undefined means "use the built-in set for this bucket" —
+  // it only becomes an explicit list once you customise it.
+  const [rows, setRows] = useState(() => buckets.map(b => ({
+    key: b.key,
+    label: b.label,
+    icon: b.icon,
+    ratingCategories: sanitizeRatingCategories(b.ratingCategories).length
+      ? sanitizeRatingCategories(b.ratingCategories)
+      : undefined,
+  })));
+  // Which bucket's rating categories are open. One at a time keeps the modal
+  // from turning into a wall of inputs.
+  const [openCats, setOpenCats] = useState(null);
 
   const setRow = (i, patch) => setRows(rs => rs.map((r, j) => (j === i ? { ...r, ...patch } : r)));
   const addRow = () => setRows(rs => [...rs, { key: undefined, label: '', icon: '🍴' }]);
@@ -2233,6 +2391,17 @@ function BucketSettingsModal({ buckets, counts, onSave, onClose }) {
     return next;
   });
 
+  // What a row rates on right now — its own list once customised, else the
+  // built-in set for that bucket key (or the base four for a brand-new bucket).
+  const catsFor = (r) => r.ratingCategories
+    || DEFAULT_BUCKET_RATING_CATEGORIES[r.key]
+    || BASE_RATING_CATEGORIES;
+  const setCats = (i, next) => setRow(i, { ratingCategories: next });
+  const editCat = (i, ci, label) => setCats(i, catsFor(rows[i]).map((c, j) => (j === ci ? { ...c, label } : c)));
+  const addCat = (i) => setCats(i, [...catsFor(rows[i]), { key: undefined, label: '' }]);
+  const removeCat = (i, ci) => setCats(i, catsFor(rows[i]).filter((_, j) => j !== ci));
+  const resetCats = (i) => setRow(i, { ratingCategories: undefined });
+
   const handleSave = () => {
     // Assign keys to new rows (slug of label, unique), drop blank-label rows.
     const used = new Set(rows.map(r => r.key).filter(Boolean));
@@ -2241,7 +2410,24 @@ function BucketSettingsModal({ buckets, counts, onSave, onClose }) {
       const label = (r.label || '').trim();
       if (!label) continue;
       const key = r.key || makeBucketKey(label, used);
-      out.push({ key, label, icon: (r.icon || '').trim() || '🍴' });
+      const bucket = { key, label, icon: (r.icon || '').trim() || '🍴' };
+      if (r.ratingCategories) {
+        // Existing categories keep their key so the votes already cast under it
+        // survive a rename; a new one gets a slug of its label, deliberately
+        // NOT uniquified so the same name means the same thing across buckets.
+        const cats = [];
+        const seen = new Set();
+        for (const c of r.ratingCategories) {
+          const cl = (c.label || '').trim();
+          if (!cl) continue;
+          const ck = c.key || makeRatingKey(cl);
+          if (seen.has(ck)) continue;
+          seen.add(ck);
+          cats.push({ key: ck, label: cl });
+        }
+        if (cats.length) bucket.ratingCategories = cats;
+      }
+      out.push(bucket);
     }
     onSave(out);
     onClose();
@@ -2258,32 +2444,72 @@ function BucketSettingsModal({ buckets, counts, onSave, onClose }) {
           <p className={styles.hintText} style={{ marginTop: 0 }}>
             Rename a bucket or change its emoji, reorder with ▲▼, or ＋ add your own.
             Deleting a bucket just moves its spots to Unsorted — nothing is lost.
+            ★ sets the categories spots in that bucket are rated on.
           </p>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {rows.map((r, i) => (
-              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <input
-                  className={styles.input}
-                  style={{ width: 52, textAlign: 'center', flex: '0 0 auto' }}
-                  value={r.icon}
-                  onChange={e => setRow(i, { icon: e.target.value })}
-                  aria-label="Emoji"
-                  maxLength={4}
-                />
-                <input
-                  className={styles.input}
-                  style={{ flex: 1 }}
-                  value={r.label}
-                  onChange={e => setRow(i, { label: e.target.value })}
-                  placeholder="Bucket name"
-                  aria-label="Bucket name"
-                />
-                {r.key && counts?.get(r.key) ? (
-                  <span className={styles.hintText} style={{ flex: '0 0 auto' }} title="spots in this bucket">{counts.get(r.key)}</span>
-                ) : null}
-                <button type="button" className={styles.iconBtn} onClick={() => move(i, -1)} disabled={i === 0} title="Move up">▲</button>
-                <button type="button" className={styles.iconBtn} onClick={() => move(i, 1)} disabled={i === rows.length - 1} title="Move down">▼</button>
-                <button type="button" className={styles.iconBtn} onClick={() => removeRow(i)} title="Delete bucket">🗑️</button>
+              <div key={i} style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <input
+                    className={styles.input}
+                    style={{ width: 52, textAlign: 'center', flex: '0 0 auto' }}
+                    value={r.icon}
+                    onChange={e => setRow(i, { icon: e.target.value })}
+                    aria-label="Emoji"
+                    maxLength={4}
+                  />
+                  <input
+                    className={styles.input}
+                    style={{ flex: 1 }}
+                    value={r.label}
+                    onChange={e => setRow(i, { label: e.target.value })}
+                    placeholder="Bucket name"
+                    aria-label="Bucket name"
+                  />
+                  {r.key && counts?.get(r.key) ? (
+                    <span className={styles.hintText} style={{ flex: '0 0 auto' }} title="spots in this bucket">{counts.get(r.key)}</span>
+                  ) : null}
+                  <button
+                    type="button"
+                    className={styles.iconBtn}
+                    onClick={() => setOpenCats(openCats === i ? null : i)}
+                    title={`Rating categories for ${r.label || 'this bucket'}`}
+                    aria-expanded={openCats === i}
+                  >{openCats === i ? '★' : '☆'}</button>
+                  <button type="button" className={styles.iconBtn} onClick={() => move(i, -1)} disabled={i === 0} title="Move up">▲</button>
+                  <button type="button" className={styles.iconBtn} onClick={() => move(i, 1)} disabled={i === rows.length - 1} title="Move down">▼</button>
+                  <button type="button" className={styles.iconBtn} onClick={() => removeRow(i)} title="Delete bucket">🗑️</button>
+                </div>
+
+                {openCats === i && (
+                  <div className={styles.bucketRatingPanel}>
+                    <p className={styles.hintText} style={{ marginTop: 0 }}>
+                      What spots in <strong>{r.label || 'this bucket'}</strong> get rated on.
+                      Renaming a category keeps the ratings already given; removing one stops
+                      it being asked for, but past scores still show on the spot.
+                      {!r.ratingCategories && ' Using the built-in set — edit anything to make it your own.'}
+                    </p>
+                    {catsFor(r).map((c, ci) => (
+                      <div key={ci} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <input
+                          className={styles.input}
+                          style={{ flex: 1 }}
+                          value={c.label}
+                          onChange={e => editCat(i, ci, e.target.value)}
+                          placeholder="Category name"
+                          aria-label="Rating category name"
+                        />
+                        <button type="button" className={styles.iconBtn} onClick={() => removeCat(i, ci)} title="Remove category">🗑️</button>
+                      </div>
+                    ))}
+                    <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
+                      <button type="button" className={styles.secondaryBtn} onClick={() => addCat(i)}>＋ Add category</button>
+                      {r.ratingCategories && (
+                        <button type="button" className={styles.iconBtn} onClick={() => resetCats(i)} title="Back to the built-in categories">Reset</button>
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
             ))}
           </div>

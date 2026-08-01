@@ -937,6 +937,19 @@
   line-height: 1.45;
 }
 
+/* Per-bucket rating categories, revealed by the ★ button in Edit buckets.
+   Indented and tinted so it reads as belonging to the bucket row above it. */
+.bucketRatingPanel {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0 0 4px 52px;
+  padding: 10px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: var(--color-surface-alt);
+}
+
 .primaryBtn {
   background: var(--color-accent);
   color: white;
