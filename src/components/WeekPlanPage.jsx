@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { Fragment, useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { RecipeCombobox, DailyTrackerPage, MealsTrackedChart, HistoryChart, ServingsChart, KpiAlerts, DailySupplementsPanel, saveDailyLog } from './DailyTrackerPage';
 import { workoutCalendarCategory, CAL_ICON } from './WorkoutPage';
 import { loadField, saveField, newWorkoutId } from '../utils/firestoreSync';
@@ -53,6 +53,294 @@ const PRODUCE_TILES = [
 function fmtServings(n) {
   const v = Math.round((Number(n) || 0) * 10) / 10;
   return Number.isInteger(v) ? String(v) : v.toFixed(1);
+}
+
+// ── Week-goal metrics ──────────────────────────────────────────────────────
+// ONE definition of each tile, shared by the live tiles and the history table,
+// so a week from March is measured exactly the way this week is. Everything is
+// derived from the workout log and daily log rather than snapshotted, which is
+// why the history goes all the way back instead of starting the day it shipped.
+
+const MAIN_MEALS = ['breakfast', 'lunch', 'dinner'];
+const PRODUCE_MEAL_SLOTS = ['breakfast', 'lunch', 'dinner', 'snack'];
+
+/** Days with each workout category; rest = workout-free days up to today. */
+function tallyWorkouts(days, workoutsByDate, todayKey) {
+  const out = { weights: 0, cardio: 0, yoga: 0, rest: 0 };
+  for (const date of days) {
+    const items = workoutsByDate.get(date);
+    if (items && items.length) {
+      const cats = new Set(items.map(it => it.category));
+      if (cats.has('weights')) out.weights += 1;
+      if (cats.has('cardio')) out.cardio += 1;
+      if (cats.has('yoga')) out.yoga += 1;
+    } else if (date <= todayKey) {
+      out.rest += 1;
+    }
+  }
+  return out;
+}
+
+function countSaunaDays(days, saunaDates) {
+  let n = 0;
+  for (const d of days) if (saunaDates.has(d)) n += 1;
+  return n;
+}
+
+/** Main-meal slots accounted for on ONE day, and meals eaten out that day. */
+function mealStatsForDay(day) {
+  const entries = Array.isArray(day?.entries) ? day.entries : [];
+  const eatOutMarks = Array.isArray(day?.eatingOutMeals) ? day.eatingOutMeals : [];
+  let ateOut = 0;
+  // Ate out = logged eating-out entries + planned "eating out" grid marks.
+  for (const e of entries) if (e?.eatingOut) ateOut += 1;
+  for (const s of eatOutMarks) if (MAIN_MEALS.includes(s)) ateOut += 1;
+  if (day?.daySkipped) return { tracked: MAIN_MEALS.length, ateOut };
+  const skipped = Array.isArray(day?.skippedMeals) ? day.skippedMeals : [];
+  const accounted = new Set();
+  for (const e of entries) if (MAIN_MEALS.includes(e.mealSlot)) accounted.add(e.mealSlot);
+  for (const s of skipped) if (MAIN_MEALS.includes(s)) accounted.add(s);
+  // Deciding a meal is "eating out" accounts for that slot (like a skip), so it
+  // doesn't count against the tracked %.
+  for (const s of eatOutMarks) if (MAIN_MEALS.includes(s)) accounted.add(s);
+  return { tracked: accounted.size, ateOut };
+}
+
+/** % of the period's main-meal slots tracked, plus meals eaten out. */
+function mealStatsForDays(days, dailyLog) {
+  let trackedSlots = 0;
+  let ateOut = 0;
+  for (const date of days) {
+    const s = mealStatsForDay(dailyLog[date]);
+    trackedSlots += s.tracked;
+    ateOut += s.ateOut;
+  }
+  const totalSlots = days.length * MAIN_MEALS.length;
+  return { pct: totalSlots > 0 ? Math.round((trackedSlots / totalSlots) * 100) : 0, ateOut };
+}
+
+/** Veg/fruit servings on ONE day. Skipped days and skipped slots contribute 0. */
+function produceForDay(day) {
+  if (!day || day.daySkipped) return { veg: 0, fruit: 0 };
+  const entries = Array.isArray(day.entries) ? day.entries : [];
+  const skipped = Array.isArray(day.skippedMeals) ? day.skippedMeals : [];
+  const active = skipped.length
+    ? entries.filter(e => {
+        const slot = e.type === 'custom' && !e.mealSlot ? 'snack' : (PRODUCE_MEAL_SLOTS.includes(e.mealSlot) ? e.mealSlot : 'snack');
+        return !skipped.includes(slot);
+      })
+    : entries;
+  let veg = 0;
+  let fruit = 0;
+  for (const e of active) {
+    veg += e.nutrition?.vegServings || 0;
+    fruit += e.nutrition?.fruitServings || 0;
+  }
+  return { veg, fruit };
+}
+
+function produceForDays(days, dailyLog) {
+  let veg = 0;
+  let fruit = 0;
+  for (const date of days) {
+    const p = produceForDay(dailyLog[date]);
+    veg += p.veg;
+    fruit += p.fruit;
+  }
+  // Round the total, not each day — matches what the tiles have always shown.
+  return { veg: Math.round(veg * 10) / 10, fruit: Math.round(fruit * 10) / 10 };
+}
+
+// How many weeks of history to show before the "Show more" button, and how many
+// each press adds. The whole log is already in memory, so this is about keeping
+// the table readable, not about loading.
+const HISTORY_WEEKS_PAGE = 12;
+
+/**
+ * Week-by-week history of the goal tiles, newest first, expandable to days.
+ *
+ * Every row is computed from the same helpers the live tiles use, so this is a
+ * record of what actually happened rather than a log written as you go — it
+ * covers every week you have data for, including ones from before this existed,
+ * and it re-reads if you go back and fill a day in.
+ */
+function GoalsHistory({
+  weekStart, workoutsByDate, saunaDates, dailyLog, todayKey,
+  workoutGoals, saunaGoal, mealsTrackedGoal, produceGoalsPerDay,
+}) {
+  const [open, setOpen] = useState(false);
+  const [limit, setLimit] = useState(HISTORY_WEEKS_PAGE);
+  const [openWeek, setOpenWeek] = useState(null);
+
+  // The earliest day with anything in it — no point rendering empty weeks back
+  // to 1970 because a stray date exists.
+  const earliest = useMemo(() => {
+    let min = null;
+    for (const date of dailyLog ? Object.keys(dailyLog) : []) {
+      if (/^\d{4}-\d{2}-\d{2}$/.test(date) && (!min || date < min)) min = date;
+    }
+    for (const date of workoutsByDate.keys()) {
+      if (/^\d{4}-\d{2}-\d{2}$/.test(date) && (!min || date < min)) min = date;
+    }
+    return min;
+  }, [dailyLog, workoutsByDate]);
+
+  // Week starts from the currently-viewed week backwards to `earliest`.
+  const weeks = useMemo(() => {
+    if (!earliest) return [];
+    const out = [];
+    let cursor = weekStart;
+    for (let i = 0; i < 520; i++) { // ~10 years, a backstop not a limit
+      const days = Array.from({ length: 7 }, (_, d) => isoDate(addDays(cursor, d)));
+      out.push({ start: new Date(cursor), days });
+      if (days[0] <= earliest) break;
+      cursor = addDays(cursor, -7);
+    }
+    return out;
+  }, [weekStart, earliest]);
+
+  const rows = useMemo(() => weeks.slice(0, limit).map(w => {
+    const tally = tallyWorkouts(w.days, workoutsByDate, todayKey);
+    const meals = mealStatsForDays(w.days, dailyLog);
+    const produce = produceForDays(w.days, dailyLog);
+    return {
+      ...w,
+      tally,
+      saunas: countSaunaDays(w.days, saunaDates),
+      meals,
+      produce,
+      produceGoals: {
+        veg: produceGoalsPerDay.veg * w.days.length,
+        fruit: produceGoalsPerDay.fruit * w.days.length,
+      },
+    };
+  }), [weeks, limit, workoutsByDate, saunaDates, dailyLog, todayKey, produceGoalsPerDay]);
+
+  if (!earliest) return null;
+
+  const label = (d) => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  const cell = (got, goal, fmt = String) => {
+    const met = goal > 0 && got >= goal;
+    return (
+      <span className={met ? styles.histMet : undefined}>
+        {fmt(got)}{goal > 0 ? `/${fmt(goal)}` : ''}{met ? ' ✓' : ''}
+      </span>
+    );
+  };
+
+  return (
+    <div className={styles.goalsBlock}>
+      <button
+        type="button"
+        className={styles.histToggle}
+        onClick={() => setOpen(o => !o)}
+        aria-expanded={open}
+      >
+        📈 Goal history
+        <span className={styles.histToggleHint}>
+          {weeks.length} week{weeks.length === 1 ? '' : 's'}
+        </span>
+      </button>
+
+      {/* Opens as a wide overlay rather than inline: the toggle belongs next to
+          the tiles it reports on, but the sidebar is 240px and this is a
+          ten-column table. */}
+      {open && (
+        <div className={styles.modalOverlay} onClick={() => setOpen(false)}>
+        <div className={`${styles.modalCard} ${styles.histCard}`} onClick={e => e.stopPropagation()}>
+          <div className={styles.modalHeader}>
+            <h2 className={styles.modalTitle}>Goal history</h2>
+            <button type="button" className={styles.histClose} onClick={() => setOpen(false)} aria-label="Close">✕</button>
+          </div>
+          <p className={styles.histIntro}>
+            Every week you have data for, worked out from your workout and meal logs —
+            so it covers weeks from before this table existed, and it updates if you
+            go back and fill a day in. Click a week for its days.
+          </p>
+          <div className={styles.histWrap}>
+          <table className={styles.histTable}>
+            <thead>
+              <tr>
+                <th className={styles.histWeekCol}>Week</th>
+                {WORKOUT_CATS.map(c => <th key={c.key} title={c.label}>{c.icon}</th>)}
+                <th title="Sauna">🧖</th>
+                <th title="Meals tracked">🍽️</th>
+                <th title="Meals eaten out">🍔</th>
+                <th title="Veg servings">🥦</th>
+                <th title="Fruit servings">🍎</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map(r => {
+                const key = r.days[0];
+                const isOpen = openWeek === key;
+                const isCurrent = key === isoDate(weekStart);
+                return (
+                  <Fragment key={key}>
+                    <tr className={isCurrent ? styles.histCurrentRow : undefined}>
+                      <th scope="row" className={styles.histWeekCol}>
+                        <button
+                          type="button"
+                          className={styles.histWeekBtn}
+                          onClick={() => setOpenWeek(isOpen ? null : key)}
+                          title={isOpen ? 'Hide days' : 'Show each day'}
+                        >
+                          {isOpen ? '▾' : '▸'} {label(r.start)} – {label(addDays(r.start, 6))}
+                        </button>
+                      </th>
+                      {WORKOUT_CATS.map(c => (
+                        <td key={c.key}>{cell(r.tally[c.key], workoutGoals[c.key] || 0)}</td>
+                      ))}
+                      <td>{cell(r.saunas, saunaGoal)}</td>
+                      <td>{cell(r.meals.pct, mealsTrackedGoal, n => `${n}%`)}</td>
+                      <td>{r.meals.ateOut}</td>
+                      <td>{cell(r.produce.veg, r.produceGoals.veg, fmtServings)}</td>
+                      <td>{cell(r.produce.fruit, r.produceGoals.fruit, fmtServings)}</td>
+                    </tr>
+                    {isOpen && r.days.map(date => {
+                      const items = workoutsByDate.get(date) || [];
+                      const cats = new Set(items.map(it => it.category));
+                      const dayMeals = mealStatsForDay(dailyLog[date]);
+                      const dayProduce = produceForDay(dailyLog[date]);
+                      const future = date > todayKey;
+                      return (
+                        <tr key={date} className={styles.histDayRow}>
+                          <th scope="row" className={styles.histWeekCol}>
+                            {new Date(`${date}T00:00:00`).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
+                          </th>
+                          {WORKOUT_CATS.map(c => (
+                            <td key={c.key}>
+                              {c.key === 'rest'
+                                ? (items.length === 0 && !future ? '😴' : '')
+                                : (cats.has(c.key) ? '✓' : '')}
+                            </td>
+                          ))}
+                          <td>{saunaDates.has(date) ? '🧖' : ''}</td>
+                          <td>{future ? '' : `${Math.round((dayMeals.tracked / MAIN_MEALS.length) * 100)}%`}</td>
+                          <td>{dayMeals.ateOut || ''}</td>
+                          <td>{dayProduce.veg ? fmtServings(dayProduce.veg) : ''}</td>
+                          <td>{dayProduce.fruit ? fmtServings(dayProduce.fruit) : ''}</td>
+                        </tr>
+                      );
+                    })}
+                  </Fragment>
+                );
+              })}
+            </tbody>
+          </table>
+          </div>
+          {weeks.length > limit && (
+            <button
+              type="button"
+              className={styles.histMoreBtn}
+              onClick={() => setLimit(n => n + HISTORY_WEEKS_PAGE)}
+            >Show {Math.min(HISTORY_WEEKS_PAGE, weeks.length - limit)} more weeks</button>
+          )}
+        </div>
+        </div>
+      )}
+    </div>
+  );
 }
 
 function loadWorkoutGoals() {
@@ -1029,105 +1317,48 @@ export function WeekPlanPage({ recipes, getRecipe, user, weeklyPlan = [], weekly
 
   // This week's workout tally — days with each category logged; rest = empty
   // days up to today, mirroring the Workout calendar's per-week progress.
-  const weekTally = useMemo(() => {
-    const out = { weights: 0, cardio: 0, yoga: 0, rest: 0 };
-    for (const date of days) {
-      const items = workoutsByDate.get(date);
-      if (items && items.length) {
-        const cats = new Set(items.map(it => it.category));
-        if (cats.has('weights')) out.weights += 1;
-        if (cats.has('cardio')) out.cardio += 1;
-        if (cats.has('yoga')) out.yoga += 1;
-      } else if (date <= todayKey) {
-        out.rest += 1;
-      }
-    }
-    return out;
-  }, [days, workoutsByDate, todayKey]);
+  const weekTally = useMemo(
+    () => tallyWorkouts(days, workoutsByDate, todayKey),
+    [days, workoutsByDate, todayKey],
+  );
 
   // Sauna sessions this week = distinct days in the visible week that have at
   // least one workout with `sauna: true` (logged from the mobile app).
-  const weekSaunas = useMemo(() => {
-    const inWeek = new Set(days);
-    const saunaDays = new Set();
-    for (const w of workoutsRaw || []) {
-      if (w?.sauna && w.date && inWeek.has(w.date)) saunaDays.add(w.date);
-    }
-    return saunaDays.size;
-  }, [workoutsRaw, days]);
+  const weekSaunas = useMemo(() => countSaunaDays(days, saunaDates), [days, saunaDates]);
 
   // This week's meal tracking: what % of the whole week's main meals
   // (breakfast/lunch/dinner across all 7 days = 21 slots) were logged or marked
   // skipped — same per-day definition as MealsTrackedChart — plus the total
   // number of meals eaten out. Denominator is the full week, so the tile climbs
   // toward 100% as the week is filled in. Eating-out spans all 7 days too.
-  const mealStats = useMemo(() => {
-    const MAIN = ['breakfast', 'lunch', 'dinner'];
-    let trackedSlots = 0;
-    let ateOut = 0;
-    for (const date of days) {
-      const day = dailyLog[date] || {};
-      const entries = Array.isArray(day.entries) ? day.entries : [];
-      const eatOutMarks = Array.isArray(day.eatingOutMeals) ? day.eatingOutMeals : [];
-      // Ate out = logged eating-out entries + planned "eating out" grid marks.
-      for (const e of entries) if (e?.eatingOut) ateOut += 1;
-      for (const s of eatOutMarks) if (MAIN.includes(s)) ateOut += 1;
-      if (day.daySkipped) { trackedSlots += MAIN.length; continue; }
-      const skipped = Array.isArray(day.skippedMeals) ? day.skippedMeals : [];
-      const accounted = new Set();
-      for (const e of entries) if (MAIN.includes(e.mealSlot)) accounted.add(e.mealSlot);
-      for (const s of skipped) if (MAIN.includes(s)) accounted.add(s);
-      // Deciding a meal is "eating out" accounts for that slot (like a skip), so
-      // it doesn't count against the tracked %.
-      for (const s of eatOutMarks) if (MAIN.includes(s)) accounted.add(s);
-      trackedSlots += accounted.size;
-    }
-    const totalSlots = days.length * MAIN.length; // full week: 7 × 3 = 21
-    const pct = totalSlots > 0 ? Math.round((trackedSlots / totalSlots) * 100) : 0;
-    return { pct, ateOut };
-  }, [days, dailyLog]);
+  const mealStats = useMemo(() => mealStatsForDays(days, dailyLog), [days, dailyLog]);
 
   // This week's fruit & veg, summed from the same per-entry servings the
   // Prepare grid's Veg/Fruit rows and the Fruit & Veg chart read
   // (`nutrition.vegServings` / `fruitServings`). Days marked skipped contribute
   // nothing, and entries in a skipped meal slot are left out — matching
   // ServingsChart, so the week total equals the per-day rows added up.
-  const produceStats = useMemo(() => {
-    const MEAL_SLOTS = ['breakfast', 'lunch', 'dinner', 'snack'];
-    let veg = 0;
-    let fruit = 0;
-    for (const date of days) {
-      const day = dailyLog[date] || {};
-      if (day.daySkipped) continue;
-      const entries = Array.isArray(day.entries) ? day.entries : [];
-      const skipped = Array.isArray(day.skippedMeals) ? day.skippedMeals : [];
-      const active = skipped.length
-        ? entries.filter(e => {
-            const slot = e.type === 'custom' && !e.mealSlot ? 'snack' : (MEAL_SLOTS.includes(e.mealSlot) ? e.mealSlot : 'snack');
-            return !skipped.includes(slot);
-          })
-        : entries;
-      for (const e of active) {
-        veg += e.nutrition?.vegServings || 0;
-        fruit += e.nutrition?.fruitServings || 0;
-      }
-    }
-    return { veg: Math.round(veg * 10) / 10, fruit: Math.round(fruit * 10) / 10 };
-  }, [days, dailyLog]);
+  const produceStats = useMemo(() => produceForDays(days, dailyLog), [days, dailyLog]);
 
   // Weekly produce targets = the DAILY goals from Nutrition Goals × the 7 days
   // shown, so there's one place to edit them and the tile agrees with the
   // per-day Veg/Fruit rows. Defaults match NutritionGoalsPage (5 veg, 4 fruit).
-  const produceGoals = useMemo(() => {
+  // Kept as the per-DAY figures so the history can scale them to any week's
+  // length itself; the tile below multiplies by the 7 days on screen.
+  const produceGoalsPerDay = useMemo(() => {
     const perDay = (v, fallback) => {
       const n = Number(v);
       return v == null || isNaN(n) || n < 0 ? fallback : n;
     };
     return {
-      veg: perDay(nutritionGoals?.vegServings, 5) * days.length,
-      fruit: perDay(nutritionGoals?.fruitServings, 4) * days.length,
+      veg: perDay(nutritionGoals?.vegServings, 5),
+      fruit: perDay(nutritionGoals?.fruitServings, 4),
     };
-  }, [nutritionGoals, days.length]);
+  }, [nutritionGoals]);
+  const produceGoals = useMemo(() => ({
+    veg: produceGoalsPerDay.veg * days.length,
+    fruit: produceGoalsPerDay.fruit * days.length,
+  }), [produceGoalsPerDay, days.length]);
 
   // Weekly meals-tracked target — reuses the same `dailyMealsTrackedPct` goal the
   // % of Meals Tracked chart edits (stored in sunday-nutrition-goals). Defaults
@@ -1510,6 +1741,17 @@ export function WeekPlanPage({ recipes, getRecipe, user, weeklyPlan = [], weekly
             })()}
           </div>
         </div>
+        <GoalsHistory
+          weekStart={weekStart}
+          workoutsByDate={workoutsByDate}
+          saunaDates={saunaDates}
+          dailyLog={dailyLog}
+          todayKey={todayKey}
+          workoutGoals={workoutGoals}
+          saunaGoal={saunaGoal}
+          mealsTrackedGoal={mealsTrackedGoal}
+          produceGoalsPerDay={produceGoalsPerDay}
+        />
         <DailySupplementsPanel
           date={todayKey}
           supplements={todaySupplements}

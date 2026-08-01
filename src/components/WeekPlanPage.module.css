@@ -837,6 +837,125 @@
 .wGoalIcon { font-size: 1.1rem; }
 .wGoalLabel { color: inherit; }
 .wGoalCount { font-variant-numeric: tabular-nums; }
+
+/* ── Goal history ─────────────────────────────────────────────────────────
+   Week-by-week record of the tiles above, derived from the same logs, so it
+   goes back as far as the data does. Sits in the narrow sidebar, hence the
+   emoji column heads and its own horizontal scroll. */
+.histToggle {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  width: 100%;
+  background: none;
+  border: none;
+  padding: 0;
+  font-family: inherit;
+  font-size: var(--font-size-md);
+  font-weight: 700;
+  color: var(--color-text);
+  cursor: pointer;
+  text-align: left;
+}
+.histToggleHint {
+  font-size: var(--font-size-xs);
+  font-weight: 500;
+  color: var(--color-text-muted);
+}
+/* Wider than the stock .modalCard — it holds a ten-column table. */
+.histCard {
+  width: min(960px, 100%);
+}
+.histClose {
+  background: none;
+  border: none;
+  font-size: 1.1rem;
+  line-height: 1;
+  cursor: pointer;
+  color: var(--color-text-muted);
+  padding: 2px 6px;
+}
+.histClose:hover { color: var(--color-text); }
+.histIntro {
+  margin: 0 0 var(--space-3);
+  font-size: var(--font-size-xs);
+  line-height: 1.5;
+  color: var(--color-text-muted);
+}
+.histWrap {
+  margin-top: var(--space-3);
+  overflow-x: auto;
+}
+.histTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--font-size-xs);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.histTable th,
+.histTable td {
+  padding: 3px 5px;
+  text-align: right;
+  border-bottom: 1px solid var(--color-border-light);
+  font-weight: 500;
+  color: var(--color-text-secondary);
+}
+.histTable thead th {
+  text-align: right;
+  font-size: 0.9em;
+  color: var(--color-text-muted);
+  border-bottom: 2px solid var(--color-border);
+}
+.histWeekCol {
+  text-align: left !important;
+  position: sticky;
+  left: 0;
+  background: var(--color-surface);
+}
+.histWeekBtn {
+  background: none;
+  border: none;
+  padding: 0;
+  font-family: inherit;
+  font-size: inherit;
+  font-weight: 600;
+  color: var(--color-text);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.histWeekBtn:hover { color: var(--color-accent); }
+.histMet {
+  color: var(--color-success);
+  font-weight: 700;
+}
+/* The week you're looking at above, so the two are obviously the same numbers. */
+.histCurrentRow > th,
+.histCurrentRow > td {
+  background: var(--color-surface-alt);
+}
+.histCurrentRow > .histWeekCol { background: var(--color-surface-alt); }
+.histDayRow > th,
+.histDayRow > td {
+  color: var(--color-text-muted);
+  font-size: 0.94em;
+}
+.histDayRow > .histWeekCol {
+  padding-left: var(--space-4);
+  font-weight: 500;
+}
+.histMoreBtn {
+  margin-top: var(--space-3);
+  background: none;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: 4px 10px;
+  font-family: inherit;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+  cursor: pointer;
+}
+.histMoreBtn:hover { border-color: var(--color-accent); color: var(--color-accent); }
 .wGoalCheck { font-weight: 700; }
 /* "+2" on the sauna goal chip: how many more the plan suggests this week. */
 .wGoalPlanned {
