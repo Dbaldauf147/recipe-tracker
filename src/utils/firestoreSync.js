@@ -2654,6 +2654,52 @@ export async function loadAllUsers() {
 }
 
 /**
+ * Daily snapshots of the admin users table, newest first (admin only).
+ *
+ * These are recorded, not derived: login counters and recipe counts have no
+ * per-day history anywhere, so a day that wasn't captured is simply missing.
+ * See api/snapshot-admin-metrics.js.
+ */
+export async function loadAdminSnapshots(limitDays = 120) {
+  const snap = await getDocs(collection(db, 'adminSnapshots'));
+  return snap.docs
+    .map(d => ({ id: d.id, ...d.data() }))
+    .sort((a, b) => String(b.date || b.id).localeCompare(String(a.date || a.id)))
+    .slice(0, limitDays);
+}
+
+/**
+ * Write today's snapshot from the browser — the "Snapshot now" button, and how
+ * the history gets its first row instead of waiting for tomorrow's cron.
+ * `users` is the admin table's already-loaded rows.
+ */
+export async function saveAdminSnapshot(date, users) {
+  const rows = (users || []).map(u => ({
+    uid: u.uid,
+    email: u.email || '',
+    displayName: u.displayName || '',
+    recipeCount: (u.recipes || []).length,
+    loginCount: u.loginCount || 0,
+    lastLogin: u.lastLogin || '',
+    mobileLoginCount: u.mobileLoginCount || 0,
+    mobileLastLogin: u.mobileLastLogin || '',
+    // `expoPushTokens` only — mirrors hasAppInstalled in AdminDashboard.
+    appInstalled: Array.isArray(u.expoPushTokens) && u.expoPushTokens.length > 0,
+  }));
+  const totals = {
+    users: rows.length,
+    appInstalls: rows.filter(r => r.appInstalled).length,
+    recipes: rows.reduce((n, r) => n + r.recipeCount, 0),
+    webLogins: rows.reduce((n, r) => n + r.loginCount, 0),
+    appLogins: rows.reduce((n, r) => n + r.mobileLoginCount, 0),
+  };
+  await setDoc(doc(db, 'adminSnapshots', date), {
+    date, takenAt: new Date().toISOString(), source: 'manual', totals, users: rows,
+  });
+  return totals;
+}
+
+/**
  * Delete a user document from Firestore (admin cleanup).
  */
 export async function deleteUserDoc(uid) {

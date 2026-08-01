@@ -894,6 +894,8 @@ export function AdminDashboard({ onClose }) {
         </div>
       </div>
 
+      {!loading && <AdminHistory users={users} />}
+
       {!loading && totalRecipesWithSource > 0 && (
         <div className={styles.sourceSection}>
           <h3 className={styles.sourceHeading}>Recipe Import Methods</h3>

@@ -252,5 +252,14 @@ service cloud.firestore {
       allow read: if signedIn();
       allow write: if signedIn();
     }
+
+    // ---- admin metrics history ----------------------------------------------
+    // Daily snapshot of the admin users table (api/snapshot-admin-metrics).
+    // Every user's counts in one doc, so it is admin-only in both directions —
+    // the cron writes through the admin SDK and bypasses this, but the
+    // dashboard reads here and its "Snapshot now" button writes here.
+    match /adminSnapshots/{date} {
+      allow read, write: if isAdmin();
+    }
   }
 }
