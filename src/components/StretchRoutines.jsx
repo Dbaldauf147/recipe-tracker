@@ -280,6 +280,14 @@ function Player({ routine, onClose, onLog }) {
   );
 }
 
+// A step with no hold override. The key has to be absent, not empty:
+// normalizeRoutine treats any non-null holdSec as an override.
+function dropHold(step) {
+  const next = { ...step };
+  delete next.holdSec;
+  return next;
+}
+
 // ── Tab ───────────────────────────────────────────────────────────────────
 export function StretchRoutines({
   routines, onChange, stretchOptions, onLogRoutine, goalRows, goalEntries = {},
@@ -312,6 +320,33 @@ export function StretchRoutines({
     if (!n) return;
     setEditing(e => ({ ...e, steps: [...e.steps, { id: newId(), name: n }] }));
     setAddQuery('');
+  }, []);
+
+  // Per-pose hold override. An empty box means "use the routine default", so
+  // clearing it DELETES the key rather than storing '' — normalizeRoutine treats
+  // any non-null holdSec as an override and would clamp '' up to DEFAULT_HOLD_SEC.
+  const setStepHold = useCallback((idx, raw) => {
+    setEditing(e => ({
+      ...e,
+      steps: e.steps.map((s, i) => {
+        if (i !== idx) return s;
+        const v = String(raw).trim();
+        if (!v) return dropHold(s);
+        return { ...s, holdSec: v };
+      }),
+    }));
+  }, []);
+
+  const clampStepHold = useCallback((idx) => {
+    setEditing(e => ({
+      ...e,
+      steps: e.steps.map((s, i) => {
+        if (i !== idx || s.holdSec == null) return s;
+        const n = Number(s.holdSec);
+        if (!isFinite(n) || n <= 0) return dropHold(s);
+        return { ...s, holdSec: Math.min(MAX_SEC, Math.max(MIN_SEC, Math.round(n))) };
+      }),
+    }));
   }, []);
 
   const moveStep = useCallback((idx, delta) => {
@@ -357,6 +392,7 @@ export function StretchRoutines({
         <div className={styles.secRow}>
           <div>
             <label className={styles.label}>Hold each</label>
+            {/* The routine-wide default. Any pose can pin its own time below. */}
             <input
               className={styles.numInput} type="number" min={MIN_SEC} max={MAX_SEC}
               value={editing.holdSec}
@@ -408,12 +444,33 @@ export function StretchRoutines({
         </div>
 
         <label className={styles.label}>Poses ({editing.steps.length})</label>
-        {editing.steps.length === 0 && <div className={styles.empty}>No poses yet — add your first below.</div>}
+        {editing.steps.length === 0 ? (
+          <div className={styles.empty}>No poses yet — add your first below.</div>
+        ) : (
+          <div className={styles.poseHint}>
+            Each pose holds for {editing.holdSec}s unless you give it its own time.
+          </div>
+        )}
         <ol className={styles.stepList}>
           {editing.steps.map((s, i) => (
             <li key={s.id} className={styles.stepRow}>
               <span className={styles.stepNum}>{i + 1}</span>
               <span className={styles.stepName}>{s.name}</span>
+              {/* Blank = inherit the routine's "Hold each". A pinned pose is
+                  tinted so you can see at a glance which ones you've overridden. */}
+              <input
+                className={`${styles.stepHoldInput} ${s.holdSec != null ? styles.stepHoldSet : ''}`}
+                type="number"
+                min={MIN_SEC}
+                max={MAX_SEC}
+                value={s.holdSec ?? ''}
+                placeholder={String(editing.holdSec)}
+                onChange={e => setStepHold(i, e.target.value)}
+                onBlur={() => clampStepHold(i)}
+                aria-label={`Hold time for ${s.name}`}
+                title={`How long to hold ${s.name}. Leave blank to use the routine's ${editing.holdSec}s.`}
+              />
+              <span className={styles.stepUnit}>s</span>
               <button className={styles.iconBtn} onClick={() => moveStep(i, -1)} disabled={i === 0} aria-label="Move up">↑</button>
               <button className={styles.iconBtn} onClick={() => moveStep(i, 1)} disabled={i === editing.steps.length - 1} aria-label="Move down">↓</button>
               <button className={styles.iconBtn} onClick={() => setEditing(e => ({ ...e, steps: e.steps.filter(x => x.id !== s.id) }))} aria-label="Remove">✕</button>
@@ -528,7 +585,14 @@ export function StretchRoutines({
             <button className={styles.cardMain} onClick={() => setEditing(r)}>
               <div className={styles.cardName}>{r.name}</div>
               <div className={styles.cardMeta}>
-                {r.steps.length} pose{r.steps.length === 1 ? '' : 's'} · {mmss(routineDurationSec(r))} · {r.holdSec}s hold / {r.transitionSec}s move
+                {r.steps.length} pose{r.steps.length === 1 ? '' : 's'} · {mmss(routineDurationSec(r))} · {(() => {
+                  // "40s hold" is a lie once poses carry their own times, so say
+                  // how many are pinned instead of quoting the default alone.
+                  const pinned = r.steps.filter(s => s.holdSec != null).length;
+                  if (pinned === 0) return `${r.holdSec}s hold`;
+                  if (pinned === r.steps.length) return 'per-pose holds';
+                  return `${r.holdSec}s hold · ${pinned} custom`;
+                })()} / {r.transitionSec}s move
               </div>
               {/* Where it lands, visible without opening the routine — the
                   whole point of asking is not having to guess afterwards. */}

@@ -237,6 +237,38 @@
 }
 .stepNum { width: 1.6rem; color: var(--color-text-muted); font-size: 0.8rem; font-variant-numeric: tabular-nums; }
 .stepName { flex: 1; font-size: 0.9rem; color: var(--color-text); }
+
+/* Per-pose hold override. Blank shows the routine default as a placeholder;
+   a pose with its own time is tinted so overrides are scannable down the list. */
+.poseHint {
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+  margin: 0.15rem 0 0.35rem;
+}
+.stepHoldInput {
+  width: 56px;
+  flex: 0 0 auto;
+  padding: 0.22rem 0.35rem;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: 0.82rem;
+  font-family: inherit;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  -moz-appearance: textfield;
+}
+.stepHoldInput::-webkit-outer-spin-button,
+.stepHoldInput::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.stepHoldInput::placeholder { color: var(--color-text-muted); opacity: 0.6; }
+.stepHoldInput:focus { outline: none; border-color: var(--color-accent); }
+.stepHoldSet {
+  border-color: var(--color-accent);
+  background: color-mix(in srgb, var(--color-accent) 12%, transparent);
+  font-weight: 600;
+}
+.stepUnit { font-size: 0.72rem; color: var(--color-text-muted); margin-left: -0.25rem; }
 .addRow { display: flex; gap: 0.5rem; align-items: center; margin-top: 0.5rem; }
 .suggestions { display: flex; flex-wrap: wrap; gap: 0.35rem; }
 .suggestion {
