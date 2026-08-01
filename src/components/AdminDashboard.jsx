@@ -1,5 +1,5 @@
-import { useState, useEffect, useRef, Fragment } from 'react';
-import { loadAllUsers, deleteUserDoc, savePendingSetup, saveField, loadRecipesFromFirestore, saveRecipesToFirestore } from '../utils/firestoreSync';
+import { useState, useEffect, useRef, useMemo, useCallback, Fragment } from 'react';
+import { loadAllUsers, deleteUserDoc, savePendingSetup, saveField, loadRecipesFromFirestore, saveRecipesToFirestore, loadAdminSnapshots, saveAdminSnapshot } from '../utils/firestoreSync';
 import { parseRecipeText } from '../utils/parseRecipeText';
 import { classifyMealType } from '../utils/classifyMealType';
 import { fetchRecipesFromSheet } from '../utils/sheetRecipes';
@@ -80,6 +80,41 @@ function getUserEngagement(u) {
   if (logins === 1 && recipes > 0) return { label: 'Tried It', color: '#8b5cf6' };
   if (logins === 1) return { label: 'One-Time', color: '#c0392b' };
   return { label: 'New', color: 'var(--color-text-muted)' };
+}
+
+/**
+ * Engagement score — one number for "who actually uses this", so the table can
+ * be sorted by it and the leaderboard below has something to rank.
+ *
+ * Three things count, weighted by how much intent each shows:
+ *   • logins (web + app)      — showing up
+ *   • screen/page views ÷ 4   — doing something once you're here
+ *   • recipes × 2             — content you put in, the stickiest signal
+ * …then scaled by how recently you were seen, so a heavy user from six months
+ * ago doesn't outrank someone active this week.
+ */
+function engagementInputs(u) {
+  const logins = (u.loginCount || 0) + (u.mobileLoginCount || 0);
+  const sumMap = (m) => Object.values(m || {}).reduce((n, v) => n + (Number(v) || 0), 0);
+  const views = sumMap(u.pageViews) + sumMap(u.appScreenViews);
+  const recipes = (u.recipes || []).length;
+  const lastIso = [u.lastLogin, u.mobileLastLogin].filter(Boolean).sort().pop();
+  const days = lastIso ? Math.floor((Date.now() - new Date(lastIso).getTime()) / 86400000) : null;
+  return { logins, views, recipes, days, lastIso };
+}
+
+function recencyWeight(days) {
+  if (days == null) return 0.2;
+  if (days <= 7) return 1;
+  if (days <= 30) return 0.75;
+  if (days <= 90) return 0.45;
+  return 0.2;
+}
+
+function engagementScore(u) {
+  const { logins, views, recipes, days } = engagementInputs(u);
+  const raw = logins + views / 4 + recipes * 2;
+  return Math.round(raw * recencyWeight(days));
 }
 
 // App logins were not recorded before this date — recordMobileLogin landed in
@@ -195,6 +230,13 @@ const ADMIN_COLUMNS = [
     render: u => (hasAppInstalled(u)
       ? <span title="Has a push token — only the native app writes one">✓</span>
       : <span style={{ color: 'var(--color-text-muted)' }} title="No push token. Either the app isn't installed, or notifications were declined">—</span>) },
+  { key: 'engagementScore', label: 'Score', width: 90, defaultVisible: true, sortKey: 'engagementScore',
+    render: u => {
+      const { logins, views, recipes, days } = engagementInputs(u);
+      const title = `${logins} logins + ${views} views ÷ 4 + ${recipes} recipes × 2`
+        + `, × ${recencyWeight(days)} for ${days == null ? 'never seen' : `last seen ${days}d ago`}`;
+      return <span title={title}>{engagementScore(u)}</span>;
+    } },
   { key: 'status', label: 'Status', width: 110, defaultVisible: true,
     render: u => { const e = getUserEngagement(u); return <Badge color={e.color}>{e.label}</Badge>; } },
 ];
@@ -217,6 +259,165 @@ const APP_SCREEN_LABELS = {
 };
 function prettifyKey(k) {
   return String(k).replace(/[_-]+/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+}
+
+// Headline figures tracked per snapshot. `delta` columns show movement since
+// the previous captured day, which is the whole point of keeping these.
+const TREND_METRICS = [
+  { key: 'users', label: 'Users' },
+  { key: 'appInstalls', label: 'App installs' },
+  { key: 'recipes', label: 'Recipes' },
+  { key: 'webLogins', label: 'Web logins' },
+  { key: 'appLogins', label: 'App logins' },
+];
+
+/**
+ * History of the users table, one row per captured day.
+ *
+ * Unlike the Week Plan's goal history, this cannot be rebuilt after the fact —
+ * login counters and recipe counts have no per-day trail — so it only knows
+ * about days a snapshot ran. Empty until the first one, hence "Snapshot now".
+ */
+function AdminHistory({ users }) {
+  const [snaps, setSnaps] = useState(null); // null = not loaded yet
+  const [err, setErr] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [openDate, setOpenDate] = useState(null);
+
+  const load = useCallback(() => {
+    loadAdminSnapshots()
+      .then(rows => { setSnaps(rows); setErr(''); })
+      .catch(e => { setSnaps([]); setErr(e?.message || 'Could not read snapshots'); });
+  }, []);
+  useEffect(() => { load(); }, [load]);
+
+  async function snapshotNow() {
+    setBusy(true);
+    try {
+      const date = new Date().toLocaleDateString('en-CA'); // YYYY-MM-DD, local
+      await saveAdminSnapshot(date, users);
+      load();
+    } catch (e) {
+      setErr(e?.message || 'Could not write the snapshot');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // Oldest→newest deltas, then flipped for display.
+  const rows = useMemo(() => {
+    if (!snaps) return [];
+    const asc = [...snaps].sort((a, b) => String(a.date).localeCompare(String(b.date)));
+    return asc.map((s, i) => {
+      const prev = i > 0 ? asc[i - 1] : null;
+      const delta = {};
+      for (const m of TREND_METRICS) {
+        delta[m.key] = prev ? (s.totals?.[m.key] || 0) - (prev.totals?.[m.key] || 0) : null;
+      }
+      return { ...s, delta };
+    }).reverse();
+  }, [snaps]);
+
+  return (
+    <div className={styles.sourceSection}>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
+        <h3 className={styles.sourceHeading} style={{ margin: 0 }}>History</h3>
+        <span style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>
+          {snaps == null ? 'Loading…' : `${snaps.length} snapshot${snaps.length === 1 ? '' : 's'}`}
+        </span>
+        <button
+          type="button"
+          onClick={snapshotNow}
+          disabled={busy || !users?.length}
+          style={{ marginLeft: 'auto', border: '1px solid var(--color-border)', background: 'var(--color-surface)', borderRadius: 6, padding: '0.3rem 0.7rem', fontSize: '0.78rem', fontFamily: 'inherit', cursor: busy ? 'default' : 'pointer', color: 'inherit' }}
+        >{busy ? 'Saving…' : 'Snapshot now'}</button>
+      </div>
+
+      <p style={{ fontSize: '0.74rem', color: 'var(--color-text-muted)', lineHeight: 1.5, margin: '0.4rem 0 0.8rem' }}>
+        Captured daily at 7:45am ET. These figures have no history of their own — a login
+        counter only ever shows its current value — so this can only know about days a
+        snapshot ran, and it starts from the first one. Click a day for its per-user rows.
+      </p>
+
+      {err && (
+        <p style={{ fontSize: '0.76rem', color: '#c0392b', margin: '0 0 0.6rem' }}>{err}</p>
+      )}
+
+      {snaps != null && snaps.length === 0 && !err && (
+        <p style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)', margin: 0 }}>
+          Nothing captured yet. “Snapshot now” records today so there’s a baseline to
+          measure tomorrow against.
+        </p>
+      )}
+
+      {rows.length > 0 && (
+        <div style={{ overflowX: 'auto' }}>
+          <table className={styles.table} style={{ fontSize: '0.8rem' }}>
+            <thead>
+              <tr>
+                <th style={{ textAlign: 'left' }}>Date</th>
+                {TREND_METRICS.map(m => <th key={m.key} style={{ textAlign: 'right' }}>{m.label}</th>)}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map(r => {
+                const isOpen = openDate === r.date;
+                return (
+                  <Fragment key={r.id || r.date}>
+                    <tr>
+                      <td>
+                        <button
+                          type="button"
+                          onClick={() => setOpenDate(isOpen ? null : r.date)}
+                          style={{ border: 'none', background: 'none', padding: 0, font: 'inherit', color: 'inherit', cursor: 'pointer', fontWeight: 600 }}
+                          title={r.source === 'manual' ? 'Taken by hand' : 'Taken by the daily cron'}
+                        >
+                          {isOpen ? '▾' : '▸'} {r.date}{r.source === 'manual' ? ' ·' : ''}
+                        </button>
+                      </td>
+                      {TREND_METRICS.map(m => (
+                        <td key={m.key} style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
+                          {r.totals?.[m.key] ?? '—'}
+                          {r.delta[m.key] ? (
+                            <span style={{ marginLeft: 5, fontSize: '0.85em', color: r.delta[m.key] > 0 ? '#16a34a' : '#c0392b' }}>
+                              {r.delta[m.key] > 0 ? '+' : ''}{r.delta[m.key]}
+                            </span>
+                          ) : null}
+                        </td>
+                      ))}
+                    </tr>
+                    {isOpen && (r.users || []).slice().sort((a, b) => (
+                      (b.loginCount + b.mobileLoginCount) - (a.loginCount + a.mobileLoginCount)
+                    )).map(u => {
+                      // Status is recomputed here, never read from the snapshot,
+                      // so re-tuning the thresholds re-reads the whole history.
+                      const e = getUserEngagement({
+                        loginCount: u.loginCount,
+                        mobileLoginCount: u.mobileLoginCount,
+                        lastLogin: u.lastLogin,
+                        mobileLastLogin: u.mobileLastLogin,
+                        recipes: new Array(u.recipeCount || 0),
+                      });
+                      return (
+                        <tr key={u.uid} style={{ fontSize: '0.94em', color: 'var(--color-text-muted)' }}>
+                          <td style={{ paddingLeft: '1.4rem' }}>{u.displayName || u.email || u.uid}</td>
+                          <td style={{ textAlign: 'right' }}><Badge color={e.color}>{e.label}</Badge></td>
+                          <td style={{ textAlign: 'right' }}>{u.appInstalled ? '✓' : '—'}</td>
+                          <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{u.recipeCount}</td>
+                          <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{u.loginCount}</td>
+                          <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{u.mobileLoginCount}</td>
+                        </tr>
+                      );
+                    })}
+                  </Fragment>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
 }
 
 const ADMIN_COLS_KEY = 'sunday-admin-user-cols';
@@ -293,6 +494,9 @@ export function AdminDashboard({ onClose }) {
     } else if (sortField === 'mobileLastLogin') {
       aVal = a.mobileLastLogin || '';
       bVal = b.mobileLastLogin || '';
+    } else if (sortField === 'engagementScore') {
+      aVal = engagementScore(a);
+      bVal = engagementScore(b);
     } else if (sortField === 'displayName') {
       aVal = (a.displayName || '').toLowerCase();
       bVal = (b.displayName || '').toLowerCase();
@@ -601,6 +805,14 @@ export function AdminDashboard({ onClose }) {
     return rows;
   })();
 
+  // Leaderboard: who's actually using it, most engaged first.
+  const topEngaged = [...users]
+    .map(u => ({ u, score: engagementScore(u), ...engagementInputs(u) }))
+    .filter(r => r.score > 0)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 10);
+  const topScore = topEngaged.length > 0 ? topEngaged[0].score : 0;
+
   const arrow = (field) => sortField === field ? (sortDir === 'asc' ? ' ↑' : ' ↓') : '';
 
   // Merge saved prefs over the column defaults.
@@ -727,6 +939,49 @@ export function AdminDashboard({ onClose }) {
           </div>
           <p style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', marginTop: '0.5rem' }}>
             Logins below count web + app combined. Active: 10+ logins, seen in 14d · Regular: 5+ logins, 30d · Returning: 2+ logins, 60d · Lapsed: 2+ logins, 60d+ · Tried It: 1 login with recipes · One-Time: 1 login, no recipes
+          </p>
+        </div>
+      )}
+
+      {/* Top users by engagement — the same score the table's Score column
+          sorts on, so this is a shortcut, not a second opinion. */}
+      {!loading && topEngaged.length > 0 && (
+        <div className={styles.sourceSection}>
+          <h3 className={styles.sourceHeading}>Top Users by Engagement</h3>
+          <div className={styles.sourceGrid}>
+            {topEngaged.map((r, i) => {
+              const pct = topScore > 0 ? Math.round((r.score / topScore) * 100) : 0;
+              const e = getUserEngagement(r.u);
+              const p = getUserPlatform(r.u);
+              const who = r.u.displayName || r.u.email || r.u.uid;
+              return (
+                <div key={r.u.uid} className={styles.sourceRow}>
+                  <span className={styles.sourceLabel} title={r.u.email || ''}>
+                    <span style={{ color: 'var(--color-text-muted)', marginRight: 6 }}>{i + 1}.</span>
+                    {who}
+                    {p.key !== 'none' && (
+                      <span style={{ color: 'var(--color-text-muted)', marginLeft: 6, fontSize: '0.72rem' }}>
+                        {p.key === 'both' ? 'Both' : p.label}
+                      </span>
+                    )}
+                  </span>
+                  <div className={styles.sourceBarWrap}>
+                    <div className={styles.sourceBar} style={{ width: `${pct}%`, background: e.color }} />
+                  </div>
+                  <span
+                    className={styles.sourceCount}
+                    title={`${r.logins} logins · ${r.views} views · ${r.recipes} recipes · ${r.days == null ? 'never seen' : `last seen ${r.days}d ago`}`}
+                  >
+                    {r.score}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+          <p style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', marginTop: '0.5rem' }}>
+            Score = logins + views ÷ 4 + recipes × 2, scaled by recency (×1 within 7d · ×0.75 within 30d ·
+            ×0.45 within 90d · ×0.2 beyond). Bar colour is their engagement status; hover a score for the breakdown.
+            Sort the table by <strong>Score</strong> for the full list.
           </p>
         </div>
       )}
