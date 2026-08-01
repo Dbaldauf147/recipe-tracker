@@ -851,67 +851,68 @@
   padding: 2px 9px;
 }
 .ratingCatChip strong { color: var(--color-text); }
-.ratingExpandBtn {
-  align-self: flex-start;
-  background: none;
-  border: none;
-  padding: 0;
-  cursor: pointer;
-  font-family: inherit;
-  font-size: 0.8rem;
-  font-weight: 600;
-  color: var(--color-accent, #2563eb);
-}
 .ratingEmpty {
   margin: 0;
   font-size: 0.85rem;
   color: var(--color-text-muted);
 }
-.ratingBreakdown {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  margin-bottom: 10px;
-  padding: 8px 10px;
+/* Category × person table: your stars in the first column, one read-only
+   column per friend. The wrapper scrolls sideways so a long row of raters
+   never squeezes the star columns (or widens the modal). */
+.ratingTableWrap {
+  overflow-x: auto;
   border: 1px solid var(--color-border);
   border-radius: 8px;
   background: var(--color-surface-alt, #f8fafc);
 }
-.ratingPersonRow {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
+.ratingTable {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 0.85rem;
 }
-.ratingPersonName { font-size: 0.85rem; }
-.ratingPersonScores {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
+.ratingTable th,
+.ratingTable td {
+  padding: 6px 10px;
+  text-align: center;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+.ratingTable thead th {
   font-size: 0.78rem;
-  color: var(--color-text-muted);
-}
-.ratingInput {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding-top: 8px;
-  border-top: 1px solid var(--color-border);
-}
-.ratingInputTitle {
-  font-size: 0.8rem;
   font-weight: 600;
   color: var(--color-text-muted);
+  border-bottom: 1px solid var(--color-border);
 }
-.ratingInputRow {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  flex-wrap: wrap;
+.ratingTable tbody tr + tr th,
+.ratingTable tbody tr + tr td {
+  border-top: 1px solid var(--color-border);
 }
-.ratingInputLabel {
-  font-size: 0.88rem;
+.ratingTable tfoot th,
+.ratingTable tfoot td {
+  border-top: 2px solid var(--color-border);
+  font-weight: 700;
   color: var(--color-text);
+}
+/* Category names are the row headers — left-aligned, and the one column
+   allowed to wrap on a narrow screen. */
+.ratingTableCatHead,
+.ratingTableCat {
+  text-align: left;
+  font-weight: 600;
+  color: var(--color-text);
+  white-space: normal;
+}
+.ratingTableYouHead { color: var(--color-text); }
+/* .stars is a flex row, so it fills the cell and ignores text-align — center
+   it explicitly in both the input column and the read-only friend columns. */
+.ratingTableYou .stars,
+.ratingTableFriend .stars { justify-content: center; }
+.ratingTableFriend { color: var(--color-text-muted); }
+.ratingTableBlank { color: var(--color-text-muted); }
+.ratingTableHint {
+  margin: 6px 0 0;
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
 }
 .cardRatingBadge {
   font-size: 0.72rem;

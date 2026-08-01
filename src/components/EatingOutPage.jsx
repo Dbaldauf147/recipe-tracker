@@ -651,13 +651,23 @@ function StarsStatic({ value, size = 15 }) {
   );
 }
 
-// Collaborative ratings for one spot: your 1–5 input across the 4 categories,
-// the aggregate across all voters, and an expandable per-person breakdown.
-// Keyed by (ownerUid, spotId) like the comment thread; each collaborator writes
-// only their own doc (deterministic id in setEatingOutRating).
+// Mean of the categories someone actually scored, or null if they scored none.
+// Matches how the group `overall` is derived in aggregateSpotRatings.
+function overallOfScores(scores) {
+  const vals = RATING_CATEGORIES
+    .map(c => scores?.[c.key])
+    .filter(v => typeof v === 'number' && v >= 1 && v <= 5);
+  return vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null;
+}
+
+// Collaborative ratings for one spot: a table of the 4 categories with YOUR
+// stars (clickable) in the first column and one read-only column per person
+// who's rated it, so you can see who gave what side by side. The group
+// aggregate sits above it. Keyed by (ownerUid, spotId) like the comment thread;
+// each collaborator writes only their own doc (deterministic id in
+// setEatingOutRating).
 function SpotRatings({ ownerUid, spotId, user }) {
   const [docs, setDocs] = useState([]);
-  const [expanded, setExpanded] = useState(false);
   // Local copy of MY scores for instant feedback; re-synced from the live doc.
   const [myScores, setMyScores] = useState({});
 
@@ -671,6 +681,14 @@ function SpotRatings({ ownerUid, spotId, user }) {
   useEffect(() => { setMyScores(myDoc?.scores || {}); }, [myDoc]);
 
   const agg = useMemo(() => aggregateSpotRatings(docs), [docs]);
+
+  // Everyone but me who has actually scored something — one table column each.
+  // Sorted by name so the columns don't reshuffle as docs stream in.
+  const friends = useMemo(() => (
+    docs
+      .filter(d => d.authorUid !== user?.uid && overallOfScores(d.scores) != null)
+      .sort((a, b) => String(a.authorUsername || '').localeCompare(String(b.authorUsername || '')))
+  ), [docs, user?.uid]);
 
   const setCategory = (key, value) => {
     const next = { ...myScores, [key]: value };
@@ -708,45 +726,61 @@ function SpotRatings({ ownerUid, spotId, user }) {
                 </span>
               ))}
             </div>
-            <button type="button" className={styles.ratingExpandBtn} onClick={() => setExpanded(e => !e)}>
-              {expanded ? 'Hide individual ratings' : 'See everyone’s ratings'}
-            </button>
           </>
         ) : (
           <p className={styles.ratingEmpty}>No ratings yet — be the first.</p>
         )}
       </div>
 
-      {/* Per-person breakdown */}
-      {expanded && agg.voterCount > 0 && (
-        <div className={styles.ratingBreakdown}>
-          {docs.map(d => (
-            <div key={d.id} className={styles.ratingPersonRow}>
-              <strong className={styles.ratingPersonName}>
-                {d.authorUid === user?.uid ? 'You' : (d.authorUsername ? `@${d.authorUsername}` : 'Friend')}
-              </strong>
-              <span className={styles.ratingPersonScores}>
-                {RATING_CATEGORIES.map(c => (
-                  <span key={c.key} className={styles.ratingPersonScore} title={c.label}>
-                    {c.label.split(' ')[0]} {d.scores?.[c.key] ?? '–'}
-                  </span>
-                ))}
-              </span>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* My input — quick 1–5 per category */}
-      <div className={styles.ratingInput}>
-        <div className={styles.ratingInputTitle}>Your rating</div>
-        {RATING_CATEGORIES.map(c => (
-          <div key={c.key} className={styles.ratingInputRow}>
-            <span className={styles.ratingInputLabel}>{c.label}</span>
-            <StarRating value={myScores[c.key] ?? null} onChange={v => setCategory(c.key, v)} size={20} />
-          </div>
-        ))}
+      {/* Category × person table. Your column is the input; friends are
+          read-only. Scrolls sideways rather than squeezing the star columns
+          once a few people have rated. */}
+      <div className={styles.ratingTableWrap}>
+        <table className={styles.ratingTable}>
+          <thead>
+            <tr>
+              <th scope="col" className={styles.ratingTableCatHead}>Category</th>
+              <th scope="col" className={styles.ratingTableYouHead}>You</th>
+              {friends.map(f => (
+                <th key={f.id} scope="col" title={f.authorUsername ? `@${f.authorUsername}` : 'Friend'}>
+                  {f.authorUsername ? `@${f.authorUsername}` : 'Friend'}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {RATING_CATEGORIES.map(c => (
+              <tr key={c.key}>
+                <th scope="row" className={styles.ratingTableCat}>{c.label}</th>
+                <td className={styles.ratingTableYou}>
+                  <StarRating value={myScores[c.key] ?? null} onChange={v => setCategory(c.key, v)} size={18} />
+                </td>
+                {friends.map(f => {
+                  const v = f.scores?.[c.key];
+                  const rated = typeof v === 'number' && v >= 1 && v <= 5;
+                  return (
+                    <td key={f.id} className={styles.ratingTableFriend}>
+                      {rated
+                        ? <StarsStatic value={v} size={14} />
+                        : <span className={styles.ratingTableBlank}>–</span>}
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+          <tfoot>
+            <tr>
+              <th scope="row" className={styles.ratingTableCat}>Overall</th>
+              <td className={styles.ratingTableYou}>{fmt(overallOfScores(myScores))}</td>
+              {friends.map(f => (
+                <td key={f.id} className={styles.ratingTableFriend}>{fmt(overallOfScores(f.scores))}</td>
+              ))}
+            </tr>
+          </tfoot>
+        </table>
       </div>
+      <p className={styles.ratingTableHint}>Tap your stars to rate — saves as you go.</p>
     </div>
   );
 }
