@@ -61,6 +61,9 @@ const REVIEW_KINDS = [
     matches: h => (h?.status || '').trim() === 'Automatically',
     confirmField: 'autoConfirmedMonth',
     revisitField: 'autoRevisitMonth',
+    completedField: 'autoReviewCompletedMonth',
+    // Names a review habit for THIS bucket, e.g. "Review Automatic Habits".
+    reviewName: /\bautomatic|\bauto\b/,
     heading: 'Monthly automatic check-in',
     instructions: 'Once a month, go through each one: tick the box if it’s still running on autopilot, or “Not any more” to put it back in your routines. The boxes reset at the start of every month.',
     confirmTitle: 'Confirm still automatic',
@@ -76,6 +79,8 @@ const REVIEW_KINDS = [
     matches: h => (h?.status || '').trim() === ON_HOLD_STATUS,
     confirmField: 'onHoldConfirmedMonth',
     revisitField: 'onHoldRevisitMonth',
+    completedField: 'onHoldReviewCompletedMonth',
+    reviewName: /on[\s-]?hold/,
     heading: 'Monthly on-hold check-in',
     instructions: 'Once a month, go through each one: tick the box if it should stay paused, or “Resume” to bring it back. The boxes reset at the start of every month.',
     confirmTitle: 'Confirm it stays on hold',
@@ -92,6 +97,8 @@ const REVIEW_KINDS = [
       .includes((h?.status || '').trim().toLowerCase()),
     confirmField: 'notStartedConfirmedMonth',
     revisitField: 'notStartedRevisitMonth',
+    completedField: 'notStartedReviewCompletedMonth',
+    reviewName: /not[\s-]?started|have?n.?t[\s-]?started/,
     heading: 'Monthly not-started check-in',
     instructions: 'Once a month, go through each one: tick the box if it’s still something for later, or “Start it” to move it into your routines. The boxes reset at the start of every month.',
     confirmTitle: 'Confirm it’s still for later',
@@ -103,6 +110,24 @@ const REVIEW_KINDS = [
     showStatusSelect: true,
   },
 ];
+
+// Which bucket a review habit is FOR, read off its name: "Review On Hold
+// Habits" is the on-hold check-in's habit, "Review Not Started Habits" the
+// not-started one. Each then completes when ITS OWN subtab is confirmed,
+// instead of every review habit waiting for all three.
+//
+// A review habit naming no bucket ("Monthly Habit Review") is the overall one
+// and still waits for all of them — returns null for that case.
+function reviewKindFor(h) {
+  const name = (h?.name || '').trim().toLowerCase();
+  if (!name) return null;
+  // On-hold / not-started are checked before automatic: those names are the
+  // specific ones, and 'auto' is the loosest pattern of the three.
+  return REVIEW_KINDS.find(k => k.id === 'onhold' && k.reviewName.test(name))
+    || REVIEW_KINDS.find(k => k.id === 'notstarted' && k.reviewName.test(name))
+    || REVIEW_KINDS.find(k => k.id === 'autoreview' && k.reviewName.test(name))
+    || null;
+}
 
 // Tracking cadence chosen per-habit in the habit popup. Stored on the habit as
 // `cadence` (NOT part of HABIT_FIELDS, so the paste-from-sheet column mapping
@@ -1384,33 +1409,48 @@ export function HabitsPage({ onBack, user }) {
   // `auto` is the rule-automated half of that same outstanding set, surfaced
   // separately (grey) by the split summary below rather than adding to any red
   // count. Tabs with nothing to complete (KPI/Automatic/History/On Hold/Habits)
-  // Finishing the monthly check-in completes the review habit itself. Once
-  // every "Automatically" habit carries this month's confirmation, the habit
-  // whose job is running the review (isReviewHabit) gets marked done for its
-  // own period — the check-in IS the habit, so ticking the last box shouldn't
-  // leave it sitting there unlogged.
+  // Finishing a monthly check-in completes the review habit for THAT check-in.
+  // Once every habit in a bucket carries this month's confirmation, the habit
+  // whose job is running that review gets marked done for its own period — the
+  // check-in IS the habit, so ticking the last box shouldn't leave it sitting
+  // there unlogged.
   //
-  // `autoReviewCompletedMonth` on the habit is what stops it happening twice:
-  // clearing the mark by hand has to stick, including across a reload, and a
-  // ref wouldn't survive one. It rearms on its own next month, when the
+  // Each bucket settles on its own: clearing On Hold completes "Review On Hold
+  // Habits" even while Not Started is still outstanding. Only a review habit
+  // that names no bucket ("Monthly Habit Review") waits for all three.
+  //
+  // The per-kind `completedField` on the habit is what stops it happening
+  // twice: clearing the mark by hand has to stick, including across a reload,
+  // and a ref wouldn't survive one. It rearms on its own next month, when the
   // confirmations reset and the month key moves on.
   useEffect(() => {
     const currentMonth = periodKey('Monthly');
-    // Every check-in has to be clear, not just the automatic one — an empty
-    // bucket counts as clear, and if all three are empty there's no review to
-    // have completed.
+    // A bucket is clear when every habit in it carries this month's
+    // confirmation. An EMPTY bucket counts as clear — there was nothing to
+    // review — but if all three are empty there's no review to have completed.
     const buckets = REVIEW_KINDS.map(k => ({ k, list: habits.filter(h => k.matches(h)) }));
     if (buckets.every(b => b.list.length === 0)) return;
-    if (buckets.some(b => b.list.some(h => (h[b.k.confirmField] || '') !== currentMonth))) return;
-    const due = habits.filter(
-      h => isReviewHabit(h) && (h.autoReviewCompletedMonth || '') !== currentMonth,
+    const clearOf = new Map(
+      buckets.map(b => [b.k.id, b.list.every(h => (h[b.k.confirmField] || '') === currentMonth)]),
     );
+    const allClear = buckets.every(b => clearOf.get(b.k.id));
+
+    // Pair each due review habit with the stamp field to write, so one persist
+    // can settle a mix of per-bucket and overall habits.
+    const due = [];
+    for (const h of habits) {
+      if (!isReviewHabit(h)) continue;
+      const kind = reviewKindFor(h);
+      const field = kind ? kind.completedField : 'autoReviewCompletedMonth';
+      const ready = kind ? clearOf.get(kind.id) : allClear;
+      if (ready && (h[field] || '') !== currentMonth) due.push({ h, field });
+    }
     if (due.length === 0) return;
     // One persist for the whole set: updateHabit would map over a stale
     // `habits` each time and the second write would undo the first.
-    const dueIds = new Set(due.map(h => h.id));
-    persist(habits.map(h => (dueIds.has(h.id) ? { ...h, autoReviewCompletedMonth: currentMonth } : h)));
-    for (const h of due) {
+    const stamp = new Map(due.map(d => [d.h.id, d.field]));
+    persist(habits.map(h => (stamp.has(h.id) ? { ...h, [stamp.get(h.id)]: currentMonth } : h)));
+    for (const { h } of due) {
       const mk = markOf(h);
       if (mk !== 'done' && mk !== 'exceeded') onMark(h, 'done');
     }
@@ -1663,11 +1703,12 @@ export function HabitsPage({ onBack, user }) {
             {/* Clicking a name in the list means "edit that habit", so force the
                 detail popup — otherwise a review habit that is itself marked
                 Automatically would just re-open this same modal. */}
-            {/* All three buckets in one pass — automatic, on hold, not started
-                — because "the monthly review" is now all of them, and the habit
-                only completes once every list is confirmed. */}
+            {/* A review habit that names a bucket ("Review On Hold Habits")
+                shows only that check-in — it's the one it completes. A habit
+                naming none is the overall review, so it shows all three and
+                waits for every list. */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: '1.6rem' }}>
-              {REVIEW_KINDS.map(k => (
+              {(reviewKindFor(openHabit) ? [reviewKindFor(openHabit)] : REVIEW_KINDS).map(k => (
                 <MonthlyStatusReview
                   key={k.id}
                   kind={k}
