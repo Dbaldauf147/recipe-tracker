@@ -40,6 +40,21 @@ const WORKOUT_CATS = [
 const WORKOUT_CAT_META = Object.fromEntries(WORKOUT_CATS.map(c => [c.key, c]));
 const DEFAULT_WORKOUT_GOALS = { weights: 3, cardio: 1, yoga: 1, rest: 2 };
 
+// Week-total produce tiles. Servings come from each logged entry's
+// `nutrition.vegServings` / `fruitServings` — the same numbers the Prepare
+// grid's per-day Veg/Fruit rows show.
+const PRODUCE_TILES = [
+  { key: 'veg', icon: '🥦', label: 'Veg', noun: 'vegetable' },
+  { key: 'fruit', icon: '🍎', label: 'Fruit', noun: 'fruit' },
+];
+
+// Servings are fractional (half an avocado, ¾ cup of berries), so show a
+// decimal only when there is one — "21" not "21.0", but "21.5" stays.
+function fmtServings(n) {
+  const v = Math.round((Number(n) || 0) * 10) / 10;
+  return Number.isInteger(v) ? String(v) : v.toFixed(1);
+}
+
 function loadWorkoutGoals() {
   try {
     const r = JSON.parse(localStorage.getItem('sunday-workout-weekly-goals'));
@@ -1072,6 +1087,48 @@ export function WeekPlanPage({ recipes, getRecipe, user, weeklyPlan = [], weekly
     return { pct, ateOut };
   }, [days, dailyLog]);
 
+  // This week's fruit & veg, summed from the same per-entry servings the
+  // Prepare grid's Veg/Fruit rows and the Fruit & Veg chart read
+  // (`nutrition.vegServings` / `fruitServings`). Days marked skipped contribute
+  // nothing, and entries in a skipped meal slot are left out — matching
+  // ServingsChart, so the week total equals the per-day rows added up.
+  const produceStats = useMemo(() => {
+    const MEAL_SLOTS = ['breakfast', 'lunch', 'dinner', 'snack'];
+    let veg = 0;
+    let fruit = 0;
+    for (const date of days) {
+      const day = dailyLog[date] || {};
+      if (day.daySkipped) continue;
+      const entries = Array.isArray(day.entries) ? day.entries : [];
+      const skipped = Array.isArray(day.skippedMeals) ? day.skippedMeals : [];
+      const active = skipped.length
+        ? entries.filter(e => {
+            const slot = e.type === 'custom' && !e.mealSlot ? 'snack' : (MEAL_SLOTS.includes(e.mealSlot) ? e.mealSlot : 'snack');
+            return !skipped.includes(slot);
+          })
+        : entries;
+      for (const e of active) {
+        veg += e.nutrition?.vegServings || 0;
+        fruit += e.nutrition?.fruitServings || 0;
+      }
+    }
+    return { veg: Math.round(veg * 10) / 10, fruit: Math.round(fruit * 10) / 10 };
+  }, [days, dailyLog]);
+
+  // Weekly produce targets = the DAILY goals from Nutrition Goals × the 7 days
+  // shown, so there's one place to edit them and the tile agrees with the
+  // per-day Veg/Fruit rows. Defaults match NutritionGoalsPage (5 veg, 4 fruit).
+  const produceGoals = useMemo(() => {
+    const perDay = (v, fallback) => {
+      const n = Number(v);
+      return v == null || isNaN(n) || n < 0 ? fallback : n;
+    };
+    return {
+      veg: perDay(nutritionGoals?.vegServings, 5) * days.length,
+      fruit: perDay(nutritionGoals?.fruitServings, 4) * days.length,
+    };
+  }, [nutritionGoals, days.length]);
+
   // Weekly meals-tracked target — reuses the same `dailyMealsTrackedPct` goal the
   // % of Meals Tracked chart edits (stored in sunday-nutrition-goals). Defaults
   // to 50% when unset, per the "at least 50% tracked" target.
@@ -1429,6 +1486,25 @@ export function WeekPlanPage({ recipes, getRecipe, user, weeklyPlan = [], weekly
                     <span className={styles.wGoalLabel}>Ate out</span>
                     <span className={styles.wGoalCount}>{ateOut}</span>
                   </span>
+                  {PRODUCE_TILES.map(t => {
+                    const total = produceStats[t.key];
+                    const goal = produceGoals[t.key];
+                    const met = goal > 0 && total >= goal;
+                    return (
+                      <span
+                        key={t.key}
+                        title={`${fmtServings(total)} ${t.noun} serving${total === 1 ? '' : 's'} logged this week`
+                          + ` (goal ${fmtServings(goal)} — ${fmtServings(goal / days.length)}/day × ${days.length} days).`
+                          + ' Edit the daily goal on the Nutrition Goals page.'}
+                        className={`${styles.wGoal}${met ? ` ${styles.wGoalMet}` : ''}`}
+                      >
+                        <span className={styles.wGoalIcon}>{t.icon}</span>
+                        <span className={styles.wGoalLabel}>{t.label}</span>
+                        <span className={styles.wGoalCount}>{fmtServings(total)}/{fmtServings(goal)}</span>
+                        {met && <span className={styles.wGoalCheck}>✓</span>}
+                      </span>
+                    );
+                  })}
                 </>
               );
             })()}
