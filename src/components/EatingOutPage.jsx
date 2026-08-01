@@ -1365,8 +1365,11 @@ function EditModal({ initial, onSave, onClose, onDelete, cuisineSuggestions, loc
             </span>
           </label>
 
-          <label className={styles.fieldLabel}>Rating</label>
-          <StarRating value={rating} onChange={setRating} />
+          {/* The single 5-star rating is gone from this form — the per-category
+              Ratings table is where a spot gets scored. The label below still
+              derives a star value (ratingLabelToStars) so the card badge and
+              the table column keep working, and existing ratings are untouched. */}
+          <label className={styles.fieldLabel}>Label</label>
           <input
             type="text"
             className={styles.input}
