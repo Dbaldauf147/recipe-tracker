@@ -3580,6 +3580,16 @@ function AutoReviewView({ habits, onUpdate, onOpen }) {
   const currentMonth = periodKey('Monthly'); // 'YYYY-MM' in local time
   const monthLabel = new Date().toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
 
+  // 'YYYY-MM' → "Jul" (or "Jul 2025" once it's a different year), for showing
+  // WHEN something was flagged — a flag raised last month is the whole point.
+  function monthLabelFromKey(key) {
+    const m = /^(\d{4})-(\d{2})$/.exec((key || '').trim());
+    if (!m) return '';
+    const d = new Date(Number(m[1]), Number(m[2]) - 1, 1);
+    const sameYear = d.getFullYear() === new Date().getFullYear();
+    return d.toLocaleDateString(undefined, { month: 'short', ...(sameYear ? {} : { year: 'numeric' }) });
+  }
+
   // Automatic habits grouped by routine, routines in the canonical routine order.
   const groups = useMemo(() => {
     const auto = habits.filter(h => (h.status || '').trim() === 'Automatically');
@@ -3598,6 +3608,7 @@ function AutoReviewView({ habits, onUpdate, onOpen }) {
 
   const autoCount = groups.reduce((n, [, list]) => n + list.length, 0);
   const pending = groups.reduce((n, [, list]) => n + list.filter(h => (h.autoConfirmedMonth || '') !== currentMonth).length, 0);
+  const flaggedCount = groups.reduce((n, [, list]) => n + list.filter(h => (h.autoRevisitMonth || '').trim()).length, 0);
 
   if (autoCount === 0) {
     return <p style={{ color: 'var(--color-text-muted)' }}>No automatic habits yet. Set a habit’s status to “Automatically” and it will show up here for a monthly check-in.</p>;
@@ -3606,6 +3617,16 @@ function AutoReviewView({ habits, onUpdate, onOpen }) {
   function toggle(h) {
     const confirmed = (h.autoConfirmedMonth || '') === currentMonth;
     onUpdate(h.id, 'autoConfirmedMonth', confirmed ? '' : currentMonth);
+  }
+
+  // "Revisit this one." Doesn't touch the status and doesn't stand in the way of
+  // confirming — it's a note to yourself. Stored as the month it was raised
+  // (`autoRevisitMonth`) rather than a boolean, so unlike the confirmations it
+  // does NOT reset: next month the row still shows the flag, dated, until you
+  // clear it.
+  function toggleRevisit(h) {
+    const flagged = !!(h.autoRevisitMonth || '').trim();
+    onUpdate(h.id, 'autoRevisitMonth', flagged ? '' : currentMonth);
   }
 
   // The other half of the review: this one ISN'T automatic any more. Drops it
@@ -3635,6 +3656,11 @@ function AutoReviewView({ habits, onUpdate, onOpen }) {
         <span style={{ fontSize: '0.72rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.4, color: pending === 0 ? '#166534' : '#b45309', background: pending === 0 ? '#dcfce7' : '#fef3c7', border: `1px solid ${pending === 0 ? '#bbf7d0' : '#fde68a'}`, borderRadius: 999, padding: '3px 10px', whiteSpace: 'nowrap' }}>
           {pending === 0 ? 'All confirmed ✓' : `${pending} to confirm`}
         </span>
+        {flaggedCount > 0 && (
+          <span title="Flagged to revisit — the flag stays put until you clear it" style={{ fontSize: '0.72rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.4, color: '#9a3412', background: '#ffedd5', border: '1px solid #fed7aa', borderRadius: 999, padding: '3px 10px', whiteSpace: 'nowrap' }}>
+            ⚑ {flaggedCount} to revisit
+          </span>
+        )}
       </div>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: '1.4rem' }}>
@@ -3644,8 +3670,13 @@ function AutoReviewView({ habits, onUpdate, onOpen }) {
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
               {list.map(h => {
                 const confirmed = (h.autoConfirmedMonth || '') === currentMonth;
+                const flaggedMonth = (h.autoRevisitMonth || '').trim();
+                const flagged = !!flaggedMonth;
+                // Flagged wins the border: an old flag is the thing you came
+                // back for, and it outlives this month's green tick.
+                const borderColor = flagged ? '#fdba74' : confirmed ? '#bbf7d0' : 'var(--color-border, #e2e8f0)';
                 return (
-                  <div key={h.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '0.5rem 0.7rem', background: 'var(--color-surface, #fff)', border: `1px solid ${confirmed ? '#bbf7d0' : 'var(--color-border, #e2e8f0)'}`, borderRadius: 8 }}>
+                  <div key={h.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '0.5rem 0.7rem', background: 'var(--color-surface, #fff)', border: `1px solid ${borderColor}`, borderRadius: 8 }}>
                     <input type="checkbox" checked={confirmed} onChange={() => toggle(h)} title="Confirm still automatic" style={{ width: 17, height: 17, cursor: 'pointer', accentColor: ACCENT, flexShrink: 0 }} />
                     <button
                       type="button"
@@ -3656,6 +3687,16 @@ function AutoReviewView({ habits, onUpdate, onOpen }) {
                       {h.name || <em style={{ color: '#aaa' }}>untitled</em>}
                     </button>
                     {(h.cadence || '').trim() && <span style={cadenceTag}>{h.cadence}</span>}
+                    <button
+                      type="button"
+                      onClick={() => toggleRevisit(h)}
+                      title={flagged
+                        ? `Flagged to revisit in ${monthLabelFromKey(flaggedMonth)} — click to clear`
+                        : 'Flag to revisit: keeps its status, and the flag stays on next month’s check-in'}
+                      style={{ border: `1px solid ${flagged ? '#fdba74' : 'var(--color-border, #e2e8f0)'}`, background: flagged ? '#ffedd5' : 'none', borderRadius: 999, padding: '2px 9px', fontSize: '0.7rem', fontWeight: 600, color: flagged ? '#9a3412' : 'var(--color-text-muted, #64748b)', cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap' }}
+                    >
+                      ⚑{flagged && flaggedMonth !== currentMonth ? ` ${monthLabelFromKey(flaggedMonth)}` : ''}
+                    </button>
                     <button
                       type="button"
                       onClick={() => demote(h)}
