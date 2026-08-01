@@ -1939,6 +1939,46 @@ function RestaurantRankings({ items, ratingsBySpot, metric, onMetricChange, onSe
   );
 }
 
+/**
+ * The ranking for one group, popped over the page when you filter to it — the
+ * same view the Rankings tab shows, so you get "best coffee" without leaving
+ * List/Table/Map. Ranks `visible`, which the click that opened this already
+ * narrowed to the group, so it tracks any further filter change.
+ *
+ * Esc closes it, like the other sheets on this page.
+ */
+function RankingPopout({ label, items, ratingsBySpot, metric, onMetricChange, onSelect, onClose }) {
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  return (
+    <div className={styles.modalOverlay} onClick={onClose}>
+      <div className={styles.modal} onClick={e => e.stopPropagation()}>
+        <div className={styles.modalHeader}>
+          <h2 className={styles.modalTitle}>Top {label}</h2>
+          <button type="button" className={styles.iconBtn} onClick={onClose}>✕</button>
+        </div>
+        <div className={styles.modalBody}>
+          <RestaurantRankings
+            items={items}
+            ratingsBySpot={ratingsBySpot}
+            metric={metric}
+            onMetricChange={onMetricChange}
+            onSelect={onSelect}
+          />
+        </div>
+        <div className={styles.modalFooter}>
+          <span className={styles.footerSpacer} />
+          <button type="button" className={styles.primaryBtn} onClick={onClose}>Done</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function RestaurantMapView({ items, onSelect }) {
   const mapPoints = useMemo(() => {
     const out = [];
@@ -2799,6 +2839,10 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
   const [viewMode, setViewMode] = useState('list');
   // Which score the Rankings tab orders by — 'overall' or one rating category.
   const [rankMetric, setRankMetric] = useState('overall');
+  // Label of the group whose ranking is popped out over the page, or null.
+  // Filtering to a location/bucket already narrows `visible`, so the pop-out
+  // just ranks that — no separate scoping to keep in step.
+  const [rankingPopout, setRankingPopout] = useState(null);
   // List density: 'compact' shows just rank + name (more places per screen),
   // 'detailed' shows the full cards with photos/ratings. Persisted per browser.
   const [listDensity, setListDensity] = useState(() => {
@@ -3692,7 +3736,13 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
                     key={`loc-${l.name}`}
                     type="button"
                     className={`${styles.tagFilter} ${isActiveLoc(l.name) ? styles.tagFilterActive : ''}`}
-                    onClick={() => setActiveLocation(isActiveLoc(l.name) ? null : l.name)}
+                    onClick={() => {
+                      // Turning a group ON filters to it AND pops its ranking;
+                      // clicking the active chip again just clears the filter.
+                      const on = !isActiveLoc(l.name);
+                      setActiveLocation(on ? l.name : null);
+                      setRankingPopout(on ? l.name : null);
+                    }}
                   >
                     📍 {l.name} ({l.count})
                   </button>
@@ -3707,7 +3757,11 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
                 key={`b-${b.key}`}
                 type="button"
                 className={`${styles.tagFilter} ${activeBucket === b.key ? styles.tagFilterActive : ''}`}
-                onClick={() => setActiveBucket(activeBucket === b.key ? null : b.key)}
+                onClick={() => {
+                  const on = activeBucket !== b.key;
+                  setActiveBucket(on ? b.key : null);
+                  setRankingPopout(on ? b.label : null);
+                }}
               >
                 {b.icon} {b.label}
               </button>
@@ -3883,6 +3937,17 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
           spot={viewing}
           user={user}
           onClose={() => setViewing(null)}
+        />
+      )}
+      {rankingPopout && (
+        <RankingPopout
+          label={rankingPopout}
+          items={visible}
+          ratingsBySpot={ratingsBySpot}
+          metric={rankMetric}
+          onMetricChange={setRankMetric}
+          onSelect={(r) => { setRankingPopout(null); openSpot(r); }}
+          onClose={() => setRankingPopout(null)}
         />
       )}
       {bulkOpen && (
