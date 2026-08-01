@@ -85,6 +85,16 @@ service cloud.firestore {
         allow write: if isOwner(uid);
       }
 
+      // The shared ingredient database. It lives on the admin's account and
+      // every signed-in client reads it — the same grant /users/{uid} already
+      // gives for the admin document, but scoped to just this doc. Moving the
+      // 270KB `ingredientsDb` array here is what makes that whole-document
+      // read (and the size it forces on the admin's user doc) go away.
+      match /data/ingredients {
+        allow get: if isOwner(uid) || isAdmin() || (signedIn() && uid == adminUid());
+        allow write: if isOwner(uid);
+      }
+
       // Recipe photos. A friend needs these when copying a shared recipe.
       match /mealImages/{imageId} {
         allow get: if isOwner(uid) || isAdmin() || isFriendOf(uid);

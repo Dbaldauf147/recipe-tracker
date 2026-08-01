@@ -1,4 +1,4 @@
-import { doc, getDoc, setDoc, addDoc, deleteDoc, updateDoc, collection, query, where, getDocs, arrayUnion, arrayRemove, increment, onSnapshot, writeBatch } from 'firebase/firestore';
+import { doc, getDoc, setDoc, addDoc, deleteDoc, updateDoc, deleteField, collection, query, where, getDocs, arrayUnion, arrayRemove, increment, onSnapshot, writeBatch } from 'firebase/firestore';
 import { db, auth } from '../firebase';
 
 // ── Data-safety layer (mirrors the mobile app) ──────────────────────────────
@@ -922,6 +922,56 @@ export async function restoreRecipeBackup(uid, backupId) {
   const snap = await getDoc(ref);
   if (!snap.exists()) throw new Error('Backup not found');
   return snap.data().recipes || [];
+}
+
+/**
+ * The shared ingredient database, in users/{uid}/data/ingredients rather than
+ * as a field on the user document. It's a single ~270KB array that every edit
+ * rewrites whole, and on the admin's account it was the reason every signed-in
+ * client had to be allowed to read that entire document.
+ *
+ * Reads fall back to the legacy `ingredientsDb` field so a client that runs
+ * before the migration (or against an account that hasn't been copied) still
+ * finds the data. Writes go to the subdoc only, and clear the legacy field in
+ * the same breath so the user doc actually gets smaller.
+ */
+export async function loadIngredientsDb(uid) {
+  if (!uid) return null;
+  try {
+    const snap = await getDoc(doc(db, 'users', uid, 'data', 'ingredients'));
+    if (snap.exists()) {
+      const rows = snap.data().ingredients;
+      if (Array.isArray(rows) && rows.length > 0) return rows;
+    }
+  } catch (err) {
+    console.error('loadIngredientsDb:', err);
+  }
+  try {
+    const legacy = await loadUserData(uid);
+    return Array.isArray(legacy?.ingredientsDb) ? legacy.ingredientsDb : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function saveIngredientsDb(uid, rows) {
+  if (!uid) return;
+  const value = Array.isArray(rows) ? rows : [];
+  const ref = doc(db, 'users', uid, 'data', 'ingredients');
+  // Same shrink guard the field had as a GUARDED_FIELD: an empty write over a
+  // populated DB is blocked, a smaller one snapshots first.
+  await safeOverwriteDoc({
+    uid, type: 'ingredientsDb', ref, field: 'ingredients', value,
+    count: (v) => (Array.isArray(v) ? v.length : 0),
+    extract: (data) => data?.ingredients || [],
+  });
+  // Drop the old copy — otherwise the user doc keeps carrying 270KB of it.
+  try {
+    const userSnap = await getDoc(doc(db, 'users', uid));
+    if (userSnap.exists() && userSnap.data().ingredientsDb !== undefined) {
+      await updateDoc(doc(db, 'users', uid), { ingredientsDb: deleteField() });
+    }
+  } catch { /* non-critical: the subdoc write already succeeded */ }
 }
 
 /**

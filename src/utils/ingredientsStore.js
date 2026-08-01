@@ -1,4 +1,4 @@
-import { saveField, loadUserData } from './firestoreSync';
+import { loadIngredientsDb, saveIngredientsDb } from './firestoreSync';
 import { upsertUnitWeight } from './unitWeights';
 
 const STORAGE_KEY = 'sunday-ingredients-db';
@@ -234,10 +234,11 @@ export function applyGramsData(rows) {
 export async function loadIngredientsFromFirestore() {
   if (!ADMIN_UID) return null;
   try {
-    const userData = await loadUserData(ADMIN_UID);
-    if (userData?.ingredientsDb) {
-      saveIngredients(userData.ingredientsDb);
-      return userData.ingredientsDb;
+    // users/{admin}/data/ingredients, falling back to the legacy user-doc field.
+    const rows = await loadIngredientsDb(ADMIN_UID);
+    if (Array.isArray(rows) && rows.length > 0) {
+      saveIngredients(rows);
+      return rows;
     }
   } catch (err) {
     console.error('loadIngredientsFromFirestore:', err);
@@ -253,7 +254,7 @@ export async function saveIngredientsToFirestore(data) {
   saveIngredients(data);
   if (!ADMIN_UID) return;
   try {
-    await saveField(ADMIN_UID, 'ingredientsDb', data);
+    await saveIngredientsDb(ADMIN_UID, data);
   } catch (err) {
     console.error('saveIngredientsToFirestore:', err);
   }

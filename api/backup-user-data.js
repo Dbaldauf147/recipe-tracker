@@ -62,7 +62,10 @@ export default async function handler(req, res) {
   }
 
   const date = dateKeyET();
-  const summary = { date, users: 0, dailyLogBackups: 0, recipesBackups: 0, habitsBackups: 0, habitLogBackups: 0, errors: [] };
+  const summary = {
+    date, users: 0, dailyLogBackups: 0, recipesBackups: 0, habitsBackups: 0,
+    habitLogBackups: 0, restaurantsBackups: 0, ingredientsBackups: 0, errors: [],
+  };
 
   try {
     const snap = await db.collection('users').get();
@@ -113,6 +116,35 @@ export default async function handler(req, res) {
           });
           summary.recipesBackups++;
           await prune(uid, 'recipes');
+        }
+
+        // Eating Out list and the ingredient DB. Both are single arrays on the
+        // user doc that every edit rewrites whole, which is exactly the shape
+        // that loses everything to one bad write — and neither was covered
+        // here. `udata` is already in hand, so this costs one write each.
+        const restaurants = udata.restaurants;
+        if (Array.isArray(restaurants) && restaurants.length > 0) {
+          await db.doc(`users/${uid}/backups/restaurants_${date}`).set({
+            type: 'restaurants', date, count: restaurants.length, data: restaurants, savedAt: new Date().toISOString(),
+          });
+          summary.restaurantsBackups++;
+          await prune(uid, 'restaurants');
+        }
+
+        // Ingredients moved to users/{uid}/data/ingredients; read there first
+        // and keep the legacy field as a fallback, or this backup would quietly
+        // start saving nothing — same trap as habitLog above.
+        const ing = await db.doc(`users/${uid}/data/ingredients`).get();
+        const subIngredients = ing.exists ? ing.data().ingredients : undefined;
+        const ingredients = Array.isArray(subIngredients) && subIngredients.length > 0
+          ? subIngredients
+          : udata.ingredientsDb;
+        if (Array.isArray(ingredients) && ingredients.length > 0) {
+          await db.doc(`users/${uid}/backups/ingredientsDb_${date}`).set({
+            type: 'ingredientsDb', date, count: ingredients.length, data: ingredients, savedAt: new Date().toISOString(),
+          });
+          summary.ingredientsBackups++;
+          await prune(uid, 'ingredientsDb');
         }
       } catch (err) {
         summary.errors.push({ uid, err: err.message });
