@@ -925,6 +925,31 @@ export async function restoreRecipeBackup(uid, backupId) {
 }
 
 /**
+ * Small shared defaults published by the admin account (currently the recipe
+ * grid's default layout), in users/{uid}/data/appDefaults. They used to be
+ * fields on the admin's user document, which is why every signed-in client had
+ * to be allowed to read that whole document.
+ */
+export async function loadAppDefaults(uid) {
+  if (!uid) return null;
+  try {
+    const snap = await getDoc(doc(db, 'users', uid, 'data', 'appDefaults'));
+    return snap.exists() ? snap.data() : null;
+  } catch {
+    return null; // not readable / not published yet — caller falls back
+  }
+}
+
+export async function saveAppDefault(uid, key, value) {
+  if (!uid || !key) return;
+  try {
+    await setDoc(doc(db, 'users', uid, 'data', 'appDefaults'), { [key]: value }, { merge: true });
+  } catch (err) {
+    console.error('saveAppDefault:', err);
+  }
+}
+
+/**
  * The shared ingredient database, in users/{uid}/data/ingredients rather than
  * as a field on the user document. It's a single ~270KB array that every edit
  * rewrites whole, and on the admin's account it was the reason every signed-in

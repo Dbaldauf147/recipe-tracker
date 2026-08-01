@@ -26,8 +26,11 @@ rules_version = '2';
 //                                                    eating-out votes)
 //   • a friend reading users/{uid}/data/recipes     (granted via sharedAccess)
 //   • a friend reading users/{uid}/mealImages/{id}  (shared-recipe image copy)
-//   • ANY signed-in user reading the admin user doc (the shared ingredientsDb
-//     still lives on it — see ADMIN_UID below)
+//   • ANY signed-in user reading three docs on the ADMIN account, and only
+//     those: data/ingredients (the shared ingredient DB), data/recipes +
+//     mealImages (the starter/discover library) and data/appDefaults. The
+//     blanket read of the admin's whole user document is gone — the fields
+//     that forced it were moved out, per constraint (1).
 //   • the owner account listing /users              (admin dashboard)
 //
 // Note there are NO cross-user WRITES to user documents. A friend's vote on my
@@ -41,8 +44,9 @@ service cloud.firestore {
 
     // The owner account. Gates the admin dashboard and /users list.
     function adminEmail() { return 'baldaufdan@gmail.com'; }
-    // The account whose user doc carries the shared ingredients database, read
-    // by every client. Mirrors EXPO_PUBLIC_ADMIN_UID in the mobile app.
+    // The account that publishes the shared ingredient DB, the starter recipe
+    // library and the grid defaults, each in its own doc under this uid.
+    // Mirrors EXPO_PUBLIC_ADMIN_UID in the mobile app.
     function adminUid() { return 'LnPlQY9qAKQq8oZ2GbvvI5VSvB83'; }
 
     function signedIn() { return request.auth != null; }
@@ -70,10 +74,13 @@ service cloud.firestore {
     match /users/{uid} {
       // See constraint (1): a friend gets the whole document, not just the
       // fields the friend features read.
+      // The blanket "any signed-in user may read the admin's document" grant is
+      // gone: what clients actually needed off it — the shared ingredient DB,
+      // the starter/discover recipes and their photos, the grid defaults — now
+      // has a narrowly scoped rule of its own below.
       allow get: if isOwner(uid)
                     || isAdmin()
-                    || isFriendOf(uid)
-                    || (signedIn() && uid == adminUid());
+                    || isFriendOf(uid);
       // See constraint (2): only the admin dashboard may enumerate users.
       allow list: if isAdmin();
       allow create, update: if isOwner(uid);
@@ -81,7 +88,18 @@ service cloud.firestore {
 
       // Recipes, shared with a friend via sharedAccess.
       match /data/recipes {
-        allow get: if isOwner(uid) || isAdmin() || hasRecipeAccessTo(uid);
+        // The admin's recipes are the starter/discover library every account
+        // browses, so any signed-in user may read that one.
+        allow get: if isOwner(uid) || isAdmin() || hasRecipeAccessTo(uid)
+                      || (signedIn() && uid == adminUid());
+        allow write: if isOwner(uid);
+      }
+
+      // Grid defaults and friends published by the admin account. Tiny, and
+      // read by every client — which is the whole reason it can live here
+      // instead of on the user document.
+      match /data/appDefaults {
+        allow get: if isOwner(uid) || isAdmin() || (signedIn() && uid == adminUid());
         allow write: if isOwner(uid);
       }
 
@@ -97,7 +115,9 @@ service cloud.firestore {
 
       // Recipe photos. A friend needs these when copying a shared recipe.
       match /mealImages/{imageId} {
-        allow get: if isOwner(uid) || isAdmin() || isFriendOf(uid);
+        // …and the discover thumbnails that go with the admin's library.
+        allow get: if isOwner(uid) || isAdmin() || isFriendOf(uid)
+                      || (signedIn() && uid == adminUid());
         allow write: if isOwner(uid);
       }
 

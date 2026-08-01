@@ -5,7 +5,7 @@ import { getUserKeyIngredients, normalize, recipeHasIngredient } from '../utils/
 import { exportToCSV, importFromCSV, exportFullJSON } from '../utils/exportData';
 import { locationToRegion, getSeasonalIngredients, getRecipeSeasonalIngredients } from '../utils/seasonal';
 import { useAuth } from '../contexts/AuthContext';
-import { loadUserData, saveField, loadFriends, loadFriendRecipes, getPendingSharedRecipes, shareRecipe, getUsername } from '../utils/firestoreSync';
+import { loadUserData, saveField, loadAppDefaults, saveAppDefault, loadFriends, loadFriendRecipes, getPendingSharedRecipes, shareRecipe, getUsername } from '../utils/firestoreSync';
 import { copyMealImage, loadAdminMealImages, generateMealImage, getCachedMealImage } from '../utils/generateMealImage';
 import { ALL_TAGS, TAG_CATEGORIES, recipeMatchesTags } from '../utils/ingredientTags';
 import { detectCuisine, getRecipeMinShelfDays } from '../utils/detectCuisine';
@@ -309,8 +309,10 @@ export function RecipeList({
 
   // Load admin's default layout from Firestore
   useEffect(() => {
-    loadUserData(ADMIN_UID).then(data => {
-      if (data?.defaultCatLayout) setAdminDefaultLayout(data.defaultCatLayout);
+    // users/{admin}/data/appDefaults — a signed-in client can read this one
+    // small doc instead of the admin's entire user document.
+    loadAppDefaults(ADMIN_UID).then(d => {
+      if (d?.catLayout) setAdminDefaultLayout(d.catLayout);
     }).catch(() => {});
   }, []);
 
@@ -367,7 +369,7 @@ export function RecipeList({
       saveField(user.uid, 'catLayout', clean);
     }
     if (user?.uid === ADMIN_UID) {
-      saveField(user.uid, 'defaultCatLayout', clean);
+      saveAppDefault(user.uid, 'catLayout', clean);
     }
   };
 
