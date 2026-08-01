@@ -2302,9 +2302,11 @@ function weeklyStripWeeks(logOffset = 0) {
 // The routine-table column strip for ANY cadence — one entry per period, same
 // shape weeklyStripWeeks returns so the weekly table renders every cadence.
 // Weekly keeps its schedule-aware builder. Daily shows the current ISO week
-// (Mon–Sun, carrying each day's Date so off-days can dim). Monthly/Annually show
-// a trailing window ending one period ahead (5 past · current · next), mirroring
-// the weekly strip's shape.
+// (Mon–Sun, carrying each day's Date so off-days can dim). Monthly shows the
+// past 4 months (3 past · current), matching the mobile Habits month strip —
+// no upcoming column, since a month you haven't reached isn't loggable history.
+// Annually keeps the wider trailing window ending one period ahead
+// (5 past · current · next).
 function periodStripCols(canon, logOffset = 0) {
   if (canon === 'Weekly') return weeklyStripWeeks(logOffset);
   const today = new Date();
@@ -2328,9 +2330,11 @@ function periodStripCols(canon, logOffset = 0) {
       };
     });
   }
-  // Monthly / Annually: 5 past · current · next.
-  return Array.from({ length: 7 }, (_, i) => {
-    const offset = i - 5;
+  // Monthly: 3 past · current (4 months). Annually: 5 past · current · next (7).
+  const span = canon === 'Monthly' ? 4 : 7;
+  const back = span - 1 - (canon === 'Monthly' ? 0 : 1); // trailing periods before "current"
+  return Array.from({ length: span }, (_, i) => {
+    const offset = i - back;
     let d, key, primary, shortLabel, fullLabel;
     if (canon === 'Monthly') {
       d = new Date(today.getFullYear(), today.getMonth() + offset, 1);
@@ -2446,8 +2450,9 @@ function RoutineSection({ cadenceName, list, habitLog, habitLogAuto, streaks, au
   const [bulkMode, setBulkMode] = useState(false);
   const [selected, setSelected] = useState(() => new Set());
   // Column strip for this cadence (Daily = 8 days incl. the previous Sunday,
-  // Weekly = the weeks in view, Monthly/Annually = 7 periods). Computed up front
-  // so the resizable columns can size to the actual count.
+  // Weekly = the weeks in view, Monthly = the past 4 months, Annually = 7
+  // periods). Computed up front so the resizable columns can size to the actual
+  // count.
   //
   // Weekly strip cells are labeled by the section's scheduled log DAY (e.g.
   // Sunday), measured from the Sun–Sat week's START (Sun 0 … Sat 6); when multiple
