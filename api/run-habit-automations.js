@@ -88,6 +88,7 @@ import {
   loadHabitLogAutoAdmin, saveHabitLogAutoYearsAdmin,
   yearsForKeys,
 } from './_data/habitLogYears.js';
+import { sundayWeekKeyFromYMD, weekKeyOfDate, periodKeyFor } from './_data/habitPeriods.js';
 
 if (getApps().length === 0) {
   const serviceAccount = process.env.FIREBASE_SERVICE_ACCOUNT
@@ -153,7 +154,6 @@ function streakMarkFor(rule) {
   return VALID_MARKS.has(rule.streakMark) ? rule.streakMark : null;
 }
 
-const pad2 = (n) => String(n).padStart(2, '0');
 
 // { dayOfWeek, dateKey, y, m, d } in America/New_York so the period we mark
 // matches the app's local (Eastern) clock.
@@ -196,39 +196,8 @@ function backfillDateKeys(ref) {
 }
 
 // ISO-8601 week key, e.g. "2026-W25" — mirrors HabitsPage.isoWeekKey.
-function isoWeekKeyFromYMD(y, m, d) {
-  const date = new Date(Date.UTC(y, m - 1, d));
-  const dayNum = date.getUTCDay() || 7;
-  date.setUTCDate(date.getUTCDate() + 4 - dayNum);
-  const yearStart = new Date(Date.UTC(date.getUTCFullYear(), 0, 1));
-  const week = Math.ceil(((date.getTime() - yearStart.getTime()) / 86400000 + 1) / 7);
-  return `${date.getUTCFullYear()}-W${pad2(week)}`;
-}
-
-// Sunday-anchored WEEK KEY — mirrors HabitsPage.weekKey. Keeps the "YYYY-Www"
-// format but groups a Sunday→Saturday week into one key (ISO week of the day
-// AFTER), so a Sunday weigh-in counts for the week it STARTS. Aligns weekly
-// habits with the app's Sun–Sat weeks (Week Plan).
-function sundayWeekKeyFromYMD(y, m, d) {
-  const nx = new Date(Date.UTC(y, m - 1, d + 1)); // day after (handles month/year rollover)
-  return isoWeekKeyFromYMD(nx.getUTCFullYear(), nx.getUTCMonth() + 1, nx.getUTCDate());
-}
-// Sunday-week key for a 'YYYY-MM-DD' date string.
-function weekKeyOfDate(dateStr) {
-  const [y, m, d] = String(dateStr).split('-').map(Number);
-  return sundayWeekKeyFromYMD(y, m, d);
-}
-
-// The habitLog bucket key for a habit's current cadence period — mirrors
-// HabitsPage.periodKey, computed from the Eastern y/m/d.
-function periodKeyFor(cadence, { y, m, d, dateKey }) {
-  switch ((cadence || '').trim().toLowerCase()) {
-    case 'weekly': return sundayWeekKeyFromYMD(y, m, d);
-    case 'monthly': return `${y}-${pad2(m)}`;
-    case 'annually': return String(y);
-    default: return dateKey; // daily
-  }
-}
+// Period keys (incl. the Sunday-anchored weekly key) live in _data/habitPeriods.js
+// so this engine and the reminder cron cannot drift apart.
 
 // How many distinct main meal slots are accounted for on a day (logged,
 // skipped, or the whole day marked not-tracked). Mirrors the "full day" rule.

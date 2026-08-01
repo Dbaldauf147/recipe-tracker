@@ -14,6 +14,8 @@ import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 import { sendMail } from '../lib/mailer.js';
 import { renderMealReminder } from '../lib/mealReminderEmail.js';
 import { sendExpoPush, deadTokensFrom } from '../lib/expoPush.js';
+import { habitsPinnedToday, weekKeyOfDate } from './_data/habitPeriods.js';
+import { loadHabitLogAdmin } from './_data/habitLogYears.js';
 
 if (getApps().length === 0) {
   const serviceAccount = process.env.FIREBASE_SERVICE_ACCOUNT
@@ -205,6 +207,29 @@ function shouldWeighToday(weightLog, bodyStats, dateKey, dow) {
   return days >= 7;
 }
 
+// Habit reminders fire in the morning of the day a weekly habit is pinned to,
+// as a heads-up rather than an end-of-day nag.
+const HABIT_REMINDER_HOUR = 8;
+
+/**
+ * Weekly habits pinned to today that STILL have no mark for this week.
+ *
+ * Only pinned habits are considered — see habitsPinnedToday. The week bucket is
+ * the Sunday-anchored key the Habits page writes; getting that wrong would make
+ * every logged habit look unlogged, which is exactly why the key now lives in
+ * one shared module.
+ */
+async function pendingPinnedHabits(uid, data, dateKey, dayOfWeek) {
+  const pinned = habitsPinnedToday(data.habits, dayOfWeek);
+  if (pinned.length === 0) return [];
+  const log = await loadHabitLogAdmin(db, uid, data);
+  const bucket = log?.[weekKeyOfDate(dateKey)] || {};
+  return pinned.filter(h => {
+    const mark = bucket[h.id];
+    return mark == null || mark === '';
+  });
+}
+
 export default async function handler(req, res) {
   const secret = process.env.CRON_SECRET;
   if (secret) {
@@ -216,7 +241,7 @@ export default async function handler(req, res) {
 
   const { hour, dayOfWeek, dateKey } = eastern();
   const weekParity = weekParityOf(dateKey);
-  const summary = { scanned: 0, foodSent: 0, weightSent: 0, foodPushed: 0, weightPushed: 0, errors: [] };
+  const summary = { scanned: 0, foodSent: 0, weightSent: 0, foodPushed: 0, weightPushed: 0, habitPushed: 0, errors: [] };
 
   try {
     const snap = await db.collection('users').get();
@@ -224,8 +249,15 @@ export default async function handler(req, res) {
       summary.scanned++;
       const uid = docSnap.id;
       const data = docSnap.data() || {};
-      const s = data.reminderSettings;
-      if (!s || (!s.foodLogReminder && !s.weightReminder)) continue;
+      // Normalised: habit reminders can apply to a user who has never touched
+      // reminder settings, so `s` is no longer guaranteed to exist below.
+      const s = data.reminderSettings || {};
+      // Habit reminders are opt-OUT (`habitReminder: false` disables them):
+      // there's no settings UI for them yet, and they can only fire for someone
+      // who has deliberately pinned a weekly habit to a weekday, so they can't
+      // surprise a user who hasn't asked for one.
+      const habitsOn = s.habitReminder !== false;
+      if (!s.foodLogReminder && !s.weightReminder && !habitsOn) continue;
       // Day-aware recipients: an address only gets mail on its selected days.
       // Push goes to the user's own devices (state-aware, so it suppresses
       // itself when they already logged on another device). Skip the user only
@@ -334,6 +366,28 @@ export default async function handler(req, res) {
             }
             if (delivered) await docSnap.ref.update({ 'reminderSettings.lastWeightSent': dateKey });
           }
+        }
+      }
+
+      // --- Habit reminder (weekly habits pinned to today) ---
+      // Push-only: this is a phone nudge, not another email.
+      if (habitsOn && pushTokens.length > 0 && hour === HABIT_REMINDER_HOUR
+          && s.lastHabitSent !== dateKey) {
+        try {
+          const due = await pendingPinnedHabits(uid, data, dateKey, dayOfWeek);
+          if (due.length > 0) {
+            const names = due.map(h => String(h.name).trim());
+            await pushToUser(docSnap.ref, pushTokens, {
+              title: names.length === 1 ? `${names[0]} is due today` : `${names.length} habits due today`,
+              body: names.length === 1
+                ? 'Tap to log it in Prep Day.'
+                : `${names.join(', ')} — tap to log them in Prep Day.`,
+            });
+            summary.habitPushed++;
+            await docSnap.ref.update({ 'reminderSettings.lastHabitSent': dateKey });
+          }
+        } catch (err) {
+          summary.errors.push({ uid, type: 'habit-push', err: err.message });
         }
       }
     }
