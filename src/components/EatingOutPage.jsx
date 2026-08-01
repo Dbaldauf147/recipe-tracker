@@ -803,6 +803,65 @@ function aggregateSpotRatings(docs) {
   return { perCategory, overall, voterCount };
 }
 
+const RANKING_MEDAL = { 1: '🥇', 2: '🥈', 3: '🥉' };
+
+/**
+ * What the Rankings tab can rank by: Overall, plus every category that actually
+ * has a vote among the spots in view.
+ *
+ * Built from the data rather than a fixed list because categories are per
+ * bucket now — a coffee shop is rated on Coffee, a club on Music & Crowd — so
+ * which axes are rankable depends on what's on screen. Order follows the
+ * buckets' own category order (so Food/Service/Atmosphere/Price lead), with
+ * anything left over alphabetically.
+ */
+function rankMetricsFor(spots, ratingsBySpot) {
+  const voted = new Set();
+  for (const r of spots) {
+    for (const d of ratingsBySpot[`${r._ownerUid}__${r.id}`] || []) {
+      for (const [key, v] of Object.entries(d?.scores || {})) {
+        if (typeof v === 'number' && v >= 1 && v <= 5) voted.add(key);
+      }
+    }
+  }
+  const order = [];
+  for (const b of BUCKETS) for (const c of bucketRatingCategories(b.key)) if (!order.includes(c.key)) order.push(c.key);
+  for (const c of BASE_RATING_CATEGORIES) if (!order.includes(c.key)) order.push(c.key);
+  const rank = k => { const i = order.indexOf(k); return i === -1 ? order.length : i; };
+  const keys = [...voted].sort((a, b) => rank(a) - rank(b) || a.localeCompare(b));
+  return [
+    { key: 'overall', label: 'Overall' },
+    ...keys.map(k => ({ key: k, label: ratingLabelFor(k) })),
+  ];
+}
+
+/**
+ * Order spots by their collaborative rating for one metric — the group average
+ * across everyone who rated, i.e. the same number the ★ badge on a card shows.
+ *
+ * Spots nobody has rated for that metric can't be placed, so they're returned
+ * separately rather than sorted to the bottom as if they'd scored zero. Ties
+ * break toward the better-evidenced score (more votes), then by name so the
+ * order is stable rather than dependent on filter order.
+ */
+function rankSpotsByRating(spots, ratingsBySpot, metric) {
+  const ranked = [];
+  const unrated = [];
+  for (const r of spots) {
+    const agg = aggregateSpotRatings(ratingsBySpot[`${r._ownerUid}__${r.id}`] || []);
+    const score = metric === 'overall' ? agg.overall : agg.perCategory[metric]?.avg ?? null;
+    const votes = metric === 'overall' ? agg.voterCount : agg.perCategory[metric]?.count ?? 0;
+    if (score == null) unrated.push(r);
+    else ranked.push({ r, score, votes, agg });
+  }
+  ranked.sort((a, b) => (
+    b.score - a.score
+    || b.votes - a.votes
+    || String(a.r.name || '').localeCompare(String(b.r.name || ''))
+  ));
+  return { ranked, unrated };
+}
+
 // Small read-only star row (rounds to the nearest whole star) for aggregate
 // display. The interactive input reuses <StarRating/>.
 function StarsStatic({ value, size = 15 }) {
@@ -1807,6 +1866,76 @@ function RestaurantCard({ r, ratingAgg, distanceMiles, rank, canMoveUp, canMoveD
   );
 }
 
+/**
+ * Rankings tab — the places you've all rated, ordered by the group's score.
+ * Reads the same live `ratingsBySpot` the card badges use, and ranks whatever
+ * the current filters/search leave visible, so "best Italian in Williamsburg"
+ * is just the ranking with those filters on.
+ */
+function RestaurantRankings({ items, ratingsBySpot, metric, onMetricChange, onSelect }) {
+  const metrics = useMemo(() => rankMetricsFor(items, ratingsBySpot), [items, ratingsBySpot]);
+  // The chosen metric can vanish when filters change (rank by Coffee, then
+  // filter to spots nobody rated on Coffee) — fall back to Overall rather than
+  // showing an empty list under a button that's no longer there.
+  const activeMetric = metrics.some(m => m.key === metric) ? metric : 'overall';
+  const { ranked, unrated } = useMemo(
+    () => rankSpotsByRating(items, ratingsBySpot, activeMetric),
+    [items, ratingsBySpot, activeMetric],
+  );
+  const metricLabel = metrics.find(m => m.key === activeMetric)?.label || 'Overall';
+
+  return (
+    <div className={styles.rankingsView}>
+      <div className={styles.filterRow} style={{ alignSelf: 'flex-start' }}>
+        {metrics.map(m => (
+          <button
+            key={m.key}
+            type="button"
+            className={`${styles.filterBtn} ${activeMetric === m.key ? styles.filterBtnActive : ''}`}
+            onClick={() => onMetricChange(m.key)}
+          >
+            {m.label}
+          </button>
+        ))}
+      </div>
+
+      {ranked.length === 0 ? (
+        <p className={styles.rankingEmpty}>
+          Nothing rated for {metricLabel} yet — open a place and fill in the Ratings table.
+        </p>
+      ) : (
+        <ol className={styles.rankingList}>
+          {ranked.map((row, i) => (
+            <li key={`${row.r._ownerUid}:${row.r.id}`}>
+              <button type="button" className={styles.rankingRow} onClick={() => onSelect(row.r)}>
+                <span className={styles.rankingPlace}>{RANKING_MEDAL[i + 1] || i + 1}</span>
+                <span className={styles.rankingName}>
+                  {row.r.name}
+                  {row.r._ownerUsername && (
+                    <span className={styles.rankingOwner}> @{row.r._ownerUsername}</span>
+                  )}
+                </span>
+                <span className={styles.rankingScore}>{row.score.toFixed(1)}</span>
+                <StarsStatic value={row.score} size={14} />
+                <span className={styles.rankingVotes}>
+                  {row.votes} {row.votes === 1 ? 'vote' : 'votes'}
+                </span>
+              </button>
+            </li>
+          ))}
+        </ol>
+      )}
+
+      {unrated.length > 0 && (
+        <p className={styles.rankingUnrated}>
+          Not yet rated for {metricLabel}: {unrated.length} place{unrated.length === 1 ? '' : 's'}
+          {' — '}{unrated.slice(0, 6).map(r => r.name).join(', ')}{unrated.length > 6 ? '…' : ''}
+        </p>
+      )}
+    </div>
+  );
+}
+
 function RestaurantMapView({ items, onSelect }) {
   const mapPoints = useMemo(() => {
     const out = [];
@@ -2665,6 +2794,8 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
   // Default to List view — it's where the ranking controls live, so voting is
   // visible without switching. (Table/Map remain one tap away.)
   const [viewMode, setViewMode] = useState('list');
+  // Which score the Rankings tab orders by — 'overall' or one rating category.
+  const [rankMetric, setRankMetric] = useState('overall');
   // List density: 'compact' shows just rank + name (more places per screen),
   // 'detailed' shows the full cards with photos/ratings. Persisted per browser.
   const [listDensity, setListDensity] = useState(() => {
@@ -3449,6 +3580,13 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
               >
                 Map
               </button>
+              <button
+                type="button"
+                className={`${styles.filterBtn} ${viewMode === 'rankings' ? styles.filterBtnActive : ''}`}
+                onClick={() => setViewMode('rankings')}
+              >
+                Rankings
+              </button>
             </div>
             {viewMode === 'list' && (
               <div className={styles.filterRow} style={{ marginLeft: 8 }}>
@@ -3604,6 +3742,14 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
             <div className={styles.empty}>Loading…</div>
           ) : viewMode === 'map' ? (
             <RestaurantMapView items={visible} onSelect={openSpot} />
+          ) : viewMode === 'rankings' ? (
+            <RestaurantRankings
+              items={visible}
+              ratingsBySpot={ratingsBySpot}
+              metric={rankMetric}
+              onMetricChange={setRankMetric}
+              onSelect={openSpot}
+            />
           ) : viewMode === 'table' ? (
             <RestaurantTable
               items={visible}

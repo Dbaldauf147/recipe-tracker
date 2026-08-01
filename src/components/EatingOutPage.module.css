@@ -1629,3 +1629,78 @@
   font-size: 0.75rem;
   text-align: right;
 }
+
+/* ---- Rankings tab ---- */
+/* Places ordered by the group's rating for the chosen metric. Rows are the
+   full-width click target that opens the spot, so the layout is a grid rather
+   than a flex row — the score/stars/votes columns stay aligned down the list
+   however long a restaurant name gets. */
+.rankingsView {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+.rankingList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+.rankingRow {
+  display: grid;
+  grid-template-columns: 2.2rem 1fr auto auto auto;
+  align-items: center;
+  gap: 0.75rem;
+  width: 100%;
+  text-align: left;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  padding: 0.55rem 0.85rem;
+  font-family: inherit;
+  font-size: 0.95rem;
+  color: var(--color-text);
+  cursor: pointer;
+  transition: border-color 0.15s ease;
+}
+.rankingRow:hover { border-color: var(--color-accent); }
+.rankingPlace {
+  font-size: 1.05rem;
+  font-weight: 700;
+  text-align: center;
+  color: var(--color-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+.rankingName {
+  min-width: 0;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.rankingOwner {
+  font-weight: 500;
+  font-size: 0.8rem;
+  color: var(--color-text-muted);
+}
+.rankingScore {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  min-width: 2.2rem;
+  text-align: right;
+}
+.rankingVotes {
+  font-size: 0.78rem;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+  min-width: 4.5rem;
+  text-align: right;
+}
+.rankingEmpty,
+.rankingUnrated {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--color-text-muted);
+}
