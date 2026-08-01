@@ -2914,7 +2914,10 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
           }
           setOwnerData(prev => ({
             ...prev,
-            [uid]: { username, restaurants },
+            [uid]: {
+              username,
+              restaurants: (prev[uid]?.restaurants?.length ? prev[uid].restaurants : (legacy || prev[uid]?.restaurants || [])),
+            },
           }));
           setLoading(false);
         },
