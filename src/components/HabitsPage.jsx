@@ -1293,6 +1293,11 @@ export function HabitsPage({ onBack, user }) {
   function addHabit() {
     const blank = { id: makeHabitId() };
     HABIT_FIELDS.forEach(f => { blank[f.key] = ''; });
+    // Stamp today as the start date — adding a habit IS the moment you start
+    // tracking it, and this is the only date nothing else can reconstruct
+    // (the log only knows the first day you marked it, which may be later).
+    // ISO so it sorts; existing imported dates keep whatever format they came in.
+    blank.startDate = dayKey(new Date());
     persist([...habits, blank]);
     setNewHabitId(blank.id);
     setOpenHabitId(blank.id);
@@ -1698,6 +1703,7 @@ export function HabitsPage({ onBack, user }) {
           autoSkipOn={isWorkoutAutoSkipOn(openHabit.id)}
           onToggleAutoSkip={(on) => setWorkoutAutoSkip(openHabit.id, on)}
           isNew={openHabit.id === newHabitId}
+          routineOptions={routineNamesFrom(habits)}
         />
       )}
 
