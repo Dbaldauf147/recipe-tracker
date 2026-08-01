@@ -3,7 +3,7 @@ import { NUTRIENTS, fetchNutritionForIngredient, fetchNutritionForRecipe, effect
 import { loadIngredients } from '../utils/ingredientsStore';
 import { ingredientMatchScore } from '../utils/ingredientMatch';
 import { getSizeGrams } from '../utils/units';
-import { saveField, loadField, saveDailyLogToFirestore, loadDailyLogFromFirestore, loadFriends, getUsername, shareMeal } from '../utils/firestoreSync';
+import { saveField, loadField, loadRestaurants, saveRestaurants, saveDailyLogToFirestore, loadDailyLogFromFirestore, loadFriends, getUsername, shareMeal } from '../utils/firestoreSync';
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, ReferenceLine, Legend, CartesianGrid, Area, ComposedChart } from 'recharts';
 import { RecipeDetail } from './RecipeDetail';
 import styles from './DailyTrackerPage.module.css';
@@ -1674,7 +1674,7 @@ function EatingOutInline({ user, onAdd, onBack, onEstimate, recentSpotIds = [] }
   useEffect(() => {
     let cancelled = false;
     if (!user?.uid) { setRestaurants([]); return; }
-    loadField(user.uid, 'restaurants')
+    loadRestaurants(user.uid)
       .then(list => { if (!cancelled) setRestaurants(Array.isArray(list) ? list : []); })
       .catch(() => { if (!cancelled) setRestaurants([]); });
     return () => { cancelled = true; };
@@ -5813,7 +5813,7 @@ export function DailyTrackerPage({ recipes, getRecipe, onClose, user, weeklyPlan
   async function saveEatingOutMeal(spotId, meal) {
     if (!user?.uid || !spotId || !meal) return;
     try {
-      const list = await loadField(user.uid, 'restaurants');
+      const list = await loadRestaurants(user.uid);
       const arr = Array.isArray(list) ? list : [];
       const idx = arr.findIndex(r => r?.id === spotId);
       if (idx === -1) return; // spot deleted since it was picked
@@ -5821,7 +5821,7 @@ export function DailyTrackerPage({ recipes, getRecipe, onClose, user, weeklyPlan
       const meals = Array.isArray(r.meals) ? r.meals : [];
       const next = [...arr];
       next[idx] = { ...r, meals: [...meals, meal] };
-      await saveField(user.uid, 'restaurants', next);
+      await saveRestaurants(user.uid, next);
     } catch { /* non-fatal: the meal was still logged, just not remembered */ }
   }
 

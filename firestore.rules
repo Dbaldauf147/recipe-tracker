@@ -25,6 +25,8 @@ rules_version = '2';
 //   • a friend reading a friend's user doc          (loadFriends, shopping list,
 //                                                    eating-out votes)
 //   • a friend reading users/{uid}/data/recipes     (granted via sharedAccess)
+//   • a friend reading users/{uid}/data/eatingOut   (granted via
+//                                                    sharedEatingOutWith)
 //   • a friend reading users/{uid}/mealImages/{id}  (shared-recipe image copy)
 //   • ANY signed-in user reading three docs on the ADMIN account, and only
 //     those: data/ingredients (the shared ingredient DB), data/recipes +
@@ -69,6 +71,12 @@ service cloud.firestore {
     function hasRecipeAccessTo(uid) {
       return signedIn() && request.auth.uid in listField(uid, 'sharedAccess');
     }
+    // The ⚙ share toggle on the Eating Out page writes `sharedEatingOutWith`.
+    // Gating on it means a friend you haven't shared the list with can't read
+    // it — which the old whole-user-doc read couldn't express.
+    function hasEatingOutAccessTo(uid) {
+      return signedIn() && request.auth.uid in listField(uid, 'sharedEatingOutWith');
+    }
 
     // ---- user documents -----------------------------------------------------
     match /users/{uid} {
@@ -100,6 +108,13 @@ service cloud.firestore {
       // instead of on the user document.
       match /data/appDefaults {
         allow get: if isOwner(uid) || isAdmin() || (signedIn() && uid == adminUid());
+        allow write: if isOwner(uid);
+      }
+
+      // The Eating Out list, moved off the user document: 150KB that every
+      // spot edit rewrote whole, on a doc friends can read in full.
+      match /data/eatingOut {
+        allow get: if isOwner(uid) || isAdmin() || hasEatingOutAccessTo(uid);
         allow write: if isOwner(uid);
       }
 

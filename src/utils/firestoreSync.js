@@ -925,6 +925,60 @@ export async function restoreRecipeBackup(uid, backupId) {
 }
 
 /**
+ * The Eating Out list, in users/{uid}/data/eatingOut rather than as a field on
+ * the user document — 150KB that every spot edit rewrote whole, on a doc
+ * friends can read in full. Reads fall back to the legacy `restaurants` field;
+ * writes go to the subdoc and clear the field.
+ */
+export async function loadRestaurants(uid) {
+  if (!uid) return null;
+  try {
+    const snap = await getDoc(doc(db, 'users', uid, 'data', 'eatingOut'));
+    if (snap.exists()) {
+      const rows = snap.data().restaurants;
+      if (Array.isArray(rows) && rows.length > 0) return rows;
+    }
+  } catch { /* not readable / not migrated → fall through */ }
+  try {
+    const legacy = await loadUserData(uid);
+    return Array.isArray(legacy?.restaurants) ? legacy.restaurants : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Live Eating Out list for one owner (mine or a friend's who shared). */
+export function subscribeRestaurants(uid, onChange) {
+  if (!uid) return () => {};
+  return onSnapshot(
+    doc(db, 'users', uid, 'data', 'eatingOut'),
+    (snap) => {
+      if (snap.metadata.hasPendingWrites) return;
+      const rows = snap.exists() ? snap.data().restaurants : null;
+      onChange(Array.isArray(rows) ? rows : []);
+    },
+    (err) => console.error('subscribeRestaurants:', err),
+  );
+}
+
+export async function saveRestaurants(uid, rows) {
+  if (!uid) return;
+  const value = Array.isArray(rows) ? rows : [];
+  await safeOverwriteDoc({
+    uid, type: 'restaurants', ref: doc(db, 'users', uid, 'data', 'eatingOut'),
+    field: 'restaurants', value,
+    count: (v) => (Array.isArray(v) ? v.length : 0),
+    extract: (data) => data?.restaurants || [],
+  });
+  try {
+    const userSnap = await getDoc(doc(db, 'users', uid));
+    if (userSnap.exists() && userSnap.data().restaurants !== undefined) {
+      await updateDoc(doc(db, 'users', uid), { restaurants: deleteField() });
+    }
+  } catch { /* non-critical: the subdoc write already landed */ }
+}
+
+/**
  * Small shared defaults published by the admin account (currently the recipe
  * grid's default layout), in users/{uid}/data/appDefaults. They used to be
  * fields on the admin's user document, which is why every signed-in client had
@@ -1975,8 +2029,7 @@ export async function saveEatingOutOrder(uid, ownerUid, key, ids) {
  */
 export async function saveOwnerRestaurants(ownerUid, restaurants) {
   if (!ownerUid) throw new Error('saveOwnerRestaurants: ownerUid required');
-  const ref = doc(db, 'users', ownerUid);
-  await setDoc(ref, { restaurants }, { merge: true });
+  await saveRestaurants(ownerUid, restaurants);
 }
 
 /* ── Shared per-spot comments ────────────────────────────────────────────────
@@ -2210,13 +2263,15 @@ export async function toggleEatingOutShare(uid, friendUid, grant) {
  */
 export async function loadFriendEatingOut(friendUid) {
   try {
-    const snap = await getDoc(doc(db, 'users', friendUid));
-    if (!snap.exists()) return { restaurants: [], username: '' };
-    const data = snap.data();
-    return {
-      restaurants: Array.isArray(data.restaurants) ? data.restaurants : [],
-      username: data.username || data.displayName || '',
-    };
+    // The list is in their data/eatingOut doc (readable when they've shared it
+    // with me); the username stays on the user doc.
+    const rows = await loadRestaurants(friendUid);
+    let username = '';
+    try {
+      const snap = await getDoc(doc(db, 'users', friendUid));
+      if (snap.exists()) username = snap.data().username || snap.data().displayName || '';
+    } catch { /* username is cosmetic */ }
+    return { restaurants: Array.isArray(rows) ? rows : [], username };
   } catch {
     return { restaurants: [], username: '' };
   }

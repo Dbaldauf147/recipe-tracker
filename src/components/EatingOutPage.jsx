@@ -4,7 +4,7 @@ import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { db } from '../firebase';
-import { saveOwnerRestaurants, saveOwnerEatingOutLists, saveField } from '../utils/firestoreSync';
+import { saveOwnerRestaurants, saveOwnerEatingOutLists, saveField, subscribeRestaurants } from '../utils/firestoreSync';
 import {
   splitTsv,
   detectHasHeader,
@@ -2879,6 +2879,16 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
       return;
     }
     const ownerUids = [user.uid, ...sharerUids.split('|').filter(Boolean)];
+    // The list itself moved to users/{uid}/data/eatingOut, so each owner needs
+    // two listeners: the subdoc for the spots, and the user doc for the things
+    // that stayed on it (username, master cuisine/category lists, buckets).
+    const listUnsubs = ownerUids.map(uid => subscribeRestaurants(uid, (rows) => {
+      setOwnerData(prev => ({
+        ...prev,
+        [uid]: { username: prev[uid]?.username ?? (uid === user.uid ? null : (sharerMeta[uid] || 'friend')), restaurants: rows },
+      }));
+      setLoading(false);
+    }));
     const unsubs = ownerUids.map(uid => {
       const ref = doc(db, 'users', uid);
       return onSnapshot(
@@ -2886,7 +2896,9 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
         (snap) => {
           if (snap.metadata.hasPendingWrites && uid === user.uid) return;
           const data = snap.data() || {};
-          const restaurants = Array.isArray(data.restaurants) ? data.restaurants : [];
+          // Legacy fallback only: an account not migrated yet still carries the
+          // array here. Once it's gone the subdoc listener above owns the list.
+          const legacy = Array.isArray(data.restaurants) ? data.restaurants : null;
           const username = uid === user.uid ? null : (sharerMeta[uid] || data.username || 'friend');
           if (uid === user.uid) {
             // Master vocabulary lives on my own doc only. Keep `null` when the
@@ -2914,7 +2926,7 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
         },
       );
     });
-    return () => { unsubs.forEach(u => u && u()); };
+    return () => { unsubs.forEach(u => u && u()); listUnsubs.forEach(u => u && u()); };
   }, [user?.uid, sharerUids, sharerMeta]);
 
   // Live ratings for every visible owner's spots (one subscription for the whole
