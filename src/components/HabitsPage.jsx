@@ -17,6 +17,7 @@ const SUB_TABS = [
   { id: 'autoreview', label: 'Auto Review' },
   { id: 'history', label: 'History' },
   { id: 'onhold', label: 'On Hold' },
+  { id: 'notstarted', label: 'Not Started' },
   { id: 'habits', label: 'Habits' },
 ];
 // "On Hold" habits are paused — hidden from the Routines/Daily lists and parked
@@ -47,6 +48,62 @@ function isReviewHabit(h) {
   if (name === 'review') return true;
   return name.includes('review') && name.includes('habit');
 }
+// The monthly check-ins. Each one takes a bucket of habits you AREN'T logging
+// day to day — running on autopilot, paused, or never started — and asks once a
+// month whether that's still true. Identical mechanics across the three:
+//   • `confirmField` holds 'YYYY-MM', so every box resets when the month turns
+//   • `revisitField` holds the month a ⚑ was raised, and does NOT reset
+//   • `actionStatus` is the way out of the bucket, taken one habit at a time
+// The ids double as tab ids, so a kind shows up as a tab and a badge for free.
+const REVIEW_KINDS = [
+  {
+    id: 'autoreview',
+    matches: h => (h?.status || '').trim() === 'Automatically',
+    confirmField: 'autoConfirmedMonth',
+    revisitField: 'autoRevisitMonth',
+    heading: 'Monthly automatic check-in',
+    instructions: 'Once a month, go through each one: tick the box if it’s still running on autopilot, or “Not any more” to put it back in your routines. The boxes reset at the start of every month.',
+    confirmTitle: 'Confirm still automatic',
+    confirmVerb: 'to confirm',
+    actionLabel: 'Not any more',
+    actionStatus: DEMOTED_FROM_AUTOMATIC_STATUS,
+    actionPrompt: name => `“${name}” is no longer automatic?\n\nIt moves back to “${DEMOTED_FROM_AUTOMATIC_STATUS}” and starts showing in your routines to log again.`,
+    empty: 'No automatic habits yet. Set a habit’s status to “Automatically” and it will show up here for a monthly check-in.',
+    showStatusSelect: false,
+  },
+  {
+    id: 'onhold',
+    matches: h => (h?.status || '').trim() === ON_HOLD_STATUS,
+    confirmField: 'onHoldConfirmedMonth',
+    revisitField: 'onHoldRevisitMonth',
+    heading: 'Monthly on-hold check-in',
+    instructions: 'Once a month, go through each one: tick the box if it should stay paused, or “Resume” to bring it back. The boxes reset at the start of every month.',
+    confirmTitle: 'Confirm it stays on hold',
+    confirmVerb: 'to confirm',
+    actionLabel: 'Resume',
+    actionStatus: 'Not Started',
+    actionPrompt: name => `Take “${name}” off hold?\n\nIt returns as “Not Started” and stops being parked here.`,
+    empty: 'No habits on hold. Set a habit’s status to “On Hold” to park it here.',
+    showStatusSelect: true,
+  },
+  {
+    id: 'notstarted',
+    matches: h => ['not started', 'havent started', 'haven’t started', "haven't started"]
+      .includes((h?.status || '').trim().toLowerCase()),
+    confirmField: 'notStartedConfirmedMonth',
+    revisitField: 'notStartedRevisitMonth',
+    heading: 'Monthly not-started check-in',
+    instructions: 'Once a month, go through each one: tick the box if it’s still something for later, or “Start it” to move it into your routines. The boxes reset at the start of every month.',
+    confirmTitle: 'Confirm it’s still for later',
+    confirmVerb: 'to confirm',
+    actionLabel: 'Start it',
+    actionStatus: DEMOTED_FROM_AUTOMATIC_STATUS,
+    actionPrompt: name => `Start “${name}” now?\n\nIt moves to “${DEMOTED_FROM_AUTOMATIC_STATUS}” and shows up in your routines to log.`,
+    empty: 'Nothing waiting to start. Set a habit’s status to “Not Started” and it will show up here for a monthly check-in.',
+    showStatusSelect: true,
+  },
+];
+
 // Tracking cadence chosen per-habit in the habit popup. Stored on the habit as
 // `cadence` (NOT part of HABIT_FIELDS, so the paste-from-sheet column mapping
 // stays aligned to the spreadsheet).
@@ -90,6 +147,18 @@ function habitOrderNum(h) {
   const n = parseFloat(h?.order);
   return Number.isFinite(n) ? n : Infinity;
 }
+// Every routine name available to suggest: the built-in daily blocks plus any
+// the user has typed on a habit, in the canonical routine order. One source for
+// all three places a routine can be set — the habit popup's predictive input,
+// the per-row dropdown, and the move-to-routine picker — so they can't drift.
+function routineNamesFrom(habits) {
+  const set = new Set([...DAILY_ROUTINES, ...(habits || []).map(h => (h.routine || '').trim()).filter(Boolean)]);
+  return [...set].sort((a, b) => {
+    const ra = routineRank(a), rb = routineRank(b);
+    return ra.typeOrder - rb.typeOrder || ra.dailyIdx - rb.dailyIdx || ra.num - rb.num || a.localeCompare(b);
+  });
+}
+
 function compareByRoutine(a, b) {
   const ra = routineRank(a.routine), rb = routineRank(b.routine);
   if (ra.typeOrder !== rb.typeOrder) return ra.typeOrder - rb.typeOrder;
@@ -1322,9 +1391,12 @@ export function HabitsPage({ onBack, user }) {
   // confirmations reset and the month key moves on.
   useEffect(() => {
     const currentMonth = periodKey('Monthly');
-    const auto = habits.filter(h => (h.status || '').trim() === 'Automatically');
-    if (auto.length === 0) return;
-    if (auto.some(h => (h.autoConfirmedMonth || '') !== currentMonth)) return;
+    // Every check-in has to be clear, not just the automatic one — an empty
+    // bucket counts as clear, and if all three are empty there's no review to
+    // have completed.
+    const buckets = REVIEW_KINDS.map(k => ({ k, list: habits.filter(h => k.matches(h)) }));
+    if (buckets.every(b => b.list.length === 0)) return;
+    if (buckets.some(b => b.list.some(h => (h[b.k.confirmField] || '') !== currentMonth))) return;
     const due = habits.filter(
       h => isReviewHabit(h) && (h.autoReviewCompletedMonth || '') !== currentMonth,
     );
@@ -1354,7 +1426,9 @@ export function HabitsPage({ onBack, user }) {
       return !(bucket && bucket[h.id]);
     };
     const currentMonth = periodKey('Monthly');
-    let routines = 0, daily = 0, autoreview = 0, auto = 0;
+    const reviewPending = {};
+    for (const k of REVIEW_KINDS) reviewPending[k.id] = 0;
+    let routines = 0, daily = 0, auto = 0;
     for (const h of habits) {
       if (isActive(h) && needsMark(h)) {
         if (autoTrackedIds.has(h.id)) {
@@ -1364,9 +1438,11 @@ export function HabitsPage({ onBack, user }) {
           if (routineType(h.routine) === 'daily') daily++;
         }
       }
-      if ((h.status || '').trim() === 'Automatically' && (h.autoConfirmedMonth || '') !== currentMonth) autoreview++;
+      for (const k of REVIEW_KINDS) {
+        if (k.matches(h) && (h[k.confirmField] || '') !== currentMonth) reviewPending[k.id]++;
+      }
     }
-    return { routines, daily, autoreview, auto };
+    return { routines, daily, auto, ...reviewPending };
   }, [habits, habitLog, autoTrackedIds]);
 
   // Daily habits that were due YESTERDAY and never got a mark. A different kind
@@ -1544,8 +1620,14 @@ export function HabitsPage({ onBack, user }) {
       {tab === 'kpi' && <KpiView habits={habits} habitLog={habitLog} streaks={streaks} />}
       {tab === 'routines' && <RoutinesView habits={habits} habitLog={habitLog} habitLogAuto={habitLogAuto} streaks={streaks} autoTrackedIds={autoTrackedIds} autoStatusFor={autoStatusFor} nextLogMap={habitNextLog} onSetNextLog={setNextLogDate} onUpdate={updateHabit} openMenu={(habitId, key, label) => setDayMenu({ habitId, key, label })} onMove={setMoveHabitId} onReorder={reorderHabits} onSetRoutine={setHabitRoutine} onRenameRoutine={renameRoutine} onDeleteRoutine={setDeleteRoutineName} onBulkMark={setMarksForCells} onOpen={setOpenHabitId} />}
       {tab === 'automatic' && <AutomaticView habits={habits} automations={automations} habitLog={habitLog} habitLogAuto={habitLogAuto} onChange={persistAutomations} />}
-      {tab === 'autoreview' && <AutoReviewView habits={habits} onUpdate={updateHabit} onOpen={setOpenHabitId} />}
-      {tab === 'onhold' && <OnHoldView habits={habits} onUpdate={updateHabit} />}
+      {REVIEW_KINDS.some(k => k.id === tab) && (
+        <MonthlyStatusReview
+          kind={REVIEW_KINDS.find(k => k.id === tab)}
+          habits={habits}
+          onUpdate={updateHabit}
+          onOpen={setOpenHabitId}
+        />
+      )}
       {tab === 'charts' && <ChartsView habits={habits} habitLog={habitLog} />}
       {tab === 'history' && <HistoryView habitLog={habitLog} habits={habits} autoTrackedIds={autoTrackedIds} autoStatusFor={autoStatusFor} onImport={mergeHabitLog} openMenu={(habitId, key, label) => setDayMenu({ habitId, key, label })} />}
       {tab === 'habits' && (
@@ -1564,7 +1646,7 @@ export function HabitsPage({ onBack, user }) {
           >
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: '0.9rem' }}>
               <h3 style={{ margin: 0, fontSize: '1.05rem', flex: 1 }}>
-                {openHabit.name} · are these still automatic?
+                {openHabit.name} · this month’s check-in
               </h3>
               <button
                 type="button"
@@ -1576,11 +1658,20 @@ export function HabitsPage({ onBack, user }) {
             {/* Clicking a name in the list means "edit that habit", so force the
                 detail popup — otherwise a review habit that is itself marked
                 Automatically would just re-open this same modal. */}
-            <AutoReviewView
-              habits={habits}
-              onUpdate={updateHabit}
-              onOpen={id => { setOpenHabitId(id); setDetailForId(id); }}
-            />
+            {/* All three buckets in one pass — automatic, on hold, not started
+                — because "the monthly review" is now all of them, and the habit
+                only completes once every list is confirmed. */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '1.6rem' }}>
+              {REVIEW_KINDS.map(k => (
+                <MonthlyStatusReview
+                  key={k.id}
+                  kind={k}
+                  habits={habits}
+                  onUpdate={updateHabit}
+                  onOpen={id => { setOpenHabitId(id); setDetailForId(id); }}
+                />
+              ))}
+            </div>
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: '1.1rem', paddingTop: '0.8rem', borderTop: '1px solid var(--color-border, #e2e8f0)' }}>
               <button
                 type="button"
@@ -2083,13 +2174,7 @@ function RoutinesView({ habits, habitLog, habitLogAuto, streaks, autoTrackedIds 
   const [showAutoStatus, setShowAutoStatus] = useState(false);
   // All routine names the user has, in the canonical routine order, for the
   // per-habit routine dropdown.
-  const routineOptions = useMemo(() => {
-    const set = new Set([...DAILY_ROUTINES, ...habits.map(h => (h.routine || '').trim()).filter(Boolean)]);
-    return [...set].sort((a, b) => {
-      const ra = routineRank(a), rb = routineRank(b);
-      return ra.typeOrder - rb.typeOrder || ra.dailyIdx - rb.dailyIdx || ra.num - rb.num || a.localeCompare(b);
-    });
-  }, [habits]);
+  const routineOptions = useMemo(() => routineNamesFrom(habits), [habits]);
   // Group by the habit's tracking FREQUENCY (cadence), so setting a habit to
   // Weekly makes it show up under the Weekly section. Sections are ordered
   // Daily → Weekly → Monthly → Annually. Within a section, habits stay clustered
@@ -2485,13 +2570,18 @@ function periodStripCols(canon, logOffset = 0) {
 function MoveRoutineModal({ habit, habits, onMove, onClose }) {
   const [newRoutine, setNewRoutine] = useState('');
   const current = (habit.routine || '').trim();
-  const options = useMemo(() => {
-    const set = new Set([...DAILY_ROUTINES, ...habits.map(h => (h.routine || '').trim()).filter(Boolean)]);
-    return [...set].sort((a, b) => {
-      const ra = routineRank(a), rb = routineRank(b);
-      return ra.typeOrder - rb.typeOrder || ra.dailyIdx - rb.dailyIdx || ra.num - rb.num || a.localeCompare(b);
-    });
-  }, [habits]);
+  const allOptions = useMemo(() => routineNamesFrom(habits), [habits]);
+  // Typing filters the list above the box, so the field predicts an existing
+  // routine instead of quietly creating a near-duplicate ("Morning " / "morning").
+  const typed = newRoutine.trim().toLowerCase();
+  const options = typed ? allOptions.filter(r => r.toLowerCase().includes(typed)) : allOptions;
+  // An exact (case-insensitive) hit means Enter should move to THAT routine
+  // rather than mint a second one differing only by case.
+  const exact = allOptions.find(r => r.toLowerCase() === typed);
+  const submit = () => {
+    const name = exact || newRoutine.trim();
+    if (name) onMove(name);
+  };
 
   return (
     <div style={overlay} onClick={onClose}>
@@ -2519,15 +2609,26 @@ function MoveRoutineModal({ habit, habits, onMove, onClose }) {
             );
           })}
         </div>
+        {typed && options.length === 0 && (
+          <p style={{ fontSize: '0.78rem', color: 'var(--color-text-muted)', margin: '0.5rem 0 0' }}>
+            No routine matches — “{newRoutine.trim()}” will be created.
+          </p>
+        )}
         <div style={{ display: 'flex', gap: 6, marginTop: '0.8rem' }}>
           <input
             value={newRoutine}
             onChange={e => setNewRoutine(e.target.value)}
-            onKeyDown={e => { if (e.key === 'Enter' && newRoutine.trim()) onMove(newRoutine.trim()); }}
-            placeholder="New routine name…"
+            onKeyDown={e => { if (e.key === 'Enter') submit(); }}
+            placeholder="Find or add a routine…"
+            list="habit-routine-options-move"
             style={fieldInput}
           />
-          <button onClick={() => newRoutine.trim() && onMove(newRoutine.trim())} disabled={!newRoutine.trim()} style={primaryBtn}>Move</button>
+          <datalist id="habit-routine-options-move">
+            {allOptions.map(r => <option key={r} value={r} />)}
+          </datalist>
+          <button onClick={submit} disabled={!newRoutine.trim()} style={primaryBtn}>
+            {exact ? 'Move' : 'Add'}
+          </button>
         </div>
       </div>
     </div>
@@ -3564,43 +3665,13 @@ function ChartsView({ habits, habitLog }) {
   );
 }
 
-function OnHoldView({ habits, onUpdate }) {
-  const onHold = useMemo(
-    () => habits
-      .filter(h => (h.status || '').trim() === ON_HOLD_STATUS)
-      .sort((a, b) => (a.name || '').localeCompare(b.name || '')),
-    [habits],
-  );
-  if (onHold.length === 0) {
-    return <p style={{ color: 'var(--color-text-muted)' }}>No habits on hold. Set a habit’s status to “On Hold” to park it here.</p>;
-  }
-  return (
-    <div>
-      <p style={{ color: 'var(--color-text-muted)', fontSize: '0.82rem', marginBottom: '0.8rem' }}>
-        Habits set to On Hold are paused and hidden from your routines. Resume to bring one back (returns as “Not Started”).
-      </p>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-        {onHold.map(h => (
-          <div key={h.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '0.45rem 0.6rem', background: 'var(--color-surface, #fff)', border: '1px solid var(--color-border, #e2e8f0)', borderRadius: 8 }}>
-            <span style={{ flex: 1, fontSize: '0.88rem', fontWeight: 600 }}>{h.name || <em style={{ color: '#aaa' }}>untitled</em>}</span>
-            {(h.routine || '').trim() && <span style={routineTag} title="Routine">{(h.routine || '').trim()}</span>}
-            {(h.cadence || '').trim() && <span style={cadenceTag}>{h.cadence}</span>}
-            <StatusSelect value={h.status} onChange={v => onUpdate(h.id, 'status', v)} />
-            <button onClick={() => onUpdate(h.id, 'status', 'Not Started')} style={primaryBtn}>Resume</button>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-// Monthly "still automatic?" review — the habits you've marked "Automatically"
-// run on autopilot, so they aren't logged day-to-day. This tab prompts you once
-// a month to confirm each is still genuinely automatic, grouped by routine.
-// Confirmation is stored per-habit as `autoConfirmedMonth` = 'YYYY-MM'; when it
-// no longer matches the current month the box shows unchecked (needs a re-check),
+// One monthly check-in, driven by a REVIEW_KINDS entry: the habits in that
+// bucket (automatic / on hold / not started) grouped by routine, each with a
+// confirm box, a ⚑ revisit flag and the one-tap way out of the bucket.
+// Confirmation is stored per-habit as kind.confirmField = 'YYYY-MM'; when it no
+// longer matches the current month the box shows unchecked (needs a re-check),
 // so every box naturally resets at the start of each month.
-function AutoReviewView({ habits, onUpdate, onOpen }) {
+function MonthlyStatusReview({ kind, habits, onUpdate, onOpen }) {
   const currentMonth = periodKey('Monthly'); // 'YYYY-MM' in local time
   const monthLabel = new Date().toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
 
@@ -3614,11 +3685,11 @@ function AutoReviewView({ habits, onUpdate, onOpen }) {
     return d.toLocaleDateString(undefined, { month: 'short', ...(sameYear ? {} : { year: 'numeric' }) });
   }
 
-  // Automatic habits grouped by routine, routines in the canonical routine order.
+  // This kind's habits grouped by routine, routines in the canonical order.
   const groups = useMemo(() => {
-    const auto = habits.filter(h => (h.status || '').trim() === 'Automatically');
+    const inBucket = habits.filter(h => kind.matches(h));
     const map = new Map();
-    for (const h of auto) {
+    for (const h of inBucket) {
       const key = (h.routine || '').trim() || 'Unsorted';
       if (!map.has(key)) map.set(key, []);
       map.get(key).push(h);
@@ -3628,41 +3699,37 @@ function AutoReviewView({ habits, onUpdate, onOpen }) {
       const ra = routineRank(a[0]), rb = routineRank(b[0]);
       return ra.typeOrder - rb.typeOrder || ra.dailyIdx - rb.dailyIdx || ra.num - rb.num || a[0].localeCompare(b[0]);
     });
-  }, [habits]);
+  }, [habits, kind]);
 
-  const autoCount = groups.reduce((n, [, list]) => n + list.length, 0);
-  const pending = groups.reduce((n, [, list]) => n + list.filter(h => (h.autoConfirmedMonth || '') !== currentMonth).length, 0);
-  const flaggedCount = groups.reduce((n, [, list]) => n + list.filter(h => (h.autoRevisitMonth || '').trim()).length, 0);
+  const bucketCount = groups.reduce((n, [, list]) => n + list.length, 0);
+  const pending = groups.reduce((n, [, list]) => n + list.filter(h => (h[kind.confirmField] || '') !== currentMonth).length, 0);
+  const flaggedCount = groups.reduce((n, [, list]) => n + list.filter(h => (h[kind.revisitField] || '').trim()).length, 0);
 
-  if (autoCount === 0) {
-    return <p style={{ color: 'var(--color-text-muted)' }}>No automatic habits yet. Set a habit’s status to “Automatically” and it will show up here for a monthly check-in.</p>;
+  if (bucketCount === 0) {
+    return <p style={{ color: 'var(--color-text-muted)' }}>{kind.empty}</p>;
   }
 
   function toggle(h) {
-    const confirmed = (h.autoConfirmedMonth || '') === currentMonth;
-    onUpdate(h.id, 'autoConfirmedMonth', confirmed ? '' : currentMonth);
+    const confirmed = (h[kind.confirmField] || '') === currentMonth;
+    onUpdate(h.id, kind.confirmField, confirmed ? '' : currentMonth);
   }
 
   // "Revisit this one." Doesn't touch the status and doesn't stand in the way of
   // confirming — it's a note to yourself. Stored as the month it was raised
-  // (`autoRevisitMonth`) rather than a boolean, so unlike the confirmations it
-  // does NOT reset: next month the row still shows the flag, dated, until you
-  // clear it.
+  // rather than a boolean, so unlike the confirmations it does NOT reset: next
+  // month the row still shows the flag, dated, until you clear it.
   function toggleRevisit(h) {
-    const flagged = !!(h.autoRevisitMonth || '').trim();
-    onUpdate(h.id, 'autoRevisitMonth', flagged ? '' : currentMonth);
+    const flagged = !!(h[kind.revisitField] || '').trim();
+    onUpdate(h.id, kind.revisitField, flagged ? '' : currentMonth);
   }
 
-  // The other half of the review: this one ISN'T automatic any more. Drops it
-  // back into the routines you actually log, and clears the confirmation so it
+  // The other half of the review: this one doesn't belong in the bucket any
+  // more. Moves it to the kind's exit status and clears the confirmation, so it
   // doesn't come back next month still looking checked off.
   function demote(h) {
-    if (!window.confirm(
-      `“${h.name || 'This habit'}” is no longer automatic?\n\n`
-      + `It moves back to “${DEMOTED_FROM_AUTOMATIC_STATUS}” and starts showing in your routines to log again.`,
-    )) return;
-    onUpdate(h.id, 'status', DEMOTED_FROM_AUTOMATIC_STATUS);
-    onUpdate(h.id, 'autoConfirmedMonth', '');
+    if (!window.confirm(kind.actionPrompt(h.name || 'This habit'))) return;
+    onUpdate(h.id, 'status', kind.actionStatus);
+    onUpdate(h.id, kind.confirmField, '');
   }
 
   return (
@@ -3671,14 +3738,13 @@ function AutoReviewView({ habits, onUpdate, onOpen }) {
       <div style={{ background: ACCENT + '0d', border: `1px solid ${ACCENT}33`, borderRadius: 10, padding: '0.75rem 1rem', marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
         <span style={{ fontSize: '1.05rem' }}>🔁</span>
         <div style={{ flex: 1, minWidth: 220 }}>
-          <div style={{ fontWeight: 700, fontSize: '0.95rem' }}>Monthly automatic check-in · {monthLabel}</div>
+          <div style={{ fontWeight: 700, fontSize: '0.95rem' }}>{kind.heading} · {monthLabel}</div>
           <div style={{ fontSize: '0.82rem', color: 'var(--color-text-muted)', lineHeight: 1.45 }}>
-            Once a month, go through each one: tick the box if it’s still running on autopilot,
-            or “Not any more” to put it back in your routines. The boxes reset at the start of every month.
+            {kind.instructions}
           </div>
         </div>
         <span style={{ fontSize: '0.72rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.4, color: pending === 0 ? '#166534' : '#b45309', background: pending === 0 ? '#dcfce7' : '#fef3c7', border: `1px solid ${pending === 0 ? '#bbf7d0' : '#fde68a'}`, borderRadius: 999, padding: '3px 10px', whiteSpace: 'nowrap' }}>
-          {pending === 0 ? 'All confirmed ✓' : `${pending} to confirm`}
+          {pending === 0 ? 'All confirmed ✓' : `${pending} ${kind.confirmVerb}`}
         </span>
         {flaggedCount > 0 && (
           <span title="Flagged to revisit — the flag stays put until you clear it" style={{ fontSize: '0.72rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.4, color: '#9a3412', background: '#ffedd5', border: '1px solid #fed7aa', borderRadius: 999, padding: '3px 10px', whiteSpace: 'nowrap' }}>
@@ -3693,15 +3759,15 @@ function AutoReviewView({ habits, onUpdate, onOpen }) {
             <h4 style={{ fontSize: '0.78rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: '#94a3b8', margin: '0 0 0.4rem' }}>{routine}</h4>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
               {list.map(h => {
-                const confirmed = (h.autoConfirmedMonth || '') === currentMonth;
-                const flaggedMonth = (h.autoRevisitMonth || '').trim();
+                const confirmed = (h[kind.confirmField] || '') === currentMonth;
+                const flaggedMonth = (h[kind.revisitField] || '').trim();
                 const flagged = !!flaggedMonth;
                 // Flagged wins the border: an old flag is the thing you came
                 // back for, and it outlives this month's green tick.
                 const borderColor = flagged ? '#fdba74' : confirmed ? '#bbf7d0' : 'var(--color-border, #e2e8f0)';
                 return (
                   <div key={h.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '0.5rem 0.7rem', background: 'var(--color-surface, #fff)', border: `1px solid ${borderColor}`, borderRadius: 8 }}>
-                    <input type="checkbox" checked={confirmed} onChange={() => toggle(h)} title="Confirm still automatic" style={{ width: 17, height: 17, cursor: 'pointer', accentColor: ACCENT, flexShrink: 0 }} />
+                    <input type="checkbox" checked={confirmed} onChange={() => toggle(h)} title={kind.confirmTitle} style={{ width: 17, height: 17, cursor: 'pointer', accentColor: ACCENT, flexShrink: 0 }} />
                     <button
                       type="button"
                       onClick={() => onOpen(h.id)}
@@ -3710,7 +3776,11 @@ function AutoReviewView({ habits, onUpdate, onOpen }) {
                     >
                       {h.name || <em style={{ color: '#aaa' }}>untitled</em>}
                     </button>
+                    {kind.showStatusSelect && (h.routine || '').trim() && <span style={routineTag} title="Routine">{(h.routine || '').trim()}</span>}
                     {(h.cadence || '').trim() && <span style={cadenceTag}>{h.cadence}</span>}
+                    {kind.showStatusSelect && (
+                      <StatusSelect value={h.status} onChange={v => onUpdate(h.id, 'status', v)} />
+                    )}
                     <button
                       type="button"
                       onClick={() => toggleRevisit(h)}
@@ -3724,9 +3794,9 @@ function AutoReviewView({ habits, onUpdate, onOpen }) {
                     <button
                       type="button"
                       onClick={() => demote(h)}
-                      title={`No longer automatic — move back to “${DEMOTED_FROM_AUTOMATIC_STATUS}”`}
+                      title={`Move it to “${kind.actionStatus}”`}
                       style={{ border: '1px solid var(--color-border, #e2e8f0)', background: 'none', borderRadius: 999, padding: '2px 9px', fontSize: '0.7rem', fontWeight: 600, color: 'var(--color-text-muted, #64748b)', cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap' }}
-                    >Not any more</button>
+                    >{kind.actionLabel}</button>
                     {confirmed
                       ? <span style={{ fontSize: '0.72rem', fontWeight: 600, color: '#16a34a', whiteSpace: 'nowrap' }}>Confirmed</span>
                       : <span style={{ fontSize: '0.72rem', fontWeight: 600, color: '#b45309', whiteSpace: 'nowrap' }}>Needs check</span>}
@@ -5025,7 +5095,7 @@ function HabitsTable({ habits, onUpdate, onDelete, onOpen, onBulkUpdate, onBulkD
 // Full habit editor popup. Opened by clicking a habit's name on the Habits
 // tab. Every edit persists immediately via onUpdate (which saves to Firestore).
 // The headline control is the tracking-cadence selector.
-function HabitDetailModal({ habit, streak: streakProp, onUpdate, onDelete, onClose, autoSkipOn = false, onToggleAutoSkip, isNew = false }) {
+function HabitDetailModal({ habit, streak: streakProp, onUpdate, onDelete, onClose, autoSkipOn = false, onToggleAutoSkip, isNew = false, routineOptions = [] }) {
   const h = habit;
   const cadence = (h.cadence || '').trim();
   const streak = streakProp || EMPTY_STREAK;
@@ -5040,7 +5110,12 @@ function HabitDetailModal({ habit, streak: streakProp, onUpdate, onDelete, onClo
           style={fieldTextarea}
         />
       ) : (
-        <input value={h[key] || ''} onChange={e => onUpdate(h.id, key, e.target.value)} style={fieldInput} />
+        <input
+          value={h[key] || ''}
+          onChange={e => onUpdate(h.id, key, e.target.value)}
+          list={opts.list}
+          style={fieldInput}
+        />
       )}
     </label>
   );
@@ -5222,8 +5297,17 @@ function HabitDetailModal({ habit, streak: streakProp, onUpdate, onDelete, onClo
             <span style={fieldLabel}>Status</span>
             <StatusSelect value={h.status} onChange={v => onUpdate(h.id, 'status', v)} />
           </label>
-          {field('routine', 'Routine')}
+          {/* Routine predicts from the routines you already have, so you pick
+              "Morning" rather than typing a second one that differs by a space.
+              Still free text — a name that matches nothing creates it. */}
+          {field('routine', 'Routine', { list: 'habit-routine-options-popup' })}
+          <datalist id="habit-routine-options-popup">
+            {routineOptions.map(r => <option key={r} value={r} />)}
+          </datalist>
           {field('dailyOrder', 'Daily Routine #')}
+          {/* Left as free text, not a date input: existing start dates came in
+              from the spreadsheet in mixed formats, and a date input would show
+              blank for every one of them. New habits are stamped ISO. */}
           {field('startDate', 'Start Date')}
           {field('age', 'Age')}
           {field('kpi', 'KPI')}
