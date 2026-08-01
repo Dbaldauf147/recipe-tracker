@@ -1287,6 +1287,37 @@ export function HabitsPage({ onBack, user }) {
   // `auto` is the rule-automated half of that same outstanding set, surfaced
   // separately (grey) by the split summary below rather than adding to any red
   // count. Tabs with nothing to complete (KPI/Automatic/History/On Hold/Habits)
+  // Finishing the monthly check-in completes the review habit itself. Once
+  // every "Automatically" habit carries this month's confirmation, the habit
+  // whose job is running the review (isReviewHabit) gets marked done for its
+  // own period — the check-in IS the habit, so ticking the last box shouldn't
+  // leave it sitting there unlogged.
+  //
+  // `autoReviewCompletedMonth` on the habit is what stops it happening twice:
+  // clearing the mark by hand has to stick, including across a reload, and a
+  // ref wouldn't survive one. It rearms on its own next month, when the
+  // confirmations reset and the month key moves on.
+  useEffect(() => {
+    const currentMonth = periodKey('Monthly');
+    const auto = habits.filter(h => (h.status || '').trim() === 'Automatically');
+    if (auto.length === 0) return;
+    if (auto.some(h => (h.autoConfirmedMonth || '') !== currentMonth)) return;
+    const due = habits.filter(
+      h => isReviewHabit(h) && (h.autoReviewCompletedMonth || '') !== currentMonth,
+    );
+    if (due.length === 0) return;
+    // One persist for the whole set: updateHabit would map over a stale
+    // `habits` each time and the second write would undo the first.
+    const dueIds = new Set(due.map(h => h.id));
+    persist(habits.map(h => (dueIds.has(h.id) ? { ...h, autoReviewCompletedMonth: currentMonth } : h)));
+    for (const h of due) {
+      const mk = markOf(h);
+      if (mk !== 'done' && mk !== 'exceeded') onMark(h, 'done');
+    }
+    // habits/habitLog are the inputs; the helpers are stable within a render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [habits, habitLog]);
+
   // get 0.
   const tabBadges = useMemo(() => {
     const isActive = (h) => {
