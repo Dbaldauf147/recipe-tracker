@@ -5430,8 +5430,13 @@ export function DailyTrackerPage({ recipes, getRecipe, onClose, user, weeklyPlan
         if ((dayData.skippedMeals || []).includes(slot)) continue;
         // Eating-out (not-tracked) slots are jumped over by the spread.
         if ((dayData.eatingOutMeals || []).includes(slot)) continue;
-        // Consecutive EMPTY days forward — skip a day whose slot is already filled.
-        if ((dayData.entries || []).some(e => (e.mealSlot || 'snack') === slot)) continue;
+        // The day you dropped on always takes the meal, even if that box
+        // already has one — the drop IS the instruction "cook this here", and
+        // skipping it moved the 🍳 to whichever later day happened to be free.
+        // Only the forward leftover fill skips an occupied slot, so leftovers
+        // still spread into free days rather than stacking up.
+        const isDropDay = i === startIdx;
+        if (!isDropDay && (dayData.entries || []).some(e => (e.mealSlot || 'snack') === slot)) continue;
 
         dayData.entries = [...(dayData.entries || []), {
           id: uuid(),
