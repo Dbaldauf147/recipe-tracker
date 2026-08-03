@@ -2560,23 +2560,28 @@ function weeklyStripWeeks(logOffset = 0) {
 
 // The routine-table column strip for ANY cadence — one entry per period, same
 // shape weeklyStripWeeks returns so the weekly table renders every cadence.
-// Weekly keeps its schedule-aware builder. Daily shows the current ISO week
-// (Mon–Sun, carrying each day's Date so off-days can dim). Monthly shows the
+// Weekly keeps its schedule-aware builder. Daily shows a ROLLING last 7 days
+// ending today (carrying each day's Date so off-days can dim) — a calendar
+// week answered "how am I doing this week", which is a near-empty strip every
+// Monday; the rolling window always shows a full week of recent history.
+// Monthly shows the
 // past 4 months (3 past · current), matching the mobile Habits month strip —
 // no upcoming column, since a month you haven't reached isn't loggable history.
 // Annually keeps the wider trailing window ending one period ahead
 // (5 past · current · next).
+// Days in the Daily strip — a rolling week ending today. Mirrored on mobile in
+// PrepDay/src/components/HabitsScreen.tsx.
+const DAILY_STRIP_DAYS = 7;
+
 function periodStripCols(canon, logOffset = 0) {
   if (canon === 'Weekly') return weeklyStripWeeks(logOffset);
   const today = new Date();
   const curKey = periodKey(canon, today);
   if (canon === 'Daily') {
-    const monday = startOfISOWeek(today);
-    // Start one day early (the previous Sunday) so the strip shows 8 days —
-    // Sun, Mon…Sun — giving a peek at the prior week's tail end.
-    const start = new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() - 1);
-    return Array.from({ length: 8 }, (_, i) => {
-      const d = new Date(start.getFullYear(), start.getMonth(), start.getDate() + i);
+    // Rolling window: 6 days back through today, so today is always the last
+    // column and you're always looking at a full week of history.
+    return Array.from({ length: DAILY_STRIP_DAYS }, (_, i) => {
+      const d = new Date(today.getFullYear(), today.getMonth(), today.getDate() - (DAILY_STRIP_DAYS - 1) + i);
       const key = periodKey('Daily', d);
       return {
         key,
@@ -2724,8 +2729,8 @@ function RoutineSection({ cadenceName, list, habitLog, habitLogAuto, streaks, au
   // the whole selection. Selection key is `${habitId}|${weekKey}`.
   const [bulkMode, setBulkMode] = useState(false);
   const [selected, setSelected] = useState(() => new Set());
-  // Column strip for this cadence (Daily = 8 days incl. the previous Sunday,
-  // Weekly = the weeks in view, Monthly = the past 4 months, Annually = 7
+  // Column strip for this cadence (Daily = the rolling last 7 days ending
+  // today, Weekly = the weeks in view, Monthly = the past 4 months, Annually = 7
   // periods). Computed up front so the resizable columns can size to the actual
   // count.
   //
