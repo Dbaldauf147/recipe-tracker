@@ -62,10 +62,20 @@ async function cleanupUsers(allUsers) {
   return allUsers.filter(u => !deleteSet.has(u.uid));
 }
 
+// Every login on record for a user, web + app. The two are counted separately
+// (loginCount / mobileLoginCount) but almost everything that judges a user —
+// engagement, status, the leaderboard, the Total Logins column — wants the sum,
+// since which client someone signed in on says nothing about how much they use
+// it. Note app logins only exist from APP_LOGIN_TRACKING_SINCE (see the caveat
+// below), so an old user's total can understate their real history.
+function totalLogins(u) {
+  return (u?.loginCount || 0) + (u?.mobileLoginCount || 0);
+}
+
 function getUserEngagement(u) {
   // Engagement reflects overall activity across web AND mobile, so an
   // app-only user reads as Active rather than New.
-  const logins = (u.loginCount || 0) + (u.mobileLoginCount || 0);
+  const logins = totalLogins(u);
   const recipes = (u.recipes || []).length;
   const lastLoginIso = [u.lastLogin, u.mobileLastLogin]
     .filter(Boolean)
@@ -94,7 +104,7 @@ function getUserEngagement(u) {
  * ago doesn't outrank someone active this week.
  */
 function engagementInputs(u) {
-  const logins = (u.loginCount || 0) + (u.mobileLoginCount || 0);
+  const logins = totalLogins(u);
   const sumMap = (m) => Object.values(m || {}).reduce((n, v) => n + (Number(v) || 0), 0);
   const views = sumMap(u.pageViews) + sumMap(u.appScreenViews);
   const recipes = (u.recipes || []).length;
@@ -205,6 +215,14 @@ const ADMIN_COLUMNS = [
     render: u => u.mobileLoginCount || 0 },
   { key: 'mobileLastLogin', label: 'Last App Login', width: 140, defaultVisible: true, sortKey: 'mobileLastLogin',
     render: u => <span title={formatDate(u.mobileLastLogin)}>{u.mobileLastLogin ? timeAgo(u.mobileLastLogin) : '—'}</span> },
+  // Sits after both login pairs so it reads as their sum. Bold, because it's
+  // the number you actually compare users on — the split above is the detail.
+  { key: 'totalLogins', label: 'Total Logins', width: 110, defaultVisible: true, sortKey: 'totalLogins',
+    render: u => (
+      <strong title={`${u.loginCount || 0} web + ${u.mobileLoginCount || 0} app. ${APP_LOGIN_CAVEAT}`}>
+        {totalLogins(u)}
+      </strong>
+    ) },
   { key: 'platform', label: 'Platform', width: 140, defaultVisible: true,
     render: u => {
       const p = getUserPlatform(u);
@@ -491,6 +509,9 @@ export function AdminDashboard({ onClose }) {
     } else if (sortField === 'mobileLoginCount') {
       aVal = a.mobileLoginCount || 0;
       bVal = b.mobileLoginCount || 0;
+    } else if (sortField === 'totalLogins') {
+      aVal = totalLogins(a);
+      bVal = totalLogins(b);
     } else if (sortField === 'mobileLastLogin') {
       aVal = a.mobileLastLogin || '';
       bVal = b.mobileLastLogin || '';
