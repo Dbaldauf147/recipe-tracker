@@ -52,6 +52,70 @@ const ALIASES = {
 // String-level rewrites (applied before tokenizing) that expand gym shorthand
 // and collapse compound moves to single tokens so "pull up", "pull-up" and
 // "pullups" all land on the same token the dataset uses.
+/**
+ * Yoga and mobility poses the dataset simply doesn't contain.
+ *
+ * free-exercise-db is a gym dataset: it has 123 stretching entries but almost
+ * no yoga vocabulary, so "Downward Dog" and "Pigeon Pose" match nothing and the
+ * fill-in would silently skip every stretch in a library. These are the muscles
+ * each pose actually loads, keyed by normalized name. Checked BEFORE the fuzzy
+ * matcher so a pose can't be dragged onto a barely-related gym movement.
+ *
+ * Muscle names deliberately reuse the dataset's own vocabulary (Hamstrings,
+ * Lats, Middle Back, Abdominals…) so a filled cell is consistent whichever
+ * source it came from, and the body map can colour it.
+ */
+const POSE_MUSCLES = {
+  'downward dog': [['Hamstrings', 'Shoulders'], ['Calves', 'Lats', 'Glutes']],
+  'downward facing dog': [['Hamstrings', 'Shoulders'], ['Calves', 'Lats', 'Glutes']],
+  'upward dog': [['Chest', 'Abdominals'], ['Shoulders', 'Lower Back']],
+  'upward facing dog': [['Chest', 'Abdominals'], ['Shoulders', 'Lower Back']],
+  'cobra': [['Abdominals', 'Lower Back'], ['Chest', 'Shoulders']],
+  'cobra pose': [['Abdominals', 'Lower Back'], ['Chest', 'Shoulders']],
+  'pigeon': [['Glutes'], ['Hip Flexors', 'Lower Back']],
+  'pigeon pose': [['Glutes'], ['Hip Flexors', 'Lower Back']],
+  'couch stretch': [['Quadriceps', 'Hip Flexors'], ['Abdominals']],
+  'warrior 1': [['Quadriceps', 'Hip Flexors'], ['Glutes', 'Shoulders']],
+  'warrior 2': [['Quadriceps', 'Adductors'], ['Glutes', 'Shoulders']],
+  'warrior i': [['Quadriceps', 'Hip Flexors'], ['Glutes', 'Shoulders']],
+  'warrior ii': [['Quadriceps', 'Adductors'], ['Glutes', 'Shoulders']],
+  'triangle pose': [['Hamstrings', 'Adductors'], ['Abdominals', 'Lower Back']],
+  'seated forward fold': [['Hamstrings'], ['Calves', 'Lower Back']],
+  'standing forward fold': [['Hamstrings'], ['Calves', 'Lower Back']],
+  'forward fold': [['Hamstrings'], ['Calves', 'Lower Back']],
+  'happy baby': [['Adductors'], ['Glutes', 'Lower Back']],
+  'thread the needle': [['Shoulders', 'Middle Back'], ['Traps']],
+  'figure 4 stretch': [['Glutes'], ['Hip Flexors']],
+  'butterfly stretch': [['Adductors'], ['Glutes']],
+  'bridge pose': [['Glutes'], ['Hamstrings', 'Lower Back']],
+  'supine twist': [['Lower Back'], ['Glutes', 'Abdominals']],
+  'sphinx pose': [['Lower Back'], ['Abdominals', 'Chest']],
+  'puppy pose': [['Lats', 'Shoulders'], ['Middle Back']],
+  'low lunge': [['Hip Flexors', 'Quadriceps'], ['Glutes']],
+  'lizard pose': [['Hip Flexors', 'Adductors'], ['Quadriceps']],
+  'frog stretch': [['Adductors'], ['Hip Flexors']],
+  'wall angels': [['Shoulders', 'Middle Back'], ['Traps']],
+  'jefferson curl': [['Hamstrings', 'Lower Back'], ['Glutes']],
+};
+
+// Poses whose closest honest equivalent IS in the dataset — aliased rather than
+// hand-written so they keep the dataset's photos and instructions too.
+const POSE_ALIASES = {
+  'cat cow': 'cat stretch',
+  'cat-cow': 'cat stretch',
+  'childs pose': "child's pose",
+  'kneeling hip flexor stretch': 'kneeling hip flexor',
+  'hip flexor stretch': 'kneeling hip flexor',
+  'quad stretch': 'quad stretch',
+  'calf stretch': 'standing gastrocnemius calf stretch',
+  'glute stretch': 'seated glute',
+  'lat stretch': 'overhead lat',
+  'tricep stretch': 'triceps stretch',
+  'neck stretch': 'side neck stretch',
+  'shoulder stretch': 'shoulder stretch',
+  'world greatest stretch': "world's greatest stretch",
+};
+
 const PHRASES = [
   [/\bohp\b/g, 'overhead press'],
   [/\brdl\b/g, 'romanian deadlift'],
@@ -141,8 +205,49 @@ function toUrl(rel) {
   return IMAGE_BASE + encodeURI(String(rel || ''));
 }
 
+// Title-case a dataset muscle ("middle back" → "Middle Back") so filled-in
+// cells read like the ones typed by hand.
+function prettyMuscle(m) {
+  return String(m || '').replace(/\b\w/g, c => c.toUpperCase());
+}
+
 export default function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+
+  // Batch mode: { names: [...] } → muscles only, for filling in a whole library
+  // at once. Same matcher (and the same ALIASES) as the single lookup, so what
+  // gets filled in agrees with what the demo popup shows. Kept in this file for
+  // exactly that reason — a separate endpoint would drift.
+  const { names } = req.body || {};
+  if (Array.isArray(names)) {
+    if (names.length > 500) return res.status(400).json({ error: 'too many names (max 500)' });
+    const results = {};
+    for (const raw of names) {
+      const n = String(raw || '').trim();
+      if (!n) continue;
+      const key = normKey(n);
+
+      // Curated poses win over the fuzzy matcher — otherwise "Pigeon Pose"
+      // scores onto whatever gym movement shares a word with it.
+      const pose = POSE_MUSCLES[key];
+      if (pose) {
+        results[n] = { matchedName: n, primaryMuscles: pose[0], secondaryMuscles: pose[1], source: 'pose' };
+        continue;
+      }
+
+      const hit = bestMatch(POSE_ALIASES[key] || n);
+      results[n] = hit
+        ? {
+            matchedName: hit.name,
+            primaryMuscles: (hit.primaryMuscles || []).map(prettyMuscle),
+            secondaryMuscles: (hit.secondaryMuscles || []).map(prettyMuscle),
+            source: 'db',
+          }
+        : null; // no confident match — the caller reports it rather than guessing
+    }
+    return res.status(200).json({ results });
+  }
+
   const { name } = req.body || {};
   if (!name || typeof name !== 'string' || !name.trim()) {
     return res.status(400).json({ error: 'name required' });

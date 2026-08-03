@@ -200,6 +200,8 @@ export function ExerciseLibrary({ library, onChange, onRenameExercise }) {
   const [groupFilter, setGroupFilter] = useState('');
   const [showRetired, setShowRetired] = useState(false);
   const [topOnly, setTopOnly] = useState(false);
+  const [fillingMuscles, setFillingMuscles] = useState(false);
+  const [fillReport, setFillReport] = useState(null);
   const [showImport, setShowImport] = useState(false);
   const [importText, setImportText] = useState('');
   const [importPreview, setImportPreview] = useState(null);
@@ -223,6 +225,60 @@ export function ExerciseLibrary({ library, onChange, onRenameExercise }) {
 
   function updateRow(originalIdx, field, value) {
     onChange(library.map((row, i) => i === originalIdx ? { ...row, [field]: value } : row));
+  }
+
+  // Rows still missing their Primary muscles. Keyed off Primary alone: plenty of
+  // stretches genuinely have no secondary muscle, and including those would keep
+  // the button offering to fill rows that are already as complete as they get.
+  const missingMuscles = useMemo(
+    () => library.filter(e => String(e?.exercise || '').trim() && !String(e?.primaryMuscles || '').trim()),
+    [library],
+  );
+
+  /**
+   * Look up the muscles worked for every row missing them and fill them in.
+   *
+   * One request for the whole set, one write at the end. Only ever writes into
+   * a BLANK cell — a name the lookup can't place confidently is reported back
+   * rather than filled with a guess, because a wrong muscle here silently
+   * mis-colours the body map and skews the group totals.
+   */
+  async function fillMissingMuscles() {
+    const names = missingMuscles.map(e => String(e.exercise).trim());
+    if (names.length === 0) return;
+    setFillingMuscles(true);
+    setFillReport(null);
+    try {
+      const res = await fetch('/api/exercise-demo', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ names }),
+      });
+      if (!res.ok) throw new Error(`Lookup failed (${res.status})`);
+      const { results } = await res.json();
+      const unmatched = [];
+      let filled = 0;
+      const next = library.map(row => {
+        const name = String(row?.exercise || '').trim();
+        if (!name || String(row?.primaryMuscles || '').trim()) return row;
+        const hit = results?.[name];
+        if (!hit || !(hit.primaryMuscles || []).length) { unmatched.push(name); return row; }
+        filled += 1;
+        return {
+          ...row,
+          primaryMuscles: hit.primaryMuscles.join(', '),
+          // Don't clobber a secondary that was filled in by hand.
+          secondaryMuscles: String(row?.secondaryMuscles || '').trim()
+            || (hit.secondaryMuscles || []).join(', '),
+        };
+      });
+      if (filled > 0) onChange(next);
+      setFillReport({ filled, unmatched });
+    } catch (err) {
+      setFillReport({ filled: 0, unmatched: [], error: err?.message || 'Lookup failed' });
+    } finally {
+      setFillingMuscles(false);
+    }
   }
 
   // Commit the in-progress name edit for a row. A rename of an EXISTING named
@@ -423,7 +479,33 @@ export function ExerciseLibrary({ library, onChange, onRenameExercise }) {
         >
           Export CSV
         </button>
+        {missingMuscles.length > 0 && (
+          <button
+            className={styles.secondaryBtn}
+            onClick={fillMissingMuscles}
+            disabled={fillingMuscles}
+            title={`Look up the muscles worked for the ${missingMuscles.length} exercise${missingMuscles.length === 1 ? '' : 's'} with no Primary set, and fill them in. Existing values are never overwritten.`}
+          >
+            {fillingMuscles ? 'Looking up…' : `Fill muscles (${missingMuscles.length})`}
+          </button>
+        )}
       </div>
+
+      {fillReport && (
+        <div className={styles.fillReport}>
+          {fillReport.error
+            ? <>Couldn’t look the muscles up — {fillReport.error}. Nothing was changed.</>
+            : <><strong>{fillReport.filled}</strong> filled in</>}
+          {!fillReport.error && fillReport.unmatched.length > 0 && (
+            <>
+              {' · '}
+              <strong>{fillReport.unmatched.length}</strong> with no confident match, left blank:{' '}
+              <span className={styles.fillUnmatched}>{fillReport.unmatched.join(', ')}</span>
+            </>
+          )}
+          <button className={styles.fillReportClose} onClick={() => setFillReport(null)} aria-label="Dismiss">×</button>
+        </div>
+      )}
 
       <div className={styles.count}>
         {filtered.length} of {library.length} exercise{library.length === 1 ? '' : 's'}

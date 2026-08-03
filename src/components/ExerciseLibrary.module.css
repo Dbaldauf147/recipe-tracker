@@ -67,6 +67,35 @@
   color: var(--color-text-muted);
 }
 
+/* Result of "Fill muscles". Names it couldn't place are listed rather than
+   counted — those are the ones you have to fill in yourself. */
+.fillReport {
+  position: relative;
+  margin: 0.5rem 0;
+  padding: 0.55rem 2rem 0.55rem 0.75rem;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: var(--color-surface-alt);
+  font-size: 0.8rem;
+  line-height: 1.5;
+  color: var(--color-text);
+}
+.fillUnmatched {
+  color: var(--color-text-muted);
+}
+.fillReportClose {
+  position: absolute;
+  top: 4px;
+  right: 6px;
+  border: none;
+  background: none;
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+  color: var(--color-text-muted);
+}
+.fillReportClose:hover { color: var(--color-text); }
+
 .tableWrap {
   border: 1px solid var(--color-border);
   border-radius: 10px;
