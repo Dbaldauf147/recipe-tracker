@@ -4176,6 +4176,19 @@ function WeeklyView({ dailyLog, date, recipes, onDayClick, onMoveEntry, onAddToS
                     }}
                   >
                     <div className={styles.weeklyGridCellHeader}>
+                      {/* Eating out sits in the LEFT corner of the cell, away from
+                          the − / + pair on the right: it's a different kind of
+                          action (this meal isn't tracked at all), and mis-clicking
+                          it while adding food was too easy when they were adjacent. */}
+                      {mode === 'prepare' && slot !== 'snack' && onToggleEatingOut && (
+                        <button
+                          className={`${styles.weeklySlotEatOutBtn} ${day.eatingOutMeals.includes(slot) ? styles.weeklySlotEatOutBtnActive : ''}`}
+                          onClick={e => { e.stopPropagation(); onToggleEatingOut(day.dateStr, slot); }}
+                          title={day.eatingOutMeals.includes(slot)
+                            ? `Eating out — click to track ${MEAL_LABELS[slot]} again`
+                            : `Mark ${MEAL_LABELS[slot]} as eating out (won't be tracked)`}
+                        >×</button>
+                      )}
                       <div className={styles.weeklySlotBtns}>
                         <button
                           className={styles.weeklySlotRemoveBtn}
@@ -4194,15 +4207,6 @@ function WeeklyView({ dailyLog, date, recipes, onDayClick, onMoveEntry, onAddToS
                           onClick={e => { e.stopPropagation(); onAddToSlot(day.dateStr, slot); }}
                           title={`Add to ${MEAL_LABELS[slot]}`}
                         >+</button>
-                        {mode === 'prepare' && slot !== 'snack' && onToggleEatingOut && (
-                          <button
-                            className={`${styles.weeklySlotEatOutBtn} ${day.eatingOutMeals.includes(slot) ? styles.weeklySlotEatOutBtnActive : ''}`}
-                            onClick={e => { e.stopPropagation(); onToggleEatingOut(day.dateStr, slot); }}
-                            title={day.eatingOutMeals.includes(slot)
-                              ? `Eating out — click to track ${MEAL_LABELS[slot]} again`
-                              : `Mark ${MEAL_LABELS[slot]} as eating out (won't be tracked)`}
-                          >×</button>
-                        )}
                       </div>
                     </div>
                     {day.daySkipped ? (

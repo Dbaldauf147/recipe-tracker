@@ -2768,8 +2768,12 @@
   color: #fff;
 }
 
-/* "Eating out / won't be tracked" toggle — sits next to − and + in the cell. */
+/* "Eating out / won't be tracked" toggle. Pinned to the LEFT corner of the
+   cell header: `margin-right: auto` eats the free space, pushing the − / +
+   pair to the right and leaving them right-aligned on the rows where this
+   button isn't rendered at all (snack, and outside Prepare mode). */
 .weeklySlotEatOutBtn {
+  margin-right: auto;
   background: none;
   border: 1px solid var(--color-border);
   border-radius: 50%;
