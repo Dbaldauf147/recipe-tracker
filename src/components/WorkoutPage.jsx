@@ -4121,6 +4121,29 @@ export function WorkoutPage({ onBack, user }) {
     return `${days}d ago${effective.wasSkipped ? ' (skipped)' : ''}`;
   }
 
+  /**
+   * The pill row, ordered longest-since-done first.
+   *
+   * Answers "what am I overdue for?" left to right, which is what the row is
+   * for. A type never done sorts ahead of everything — it's the most overdue
+   * thing there is, not the least. Ties keep the user's configured order, so
+   * the row doesn't reshuffle arbitrarily between equal types.
+   *
+   * Deliberately a VIEW: `workoutTypes` itself keeps its configured order for
+   * the ✎ Edit popup (which reorders it) and every type <select>.
+   */
+  const typesBySince = useMemo(() => {
+    const sinceDays = (t) => {
+      const effective = effectiveLastByType[t];
+      if (!effective) return Infinity; // never done — most overdue
+      return daysSince(effective.date);
+    };
+    return workoutTypes
+      .map((t, i) => ({ t, i, d: sinceDays(t) }))
+      .sort((a, b) => (b.d - a.d) || (a.i - b.i))
+      .map(x => x.t);
+  }, [workoutTypes, effectiveLastByType]);
+
   function addWorkoutType(name) {
     const trimmed = (name || '').trim();
     if (!trimmed || workoutTypes.some(x => x.toLowerCase() === trimmed.toLowerCase())) return;
@@ -4499,7 +4522,7 @@ export function WorkoutPage({ onBack, user }) {
 
           <div className={styles.workoutTypeRow}>
             <span className={styles.workoutTypeLabel}>Workout type:</span>
-            {workoutTypes.map(t => {
+            {typesBySince.map(t => {
               const isSuggested = t === suggestedType && !workoutType;
               const isActive = workoutType === t;
               const lastReal = lastByType[t];
