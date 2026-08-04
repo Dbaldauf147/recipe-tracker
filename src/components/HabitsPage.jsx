@@ -806,7 +806,7 @@ function offDaySkips(habits, habitLog) {
 // (annual). "Monthly window for daily/weekly, annual for monthly." For Daily
 // habits, `trackDays` limits the window to the weekdays the habit is tracked on,
 // so untracked days (e.g. weekends) don't drag the completion % down.
-function habitWindowKeys(cadence, trackDays) {
+function habitWindowKeys(cadence, trackDays, dailyDays = 30) {
   const canon = cadenceCanon(cadence);
   const now = new Date();
   const keys = [];
@@ -818,7 +818,7 @@ function habitWindowKeys(cadence, trackDays) {
     for (let i = 0; i < 5; i++) keys.push(String(now.getFullYear() - i));
   } else {
     const allowed = Array.isArray(trackDays) && trackDays.length > 0 ? trackDays : ALL_WEEKDAYS;
-    for (let i = 0; i < 30; i++) {
+    for (let i = 0; i < dailyDays; i++) {
       const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - i);
       if (allowed.includes(d.getDay())) keys.push(dayKey(d));
     }
@@ -840,6 +840,52 @@ function habitKpi(h, habitLog) {
   }
   if (logged === 0) return pctOf(h.kpi);
   return Math.round((done / keys.length) * 100);
+}
+
+// ── Auto-promotion to "Automatically" ────────────────────────────────────────
+// A daily habit you've kept up in more than 90% of the last 60 tracked days is
+// established: it moves to status 'Automatically', which is what that status
+// means — tracked for you, no longer something to log by hand.
+//
+// The denominator is EVERY tracked day in the window, not just the days with a
+// mark, so a habit that only started three weeks ago mathematically cannot
+// clear the bar. That's the whole guard against promoting on thin evidence —
+// >90% of 60 days is at least 54 days actually done.
+const AUTO_PROMOTE_DAYS = 60;
+const AUTO_PROMOTE_PCT = 90;
+// How long a promotion stays announced on the page (7 days).
+const AUTO_PROMOTE_NOTICE_MS = 7 * 24 * 60 * 60 * 1000;
+// Statuses the rule leaves alone: already promoted, deliberately parked, or
+// never begun.
+const AUTO_PROMOTE_SKIP_STATUSES = ['Automatically', ON_HOLD_STATUS, 'Abandoned', 'Not Started', 'Havent Started'];
+
+/** Completion % over the promotion window, or null when nothing is logged. */
+function autoPromoteRate(h, habitLog) {
+  const keys = habitWindowKeys(h.cadence, h.trackDays, AUTO_PROMOTE_DAYS);
+  if (keys.length === 0) return null;
+  let done = 0, logged = 0;
+  for (const k of keys) {
+    const mk = habitLog?.[k]?.[h.id];
+    if (mk) logged++;
+    if (mk === 'done' || mk === 'exceeded') done++;
+  }
+  if (logged === 0) return null; // nothing logged — the stored kpi isn't evidence
+  return (done / keys.length) * 100;
+}
+
+/**
+ * Should this habit be promoted right now?
+ *
+ * `autoPromotedAt` is the memory that stops the rule fighting the user: once a
+ * habit has been promoted, moving it back to a manual status is a decision, and
+ * re-running the check must not undo it on the next page load.
+ */
+function habitReadyForAuto(h, habitLog) {
+  if (cadenceCanon(h.cadence) !== 'Daily') return false;
+  if (h.autoPromotedAt) return false;
+  if (AUTO_PROMOTE_SKIP_STATUSES.includes((h.status || '').trim())) return false;
+  const rate = autoPromoteRate(h, habitLog);
+  return rate != null && rate > AUTO_PROMOTE_PCT;
 }
 
 // Human-readable label for the rolling KPI window of a cadence (see
@@ -1113,8 +1159,26 @@ export function HabitsPage({ onBack, user }) {
           user?.uid ? loadHabitAutoStatus(user.uid) : null,
         ]);
         if (cancelled) return;
-        if (Array.isArray(remote) && remote.length > 0) setHabits(remote);
-        else setHabits(seedHabits());
+        const loadedLog = (remoteLog && typeof remoteLog === 'object') ? remoteLog : {};
+        if (Array.isArray(remote) && remote.length > 0) {
+          // Promote established daily habits on load (see habitReadyForAuto).
+          // Done here, against the data we just fetched, rather than in an
+          // effect that watches habits — a watcher would re-check on every
+          // local edit, and this only needs to run when the log changes under
+          // us, which is a load.
+          const ready = remote.filter(h => habitReadyForAuto(h, loadedLog));
+          if (ready.length > 0 && user?.uid) {
+            const stamp = new Date().toISOString();
+            const readyIds = new Set(ready.map(h => h.id));
+            const promoted = remote.map(h => (readyIds.has(h.id)
+              ? { ...h, status: 'Automatically', autoPromotedAt: stamp }
+              : h));
+            setHabits(promoted);
+            saveField(user.uid, 'habits', promoted).catch(() => {});
+          } else {
+            setHabits(remote);
+          }
+        } else setHabits(seedHabits());
         if (remoteLog && typeof remoteLog === 'object') setHabitLog(remoteLog);
         if (Array.isArray(remoteAuto)) setAutomations(remoteAuto);
         if (remoteLogAuto && typeof remoteLogAuto === 'object') setHabitLogAuto(remoteLogAuto);
@@ -1128,6 +1192,15 @@ export function HabitsPage({ onBack, user }) {
     })();
     return () => { cancelled = true; };
   }, [user?.uid]);
+
+  // Habits the rule promoted recently enough to still be worth announcing.
+  // Derived from `autoPromotedAt` rather than tracked in state, so the notice
+  // survives a reload and doesn't need a setState inside the load effect.
+  const [dismissedAutoPromoteNotice, setDismissedAutoPromoteNotice] = useState(false);
+  const recentlyAutoPromoted = useMemo(() => habits.filter(h => {
+    const t = Date.parse(h.autoPromotedAt || '');
+    return Number.isFinite(t) && Date.now() - t < AUTO_PROMOTE_NOTICE_MS;
+  }), [habits]);
 
   function persist(next) {
     setHabits(next);
@@ -1596,6 +1669,44 @@ export function HabitsPage({ onBack, user }) {
               ))}
             </div>
           )}
+        </div>
+      )}
+
+      {/* A status change you didn't make shouldn't happen silently — say which
+          habits were promoted and why, until dismissed. */}
+      {!dismissedAutoPromoteNotice && recentlyAutoPromoted.length > 0 && (
+        <div style={{
+          display: 'flex',
+          alignItems: 'flex-start',
+          gap: '0.75rem',
+          margin: '0 0 1rem',
+          padding: '0.6rem 0.8rem',
+          border: '1px solid #86efac',
+          background: '#f0fdf4',
+          borderRadius: 8,
+          fontSize: '0.85rem',
+          lineHeight: 1.45,
+          color: 'var(--color-text, #0f172a)',
+        }}>
+          <span>
+            <strong>Now automatic:</strong>{' '}
+            {recentlyAutoPromoted.map(h => h.name).join(', ')} —{' '}
+            {recentlyAutoPromoted.length === 1 ? 'kept up' : 'each kept up'} more than {AUTO_PROMOTE_PCT}% of
+            the last {AUTO_PROMOTE_DAYS} tracked days, so {recentlyAutoPromoted.length === 1 ? 'it has' : 'they have'} moved
+            to <em>Automatically</em> and left the routine lists. Change the status back on the Habits tab if you
+            still want to log {recentlyAutoPromoted.length === 1 ? 'it' : 'them'} by hand.
+          </span>
+          <button
+            type="button"
+            onClick={() => setDismissedAutoPromoteNotice(true)}
+            style={{
+              flexShrink: 0, background: 'none', border: 'none', padding: 0,
+              cursor: 'pointer', fontFamily: 'inherit', fontSize: '0.8rem',
+              fontWeight: 600, color: 'var(--color-text-muted, #64748b)',
+            }}
+          >
+            Dismiss
+          </button>
         </div>
       )}
 
