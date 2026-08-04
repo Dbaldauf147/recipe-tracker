@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   yearOfPeriodKey, splitByYear, yearsForKeys, mergeYearDocs,
-  parseYearDoc, countMarks, mergeLogs,
+  parseYearDoc, countMarks, mergeLogs, cellsByYear, applyCells, diffCells,
 } from './habitLogKeys.js';
 
 // These functions decide which year document a mark is written to and read
@@ -102,6 +102,78 @@ test('mergeLogs leaves the inputs untouched', () => {
   mergeLogs(base, overlay);
   assert.deepEqual(base, { '2026-01-01': { h1: 'done' } });
   assert.deepEqual(overlay, { '2026-01-01': { h2: 'done' } });
+});
+
+// --- cell-level writes -------------------------------------------------------
+// These three are what keep two writers from overwriting each other. The app and
+// the hourly automation cron both write the same year document; whoever wrote
+// their whole copy of the year last used to win, silently deleting the other's
+// marks. Everything below exists to make a write say only what it changed.
+
+test('cellsByYear groups cells by document and drops unfilable ones', () => {
+  const out = cellsByYear([
+    { key: '2026-08-03', habitId: 'h1', mark: 'done' },
+    { key: '2026-W31', habitId: 'h2', mark: null },
+    { key: '2025-12-31', habitId: 'h1', mark: 'done' },
+    { key: 'garbage', habitId: 'h1', mark: 'done' },   // unparseable key
+    { key: '2026-08-03', mark: 'done' },               // no habitId
+  ]);
+  assert.deepEqual(Object.keys(out).sort(), ['2025', '2026']);
+  assert.equal(out['2026'].length, 2);
+  assert.equal(out['2025'].length, 1);
+});
+
+test('applyCells sets, erases, and drops a bucket left empty', () => {
+  const part = { '2026-08-03': { h1: 'done', h2: 'skipped' }, '2026-08-04': { h1: 'done' } };
+  const out = applyCells(part, [
+    { key: '2026-08-03', habitId: 'h2', mark: 'exceeded' }, // change
+    { key: '2026-08-05', habitId: 'h9', mark: 'done' },     // brand new day
+    { key: '2026-08-04', habitId: 'h1', mark: null },       // erase, emptying the day
+  ]);
+  assert.deepEqual(out, {
+    '2026-08-03': { h1: 'done', h2: 'exceeded' },
+    '2026-08-05': { h9: 'done' },
+  });
+  // The input is untouched — callers hold it as React state.
+  assert.deepEqual(part['2026-08-04'], { h1: 'done' });
+});
+
+// The actual regression. On 2026-08-03 the cron auto-marked the Workout habit
+// while a Habits tab opened that morning still held a log without it. The tab's
+// next tap wrote its whole copy of 2026 back and the ✓ vanished — and because
+// habitLogAuto still recorded the mark, the cron then read the empty cell as a
+// deliberate erase and refused to refill it, permanently.
+test('a concurrent writer\'s mark survives a cell write', () => {
+  const asLoadedByTheTab = { '2026-08-03': { habitA: 'done' } };
+  // The cron writes the workout ✓ after the tab loaded.
+  const onTheServer = applyCells(asLoadedByTheTab, [
+    { key: '2026-08-03', habitId: 'workout', mark: 'done' },
+  ]);
+  // Now the tab marks something else. It only says what IT changed.
+  const afterTheTap = applyCells(onTheServer, [
+    { key: '2026-08-03', habitId: 'habitB', mark: 'skipped' },
+  ]);
+  assert.equal(afterTheTap['2026-08-03'].workout, 'done', 'the auto-marked workout survived');
+  assert.deepEqual(afterTheTap['2026-08-03'], { habitA: 'done', workout: 'done', habitB: 'skipped' });
+});
+
+test('diffCells reports only what changed, erases included', () => {
+  const base = { '2026-08-03': { h1: 'done', h2: 'skipped' }, '2026-08-04': { h1: 'done' } };
+  const next = { '2026-08-03': { h1: 'done', h2: 'exceeded', h3: 'done' } };
+  const cells = diffCells(next, base);
+  const sorted = [...cells].sort((a, b) => `${a.key}${a.habitId}`.localeCompare(`${b.key}${b.habitId}`));
+  assert.deepEqual(sorted, [
+    { key: '2026-08-03', habitId: 'h2', mark: 'exceeded' },
+    { key: '2026-08-03', habitId: 'h3', mark: 'done' },
+    { key: '2026-08-04', habitId: 'h1', mark: null },  // the whole day went away
+  ]);
+  assert.deepEqual(diffCells(base, base), [], 'an unchanged log writes nothing');
+});
+
+test('diffCells + applyCells reproduce the writer\'s intent exactly', () => {
+  const base = { '2026-08-03': { h1: 'done' }, '2026-W31': { h2: 'skipped' } };
+  const next = { '2026-08-03': { h1: 'exceeded', h4: 'done' }, '2026': { h3: 'done' } };
+  assert.deepEqual(applyCells(base, diffCells(next, base)), next);
 });
 
 test('a full-size history round-trips through split → serialise → parse → merge', () => {

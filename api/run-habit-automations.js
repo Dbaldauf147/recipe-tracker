@@ -84,9 +84,9 @@
 import { initializeApp, cert, getApps } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
 import {
-  loadHabitLogAdmin, saveHabitLogYearsAdmin,
-  loadHabitLogAutoAdmin, saveHabitLogAutoYearsAdmin,
-  yearsForKeys,
+  loadHabitLogAdmin, saveHabitLogCellsAdmin,
+  loadHabitLogAutoAdmin, saveHabitLogAutoCellsAdmin,
+  diffCells,
 } from './_data/habitLogYears.js';
 import { sundayWeekKeyFromYMD, weekKeyOfDate, periodKeyFor } from './_data/habitPeriods.js';
 
@@ -414,6 +414,25 @@ export default async function handler(req, res) {
       const nextAuto = { ...habitLogAuto };
       let changed = 0;
 
+      // dryRun-only: when each year document was last written. The two maps are
+      // written together by this engine, so a habitLog doc materially NEWER than
+      // its habitLogAuto twin means someone else rewrote the marks afterwards —
+      // the app overwrites the whole year from memory, so a tab that loaded
+      // before an auto-mark drops it on the next tap.
+      if (dryRun) {
+        summary.yearDocWrites = summary.yearDocWrites || {};
+        const year = String(when.y);
+        for (const field of ['habitLog', 'habitLogAuto']) {
+          try {
+            const s = await db.doc(`users/${uid}/${field}/${year}`).get();
+            summary.yearDocWrites[`${uid}/${field}/${year}`] = s.exists
+              ? (s.data().updatedAt || '(no updatedAt)') : '(missing)';
+          } catch (e) {
+            summary.yearDocWrites[`${uid}/${field}/${year}`] = `(read failed: ${e.message})`;
+          }
+        }
+      }
+
       // Per-cell auto-status ("why it was / wasn't recorded"), stored in its own
       // subcollection doc to keep the user doc lean. Preserve prior runs' entries
       // (older cells stay explained) and prune anything past STATUS_KEEP_DAYS.
@@ -474,10 +493,18 @@ export default async function handler(req, res) {
           // exactly which guard a rule hit without writing anything.
           const detail = dryRun ? {
             habit: habit.name || habit.habit || rule.habitId,
+            habitId: rule.habitId, ruleId: rule.id ?? null, periodKey: key,
             cadence: habit.cadence || '(daily)', habitStatus: habit.status || '',
             source: rule.source, trigger: rule.trigger,
             mark: rule.mark, elseMark: rule.elseMark ?? null, streakMark: streakMarkFor(rule),
             day: dayCtx.dateKey, isDaily, dayIsOver, plannedRest,
+            // The PERSISTED cell as loaded, not the in-flight clone: what the
+            // log says vs what the engine remembers writing. The pair is what
+            // distinguishes a hand-erase from a mark that went missing —
+            // habitLogAuto holding a ✓ for a cell habitLog says is empty means
+            // the engine did record the workout and the mark disappeared after.
+            cell: habitLog[key]?.[rule.habitId] ?? null,
+            autoCell: habitLogAuto[key]?.[rule.habitId] ?? null,
           } : null;
           const emit = (outcome) => {
             if (!detail) return;
@@ -671,16 +698,15 @@ export default async function handler(req, res) {
       if (!dryRun) {
         try {
           if (changed > 0) {
-            // Only the years the engine actually touched get rewritten. Writing
-            // habitLog back onto the user doc would recreate the field whose
-            // index entries were rejecting every write to that document.
-            const touchedKeys = Object.keys(nextLog).filter(k => nextLog[k] !== habitLog[k]);
-            await saveHabitLogYearsAdmin(db, uid, nextLog, yearsForKeys(touchedKeys));
-            // Same treatment for the auto mirror — writing it back onto the user
-            // doc would have re-added a field that grows one entry per auto-set
-            // cell, which is the same slow march toward the index limit.
-            const touchedAutoKeys = Object.keys(nextAuto).filter(k => nextAuto[k] !== habitLogAuto[k]);
-            await saveHabitLogAutoYearsAdmin(db, uid, nextAuto, yearsForKeys(touchedAutoKeys));
+            // ONLY the cells this run decided, merged into the year documents in
+            // a transaction. Writing back our whole copy of a year would undo any
+            // mark made in the app since we read it — minutes ago, on a scan this
+            // size. (Neither map goes back on the user doc: habitLog's index
+            // entries were what started rejecting every write to that document,
+            // and the auto mirror grows one entry per auto-set cell right behind
+            // it.)
+            await saveHabitLogCellsAdmin(db, uid, diffCells(nextLog, habitLog));
+            await saveHabitLogAutoCellsAdmin(db, uid, diffCells(nextAuto, habitLogAuto));
           }
           if (statusChanged) {
             await db.doc(`users/${uid}/data/habitAutoStatus`).set({ status: nextStatus, updatedAt: nowIso }, { merge: false });

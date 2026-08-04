@@ -20,7 +20,7 @@
 //
 // Layout: users/{uid}/{field}/{YYYY} = { marks: '<json>', v: 1, updatedAt }
 
-import { doc, getDoc, getDocs, setDoc, collection, deleteField, updateDoc } from 'firebase/firestore';
+import { doc, getDoc, getDocs, setDoc, collection, deleteField, updateDoc, runTransaction } from 'firebase/firestore';
 import { db } from '../firebase';
 import { writeDataSnapshot, alertGuardBlock } from './firestoreSync';
 // The key parsing / merge rules are shared verbatim with the crons — see
@@ -28,12 +28,12 @@ import { writeDataSnapshot, alertGuardBlock } from './firestoreSync';
 // unaffected by where they live.
 import {
   yearOfPeriodKey, splitByYear, yearsForKeys, mergeYearDocs,
-  parseYearDoc, countMarks, mergeLogs,
+  parseYearDoc, countMarks, mergeLogs, cellsByYear, applyCells, diffCells,
 } from './habitLogKeys';
 
 export {
   yearOfPeriodKey, splitByYear, yearsForKeys, mergeYearDocs,
-  parseYearDoc, countMarks, mergeLogs,
+  parseYearDoc, countMarks, mergeLogs, cellsByYear, applyCells, diffCells,
 };
 
 export const HABIT_LOG_VERSION = 1;
@@ -152,6 +152,81 @@ async function saveOneYear(uid, field, year, part) {
   yearMarkCounts.set(ck, newCount);
 }
 
+/**
+ * Persist INDIVIDUAL CELL changes, merging them into whatever the year document
+ * currently holds rather than overwriting it with this client's copy.
+ *
+ * Prefer this over saveMarkYears for anything a person does one mark at a time.
+ *
+ * WHY it exists: the whole-map write above treats the caller's in-memory log as
+ * the truth for an entire year. That is only safe while nothing else writes, and
+ * something else does — the hourly automation engine. The Habits page reads the
+ * log once on mount and never refreshes it, so an auto-marked workout recorded
+ * at 6pm was wiped by the next tap in a tab opened that morning, which rewrote
+ * the year from its stale copy. Worse, the engine then saw an empty cell it had
+ * a habitLogAuto record for, read that as a deliberate erase, and left the day
+ * blank for good. A transaction over just the named cells has no opinion about
+ * the rest of the year, so the two writers stop overwriting each other.
+ *
+ * Whole-map writes remain right for bulk operations — restore, import, the
+ * migration — where replacing the year IS the intent.
+ */
+export async function saveMarkCells(uid, cells, field = HABIT_LOG) {
+  if (!uid) return;
+  const byYear = cellsByYear(cells);
+  await Promise.all(
+    Object.keys(byYear).map(year => saveOneYearCells(uid, field, year, byYear[year])),
+  );
+}
+
+// Transient failures worth another go. The transaction needs the server (there
+// is no offline persistence configured), and callers swallow errors to keep a
+// tap from throwing, so a blip would otherwise drop the mark silently.
+const CELL_WRITE_ATTEMPTS = 3;
+
+async function saveOneYearCells(uid, field, year, cells) {
+  const ref = doc(db, 'users', uid, field, year);
+  let blockedCount = 0;
+  let finalCount = 0;
+
+  for (let attempt = 1; ; attempt++) {
+    try {
+      await runTransaction(db, async (tx) => {
+        const snap = await tx.get(ref);
+        const prev = snap.exists() ? parseYearDoc(snap.data()) : {};
+        const next = applyCells(prev, cells);
+        const prevCount = countMarks(prev);
+        finalCount = countMarks(next);
+        // Mirrors the whole-map guard: a year holding marks must never come out
+        // empty. Only reachable by naming every cell in the year, which no
+        // interaction does — so it stays a backstop, not a routine path.
+        if (prevCount > 0 && finalCount === 0 && NEVER_EMPTY.has(field)) {
+          blockedCount = prevCount;
+          throw new Error(`[${field} ${year}] blocked write: would erase ${prevCount} marks`);
+        }
+        tx.set(ref, {
+          marks: JSON.stringify(next),
+          v: HABIT_LOG_VERSION,
+          updatedAt: new Date().toISOString(),
+        });
+      });
+      break;
+    } catch (err) {
+      if (blockedCount) { // a guard trip, not a network problem — don't retry it
+        console.error(err.message);
+        alertGuardBlock(`${field}:${year}`, blockedCount);
+        throw err;
+      }
+      if (attempt >= CELL_WRITE_ATTEMPTS) throw err;
+      await new Promise(r => setTimeout(r, 300 * attempt));
+    }
+  }
+
+  // Keep the whole-map path's baseline honest: it decides from this count
+  // whether a later full write has to verify against the server first.
+  yearMarkCounts.set(countKey(uid, field, year), finalCount);
+}
+
 /** True once at least one year document exists (i.e. this field is migrated). */
 export async function hasMigratedMarks(uid, field = HABIT_LOG) {
   if (!uid) return false;
@@ -258,3 +333,6 @@ export const loadHabitLog = (uid) => loadMarks(uid, HABIT_LOG);
 export const saveHabitLog = (uid, log, touchedKeys) => saveMarks(uid, log, touchedKeys, HABIT_LOG);
 export const loadHabitLogAuto = (uid) => loadMarks(uid, HABIT_LOG_AUTO);
 export const saveHabitLogAuto = (uid, log, touchedKeys) => saveMarks(uid, log, touchedKeys, HABIT_LOG_AUTO);
+// The cell-level writes — what everything that marks a habit should call.
+export const saveHabitLogCells = (uid, cells) => saveMarkCells(uid, cells, HABIT_LOG);
+export const saveHabitLogAutoCells = (uid, cells) => saveMarkCells(uid, cells, HABIT_LOG_AUTO);

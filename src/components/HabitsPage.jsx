@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { saveField, loadField, loadHabitAutoStatus } from '../utils/firestoreSync';
-import { loadHabitLog, saveHabitLog, loadHabitLogAuto, saveHabitLogAuto } from '../utils/habitLogYears';
+import { loadHabitLog, loadHabitLogAuto, saveHabitLogCells, saveHabitLogAutoCells } from '../utils/habitLogYears';
 import { HABIT_FIELDS, seedHabits, makeHabitId } from '../data/habitsSeed';
 import { yesterdayDate, yesterdayDayKey, yesterdayUnloggedHabits } from '../utils/habitOutstanding';
 
@@ -1277,7 +1277,7 @@ export function HabitsPage({ onBack, user }) {
   // filled is how it knows you cleared it on purpose and it mustn't refill.
   function claimCellsFromEngine(cells) {
     setHabitLogAuto(prev => {
-      let touched = false;
+      const removed = [];
       const next = { ...prev };
       for (const { habitId, key } of cells) {
         if (next[key]?.[habitId] === undefined) continue;
@@ -1285,28 +1285,33 @@ export function HabitsPage({ onBack, user }) {
         delete bucket[habitId];
         if (Object.keys(bucket).length === 0) delete next[key];
         else next[key] = bucket;
-        touched = true;
+        removed.push({ key, habitId, mark: null });
       }
-      if (!touched) return prev;
-      // Only the years these cells fall in get rewritten (see habitLogYears).
-      if (user?.uid) saveHabitLogAuto(user.uid, next, cells.map(c => c.key)).catch(() => {});
+      if (removed.length === 0) return prev;
+      // Only these cells are written, merged into the server's copy — never the
+      // whole year from this tab's state (see habitLogYears.saveMarkCells).
+      if (user?.uid) saveHabitLogAutoCells(user.uid, removed).catch(() => {});
       return next;
     });
   }
 
   // Toggle a habit's mark for its current period. Tapping the active mark
-  // again clears it. Persists to Firestore (web↔mobile) — only the year the
-  // mark belongs to is rewritten, not the whole history.
+  // again clears it. Persists to Firestore (web↔mobile) — just this one cell,
+  // merged into the stored year, so a mark made elsewhere since this page
+  // loaded isn't overwritten.
   function onMark(h, mark) {
     const key = periodKey(h.cadence);
     if (markOf(h) !== mark) claimCellsFromEngine([{ habitId: h.id, key }]); // setting, not toggling off
     setHabitLog(prev => {
       const bucket = { ...(prev[key] || {}) };
-      if (bucket[h.id] === mark) delete bucket[h.id];
+      const clearing = bucket[h.id] === mark;
+      if (clearing) delete bucket[h.id];
       else bucket[h.id] = mark;
       const next = { ...prev, [key]: bucket };
       if (Object.keys(bucket).length === 0) delete next[key];
-      if (user?.uid) saveHabitLog(user.uid, next, [key]).catch(() => {});
+      if (user?.uid) {
+        saveHabitLogCells(user.uid, [{ key, habitId: h.id, mark: clearing ? null : mark }]).catch(() => {});
+      }
       return next;
     });
   }
@@ -1321,7 +1326,7 @@ export function HabitsPage({ onBack, user }) {
       else bucket[habitId] = mark;
       const next = { ...prev, [key]: bucket };
       if (Object.keys(bucket).length === 0) delete next[key];
-      if (user?.uid) saveHabitLog(user.uid, next, [key]).catch(() => {});
+      if (user?.uid) saveHabitLogCells(user.uid, [{ key, habitId, mark: mark || null }]).catch(() => {});
       return next;
     });
   }
@@ -1340,7 +1345,12 @@ export function HabitsPage({ onBack, user }) {
         if (Object.keys(bucket).length === 0) delete next[key];
         else next[key] = bucket;
       }
-      if (user?.uid) saveHabitLog(user.uid, next, cells.map(c => c.key)).catch(() => {});
+      if (user?.uid) {
+        saveHabitLogCells(
+          user.uid,
+          cells.map(c => ({ key: c.key, habitId: c.habitId, mark: mark || null })),
+        ).catch(() => {});
+      }
       return next;
     });
   }
@@ -1352,8 +1362,15 @@ export function HabitsPage({ onBack, user }) {
   function mergeHabitLog(incoming, clearBlanks) {
     setHabitLog(prev => {
       const next = { ...prev };
+      // The cells this import actually changes, collected as we go — an import
+      // touches a lot of history, and writing those years wholesale would take
+      // every OTHER mark in them from this tab's copy too.
+      const cells = [];
       for (const key of Object.keys(incoming)) {
         next[key] = { ...(next[key] || {}), ...incoming[key] };
+        for (const id of Object.keys(incoming[key])) {
+          cells.push({ key, habitId: id, mark: incoming[key][id] });
+        }
       }
       for (const key of Object.keys(clearBlanks || {})) {
         if (!next[key]) continue;
@@ -1362,11 +1379,11 @@ export function HabitsPage({ onBack, user }) {
           if (row[id] !== 'skipped') continue;
           if (row === next[key]) row = next[key] = { ...row };
           delete row[id];
+          cells.push({ key, habitId: id, mark: null });
         }
         if (Object.keys(next[key]).length === 0) delete next[key];
       }
-      const touched = [...Object.keys(incoming), ...Object.keys(clearBlanks || {})];
-      if (user?.uid) saveHabitLog(user.uid, next, touched).catch(() => {});
+      if (user?.uid && cells.length > 0) saveHabitLogCells(user.uid, cells).catch(() => {});
       return next;
     });
   }

@@ -16,7 +16,7 @@ import {
   stretchSecondsByRegion, stretchEntriesByRegion, stretchGoalProgress, clampGoalMin,
   DEFAULT_STRETCH_GOAL_MIN,
 } from '../utils/stretchGoal';
-import { loadHabitLog, saveHabitLog } from '../utils/habitLogYears';
+import { loadHabitLog, saveHabitLogCells } from '../utils/habitLogYears';
 import { periodKey } from '../utils/habitOutstanding';
 import { BodyHeatmap } from './BodyHeatmap';
 import { ExerciseDemo } from './ExerciseDemo';
@@ -2771,8 +2771,10 @@ export function WorkoutPage({ onBack, user }) {
     const key = periodKey(habit.cadence, new Date(y, m - 1, d));
     const log = await loadHabitLog(user.uid);
     if (log?.[key]?.[habit.id]) return `\n\n“${habit.name}” was already logged for this period.`;
-    const next = { ...log, [key]: { ...(log[key] || {}), [habit.id]: 'done' } };
-    await saveHabitLog(user.uid, next, [key]);
+    // Just this cell — the read above is only for the already-logged check, and
+    // writing the whole year back from it would drop anything recorded between
+    // that read and this write.
+    await saveHabitLogCells(user.uid, [{ key, habitId: habit.id, mark: 'done' }]);
     return `\n\n✓ Marked habit: ${habit.name}`;
   }
 

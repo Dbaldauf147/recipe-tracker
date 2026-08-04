@@ -80,6 +80,65 @@ export function countMarks(log) {
 }
 
 /**
+ * Group cell changes by the year document each one belongs in.
+ *
+ * A "cell" is { key, habitId, mark } — one habit's mark for one period, with a
+ * null/undefined mark meaning erase. Keys that don't resolve to a year are
+ * dropped for the same reason splitByYear drops them: a junk key must never
+ * land in a real year's document.
+ */
+export function cellsByYear(cells) {
+  const out = {};
+  for (const c of cells || []) {
+    if (!c || !c.habitId) continue;
+    const year = yearOfPeriodKey(c.key);
+    if (!year) continue;
+    (out[year] || (out[year] = [])).push(c);
+  }
+  return out;
+}
+
+/**
+ * Apply cell changes to one year's map, returning a NEW map.
+ *
+ * This is the merge that makes concurrent writers safe. Everything not named in
+ * `cells` is carried through from `part` untouched, so a mark somebody else
+ * added since we read the year survives — where writing our whole copy of the
+ * year back would silently drop it.
+ */
+export function applyCells(part, cells) {
+  const out = { ...(part || {}) };
+  for (const { key, habitId, mark } of cells || []) {
+    const bucket = { ...(out[key] || {}) };
+    if (mark === null || mark === undefined) delete bucket[habitId];
+    else bucket[habitId] = mark;
+    if (Object.keys(bucket).length === 0) delete out[key];
+    else out[key] = bucket;
+  }
+  return out;
+}
+
+/**
+ * The cells that differ between two logs, as applyCells input.
+ *
+ * Used by a writer that computed a whole new log in memory but should only
+ * persist what it actually changed. Deletions are reported as a null mark.
+ */
+export function diffCells(next, base) {
+  const out = [];
+  const keys = new Set([...Object.keys(next || {}), ...Object.keys(base || {})]);
+  for (const key of keys) {
+    const nb = (next || {})[key] || {};
+    const ob = (base || {})[key] || {};
+    for (const habitId of new Set([...Object.keys(nb), ...Object.keys(ob)])) {
+      if (nb[habitId] === ob[habitId]) continue;
+      out.push({ key, habitId, mark: nb[habitId] ?? null });
+    }
+  }
+  return out;
+}
+
+/**
  * Merge two logs at the MARK level, `overlay` winning per cell.
  *
  * A shallow `{...base, ...overlay}` would be wrong: it replaces a whole period

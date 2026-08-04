@@ -14,12 +14,12 @@
 // different year on the server than it is in the app.
 import {
   yearOfPeriodKey, splitByYear, yearsForKeys,
-  parseYearDoc, countMarks, mergeLogs,
+  parseYearDoc, countMarks, mergeLogs, cellsByYear, applyCells, diffCells,
 } from '../../src/utils/habitLogKeys.js';
 
 export {
   yearOfPeriodKey, splitByYear, yearsForKeys,
-  parseYearDoc, countMarks, mergeLogs,
+  parseYearDoc, countMarks, mergeLogs, cellsByYear, applyCells, diffCells,
 };
 
 export const HABIT_LOG_VERSION = 1;
@@ -70,8 +70,34 @@ export async function saveMarkYearsAdmin(db, uid, log, years, field = HABIT_LOG)
   )));
 }
 
+/**
+ * Write INDIVIDUAL CELLS, merged into the year document inside a transaction.
+ *
+ * The cron reads a user's whole log, spends time evaluating rules against it,
+ * and only then writes. Handing back its whole copy of the year would undo any
+ * mark made in the app during that gap — and symmetrically, the app used to
+ * undo the cron's. Both sides now write only what they changed.
+ */
+export async function saveMarkCellsAdmin(db, uid, cells, field = HABIT_LOG) {
+  const byYear = cellsByYear(cells);
+  await Promise.all(Object.keys(byYear).map(year => (
+    db.runTransaction(async (tx) => {
+      const ref = db.doc(`users/${uid}/${field}/${year}`);
+      const snap = await tx.get(ref);
+      const prev = snap.exists ? parseYearDoc(snap.data()) : {};
+      tx.set(ref, {
+        marks: JSON.stringify(applyCells(prev, byYear[year])),
+        v: HABIT_LOG_VERSION,
+        updatedAt: new Date().toISOString(),
+      });
+    })
+  )));
+}
+
 // Named wrappers, so call sites read as what they are.
 export const loadHabitLogAdmin = (db, uid, userData) => loadMarksAdmin(db, uid, userData, HABIT_LOG);
 export const saveHabitLogYearsAdmin = (db, uid, log, years) => saveMarkYearsAdmin(db, uid, log, years, HABIT_LOG);
 export const loadHabitLogAutoAdmin = (db, uid, userData) => loadMarksAdmin(db, uid, userData, HABIT_LOG_AUTO);
 export const saveHabitLogAutoYearsAdmin = (db, uid, log, years) => saveMarkYearsAdmin(db, uid, log, years, HABIT_LOG_AUTO);
+export const saveHabitLogCellsAdmin = (db, uid, cells) => saveMarkCellsAdmin(db, uid, cells, HABIT_LOG);
+export const saveHabitLogAutoCellsAdmin = (db, uid, cells) => saveMarkCellsAdmin(db, uid, cells, HABIT_LOG_AUTO);
