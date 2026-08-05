@@ -269,6 +269,29 @@
   font-weight: 600;
 }
 .stepUnit { font-size: 0.72rem; color: var(--color-text-muted); margin-left: -0.25rem; }
+
+/* "Do this one on both sides" — a toggle rather than a checkbox so it reads as
+   a state of the pose, and lit when on so a scan down the list shows which
+   poses are two-sided without reading the time boxes. */
+.sideToggle {
+  flex: 0 0 auto;
+  padding: 0.18rem 0.4rem;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+  font-family: inherit;
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+}
+.sideToggle:hover { border-color: var(--color-accent); color: var(--color-text); }
+.sideToggleOn {
+  border-color: var(--color-accent);
+  background: color-mix(in srgb, var(--color-accent) 14%, transparent);
+  color: var(--color-accent);
+}
 .addRow { display: flex; gap: 0.5rem; align-items: center; margin-top: 0.5rem; }
 .suggestions { display: flex; flex-wrap: wrap; gap: 0.35rem; }
 .suggestion {
@@ -327,10 +350,22 @@
   gap: 0.6rem;
 }
 .phase {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
   font-size: 0.7rem;
   font-weight: 800;
   letter-spacing: 0.18em;
   color: var(--color-text-muted);
+}
+/* Which side you're on, next to HOLD / SWITCH SIDES. Loud on purpose: it's the
+   one thing on screen you can't work out for yourself with your eyes shut. */
+.sideTag {
+  padding: 0.1rem 0.4rem;
+  border-radius: 999px;
+  background: var(--color-accent);
+  color: #fff;
+  letter-spacing: 0.1em;
 }
 .poseName {
   font-size: 1.7rem;
@@ -389,12 +424,26 @@
   gap: 0.15rem;
 }
 .upNextItem { font-size: 0.82rem; color: var(--color-text-muted); }
+.upNextSides {
+  margin-left: 0.35rem;
+  padding: 0 0.25rem;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  vertical-align: 1px;
+}
 .upNextActive { color: var(--color-text); font-weight: 700; }
 .upNextDone { text-decoration: line-through; opacity: 0.6; }
 
 @media (max-width: 520px) {
   .clock { font-size: 3.2rem; }
   .poseName { font-size: 1.35rem; }
+  /* A two-sided pose carries two time boxes; give the row the space back
+     rather than letting the reorder buttons squeeze off the edge. */
+  .stepRow { gap: 0.3rem; }
+  .stepHoldInput { width: 44px; }
 }
 
 /* Result of the automatic log, on the player's completion screen. */

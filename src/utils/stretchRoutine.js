@@ -9,6 +9,9 @@
 
 export const DEFAULT_HOLD_SEC = 40;
 export const DEFAULT_TRANSITION_SEC = 20;
+// Swapping legs is not the same job as walking to a new pose, so a two-sided
+// pose gets its own, shorter gap rather than the full transition.
+export const DEFAULT_SWITCH_SEC = 10;
 export const MIN_SEC = 5;
 export const MAX_SEC = 600;
 
@@ -36,6 +39,13 @@ export function normalizeRoutine(raw) {
       // Only carry an override when there actually is one — otherwise every
       // step would pin itself to whatever the routine default was at save time.
       if (s?.holdSec != null) step.holdSec = clampSec(s.holdSec, DEFAULT_HOLD_SEC);
+      // A pose done left AND right. `holdSec` times the first (left) side and
+      // `holdSecRight` the second, so the tighter side can get longer. Both are
+      // absent unless set, same rule as above.
+      if (s?.bothSides) {
+        step.bothSides = true;
+        if (s?.holdSecRight != null) step.holdSecRight = clampSec(s.holdSecRight, DEFAULT_HOLD_SEC);
+      }
       return step;
     })
     .filter(Boolean);
@@ -46,6 +56,9 @@ export function normalizeRoutine(raw) {
     steps,
     holdSec: clampSec(raw.holdSec, DEFAULT_HOLD_SEC),
     transitionSec: clampSec(raw.transitionSec, DEFAULT_TRANSITION_SEC),
+    // The gap between the two sides of a both-sides pose. Its own number
+    // because switching legs is quicker than moving to a new pose.
+    switchSec: clampSec(raw.switchSec, DEFAULT_SWITCH_SEC),
     // Which workout this routine files itself under when logged. '' → the
     // caller's fallback (Yoga), which is what every routine did before the
     // field existed. Carried through here rather than defaulted so a routine
@@ -89,10 +102,16 @@ export function emptyRoutine(name = '') {
     steps: [],
     holdSec: DEFAULT_HOLD_SEC,
     transitionSec: DEFAULT_TRANSITION_SEC,
+    switchSec: DEFAULT_SWITCH_SEC,
     workoutType: '',
     habitId: '',
     updatedAt: new Date().toISOString(),
   };
+}
+
+/** Human label for a cue's side, for the screen and the spoken cue. */
+export function sideLabel(side) {
+  return side === 'left' ? 'Left' : side === 'right' ? 'Right' : '';
 }
 
 /**
@@ -101,19 +120,36 @@ export function emptyRoutine(name = '') {
  * A transition is emitted BEFORE each pose except the first: pressing play puts
  * you straight into pose one (no dead 20 seconds staring at the screen), and
  * the routine ends on a hold rather than a transition into nothing.
+ *
+ * A both-sides pose becomes TWO holds around a short `switch` cue, and keeps
+ * one `stepIndex` throughout: it's one pose you do twice, so the player's
+ * "3 / 8" counter and up-next list shouldn't split it in two. `stepName` stays
+ * the bare pose name on every cue — the side rides along in `side`, which keeps
+ * both holds logging to a single exercise instead of "Pigeon (left)" and
+ * "Pigeon (right)" landing as two unrelated entries in History.
  */
 export function buildCueSequence(routine) {
   const out = [];
   (routine?.steps || []).forEach((step, i) => {
+    const both = !!step.bothSides;
+    const firstSide = both ? 'left' : '';
     if (i > 0 && routine.transitionSec > 0) {
-      out.push({ kind: 'transition', seconds: routine.transitionSec, stepName: step.name, stepIndex: i });
+      out.push({
+        kind: 'transition', seconds: routine.transitionSec,
+        stepName: step.name, stepIndex: i, side: firstSide,
+      });
     }
-    out.push({
-      kind: 'hold',
-      seconds: clampSec(step.holdSec ?? routine.holdSec, DEFAULT_HOLD_SEC),
-      stepName: step.name,
-      stepIndex: i,
-    });
+    const leftSec = clampSec(step.holdSec ?? routine.holdSec, DEFAULT_HOLD_SEC);
+    out.push({ kind: 'hold', seconds: leftSec, stepName: step.name, stepIndex: i, side: firstSide });
+    if (!both) return;
+    // Falls back to the left side's time, not the routine default: a pose you
+    // pinned to 60s should give you 60s on both sides unless you say otherwise.
+    const rightSec = clampSec(step.holdSecRight ?? step.holdSec ?? routine.holdSec, DEFAULT_HOLD_SEC);
+    const switchSec = routine.switchSec ?? DEFAULT_SWITCH_SEC;
+    if (switchSec > 0) {
+      out.push({ kind: 'switch', seconds: switchSec, stepName: step.name, stepIndex: i, side: 'right' });
+    }
+    out.push({ kind: 'hold', seconds: rightSec, stepName: step.name, stepIndex: i, side: 'right' });
   });
   return out;
 }

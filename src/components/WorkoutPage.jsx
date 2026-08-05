@@ -2784,24 +2784,40 @@ export function WorkoutPage({ onBack, user }) {
   // the calendar sync with no special-casing.
   async function logStretchRoutine(routine, poseNames) {
     if (!poseNames || poseNames.length === 0) return;
-    const holdByName = new Map();
+    // One SET per hold, not one summed cell: a both-sides pose reads "45s 30s"
+    // in History, which is the left and the right, and the goal board still
+    // counts the whole 75s because totalSeconds sums the sets either way.
+    const holdsByName = new Map();
     for (const cue of buildCueSequence(routine)) {
       if (cue.kind !== 'hold') continue;
-      holdByName.set(cue.stepName, (holdByName.get(cue.stepName) || 0) + cue.seconds);
+      const prev = holdsByName.get(cue.stepName);
+      if (prev) prev.push(cue.seconds);
+      else holdsByName.set(cue.stepName, [cue.seconds]);
     }
-    const newEntries = poseNames.map(name => enrichEntry({
-      // The pose's OWN muscle group, not a blanket "Yoga" — that's what lets the
-      // per-group stretch goal (and Charts, and History filters) tell a hamstring
-      // session from a shoulder one. Yoga only as a last resort.
-      group: muscleGroupForExercise(name) || 'Yoga',
-      exercise: name,
-      sets: [`${holdByName.get(name) ?? routine.holdSec}s`, '', '', ''],
-      setDone: [true, false, false, false],
-      weight: '',
-      perArm: false,
-      notes: routine.name,
-      time: '',
-    }));
+    const newEntries = poseNames.map(name => {
+      const holds = holdsByName.get(name) ?? [routine.holdSec];
+      const sets = ['', '', '', ''];
+      // Four set cells is what the table has; the rare overflow (the same pose
+      // three-plus times, both sides) folds into the last one so no held time
+      // is silently dropped from the goal board.
+      holds.forEach((sec, i) => {
+        const slot = Math.min(i, sets.length - 1);
+        sets[slot] = i < sets.length ? `${sec}s` : `${Number(sets[slot].replace('s', '')) + sec}s`;
+      });
+      return enrichEntry({
+        // The pose's OWN muscle group, not a blanket "Yoga" — that's what lets the
+        // per-group stretch goal (and Charts, and History filters) tell a hamstring
+        // session from a shoulder one. Yoga only as a last resort.
+        group: muscleGroupForExercise(name) || 'Yoga',
+        exercise: name,
+        sets,
+        setDone: sets.map(v => v !== ''),
+        weight: '',
+        perArm: false,
+        notes: routine.name,
+        time: '',
+      });
+    });
     // The routine's own workout type, so a yoga flow and a desk-stretch don't
     // pile into the same bucket. Unset falls back to Yoga, which is what every
     // routine did before the field existed.

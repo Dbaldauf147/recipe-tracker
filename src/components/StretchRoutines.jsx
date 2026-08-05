@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import styles from './StretchRoutines.module.css';
 import {
-  buildCueSequence, routineDurationSec, normalizeRoutine, emptyRoutine, newId, mmss,
-  DEFAULT_HOLD_SEC, DEFAULT_TRANSITION_SEC, MIN_SEC, MAX_SEC,
+  buildCueSequence, routineDurationSec, normalizeRoutine, emptyRoutine, newId, mmss, sideLabel,
+  DEFAULT_HOLD_SEC, DEFAULT_TRANSITION_SEC, DEFAULT_SWITCH_SEC, MIN_SEC, MAX_SEC,
 } from '../utils/stretchRoutine';
 import {
   formatStretchDuration, clampGoalMin, STRETCH_GOAL_WINDOW_DAYS, MIN_GOAL_MIN, MAX_GOAL_MIN,
@@ -122,14 +122,21 @@ function Player({ routine, onClose, onLog }) {
     announcedRef.current = cueIdx;
     const cue = cues[cueIdx];
     if (!cue) return;
+    // The side is spoken every time on a two-sided pose, never inferred from
+    // "you must be on the second one by now" — eyes are shut and the whole
+    // point of the cue is that you don't have to keep count.
+    const side = sideLabel(cue.side).toLowerCase();
     // Tone first, words second — the order you want when your eyes are shut.
     if (cue.kind === 'hold') {
       play('start');
-      const t = setTimeout(() => speak(cue.stepName), 320);
+      const t = setTimeout(() => speak(side ? `${cue.stepName}, ${side} side` : cue.stepName), 320);
       return () => clearTimeout(t);
     }
     play('transition');
-    const t = setTimeout(() => speak(`Next, ${cue.stepName}`), 420);
+    const words = cue.kind === 'switch'
+      ? `Switch sides. ${cue.stepName}, ${side} side`
+      : side ? `Next, ${cue.stepName}, ${side} side first` : `Next, ${cue.stepName}`;
+    const t = setTimeout(() => speak(words), 420);
     return () => clearTimeout(t);
   }, [cueIdx, running, done, cues, play]);
 
@@ -251,7 +258,14 @@ function Player({ routine, onClose, onLog }) {
           </div>
         ) : (
           <div className={styles.playerBody}>
-            <div className={styles.phase}>{isHold ? 'HOLD' : 'TRANSITION'}</div>
+            <div className={styles.phase}>
+              {isHold ? 'HOLD' : cue?.kind === 'switch' ? 'SWITCH SIDES' : 'TRANSITION'}
+              {/* The side sits in the phase line, not the pose name, so a glance
+                  at the big word tells you which limb without reading further. */}
+              {!!sideLabel(cue?.side) && (
+                <span className={styles.sideTag}>{sideLabel(cue?.side).toUpperCase()}</span>
+              )}
+            </div>
             <div className={styles.poseName}>{isHold ? cue?.stepName : `Next: ${cue?.stepName}`}</div>
             <div className={`${styles.clock} ${isHold ? '' : styles.clockTransition}`}>{mmss(remaining)}</div>
             <div className={styles.progressTrack}><div className={styles.progressFill} style={{ width: `${pct}%` }} /></div>
@@ -271,7 +285,10 @@ function Player({ routine, onClose, onLog }) {
               <li
                 key={s.id}
                 className={`${styles.upNextItem} ${i === cue?.stepIndex ? styles.upNextActive : ''} ${i < (cue?.stepIndex ?? 0) ? styles.upNextDone : ''}`}
-              >{s.name}</li>
+              >
+                {s.name}
+                {s.bothSides && <span className={styles.upNextSides}>L/R</span>}
+              </li>
             ))}
           </ol>
         )}
@@ -280,11 +297,11 @@ function Player({ routine, onClose, onLog }) {
   );
 }
 
-// A step with no hold override. The key has to be absent, not empty:
-// normalizeRoutine treats any non-null holdSec as an override.
-function dropHold(step) {
+// A step with one of its hold overrides removed. The key has to be absent, not
+// empty: normalizeRoutine treats any non-null holdSec as an override.
+function dropHold(step, key = 'holdSec') {
   const next = { ...step };
-  delete next.holdSec;
+  delete next[key];
   return next;
 }
 
@@ -325,26 +342,41 @@ export function StretchRoutines({
   // Per-pose hold override. An empty box means "use the routine default", so
   // clearing it DELETES the key rather than storing '' — normalizeRoutine treats
   // any non-null holdSec as an override and would clamp '' up to DEFAULT_HOLD_SEC.
-  const setStepHold = useCallback((idx, raw) => {
+  // `key` is 'holdSec' (the left side, or the only one) or 'holdSecRight'.
+  const setStepHold = useCallback((idx, raw, key = 'holdSec') => {
     setEditing(e => ({
       ...e,
       steps: e.steps.map((s, i) => {
         if (i !== idx) return s;
         const v = String(raw).trim();
-        if (!v) return dropHold(s);
-        return { ...s, holdSec: v };
+        if (!v) return dropHold(s, key);
+        return { ...s, [key]: v };
       }),
     }));
   }, []);
 
-  const clampStepHold = useCallback((idx) => {
+  const clampStepHold = useCallback((idx, key = 'holdSec') => {
     setEditing(e => ({
       ...e,
       steps: e.steps.map((s, i) => {
-        if (i !== idx || s.holdSec == null) return s;
-        const n = Number(s.holdSec);
-        if (!isFinite(n) || n <= 0) return dropHold(s);
-        return { ...s, holdSec: Math.min(MAX_SEC, Math.max(MIN_SEC, Math.round(n))) };
+        if (i !== idx || s[key] == null) return s;
+        const n = Number(s[key]);
+        if (!isFinite(n) || n <= 0) return dropHold(s, key);
+        return { ...s, [key]: Math.min(MAX_SEC, Math.max(MIN_SEC, Math.round(n))) };
+      }),
+    }));
+  }, []);
+
+  // Turn a pose into a left-and-right one, or back. Switching it off drops the
+  // right-side time rather than parking it: leaving a stale number behind means
+  // turning sides back on silently resurrects a time you set months ago.
+  const toggleStepSides = useCallback((idx) => {
+    setEditing(e => ({
+      ...e,
+      steps: e.steps.map((s, i) => {
+        if (i !== idx) return s;
+        if (s.bothSides) return dropHold(dropHold(s, 'bothSides'), 'holdSecRight');
+        return { ...s, bothSides: true };
       }),
     }));
   }, []);
@@ -409,6 +441,20 @@ export function StretchRoutines({
               onBlur={e => setEditing(v => ({ ...v, transitionSec: Math.min(MAX_SEC, Math.max(MIN_SEC, Number(e.target.value) || DEFAULT_TRANSITION_SEC)) }))}
             /> <span className={styles.unit}>sec</span>
           </div>
+          {/* Only shown once a pose actually has two sides — until then it's a
+              knob that does nothing, and the row is crowded enough. */}
+          {editing.steps.some(s => s.bothSides) && (
+            <div>
+              <label className={styles.label}>Switch sides</label>
+              <input
+                className={styles.numInput} type="number" min={MIN_SEC} max={MAX_SEC}
+                value={editing.switchSec ?? DEFAULT_SWITCH_SEC}
+                onChange={e => setEditing({ ...editing, switchSec: e.target.value })}
+                onBlur={e => setEditing(v => ({ ...v, switchSec: Math.min(MAX_SEC, Math.max(MIN_SEC, Number(e.target.value) || DEFAULT_SWITCH_SEC)) }))}
+                title="How long you get to swap legs or arms between the two sides of a pose."
+              /> <span className={styles.unit}>sec</span>
+            </div>
+          )}
           <div className={styles.totalBadge}>
             {mmss(routineDurationSec(normalizeRoutine(editing) || editing))} total
           </div>
@@ -449,6 +495,8 @@ export function StretchRoutines({
         ) : (
           <div className={styles.poseHint}>
             Each pose holds for {editing.holdSec}s unless you give it its own time.
+            Hit <strong>L/R</strong> for a pose you do on both sides — it gets held twice,
+            with its own time for each side.
           </div>
         )}
         <ol className={styles.stepList}>
@@ -456,6 +504,17 @@ export function StretchRoutines({
             <li key={s.id} className={styles.stepRow}>
               <span className={styles.stepNum}>{i + 1}</span>
               <span className={styles.stepName}>{s.name}</span>
+              {/* Two-sided poses get two boxes, one per side, because the point
+                  of doing both sides is usually that they aren't equal. */}
+              <button
+                type="button"
+                className={`${styles.sideToggle} ${s.bothSides ? styles.sideToggleOn : ''}`}
+                onClick={() => toggleStepSides(i)}
+                aria-pressed={!!s.bothSides}
+                title={s.bothSides
+                  ? `${s.name} is held on both sides. Click to make it one hold.`
+                  : `Hold ${s.name} on the left and then the right, with its own time for each.`}
+              >L/R</button>
               {/* Blank = inherit the routine's "Hold each". A pinned pose is
                   tinted so you can see at a glance which ones you've overridden. */}
               <input
@@ -467,10 +526,32 @@ export function StretchRoutines({
                 placeholder={String(editing.holdSec)}
                 onChange={e => setStepHold(i, e.target.value)}
                 onBlur={() => clampStepHold(i)}
-                aria-label={`Hold time for ${s.name}`}
-                title={`How long to hold ${s.name}. Leave blank to use the routine's ${editing.holdSec}s.`}
+                aria-label={s.bothSides ? `Left-side hold time for ${s.name}` : `Hold time for ${s.name}`}
+                title={s.bothSides
+                  ? `How long to hold the LEFT side of ${s.name}. Blank uses the routine's ${editing.holdSec}s.`
+                  : `How long to hold ${s.name}. Leave blank to use the routine's ${editing.holdSec}s.`}
               />
-              <span className={styles.stepUnit}>s</span>
+              {s.bothSides && (
+                <>
+                  <span className={styles.stepUnit}>s L</span>
+                  {/* Placeholder is the LEFT time, not the routine default —
+                      that's what an empty right box actually inherits. */}
+                  <input
+                    className={`${styles.stepHoldInput} ${s.holdSecRight != null ? styles.stepHoldSet : ''}`}
+                    type="number"
+                    min={MIN_SEC}
+                    max={MAX_SEC}
+                    value={s.holdSecRight ?? ''}
+                    placeholder={String(s.holdSec ?? editing.holdSec)}
+                    onChange={e => setStepHold(i, e.target.value, 'holdSecRight')}
+                    onBlur={() => clampStepHold(i, 'holdSecRight')}
+                    aria-label={`Right-side hold time for ${s.name}`}
+                    title={`How long to hold the RIGHT side of ${s.name}. Blank matches the left side.`}
+                  />
+                  <span className={styles.stepUnit}>s R</span>
+                </>
+              )}
+              {!s.bothSides && <span className={styles.stepUnit}>s</span>}
               <button className={styles.iconBtn} onClick={() => moveStep(i, -1)} disabled={i === 0} aria-label="Move up">↑</button>
               <button className={styles.iconBtn} onClick={() => moveStep(i, 1)} disabled={i === editing.steps.length - 1} aria-label="Move down">↓</button>
               <button className={styles.iconBtn} onClick={() => setEditing(e => ({ ...e, steps: e.steps.filter(x => x.id !== s.id) }))} aria-label="Remove">✕</button>
@@ -585,7 +666,11 @@ export function StretchRoutines({
             <button className={styles.cardMain} onClick={() => setEditing(r)}>
               <div className={styles.cardName}>{r.name}</div>
               <div className={styles.cardMeta}>
-                {r.steps.length} pose{r.steps.length === 1 ? '' : 's'} · {mmss(routineDurationSec(r))} · {(() => {
+                {r.steps.length} pose{r.steps.length === 1 ? '' : 's'}
+                {(() => {
+                  const sided = r.steps.filter(s => s.bothSides).length;
+                  return sided > 0 ? ` (${sided} both sides)` : '';
+                })()} · {mmss(routineDurationSec(r))} · {(() => {
                   // "40s hold" is a lie once poses carry their own times, so say
                   // how many are pinned instead of quoting the default alone.
                   const pinned = r.steps.filter(s => s.holdSec != null).length;
