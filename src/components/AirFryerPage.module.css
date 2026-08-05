@@ -118,6 +118,72 @@
   vertical-align: 1px;
 }
 
+/* Which of YOUR ingredients the row maps to. Fixed width so it reads as a
+   column down the list rather than a ragged middle, and truncated rather than
+   wrapped — a long ingredient name must not push the temp off the row. */
+.rowMap,
+.rowMapEmpty {
+  flex: 0 0 auto;
+  width: 8.5rem;
+  font-size: 0.78rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: right;
+}
+.rowMap { color: var(--color-text-secondary); }
+.rowMapEmpty { color: var(--color-border); }
+
+/* A hidden row, while you're looking at what you hid. Dimmed rather than
+   restyled, so it's obviously the same row in a temporary state. */
+.rowHidden { opacity: 0.55; }
+
+.tagHidden {
+  margin-left: 0.4rem;
+  padding: 0.05rem 0.35rem;
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+  border: 1px dashed var(--color-border);
+  border-radius: 4px;
+  vertical-align: 1px;
+}
+
+.rowActions {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.hideBtn {
+  background: none;
+  border: none;
+  padding: 0;
+  font-family: inherit;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+.hideBtn:hover { color: #c0392b; }
+
+.hiddenChip {
+  display: block;
+  margin: 1rem auto 0;
+  padding: 0.35rem 0.8rem;
+  font-family: inherit;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  background: var(--color-surface-alt);
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  cursor: pointer;
+}
+.hiddenChip:hover { color: var(--color-text); border-color: var(--color-accent); }
+
 /* The answer. Tabular figures so the column doesn't jitter as you scroll. */
 .rowNums {
   display: flex;
@@ -414,4 +480,10 @@
   .editGrid { grid-template-columns: repeat(2, 1fr); }
   .rowName { font-size: 0.92rem; }
   .temp { font-size: 1rem; }
+  /* Four columns don't fit across a phone, and the temp and time are what the
+     page is for. The mapping narrows rather than vanishing — knowing a row is
+     wired to your pantry is worth a few characters — and the empty dash goes
+     entirely, since a column of dashes is just noise on a small screen. */
+  .rowMap { width: 4.5rem; font-size: 0.7rem; }
+  .rowMapEmpty { display: none; }
 }

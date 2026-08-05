@@ -27,6 +27,16 @@ const CACHE_KEY = 'sunday-air-fryer-notes';
 const LINKS_FIELD = 'airFryerLinks';
 const LINKS_CACHE = 'sunday-air-fryer-links';
 
+// Guide rows you've hidden, as an array of lowercased names.
+//
+// HIDDEN, not deleted, for anything built in: the table ships in the bundle, so
+// there is nothing to delete — a "delete" would silently come back on the next
+// release. Your own rows are genuinely deleted from the editor. Kept in its own
+// field for the same reason links are: hiding a row isn't a disagreement with
+// its time, and shouldn't brand it "edited".
+const HIDDEN_FIELD = 'airFryerHidden';
+const HIDDEN_CACHE = 'sunday-air-fryer-hidden';
+
 const BLANK = { name: '', cat: 'Vegetables', tempF: '', min: '', max: '', doneF: '', note: '' };
 
 function readCache() {
@@ -41,6 +51,13 @@ function readLinksCache() {
     const raw = JSON.parse(localStorage.getItem(LINKS_CACHE) || '{}');
     return raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
   } catch { return {}; }
+}
+
+function readHiddenCache() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(HIDDEN_CACHE) || '[]');
+    return Array.isArray(raw) ? raw : [];
+  } catch { return []; }
 }
 
 /**
@@ -95,6 +112,11 @@ export function AirFryerPage({ onClose, user, recipes = [], weeklyRecipeIds = []
   // The guide row currently being linked, and the search text for its picker.
   const [linking, setLinking] = useState(null);
   const [linkQuery, setLinkQuery] = useState('');
+  const [hidden, setHidden] = useState(readHiddenCache);
+  // Hidden rows are out of the list until you ask for them. Not persisted —
+  // "show me what I hid" is a thing you do once to undo a mistake, not a mode
+  // you want the page to still be in tomorrow morning.
+  const [showHidden, setShowHidden] = useState(false);
 
   useEffect(() => {
     if (!uid) return;
@@ -120,6 +142,35 @@ export function AirFryerPage({ onClose, user, recipes = [], weeklyRecipeIds = []
       })
       .catch(() => { /* offline — the cached copy stands */ });
     return () => { cancelled = true; };
+  }, [uid]);
+
+  useEffect(() => {
+    if (!uid) return;
+    let cancelled = false;
+    loadField(uid, HIDDEN_FIELD)
+      .then(remote => {
+        if (cancelled || !Array.isArray(remote)) return;
+        setHidden(remote);
+        try { localStorage.setItem(HIDDEN_CACHE, JSON.stringify(remote)); } catch { /* quota */ }
+      })
+      .catch(() => { /* offline — the cached copy stands */ });
+    return () => { cancelled = true; };
+  }, [uid]);
+
+  /** Hide a guide row, or bring it back. */
+  const setRowHidden = useCallback((key, isHidden) => {
+    setHidden(prev => {
+      const next = isHidden
+        ? (prev.includes(key) ? prev : [...prev, key])
+        : prev.filter(k => k !== key);
+      try { localStorage.setItem(HIDDEN_CACHE, JSON.stringify(next)); } catch { /* quota */ }
+      if (uid) {
+        saveField(uid, HIDDEN_FIELD, next).catch(err => {
+          console.error('[air fryer] hidden save failed', err);
+        });
+      }
+      return next;
+    });
   }, [uid]);
 
   /** Point a guide row at a database ingredient, or pass null to unlink it. */
@@ -211,12 +262,22 @@ export function AirFryerPage({ onClose, user, recipes = [], weeklyRecipeIds = []
     [recipeIndex],
   );
 
+  const hiddenSet = useMemo(() => new Set(hidden), [hidden]);
+
   const visible = useMemo(() => {
     const q = query.trim().toLowerCase();
     return rows
+      .filter(r => showHidden || !hiddenSet.has(airFryerKey(r.name)))
       .filter(r => (!cat || r.cat === cat) && (!q || r.name.toLowerCase().includes(q) || (r.note || '').toLowerCase().includes(q)))
       .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
-  }, [rows, query, cat]);
+  }, [rows, query, cat, hiddenSet, showHidden]);
+
+  // Counted against the FULL row set, not the filtered one, so the "N hidden"
+  // chip doesn't change every time you type in the search box.
+  const hiddenCount = useMemo(
+    () => rows.filter(r => hiddenSet.has(airFryerKey(r.name))).length,
+    [rows, hiddenSet],
+  );
 
   // Anything whose ingredient is on this week's plan floats to the top — that's
   // the food actually in the house. Both halves keep the alphabetical order
@@ -280,8 +341,10 @@ export function AirFryerPage({ onClose, user, recipes = [], weeklyRecipeIds = []
     const key = airFryerKey(row.name);
     const open = openId === key;
     const found = recipeIndex[key] || { recipes: [], weekRecipes: [] };
+    const isHidden = hiddenSet.has(key);
+    const mapped = links[key];
     return (
-      <li key={key} className={styles.row}>
+      <li key={key} className={`${styles.row} ${isHidden ? styles.rowHidden : ''}`}>
         <button
           className={styles.rowMain}
           onClick={() => setOpenId(open ? null : key)}
@@ -291,6 +354,7 @@ export function AirFryerPage({ onClose, user, recipes = [], weeklyRecipeIds = []
             {row.name}
             {row.source === 'mine' && <span className={styles.tag}>yours</span>}
             {row.source === 'edited' && <span className={styles.tag}>edited</span>}
+            {isHidden && <span className={styles.tagHidden}>hidden</span>}
             {/* A count, not the names: the row has to stay readable at arm's
                 length. The names are one tap away, in the detail. */}
             {found.recipes.length > 0 && (
@@ -298,6 +362,15 @@ export function AirFryerPage({ onClose, user, recipes = [], weeklyRecipeIds = []
                 {found.recipes.length} recipe{found.recipes.length === 1 ? '' : 's'}
               </span>
             )}
+          </span>
+          {/* Which of YOUR ingredients this row is about. It was only visible
+              once you'd tapped into the detail, which is the wrong place for
+              it: the whole point of the link is knowing at a glance whether a
+              row is wired up to your pantry or still generic. An unmapped row
+              shows a dash rather than nothing, so the column reads as a column
+              and the gaps are obvious. */}
+          <span className={mapped ? styles.rowMap : styles.rowMapEmpty} title={mapped || 'Not linked to an ingredient'}>
+            {mapped || '—'}
           </span>
           {/* Temp and time are the answer — big, on one line, readable
               at arm's length with your hands full. */}
@@ -328,9 +401,20 @@ export function AirFryerPage({ onClose, user, recipes = [], weeklyRecipeIds = []
               </div>
             )}
             {renderLink(key)}
-            <button className={styles.editBtn} onClick={() => startEdit(row)}>
-              {row.source === 'built-in' ? 'Change this time' : 'Edit'}
-            </button>
+            <div className={styles.rowActions}>
+              <button className={styles.editBtn} onClick={() => startEdit(row)}>
+                {row.source === 'built-in' ? 'Change this time' : 'Edit'}
+              </button>
+              {/* "Hide", never "Delete", for a built-in: the table ships in the
+                  bundle, so a delete would quietly come back on the next
+                  release. Your own rows delete for real, from the editor. */}
+              <button
+                className={styles.hideBtn}
+                onClick={() => setRowHidden(key, !isHidden)}
+              >
+                {isHidden ? 'Unhide' : 'Hide this'}
+              </button>
+            </div>
           </div>
         )}
       </li>
@@ -518,10 +602,18 @@ export function AirFryerPage({ onClose, user, recipes = [], weeklyRecipeIds = []
 
       {visible.length === 0 ? (
         <div className={styles.empty}>
-          Nothing for “{query}”.
-          <button className={styles.linkBtn} onClick={() => { startEdit({ ...BLANK, name: query.trim() }); }}>
-            Add it
-          </button>
+          {query.trim() ? (
+            <>
+              Nothing for “{query}”.
+              <button className={styles.linkBtn} onClick={() => { startEdit({ ...BLANK, name: query.trim() }); }}>
+                Add it
+              </button>
+            </>
+          ) : (
+            // Reachable now that rows can be hidden — an empty list with a
+            // "Nothing for “”" message would just look broken.
+            'Nothing here. Anything you hid can be brought back below.'
+          )}
         </div>
       ) : (
         <>
@@ -539,6 +631,16 @@ export function AirFryerPage({ onClose, user, recipes = [], weeklyRecipeIds = []
           )}
           {restRows.length > 0 && <ul className={styles.list}>{restRows.map(renderRow)}</ul>}
         </>
+      )}
+
+      {/* Hidden rows are recoverable, and visibly so. A hide you can't find
+          your way back from is a delete with extra steps. */}
+      {hiddenCount > 0 && (
+        <button className={styles.hiddenChip} onClick={() => setShowHidden(v => !v)}>
+          {showHidden
+            ? `Hide the ${hiddenCount} hidden again`
+            : `${hiddenCount} hidden · show`}
+        </button>
       )}
 
       {/* The rules that apply to everything. Collapsed by default: you know them
