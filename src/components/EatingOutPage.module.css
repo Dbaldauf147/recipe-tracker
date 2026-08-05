@@ -460,6 +460,28 @@
   white-space: nowrap;
 }
 
+/* The health tag, sitting in the same chip row as the buckets but colour-coded
+   rather than accent-coloured. The point of the tag is telling the sensible
+   option from the treat at a glance, which a fourth neutral chip can't do. */
+.healthChipGood,
+.healthChipBad {
+  font-size: 0.7rem;
+  font-weight: 700;
+  border-radius: 999px;
+  padding: 1px 8px;
+  white-space: nowrap;
+}
+.healthChipGood {
+  color: #166534;
+  background: #DCFCE7;
+  border: 1px solid #BBF7D0;
+}
+.healthChipBad {
+  color: #9A3412;
+  background: #FFEDD5;
+  border: 1px solid #FED7AA;
+}
+
 .cardLink {
   font-size: 0.75rem;
   color: var(--color-accent);

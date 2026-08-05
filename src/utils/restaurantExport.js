@@ -11,6 +11,9 @@ const COLUMNS = [
   { key: 'ratingLabel', header: 'ratingLabel', get: r => r.ratingLabel || '' },
   { key: 'mealType', header: 'mealType', get: r => r.mealType || '' },
   { key: 'frequency', header: 'frequency', get: r => r.frequency || '' },
+  // The health tag also rides along in dietTags below, which is what the
+  // importer reads. This column is the readable one — the page's own field.
+  { key: 'health', header: 'health', get: r => r.health || '' },
   { key: 'cuisines', header: 'cuisines', get: r => (r.cuisines || []).join(', ') },
   { key: 'locations', header: 'locations', get: r => (r.locations || []).join(', ') },
   { key: 'categories', header: 'categories', get: r => (r.categories || []).join(', ') },

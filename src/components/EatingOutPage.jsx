@@ -148,6 +148,62 @@ const FREQUENCIES = [
   { key: 'retired', label: 'Retired' },
 ];
 
+// How a spot tends to leave you, stored as `health` on the record.
+//
+// Two options and a blank rather than a scale. The question this answers is the
+// one you ask choosing where to go — "is this the sensible one or the treat" —
+// and a middle rung would collect most of the list without telling you anything.
+// Unset is a real third state: it means you haven't decided, not "average".
+const HEALTH_OPTIONS = [
+  { key: 'healthy', label: 'Healthy', icon: '🥗' },
+  { key: 'unhealthy', label: 'Unhealthy', icon: '🍔' },
+];
+const HEALTH_KEYS = new Set(HEALTH_OPTIONS.map(h => h.key));
+
+/**
+ * A spot's health tag, migrating from the legacy `dietTags` array.
+ *
+ * `dietTags` is free text from the original spreadsheet import — a column
+ * matching /healthy/i, holding things like "Healthy", "Unhealthy", "Workout".
+ * It was written by the importer, carried by the exporter, and rendered
+ * absolutely nowhere, so that judgement has been sitting in the data invisibly.
+ * Reading it here means an existing library arrives already tagged instead of
+ * asking you to redo work you did in the sheet.
+ *
+ * Same lazy migration as bucketsOf does for `mealType`: nothing is rewritten
+ * until you edit a spot, at which point both fields are saved in step.
+ *
+ * "unhealthy" contains "healthy", so it is tested first and across the whole
+ * array — otherwise a spot tagged both ways reads as healthy by luck of order.
+ */
+function healthOf(r) {
+  const v = String(r?.health || '').trim().toLowerCase();
+  if (HEALTH_KEYS.has(v)) return v;
+  const tags = (Array.isArray(r?.dietTags) ? r.dietTags : [])
+    .map(t => String(t || '').trim().toLowerCase());
+  if (tags.some(t => t.includes('unhealthy'))) return 'unhealthy';
+  if (tags.some(t => t.includes('healthy'))) return 'healthy';
+  return '';
+}
+function healthOption(key) {
+  return HEALTH_OPTIONS.find(h => h.key === key) || null;
+}
+
+/**
+ * `dietTags` with its health entry replaced to match the picker.
+ *
+ * Kept in sync the way `mealType` is kept in sync with `buckets`: the CSV
+ * exporter and the importer both still speak dietTags, and anything else in
+ * there (a "Workout" tag) is not ours to throw away.
+ */
+function syncDietTags(existing, health) {
+  const kept = (Array.isArray(existing) ? existing : [])
+    .filter(t => !String(t || '').trim().toLowerCase().includes('healthy'));
+  const label = healthOption(health)?.label;
+  const next = label ? [...kept, label] : kept;
+  return next.length ? next : undefined;
+}
+
 // Whether a spot belongs to a bucket filter. 'unsorted' matches spots with no
 // buckets; otherwise the bucket must be assigned, OR a free-text Category must
 // contain the bucket's label (so a "coffee shops" category is still caught by
@@ -173,6 +229,7 @@ const TABLE_COLUMNS = [
   { key: 'address', label: 'Address', width: 260, visible: true },
   { key: 'mealType', label: 'Buckets', width: 140, visible: true },
   { key: 'frequency', label: 'Frequency', width: 100, visible: true },
+  { key: 'health', label: 'Health', width: 110, visible: true },
   { key: 'dish', label: 'What to order', width: 200, visible: true },
   { key: 'lastVisit', label: 'Last Visit', width: 120, visible: true },
   { key: 'notes', label: 'Notes', width: 320, visible: false },
@@ -208,6 +265,7 @@ function cellValueFor(r, key) {
     case 'frequency': return r.frequency
       ? r.frequency.charAt(0).toUpperCase() + r.frequency.slice(1)
       : '';
+    case 'health': return healthOption(healthOf(r))?.label || '';
     case 'dish': return r.dish || '';
     case 'lastVisit': return r.lastVisit ? formatDate(r.lastVisit) : '';
     case 'notes': return r.notes || '';
@@ -1087,6 +1145,7 @@ function EditModal({ initial, onSave, onClose, onDelete, cuisineSuggestions, loc
   const [takenJoanne, setTakenJoanne] = useState(!!initial.takenJoanne);
   const [buckets, setBuckets] = useState(() => bucketsOf(initial));
   const [frequency, setFrequency] = useState(initial.frequency || '');
+  const [health, setHealth] = useState(() => healthOf(initial));
   const [dish, setDish] = useState(initial.dish || '');
   const [meals, setMeals] = useState(Array.isArray(initial.meals) ? initial.meals : []);
   const [address, setAddress] = useState(initial.address || '');
@@ -1179,6 +1238,7 @@ function EditModal({ initial, onSave, onClose, onDelete, cuisineSuggestions, loc
       // (CSV export, older mobile builds) get the primary bucket.
       mealType: buckets[0] || undefined,
       frequency: frequency || undefined,
+      health: health || undefined,
       dish: dish.trim() || undefined,
       meals: meals.length ? meals : undefined,
       address: address.trim() || undefined,
@@ -1186,7 +1246,9 @@ function EditModal({ initial, onSave, onClose, onDelete, cuisineSuggestions, loc
       lng: coords?.lng,
       lastVisit: lastVisit ? new Date(lastVisit + 'T12:00:00').toISOString() : undefined,
       takenJoanne: takenJoanne || undefined,
-      dietTags: initial.dietTags,
+      // Health is written to both the new field and the legacy array, so CSV
+      // export and the importer keep agreeing with the picker.
+      dietTags: syncDietTags(initial.dietTags, health),
       meatTags: initial.meatTags,
       createdAt: initial.createdAt || now,
       updatedAt: now,
@@ -1313,6 +1375,29 @@ function EditModal({ initial, onSave, onClose, onDelete, cuisineSuggestions, loc
                 onClick={() => setFrequency(f.key)}
               >
                 {f.label}
+              </button>
+            ))}
+          </div>
+
+          <label className={styles.fieldLabel}>Health</label>
+          <div className={styles.statusRow}>
+            {/* Same three-state shape as Frequency: "—" is a real answer
+                meaning you haven't decided, not a neutral middle. */}
+            <button
+              type="button"
+              className={`${styles.statusBtn} ${!health ? styles.statusBtnActive : ''}`}
+              onClick={() => setHealth('')}
+            >
+              —
+            </button>
+            {HEALTH_OPTIONS.map(h => (
+              <button
+                key={h.key}
+                type="button"
+                className={`${styles.statusBtn} ${health === h.key ? styles.statusBtnActive : ''}`}
+                onClick={() => setHealth(health === h.key ? '' : h.key)}
+              >
+                {h.icon} {h.label}
               </button>
             ))}
           </div>
@@ -1826,13 +1911,20 @@ function RestaurantCard({ r, ratingAgg, distanceMiles, rank, canMoveUp, canMoveD
             {r.ratingLabel && <span className={styles.cardRatingLabel}>{r.ratingLabel}</span>}
           </div>
         )}
-        {bucketsOf(r).length > 0 && (
+        {(bucketsOf(r).length > 0 || healthOf(r)) && (
           <div className={styles.cardBuckets}>
             {bucketsOf(r).map(k => (
               <span key={k} className={styles.bucketChip}>
                 {BUCKETS.find(b => b.key === k)?.icon} {bucketLabel(k)}
               </span>
             ))}
+            {/* Colour-coded rather than another neutral chip — the whole value
+                of the tag is being able to spot it without reading. */}
+            {healthOf(r) && (
+              <span className={healthOf(r) === 'healthy' ? styles.healthChipGood : styles.healthChipBad}>
+                {healthOption(healthOf(r))?.icon} {healthOption(healthOf(r))?.label}
+              </span>
+            )}
           </div>
         )}
         {(r.cuisines?.length > 0 || r.locations?.length > 0 || r.frequency) && (
@@ -2812,6 +2904,7 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
   // stored casing doesn't matter; toggling the Williamsburg pill clears it.
   const [activeLocation, setActiveLocation] = useState('Williamsburg');
   const [activeBucket, setActiveBucket] = useState(null);
+  const [activeHealth, setActiveHealth] = useState(null);
   const [activeCategory, setActiveCategory] = useState(initialCategory);
   const [showRetired, setShowRetired] = useState(false);
   const [proximityQuery, setProximityQuery] = useState('');
@@ -2988,13 +3081,14 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
       if (filter !== 'all' && r.status !== filter) continue;
       if (activeCuisine && !(r.cuisines || []).some(c => c.toLowerCase() === activeCuisine.toLowerCase())) continue;
       if (activeBucket && !restaurantMatchesBucket(r, activeBucket)) continue;
+      if (activeHealth && healthOf(r) !== activeHealth) continue;
       if (activeCategory && !(r.categories || []).some(c => c.toLowerCase() === activeCategory.toLowerCase())) continue;
       for (const l of (r.locations || [])) {
         counts.set(l, (counts.get(l) || 0) + 1);
       }
     }
     return locationSuggestions.map(l => ({ name: l, count: counts.get(l) || 0 }));
-  }, [restaurants, locationSuggestions, filter, activeCuisine, activeBucket, activeCategory, showRetired]);
+  }, [restaurants, locationSuggestions, filter, activeCuisine, activeBucket, activeHealth, activeCategory, showRetired]);
 
   // Locations that exist on MY own list (lowercased) — only these can be
   // bulk-renamed, since renaming never touches a friend's shared list.
@@ -3028,6 +3122,7 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
       if (activeCuisine && !(r.cuisines || []).some(c => c.toLowerCase() === activeCuisine.toLowerCase())) return false;
       if (activeLocation && !(r.locations || []).some(l => l.toLowerCase() === activeLocation.toLowerCase())) return false;
       if (activeBucket && !restaurantMatchesBucket(r, activeBucket)) return false;
+      if (activeHealth && healthOf(r) !== activeHealth) return false;
       if (activeCategory && !(r.categories || []).some(c => c.toLowerCase() === activeCategory.toLowerCase())) return false;
       if (q) {
         const hay = [
@@ -3065,7 +3160,7 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
       );
     }
     return list;
-  }, [restaurants, filter, activeCuisine, activeLocation, activeBucket, activeCategory, showRetired, search, proximityCenter]);
+  }, [restaurants, filter, activeCuisine, activeLocation, activeBucket, activeHealth, activeCategory, showRetired, search, proximityCenter]);
 
   // Per-owner sequence of currently-visible ids, so a card knows whether it can
   // move up/down (i.e. has a visible same-owner neighbor in that direction).
@@ -3438,6 +3533,16 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
     () => restaurants.filter(r => bucketsOf(r).length === 0).length,
     [restaurants],
   );
+  // How many spots carry each health tag, so the filter chips can stay hidden
+  // until there's something for them to find.
+  const healthCounts = useMemo(() => {
+    const counts = {};
+    for (const r of restaurants) {
+      const h = healthOf(r);
+      if (h) counts[h] = (counts[h] || 0) + 1;
+    }
+    return counts;
+  }, [restaurants]);
   const geocodedCount = useMemo(
     () => restaurants.filter(hasValidCoords).length,
     [restaurants],
@@ -3791,6 +3896,22 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
                 Unsorted ({unsortedCount})
               </button>
             )}
+            {/* Only offered once something is actually tagged — until then the
+                filter can only ever return nothing. */}
+            {HEALTH_OPTIONS.map(h => {
+              const count = healthCounts[h.key] || 0;
+              if (count === 0) return null;
+              return (
+                <button
+                  key={`h-${h.key}`}
+                  type="button"
+                  className={`${styles.tagFilter} ${activeHealth === h.key ? styles.tagFilterActive : ''}`}
+                  onClick={() => setActiveHealth(activeHealth === h.key ? null : h.key)}
+                >
+                  {h.icon} {h.label} ({count})
+                </button>
+              );
+            })}
             {retiredCount > 0 && (
               <button
                 type="button"
