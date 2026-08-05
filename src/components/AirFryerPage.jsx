@@ -335,6 +335,34 @@ export function AirFryerPage({ onClose, user, recipes = [], weeklyRecipeIds = []
     setEditing(null);
   }, [mine, persist]);
 
+  /**
+   * The remove control that sits on the row itself.
+   *
+   * Your own rows delete for real. A built-in can only be hidden — it ships in
+   * the bundle, so a delete would quietly come back on the next release. Only
+   * the real delete asks first: hiding is one tap to undo, deleting isn't.
+   */
+  const killRow = useCallback((row) => {
+    const key = airFryerKey(row.name);
+    if (row.source === 'mine') {
+      if (!window.confirm(`Delete "${row.name}"?`)) return;
+      persist(mine.filter(r => airFryerKey(r.name) !== key));
+      return;
+    }
+    setRowHidden(key, !hiddenSet.has(key));
+  }, [mine, persist, setRowHidden, hiddenSet]);
+
+  // The column headings. Rendered above each list so the row really reads as a
+  // table — without them the mapping column is just text floating mid-row.
+  const tableHead = (
+    <div className={styles.tableHead}>
+      <span className={styles.headName}>Ingredient</span>
+      <span className={styles.headMap}>Maps to</span>
+      <span className={styles.headNums}>Temp · time</span>
+      <span className={styles.headKill} aria-hidden="true" />
+    </div>
+  );
+
   // One row of the guide. Shared by the two groups below so the "this week"
   // list and the rest can't drift into looking like different things.
   const renderRow = (row) => {
@@ -343,8 +371,10 @@ export function AirFryerPage({ onClose, user, recipes = [], weeklyRecipeIds = []
     const found = recipeIndex[key] || { recipes: [], weekRecipes: [] };
     const isHidden = hiddenSet.has(key);
     const mapped = links[key];
+    const ownRow = row.source === 'mine';
     return (
       <li key={key} className={`${styles.row} ${isHidden ? styles.rowHidden : ''}`}>
+        <div className={styles.rowTop}>
         <button
           className={styles.rowMain}
           onClick={() => setOpenId(open ? null : key)}
@@ -369,8 +399,8 @@ export function AirFryerPage({ onClose, user, recipes = [], weeklyRecipeIds = []
               row is wired up to your pantry or still generic. An unmapped row
               shows a dash rather than nothing, so the column reads as a column
               and the gaps are obvious. */}
-          <span className={mapped ? styles.rowMap : styles.rowMapEmpty} title={mapped || 'Not linked to an ingredient'}>
-            {mapped || '—'}
+          <span className={mapped ? styles.rowMap : styles.rowMapEmpty} title={mapped || 'Not linked to an ingredient — open the row to link one'}>
+            {mapped || 'Link…'}
           </span>
           {/* Temp and time are the answer — big, on one line, readable
               at arm's length with your hands full. */}
@@ -379,6 +409,19 @@ export function AirFryerPage({ onClose, user, recipes = [], weeklyRecipeIds = []
             <span className={styles.time}>{formatTime(row)}</span>
           </span>
         </button>
+        {/* Its own column, outside the row button — removing something you can
+            see shouldn't cost you a tap into the detail first. (It also can't
+            live inside that button: a button inside a button is invalid, and
+            the click would toggle the row open on its way through.) */}
+        <button
+          className={styles.rowKill}
+          onClick={() => killRow(row)}
+          title={ownRow ? `Delete ${row.name}` : isHidden ? `Unhide ${row.name}` : `Hide ${row.name}`}
+          aria-label={ownRow ? `Delete ${row.name}` : isHidden ? `Unhide ${row.name}` : `Hide ${row.name}`}
+        >
+          {isHidden ? '↩' : '✕'}
+        </button>
+        </div>
         {open && (
           <div className={styles.detail}>
             <div className={styles.detailMeta}>
@@ -401,20 +444,11 @@ export function AirFryerPage({ onClose, user, recipes = [], weeklyRecipeIds = []
               </div>
             )}
             {renderLink(key)}
-            <div className={styles.rowActions}>
-              <button className={styles.editBtn} onClick={() => startEdit(row)}>
-                {row.source === 'built-in' ? 'Change this time' : 'Edit'}
-              </button>
-              {/* "Hide", never "Delete", for a built-in: the table ships in the
-                  bundle, so a delete would quietly come back on the next
-                  release. Your own rows delete for real, from the editor. */}
-              <button
-                className={styles.hideBtn}
-                onClick={() => setRowHidden(key, !isHidden)}
-              >
-                {isHidden ? 'Unhide' : 'Hide this'}
-              </button>
-            </div>
+            {/* No hide button here: the ✕ in the row's own column does that
+                job, and two controls for one action is how they drift apart. */}
+            <button className={styles.editBtn} onClick={() => startEdit(row)}>
+              {row.source === 'built-in' ? 'Change this time' : 'Edit'}
+            </button>
           </div>
         )}
       </li>
@@ -625,11 +659,17 @@ export function AirFryerPage({ onClose, user, recipes = [], weeklyRecipeIds = []
                 In this week’s shopping list
                 <span className={styles.groupCount}>{weekRows.length}</span>
               </div>
+              {tableHead}
               <ul className={styles.list}>{weekRows.map(renderRow)}</ul>
               {restRows.length > 0 && <div className={styles.groupHead}>Everything else</div>}
             </>
           )}
-          {restRows.length > 0 && <ul className={styles.list}>{restRows.map(renderRow)}</ul>}
+          {restRows.length > 0 && (
+            <>
+              {weekRows.length === 0 && tableHead}
+              <ul className={styles.list}>{restRows.map(renderRow)}</ul>
+            </>
+          )}
         </>
       )}
 

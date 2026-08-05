@@ -85,11 +85,21 @@
 
 .row { border-bottom: 1px solid var(--color-border-light); }
 
+/* The row proper: the tappable columns, plus the remove control alongside them.
+   The remove button has to be a SIBLING of the row button, not inside it — a
+   button inside a button is invalid, and the click would toggle the row open on
+   its way through. */
+.rowTop {
+  display: flex;
+  align-items: center;
+}
+
 .rowMain {
   display: flex;
   align-items: center;
   gap: 0.75rem;
-  width: 100%;
+  flex: 1;
+  min-width: 0;
   padding: 0.75rem 0.2rem;
   background: none;
   border: none;
@@ -97,6 +107,44 @@
   text-align: left;
   cursor: pointer;
 }
+
+/* Column headings, so the row reads as a table rather than text floating
+   mid-row. Widths mirror the row's columns exactly — if you change one, change
+   the other or the headings stop pointing at their columns. */
+.tableHead {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0 0.2rem 0.3rem;
+  font-size: 0.66rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+  border-bottom: 1px solid var(--color-border);
+}
+.headName { flex: 1; min-width: 0; }
+.headMap { flex: 0 0 auto; width: 8.5rem; text-align: right; }
+.headNums { flex: 0 0 auto; width: 9.2rem; text-align: right; }
+.headKill { flex: 0 0 auto; width: 2rem; }
+
+/* Remove. ✕ hides a built-in and deletes one of your own; ↩ brings a hidden
+   row back. Muted until hovered — it sits on every row, and a column of red
+   crosses would read as a page full of warnings. */
+.rowKill {
+  flex: 0 0 auto;
+  width: 2rem;
+  padding: 0.5rem 0;
+  background: none;
+  border: none;
+  font-family: inherit;
+  font-size: 0.9rem;
+  line-height: 1;
+  color: var(--color-border);
+  cursor: pointer;
+  transition: color 0.15s ease;
+}
+.rowKill:hover { color: #c0392b; }
 .rowMain:hover { background: var(--color-surface-alt); }
 
 .rowName {
@@ -132,7 +180,10 @@
   text-align: right;
 }
 .rowMap { color: var(--color-text-secondary); }
-.rowMapEmpty { color: var(--color-border); }
+/* "Link…" rather than a dash, and readable rather than nearly invisible. With
+   nothing linked yet every row lands here, and a column of faint dashes reads
+   as an empty column — as though the feature hadn't shipped. */
+.rowMapEmpty { color: var(--color-text-muted); opacity: 0.75; font-style: italic; }
 
 /* A hidden row, while you're looking at what you hid. Dimmed rather than
    restyled, so it's obviously the same row in a temporary state. */
@@ -151,23 +202,6 @@
   vertical-align: 1px;
 }
 
-.rowActions {
-  display: flex;
-  align-items: center;
-  gap: 1rem;
-}
-
-.hideBtn {
-  background: none;
-  border: none;
-  padding: 0;
-  font-family: inherit;
-  font-size: 0.82rem;
-  font-weight: 600;
-  color: var(--color-text-muted);
-  cursor: pointer;
-}
-.hideBtn:hover { color: #c0392b; }
 
 .hiddenChip {
   display: block;
@@ -484,6 +518,8 @@
      page is for. The mapping narrows rather than vanishing — knowing a row is
      wired to your pantry is worth a few characters — and the empty dash goes
      entirely, since a column of dashes is just noise on a small screen. */
-  .rowMap { width: 4.5rem; font-size: 0.7rem; }
-  .rowMapEmpty { display: none; }
+  .rowMap, .rowMapEmpty { width: 4.5rem; font-size: 0.7rem; }
+  .headMap { width: 4.5rem; }
+  .headNums { width: 7.5rem; }
+  .time { min-width: 3.9rem; }
 }
