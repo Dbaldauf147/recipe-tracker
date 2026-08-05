@@ -136,6 +136,32 @@
   font-weight: 500;
 }
 .gapClear:hover { color: var(--color-text); }
+/* The one-click "pin every suggestion". Filled rather than outlined: it's the
+   action the banner exists to offer, and it rewrites a lot of rows at once. */
+.gapAccept {
+  font: inherit;
+  font-weight: 700;
+  padding: 0.25rem 0.75rem;
+  border-radius: 999px;
+  cursor: pointer;
+  border: 1px solid #B45309;
+  background: #B45309;
+  color: #fff;
+}
+.gapAccept:hover { background: #92400E; border-color: #92400E; }
+.gapNote { align-self: center; font-size: 0.74rem; opacity: 0.85; }
+
+.undoBtn {
+  font: inherit;
+  font-weight: 600;
+  padding: 0.1rem 0.55rem;
+  border-radius: 999px;
+  cursor: pointer;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+.undoBtn:hover { border-color: var(--color-text-muted); }
 
 /* Legend for the table's text weights. The swatches deliberately reuse the same
    colour/opacity values the cells do, so the key can't drift from the thing it

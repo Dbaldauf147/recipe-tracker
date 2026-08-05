@@ -211,6 +211,9 @@ export function ExerciseLibrary({ library, onChange, onRenameExercise }) {
   const [demoName, setDemoName] = useState(null);
   // '' | 'type' | 'group' — narrows the table to the rows the gap banner counts.
   const [missingFilter, setMissingFilter] = useState('');
+  // Outcome of "Accept suggestions", holding the pre-change library so it can be
+  // put back — it's one click that rewrites a lot of rows.
+  const [acceptReport, setAcceptReport] = useState(null);
 
   const COLUMNS = useMemo(() => [
     { key: 'exercise', label: 'Exercise', cls: 'colName', searchable: true, sortable: true, get: e => e.exercise },
@@ -258,6 +261,65 @@ export function ExerciseLibrary({ library, onChange, onRenameExercise }) {
     () => trackedRows.filter(e => !String(e?.muscleGroup || '').trim()),
     [trackedRows],
   );
+  // Of those, the ones there's actually something to accept FOR. A missing Type
+  // always has a suggestion (the inference falls back to Strength Training), but
+  // a muscle group only gets one if the name is in the lookup table — the rest
+  // show "—" and need a group typed in by hand.
+  const suggestableGroup = useMemo(
+    () => missingGroup.filter(e => lookupMuscleGroup(e.exercise)),
+    [missingGroup],
+  );
+  const suggestionCount = missingType.length + suggestableGroup.length;
+
+  /**
+   * Write every on-screen suggestion into the row that's leaning on it.
+   *
+   * This only PINS what the table already shows — the grey placeholder and the
+   * "Auto (…)" option — so nothing visibly changes except the text going solid.
+   * The point is that a pinned value stops being a guess: it survives a rename,
+   * it reaches the phone, and it stops moving when the inference does.
+   *
+   * Never touches a value you set, a retired row, or an unnamed one.
+   */
+  function acceptAllSuggestions() {
+    if (suggestionCount === 0) return;
+    const parts = [];
+    if (suggestableGroup.length) parts.push(`${suggestableGroup.length} muscle group${suggestableGroup.length === 1 ? '' : 's'}`);
+    if (missingType.length) parts.push(`${missingType.length} type${missingType.length === 1 ? '' : 's'}`);
+    const ok = window.confirm(
+      `Save the suggested ${parts.join(' and ')}?\n\n`
+      + 'These are the values the page is already showing you in grey. Anything you '
+      + 'filled in yourself is left alone, and you can undo right after.',
+    );
+    if (!ok) return;
+
+    const prev = library;
+    let groupsFilled = 0;
+    let typesFilled = 0;
+    const next = library.map(e => {
+      if (!String(e?.exercise || '').trim() || e.retired) return e;
+      let row = e;
+      // Group before type. The type inference reads the muscle group (a Yoga
+      // group means Stretching), but the order can't change the answer: the
+      // group we pin IS lookupMuscleGroup(name), which is exactly what
+      // effectiveMuscleGroup would have fallen back to anyway. So the type
+      // saved here is always the one the cell was already showing.
+      if (!String(row.muscleGroup || '').trim()) {
+        const guess = lookupMuscleGroup(row.exercise);
+        if (guess) { row = { ...row, muscleGroup: guess }; groupsFilled++; }
+      }
+      if (!normalizeExerciseType(row.exerciseType)) {
+        row = { ...row, exerciseType: effectiveExerciseType(row, effectiveMuscleGroup(row)) };
+        typesFilled++;
+      }
+      return row;
+    });
+    onChange(next);
+    // The banner goes away with the last gap, taking "Show all again" with it —
+    // so an active gap filter would strand you on an empty table.
+    setMissingFilter('');
+    setAcceptReport({ groupsFilled, typesFilled, prev });
+  }
 
   // Showing "the N with no Type" has to actually show N rows, so the filters
   // that would eat into that set stand down when one of these turns on.
@@ -586,7 +648,44 @@ export function ExerciseLibrary({ library, onChange, onRenameExercise }) {
                 </button>
               )}
             </div>
+            {suggestionCount > 0 && (
+              <div className={styles.gapActions}>
+                <button
+                  type="button"
+                  className={styles.gapAccept}
+                  onClick={acceptAllSuggestions}
+                  title="Save the greyed-out suggestions onto their exercises. Values you set yourself are left alone."
+                >
+                  Accept {suggestionCount} suggestion{suggestionCount === 1 ? '' : 's'}
+                </button>
+                {missingGroup.length > suggestableGroup.length && (
+                  <span className={styles.gapNote}>
+                    {missingGroup.length - suggestableGroup.length} muscle group
+                    {missingGroup.length - suggestableGroup.length === 1 ? '' : 's'} can’t be
+                    guessed — those need one typed in.
+                  </span>
+                )}
+              </div>
+            )}
           </div>
+        </div>
+      )}
+
+      {acceptReport && (
+        <div className={styles.fillReport}>
+          Saved <strong>{acceptReport.groupsFilled}</strong> muscle group{acceptReport.groupsFilled === 1 ? '' : 's'}
+          {' and '}
+          <strong>{acceptReport.typesFilled}</strong> type{acceptReport.typesFilled === 1 ? '' : 's'}.
+          {' '}
+          <button
+            type="button"
+            className={styles.undoBtn}
+            onClick={() => { onChange(acceptReport.prev); setAcceptReport(null); }}
+            title="Put the list back exactly as it was before the button — including anything you've edited since"
+          >
+            Undo
+          </button>
+          <button className={styles.fillReportClose} onClick={() => setAcceptReport(null)} aria-label="Dismiss">×</button>
         </div>
       )}
 
