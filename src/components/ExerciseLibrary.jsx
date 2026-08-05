@@ -209,6 +209,8 @@ export function ExerciseLibrary({ library, onChange, onRenameExercise }) {
   const [colSearch, setColSearch] = useState({});
   const [sort, setSort] = useState({ col: '', dir: 'asc' });
   const [demoName, setDemoName] = useState(null);
+  // '' | 'type' | 'group' — narrows the table to the rows the gap banner counts.
+  const [missingFilter, setMissingFilter] = useState('');
 
   const COLUMNS = useMemo(() => [
     { key: 'exercise', label: 'Exercise', cls: 'colName', searchable: true, sortable: true, get: e => e.exercise },
@@ -234,6 +236,40 @@ export function ExerciseLibrary({ library, onChange, onRenameExercise }) {
     () => library.filter(e => String(e?.exercise || '').trim() && !String(e?.primaryMuscles || '').trim()),
     [library],
   );
+
+  // Rows running on a GUESS rather than a stored value. Both Type and Muscle
+  // Group fall back to an inference when they're blank, and the fallback reads
+  // as a real answer — the Muscle Group only differs by being grey placeholder
+  // text, and the Type just says "Auto (…)". Neither is saved, so it can move
+  // under you when the inference changes and it doesn't reach the phone.
+  //
+  // Retired rows are left out on purpose: they're hidden by default, and a guess
+  // on something you've stopped doing isn't worth chasing. Unnamed rows too, so
+  // "+ Add exercise" doesn't immediately trip the warning about itself.
+  const trackedRows = useMemo(
+    () => library.filter(e => String(e?.exercise || '').trim() && !e.retired),
+    [library],
+  );
+  const missingType = useMemo(
+    () => trackedRows.filter(e => !normalizeExerciseType(e.exerciseType)),
+    [trackedRows],
+  );
+  const missingGroup = useMemo(
+    () => trackedRows.filter(e => !String(e?.muscleGroup || '').trim()),
+    [trackedRows],
+  );
+
+  // Showing "the N with no Type" has to actually show N rows, so the filters
+  // that would eat into that set stand down when one of these turns on.
+  function toggleMissingFilter(which) {
+    const next = missingFilter === which ? '' : which;
+    setMissingFilter(next);
+    if (next) {
+      setGroupFilter('');
+      setTopOnly(false);
+      setShowRetired(false);
+    }
+  }
 
   /**
    * Look up the muscles worked for every row missing them and fill them in.
@@ -343,6 +379,12 @@ export function ExerciseLibrary({ library, onChange, onRenameExercise }) {
         if (!showRetired && e.retired) return false;
         if (topOnly && !e.top) return false;
         if (groupFilter && effectiveMuscleGroup(e) !== groupFilter) return false;
+        // Same tests the banner counts with, so the two agree row for row.
+        if (missingFilter) {
+          if (!String(e.exercise || '').trim() || e.retired) return false;
+          if (missingFilter === 'type' && normalizeExerciseType(e.exerciseType)) return false;
+          if (missingFilter === 'group' && String(e.muscleGroup || '').trim()) return false;
+        }
         for (const c of COLUMNS) {
           const term = (colSearch[c.key] || '').trim().toLowerCase();
           if (!term) continue;
@@ -359,7 +401,7 @@ export function ExerciseLibrary({ library, onChange, onRenameExercise }) {
           e.alternative.toLowerCase().includes(q)
         );
       });
-  }, [library, search, groupFilter, showRetired, topOnly, colSearch, COLUMNS]);
+  }, [library, search, groupFilter, showRetired, topOnly, colSearch, COLUMNS, missingFilter]);
 
   const sorted = useMemo(() => {
     const col = COLUMNS.find(c => c.key === sort.col);
@@ -507,8 +549,69 @@ export function ExerciseLibrary({ library, onChange, onRenameExercise }) {
         </div>
       )}
 
+      {(missingType.length > 0 || missingGroup.length > 0) && (
+        <div className={styles.gapBanner}>
+          <span className={styles.gapIcon} aria-hidden="true">⚠</span>
+          <div className={styles.gapBody}>
+            <strong>Some exercises are running on a guess.</strong>{' '}
+            A blank Type or Muscle Group falls back to whatever the app can infer from the
+            exercise name. That guess isn’t stored — it can change as the name does, and it
+            doesn’t travel to the phone. Setting the value explicitly pins it.
+            <div className={styles.gapActions}>
+              {missingType.length > 0 && (
+                <button
+                  type="button"
+                  className={missingFilter === 'type' ? styles.gapBtnOn : styles.gapBtn}
+                  onClick={() => toggleMissingFilter('type')}
+                  aria-pressed={missingFilter === 'type'}
+                  title="Show only the exercises with no Type saved"
+                >
+                  {missingType.length} with no Type
+                </button>
+              )}
+              {missingGroup.length > 0 && (
+                <button
+                  type="button"
+                  className={missingFilter === 'group' ? styles.gapBtnOn : styles.gapBtn}
+                  onClick={() => toggleMissingFilter('group')}
+                  aria-pressed={missingFilter === 'group'}
+                  title="Show only the exercises with no Muscle Group saved"
+                >
+                  {missingGroup.length} with no Muscle Group
+                </button>
+              )}
+              {missingFilter && (
+                <button type="button" className={styles.gapClear} onClick={() => setMissingFilter('')}>
+                  Show all again
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className={styles.count}>
         {filtered.length} of {library.length} exercise{library.length === 1 ? '' : 's'}
+        {missingFilter && (
+          <> · showing only those with no {missingFilter === 'type' ? 'Type' : 'Muscle Group'}</>
+        )}
+      </div>
+
+      {/* What the two text weights in the table actually mean — the difference
+          between a value you set and one the app is filling in for you. */}
+      <div className={styles.legend}>
+        <span className={styles.legendItem}>
+          <span className={styles.legendSaved}>Legs</span> saved on this exercise
+        </span>
+        <span className={styles.legendItem}>
+          <span className={styles.legendGuess}>Legs</span> grey — guessed from the name, not saved
+        </span>
+        <span className={styles.legendItem}>
+          <span className={styles.legendSaved}>Auto (Stretching)</span> the Type column saying the same thing
+        </span>
+        <span className={styles.legendItem}>
+          <span className={styles.legendRetired}>Bench press</span> dimmed row — retired
+        </span>
       </div>
 
       <datalist id="exercise-known-groups">

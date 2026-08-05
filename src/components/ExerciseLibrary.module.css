@@ -96,6 +96,63 @@
 }
 .fillReportClose:hover { color: var(--color-text); }
 
+/* Exercises whose Type / Muscle Group is only an inference. Worth announcing
+   rather than leaving to be noticed: a guessed value occupies the cell like any
+   other, so nothing in the table says out loud that it isn't stored. */
+.gapBanner {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  margin: 0.5rem 0;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid #FCD34D;
+  border-radius: 8px;
+  background: #FFFBEB;
+  font-size: 0.8rem;
+  line-height: 1.5;
+  color: #78350F;
+}
+.gapIcon { font-size: 0.95rem; line-height: 1.45; }
+.gapBody { flex: 1; }
+.gapActions { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-top: 0.5rem; }
+.gapBtn,
+.gapBtnOn,
+.gapClear {
+  font: inherit;
+  font-weight: 600;
+  padding: 0.25rem 0.65rem;
+  border-radius: 999px;
+  cursor: pointer;
+  border: 1px solid #FCD34D;
+  background: var(--color-surface);
+  color: #78350F;
+}
+.gapBtn:hover { background: #FEF3C7; }
+.gapBtnOn { background: #78350F; border-color: #78350F; color: #fff; }
+.gapClear {
+  border-color: var(--color-border);
+  background: none;
+  color: var(--color-text-muted);
+  font-weight: 500;
+}
+.gapClear:hover { color: var(--color-text); }
+
+/* Legend for the table's text weights. The swatches deliberately reuse the same
+   colour/opacity values the cells do, so the key can't drift from the thing it
+   is explaining. */
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.2rem 1.1rem;
+  margin: 0.35rem 0 0.6rem;
+  font-size: 0.74rem;
+  color: var(--color-text-muted);
+}
+.legendItem { display: inline-flex; align-items: baseline; gap: 0.35rem; }
+.legendSaved { color: var(--color-text); font-weight: 600; }
+.legendGuess { color: var(--color-text-muted); opacity: 0.55; font-weight: 600; }
+.legendRetired { color: var(--color-text); font-weight: 600; opacity: 0.55; }
+
 .tableWrap {
   border: 1px solid var(--color-border);
   border-radius: 10px;
