@@ -652,7 +652,11 @@ export function RecipeDetail({ recipe, allTags = [], onSave, onDelete, onBack, o
   //
   // Editing always unfolds it: you can't edit rows you can't see.
   const [ingredientsOpen, setIngredientsOpen] = useState(!collapseIngredients);
-  const ingredientsShown = editing || ingredientsOpen;
+  // NOT `editing || ingredientsOpen`. `editing` is initialised true and never
+  // set, so OR-ing it in pinned this to true and the table never folded — the
+  // whole feature was inert. The table is inline-editable whether folded or
+  // not; unfold it and the same inputs are there.
+  const ingredientsShown = ingredientsOpen;
   // Re-fold for the next recipe. The popup isn't remounted between recipes, so
   // without this an expand would carry over to the one you open next and
   // "default hidden" would only hold for the first.
@@ -2527,27 +2531,29 @@ export function RecipeDetail({ recipe, allTags = [], onSave, onDelete, onBack, o
         <div className={styles.ingredientsHeader}>
           <div className={styles.ingredientsTitleRow}>
             <h3>Ingredients</h3>
-            {/* Hidden while editing — the table is forced open there, so a
-                control that can't do anything would just be a dead button. */}
-            {!editing && (
-              <button
-                type="button"
-                className={styles.ingToggleBtn}
-                onClick={() => setIngredientsOpen(o => !o)}
-                aria-expanded={ingredientsOpen}
-                aria-controls="recipe-ingredients-body"
+            {/* Always rendered. This used to hide behind `!editing`, on the
+                reasoning that the table is forced open while editing so the
+                control would be dead — but `editing` is initialised to true and
+                never set anywhere, so that gate was permanently closed and the
+                fold shipped inert. The rows are inline-editable at all times
+                (same as the mobile app); you edit inside the unfolded table. */}
+            <button
+              type="button"
+              className={styles.ingToggleBtn}
+              onClick={() => setIngredientsOpen(o => !o)}
+              aria-expanded={ingredientsOpen}
+              aria-controls="recipe-ingredients-body"
+            >
+              <span
+                className={ingredientsOpen ? styles.ingToggleCaretOpen : styles.ingToggleCaret}
+                aria-hidden="true"
               >
-                <span
-                  className={ingredientsOpen ? styles.ingToggleCaretOpen : styles.ingToggleCaret}
-                  aria-hidden="true"
-                >
-                  ▸
-                </span>
-                {ingredientsOpen
-                  ? 'Hide'
-                  : `Show ${fields.ingredients.filter(r => (r.ingredient || '').trim()).length}`}
-              </button>
-            )}
+                ▸
+              </span>
+              {ingredientsOpen
+                ? 'Hide'
+                : `Show ${fields.ingredients.filter(r => (r.ingredient || '').trim()).length}`}
+            </button>
             <div ref={ingGearRef} className={styles.ingGearWrap}>
               <button
                 type="button"

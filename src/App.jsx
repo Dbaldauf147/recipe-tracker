@@ -1121,6 +1121,13 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
             <RecipeDetail
               recipe={transientViewRecipe || getRecipe(selectedId)}
               allTags={allTags}
+              // The full recipe page folds too. It started popup-only, on the
+              // argument that ingredients are the point of a page — but the
+              // page is how Week Plan, Design a Meal and shared links all open
+              // a recipe, so "the ingredients are folded away" held in two
+              // places and not in the three you actually arrive from. One
+              // behaviour everywhere beats a rule you have to remember.
+              collapseIngredients
               onSave={handleUpdate}
               onDelete={handleDelete}
               onBack={() => { setTransientViewRecipe(null); goBack(); }}
