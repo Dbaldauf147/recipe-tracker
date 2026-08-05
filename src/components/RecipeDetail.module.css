@@ -274,6 +274,36 @@
   gap: 0.4rem;
 }
 
+/* Unfolds the ingredient table, which is folded away by default. Sits right of
+   the heading so the count reads as part of it — "Ingredients · Show 14". */
+.ingToggleBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  background: none;
+  border: 1px solid var(--color-border-light);
+  border-radius: 999px;
+  padding: 0.15rem 0.6rem;
+  font: inherit;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  transition: color 0.15s ease, border-color 0.15s ease;
+}
+.ingToggleBtn:hover {
+  color: var(--color-accent);
+  border-color: var(--color-accent);
+}
+.ingToggleCaret,
+.ingToggleCaretOpen {
+  display: inline-block;
+  font-size: 0.7em;
+  line-height: 1;
+  transition: transform 0.15s ease;
+}
+.ingToggleCaretOpen { transform: rotate(90deg); }
+
 .ingGearWrap {
   position: relative;
 }

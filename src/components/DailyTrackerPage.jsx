@@ -6123,6 +6123,7 @@ export function DailyTrackerPage({ recipes, getRecipe, onClose, user, weeklyPlan
               <button className={styles.modalClose} onClick={() => setViewRecipeId(null)}>&times;</button>
               <RecipeDetail
                 recipe={recipe}
+                collapseIngredients
                 onBack={() => setViewRecipeId(null)}
                 onSave={() => {}}
                 onDelete={() => {}}

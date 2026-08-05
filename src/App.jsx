@@ -1198,6 +1198,7 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
               <RecipeDetail
                 recipe={recipe}
                 allTags={allTags}
+                collapseIngredients
                 onBack={() => setViewRecipeId(null)}
                 onSave={(data) => { updateRecipe(viewRecipeId, data); }}
                 onDelete={() => { handleDelete(viewRecipeId); setViewRecipeId(null); }}

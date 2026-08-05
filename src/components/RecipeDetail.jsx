@@ -492,7 +492,7 @@ function initFields(recipe) {
   };
 }
 
-export function RecipeDetail({ recipe, allTags = [], onSave, onDelete, onBack, onAddToWeek, weeklyPlan, user, ingredientsVersion, onViewSources, onPersistFields }) {
+export function RecipeDetail({ recipe, allTags = [], onSave, onDelete, onBack, onAddToWeek, weeklyPlan, user, ingredientsVersion, onViewSources, onPersistFields, collapseIngredients = false }) {
   const [aiData, setAiData] = useState(null);
   // Meal-tag autocomplete: typed text + whether the suggestion dropdown is open.
   const [tagInput, setTagInput] = useState('');
@@ -642,6 +642,22 @@ export function RecipeDetail({ recipe, allTags = [], onSave, onDelete, onBack, o
   }, [cookMode]);
 
   const editingIngredients = editing;
+
+  // The ingredient table can start folded away — it's the tallest thing in the
+  // popup, and most openings there are to read the steps or the notes rather
+  // than the list. Only the POPUP asks for that (`collapseIngredients`); this
+  // same component is also the full recipe page, where the ingredients are the
+  // point of the page and hiding them by default would be perverse. The toggle
+  // itself shows up in both — only the starting state differs.
+  //
+  // Editing always unfolds it: you can't edit rows you can't see.
+  const [ingredientsOpen, setIngredientsOpen] = useState(!collapseIngredients);
+  const ingredientsShown = editing || ingredientsOpen;
+  // Re-fold for the next recipe. The popup isn't remounted between recipes, so
+  // without this an expand would carry over to the one you open next and
+  // "default hidden" would only hold for the first.
+  useEffect(() => { setIngredientsOpen(!collapseIngredients); }, [recipe?.id, collapseIngredients]);
+
   const [showSaved, setShowSaved] = useState(0);
   const [mealImage, setMealImage] = useState(() => recipe ? getCachedMealImage(recipe.id) : null);
   const [imageError, setImageError] = useState(null);
@@ -2511,6 +2527,27 @@ export function RecipeDetail({ recipe, allTags = [], onSave, onDelete, onBack, o
         <div className={styles.ingredientsHeader}>
           <div className={styles.ingredientsTitleRow}>
             <h3>Ingredients</h3>
+            {/* Hidden while editing — the table is forced open there, so a
+                control that can't do anything would just be a dead button. */}
+            {!editing && (
+              <button
+                type="button"
+                className={styles.ingToggleBtn}
+                onClick={() => setIngredientsOpen(o => !o)}
+                aria-expanded={ingredientsOpen}
+                aria-controls="recipe-ingredients-body"
+              >
+                <span
+                  className={ingredientsOpen ? styles.ingToggleCaretOpen : styles.ingToggleCaret}
+                  aria-hidden="true"
+                >
+                  ▸
+                </span>
+                {ingredientsOpen
+                  ? 'Hide'
+                  : `Show ${fields.ingredients.filter(r => (r.ingredient || '').trim()).length}`}
+              </button>
+            )}
             <div ref={ingGearRef} className={styles.ingGearWrap}>
               <button
                 type="button"
@@ -2591,6 +2628,7 @@ export function RecipeDetail({ recipe, allTags = [], onSave, onDelete, onBack, o
         </div>
 
 
+        <div id="recipe-ingredients-body" hidden={!ingredientsShown}>
         {editingIngredients ? (
           <>
             <table className={styles.ingredientTable}>
@@ -3280,6 +3318,7 @@ export function RecipeDetail({ recipe, allTags = [], onSave, onDelete, onBack, o
             </div>
           );
         })()}
+        </div>
       </div>
 
       <div className={styles.section}>
