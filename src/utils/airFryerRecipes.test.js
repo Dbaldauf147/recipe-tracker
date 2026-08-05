@@ -76,6 +76,36 @@ test('indexRecipesByGuide maps recipes and flags the weekly ones', () => {
   assert.deepEqual(index['toast'].weekRecipes, []);
 });
 
+// Linking a row to a database ingredient is how you teach it a name your
+// recipes actually use. It has to ADD reach without losing what already worked.
+test('a linked ingredient catches recipes the row name misses', () => {
+  const guide = [{ name: 'Chicken breast (boneless)' }];
+  const recipes = [
+    { id: 'r1', title: 'Cutlet night', ingredients: [{ ingredient: 'chicken cutlets' }] },
+    { id: 'r2', title: 'Plain', ingredients: [{ ingredient: 'chicken breasts' }] },
+  ];
+  const key = 'chicken breast (boneless)';
+
+  // Unlinked: the cutlets are invisible, because nothing about the row's name
+  // says "cutlet".
+  const before = indexRecipesByGuide(guide, recipes, new Set());
+  assert.deepEqual(before[key].recipes.map(r => r.id), ['r2']);
+
+  // Linked: the cutlets are found AND the original match survives.
+  const after = indexRecipesByGuide(guide, recipes, new Set(), { [key]: 'chicken cutlet' });
+  assert.deepEqual(after[key].recipes.map(r => r.id).sort(), ['r1', 'r2']);
+});
+
+test('links for unknown rows are ignored, and no link is the old behaviour', () => {
+  const guide = [{ name: 'Toast' }];
+  const recipes = [{ id: 'r1', title: 'Breakfast', ingredients: [{ ingredient: 'sourdough bread' }] }];
+  assert.deepEqual(indexRecipesByGuide(guide, recipes, new Set(), { 'not a row': 'bread' })['toast'].recipes, []);
+  assert.deepEqual(
+    indexRecipesByGuide(guide, recipes, new Set(), { toast: 'sourdough bread' })['toast'].recipes.map(r => r.id),
+    ['r1'],
+  );
+});
+
 test('every guide row gets an entry, even with no recipes at all', () => {
   const index = indexRecipesByGuide(GUIDE, [], new Set());
   assert.equal(Object.keys(index).length > 0, true);

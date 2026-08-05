@@ -79,16 +79,22 @@ export function ingredientMatchesTerms(ingredientName, terms) {
  * ingredients make up this week's shopping list. Returns a plain object keyed
  * by the guide row's lowercased name, so the page can look a row up directly.
  */
-export function indexRecipesByGuide(guideRows, recipes = [], weekIds = new Set()) {
+export function indexRecipesByGuide(guideRows, recipes = [], weekIds = new Set(), links = {}) {
   const week = weekIds instanceof Set ? weekIds : new Set(weekIds || []);
   const index = {};
 
   // Terms are derived once per guide row, not once per (row × recipe) pair —
   // this runs over the whole library on every render of the page.
-  const rowTerms = guideRows.map(row => ({
-    key: String(row?.name || '').trim().toLowerCase(),
-    terms: guideTerms(row?.name),
-  }));
+  const rowTerms = guideRows.map(row => {
+    const key = String(row?.name || '').trim().toLowerCase();
+    // A linked database ingredient ADDS a term rather than replacing the ones
+    // from the row's name. The link is there to catch what the name-based guess
+    // misses ("Chicken breast (boneless)" → your "chicken cutlets"), and
+    // dropping the original terms would trade one set of misses for another.
+    const linked = links?.[key];
+    const terms = linked ? [...guideTerms(row?.name), ...guideTerms(linked)] : guideTerms(row?.name);
+    return { key, terms: [...new Set(terms)] };
+  });
 
   for (const { key } of rowTerms) {
     if (!key) continue;

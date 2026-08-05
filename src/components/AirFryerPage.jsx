@@ -4,6 +4,10 @@ import GUIDE, {
 } from '../data/airFryerGuide.js';
 import { loadField, saveField } from '../utils/firestoreSync';
 import { indexRecipesByGuide } from '../utils/airFryerRecipes';
+import { loadIngredients, ingredientRowByName } from '../utils/ingredientsStore';
+import { ingredientMatchScore } from '../utils/ingredientMatch';
+import { defaultUnitWeight } from '../utils/unitWeights';
+import { getIngredientTags, getTagInfo } from '../utils/ingredientTags';
 import styles from './AirFryerPage.module.css';
 
 // Your own rows live in the user doc under this field. Only YOUR entries are
@@ -12,6 +16,17 @@ import styles from './AirFryerPage.module.css';
 const FIELD = 'airFryerNotes';
 const CACHE_KEY = 'sunday-air-fryer-notes';
 
+// Which ingredient-database row each guide row is really about, as
+// { [lowercased guide name]: 'db ingredient name' }.
+//
+// Kept in its OWN field rather than on the guide rows, because saving anything
+// onto a built-in row is what turns it into an override — and a link isn't a
+// disagreement with the built-in time, it's a fact about your pantry. Storing it
+// here means linking "Salmon fillet" doesn't brand the row "edited" or offer to
+// reset a time you never changed.
+const LINKS_FIELD = 'airFryerLinks';
+const LINKS_CACHE = 'sunday-air-fryer-links';
+
 const BLANK = { name: '', cat: 'Vegetables', tempF: '', min: '', max: '', doneF: '', note: '' };
 
 function readCache() {
@@ -19,6 +34,41 @@ function readCache() {
     const raw = JSON.parse(localStorage.getItem(CACHE_KEY) || '[]');
     return Array.isArray(raw) ? raw : [];
   } catch { return []; }
+}
+
+function readLinksCache() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(LINKS_CACHE) || '{}');
+    return raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
+  } catch { return {}; }
+}
+
+/**
+ * The facts a linked ingredient brings with it.
+ *
+ * Only what's worth knowing with food in your hand — how much a piece weighs,
+ * how long it keeps, where it lives. The macros are a click away on the
+ * ingredients page and would drown this out.
+ */
+function ingredientFacts(row) {
+  if (!row) return [];
+  const facts = [];
+  const uw = defaultUnitWeight(row);
+  if (uw?.grams > 0) facts.push(`${Math.round(uw.grams)} g per ${uw.unit}`);
+  else if (Number(row.grams) > 0 && row.measurement) facts.push(`${row.grams} g per ${row.measurement}`);
+
+  const min = Number(row.minShelf) || 0;
+  const max = Number(row.maxShelf) || 0;
+  if (min || max) {
+    const span = min && max && min !== max ? `${min}–${max}` : String(max || min);
+    facts.push(`keeps ${span} day${span === '1' ? '' : 's'}${row.storage ? ` in the ${String(row.storage).toLowerCase()}` : ''}`);
+  } else if (row.storage) {
+    facts.push(String(row.storage));
+  }
+
+  if (row.grocerySection) facts.push(String(row.grocerySection));
+  if (row.store) facts.push(`buy at ${row.store}`);
+  return facts;
 }
 
 /** "18–22 min", or "18 min" when there's no range worth showing. */
@@ -41,6 +91,10 @@ export function AirFryerPage({ onClose, user, recipes = [], weeklyRecipeIds = []
   const [openId, setOpenId] = useState(null);
   const [editing, setEditing] = useState(null);
   const [showRules, setShowRules] = useState(false);
+  const [links, setLinks] = useState(readLinksCache);
+  // The guide row currently being linked, and the search text for its picker.
+  const [linking, setLinking] = useState(null);
+  const [linkQuery, setLinkQuery] = useState('');
 
   useEffect(() => {
     if (!uid) return;
@@ -54,6 +108,65 @@ export function AirFryerPage({ onClose, user, recipes = [], weeklyRecipeIds = []
       .catch(() => { /* offline — the cached copy stands */ });
     return () => { cancelled = true; };
   }, [uid]);
+
+  useEffect(() => {
+    if (!uid) return;
+    let cancelled = false;
+    loadField(uid, LINKS_FIELD)
+      .then(remote => {
+        if (cancelled || !remote || typeof remote !== 'object' || Array.isArray(remote)) return;
+        setLinks(remote);
+        try { localStorage.setItem(LINKS_CACHE, JSON.stringify(remote)); } catch { /* quota */ }
+      })
+      .catch(() => { /* offline — the cached copy stands */ });
+    return () => { cancelled = true; };
+  }, [uid]);
+
+  /** Point a guide row at a database ingredient, or pass null to unlink it. */
+  const setLink = useCallback((key, ingredientName) => {
+    setLinks(prev => {
+      const next = { ...prev };
+      if (ingredientName) next[key] = ingredientName;
+      else delete next[key];
+      try { localStorage.setItem(LINKS_CACHE, JSON.stringify(next)); } catch { /* quota */ }
+      if (uid) {
+        saveField(uid, LINKS_FIELD, next).catch(err => {
+          console.error('[air fryer] link save failed', err);
+        });
+      }
+      return next;
+    });
+    setLinking(null);
+    setLinkQuery('');
+  }, [uid]);
+
+  // Every name in the ingredient database, for the link picker. Read once —
+  // the DB is a localStorage blob shared across the app, not a live query.
+  const dbNames = useMemo(() => {
+    const seen = new Set();
+    const out = [];
+    for (const row of (loadIngredients() || [])) {
+      const name = (row?.ingredient || '').trim();
+      const k = name.toLowerCase();
+      if (!name || seen.has(k)) continue;
+      seen.add(k);
+      out.push(name);
+    }
+    return out.sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+  }, []);
+
+  // Picker results, ranked by the same scorer every other ingredient picker in
+  // the app uses, so the ordering is one someone already has a feel for.
+  const linkResults = useMemo(() => {
+    const q = linkQuery.trim();
+    if (!q) return dbNames.slice(0, 30);
+    return dbNames
+      .map(name => ({ name, score: ingredientMatchScore(name, q) }))
+      .filter(r => r.score < 5)
+      .sort((a, b) => a.score - b.score || a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }))
+      .slice(0, 30)
+      .map(r => r.name);
+  }, [dbNames, linkQuery]);
 
   const persist = useCallback((next) => {
     setMine(next);
@@ -90,8 +203,8 @@ export function AirFryerPage({ onClose, user, recipes = [], weeklyRecipeIds = []
   // week's plan. Keyed by the row's lowercased name — the same key the list
   // renders with, so a lookup is direct.
   const recipeIndex = useMemo(
-    () => indexRecipesByGuide(rows, recipes, weekIds),
-    [rows, recipes, weekIds],
+    () => indexRecipesByGuide(rows, recipes, weekIds, links),
+    [rows, recipes, weekIds, links],
   );
   const weekCountFor = useCallback(
     (row) => recipeIndex[airFryerKey(row.name)]?.weekRecipes.length || 0,
@@ -214,12 +327,88 @@ export function AirFryerPage({ onClose, user, recipes = [], weeklyRecipeIds = []
                 </ul>
               </div>
             )}
+            {renderLink(key)}
             <button className={styles.editBtn} onClick={() => startEdit(row)}>
               {row.source === 'built-in' ? 'Change this time' : 'Edit'}
             </button>
           </div>
         )}
       </li>
+    );
+  };
+
+  // The ingredient-database link for one row: what it points at, what that
+  // brings with it, and the picker for changing it.
+  const renderLink = (key) => {
+    const linked = links[key];
+    const dbRow = linked ? ingredientRowByName(linked) : null;
+    const facts = ingredientFacts(dbRow);
+    const tags = linked ? (getIngredientTags(linked) || []) : [];
+    const picking = linking === key;
+
+    return (
+      <div className={styles.linkBlock}>
+        {linked ? (
+          <>
+            <div className={styles.linkHead}>
+              <span className={styles.linkLabel}>Ingredient</span>
+              <span className={styles.linkName}>{linked}</span>
+              <button className={styles.linkAction} onClick={() => { setLinking(picking ? null : key); setLinkQuery(''); }}>
+                {picking ? 'Cancel' : 'Change'}
+              </button>
+              <button className={styles.linkAction} onClick={() => setLink(key, null)}>Unlink</button>
+            </div>
+            {/* A link to a name the database doesn't have is worth saying out
+                loud — the row looks linked but inherits nothing. */}
+            {!dbRow && <div className={styles.linkMissing}>Not in your ingredient database.</div>}
+            {facts.length > 0 && <div className={styles.linkFacts}>{facts.join(' · ')}</div>}
+            {tags.length > 0 && (
+              <div className={styles.linkTags}>
+                {tags.map(t => {
+                  const info = getTagInfo(t);
+                  return <span key={t} className={styles.linkTag}>{info?.label || t}</span>;
+                })}
+              </div>
+            )}
+          </>
+        ) : (
+          <button
+            className={styles.linkAddBtn}
+            onClick={() => { setLinking(picking ? null : key); setLinkQuery(''); }}
+          >
+            {picking ? 'Cancel' : '+ Link an ingredient'}
+          </button>
+        )}
+
+        {picking && (
+          <div className={styles.picker}>
+            <input
+              className={styles.pickerSearch}
+              value={linkQuery}
+              onChange={e => setLinkQuery(e.target.value)}
+              placeholder="Search your ingredients…"
+              type="search"
+              autoComplete="off"
+              autoFocus
+            />
+            {linkResults.length === 0 ? (
+              <div className={styles.pickerEmpty}>
+                {dbNames.length === 0
+                  ? 'Your ingredient database hasn’t loaded on this device yet.'
+                  : `Nothing matching “${linkQuery}”.`}
+              </div>
+            ) : (
+              <ul className={styles.pickerList}>
+                {linkResults.map(name => (
+                  <li key={name}>
+                    <button className={styles.pickerItem} onClick={() => setLink(key, name)}>{name}</button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
+      </div>
     );
   };
 

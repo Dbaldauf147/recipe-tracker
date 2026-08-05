@@ -234,7 +234,112 @@
   color: var(--color-text-secondary);
 }
 
-.editBtn, .linkBtn, .rulesToggle {
+/* ── Ingredient-database link ────────────────────────────────────────────── */
+
+.linkBlock {
+  margin: 0.5rem 0 0.6rem;
+  padding-top: 0.5rem;
+  border-top: 1px dashed var(--color-border-light);
+}
+
+.linkHead {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+.linkLabel {
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+.linkName {
+  font-size: 0.87rem;
+  font-weight: 600;
+  color: var(--color-text);
+}
+.linkAction {
+  background: none;
+  border: none;
+  padding: 0;
+  font-family: inherit;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--color-accent);
+  cursor: pointer;
+}
+/* Linked to a name the database doesn't have: it looks connected but inherits
+   nothing, so it says so rather than showing a silently empty fact line. */
+.linkMissing {
+  margin-top: 0.2rem;
+  font-size: 0.76rem;
+  color: #B45309;
+}
+.linkFacts {
+  margin-top: 0.2rem;
+  font-size: 0.78rem;
+  line-height: 1.45;
+  color: var(--color-text-muted);
+}
+.linkTags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  margin-top: 0.3rem;
+}
+.linkTag {
+  padding: 0.05rem 0.35rem;
+  border-radius: 4px;
+  border: 1px solid var(--color-border-light);
+  font-size: 0.62rem;
+  font-weight: 700;
+  color: var(--color-text-muted);
+}
+
+.picker { margin-top: 0.45rem; }
+.pickerSearch {
+  width: 100%;
+  padding: 0.45rem 0.55rem;
+  font-family: inherit;
+  font-size: 0.85rem;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+.pickerEmpty {
+  padding: 0.5rem 0.1rem;
+  font-size: 0.78rem;
+  color: var(--color-text-muted);
+}
+.pickerList {
+  list-style: none;
+  margin: 0.35rem 0 0;
+  padding: 0;
+  max-height: 190px;
+  overflow-y: auto;
+  border: 1px solid var(--color-border-light);
+  border-radius: 8px;
+}
+.pickerItem {
+  display: block;
+  width: 100%;
+  padding: 0.45rem 0.55rem;
+  background: none;
+  border: none;
+  border-bottom: 1px solid var(--color-border-light);
+  font-family: inherit;
+  font-size: 0.84rem;
+  text-align: left;
+  color: var(--color-text);
+  cursor: pointer;
+}
+.pickerItem:hover { background: var(--color-surface-alt); }
+.pickerList li:last-child .pickerItem { border-bottom: none; }
+
+.editBtn, .linkBtn, .linkAddBtn, .rulesToggle {
   background: none;
   border: none;
   padding: 0;
