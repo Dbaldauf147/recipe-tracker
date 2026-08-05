@@ -23,6 +23,7 @@ import { AdminDashboard } from './components/AdminDashboard';
 import { SharedRecipePage } from './components/SharedRecipePage';
 import { GoalsPage } from './components/GoalsPage';
 import { SeasonalGuidePage } from './components/SeasonalGuidePage';
+import { AirFryerPage } from './components/AirFryerPage';
 import { SourcesPage } from './components/SourcesPage';
 import { NutritionGoalsPage } from './components/NutritionGoalsPage';
 import { DailyTrackerPage } from './components/DailyTrackerPage';
@@ -632,6 +633,7 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
     { label: 'Week Plan', action: 'week-plan', icon: 'calendar_month' },
     { label: 'Shopping List', action: 'shopping', icon: 'shopping_cart' },
     { label: 'Eating Out', action: 'eating-out', icon: 'restaurant' },
+    { label: 'Air Fryer', action: 'air-fryer', icon: 'local_fire_department' },
     ...((user?.email === 'baldaufdan@gmail.com' || localStorage.getItem('sunday-workout-enabled') === 'true') ? [{ label: 'Workout', action: 'workout', icon: 'fitness_center' }] : []),
     ...(user?.email === 'baldaufdan@gmail.com' ? [{ label: 'Habits', action: 'habits', icon: 'checklist' }] : []),
   ];
@@ -647,6 +649,8 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
       navigateTo('shopping');
     } else if (item.action === 'eating-out') {
       navigateTo('eating-out');
+    } else if (item.action === 'air-fryer') {
+      navigateTo('air-fryer');
     } else if (item.action === 'week-plan') {
       navigateTo('week-plan');
     } else if (item.action === 'history') {
@@ -1074,6 +1078,8 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
           />
         ) : view === 'seasonal-guide' ? (
           <SeasonalGuidePage onClose={goBack} />
+        ) : view === 'air-fryer' ? (
+          <AirFryerPage onClose={goBack} user={user} recipes={recipes} weeklyRecipeIds={weeklyPlan} />
         ) : view === 'sources' ? (
           <SourcesPage onClose={goBack} />
         ) : view === 'eating-out' ? (

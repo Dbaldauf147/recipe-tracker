@@ -1,0 +1,312 @@
+/* Air fryer lookup table.
+   Built for a phone held in one hand with the other hand full of raw chicken:
+   big tap targets, the numbers readable at arm's length, nothing above the
+   search box that has to be scrolled past. */
+
+.container {
+  max-width: 720px;
+  margin: 0 auto;
+  padding-bottom: 3rem;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.backBtn,
+.addBtn,
+.saveBtn {
+  background: none;
+  border: none;
+  font-family: inherit;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0.3rem 0;
+  color: var(--color-text-muted);
+  transition: color 0.15s ease;
+}
+.backBtn:hover { color: var(--color-accent); }
+.addBtn, .saveBtn { color: var(--color-accent); }
+
+.title {
+  flex: 1;
+  margin: 0;
+  font-size: 1.4rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.search {
+  width: 100%;
+  padding: 0.7rem 0.9rem;
+  font-size: 1rem;
+  font-family: inherit;
+  color: var(--color-text);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+}
+.search:focus { outline: none; border-color: var(--color-accent); }
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin: 0.7rem 0 0.9rem;
+}
+
+.chip {
+  padding: 0.3rem 0.7rem;
+  font-size: 0.8rem;
+  font-family: inherit;
+  font-weight: 600;
+  color: var(--color-text-secondary);
+  background: var(--color-surface-alt);
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  cursor: pointer;
+}
+.chipOn {
+  color: #fff;
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+}
+
+.list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border-top: 1px solid var(--color-border-light);
+}
+
+.row { border-bottom: 1px solid var(--color-border-light); }
+
+.rowMain {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  width: 100%;
+  padding: 0.75rem 0.2rem;
+  background: none;
+  border: none;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.rowMain:hover { background: var(--color-surface-alt); }
+
+.rowName {
+  flex: 1;
+  font-size: 0.95rem;
+  color: var(--color-text);
+}
+
+.tag {
+  margin-left: 0.4rem;
+  padding: 0.05rem 0.35rem;
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-accent);
+  border: 1px solid var(--color-accent);
+  border-radius: 4px;
+  vertical-align: 1px;
+}
+
+/* The answer. Tabular figures so the column doesn't jitter as you scroll. */
+.rowNums {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.temp {
+  font-size: 1.05rem;
+  font-weight: 800;
+  color: var(--color-accent);
+}
+.time {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--color-text-secondary);
+  min-width: 4.6rem;
+  text-align: right;
+}
+
+/* Heading over each half of the split list. Without it, floating this week's
+   food to the top just reads as a broken alphabetical sort. */
+.groupHead {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 1rem 0 0.3rem;
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+.groupCount {
+  padding: 0.05rem 0.35rem;
+  border-radius: 999px;
+  background: var(--color-accent);
+  color: #fff;
+  font-size: 0.65rem;
+  letter-spacing: 0;
+}
+
+/* How many of your recipes use this ingredient. Muted normally; it takes the
+   accent colour when one of those recipes is on this week's plan. */
+.recipeTag,
+.recipeTagWeek {
+  margin-left: 0.4rem;
+  padding: 0.05rem 0.35rem;
+  font-size: 0.62rem;
+  font-weight: 700;
+  border-radius: 4px;
+  vertical-align: 1px;
+  white-space: nowrap;
+}
+.recipeTag {
+  color: var(--color-text-muted);
+  border: 1px solid var(--color-border-light);
+}
+.recipeTagWeek {
+  color: #fff;
+  background: var(--color-accent);
+  border: 1px solid var(--color-accent);
+}
+
+.recipeMap { margin: 0.5rem 0 0.6rem; }
+.recipeMapHead {
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+  margin-bottom: 0.25rem;
+}
+.recipeMapList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  font-size: 0.82rem;
+  line-height: 1.35;
+}
+.weekFlag {
+  margin-left: 0.35rem;
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-accent);
+}
+
+.detail { padding: 0 0.2rem 0.85rem; }
+
+.detailMeta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+  margin-bottom: 0.4rem;
+}
+.doneTemp {
+  font-weight: 700;
+  color: #c2410c;
+}
+.detailCat { margin-left: auto; }
+
+.note {
+  margin: 0 0 0.6rem;
+  font-size: 0.87rem;
+  line-height: 1.45;
+  color: var(--color-text-secondary);
+}
+
+.editBtn, .linkBtn, .rulesToggle {
+  background: none;
+  border: none;
+  padding: 0;
+  font-family: inherit;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--color-accent);
+  cursor: pointer;
+}
+
+.empty {
+  padding: 2rem 0;
+  text-align: center;
+  font-size: 0.9rem;
+  color: var(--color-text-muted);
+}
+.linkBtn { margin-left: 0.4rem; }
+
+.rulesToggle { margin-top: 1.2rem; }
+
+.rules {
+  margin: 0.5rem 0 0;
+  padding-left: 1.1rem;
+  font-size: 0.82rem;
+  line-height: 1.6;
+  color: var(--color-text-muted);
+}
+
+/* ── Editor ─────────────────────────────────────────────────────────────── */
+.label {
+  display: block;
+  margin: 0.9rem 0 0.3rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--color-text-secondary);
+}
+
+.input, .textarea {
+  width: 100%;
+  padding: 0.6rem 0.75rem;
+  font-size: 1rem;
+  font-family: inherit;
+  color: var(--color-text);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+}
+.input:focus, .textarea:focus { outline: none; border-color: var(--color-accent); }
+.textarea { resize: vertical; line-height: 1.45; }
+
+.editGrid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0.5rem;
+}
+
+.dangerBtn {
+  margin-top: 1.5rem;
+  padding: 0.55rem 0.9rem;
+  font-family: inherit;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #c0392b;
+  background: none;
+  border: 1px solid rgba(192, 57, 43, 0.35);
+  border-radius: 8px;
+  cursor: pointer;
+}
+.dangerBtn:hover { background: rgba(192, 57, 43, 0.08); }
+
+@media (max-width: 520px) {
+  .editGrid { grid-template-columns: repeat(2, 1fr); }
+  .rowName { font-size: 0.92rem; }
+  .temp { font-size: 1rem; }
+}
