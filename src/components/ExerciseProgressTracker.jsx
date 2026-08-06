@@ -15,6 +15,39 @@ import { saveField, loadField } from '../utils/firestoreSync';
 import ExerciseChart from './ExerciseChart';
 
 const HIDDEN_KEY = 'sunday-progress-hidden';
+
+// Exercises hidden until a date, as { 'bench press': 'YYYY-MM-DD' }.
+//
+// Its OWN field rather than a shape change to progressHiddenExercises, which is
+// a flat array of names that other readers already understand. A hide with an
+// end date is a different thing from a hide without one, and mixing them would
+// mean every reader of the old field learning about expiry.
+const SNOOZE_FIELD = 'progressSnoozedExercises';
+const SNOOZE_KEY = 'sunday-progress-snoozed';
+const SNOOZE_DAYS = 30;
+
+/** Local YYYY-MM-DD, N days from today. Dates, not timestamps: the unit the
+ *  user asked for is days, and a date compares cleanly as a string. */
+function dateInDays(n) {
+  const d = new Date();
+  d.setDate(d.getDate() + n);
+  const pad = v => String(v).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+/** A copy with any expiry that has come and gone dropped. */
+function pruneExpired(map) {
+  const today = dateInDays(0);
+  return Object.fromEntries(Object.entries(map || {}).filter(([, until]) => until > today));
+}
+
+/** Days from today until `iso`, rounded up; 0 once it's today or past. */
+function daysUntil(iso) {
+  const today = dateInDays(0);
+  if (!iso || iso <= today) return 0;
+  const ms = new Date(`${iso}T12:00:00`) - new Date(`${today}T12:00:00`);
+  return Math.max(0, Math.round(ms / 86400000));
+}
 const INTENT_KEY = 'sunday-progress-intent';
 // Bodyweight history, hydrated into localStorage from the user doc by
 // firestoreSync. Read directly (the established pattern in this app) rather than
@@ -180,7 +213,35 @@ function Annotations({ list }) {
   );
 }
 
-function ExerciseRow({ r, unit, onHide, onOpenChart }) {
+/**
+ * The two ways to get an exercise off this page.
+ *
+ * 30d is the one you actually want most of the time — an exercise you're not
+ * training this block isn't stagnating, it's parked, and it should come back on
+ * its own rather than needing you to remember it exists. ✕ stays for good.
+ */
+function HideCell({ name, onHide, onSnooze }) {
+  return (
+    <td className={styles.hideCol}>
+      <button
+        type="button"
+        className={styles.rowSnooze}
+        title={`Hide ${name} for ${SNOOZE_DAYS} days, then bring it back`}
+        aria-label={`Hide ${name} for ${SNOOZE_DAYS} days`}
+        onClick={() => onSnooze(name)}
+      >30d</button>
+      <button
+        type="button"
+        className={styles.rowHide}
+        title={`Hide ${name} from the tracker for good`}
+        aria-label={`Hide ${name}`}
+        onClick={() => onHide(name)}
+      >×</button>
+    </td>
+  );
+}
+
+function ExerciseRow({ r, unit, onHide, onSnooze, onOpenChart }) {
   const color = STATUS_META[r.status].color;
   return (
     <tr>
@@ -200,14 +261,12 @@ function ExerciseRow({ r, unit, onHide, onOpenChart }) {
       <td className={`${styles.num} ${styles.strong}`}>{fmtValue(r.metric, r.recent, unit)}</td>
       <td className={styles.num}><DeltaCell r={r} unit={unit} /></td>
       <td className={styles.trendCell}><Sparkline series={r.series} baseline={r.baseline} color={color} /></td>
-      <td className={styles.hideCol}>
-        <button type="button" className={styles.rowHide} title="Hide from tracker" aria-label={`Hide ${r.name}`} onClick={() => onHide(r.name)}>×</button>
-      </td>
+      <HideCell name={r.name} onHide={onHide} onSnooze={onSnooze} />
     </tr>
   );
 }
 
-function StatusSection({ status, rows, unit, onHide, onOpenChart }) {
+function StatusSection({ status, rows, unit, onHide, onSnooze, onOpenChart }) {
   const meta = STATUS_META[status];
   const baselineCol = status === 'nobaseline' ? 'Latest' : 'Baseline';
   const recentCol = status === 'nobaseline' ? 'Best' : 'Recent';
@@ -249,12 +308,10 @@ function StatusSection({ status, rows, unit, onHide, onOpenChart }) {
                   <td className={styles.num}>{fmtValue(r.metric, r.best, unit)}</td>
                   <td className={`${styles.num} ${styles.dim}`}>{noBaselineHint(r)}</td>
                   <td className={styles.trendCell}><Sparkline series={r.series} baseline={null} color={STATUS_META.nobaseline.color} /></td>
-                  <td className={styles.hideCol}>
-                    <button type="button" className={styles.rowHide} title="Hide from tracker" aria-label={`Hide ${r.name}`} onClick={() => onHide(r.name)}>×</button>
-                  </td>
+                  <HideCell name={r.name} onHide={onHide} onSnooze={onSnooze} />
                 </tr>
               ))
-              : rows.map(r => <ExerciseRow key={r.name} r={r} unit={unit} onHide={onHide} onOpenChart={onOpenChart} />)}
+              : rows.map(r => <ExerciseRow key={r.name} r={r} unit={unit} onHide={onHide} onSnooze={onSnooze} onOpenChart={onOpenChart} />)}
           </tbody>
         </table>
       </div>
@@ -345,6 +402,41 @@ export default function ExerciseProgressTracker({ workouts = [], weightUnit = 'l
     return () => { alive = false; };
   }, [user?.uid]);
 
+  // Temporarily hidden: name → the date it comes back.
+  const [snoozed, setSnoozed] = useState(() => {
+    try { const o = JSON.parse(localStorage.getItem(SNOOZE_KEY) || '{}'); return o && typeof o === 'object' && !Array.isArray(o) ? o : {}; }
+    catch { return {}; }
+  });
+  useEffect(() => {
+    if (!uid) return;
+    let alive = true;
+    loadField(uid, SNOOZE_FIELD).then(v => {
+      if (alive && v && typeof v === 'object' && !Array.isArray(v)) {
+        // Pruned on the way in. Expiries are dropped when they're read or
+        // written rather than by an effect that watches the state it sets —
+        // the render-time filter already hides them, so nothing is waiting on
+        // this, and it never has to reconcile with itself.
+        const live = pruneExpired(v);
+        setSnoozed(live);
+        try { localStorage.setItem(SNOOZE_KEY, JSON.stringify(live)); } catch { /* ignore */ }
+      }
+    }).catch(() => {});
+    return () => { alive = false; };
+  }, [uid]);
+
+  /** Hide for SNOOZE_DAYS, or pass false to bring it back now. */
+  const setSnoozedName = useCallback((name, snooze) => {
+    const key = name.trim().toLowerCase();
+    setSnoozed(prev => {
+      const next = pruneExpired(prev);
+      if (snooze) next[key] = dateInDays(SNOOZE_DAYS);
+      else delete next[key];
+      try { localStorage.setItem(SNOOZE_KEY, JSON.stringify(next)); } catch { /* ignore */ }
+      if (uid) saveField(uid, SNOOZE_FIELD, next).catch(() => {});
+      return next;
+    });
+  }, [uid]);
+
   const setHiddenName = useCallback((name, hide) => {
     setHidden(prev => {
       const next = new Set(prev);
@@ -357,21 +449,32 @@ export default function ExerciseProgressTracker({ workouts = [], weightUnit = 'l
     });
   }, [user?.uid]);
 
-  // Split analysis into visible groups + the hidden pile (for the restore row).
-  const { groups, hiddenList, total } = useMemo(() => {
+  // Split analysis into visible groups, the hidden pile, and the snoozed pile.
+  // The two piles are listed separately: "gone until I say otherwise" and "back
+  // on the 5th" are different states, and a single list of them would hide the
+  // fact that some of these are coming back on their own.
+  const { groups, hiddenList, snoozedList, total } = useMemo(() => {
     const g = {};
     let t = 0;
     const hid = [];
+    const snz = [];
+    const today = dateInDays(0);
     for (const k of ORDER) {
       g[k] = [];
       for (const r of allGroups[k]) {
-        if (hidden.has(r.name.toLowerCase())) hid.push(r);
+        const key = r.name.toLowerCase();
+        const until = snoozed[key];
+        if (hidden.has(key)) hid.push(r);
+        // Compared against today on every render, not just at cleanup: the page
+        // can be open when a snooze runs out, and it should come back on its own.
+        else if (until && until > today) snz.push({ ...r, until });
         else { g[k].push(r); t++; }
       }
     }
     hid.sort((a, b) => a.name.localeCompare(b.name));
-    return { groups: g, hiddenList: hid, total: t };
-  }, [allGroups, hidden]);
+    snz.sort((a, b) => a.until.localeCompare(b.until) || a.name.localeCompare(b.name));
+    return { groups: g, hiddenList: hid, snoozedList: snz, total: t };
+  }, [allGroups, hidden, snoozed]);
 
   const anyAnalyzed = ORDER.reduce((s, k) => s + allGroups[k].length, 0) > 0;
 
@@ -475,6 +578,33 @@ export default function ExerciseProgressTracker({ workouts = [], weightUnit = 'l
                 </div>
               </div>
             ))}
+            {/* Its own row, above Hidden: these are coming back on a date, and
+                the date is the whole point of having parked them. */}
+            {snoozedList.length > 0 && (
+              <div className={styles.summaryRow}>
+                <span className={styles.summaryLabel} style={{ '--status-color': '#f59e0b' }}>
+                  Parked
+                  <span className={styles.summaryCount}>{snoozedList.length}</span>
+                </span>
+                <div className={styles.chips}>
+                  {snoozedList.map(r => {
+                    const left = daysUntil(r.until);
+                    return (
+                      <button
+                        key={r.name}
+                        type="button"
+                        className={styles.chipSnoozed}
+                        title={`Back on ${r.until} — click to bring it back now`}
+                        onClick={() => setSnoozedName(r.name, false)}
+                      >
+                        {r.name}
+                        <span className={styles.chipDays}>{left}d</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
             {hiddenList.length > 0 && (
               <div className={styles.summaryRow}>
                 <span className={styles.summaryLabel} style={{ '--status-color': '#94a3b8' }}>
@@ -491,12 +621,24 @@ export default function ExerciseProgressTracker({ workouts = [], weightUnit = 'l
               </div>
             )}
           </div>
-          <p className={styles.hint}>Click ✕ on an exercise to hide it from this page{hiddenList.length > 0 ? '; click a hidden one to show it again.' : '.'}</p>
+          <p className={styles.hint}>
+            <strong>30d</strong> parks an exercise for {SNOOZE_DAYS} days and it comes back on its own;
+            {' '}<strong>✕</strong> hides it for good
+            {hiddenList.length + snoozedList.length > 0 ? '. Click any chip above to bring one back now.' : '.'}
+          </p>
 
           {total === 0 ? (
             <div className={styles.empty}>All analyzed exercises are hidden. Restore one above to see it here.</div>
           ) : ORDER.filter(s => groups[s].length > 0).map(status => (
-            <StatusSection key={status} status={status} rows={groups[status]} unit={weightUnit} onHide={(n) => setHiddenName(n, true)} onOpenChart={setChartExercise} />
+            <StatusSection
+              key={status}
+              status={status}
+              rows={groups[status]}
+              unit={weightUnit}
+              onHide={(n) => setHiddenName(n, true)}
+              onSnooze={(n) => setSnoozedName(n, true)}
+              onOpenChart={setChartExercise}
+            />
           ))}
         </>
       )}

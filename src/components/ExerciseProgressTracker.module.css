@@ -177,6 +177,29 @@
 }
 .chipHidden:hover { color: var(--color-text, #334155); border-color: var(--color-text-muted, #94a3b8); }
 .chipRestore { font-weight: 700; }
+
+/* A parked exercise. Solid border and amber, against the hidden chips' dashed
+   grey — these ones are on a clock, and the clock is on the chip. */
+.chipSnoozed {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.76rem;
+  font-weight: 600;
+  padding: 0.15rem 0.6rem;
+  border-radius: 999px;
+  color: #b45309;
+  background: rgba(245, 158, 11, 0.1);
+  border: 1px solid rgba(245, 158, 11, 0.4);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.chipSnoozed:hover { background: rgba(245, 158, 11, 0.2); border-color: #f59e0b; }
+.chipDays {
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.8;
+}
 .chipEmpty {
   font-size: 0.76rem;
   color: var(--color-text-muted, #94a3b8);
@@ -187,7 +210,30 @@
   font-size: 0.78rem;
   color: var(--color-text-muted, #94a3b8);
 }
-.hideCol { width: 28px; text-align: center; }
+/* Two controls now: park for 30 days, or hide for good. */
+.hideCol { width: 62px; text-align: center; white-space: nowrap; }
+
+/* "30d" reads as what it does, where an icon would need a legend. Amber rather
+   than red — parking something is not the destructive one. */
+.rowSnooze {
+  border: none;
+  background: transparent;
+  color: var(--color-text-muted, #94a3b8);
+  opacity: 0.55;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  line-height: 1;
+  padding: 0.2rem 0.25rem;
+  border-radius: 6px;
+}
+.rowSnooze:hover {
+  opacity: 1;
+  color: #b45309;
+  background: rgba(245, 158, 11, 0.12);
+}
 .rowHide {
   border: none;
   background: transparent;
