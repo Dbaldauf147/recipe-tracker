@@ -28,8 +28,12 @@
 // WeekPlanPage) — the suggestion depends on staleness ranking + per-day
 // overrides, which this cron can't recompute. A `workout_logged` rule whose
 // date is on that list is a DECIDED rest day, not a day still waiting for a
-// workout, so its skip is applied the same day. Note a sauna-only placeholder
-// workout (no exercises, no type) is ignored below so it can't mask a rest day.
+// workout, so its skip is applied the same day. Two kinds of record are ignored
+// below so they can't mask a rest day: a sauna-only placeholder (no exercises,
+// no type), and a STRETCH session — the stretch player logs a finished routine
+// as a workout so it reaches History and Charts, but stretching isn't the
+// workout a workout habit is asking about, and the Week Plan's workout row
+// already leaves it out on the same reasoning.
 // Because that skip is a guess made BEFORE the day happened, it is provisional:
 // if a workout of any kind is logged afterwards — a yoga session, a cardio day,
 // an unplanned lift — the skip is replaced by the rule's mark (the ✓). That
@@ -362,6 +366,20 @@ export default async function handler(req, res) {
       // repair older days whose rest-day skip a workout has since disproved.
       const workoutsByDate = {};
       if (rules.some(isWorkoutTrigger)) {
+        // Routine names, for stretch sessions logged before the `source` tag
+        // existed — the player writes the routine name into every entry's
+        // notes. Mirrors isStretchWorkout in src/utils/stretchRoutine.js.
+        const stretchRoutineNames = new Set(
+          (Array.isArray(data.stretchRoutines) ? data.stretchRoutines : [])
+            .map(r => String(r?.name || '').trim().toLowerCase())
+            .filter(Boolean),
+        );
+        const isStretchWorkout = (w) => {
+          if (w?.source === 'stretch') return true;
+          const entries = Array.isArray(w?.entries) ? w.entries : [];
+          if (entries.length === 0 || stretchRoutineNames.size === 0) return false;
+          return entries.every(e => stretchRoutineNames.has(String(e?.notes || '').trim().toLowerCase()));
+        };
         const wantDates = [...new Set([
           ...[...DAYS, easternYesterday(DAYS[DAYS.length - 1])].map(dd => dd.dateKey),
           ...backfillDateKeys(when),
@@ -382,6 +400,12 @@ export default async function handler(req, res) {
             const hasEntries = Array.isArray(w.entries) && w.entries.length > 0;
             const hasType = String(w.workoutType || '').trim().length > 0;
             if (!hasEntries && !hasType) continue;
+            // Nor does a stretch session. The player logs a finished routine as
+            // a workout so it lands in History and Charts, but stretching isn't
+            // the workout the habit is asking about — the Week Plan's workout
+            // row already leaves these out for exactly this reason. Without
+            // this, playing a routine ticked the workout habit for the day.
+            if (isStretchWorkout(w)) continue;
             (workoutsByDate[w.date] = workoutsByDate[w.date] || []).push(w);
           }
         } catch { /* leave empty → workout rules see no workouts */ }
