@@ -2558,18 +2558,41 @@ export function WorkoutPage({ onBack, user }) {
   // Guided stretch routines. Same user-doc field the mobile app reads and
   // writes (`stretchRoutines`), so a routine built here plays on the phone.
   const [stretchRoutines, setStretchRoutines] = useState([]);
+  // Until the user doc comes back this list is [], which on screen is
+  // indistinguishable from "no routines yet" — and loadField reads the WHOLE
+  // user doc, so on a big account that window is long enough to save inside.
+  // Saving there wrote the one new routine over everything already stored, and
+  // then the read landed and replaced the list on screen: the routine you just
+  // made vanished and the old ones came back. Hence both guards — the editor
+  // stays shut until `stretchLoaded`, and a save marks the list dirty so a slow
+  // read can't overwrite what you just did either.
+  const [stretchLoaded, setStretchLoaded] = useState(false);
+  const stretchDirty = useRef(false);
   useEffect(() => {
     if (!user?.uid) return;
     let cancelled = false;
+    setStretchLoaded(false);
+    stretchDirty.current = false;
     loadField(user.uid, 'stretchRoutines').then(v => {
-      if (cancelled || !Array.isArray(v)) return;
-      setStretchRoutines(v.map(normalizeRoutine).filter(Boolean));
-    }).catch(() => {});
+      if (cancelled) return;
+      if (Array.isArray(v) && !stretchDirty.current) {
+        setStretchRoutines(v.map(normalizeRoutine).filter(Boolean));
+      }
+      setStretchLoaded(true);
+    }).catch(() => { if (!cancelled) setStretchLoaded(true); });
     return () => { cancelled = true; };
   }, [user?.uid]);
   const saveStretchRoutines = useCallback((next) => {
+    stretchDirty.current = true;
     setStretchRoutines(next);
-    if (user?.uid) saveField(user.uid, 'stretchRoutines', next).catch(() => {});
+    if (!user?.uid) return;
+    // Say so when the write fails. A routine that silently doesn't persist is
+    // worse than an error — the list looks right until the next reload, which
+    // is the whole reason this was hard to pin down.
+    saveField(user.uid, 'stretchRoutines', next).catch(err => {
+      console.error('[stretchRoutines] save failed', err);
+      alert(`Couldn't save your stretch routines: ${err?.message || err}`);
+    });
   }, [user?.uid]);
   // Routine names, for recognising stretch workouts logged before they carried
   // a `source` tag — the player writes the routine name into every entry's
@@ -5909,6 +5932,7 @@ export function WorkoutPage({ onBack, user }) {
       {viewMode === 'stretch' && (
         <StretchRoutines
           routines={stretchRoutines}
+          loading={!stretchLoaded}
           onChange={saveStretchRoutines}
           stretchOptions={stretchExerciseNames()}
           onLogRoutine={logStretchRoutine}

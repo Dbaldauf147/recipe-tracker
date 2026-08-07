@@ -307,7 +307,11 @@ function dropHold(step, key = 'holdSec') {
 
 // ── Tab ───────────────────────────────────────────────────────────────────
 export function StretchRoutines({
-  routines, onChange, stretchOptions, onLogRoutine, goalRows, goalEntries = {},
+  // `loading` = the stored routines haven't arrived yet. It gates the editor:
+  // every save is built from `routines`, so starting one against a list that is
+  // only empty because it hasn't loaded would write the new routine over the
+  // stored ones. See the comment on stretchLoaded in WorkoutPage.
+  routines, loading = false, onChange, stretchOptions, onLogRoutine, goalRows, goalEntries = {},
   goalMin, onGoalMinChange,
   workoutTypes = [], habits = [], defaultWorkoutType = 'Yoga',
 }) {
@@ -649,10 +653,21 @@ export function StretchRoutines({
 
       <div className={styles.headRow}>
         <h3 className={styles.h3}>Stretch routines</h3>
-        <button className={styles.primaryBtn} onClick={() => setEditing(emptyRoutine())}>+ New routine</button>
+        <button
+          className={styles.primaryBtn}
+          onClick={() => setEditing(emptyRoutine())}
+          disabled={loading}
+          title={loading ? 'Loading your saved routines…' : undefined}
+        >
+          + New routine
+        </button>
       </div>
 
-      {routines.length === 0 && (
+      {loading && (
+        <div className={styles.empty}>Loading your routines…</div>
+      )}
+
+      {!loading && routines.length === 0 && (
         <div className={styles.empty}>
           No routines yet. Build one from your stretches — the player holds each pose for {DEFAULT_HOLD_SEC}s
           and gives you {DEFAULT_TRANSITION_SEC}s to move between them, calling each pose out loud.
