@@ -103,7 +103,29 @@ function spreadIndices(len, count) {
   }
   return set;
 }
-function resolveWorkoutPlan(rankedTypes, overrides, workoutTypes, recordedIdxs, recordedTypes) {
+// Goal-aware day suggestion — each open day goes to the category furthest from
+// its weekly goal, filled by the most overdue type in it. Rest comes from
+// goals.rest. Ported from WeekPlanPage.jsx; keep the two in step or the grid and
+// the synced calendar will name different workouts for the same day.
+const WORKOUT_KIND_KEYS = ['weights', 'cardio', 'yoga'];
+const DEFAULT_WORKOUT_GOALS = { weights: 3, cardio: 1, yoga: 1, rest: 2 };
+// Keyword fallback for types with no explicit category — mirrors
+// CAL_YOGA_RE / CAL_CARDIO_RE in WorkoutPage.jsx.
+const CAT_YOGA_RE = /yoga|vinyasa|pilates|mobility|stretch/i;
+const CAT_CARDIO_RE = /cardio|running|\brun\b|jog|cycl|spin|\bbike\b|biking|swim|hiit|elliptical|treadmill|stair|sprint|conditioning|walk|hike/i;
+function normalizeWorkoutGoals(goals) {
+  const out = { ...DEFAULT_WORKOUT_GOALS };
+  for (const k of Object.keys(out)) {
+    const n = Math.round(Number(goals?.[k]));
+    if (Number.isFinite(n)) out[k] = Math.min(7, Math.max(0, n));
+  }
+  return out;
+}
+function resolveWorkoutPlan(rankedTypes, overrides, workoutTypes, recordedIdxs, recordedTypes, opts = {}) {
+  const goals = normalizeWorkoutGoals(opts.goals);
+  const categoryOf = opts.categoryOf || (() => 'weights');
+  const loggedCatDays = opts.loggedCatDays || {};
+
   const validTypes = new Set(workoutTypes);
   const fixed = {};
   for (const [k, v] of Object.entries(overrides || {})) {
@@ -111,17 +133,87 @@ function resolveWorkoutPlan(rankedTypes, overrides, workoutTypes, recordedIdxs, 
   }
   const out = {};
   for (let i = 0; i < 7; i++) if (fixed[i] != null) out[i] = { value: fixed[i], isAuto: false };
+
   const restInFixed = Object.values(fixed).filter(v => v === 'rest').length;
-  const restNeeded = Math.max(0, 2 - restInFixed);
-  const usedTypes = new Set(Object.values(fixed).filter(v => v !== 'rest'));
-  const available = rankedTypes.filter(t => !usedTypes.has(t) && !recordedTypes.has(t));
+  const restNeeded = Math.max(0, goals.rest - restInFixed);
+
+  const have = {};
+  for (const cat of WORKOUT_KIND_KEYS) have[cat] = Math.max(0, Math.round(Number(loggedCatDays[cat]) || 0));
+  for (const [k, v] of Object.entries(fixed)) {
+    if (v === 'rest' || recordedIdxs.has(Number(k))) continue;
+    const cat = categoryOf(v);
+    if (have[cat] != null) have[cat] += 1;
+  }
+  const need = {};
+  for (const cat of WORKOUT_KIND_KEYS) need[cat] = Math.max(0, goals[cat] - have[cat]);
+
   const autoSlots = [];
   for (let i = 0; i < 7; i++) if (fixed[i] == null && !recordedIdxs.has(i)) autoSlots.push(i);
   const restPos = spreadIndices(autoSlots.length, restNeeded);
-  let ti = 0;
-  autoSlots.forEach((slot, pos) => {
-    if (restPos.has(pos) || ti >= available.length) out[slot] = { value: 'rest', isAuto: true };
-    else out[slot] = { value: available[ti++], isAuto: true };
+
+  const byCat = {};
+  for (const cat of WORKOUT_KIND_KEYS) byCat[cat] = [];
+  const rankIndex = new Map();
+  rankedTypes.forEach((t, i) => {
+    rankIndex.set(t, i);
+    const cat = categoryOf(t);
+    if (byCat[cat]) byCat[cat].push(t);
+  });
+
+  const usedTypes = new Set([
+    ...Object.values(fixed).filter(v => v !== 'rest'),
+    ...recordedTypes,
+  ]);
+  const placedAt = {};
+
+  function candidateFor(cat) {
+    const pool = byCat[cat] || [];
+    if (!pool.length) return null;
+    const fresh = pool.find(t => !usedTypes.has(t));
+    if (fresh) return fresh;
+    let best = null, bestPos = Infinity;
+    for (const t of pool) {
+      const p = placedAt[t] ?? -1;
+      if (p < bestPos) { best = t; bestPos = p; }
+    }
+    return best;
+  }
+
+  function pickCategory(prevCat, left) {
+    const cats = WORKOUT_KIND_KEYS.filter(c => need[c] > 0 && candidateFor(c));
+    if (!cats.length) return null;
+    const spread = cats.filter(c => c !== prevCat || need[c] >= left);
+    const pool = spread.length ? spread : cats;
+    let best = pool[0];
+    for (const c of pool) {
+      if (need[c] > need[best]) best = c;
+      else if (need[c] === need[best]) {
+        const a = rankIndex.get(candidateFor(c)) ?? Infinity;
+        const b = rankIndex.get(candidateFor(best)) ?? Infinity;
+        if (a < b) best = c;
+      }
+    }
+    return best;
+  }
+
+  const workoutPositions = autoSlots.map((_, pos) => pos).filter(pos => !restPos.has(pos));
+  for (const pos of restPos) out[autoSlots[pos]] = { value: 'rest', isAuto: true };
+
+  workoutPositions.forEach((pos, i) => {
+    const slot = autoSlots[pos];
+    const left = workoutPositions.length - i;
+    const prev = out[slot - 1];
+    const prevCat = prev && prev.value !== 'rest' ? categoryOf(prev.value) : null;
+
+    const cat = pickCategory(prevCat, left);
+    let type = cat ? candidateFor(cat) : null;
+    if (type != null) need[cat] -= 1;
+    else type = rankedTypes.find(t => !usedTypes.has(t)) || null;
+
+    if (type == null) { out[slot] = { value: 'rest', isAuto: true }; return; }
+    usedTypes.add(type);
+    placedAt[type] = pos;
+    out[slot] = { value: type, isAuto: true };
   });
   return out;
 }
@@ -454,7 +546,19 @@ export default async function handler(req, res) {
         // day's workout uses; anything unmapped is treated as weights (same
         // fallback the Week Plan's icon uses).
         const typeCategories = (data.workoutTypeCategories && typeof data.workoutTypeCategories === 'object') ? data.workoutTypeCategories : {};
-        const categoryOf = (type) => (isWorkoutKind(typeCategories[type]) ? typeCategories[type] : 'weights');
+        // Explicit category wins, then the same keyword fallback the app's
+        // workoutCalendarCategory uses for types tagged before categories
+        // existed. The goal-aware planner below counts days by category, so this
+        // has to answer exactly what the Week Plan's tally answers.
+        const categoryOf = (type) => {
+          const explicit = typeCategories[type];
+          if (isWorkoutKind(explicit)) return explicit;
+          const t = String(type || '');
+          if (CAT_YOGA_RE.test(t)) return 'yoga';
+          if (CAT_CARDIO_RE.test(t)) return 'cardio';
+          return 'weights';
+        };
+        const workoutGoals = (data.workoutWeeklyGoals && typeof data.workoutWeeklyGoals === 'object') ? data.workoutWeeklyGoals : {};
         const overrides = (data.weekWorkoutPlan && typeof data.weekWorkoutPlan === 'object') ? data.weekWorkoutPlan : {};
         const saunaGoal = normalizeSaunaGoal(data.saunaGoal);
         const saunaOverrides = normalizeSaunaOverrides(data.saunaOverrides);
@@ -477,11 +581,29 @@ export default async function handler(req, res) {
           const weekDates = Array.from({ length: 7 }, (_, i) => isoOf(addDays(sun, i)));
           const recordedIdxs = new Set();
           const recordedTypes = new Set();
+          // Categories logged per day, so the planner knows what this week has
+          // already banked against each goal. A day counts once per category
+          // (matching the app's tally), and typeless records — a sauna-only day —
+          // are skipped rather than defaulting to weights.
+          const catsByIdx = new Map();
           for (const w of workoutsRaw) {
             const idx = weekDates.indexOf(w?.date);
-            if (idx >= 0) { recordedIdxs.add(idx); if (w.workoutType) recordedTypes.add(w.workoutType); }
+            if (idx < 0) continue;
+            recordedIdxs.add(idx);
+            if (!w.workoutType) continue;
+            recordedTypes.add(w.workoutType);
+            if (!catsByIdx.has(idx)) catsByIdx.set(idx, new Set());
+            catsByIdx.get(idx).add(categoryOf(w.workoutType));
           }
-          const plan = resolveWorkoutPlan(ranked, overrides, workoutTypes, recordedIdxs, recordedTypes);
+          const loggedCatDays = Object.fromEntries(WORKOUT_KIND_KEYS.map(c => [c, 0]));
+          for (const cats of catsByIdx.values()) {
+            for (const c of WORKOUT_KIND_KEYS) if (cats.has(c)) loggedCatDays[c] += 1;
+          }
+          const plan = resolveWorkoutPlan(ranked, overrides, workoutTypes, recordedIdxs, recordedTypes, {
+            goals: workoutGoals,
+            categoryOf,
+            loggedCatDays,
+          });
           const plannedDates = [];
           for (let i = 0; i < 7; i++) {
             const dateStr = weekDates[i];

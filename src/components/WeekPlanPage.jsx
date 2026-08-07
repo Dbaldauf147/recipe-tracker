@@ -39,6 +39,9 @@ const WORKOUT_CATS = [
 ];
 const WORKOUT_CAT_META = Object.fromEntries(WORKOUT_CATS.map(c => [c.key, c]));
 const DEFAULT_WORKOUT_GOALS = { weights: 3, cardio: 1, yoga: 1, rest: 2 };
+// The trainable categories — everything in WORKOUT_CATS except rest. These are
+// what the day suggester fills against; rest is the leftover, not a thing you do.
+const WORKOUT_KIND_KEYS = ['weights', 'cardio', 'yoga'];
 
 // Week-total produce tiles. Servings come from each logged entry's
 // `nutrition.vegServings` / `fruitServings` — the same numbers the Prepare
@@ -351,6 +354,17 @@ function loadWorkoutGoals() {
   return DEFAULT_WORKOUT_GOALS;
 }
 
+// Goals drive the day suggestions now, so a junk value can't be waved through:
+// coerce to whole days in 0..7 and fall back to the default per category.
+function normalizeWorkoutGoals(goals) {
+  const out = { ...DEFAULT_WORKOUT_GOALS };
+  for (const k of Object.keys(out)) {
+    const n = Math.round(Number(goals?.[k]));
+    if (Number.isFinite(n)) out[k] = Math.min(7, Math.max(0, n));
+  }
+  return out;
+}
+
 // The weekly sauna goal lives on the user doc (`saunaGoal`, edited in the ⚙
 // popup) — see utils/saunaPlan.js. Saunas are logged per-workout on the mobile
 // app (Workout.sauna); the Week Plan counts logged days against the goal and
@@ -383,15 +397,33 @@ function rankWorkoutTypesByStaleness(workoutsRaw, workoutTypes, typeSkipDates) {
 // spreadIndices (used below to scatter rest days) now lives in utils/saunaPlan.js
 // alongside the sauna spread that shares it.
 
-// Build the full Sun..Sat (0..6) plan from the staleness ranking + the user's
-// per-day overrides. Most-overdue types fill the earliest auto days; exactly 2
-// rest days total, spread out; no type repeats in a week. Returns
+// Build the full Sun..Sat (0..6) plan from the weekly category goals, the
+// staleness ranking, and the user's per-day overrides. Returns
 // { [idx]: { value, isAuto } } where value is a workout type or 'rest'.
+//
+// The goals lead. Each open day goes to whichever CATEGORY is furthest from its
+// weekly goal (counting what's already logged and what you've pinned), and the
+// most-overdue TYPE within that category fills it. Staleness still decides
+// what you do; the goals decide what kind of day it is. Before this the
+// suggester ranked types globally and ignored the goals entirely, so a
+// weights: 3 goal was unreachable whenever you had fewer than three
+// weights-categorised types — it would hand you five distinct stale types
+// spanning every category and leave the Weights tile short.
+//
+// Rest days come from goals.rest (was hardcoded to 2) and are spread out.
 // `recordedIdxs` = day indices that already have a logged workout — these are
 // active days (the recorded workout is shown there), so they're skipped when
 // placing suggestions. Otherwise the most-overdue type gets assigned to a day
 // you already trained (e.g. Sunday) and is hidden behind the recorded workout.
-function resolveWorkoutPlan(rankedTypes, overrides, workoutTypes, recordedIdxs = new Set(), recordedTypes = new Set()) {
+//
+// opts: { goals, categoryOf, loggedCatDays } — the weekly goals, a type→category
+// resolver (must match the one the tally uses, or the two never converge), and
+// days already logged per category this week.
+function resolveWorkoutPlan(rankedTypes, overrides, workoutTypes, recordedIdxs = new Set(), recordedTypes = new Set(), opts = {}) {
+  const goals = normalizeWorkoutGoals(opts.goals);
+  const categoryOf = opts.categoryOf || (() => 'weights');
+  const loggedCatDays = opts.loggedCatDays || {};
+
   const validTypes = new Set(workoutTypes);
   const fixed = {};
   for (const [k, v] of Object.entries(overrides || {})) {
@@ -401,23 +433,112 @@ function resolveWorkoutPlan(rankedTypes, overrides, workoutTypes, recordedIdxs =
   for (let i = 0; i < 7; i++) if (fixed[i] != null) out[i] = { value: fixed[i], isAuto: false };
 
   const restInFixed = Object.values(fixed).filter(v => v === 'rest').length;
-  const restNeeded = Math.max(0, 2 - restInFixed);
-  const usedTypes = new Set(Object.values(fixed).filter(v => v !== 'rest'));
-  // Drop types already trained this week from the suggestion pool — a freshly
-  // logged type isn't overdue, so don't re-suggest it later in the same week.
-  const available = rankedTypes.filter(t => !usedTypes.has(t) && !recordedTypes.has(t));
+  const restNeeded = Math.max(0, goals.rest - restInFixed);
+
+  // Days each category has already banked: what's logged this week, plus the
+  // days you pinned yourself. Goals count DAYS, matching tallyWorkouts. A pinned
+  // day that also has a workout logged is skipped — it's already in the logged
+  // count, and adding it again would understate what's still owed.
+  const have = {};
+  for (const cat of WORKOUT_KIND_KEYS) have[cat] = Math.max(0, Math.round(Number(loggedCatDays[cat]) || 0));
+  for (const [k, v] of Object.entries(fixed)) {
+    if (v === 'rest' || recordedIdxs.has(Number(k))) continue;
+    const cat = categoryOf(v);
+    if (have[cat] != null) have[cat] += 1;
+  }
+  const need = {};
+  for (const cat of WORKOUT_KIND_KEYS) need[cat] = Math.max(0, goals[cat] - have[cat]);
 
   const autoSlots = [];
   for (let i = 0; i < 7; i++) if (fixed[i] == null && !recordedIdxs.has(i)) autoSlots.push(i);
 
   const restPos = spreadIndices(autoSlots.length, restNeeded);
-  let ti = 0;
-  autoSlots.forEach((slot, pos) => {
-    if (restPos.has(pos) || ti >= available.length) {
-      out[slot] = { value: 'rest', isAuto: true };
-    } else {
-      out[slot] = { value: available[ti++], isAuto: true };
+
+  // Types grouped by category, stalest first, so a category that needs more days
+  // than it has distinct types can cycle through them instead of running dry.
+  const byCat = {};
+  for (const cat of WORKOUT_KIND_KEYS) byCat[cat] = [];
+  const rankIndex = new Map();
+  rankedTypes.forEach((t, i) => {
+    rankIndex.set(t, i);
+    const cat = categoryOf(t);
+    if (byCat[cat]) byCat[cat].push(t);
+  });
+
+  // Spent this week: pinned by you or already logged. Not fresh, but still
+  // repeatable when a goal asks for more days than the category has types.
+  const usedTypes = new Set([
+    ...Object.values(fixed).filter(v => v !== 'rest'),
+    ...recordedTypes,
+  ]);
+  const placedAt = {}; // type -> the position it was last placed at this week
+
+  // The type this category would contribute next, without consuming it.
+  function candidateFor(cat) {
+    const pool = byCat[cat] || [];
+    if (!pool.length) return null;
+    const fresh = pool.find(t => !usedTypes.has(t));
+    if (fresh) return fresh;
+    // Every type here is spoken for — the goal wants more days than there are
+    // distinct types, so cycle back to whichever came up longest ago. Pool is
+    // stalest-first, so ties fall to the most overdue.
+    let best = null, bestPos = Infinity;
+    for (const t of pool) {
+      const p = placedAt[t] ?? -1;
+      if (p < bestPos) { best = t; bestPos = p; }
     }
+    return best;
+  }
+
+  // Which category this day should serve: the one furthest from its goal, ties
+  // broken by whose next type is the most overdue. `prevCat` is yesterday's
+  // category — avoid stacking two of the same back to back unless this category
+  // has to take every remaining day to make its number.
+  function pickCategory(prevCat, left) {
+    const cats = WORKOUT_KIND_KEYS.filter(c => need[c] > 0 && candidateFor(c));
+    if (!cats.length) return null;
+    const spread = cats.filter(c => c !== prevCat || need[c] >= left);
+    const pool = spread.length ? spread : cats;
+    let best = pool[0];
+    for (const c of pool) {
+      if (need[c] > need[best]) best = c;
+      else if (need[c] === need[best]) {
+        const a = rankIndex.get(candidateFor(c)) ?? Infinity;
+        const b = rankIndex.get(candidateFor(best)) ?? Infinity;
+        if (a < b) best = c;
+      }
+    }
+    return best;
+  }
+
+  // Open days that aren't rest, in week order — what the goals get to fill.
+  const workoutPositions = autoSlots.map((_, pos) => pos).filter(pos => !restPos.has(pos));
+  for (const pos of restPos) out[autoSlots[pos]] = { value: 'rest', isAuto: true };
+
+  workoutPositions.forEach((pos, i) => {
+    const slot = autoSlots[pos];
+    const left = workoutPositions.length - i;
+    // Yesterday's category, whether it was pinned or auto-filled. A recorded day
+    // isn't in `out`, so it simply imposes no constraint.
+    const prev = out[slot - 1];
+    const prevCat = prev && prev.value !== 'rest' ? categoryOf(prev.value) : null;
+
+    const cat = pickCategory(prevCat, left);
+    let type = cat ? candidateFor(cat) : null;
+    if (type != null) {
+      need[cat] -= 1;
+    } else {
+      // Goals are all met and the week still has room: fall back to the original
+      // behaviour — the most overdue type that hasn't come up yet, else rest.
+      type = rankedTypes.find(t => !usedTypes.has(t)) || null;
+    }
+    if (type == null) {
+      out[slot] = { value: 'rest', isAuto: true };
+      return;
+    }
+    usedTypes.add(type);
+    placedAt[type] = pos;
+    out[slot] = { value: type, isAuto: true };
   });
   return out;
 }
@@ -690,9 +811,13 @@ export function WeekPlanPage({ recipes, getRecipe, user, weeklyPlan = [], weekly
   // and which types were trained — so suggestions skip already-trained days and
   // don't re-suggest a freshly-done type. The Prepare table is Sunday-anchored to
   // the current week, so we walk this week's Sunday → Saturday dates.
-  const { recordedWeekIdxs, recordedWeekTypes } = useMemo(() => {
+  // Also counts the DAYS each category already has in the bank this week, the
+  // same way tallyWorkouts does (one day can serve more than one category), so
+  // the suggester and the goal tiles are counting the same thing.
+  const { recordedWeekIdxs, recordedWeekTypes, recordedWeekCatDays } = useMemo(() => {
     const idxs = new Set();
     const types = new Set();
+    const catDays = Object.fromEntries(WORKOUT_KIND_KEYS.map(c => [c, 0]));
     const today = new Date();
     const sunday = addDays(today, -today.getDay()); // back up to Sunday
     for (let i = 0; i < 7; i++) {
@@ -700,13 +825,29 @@ export function WeekPlanPage({ recipes, getRecipe, user, weeklyPlan = [], weekly
       if (items.length) {
         idxs.add(i);
         for (const it of items) if (it.label) types.add(it.label);
+        const cats = new Set(items.map(it => it.category));
+        for (const c of WORKOUT_KIND_KEYS) if (cats.has(c)) catDays[c] += 1;
       }
     }
-    return { recordedWeekIdxs: idxs, recordedWeekTypes: types };
+    return { recordedWeekIdxs: idxs, recordedWeekTypes: types, recordedWeekCatDays: catDays };
   }, [workoutsByDate]);
+
+  // One type→category resolver for the whole page. Must be the one
+  // buildWorkoutsByDate uses (it falls back to keyword matching for types tagged
+  // before categories existed) — if the planner and the tally disagreed about
+  // what a type counts as, a goal could never close.
+  const categoryOf = useCallback(
+    (type) => workoutCalendarCategory({ workoutType: type }, typeCategories),
+    [typeCategories],
+  );
+
   const resolvedWorkoutPlan = useMemo(
-    () => resolveWorkoutPlan(rankedTypes, weekWorkoutPlan, workoutTypes, recordedWeekIdxs, recordedWeekTypes),
-    [rankedTypes, weekWorkoutPlan, workoutTypes, recordedWeekIdxs, recordedWeekTypes]
+    () => resolveWorkoutPlan(rankedTypes, weekWorkoutPlan, workoutTypes, recordedWeekIdxs, recordedWeekTypes, {
+      goals: workoutGoals,
+      categoryOf,
+      loggedCatDays: recordedWeekCatDays,
+    }),
+    [rankedTypes, weekWorkoutPlan, workoutTypes, recordedWeekIdxs, recordedWeekTypes, workoutGoals, categoryOf, recordedWeekCatDays]
   );
 
   // ── Persist the resolved REST days (`plannedRestDates`) ──
@@ -935,7 +1076,9 @@ export function WeekPlanPage({ recipes, getRecipe, user, weeklyPlan = [], weekly
       cell = { value: 'rest', isAuto: true };
     }
     const isRest = cell.value === 'rest';
-    const iconCat = isRest ? 'rest' : (typeCategories[cell.value] || 'weights');
+    // Same resolver the planner and the tally use, so a type categorised only by
+    // keyword doesn't show one icon here and count as something else in the goals.
+    const iconCat = isRest ? 'rest' : categoryOf(cell.value);
     return (
       <div className={styles.workoutBody}>
         <span className={styles.workoutItem}>
@@ -955,7 +1098,7 @@ export function WeekPlanPage({ recipes, getRecipe, user, weeklyPlan = [], weekly
         {saunaChip}
       </div>
     );
-  }, [workoutsByDate, renderSaunaChip, resolvedWorkoutPlan, typeCategories, workoutTypes, setWorkoutCategory, onOpenWorkout]);
+  }, [workoutsByDate, renderSaunaChip, resolvedWorkoutPlan, categoryOf, workoutTypes, setWorkoutCategory, onOpenWorkout]);
 
   // Refresh from localStorage when a Firestore sync hydrates it, or another tab writes.
   useEffect(() => {
