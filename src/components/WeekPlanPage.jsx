@@ -416,13 +416,17 @@ function rankWorkoutTypesByStaleness(workoutsRaw, workoutTypes, typeSkipDates) {
 // placing suggestions. Otherwise the most-overdue type gets assigned to a day
 // you already trained (e.g. Sunday) and is hidden behind the recorded workout.
 //
-// opts: { goals, categoryOf, loggedCatDays } — the weekly goals, a type→category
-// resolver (must match the one the tally uses, or the two never converge), and
-// days already logged per category this week.
+// opts: { goals, categoryOf, loggedCatDays, todayIdx } — the weekly goals, a
+// type→category resolver (must match the one the tally uses, or the two never
+// converge), days already logged per category this week, and today's Sun..Sat
+// index so the days still ahead of you are the only ones being planned.
 function resolveWorkoutPlan(rankedTypes, overrides, workoutTypes, recordedIdxs = new Set(), recordedTypes = new Set(), opts = {}) {
   const goals = normalizeWorkoutGoals(opts.goals);
   const categoryOf = opts.categoryOf || (() => 'weights');
   const loggedCatDays = opts.loggedCatDays || {};
+  // 0 = plan the whole week (a week that hasn't started). Anything earlier than
+  // this index has already happened and can't be planned into.
+  const todayIdx = Number.isFinite(opts.todayIdx) ? Math.min(6, Math.max(0, Math.round(opts.todayIdx))) : 0;
 
   const validTypes = new Set(workoutTypes);
   const fixed = {};
@@ -432,17 +436,32 @@ function resolveWorkoutPlan(rankedTypes, overrides, workoutTypes, recordedIdxs =
   const out = {};
   for (let i = 0; i < 7; i++) if (fixed[i] != null) out[i] = { value: fixed[i], isAuto: false };
 
-  const restInFixed = Object.values(fixed).filter(v => v === 'rest').length;
-  const restNeeded = Math.max(0, goals.rest - restInFixed);
+  // A day that's gone by with nothing logged is a rest day — that's how the grid
+  // draws it, whatever was planned there. Bank those against the rest goal and
+  // keep them out of the pool below: a goal day handed to a day that already
+  // happened is a goal day burned, which is how "Weights 2/3" could sit next to
+  // two proposed rest days with the week's last workout stranded on Sunday.
+  const pastRest = [];
+  for (let i = 0; i < todayIdx; i++) {
+    if (recordedIdxs.has(i)) continue;
+    pastRest.push(i);
+    out[i] = { value: 'rest', isAuto: fixed[i] !== 'rest' };
+  }
+  // Only rest you pinned on a day still to come counts on top of that.
+  const restInFixed = Object.entries(fixed)
+    .filter(([k, v]) => v === 'rest' && Number(k) >= todayIdx && !recordedIdxs.has(Number(k)))
+    .length;
+  const restNeeded = Math.max(0, goals.rest - pastRest.length - restInFixed);
 
   // Days each category has already banked: what's logged this week, plus the
-  // days you pinned yourself. Goals count DAYS, matching tallyWorkouts. A pinned
-  // day that also has a workout logged is skipped — it's already in the logged
-  // count, and adding it again would understate what's still owed.
+  // days you pinned yourself. Goals count DAYS, matching tallyWorkouts. Pinned
+  // days that are already logged, or already past, don't count — the first is
+  // in the logged tally, the second never happened.
   const have = {};
   for (const cat of WORKOUT_KIND_KEYS) have[cat] = Math.max(0, Math.round(Number(loggedCatDays[cat]) || 0));
   for (const [k, v] of Object.entries(fixed)) {
-    if (v === 'rest' || recordedIdxs.has(Number(k))) continue;
+    const i = Number(k);
+    if (v === 'rest' || recordedIdxs.has(i) || i < todayIdx) continue;
     const cat = categoryOf(v);
     if (have[cat] != null) have[cat] += 1;
   }
@@ -450,7 +469,7 @@ function resolveWorkoutPlan(rankedTypes, overrides, workoutTypes, recordedIdxs =
   for (const cat of WORKOUT_KIND_KEYS) need[cat] = Math.max(0, goals[cat] - have[cat]);
 
   const autoSlots = [];
-  for (let i = 0; i < 7; i++) if (fixed[i] == null && !recordedIdxs.has(i)) autoSlots.push(i);
+  for (let i = todayIdx; i < 7; i++) if (fixed[i] == null && !recordedIdxs.has(i)) autoSlots.push(i);
 
   const restPos = spreadIndices(autoSlots.length, restNeeded);
 
@@ -846,8 +865,11 @@ export function WeekPlanPage({ recipes, getRecipe, user, weeklyPlan = [], weekly
       goals: workoutGoals,
       categoryOf,
       loggedCatDays: recordedWeekCatDays,
+      // The plan is always the CURRENT week's (recordedWeekIdxs is anchored to
+      // today), so today's weekday is what splits done from still-to-come.
+      todayIdx: sundayIndexOf(todayKey),
     }),
-    [rankedTypes, weekWorkoutPlan, workoutTypes, recordedWeekIdxs, recordedWeekTypes, workoutGoals, categoryOf, recordedWeekCatDays]
+    [rankedTypes, weekWorkoutPlan, workoutTypes, recordedWeekIdxs, recordedWeekTypes, workoutGoals, categoryOf, recordedWeekCatDays, todayKey]
   );
 
   // ── Persist the resolved REST days (`plannedRestDates`) ──

@@ -125,6 +125,8 @@ function resolveWorkoutPlan(rankedTypes, overrides, workoutTypes, recordedIdxs, 
   const goals = normalizeWorkoutGoals(opts.goals);
   const categoryOf = opts.categoryOf || (() => 'weights');
   const loggedCatDays = opts.loggedCatDays || {};
+  // 0 = plan the whole week (next week, which hasn't started).
+  const todayIdx = Number.isFinite(opts.todayIdx) ? Math.min(6, Math.max(0, Math.round(opts.todayIdx))) : 0;
 
   const validTypes = new Set(workoutTypes);
   const fixed = {};
@@ -134,13 +136,24 @@ function resolveWorkoutPlan(rankedTypes, overrides, workoutTypes, recordedIdxs, 
   const out = {};
   for (let i = 0; i < 7; i++) if (fixed[i] != null) out[i] = { value: fixed[i], isAuto: false };
 
-  const restInFixed = Object.values(fixed).filter(v => v === 'rest').length;
-  const restNeeded = Math.max(0, goals.rest - restInFixed);
+  // Days already gone by with nothing logged are rest — banked against the rest
+  // goal, and never handed a goal day they can no longer serve.
+  const pastRest = [];
+  for (let i = 0; i < todayIdx; i++) {
+    if (recordedIdxs.has(i)) continue;
+    pastRest.push(i);
+    out[i] = { value: 'rest', isAuto: fixed[i] !== 'rest' };
+  }
+  const restInFixed = Object.entries(fixed)
+    .filter(([k, v]) => v === 'rest' && Number(k) >= todayIdx && !recordedIdxs.has(Number(k)))
+    .length;
+  const restNeeded = Math.max(0, goals.rest - pastRest.length - restInFixed);
 
   const have = {};
   for (const cat of WORKOUT_KIND_KEYS) have[cat] = Math.max(0, Math.round(Number(loggedCatDays[cat]) || 0));
   for (const [k, v] of Object.entries(fixed)) {
-    if (v === 'rest' || recordedIdxs.has(Number(k))) continue;
+    const i = Number(k);
+    if (v === 'rest' || recordedIdxs.has(i) || i < todayIdx) continue;
     const cat = categoryOf(v);
     if (have[cat] != null) have[cat] += 1;
   }
@@ -148,7 +161,7 @@ function resolveWorkoutPlan(rankedTypes, overrides, workoutTypes, recordedIdxs, 
   for (const cat of WORKOUT_KIND_KEYS) need[cat] = Math.max(0, goals[cat] - have[cat]);
 
   const autoSlots = [];
-  for (let i = 0; i < 7; i++) if (fixed[i] == null && !recordedIdxs.has(i)) autoSlots.push(i);
+  for (let i = todayIdx; i < 7; i++) if (fixed[i] == null && !recordedIdxs.has(i)) autoSlots.push(i);
   const restPos = spreadIndices(autoSlots.length, restNeeded);
 
   const byCat = {};
@@ -599,10 +612,13 @@ export default async function handler(req, res) {
           for (const cats of catsByIdx.values()) {
             for (const c of WORKOUT_KIND_KEYS) if (cats.has(c)) loggedCatDays[c] += 1;
           }
+          // Only week 0 has days behind it; next week plans in full.
+          const todayIdx = Math.max(0, weekDates.indexOf(todayStr));
           const plan = resolveWorkoutPlan(ranked, overrides, workoutTypes, recordedIdxs, recordedTypes, {
             goals: workoutGoals,
             categoryOf,
             loggedCatDays,
+            todayIdx,
           });
           const plannedDates = [];
           for (let i = 0; i < 7; i++) {
