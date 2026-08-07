@@ -439,6 +439,34 @@
 .pickerItem:hover { background: var(--color-surface-alt); }
 .pickerList li:last-child .pickerItem { border-bottom: none; }
 
+/* Heading over each half of the picker — the predicted matches, then the rest
+   of the database. Quiet: it's a signpost between two lists, not a section. */
+.pickerGroup {
+  margin: 0.5rem 0 0;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+/* The one-tap "this is obviously your X" on an unlinked row. Reads as the
+   primary action of the two, since it's right far more often than not. */
+.linkSuggestBtn {
+  display: block;
+  margin-bottom: 0.4rem;
+  padding: 0.3rem 0.6rem;
+  background: var(--color-surface-alt);
+  border: 1px solid var(--color-border-light);
+  border-radius: 999px;
+  font-family: inherit;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--color-accent);
+  cursor: pointer;
+}
+.linkSuggestBtn:hover { border-color: var(--color-accent); }
+
 .editBtn, .linkBtn, .linkAddBtn, .rulesToggle {
   background: none;
   border: none;

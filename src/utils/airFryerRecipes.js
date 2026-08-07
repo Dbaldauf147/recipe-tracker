@@ -1,5 +1,9 @@
 // Matching air fryer guide rows to the ingredients in your recipes.
 //
+// Two jobs live here. indexRecipesByGuide answers "which of my recipes use this
+// row"; rankIngredientsForGuide answers "which of my DATABASE ingredients IS
+// this row", which is what the link picker predicts from.
+//
 // The guide is written the way you'd say a thing out loud — "Chicken breast
 // (boneless)", "Spring rolls / egg rolls (frozen)" — while recipe ingredients
 // are written the way they appear on a shopping list: pluralised, qualified,
@@ -15,6 +19,10 @@
 //     "Chicken breast"
 //   - the term must appear as WHOLE WORDS. Substring matching would file
 //     "toasted sesame oil" under "Toast" and "nutmeg" under "Nuts".
+
+// Extension included on purpose: these utils run under `node --test` as well as
+// Vite, and the node ESM resolver won't guess it.
+import { ingredientMatchScore } from './ingredientMatch.js';
 
 /** Lowercase, drop parentheticals and punctuation, collapse whitespace. */
 function normalize(s) {
@@ -69,6 +77,57 @@ export function guideTerms(guideName) {
 export function ingredientMatchesTerms(ingredientName, terms) {
   const hay = ` ${singularize(normalize(ingredientName))} `;
   return terms.some(term => hay.includes(` ${term} `));
+}
+
+/**
+ * Your database ingredients that look like they ARE this guide row, best first.
+ * Returns [{ name, score }], score being ingredientMatchScore's (0 = exact).
+ *
+ * Scored in BOTH directions, which is the whole trick. Neither side is reliably
+ * the longer phrase: the guide says "Broccoli florets" where your database says
+ * "Broccoli", and "Chicken breast" where yours says "Chicken breasts, boneless".
+ * Scoring one way only would miss whichever half of that you happen to have.
+ *
+ * Both sides arrive normalized and singularised (guideTerms does it to the row,
+ * we do it to your name here), so "Potatoes" and "potato" meet in the middle
+ * rather than failing on a plural.
+ */
+export function rankIngredientsForGuide(guideName, dbNames = []) {
+  const terms = guideTerms(guideName);
+  if (terms.length === 0) return [];
+  const out = [];
+  for (const raw of dbNames) {
+    const name = String(raw || '').trim();
+    if (!name) continue;
+    const mine = singularize(normalize(name));
+    if (!mine) continue;
+    let best = 5;
+    for (const term of terms) {
+      best = Math.min(best, ingredientMatchScore(mine, term), ingredientMatchScore(term, mine));
+      if (best === 0) break;
+    }
+    if (best >= 5) continue; // nothing in common at all
+    out.push({ name, score: best });
+  }
+  return out.sort((a, b) => a.score - b.score
+    || a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
+}
+
+/**
+ * The best score still worth offering as a one-tap "use this" — exact, or one
+ * name being the start of the other. Anything looser (a shared whole word, a
+ * substring) still RANKS in the picker but has to be chosen deliberately.
+ *
+ * Same conservatism as the recipe matching above, for the same reason: a wrong
+ * suggestion you accepted without reading is worse than no suggestion, because
+ * it silently renames the row to something it isn't.
+ */
+export const CONFIDENT_MATCH_SCORE = 2;
+
+/** The one suggestion confident enough to offer as a single tap, or ''. */
+export function bestIngredientForGuide(guideName, dbNames = []) {
+  const [top] = rankIngredientsForGuide(guideName, dbNames);
+  return top && top.score <= CONFIDENT_MATCH_SCORE ? top.name : '';
 }
 
 /**

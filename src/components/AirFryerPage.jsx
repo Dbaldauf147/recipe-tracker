@@ -3,7 +3,7 @@ import GUIDE, {
   AIR_FRYER_CATEGORIES, AIR_FRYER_RULES, airFryerKey, toCelsius,
 } from '../data/airFryerGuide.js';
 import { loadField, saveField } from '../utils/firestoreSync';
-import { indexRecipesByGuide } from '../utils/airFryerRecipes';
+import { indexRecipesByGuide, rankIngredientsForGuide, bestIngredientForGuide } from '../utils/airFryerRecipes';
 import { loadIngredients, ingredientRowByName } from '../utils/ingredientsStore';
 import { ingredientMatchScore } from '../utils/ingredientMatch';
 import { defaultUnitWeight } from '../utils/unitWeights';
@@ -206,19 +206,6 @@ export function AirFryerPage({ onClose, user, recipes = [], weeklyRecipeIds = []
     return out.sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
   }, []);
 
-  // Picker results, ranked by the same scorer every other ingredient picker in
-  // the app uses, so the ordering is one someone already has a feel for.
-  const linkResults = useMemo(() => {
-    const q = linkQuery.trim();
-    if (!q) return dbNames.slice(0, 30);
-    return dbNames
-      .map(name => ({ name, score: ingredientMatchScore(name, q) }))
-      .filter(r => r.score < 5)
-      .sort((a, b) => a.score - b.score || a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }))
-      .slice(0, 30)
-      .map(r => r.name);
-  }, [dbNames, linkQuery]);
-
   const persist = useCallback((next) => {
     setMine(next);
     try { localStorage.setItem(CACHE_KEY, JSON.stringify(next)); } catch { /* quota */ }
@@ -250,6 +237,39 @@ export function AirFryerPage({ onClose, user, recipes = [], weeklyRecipeIds = []
 
   const weekIds = useMemo(() => new Set(weeklyRecipeIds || []), [weeklyRecipeIds]);
 
+  // The row whose picker is open, so the picker can predict from its name.
+  const linkingRow = useMemo(
+    () => (linking ? rows.find(r => airFryerKey(r.name) === linking) : null),
+    [linking, rows],
+  );
+
+  // Picker results, in two groups.
+  //
+  // Typing searches your whole database by the same scorer every other
+  // ingredient picker uses, so the ordering is one you already have a feel for.
+  // With the box EMPTY it now leads with what this row probably is, instead of
+  // the first 30 names alphabetically — the old behaviour meant reading
+  // "Chicken breast (boneless)" and typing "chick" to tell the app something it
+  // could already work out. The rest of the database still follows, so a
+  // suggestion you disagree with costs nothing.
+  const linkResults = useMemo(() => {
+    const q = linkQuery.trim();
+    if (q) {
+      const hits = dbNames
+        .map(name => ({ name, score: ingredientMatchScore(name, q) }))
+        .filter(r => r.score < 5)
+        .sort((a, b) => a.score - b.score || a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }))
+        .slice(0, 30)
+        .map(r => r.name);
+      return { suggested: [], rest: hits };
+    }
+    const suggested = linkingRow
+      ? rankIngredientsForGuide(linkingRow.name, dbNames).slice(0, 6).map(r => r.name)
+      : [];
+    const seen = new Set(suggested.map(n => n.toLowerCase()));
+    return { suggested, rest: dbNames.filter(n => !seen.has(n.toLowerCase())).slice(0, 30) };
+  }, [dbNames, linkQuery, linkingRow]);
+
   // Which of your recipes each row turns up in, and which of those are on this
   // week's plan. Keyed by the row's lowercased name — the same key the list
   // renders with, so a lookup is direct.
@@ -264,13 +284,23 @@ export function AirFryerPage({ onClose, user, recipes = [], weeklyRecipeIds = []
 
   const hiddenSet = useMemo(() => new Set(hidden), [hidden]);
 
+  // Search hits either NAME. A mapped row shows yours, so searching the guide's
+  // wording has to keep finding it — and now that your name is the one on
+  // screen, searching that has to find it too.
+  const rowMatchesQuery = useCallback((r, q) => {
+    if (!q) return true;
+    if (r.name.toLowerCase().includes(q)) return true;
+    if ((r.note || '').toLowerCase().includes(q)) return true;
+    return (links[airFryerKey(r.name)] || '').toLowerCase().includes(q);
+  }, [links]);
+
   const visible = useMemo(() => {
     const q = query.trim().toLowerCase();
     return rows
       .filter(r => showHidden || !hiddenSet.has(airFryerKey(r.name)))
-      .filter(r => (!cat || r.cat === cat) && (!q || r.name.toLowerCase().includes(q) || (r.note || '').toLowerCase().includes(q)))
+      .filter(r => (!cat || r.cat === cat) && rowMatchesQuery(r, q))
       .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
-  }, [rows, query, cat, hiddenSet, showHidden]);
+  }, [rows, query, cat, hiddenSet, showHidden, rowMatchesQuery]);
 
   // Counted against the FULL row set, not the filtered one, so the "N hidden"
   // chip doesn't change every time you type in the search box.
@@ -289,12 +319,9 @@ export function AirFryerPage({ onClose, user, recipes = [], weeklyRecipeIds = []
   // on an empty list.
   const liveCats = useMemo(() => {
     const q = query.trim().toLowerCase();
-    const hit = new Set(
-      rows.filter(r => !q || r.name.toLowerCase().includes(q) || (r.note || '').toLowerCase().includes(q))
-        .map(r => r.cat),
-    );
+    const hit = new Set(rows.filter(r => rowMatchesQuery(r, q)).map(r => r.cat));
     return AIR_FRYER_CATEGORIES.filter(c => hit.has(c));
-  }, [rows, query]);
+  }, [rows, query, rowMatchesQuery]);
 
   const startEdit = useCallback((row) => {
     setEditing(row
@@ -357,7 +384,7 @@ export function AirFryerPage({ onClose, user, recipes = [], weeklyRecipeIds = []
   const tableHead = (
     <div className={styles.tableHead}>
       <span className={styles.headName}>Ingredient</span>
-      <span className={styles.headMap}>Maps to</span>
+      <span className={styles.headMap}>Air fryer name</span>
       <span className={styles.headNums}>Temp · time</span>
       <span className={styles.headKill} aria-hidden="true" />
     </div>
@@ -381,7 +408,12 @@ export function AirFryerPage({ onClose, user, recipes = [], weeklyRecipeIds = []
           aria-expanded={open}
         >
           <span className={styles.rowName}>
-            {row.name}
+            {/* Your name for the thing, once you've said what it is. The guide
+                calls it "Chicken breast (boneless)"; if your pantry calls it
+                "Chicken cutlets" then that's what this list should say, because
+                that's the name you'll be looking for. The guide's own wording
+                doesn't disappear — it moves to the column on the right. */}
+            {mapped || row.name}
             {row.source === 'mine' && <span className={styles.tag}>yours</span>}
             {row.source === 'edited' && <span className={styles.tag}>edited</span>}
             {isHidden && <span className={styles.tagHidden}>hidden</span>}
@@ -393,14 +425,17 @@ export function AirFryerPage({ onClose, user, recipes = [], weeklyRecipeIds = []
               </span>
             )}
           </span>
-          {/* Which of YOUR ingredients this row is about. It was only visible
-              once you'd tapped into the detail, which is the wrong place for
-              it: the whole point of the link is knowing at a glance whether a
-              row is wired up to your pantry or still generic. An unmapped row
-              shows a dash rather than nothing, so the column reads as a column
-              and the gaps are obvious. */}
-          <span className={mapped ? styles.rowMap : styles.rowMapEmpty} title={mapped || 'Not linked to an ingredient — open the row to link one'}>
-            {mapped || 'Link…'}
+          {/* The two names, one per column. Once a row is mapped the headline
+              is YOURS and this column keeps the guide's own wording, so you can
+              still tell which row of the printed guide you're looking at and
+              nothing is lost by the rename. Unmapped, it's the invitation to
+              say what the thing is — a gap you can see at a glance, which is
+              the whole reason this moved out of the row detail. */}
+          <span
+            className={mapped ? styles.rowMap : styles.rowMapEmpty}
+            title={mapped ? `The air fryer guide calls this “${row.name}”` : 'Not linked to one of your ingredients — open the row to link one'}
+          >
+            {mapped ? row.name : 'Link…'}
           </span>
           {/* Temp and time are the answer — big, on one line, readable
               at arm's length with your hands full. */}
@@ -443,7 +478,7 @@ export function AirFryerPage({ onClose, user, recipes = [], weeklyRecipeIds = []
                 </ul>
               </div>
             )}
-            {renderLink(key)}
+            {renderLink(key, row)}
             {/* No hide button here: the ✕ in the row's own column does that
                 job, and two controls for one action is how they drift apart. */}
             <button className={styles.editBtn} onClick={() => startEdit(row)}>
@@ -457,12 +492,15 @@ export function AirFryerPage({ onClose, user, recipes = [], weeklyRecipeIds = []
 
   // The ingredient-database link for one row: what it points at, what that
   // brings with it, and the picker for changing it.
-  const renderLink = (key) => {
+  const renderLink = (key, row) => {
     const linked = links[key];
     const dbRow = linked ? ingredientRowByName(linked) : null;
     const facts = ingredientFacts(dbRow);
     const tags = linked ? (getIngredientTags(linked) || []) : [];
     const picking = linking === key;
+    // Only computed for an unlinked row — once it's linked there's nothing to
+    // suggest, and this walks the whole database.
+    const suggestion = linked ? '' : bestIngredientForGuide(row?.name, dbNames);
 
     return (
       <div className={styles.linkBlock}>
@@ -490,12 +528,23 @@ export function AirFryerPage({ onClose, user, recipes = [], weeklyRecipeIds = []
             )}
           </>
         ) : (
-          <button
-            className={styles.linkAddBtn}
-            onClick={() => { setLinking(picking ? null : key); setLinkQuery(''); }}
-          >
-            {picking ? 'Cancel' : '+ Link an ingredient'}
-          </button>
+          <>
+            {/* The obvious answer as one tap, when there IS an obvious one —
+                exact, or one name starting the other. Named on the button
+                rather than hidden behind "accept", so you're agreeing to a
+                specific ingredient and not to the machine's confidence. */}
+            {suggestion && (
+              <button className={styles.linkSuggestBtn} onClick={() => setLink(key, suggestion)}>
+                Link to “{suggestion}”
+              </button>
+            )}
+            <button
+              className={styles.linkAddBtn}
+              onClick={() => { setLinking(picking ? null : key); setLinkQuery(''); }}
+            >
+              {picking ? 'Cancel' : suggestion ? 'Pick a different one' : '+ Link an ingredient'}
+            </button>
+          </>
         )}
 
         {picking && (
@@ -509,20 +558,35 @@ export function AirFryerPage({ onClose, user, recipes = [], weeklyRecipeIds = []
               autoComplete="off"
               autoFocus
             />
-            {linkResults.length === 0 ? (
+            {linkResults.suggested.length === 0 && linkResults.rest.length === 0 ? (
               <div className={styles.pickerEmpty}>
                 {dbNames.length === 0
                   ? 'Your ingredient database hasn’t loaded on this device yet.'
                   : `Nothing matching “${linkQuery}”.`}
               </div>
             ) : (
-              <ul className={styles.pickerList}>
-                {linkResults.map(name => (
-                  <li key={name}>
-                    <button className={styles.pickerItem} onClick={() => setLink(key, name)}>{name}</button>
-                  </li>
-                ))}
-              </ul>
+              <>
+                {linkResults.suggested.length > 0 && (
+                  <>
+                    <div className={styles.pickerGroup}>Suggested for this row</div>
+                    <ul className={styles.pickerList}>
+                      {linkResults.suggested.map(name => (
+                        <li key={`s-${name}`}>
+                          <button className={styles.pickerItem} onClick={() => setLink(key, name)}>{name}</button>
+                        </li>
+                      ))}
+                    </ul>
+                    <div className={styles.pickerGroup}>All your ingredients</div>
+                  </>
+                )}
+                <ul className={styles.pickerList}>
+                  {linkResults.rest.map(name => (
+                    <li key={name}>
+                      <button className={styles.pickerItem} onClick={() => setLink(key, name)}>{name}</button>
+                    </li>
+                  ))}
+                </ul>
+              </>
             )}
           </div>
         )}

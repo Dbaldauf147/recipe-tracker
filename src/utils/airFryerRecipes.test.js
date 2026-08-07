@@ -1,6 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { guideTerms, ingredientMatchesTerms, indexRecipesByGuide } from './airFryerRecipes.js';
+import {
+  guideTerms, ingredientMatchesTerms, indexRecipesByGuide,
+  rankIngredientsForGuide, bestIngredientForGuide, CONFIDENT_MATCH_SCORE,
+} from './airFryerRecipes.js';
 import GUIDE from '../data/airFryerGuide.js';
 
 // The guide is written for a human holding food; recipe ingredients are written
@@ -124,4 +127,66 @@ test('missing and malformed inputs do not throw', () => {
     ['r1'],
   );
   assert.deepEqual(index['toast'].recipes, []);
+});
+
+// ── Predicting which of YOUR ingredients a guide row is ──────────────────────
+// The picker used to be a plain search box over the whole database: you read
+// "Chicken breast (boneless)" and typed "chick" yourself. These rank it for you.
+
+test('rankIngredientsForGuide matches when the guide is the longer name', () => {
+  // Guide "Broccoli florets" vs your plain "Broccoli" — your name is a prefix
+  // of the guide term, which only the reverse direction catches.
+  const ranked = rankIngredientsForGuide('Broccoli florets', ['Broccoli', 'Brussels sprouts']);
+  assert.equal(ranked[0].name, 'Broccoli');
+  assert.ok(ranked[0].score <= CONFIDENT_MATCH_SCORE);
+});
+
+test('rankIngredientsForGuide matches when YOUR name is the longer one', () => {
+  const ranked = rankIngredientsForGuide('Chicken breast (boneless)', ['Chicken breasts, boneless', 'Beef mince']);
+  assert.equal(ranked[0].name, 'Chicken breasts, boneless');
+  assert.ok(ranked[0].score <= CONFIDENT_MATCH_SCORE);
+});
+
+test('plurals meet in the middle', () => {
+  assert.equal(rankIngredientsForGuide('Potatoes (whole)', ['Potato'])[0].score, 0);
+  assert.equal(rankIngredientsForGuide('Potato', ['Potatoes'])[0].score, 0);
+});
+
+test('either side of a slash can be the match', () => {
+  const ranked = rankIngredientsForGuide('Spring rolls / egg rolls (frozen)', ['Egg roll wrappers', 'Rice']);
+  assert.equal(ranked[0].name, 'Egg roll wrappers');
+});
+
+test('ranking puts the exact name above the merely related one', () => {
+  const ranked = rankIngredientsForGuide('Salmon fillet', ['Salmon fillet', 'Salmon fillet, skin on', 'Smoked salmon']);
+  assert.equal(ranked[0].name, 'Salmon fillet');
+  assert.equal(ranked[0].score, 0);
+});
+
+test('unrelated ingredients are left out entirely', () => {
+  assert.deepEqual(rankIngredientsForGuide('Chicken breast (boneless)', ['Flour', 'Caster sugar']), []);
+});
+
+test('bestIngredientForGuide only offers a confident match', () => {
+  // Exact and prefix are offered as one tap...
+  assert.equal(bestIngredientForGuide('Broccoli florets', ['Broccoli']), 'Broccoli');
+  // ...a shared whole word in the middle of a longer name is not. "Toasted
+  // sesame oil" contains "sesame" but is emphatically not the sesame row.
+  assert.equal(bestIngredientForGuide('Sesame seeds', ['Toasted sesame oil']), '');
+  assert.equal(bestIngredientForGuide('Chicken breast (boneless)', ['Flour']), '');
+});
+
+test('an empty or unusable database suggests nothing, and does not throw', () => {
+  assert.deepEqual(rankIngredientsForGuide('Chicken breast', []), []);
+  assert.deepEqual(rankIngredientsForGuide('Chicken breast', [null, '', '   ']), []);
+  assert.deepEqual(rankIngredientsForGuide('', ['Chicken']), []);
+  assert.equal(bestIngredientForGuide('', []), '');
+});
+
+test('every built-in guide row survives ranking against a real-ish database', () => {
+  // Guards the whole guide against a row name that makes the scorer throw.
+  const db = ['Chicken breasts', 'Potato', 'Broccoli', 'Salmon fillet', 'Halloumi'];
+  for (const row of GUIDE) {
+    assert.doesNotThrow(() => rankIngredientsForGuide(row.name, db), row.name);
+  }
 });
