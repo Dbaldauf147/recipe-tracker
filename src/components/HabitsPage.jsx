@@ -563,6 +563,10 @@ const MARK_META = {
 };
 // Canonical display/sort order, best → worst.
 const MARK_ORDER = ['exceeded', 'done', 'skipped', 'missed'];
+// The ring on a cell that's still waiting for a mark. Deliberately NOT one of
+// the MARK_META colours: an empty cell is a question, not one of the four
+// answers, and borrowing "No" red or "Skip" grey would read as an answer given.
+const NEEDS_LOG_COLOR = '#d97706';
 // The per-day menu opened by clicking a strip cell: the four marks + Erase.
 const DAY_MENU_OPTIONS = [
   ...MARK_ORDER.map(m => ({ mark: m, ...MARK_META[m] })),
@@ -797,6 +801,59 @@ function habitPastDue(h, habitLog, nextLogMap, today = new Date()) {
   }
   if (!sched || startOfDayLocal(sched).getTime() >= t0.getTime()) return null;
   return { count: 1, label: `Due ${MONTH_ABBR[sched.getMonth()]} ${sched.getDate()}, still empty` };
+}
+
+// ---- "Needs logging": WHICH cell is waiting for you --------------------------
+//
+// habitPastDue answers "is this habit behind?" and the badge next to the name
+// says so. It doesn't say WHERE — every empty cell renders the same grey dot, so
+// the one box you actually need to click looks exactly like the ones you don't.
+// This is the per-cell version of the same question, used to ring that box.
+//
+// Returns a predicate rather than a boolean because the Daily rule needs the
+// habit's first logged day, and scanning the whole log once per CELL would be
+// the row's cost times seven. Built once per row instead.
+//
+// Deliberately silent for automatic and muted rows, exactly as habitPastDue is:
+// the engine fills those in, so marking them would nag about work that was never
+// yours to do.
+function makeNeedsLogging(h, habitLog, today = new Date()) {
+  const canon = cadenceCanon(h?.cadence);
+  const log = habitLog || {};
+  const t0 = startOfDayLocal(today);
+
+  // Earliest day this habit was ever logged. Before it, the habit didn't exist
+  // as far as the grid is concerned, and an empty cell there is history rather
+  // than something owed. Same rule (and same string-compare trick) habitPastDue
+  // uses. Null = never logged, which is "new", not "behind".
+  let firstDayKey = null;
+  if (canon === 'Daily') {
+    for (const k in log) {
+      if (cadenceOfKey(k) !== 'Daily') continue;
+      if (log[k] && log[k][h.id] !== undefined && (firstDayKey === null || k < firstDayKey)) firstDayKey = k;
+    }
+  }
+
+  return function needsLogging(w, mark, off) {
+    if (mark !== undefined || off) return false;   // already answered, or an off-day
+    if (w.isNext) return false;                    // hasn't arrived yet
+
+    if (!w.isCurrent) {
+      // A column already gone by. Daily looks back only as far as the badge
+      // does, so the ring and the "N past due" count can't disagree.
+      if (canon !== 'Daily') return true;
+      if (firstDayKey === null || w.key < firstDayKey) return false;
+      if (!w.date) return false;
+      const days = Math.round((t0.getTime() - startOfDayLocal(w.date).getTime()) / 86400000);
+      return days > 0 && days <= PAST_DUE_DAILY_LOOKBACK;
+    }
+
+    // The current period. A Weekly habit pinned to Friday isn't waiting for you
+    // on Tuesday — ringing it then would make half the grid amber all week and
+    // teach you to ignore the colour.
+    if (canon === 'Weekly') return weeklyDueYet(h, today);
+    return true;
+  };
 }
 
 // A Daily habit's off-days (weekdays not in its trackDays) count as a "skip" —
@@ -3101,6 +3158,10 @@ function RoutineSection({ cadenceName, list, habitLog, habitLogAuto, streaks, au
     const pastDue = (muted || isAuto(h)) ? null : habitPastDue(h, habitLog, {
       [cadenceCanon(h.cadence)]: (nextLogOverride && typeof nextLogOverride === 'object') ? nextLogOverride : undefined,
     });
+    // Which of this row's cells are still waiting for a mark — the "where" the
+    // past-due badge above can't express. Same exclusions, so a row that shows
+    // no badge never rings a cell either.
+    const needsLogging = (muted || isAuto(h)) ? null : makeNeedsLogging(h, habitLog);
     const rowSel = !muted && weekCols.length > 0 && weekCols.every(w => selected.has(cellId(h.id, w.key)));
     const reviewHabit = isReviewHabit(h);
     const tdBase = { borderBottom: `1px solid ${borderCol}`, padding: '3px 6px' };
@@ -3238,7 +3299,15 @@ function RoutineSection({ cadenceName, list, habitLog, habitLogAuto, streaks, au
           const baseTip = off ? 'Off day — counts as a skip'
             : muted ? `${w.fullLabel} — click to set this yourself`
             : (bulkMode ? 'Click to select' : w.fullLabel);
-          const cellTitle = [baseTip, autoTip].filter(Boolean).join(' — ') || undefined;
+          // Empty, tracked, and already arrived: this is the box to click. It
+          // gets an amber ring rather than a mark — the cell is still blank, and
+          // drawing anything mark-shaped in it would read as an answer you'd
+          // already given.
+          const waiting = !!needsLogging && !sel && needsLogging(w, mark, off);
+          const cellTitle = [
+            waiting ? `${w.fullLabel} — not logged yet` : baseTip,
+            autoTip,
+          ].filter(Boolean).join(' — ') || undefined;
           return (
             <td key={w.key} title={disabled ? cellTitle : undefined} style={{ ...tdBase, padding: 2, borderLeft: `1px ${w.isNext ? 'dashed' : 'solid'} ${borderCol}`, textAlign: 'center', background: off ? '#f8fafc' : ((w.isCurrent && !mark) ? ACCENT + '08' : undefined) }}>
               <button
@@ -3250,14 +3319,14 @@ function RoutineSection({ cadenceName, list, habitLog, habitLogAuto, streaks, au
                   cursor: disabled ? 'default' : 'pointer', borderRadius: 5,
                   // A logged mark's colour (green for "Did it") always wins over the
                   // current-period blue tint, so a completed cell reads as green.
-                  border: sel ? `2px solid ${ACCENT}` : (shown ? `1px solid ${MARK_META[shown].color}66` : '1px solid transparent'),
-                  background: sel ? ACCENT + '22' : (shown ? MARK_META[shown].color + '22' : 'transparent'),
-                  color: shown ? MARK_META[shown].color : '#d1d5db', fontWeight: 800, fontSize: '0.9rem',
+                  border: sel ? `2px solid ${ACCENT}` : (shown ? `1px solid ${MARK_META[shown].color}66` : (waiting ? `1px dashed ${NEEDS_LOG_COLOR}` : '1px solid transparent')),
+                  background: sel ? ACCENT + '22' : (shown ? MARK_META[shown].color + '22' : (waiting ? NEEDS_LOG_COLOR + '14' : 'transparent')),
+                  color: shown ? MARK_META[shown].color : (waiting ? NEEDS_LOG_COLOR : '#d1d5db'), fontWeight: 800, fontSize: '0.9rem',
                   // Derived off-day skips render dimmer than a mark you tapped.
                   opacity: off ? 0.5 : (w.isNext && !mark && !sel ? 0.5 : 1),
                 }}
               >
-                {shown ? MARK_META[shown].icon : '·'}
+                {shown ? MARK_META[shown].icon : (waiting ? '!' : '·')}
                 {auto && <span title="Automatically logged" style={{ fontSize: '0.5rem', fontWeight: 800, color: '#2563eb', verticalAlign: 'super', marginLeft: 1 }}>A</span>}
               </button>
             </td>
