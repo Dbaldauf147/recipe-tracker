@@ -22,6 +22,7 @@ import { loadHabitLogAdmin } from './_data/habitLogYears.js';
 import {
   lastCompleteWeek, previousWeek, summarizeWeek, isEmptyWeek, renderWeeklySummary, shiftKey,
 } from '../lib/weeklySummary.js';
+import { WINDOW_DAYS } from '../src/utils/exerciseProgress.js';
 
 if (getApps().length === 0) {
   const serviceAccount = process.env.FIREBASE_SERVICE_ACCOUNT
@@ -88,10 +89,17 @@ function summaryRecipients(settings, fallbackEmail) {
  * subcollection every week.
  */
 async function loadUserWeekData(uid, userData, fromKey, toKey) {
+  // Workouts reach further back than the other fields: the "lifts to watch"
+  // trend regresses over the trailing WINDOW_DAYS, and a two-week pull would
+  // silently give every exercise too few sessions to judge — reporting nothing
+  // wrong rather than reporting nothing known. A few extra days of slack covers
+  // a session logged just outside the window boundary.
+  const workoutsFrom = shiftKey(toKey, -(WINDOW_DAYS + 7));
   const [logSnap, workoutSnap, habitLog] = await Promise.all([
     db.doc(`users/${uid}/data/dailyLog`).get().catch(() => null),
     db.collection(`users/${uid}/workouts`)
-      .where('date', '>=', fromKey).where('date', '<=', toKey)
+      .where('date', '>=', workoutsFrom < fromKey ? workoutsFrom : fromKey)
+      .where('date', '<=', toKey)
       .get().catch(() => null),
     loadHabitLogAdmin(db, uid, userData).catch(() => ({})),
   ]);
@@ -101,6 +109,10 @@ async function loadUserWeekData(uid, userData, fromKey, toKey) {
     workouts: workoutSnap ? workoutSnap.docs.map(d => d.data()) : [],
     habits: Array.isArray(userData.habits) ? userData.habits : [],
     habitLog: habitLog || {},
+    // Used to resolve each exercise's muscle group and the user's own
+    // Strength/Stretching tag, so the email's trend agrees with the Progress tab.
+    exerciseLibrary: Array.isArray(userData.exerciseLibrary) ? userData.exerciseLibrary : [],
+    customExercises: Array.isArray(userData.customExercises) ? userData.customExercises : [],
   };
 }
 
@@ -111,7 +123,7 @@ async function buildEmail(uid, userData, todayKey, { force = false } = {}) {
   const week = lastCompleteWeek(todayKey);
   const prior = previousWeek(week);
   const data = await loadUserWeekData(uid, userData, prior.start, shiftKey(week.end, 1));
-  const stats = summarizeWeek(data, week);
+  const stats = summarizeWeek(data, week, { withProgress: true });
   if (!force && isEmptyWeek(stats)) return null;
   const priorStats = summarizeWeek(data, prior);
   const email = renderWeeklySummary({
