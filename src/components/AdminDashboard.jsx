@@ -827,7 +827,16 @@ export function AdminDashboard({ onClose }) {
   })();
 
   // Leaderboard: who's actually using it, most engaged first.
+  //
+  // Your own account is left out. It's the developer's daily driver, so it sits
+  // at the top by a wide margin and — because every bar is scaled to the top
+  // score — flattens everyone else's bar against it. The board exists to answer
+  // "who ELSE is using this", and you already know how much you use it. Filtered
+  // BEFORE the slice, so it still shows ten real users, and the table below
+  // (sortable by Score) is unchanged if you do want to see yourself.
+  const meUid = auth.currentUser?.uid || null;
   const topEngaged = [...users]
+    .filter(u => !meUid || u.uid !== meUid)
     .map(u => ({ u, score: engagementScore(u), ...engagementInputs(u) }))
     .filter(r => r.score > 0)
     .sort((a, b) => b.score - a.score)
@@ -1004,7 +1013,7 @@ export function AdminDashboard({ onClose }) {
           <p style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', marginTop: '0.5rem' }}>
             Score = logins + views ÷ 4 + recipes × 2, scaled by recency (×1 within 7d · ×0.75 within 30d ·
             ×0.45 within 90d · ×0.2 beyond). Bar colour is their engagement status; hover a score for the breakdown.
-            Sort the table by <strong>Score</strong> for the full list.
+            Your own account is excluded here — sort the table by <strong>Score</strong> for the full list including you.
           </p>
         </div>
       )}
