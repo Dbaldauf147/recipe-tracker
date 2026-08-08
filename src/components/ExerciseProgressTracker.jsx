@@ -24,7 +24,9 @@ const HIDDEN_KEY = 'sunday-progress-hidden';
 // mean every reader of the old field learning about expiry.
 const SNOOZE_FIELD = 'progressSnoozedExercises';
 const SNOOZE_KEY = 'sunday-progress-snoozed';
-const SNOOZE_DAYS = 30;
+// Long enough to sit out a whole training block. Already-parked exercises keep
+// the expiry date they were given, so changing this only affects new parks.
+const SNOOZE_DAYS = 45;
 
 /** Local YYYY-MM-DD, N days from today. Dates, not timestamps: the unit the
  *  user asked for is days, and a date compares cleanly as a string. */
@@ -216,7 +218,7 @@ function Annotations({ list }) {
 /**
  * The two ways to get an exercise off this page.
  *
- * 30d is the one you actually want most of the time — an exercise you're not
+ * Parking is the one you actually want most of the time — an exercise you're not
  * training this block isn't stagnating, it's parked, and it should come back on
  * its own rather than needing you to remember it exists. ✕ stays for good.
  */
@@ -229,7 +231,7 @@ function HideCell({ name, onHide, onSnooze }) {
         title={`Hide ${name} for ${SNOOZE_DAYS} days, then bring it back`}
         aria-label={`Hide ${name} for ${SNOOZE_DAYS} days`}
         onClick={() => onSnooze(name)}
-      >30d</button>
+      >{SNOOZE_DAYS}d</button>
       <button
         type="button"
         className={styles.rowHide}
@@ -622,7 +624,7 @@ export default function ExerciseProgressTracker({ workouts = [], weightUnit = 'l
             )}
           </div>
           <p className={styles.hint}>
-            <strong>30d</strong> parks an exercise for {SNOOZE_DAYS} days and it comes back on its own;
+            <strong>{SNOOZE_DAYS}d</strong> parks an exercise for {SNOOZE_DAYS} days and it comes back on its own;
             {' '}<strong>✕</strong> hides it for good
             {hiddenList.length + snoozedList.length > 0 ? '. Click any chip above to bring one back now.' : '.'}
           </p>
