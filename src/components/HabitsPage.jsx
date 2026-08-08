@@ -696,6 +696,36 @@ function habitWeekDayLabel(h) {
   const idx = WD_NAMES.indexOf(own[0]);
   return idx >= 0 ? WEEKDAY_SHORT[idx] : '';
 }
+// When a Weekly habit is next due: its own pinned day if it has one, otherwise
+// the section's shared recurrence. This is what lets a habit pinned to Friday
+// sort and read AHEAD of the ones on the section's shared Sunday — Fri Aug 14
+// lands before Sun Aug 16 — instead of being indistinguishable from them.
+//
+// `dueNow` is deliberately narrower than the section header's version: only a
+// PINNED habit can be "due today", because only it has a day that can arrive.
+// An unpinned weekly habit is loggable all week, so calling it due every day
+// would paint the whole section red and destroy the ordering this exists for.
+// Past due (its day went by while still blank) also reads as due now, so it
+// stays at the top rather than sinking to next week's date.
+function weeklyHabitSchedule(h, sectionRec, habitLog) {
+  const log = habitLog || {};
+  const loggedThisWeek = (log[periodKey('Weekly')] || {})[h.id] !== undefined;
+  const own = habitWeekDays(h);
+  const pinned = !!own;
+  if (pinned && !loggedThisWeek && weeklyDueYet(h)) {
+    return { date: startOfDayLocal(new Date()), dueNow: true, pinned };
+  }
+  // Only the DAY is overridden per habit; the every-N-weeks interval and anchor
+  // stay section-level (same rule as the section header at RoutineSection).
+  const rec = own ? { ...(sectionRec || defaultRec('Weekly')), weekDays: own } : sectionRec;
+  if (!rec) {
+    const d = sundayOf(new Date());
+    d.setDate(d.getDate() + 7);
+    return { date: d, dueNow: false, pinned };
+  }
+  const { date } = nextRecurrenceDate('Weekly', rec, [h], log, loggedThisWeek);
+  return { date, dueNow: false, pinned };
+}
 
 // ---- "Past due": a scheduled occurrence has already gone by, still empty ----
 // Distinct from the current-period "unlogged" red dot (which fires the instant a
@@ -853,8 +883,6 @@ function habitKpi(h, habitLog) {
 // >90% of 60 days is at least 54 days actually done.
 const AUTO_PROMOTE_DAYS = 60;
 const AUTO_PROMOTE_PCT = 90;
-// How long a promotion stays announced on the page (7 days).
-const AUTO_PROMOTE_NOTICE_MS = 7 * 24 * 60 * 60 * 1000;
 // Statuses the rule leaves alone: already promoted, deliberately parked, or
 // never begun.
 const AUTO_PROMOTE_SKIP_STATUSES = ['Automatically', ON_HOLD_STATUS, 'Abandoned', 'Not Started', 'Havent Started'];
@@ -874,15 +902,20 @@ function autoPromoteRate(h, habitLog) {
 }
 
 /**
- * Should this habit be promoted right now?
+ * Should this habit be OFFERED the Automatically status right now?
  *
- * `autoPromotedAt` is the memory that stops the rule fighting the user: once a
- * habit has been promoted, moving it back to a manual status is a decision, and
- * re-running the check must not undo it on the next page load.
+ * Earning it is not the same as wanting it: a habit you've kept up for two
+ * months might be exactly the one you still like ticking off. So this only
+ * decides who gets asked — see the prompt in HabitsPage.
+ *
+ * Two fields remember that the question is settled, and both must block it, or
+ * the rule spends every page load re-litigating a decision you already made:
+ *   autoPromotedAt       you said yes (moving it back later is a decision too)
+ *   autoPromoteDeclinedAt you said keep tracking it
  */
 function habitReadyForAuto(h, habitLog) {
   if (cadenceCanon(h.cadence) !== 'Daily') return false;
-  if (h.autoPromotedAt) return false;
+  if (h.autoPromotedAt || h.autoPromoteDeclinedAt) return false;
   if (AUTO_PROMOTE_SKIP_STATUSES.includes((h.status || '').trim())) return false;
   const rate = autoPromoteRate(h, habitLog);
   return rate != null && rate > AUTO_PROMOTE_PCT;
@@ -1161,22 +1194,19 @@ export function HabitsPage({ onBack, user }) {
         if (cancelled) return;
         const loadedLog = (remoteLog && typeof remoteLog === 'object') ? remoteLog : {};
         if (Array.isArray(remote) && remote.length > 0) {
-          // Promote established daily habits on load (see habitReadyForAuto).
-          // Done here, against the data we just fetched, rather than in an
-          // effect that watches habits — a watcher would re-check on every
-          // local edit, and this only needs to run when the log changes under
-          // us, which is a load.
+          setHabits(remote);
+          // Established daily habits are OFFERED the Automatically status here
+          // rather than moved into it (see habitReadyForAuto). Checked on load,
+          // against the data we just fetched, rather than in an effect watching
+          // habits — a watcher would re-check on every local edit, and the only
+          // thing that changes the answer is the log moving under us.
           const ready = remote.filter(h => habitReadyForAuto(h, loadedLog));
-          if (ready.length > 0 && user?.uid) {
-            const stamp = new Date().toISOString();
-            const readyIds = new Set(ready.map(h => h.id));
-            const promoted = remote.map(h => (readyIds.has(h.id)
-              ? { ...h, status: 'Automatically', autoPromotedAt: stamp }
-              : h));
-            setHabits(promoted);
-            saveField(user.uid, 'habits', promoted).catch(() => {});
-          } else {
-            setHabits(remote);
+          if (ready.length > 0) {
+            setAutoPromotePrompts(ready.map(h => ({
+              id: h.id,
+              name: h.name || 'Untitled habit',
+              rate: Math.round(autoPromoteRate(h, loadedLog) || 0),
+            })));
           }
         } else setHabits(seedHabits());
         if (remoteLog && typeof remoteLog === 'object') setHabitLog(remoteLog);
@@ -1193,14 +1223,32 @@ export function HabitsPage({ onBack, user }) {
     return () => { cancelled = true; };
   }, [user?.uid]);
 
-  // Habits the rule promoted recently enough to still be worth announcing.
-  // Derived from `autoPromotedAt` rather than tracked in state, so the notice
-  // survives a reload and doesn't need a setState inside the load effect.
-  const [dismissedAutoPromoteNotice, setDismissedAutoPromoteNotice] = useState(false);
-  const recentlyAutoPromoted = useMemo(() => habits.filter(h => {
-    const t = Date.parse(h.autoPromotedAt || '');
-    return Number.isFinite(t) && Date.now() - t < AUTO_PROMOTE_NOTICE_MS;
-  }), [habits]);
+  // Habits that have earned the Automatically status and are waiting on your
+  // answer. Filled by the load effect, emptied as you decide.
+  const [autoPromotePrompts, setAutoPromotePrompts] = useState([]);
+
+  /**
+   * Record the answer for one or more offered habits.
+   *
+   * Yes moves the habit and stamps `autoPromotedAt`; no stamps
+   * `autoPromoteDeclinedAt` and changes nothing else. Either way the stamp is
+   * what stops the offer coming back on the next load.
+   *
+   * Takes a LIST so "keep them all" is one write and one save rather than one
+   * per habit racing each other through the same `habits` state.
+   */
+  function resolveAutoPromotes(ids, accept) {
+    const set = new Set(ids);
+    if (set.size === 0) return;
+    const stamp = new Date().toISOString();
+    persist(habits.map(h => {
+      if (!set.has(h.id)) return h;
+      return accept
+        ? { ...h, status: 'Automatically', autoPromotedAt: stamp }
+        : { ...h, autoPromoteDeclinedAt: stamp };
+    }));
+    setAutoPromotePrompts(prev => prev.filter(p => !set.has(p.id)));
+  }
 
   function persist(next) {
     setHabits(next);
@@ -1689,43 +1737,71 @@ export function HabitsPage({ onBack, user }) {
         </div>
       )}
 
-      {/* A status change you didn't make shouldn't happen silently — say which
-          habits were promoted and why, until dismissed. */}
-      {!dismissedAutoPromoteNotice && recentlyAutoPromoted.length > 0 && (
-        <div style={{
-          display: 'flex',
-          alignItems: 'flex-start',
-          gap: '0.75rem',
-          margin: '0 0 1rem',
-          padding: '0.6rem 0.8rem',
-          border: '1px solid #86efac',
-          background: '#f0fdf4',
-          borderRadius: 8,
-          fontSize: '0.85rem',
-          lineHeight: 1.45,
-          color: 'var(--color-text, #0f172a)',
-        }}>
-          <span>
-            <strong>Now automatic:</strong>{' '}
-            {recentlyAutoPromoted.map(h => h.name).join(', ')} —{' '}
-            {recentlyAutoPromoted.length === 1 ? 'kept up' : 'each kept up'} more than {AUTO_PROMOTE_PCT}% of
-            the last {AUTO_PROMOTE_DAYS} tracked days, so {recentlyAutoPromoted.length === 1 ? 'it has' : 'they have'} moved
-            to <em>Automatically</em> and left the routine lists. Change the status back on the Habits tab if you
-            still want to log {recentlyAutoPromoted.length === 1 ? 'it' : 'them'} by hand.
-          </span>
-          <button
-            type="button"
-            onClick={() => setDismissedAutoPromoteNotice(true)}
-            style={{
-              flexShrink: 0, background: 'none', border: 'none', padding: 0,
-              cursor: 'pointer', fontFamily: 'inherit', fontSize: '0.8rem',
-              fontWeight: 600, color: 'var(--color-text-muted, #64748b)',
-            }}
-          >
-            Dismiss
-          </button>
+      {/* Earning the status isn't the same as wanting it — a habit you've kept
+          up for two months might be the one you most like ticking off. So the
+          rule asks instead of moving it, once, and remembers the answer. */}
+      {autoPromotePrompts.length > 0 && (
+        <div style={overlay} role="dialog" aria-modal="true" aria-labelledby="auto-promote-title">
+          <div style={modal}>
+            <h3 id="auto-promote-title" style={{ margin: '0 0 0.35rem', fontSize: '1.05rem' }}>
+              {autoPromotePrompts.length === 1 ? 'This habit has stuck' : 'These habits have stuck'}
+            </h3>
+            <p style={{ margin: '0 0 0.9rem', fontSize: '0.85rem', lineHeight: 1.5, color: 'var(--color-text-muted, #64748b)' }}>
+              Kept up more than {AUTO_PROMOTE_PCT}% of the last {AUTO_PROMOTE_DAYS} tracked days.
+              Moving {autoPromotePrompts.length === 1 ? 'it' : 'them'} to <em>Automatically</em> takes
+              {autoPromotePrompts.length === 1 ? ' it' : ' them'} off the routine lists and out of the
+              needs-logging counts. Keep tracking instead and nothing changes.
+            </p>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', maxHeight: '46vh', overflowY: 'auto' }}>
+              {autoPromotePrompts.map(p => (
+                <div
+                  key={p.id}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap',
+                    padding: '0.55rem 0.65rem', border: '1px solid var(--color-border, #e2e8f0)', borderRadius: 8,
+                  }}
+                >
+                  <span style={{ flex: 1, minWidth: 140, fontSize: '0.88rem', fontWeight: 600 }}>
+                    {p.name}
+                    <span style={{ marginLeft: 6, fontWeight: 500, color: 'var(--color-text-muted, #64748b)' }}>
+                      {p.rate}%
+                    </span>
+                  </span>
+                  <button type="button" style={ghostBtn} onClick={() => resolveAutoPromotes([p.id], false)}>
+                    Keep tracking
+                  </button>
+                  <button type="button" style={primaryBtn} onClick={() => resolveAutoPromotes([p.id], true)}>
+                    Make automatic
+                  </button>
+                </div>
+              ))}
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', marginTop: '0.9rem' }}>
+              {/* Closes without recording anything, so it asks again next load —
+                  the honest escape hatch when you don't want to decide now. */}
+              <button
+                type="button"
+                style={backBtn}
+                onClick={() => setAutoPromotePrompts([])}
+              >
+                Not now
+              </button>
+              {autoPromotePrompts.length > 1 && (
+                <button
+                  type="button"
+                  style={ghostBtn}
+                  onClick={() => resolveAutoPromotes(autoPromotePrompts.map(p => p.id), false)}
+                >
+                  Keep tracking all
+                </button>
+              )}
+            </div>
+          </div>
         </div>
       )}
+
 
       {/* Sub-tabs */}
       <div style={{ display: 'flex', gap: 4, borderBottom: '1px solid var(--color-border, #e2e8f0)', marginBottom: '1rem' }}>
@@ -2895,7 +2971,20 @@ function RoutineSection({ cadenceName, list, habitLog, habitLogAuto, streaks, au
   //                    habits you no longer track. HIDDEN by default (they aren't
   //                    yours to log, so they just pad the list), revealed by the
   //                    "Show N Automatically habits" toggle above the sections.
-  const activeList = list.filter(h => !autoTrackedIds.has(h.id) && !isAuto(h));
+  // Weekly sections order by when each habit is actually next due, so one pinned
+  // to Friday sits above the group on the section's shared Sunday — the whole
+  // point of pinning a day. The sort is stable, so routine rank / drag order /
+  // name still decide ties, and it only engages when something in the section IS
+  // pinned: with no pins every date is identical and the hand-made order stands,
+  // exactly as before.
+  const activeList = (() => {
+    const base = list.filter(h => !autoTrackedIds.has(h.id) && !isAuto(h));
+    if (cadenceCanon(cadenceName) !== 'Weekly' || !base.some(h => habitWeekDays(h))) return base;
+    return base
+      .map((h, i) => ({ h, i, t: weeklyHabitSchedule(h, weeklyRec, habitLog).date.getTime() }))
+      .sort((a, b) => a.t - b.t || a.i - b.i)
+      .map(x => x.h);
+  })();
   const autoList = list.filter(h => autoTrackedIds.has(h.id));
   const statusAutoList = list.filter(h => !autoTrackedIds.has(h.id) && isAuto(h));
   // Red count of trackable habits whose current period is still unlogged
@@ -3066,6 +3155,24 @@ function RoutineSection({ cadenceName, list, habitLog, habitLogAuto, streaks, au
                 style={{ flexShrink: 0, fontSize: '0.62rem', fontWeight: 700, color: ACCENT, background: ACCENT + '14', border: `1px solid ${ACCENT}33`, borderRadius: 5, padding: '1px 5px', lineHeight: 1.4 }}
               >{habitWeekDayLabel(h)}</span>
             )}
+            {/* Per-row next-log date. The section header only has room for the
+                soonest one, which hides the fact that a pinned habit is on a
+                different day from the rest of the section. */}
+            {cadenceCanon(cadenceName) === 'Weekly' && !muted && (() => {
+              const s = weeklyHabitSchedule(h, weeklyRec, habitLog);
+              return (
+                <span
+                  title={s.dueNow
+                    ? `Its ${capWord(habitWeekDays(h)[0])} has arrived and this week is still blank`
+                    : `Next log: ${s.date.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })}`}
+                  style={{ flexShrink: 0, fontSize: '0.62rem', fontWeight: s.dueNow ? 700 : 600, color: s.dueNow ? '#dc2626' : 'var(--color-text-muted, #94a3b8)', whiteSpace: 'nowrap' }}
+                >
+                  {s.dueNow
+                    ? 'Due today'
+                    : `Next: ${s.date.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}`}
+                </span>
+              );
+            })()}
             {autoTrackedIds.has(h.id) && <AutoNameBadge />}
             {/* Status "Automatically" rows sit inline with the rest now, so the
                 badge is what tells them apart (the old "Automatic" heading did). */}
@@ -3189,16 +3296,16 @@ function RoutineSection({ cadenceName, list, habitLog, habitLogAuto, streaks, au
     // this week (mirrors the uncompleted badge). Falls through to the shared
     // logic below when no habit in this section is pinned.
     if (canon === 'Weekly' && activeList.some(h => habitWeekDays(h))) {
+      // Same per-habit schedule the rows show and the list sorts by — one
+      // helper, so the header can't claim a date no row agrees with. The header
+      // keeps the WIDER due rule (any unlogged habit whose day has arrived,
+      // pinned or not) because it speaks for the section as a whole.
       let soonest = null, anyDueNow = false;
       for (const h of activeList) {
         const loggedThisWeek = (habitLog[periodKey('Weekly')] || {})[h.id] !== undefined;
         if (!loggedThisWeek && weeklyDueYet(h, today)) anyDueNow = true;
-        const own = habitWeekDays(h);
-        const hRec = own ? { ...(rec || defaultRec('Weekly')), weekDays: own } : rec;
-        if (hRec) {
-          const { date } = nextRecurrenceDate('Weekly', hRec, [h], habitLog, loggedThisWeek);
-          if (!soonest || date < soonest) soonest = date;
-        }
+        const { date } = weeklyHabitSchedule(h, rec, habitLog);
+        if (!soonest || date < soonest) soonest = date;
       }
       if (anyDueNow) return { dueNow: true, date: today, isRecurring: true };
       if (soonest) return { dueNow: false, date: soonest, isRecurring: true };
