@@ -18,6 +18,7 @@
 //     status is returned — see decideStatus(), the single decision point.
 
 import { parseSetValue } from './setValue.js';
+import { inferExerciseType } from './exerciseTypes.js';
 
 const LB_PER_KG = 2.2046226218;
 
@@ -532,6 +533,26 @@ function analyzeExercise(name, group, history, options) {
 export const STATUS_KEYS = ['progressing', 'decreasing', 'stagnating', 'deload', 'maintaining', 'nobaseline'];
 
 /**
+ * Is this exercise a stretch / mobility drill rather than strength training?
+ *
+ * Stretches are left OFF the progress page entirely. Every metric here is a
+ * progressive-overload metric — estimated 1RM, volume, "adding weight or reps"
+ * — and a hold you do the same way every week isn't failing at that, it just
+ * isn't playing that game. Scoring them fills the Stagnating card with drills
+ * that are working exactly as intended, which is what makes the real
+ * stagnation worth looking at get lost.
+ *
+ * The user's own `exerciseType` tag wins when there is one (via `typeByName`);
+ * otherwise it falls back to the shared name/muscle-group guess, so a stretch
+ * logged before the tag existed still stays out.
+ */
+function isStretching(name, group, typeByName) {
+  const tagged = typeByName && typeByName.get(String(name || '').trim().toLowerCase());
+  if (tagged) return tagged === 'Stretching';
+  return inferExerciseType(name, group) === 'Stretching';
+}
+
+/**
  * workouts:    array of { date, entries:[{ exercise, group, sets, weight, ... }] }
  * groupByName: optional Map(lowercased exercise name → muscle group) for labels.
  * options:
@@ -540,6 +561,8 @@ export const STATUS_KEYS = ['progressing', 'decreasing', 'stagnating', 'deload',
  *   intent            global 'deload' | 'maintenance' | null
  *   intentByExercise  Map/object of lowercased name → 'deload' | 'maintenance' | 'none'
  *   libraryByName     Map/object of lowercased name → library row (for `bodyweight`)
+ *   typeByName        Map(lowercased name → 'Strength Training' | 'Stretching');
+ *                     stretches are excluded from the result entirely
  *
  * Returns { progressing, decreasing, stagnating, deload, maintaining, nobaseline },
  * each a sorted array.
@@ -562,6 +585,7 @@ export function analyzeProgress(workouts, groupByName, options = {}) {
   for (const k of STATUS_KEYS) groups[k] = [];
   for (const key of Object.keys(byName)) {
     const g = (groupByName && groupByName.get(key)) || byName[key].group || '';
+    if (isStretching(byName[key].name, g, options.typeByName)) continue;
     const r = analyzeExercise(byName[key].name, g, byName[key].entries, opts);
     if (r) groups[r.status].push(r);
   }

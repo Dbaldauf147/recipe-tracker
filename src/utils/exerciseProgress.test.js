@@ -861,3 +861,69 @@ test('groups are sorted best-gain-first / steepest-drop-first', () => {
   assert.equal(groups.progressing[0].name, 'BigGain');
   assert.equal(groups.progressing[1].name, 'SmallGain');
 });
+
+// ---- Stretches are excluded ------------------------------------------------
+// Every metric on this page is a progressive-overload metric, so a mobility
+// drill held the same way every week would land in Stagnating while working
+// exactly as intended. These pin down which signal decides: the user's own
+// exerciseType tag first, the shared name/group guess only as a fallback.
+
+const FIVE_SESSIONS = [56, 42, 28, 14, 0].map((d, i) => ({ daysAgo: d, weight: 100 + i * 5, sets: ['5'] }));
+
+function allNames(groups) {
+  return STATUS_KEYS.flatMap(k => groups[k].map(r => r.name));
+}
+
+test('an exercise tagged Stretching is left off the page entirely', () => {
+  const workouts = [
+    ...workoutsFor('Bench Press', FIVE_SESSIONS),
+    ...workoutsFor('Couch Opener', FIVE_SESSIONS, 'Hips'),
+  ];
+  const typeByName = new Map([
+    ['bench press', 'Strength Training'],
+    ['couch opener', 'Stretching'],
+  ]);
+  const groups = analyzeProgress(workouts, null, { now: NOW, typeByName });
+  assert.deepEqual(allNames(groups), ['Bench Press']);
+});
+
+test('an untagged stretch is caught by the name guess', () => {
+  // No typeByName at all — a stretch logged before the tag existed.
+  const workouts = [
+    ...workoutsFor('Squat', FIVE_SESSIONS),
+    ...workoutsFor('Hamstring Stretch', FIVE_SESSIONS, 'Legs'),
+    ...workoutsFor('Pigeon', FIVE_SESSIONS, 'Hips'),
+  ];
+  const groups = analyzeProgress(workouts, null, { now: NOW });
+  assert.deepEqual(allNames(groups).sort(), ['Squat']);
+});
+
+test('an explicit tag beats the name guess, both ways', () => {
+  const workouts = [
+    // Named like a stretch, tagged as strength — a loaded good morning some
+    // people log as "Hamstring Stretch". The tag is the user's own answer.
+    ...workoutsFor('Hamstring Stretch', FIVE_SESSIONS, 'Legs'),
+    // Named like a lift, tagged as a stretch.
+    ...workoutsFor('Wall Press', FIVE_SESSIONS, 'Chest'),
+  ];
+  const typeByName = new Map([
+    ['hamstring stretch', 'Strength Training'],
+    ['wall press', 'Stretching'],
+  ]);
+  const groups = analyzeProgress(workouts, null, { now: NOW, typeByName });
+  assert.deepEqual(allNames(groups), ['Hamstring Stretch']);
+});
+
+test('the yoga muscle group is treated as stretching', () => {
+  const groups = analyzeProgress(workoutsFor('Warrior Two', FIVE_SESSIONS, 'Yoga'), null, { now: NOW });
+  assert.deepEqual(allNames(groups), []);
+});
+
+test('a name in typeByName that was never logged changes nothing', () => {
+  const groups = analyzeProgress(
+    workoutsFor('Deadlift', FIVE_SESSIONS),
+    null,
+    { now: NOW, typeByName: new Map([['some other move', 'Stretching']]) },
+  );
+  assert.deepEqual(allNames(groups), ['Deadlift']);
+});

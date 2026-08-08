@@ -12,6 +12,7 @@ import {
 } from '../utils/exerciseProgress';
 import { formatSeconds } from '../utils/setValue';
 import { saveField, loadField } from '../utils/firestoreSync';
+import { effectiveExerciseType } from '../utils/exerciseTypes';
 import ExerciseChart from './ExerciseChart';
 
 const HIDDEN_KEY = 'sunday-progress-hidden';
@@ -332,6 +333,18 @@ export default function ExerciseProgressTracker({ workouts = [], weightUnit = 'l
     return m;
   }, [exerciseLibrary]);
 
+  // name(lowercased) → discipline, so analyzeProgress can drop stretches. Built
+  // from the library rather than guessed from the name: if you've tagged a
+  // drill as Stretching, that beats whatever the name looks like.
+  const typeByName = useMemo(() => {
+    const m = new Map();
+    for (const ex of (exerciseLibrary || [])) {
+      const n = (ex?.exercise || '').trim().toLowerCase();
+      if (n) m.set(n, effectiveExerciseType(ex, ex.muscleGroup));
+    }
+    return m;
+  }, [exerciseLibrary]);
+
   // Bodyweight history, so weighted pull-ups/dips can be scored on
   // bodyweight + added load instead of the plate alone. Seeded from localStorage
   // (firestoreSync hydrates it there) and refreshed when a weigh-in lands.
@@ -381,8 +394,9 @@ export default function ExerciseProgressTracker({ workouts = [], weightUnit = 'l
     () => analyzeProgress(workouts, groupByName, {
       weightLog,
       intent: intent === 'normal' ? null : intent,
+      typeByName,
     }),
-    [workouts, groupByName, weightLog, intent],
+    [workouts, groupByName, typeByName, weightLog, intent],
   );
 
   // Exercises the user has hidden from this page (lowercased names). Seed from
@@ -627,6 +641,7 @@ export default function ExerciseProgressTracker({ workouts = [], weightUnit = 'l
             <strong>{SNOOZE_DAYS}d</strong> parks an exercise for {SNOOZE_DAYS} days and it comes back on its own;
             {' '}<strong>✕</strong> hides it for good
             {hiddenList.length + snoozedList.length > 0 ? '. Click any chip above to bring one back now.' : '.'}
+            {' '}Stretching and mobility work isn’t tracked here — these are overload metrics, and a hold isn’t meant to climb.
           </p>
 
           {total === 0 ? (
