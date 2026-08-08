@@ -3183,22 +3183,31 @@ function RoutineSection({ cadenceName, list, habitLog, habitLogAuto, streaks, au
                 style={{ cursor: 'grab', color: '#cbd5e1', fontSize: '0.9rem', userSelect: 'none', lineHeight: 1 }}
               >⠿</span>
             )}
-            {/* Every other habit opens on double-click (single click is row-select
-                in bulk mode, and a stray click while marking shouldn't throw a
-                popup up). The review habit is the exception: it's a button you
-                press to DO something, so one click runs it. */}
+            {/* One click on the NAME opens the habit. The old double-click rule
+                was there so a stray click while marking couldn't throw a popup
+                up — but marking happens on the grid cells to the right, and
+                clicking a name is deliberate. Bulk mode still takes single
+                click for row-select (that IS the mode's job), so it keeps
+                double-click to open. Double-click stays wired everywhere so
+                the old muscle memory doesn't break. */}
             <span
+              role="button"
+              tabIndex={0}
               onClick={
-                bulkMode && !muted ? () => toggleRow(h.id)
-                  : (reviewHabit ? () => onOpen?.(h.id) : undefined)
+                bulkMode && !muted ? () => toggleRow(h.id) : () => onOpen?.(h.id)
               }
               onDoubleClick={() => onOpen?.(h.id)}
+              onKeyDown={(e) => {
+                if (e.key !== 'Enter' && e.key !== ' ') return;
+                e.preventDefault();
+                if (bulkMode && !muted) toggleRow(h.id); else onOpen?.(h.id);
+              }}
               title={
                 bulkMode && !muted ? 'Click to select this habit’s whole row (double-click to open)'
                   : reviewHabit ? 'Click to review your automatic habits'
-                    : 'Double-click to open habit'
+                    : 'Click to open habit'
               }
-              style={{ flex: '0 1 auto', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: '0.82rem', fontWeight: 600, color: muted ? '#94a3b8' : 'inherit', cursor: (bulkMode && !muted) || reviewHabit ? 'pointer' : 'default', textDecoration: rowSel ? 'underline' : 'none' }}
+              style={{ flex: '0 1 auto', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: '0.82rem', fontWeight: 600, color: muted ? '#94a3b8' : 'inherit', cursor: 'pointer', textDecoration: rowSel ? 'underline' : 'none' }}
             >{h.name || <em style={{ color: '#aaa' }}>untitled</em>}</span>
             {/* Says out loud that this row does something when you click it —
                 otherwise it looks identical to every other habit. */}
