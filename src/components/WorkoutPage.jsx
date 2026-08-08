@@ -4260,13 +4260,20 @@ export function WorkoutPage({ onBack, user }) {
     return map;
   }, [workouts]);
 
+  // Stretches are kept off the Charts page. There's no load to trend on one, so
+  // its chart is a flat line that only crowds out the lifts you're actually
+  // trying to read — and stretching already has the routines and the per-group
+  // stretch goal of its own. Reuses the memoised isStretchExercise the goal
+  // board and the body map's stretch lens already share, so all three agree on
+  // what counts as a stretch.
+
   // Every exercise name that appears in a logged workout (original casing),
   // for the Charts page search box.
   const allExerciseNames = useMemo(() => {
     const set = new Set();
-    for (const w of workouts) for (const e of w.entries || []) if (e.exercise) set.add(e.exercise.trim());
+    for (const w of workouts) for (const e of w.entries || []) if (e.exercise && !isStretchExercise(e.exercise)) set.add(e.exercise.trim());
     return Array.from(set).sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
-  }, [workouts]);
+  }, [workouts, isStretchExercise]);
 
   // Dropdown options derived from actual logged workouts so the user only
   // sees gyms/exercises they've actually used. Exercise list narrows to the
@@ -4359,6 +4366,7 @@ export function WorkoutPage({ onBack, user }) {
     for (const item of exerciseLibrary || []) {
       if (!item?.exercise) continue;
       if (item.retired) continue;
+      if (effectiveExerciseType(item, effectiveMuscleGroup(item)) === 'Stretching') continue;
       const g = item.group || 'Other';
       if (!map[g]) map[g] = [];
       map[g].push(item.exercise);
@@ -4376,13 +4384,14 @@ export function WorkoutPage({ onBack, user }) {
     for (const key of Object.keys(exerciseHistory)) {
       const [g, ex] = key.split('|');
       if (!g || !ex) continue;
+      if (isStretchExercise(ex)) continue;
       if (!map[g]) map[g] = new Set();
       map[g].add(ex);
     }
     const out = {};
-    for (const g of Object.keys(map)) out[g] = Array.from(map[g]).sort();
+    for (const g of Object.keys(map)) if (map[g].size > 0) out[g] = Array.from(map[g]).sort();
     return out;
-  }, [exerciseHistory]);
+  }, [exerciseHistory, isStretchExercise]);
 
   // The picker prefers the imported library (richer + the user's preferred
   // taxonomy); falls back to whatever groups appear in the saved workouts.
