@@ -147,3 +147,101 @@ test('renderWeeklySummary survives a week with no data at all', () => {
   assert.match(html, /Your Prep Day week/);
   assert.doesNotMatch(text, /NaN|undefined/);
 });
+
+// ---- Week goals table ------------------------------------------------------
+// These mirror the Week Plan sidebar's goal tiles. The tally is the fiddly
+// half: which logged records count as a workout DAY, and which are excluded.
+
+const GOALS_CONFIG = {
+  workoutWeeklyGoals: { weights: 3, cardio: 1, yoga: 1, rest: 2 },
+  workoutTypeCategories: { Push: 'weights', Pull: 'weights' },
+  saunaGoal: 3,
+  nutritionGoals: { dailyMealsTrackedPct: 80, vegServings: 5, fruitServings: 4 },
+};
+
+function goalsFor(data, config = GOALS_CONFIG) {
+  return summarizeWeek({ ...emptyData(), ...data }, WEEK, { goalsConfig: config }).weekGoals;
+}
+
+function goalNamed(weekGoals, label) {
+  return weekGoals.rows.find(r => r.label === label);
+}
+
+test('workout day tally excludes stretch sessions and sauna-only records', () => {
+  const workouts = [
+    { id: '1', date: WEEK.days[1], workoutType: 'Push', entries: [{ exercise: 'Bench', sets: ['8'] }] },
+    { id: '2', date: WEEK.days[3], workoutType: 'Running', entries: [{ exercise: 'Run', sets: ['30m'] }] },
+    { id: '3', date: WEEK.days[5], workoutType: 'Vinyasa', entries: [{ exercise: 'Flow', sets: ['45m'] }] },
+    // A logged stretch routine is not a workout day — the day stays "rest".
+    { id: '4', date: WEEK.days[2], source: 'stretch', entries: [{ exercise: 'Hamstring', sets: ['60s'] }] },
+    // Sauna-only placeholder: no type, no entries. Counts for sauna, not weights.
+    { id: '5', date: WEEK.days[4], sauna: true },
+  ];
+  const g = goalsFor({ workouts });
+  assert.equal(goalNamed(g, 'Weights').actual, 1);
+  assert.equal(goalNamed(g, 'Cardio').actual, 1);   // "Running" → cardio by keyword
+  assert.equal(goalNamed(g, 'Yoga').actual, 1);     // "Vinyasa" → yoga by keyword
+  assert.equal(goalNamed(g, 'Rest').actual, 4);     // days 0, 2, 4, 6
+  assert.equal(goalNamed(g, 'Sauna').actual, 1);
+});
+
+test('an explicit type category beats the keyword guess', () => {
+  // "Pull" matches no keyword and would default to weights anyway; "Recovery
+  // Walk" would be guessed as cardio, but the user filed it under yoga.
+  const workouts = [
+    { id: '1', date: WEEK.days[1], workoutType: 'Recovery Walk', entries: [{ exercise: 'Walk', sets: ['20m'] }] },
+  ];
+  assert.equal(goalNamed(goalsFor({ workouts }), 'Cardio').actual, 1);
+  const tagged = goalsFor({ workouts }, { ...GOALS_CONFIG, workoutTypeCategories: { 'Recovery Walk': 'yoga' } });
+  assert.equal(goalNamed(tagged, 'Cardio').actual, 0);
+  assert.equal(goalNamed(tagged, 'Yoga').actual, 1);
+});
+
+test('goals with no target set are left out of the table', () => {
+  const g = goalsFor({}, {
+    workoutWeeklyGoals: { weights: 2, cardio: 0, yoga: 0, rest: 0 },
+    saunaGoal: 0,
+    nutritionGoals: { dailyMealsTrackedPct: 50, vegServings: 0, fruitServings: 0 },
+  });
+  // A 0 goal is "not set" — a row reading 0/0 ✓ would claim unearned credit.
+  assert.deepEqual(g.rows.map(r => r.label), ['Weights', 'Meals tracked']);
+  assert.equal(g.total, 2);
+});
+
+test('produce goals scale the daily target across the week', () => {
+  const g = goalsFor({});
+  assert.equal(goalNamed(g, 'Veg').target, 35);   // 5/day × 7
+  assert.equal(goalNamed(g, 'Fruit').target, 28); // 4/day × 7
+});
+
+test('met is inclusive, and overshooting still reads as met', () => {
+  const workouts = [0, 1, 2, 3].map((i, n) => ({
+    id: `w${n}`, date: WEEK.days[i], workoutType: 'Push', entries: [{ exercise: 'Bench', sets: ['5'] }],
+  }));
+  const g = goalsFor({ workouts });
+  assert.equal(goalNamed(g, 'Weights').actual, 4);
+  assert.equal(goalNamed(g, 'Weights').met, true);
+});
+
+test('the email omits the goals section entirely when nothing is configured', () => {
+  const stats = summarizeWeek(emptyData(), WEEK);            // no goalsConfig
+  const prior = summarizeWeek(emptyData(), previousWeek(WEEK));
+  const { html, text } = renderWeeklySummary({ stats, priorStats: prior });
+  assert.equal(stats.weekGoals, null);
+  assert.doesNotMatch(html, /Week goals/);
+  assert.doesNotMatch(text, /WEEK GOALS/);
+});
+
+test('the goals table renders bars, values and a met count', () => {
+  const workouts = [{ id: '1', date: WEEK.days[1], workoutType: 'Push', entries: [{ exercise: 'Bench', sets: ['8'] }] }];
+  const stats = summarizeWeek({ ...emptyData(), workouts }, WEEK, { goalsConfig: GOALS_CONFIG });
+  const prior = summarizeWeek(emptyData(), previousWeek(WEEK));
+  const { html, text } = renderWeeklySummary({ stats, priorStats: prior });
+  assert.match(html, /Week goals/);
+  assert.match(html, /of \d+<\/strong> goals met/);
+  assert.match(html, /1 \/ 3 days/);
+  assert.match(text, /WEEK GOALS — \d+ of \d+ met/);
+  assert.doesNotMatch(html, /NaN|undefined/);
+  // Singular unit when the target is 1.
+  assert.match(html, /0 \/ 1 day</);
+});

@@ -113,6 +113,9 @@ async function loadUserWeekData(uid, userData, fromKey, toKey) {
     // Strength/Stretching tag, so the email's trend agrees with the Progress tab.
     exerciseLibrary: Array.isArray(userData.exerciseLibrary) ? userData.exerciseLibrary : [],
     customExercises: Array.isArray(userData.customExercises) ? userData.customExercises : [],
+    // Names of the user's stretch routines, so a logged stretch session is
+    // excluded from the workout-day goal tally exactly as the Week Plan does.
+    stretchRoutines: Array.isArray(userData.stretchRoutines) ? userData.stretchRoutines : [],
   };
 }
 
@@ -123,7 +126,17 @@ async function buildEmail(uid, userData, todayKey, { force = false } = {}) {
   const week = lastCompleteWeek(todayKey);
   const prior = previousWeek(week);
   const data = await loadUserWeekData(uid, userData, prior.start, shiftKey(week.end, 1));
-  const stats = summarizeWeek(data, week, { withProgress: true });
+  // The Week Plan's goal tiles, recomputed for the finished week. Every input
+  // is a synced user-doc field; a goal configured only in localStorage on one
+  // device can't be seen from here, which is why the tally reads
+  // workoutWeeklyGoals rather than the browser's copy.
+  const goalsConfig = {
+    workoutWeeklyGoals: userData.workoutWeeklyGoals || null,
+    workoutTypeCategories: userData.workoutTypeCategories || null,
+    saunaGoal: userData.saunaGoal,
+    nutritionGoals: userData.nutritionGoals || null,
+  };
+  const stats = summarizeWeek(data, week, { withProgress: true, goalsConfig });
   if (!force && isEmptyWeek(stats)) return null;
   const priorStats = summarizeWeek(data, prior);
   const email = renderWeeklySummary({
