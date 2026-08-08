@@ -7,7 +7,8 @@ import { saveField, loadField, saveWorkoutDraft, clearWorkoutDraft, newWorkoutId
 import { exportWorkoutHistoryToCSV } from '../utils/exportData';
 import { parseSetValue, formatSeconds, computeSetStats } from '../utils/setValue';
 import { ExerciseLibrary, effectiveMuscleGroup } from './ExerciseLibrary';
-import { EXERCISE_TYPES, DEFAULT_EXERCISE_TYPE, effectiveExerciseType, normalizeExerciseType } from '../utils/exerciseTypes';
+import { EXERCISE_TYPES, DEFAULT_EXERCISE_TYPE, effectiveExerciseType, normalizeExerciseType, inferExerciseType } from '../utils/exerciseTypes';
+import { entryBestE1rmLb } from '../utils/exerciseProgress';
 import { StretchRoutines } from './StretchRoutines';
 import {
   normalizeRoutine, buildCueSequence, isStretchWorkout, STRETCH_WORKOUT_SOURCE,
@@ -22,6 +23,7 @@ import { BodyHeatmap } from './BodyHeatmap';
 import { ExerciseDemo } from './ExerciseDemo';
 import ExerciseProgressTracker from './ExerciseProgressTracker';
 import styles from './WorkoutPage.module.css';
+import { workoutCalendarCategory, CAL_ICON } from '../utils/workoutCategory';
 
 const CHART_METRICS = {
   avgReps: { label: 'Avg Reps', field: 'avgReps' },
@@ -29,6 +31,10 @@ const CHART_METRICS = {
   maxReps: { label: 'Max Reps', field: 'maxReps' },
   weight: { label: 'Weight', field: 'totalWeight', isWeight: true },
   maxWeight: { label: 'Max Weight', field: 'maxWeight', isWeight: true },
+  // The one number that moves when you add weight OR reps. Same Epley (and rep
+  // cap) the Progress page classifies on, so a rising line here can't sit next
+  // to a "Decreasing" verdict there.
+  e1rm: { label: 'Est. 1RM', field: 'e1rm', isWeight: true },
 };
 
 const NUM_CHART_SLOTS = 8;
@@ -310,13 +316,11 @@ const WORKOUT_TYPE_CATEGORIES_KEY = 'sunday-workout-type-categories';
 const WORKOUT_CATEGORIES = ['weights', 'cardio', 'yoga'];
 
 // Best-effort category from a type's name; used to seed the explicit category
-// when a new type is added (the user can still override it). Mirrors the
-// calendar's classification regexes (CAL_*_RE below).
+// when a new type is added (the user can still override it). Delegates to the
+// calendar's own classifier with no explicit map, so the seed and the bucket
+// can't disagree.
 function guessWorkoutCategory(name) {
-  const t = name || '';
-  if (CAL_YOGA_RE.test(t)) return 'yoga';
-  if (CAL_CARDIO_RE.test(t)) return 'cardio';
-  return 'weights';
+  return workoutCalendarCategory({ workoutType: name || '' }, null);
 }
 
 function loadWorkoutTypeCategories() {
@@ -2204,23 +2208,11 @@ function GroupExercisePicker({
   );
 }
 
-// Classify a workout into a calendar bucket by its type name: yoga, cardio, or
-// weights (the default for any other logged workout). Rest is derived from days
-// with no workout.
-const CAL_YOGA_RE = /yoga|vinyasa|pilates|mobility|stretch/i;
-const CAL_CARDIO_RE = /cardio|running|\brun\b|jog|cycl|spin|\bbike\b|biking|swim|hiit|elliptical|treadmill|stair|sprint|conditioning|walk|hike/i;
-export function workoutCalendarCategory(w, categories) {
-  const t = w?.workoutType || '';
-  // Explicit, user-chosen category wins. Falls back to keyword guessing for
-  // types tagged before categories existed (or imported from elsewhere).
-  const explicit = categories?.[t];
-  if (explicit === 'weights' || explicit === 'cardio' || explicit === 'yoga') return explicit;
-  if (CAL_YOGA_RE.test(t)) return 'yoga';
-  if (CAL_CARDIO_RE.test(t)) return 'cardio';
-  return 'weights';
-}
-
-export const CAL_ICON = { weights: '🏋️', cardio: '🏃', yoga: '🧘', rest: '😴' };
+// Classify a workout into a calendar bucket by its type name. Lives in
+// utils/workoutCategory.js so the weekly-summary email (Node, which can't
+// import a component file) buckets a workout identically; re-exported here
+// because this module is where the rest of the app has always imported it.
+export { workoutCalendarCategory, CAL_ICON };
 const CAL_CATS = [
   { key: 'weights', icon: CAL_ICON.weights, label: 'Weights' },
   { key: 'cardio', icon: CAL_ICON.cardio, label: 'Cardio' },
@@ -3000,7 +2992,16 @@ export function WorkoutPage({ onBack, user }) {
     try {
       const saved = JSON.parse(localStorage.getItem('sunday-chart-slots') || 'null');
       if (Array.isArray(saved)) {
-        return Array.from({ length: NUM_CHART_SLOTS }, (_, i) => saved[i] || { group: '', exercise: '' });
+        // The pickers stopped OFFERING stretches, which says nothing about the
+        // ones already saved in a slot — those were restored from here on every
+        // load and kept charting. Dropped on the way in.
+        return Array.from({ length: NUM_CHART_SLOTS }, (_, i) => {
+          const row = saved[i];
+          if (!row || inferExerciseType(row.exercise, row.group) === 'Stretching') {
+            return { group: '', exercise: '' };
+          }
+          return row;
+        });
       }
     } catch {}
     return Array.from({ length: NUM_CHART_SLOTS }, () => ({ group: '', exercise: '' }));
@@ -4413,6 +4414,10 @@ export function WorkoutPage({ onBack, user }) {
         maxReps: Number(h.maxReps) || 0,
         totalWeight: Number(h.totalWeight) || 0,
         maxWeight: Number(h.maxWeight) || 0,
+        // Recomputed from the sets rather than read off a stored field: the
+        // per-session best needs each set's own weight and reps, and nothing
+        // persists that.
+        e1rm: entryBestE1rmLb(h),
       }));
   }
 
@@ -5811,7 +5816,14 @@ export function WorkoutPage({ onBack, user }) {
               );
             })() : chartView === 'custom' ? (
               <div className={styles.chartGrid}>
-                {chartSlots.map((slot, idx) => {
+                {chartSlots.map((raw, idx) => {
+                  // Last line of defence, and the one that catches a stretch
+                  // tagged only in the library: the hydration check above runs
+                  // before exerciseLibrary is loaded, so all it can do there is
+                  // guess from the name. isStretchExercise resolves against the
+                  // real tags, so a stretch clears its card as soon as the
+                  // library lands rather than waiting for the next reload.
+                  const slot = isStretchExercise(raw.exercise) ? { group: '', exercise: '' } : raw;
                   const exerciseOptions = slot.group ? (chartGroupSource[slot.group] || []) : [];
                   return (
                     <div key={idx} className={styles.chartCard}>

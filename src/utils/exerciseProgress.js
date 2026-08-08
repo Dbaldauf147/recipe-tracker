@@ -168,6 +168,30 @@ function setWeightLb(entry, i) {
   return entry.perArm ? w * 2 : w;
 }
 
+/**
+ * Best estimated 1RM across one entry's sets, in canonical lb. 0 if unloaded.
+ *
+ * Best across ALL sets rather than off the heaviest: a lighter set taken for
+ * more reps can imply a higher max (135x10 -> 180 beats 155x3 -> 170), and
+ * seeing through that trade is the point of the number.
+ *
+ * Exported for the Charts page, which needs the same figure per session that
+ * this file's classifier trends — so a rising 1RM line can't sit next to a
+ * "Decreasing" verdict. Mirrors entryBestE1rmLb in the mobile app's
+ * src/utils/exerciseSeries.ts.
+ */
+export function entryBestE1rmLb(entry) {
+  const sets = Array.isArray(entry?.sets) ? entry.sets : [];
+  let best = 0;
+  for (let i = 0; i < sets.length; i++) {
+    const parsed = parseSetValue(sets[i]);
+    if (parsed.kind !== 'reps' || !(parsed.reps > 0)) continue;
+    const v = epley1RM(setWeightLb(entry, i), parsed.reps);
+    if (v > best) best = v;
+  }
+  return best;
+}
+
 export function isBodyweightExercise(name, libraryEntry) {
   if (libraryEntry && typeof libraryEntry.bodyweight === 'boolean') return libraryEntry.bodyweight;
   return BODYWEIGHT_MOVEMENT_RE.test(String(name || ''));
