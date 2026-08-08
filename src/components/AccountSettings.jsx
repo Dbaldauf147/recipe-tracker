@@ -716,69 +716,81 @@ export function AccountSettings({ user, onClose }) {
           and habit completion.
         </p>
 
+        {/* The schedule renders whether or not the summary is on, dimmed and
+            disabled while it's off. Hiding it behind the checkbox made the
+            section look like a lone toggle with nothing to configure, so the
+            schedule read as missing rather than as off. */}
         <div className={styles.reminderRow}>
           <label className={styles.reminderToggle}>
             <input type="checkbox" checked={weeklySummary} onChange={e => setWeeklySummary(e.target.checked)} />
             Email me a weekly summary
           </label>
-          {weeklySummary && (
-            <input type="time" className={styles.reminderTimeInput} value={weeklySummaryTime} onChange={e => setWeeklySummaryTime(e.target.value)} />
-          )}
+          <input
+            type="time"
+            className={styles.reminderTimeInput}
+            value={weeklySummaryTime}
+            onChange={e => setWeeklySummaryTime(e.target.value)}
+            disabled={!weeklySummary}
+            style={weeklySummary ? undefined : { opacity: 0.5 }}
+          />
         </div>
-        {weeklySummary && (
-          <>
-            <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap', margin: '0.5rem 0 0.25rem', alignItems: 'center' }}>
-              <span style={{ fontSize: '0.8rem', color: '#666' }}>Send on</span>
-              {DAY_LABELS.map((label, idx) => {
-                const on = weeklySummaryDay === idx;
-                return (
-                  <button
-                    key={idx}
-                    type="button"
-                    onClick={() => setWeeklySummaryDay(idx)}
-                    style={{
-                      padding: '0.35rem 0.6rem',
-                      borderRadius: 6,
-                      border: '1px solid ' + (on ? '#111' : '#ccc'),
-                      background: on ? '#111' : '#fff',
-                      color: on ? '#fff' : '#666',
-                      fontSize: '0.8rem',
-                      cursor: 'pointer',
-                      minWidth: 42,
-                    }}
-                  >
-                    {label}
-                  </button>
-                );
-              })}
-            </div>
-            <input
-              type="text"
-              className={styles.reminderTimeInput}
-              style={{ width: '100%', maxWidth: 360, marginTop: '0.4rem' }}
-              value={weeklySummaryEmails}
-              onChange={e => setWeeklySummaryEmails(e.target.value)}
-              placeholder="Send summary to (blank = your reminder addresses)"
-              autoComplete="email"
-            />
-            <p className={styles.reminderHint}>
-              Sends at {new Date(`2000-01-01T${weeklySummaryTime}`).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })} Eastern
-              on {['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][weeklySummaryDay]}.
-              Sunday gets you the freshest report — the week it covers just ended.
-              Leave the address blank to reuse the Email Reminders addresses above; separate multiple with commas.
-            </p>
-          </>
-        )}
+        {/* Dimmed, not aria-hidden: `disabled` already conveys "off" to a
+            screen reader, and hiding the block outright would recreate the
+            exact problem this change is fixing. */}
+        <div style={{ opacity: weeklySummary ? 1 : 0.5 }}>
+          <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap', margin: '0.5rem 0 0.25rem', alignItems: 'center' }}>
+            <span style={{ fontSize: '0.8rem', color: '#666' }}>Send on</span>
+            {DAY_LABELS.map((label, idx) => {
+              const on = weeklySummaryDay === idx;
+              return (
+                <button
+                  key={idx}
+                  type="button"
+                  onClick={() => setWeeklySummaryDay(idx)}
+                  disabled={!weeklySummary}
+                  style={{
+                    padding: '0.35rem 0.6rem',
+                    borderRadius: 6,
+                    border: '1px solid ' + (on ? '#111' : '#ccc'),
+                    background: on ? '#111' : '#fff',
+                    color: on ? '#fff' : '#666',
+                    fontSize: '0.8rem',
+                    cursor: weeklySummary ? 'pointer' : 'not-allowed',
+                    minWidth: 42,
+                  }}
+                >
+                  {label}
+                </button>
+              );
+            })}
+          </div>
+          <input
+            type="text"
+            className={styles.reminderTimeInput}
+            style={{ width: '100%', maxWidth: 360, marginTop: '0.4rem' }}
+            value={weeklySummaryEmails}
+            onChange={e => setWeeklySummaryEmails(e.target.value)}
+            placeholder="Send summary to (blank = your reminder addresses)"
+            autoComplete="email"
+            disabled={!weeklySummary}
+          />
+          <p className={styles.reminderHint}>
+            {weeklySummary ? 'Sends' : 'Would send'} at {new Date(`2000-01-01T${weeklySummaryTime}`).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })} Eastern
+            on {['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][weeklySummaryDay]}.
+            Sunday gets you the freshest report — the week it covers just ended.
+            Leave the address blank to reuse the Email Reminders addresses above; separate multiple with commas.
+          </p>
+        </div>
 
         <div className={styles.reminderActions}>
           <button className={styles.reminderSaveBtn} onClick={saveReminders}>
             {summarySaved ? 'Saved!' : 'Save Settings'}
           </button>
-          {weeklySummary && (
-            <button className={styles.reminderTestBtn} onClick={sendSummaryNow} disabled={summarySending}>
-              {summarySending ? 'Sending…' : 'Send me one now'}
-            </button>
-          )}
+          {/* Not gated on the toggle: sending yourself one on demand is how you
+              decide whether to turn the schedule on at all. */}
+          <button className={styles.reminderTestBtn} onClick={sendSummaryNow} disabled={summarySending}>
+            {summarySending ? 'Sending…' : 'Send me one now'}
+          </button>
         </div>
       </div>
 
