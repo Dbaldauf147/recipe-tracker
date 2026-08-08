@@ -226,6 +226,15 @@ export function AccountSettings({ user, onClose }) {
   // weekly plan (the shopping-list recipes) into meal history. Default Sun+Wed.
   const [autoLogMeals, setAutoLogMeals] = useState(false);
   const [autoLogDays, setAutoLogDays] = useState([0, 3]);
+  // Weekly progress summary: one email covering the last COMPLETE Sun–Sat week
+  // (meals, weight, workouts, habits) vs the week before it. Blank recipients =
+  // reuse the reminder addresses above.
+  const [weeklySummary, setWeeklySummary] = useState(false);
+  const [weeklySummaryDay, setWeeklySummaryDay] = useState(0);
+  const [weeklySummaryTime, setWeeklySummaryTime] = useState('08:00');
+  const [weeklySummaryEmails, setWeeklySummaryEmails] = useState('');
+  const [summarySending, setSummarySending] = useState(false);
+  const [summarySaved, setSummarySaved] = useState(false);
   const [reminderSaved, setReminderSaved] = useState(false);
   const [testSending, setTestSending] = useState(false);
 
@@ -256,6 +265,10 @@ export function AccountSettings({ user, onClose }) {
     if (Array.isArray(s.weightDays)) setWeightDays(s.weightDays);
     if (s.autoLogMeals) setAutoLogMeals(s.autoLogMeals);
     if (Array.isArray(s.autoLogDays)) setAutoLogDays(s.autoLogDays);
+    if (s.weeklySummary) setWeeklySummary(true);
+    if (Number.isFinite(Number(s.weeklySummaryDay))) setWeeklySummaryDay(Number(s.weeklySummaryDay));
+    if (s.weeklySummaryTime) setWeeklySummaryTime(s.weeklySummaryTime);
+    if (Array.isArray(s.weeklySummaryEmails)) setWeeklySummaryEmails(s.weeklySummaryEmails.join(', '));
   }, []);
 
   function toggleDay(d) {
@@ -319,6 +332,21 @@ export function AccountSettings({ user, onClose }) {
     return [];
   }
 
+  // Comma/whitespace-separated override list for the weekly summary. Empty →
+  // the summary falls back to the reminder recipients above.
+  function buildSummaryEmails() {
+    const out = [];
+    const seen = new Set();
+    for (const raw of weeklySummaryEmails.split(/[,;\s]+/)) {
+      const e = raw.trim().toLowerCase();
+      if (!EMAIL_RE.test(e) || seen.has(e)) continue;
+      seen.add(e);
+      out.push(e);
+      if (out.length >= 5) break;
+    }
+    return out;
+  }
+
   function saveReminders() {
     const schedules = buildSchedules();
     const emails = schedules.length > 0 ? schedules.map(r => r.email) : effectiveEmails();
@@ -332,11 +360,16 @@ export function AccountSettings({ user, onClose }) {
       email: emails[0] || '',
       foodLogReminder, foodLogTime, foodLogDays, weightReminder, weightTime, weightDays,
       autoLogMeals, autoLogDays,
+      weeklySummary, weeklySummaryDay, weeklySummaryTime,
+      weeklySummaryEmails: buildSummaryEmails(),
     };
     localStorage.setItem(REMINDER_KEY, JSON.stringify(settings));
     if (user) saveField(user.uid, 'reminderSettings', settings);
+    // Both sections write this one object, so both Save buttons confirm —
+    // whichever one you pressed, the other section's settings were saved too.
     setReminderSaved(true);
-    setTimeout(() => setReminderSaved(false), 2000);
+    setSummarySaved(true);
+    setTimeout(() => { setReminderSaved(false); setSummarySaved(false); }, 2000);
   }
 
   async function sendTestReminder() {
@@ -359,6 +392,32 @@ export function AccountSettings({ user, onClose }) {
       alert(`Failed to send: ${err.message || err}`);
     } finally {
       setTestSending(false);
+    }
+  }
+
+  // Send the real weekly summary right now, for the last complete Sun–Sat week.
+  // Authenticated server-side (it's the user's own data), so this needs a token.
+  async function sendSummaryNow() {
+    if (!user) { alert('Sign in first.'); return; }
+    const emails = buildSummaryEmails();
+    setSummarySending(true);
+    try {
+      const token = await user.getIdToken();
+      const res = await fetch('/api/send-weekly-summary', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify(emails.length > 0 ? { emails } : {}),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        alert(`Weekly summary sent to ${(data.sentTo || []).join(', ')} — covering ${data.week}.`);
+      } else {
+        alert(`Failed to send: ${data.error || res.status}`);
+      }
+    } catch (err) {
+      alert(`Failed to send: ${err.message || err}`);
+    } finally {
+      setSummarySending(false);
     }
   }
 
@@ -642,6 +701,84 @@ export function AccountSettings({ user, onClose }) {
           <button className={styles.reminderTestBtn} onClick={sendTestReminder} disabled={testSending}>
             {testSending ? 'Sending...' : 'Send Test Email'}
           </button>
+        </div>
+      </div>
+
+      {/* Its own section, not a fourth checkbox under Email Reminders: the
+          reminders are all "nag me when I forget", this is a recurring report.
+          It still writes the same `reminderSettings` object, so either Save
+          button in either section persists both. */}
+      <div className={styles.section}>
+        <h3 className={styles.sectionTitle}>Weekly Progress Summary</h3>
+        <p className={styles.reminderHint} style={{ marginBottom: '0.75rem' }}>
+          One email a week recapping the last <strong>complete Sunday–Saturday week</strong> against
+          the week before it: meals tracked and average macros, weight change, workouts and volume,
+          and habit completion.
+        </p>
+
+        <div className={styles.reminderRow}>
+          <label className={styles.reminderToggle}>
+            <input type="checkbox" checked={weeklySummary} onChange={e => setWeeklySummary(e.target.checked)} />
+            Email me a weekly summary
+          </label>
+          {weeklySummary && (
+            <input type="time" className={styles.reminderTimeInput} value={weeklySummaryTime} onChange={e => setWeeklySummaryTime(e.target.value)} />
+          )}
+        </div>
+        {weeklySummary && (
+          <>
+            <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap', margin: '0.5rem 0 0.25rem', alignItems: 'center' }}>
+              <span style={{ fontSize: '0.8rem', color: '#666' }}>Send on</span>
+              {DAY_LABELS.map((label, idx) => {
+                const on = weeklySummaryDay === idx;
+                return (
+                  <button
+                    key={idx}
+                    type="button"
+                    onClick={() => setWeeklySummaryDay(idx)}
+                    style={{
+                      padding: '0.35rem 0.6rem',
+                      borderRadius: 6,
+                      border: '1px solid ' + (on ? '#111' : '#ccc'),
+                      background: on ? '#111' : '#fff',
+                      color: on ? '#fff' : '#666',
+                      fontSize: '0.8rem',
+                      cursor: 'pointer',
+                      minWidth: 42,
+                    }}
+                  >
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
+            <input
+              type="text"
+              className={styles.reminderTimeInput}
+              style={{ width: '100%', maxWidth: 360, marginTop: '0.4rem' }}
+              value={weeklySummaryEmails}
+              onChange={e => setWeeklySummaryEmails(e.target.value)}
+              placeholder="Send summary to (blank = your reminder addresses)"
+              autoComplete="email"
+            />
+            <p className={styles.reminderHint}>
+              Sends at {new Date(`2000-01-01T${weeklySummaryTime}`).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })} Eastern
+              on {['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][weeklySummaryDay]}.
+              Sunday gets you the freshest report — the week it covers just ended.
+              Leave the address blank to reuse the Email Reminders addresses above; separate multiple with commas.
+            </p>
+          </>
+        )}
+
+        <div className={styles.reminderActions}>
+          <button className={styles.reminderSaveBtn} onClick={saveReminders}>
+            {summarySaved ? 'Saved!' : 'Save Settings'}
+          </button>
+          {weeklySummary && (
+            <button className={styles.reminderTestBtn} onClick={sendSummaryNow} disabled={summarySending}>
+              {summarySending ? 'Sending…' : 'Send me one now'}
+            </button>
+          )}
         </div>
       </div>
 
