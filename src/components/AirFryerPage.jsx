@@ -3,7 +3,8 @@ import GUIDE, {
   AIR_FRYER_CATEGORIES, AIR_FRYER_RULES, airFryerKey, toCelsius,
 } from '../data/airFryerGuide.js';
 import { loadField, saveField } from '../utils/firestoreSync';
-import { indexRecipesByGuide, rankIngredientsForGuide, bestIngredientForGuide } from '../utils/airFryerRecipes';
+import { indexRecipesByGuide, indexExtrasByGuide, rankIngredientsForGuide, bestIngredientForGuide } from '../utils/airFryerRecipes';
+import { findTopSince, buildIngredientEatenMap } from '../utils/pantryAutoAdd';
 import { loadIngredients, ingredientRowByName } from '../utils/ingredientsStore';
 import { ingredientMatchScore } from '../utils/ingredientMatch';
 import { defaultUnitWeight } from '../utils/unitWeights';
@@ -97,6 +98,28 @@ function formatTime(row) {
   return `${min}–${max} min`;
 }
 
+// Written by the Shopping List page; read here so both agree on what's on the
+// list without this page owning any of it.
+const EXTRAS_FIELD = 'shopExtras';
+const EXTRAS_CACHE_KEY = 'sunday-shop-extras';
+function readListCache(key) {
+  try {
+    const raw = JSON.parse(localStorage.getItem(key) || '[]');
+    return Array.isArray(raw) ? raw : [];
+  } catch {
+    return [];
+  }
+}
+
+function readExtrasCache() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(EXTRAS_CACHE_KEY) || '[]');
+    return Array.isArray(raw) ? raw : [];
+  } catch {
+    return [];
+  }
+}
+
 export function AirFryerPage({ onClose, user, recipes = [], weeklyRecipeIds = [] }) {
   const uid = user?.uid;
   // Seeded from localStorage so the page paints instantly on a phone — the
@@ -117,6 +140,14 @@ export function AirFryerPage({ onClose, user, recipes = [], weeklyRecipeIds = []
   // "show me what I hid" is a thing you do once to undo a mistake, not a mode
   // you want the page to still be in tomorrow morning.
   const [showHidden, setShowHidden] = useState(false);
+  // The shopping list's manual side. Seeded from the same localStorage key the
+  // Shopping List page writes, so a snack added a minute ago is already flagged
+  // when this page paints; Firestore reconciles behind it like everything else.
+  const [extras, setExtras] = useState(readExtrasCache);
+  // The pantry lists the shopping page auto-adds this week's snack and fruit
+  // from. Cached-first for the same reason as everything else here.
+  const [pantrySnacks, setPantrySnacks] = useState(() => readListCache('sunday-pantry-snacks'));
+  const [pantryFruit, setPantryFruit] = useState(() => readListCache('sunday-pantry-fruit'));
 
   useEffect(() => {
     if (!uid) return;
@@ -154,6 +185,26 @@ export function AirFryerPage({ onClose, user, recipes = [], weeklyRecipeIds = []
         try { localStorage.setItem(HIDDEN_CACHE, JSON.stringify(remote)); } catch { /* quota */ }
       })
       .catch(() => { /* offline — the cached copy stands */ });
+    return () => { cancelled = true; };
+  }, [uid]);
+
+  // Shopping list extras (snacks, staples, anything hand-added). Read-only
+  // here — this page flags what's on the list, it never edits it.
+  useEffect(() => {
+    if (!uid) return;
+    let cancelled = false;
+    loadField(uid, EXTRAS_FIELD)
+      .then(remote => {
+        if (cancelled || !Array.isArray(remote)) return;
+        setExtras(remote);
+      })
+      .catch(() => { /* offline — the cached copy stands */ });
+    loadField(uid, 'pantrySnacks')
+      .then(remote => { if (!cancelled && Array.isArray(remote)) setPantrySnacks(remote); })
+      .catch(() => { /* cached copy stands */ });
+    loadField(uid, 'pantryFruit')
+      .then(remote => { if (!cancelled && Array.isArray(remote)) setPantryFruit(remote); })
+      .catch(() => { /* cached copy stands */ });
     return () => { cancelled = true; };
   }, [uid]);
 
@@ -281,6 +332,40 @@ export function AirFryerPage({ onClose, user, recipes = [], weeklyRecipeIds = []
     (row) => recipeIndex[airFryerKey(row.name)]?.weekRecipes.length || 0,
     [recipeIndex],
   );
+  // Items on the list that belong to no recipe — snacks, staples, anything
+  // hand-added. Without these the group claimed to be "this week's shopping
+  // list" while only ever looking at recipes.
+  //
+  // The list you actually shop from isn't just `shopExtras`: the Shopping List
+  // page also auto-adds ONE snack and ONE fruit each week — whichever has gone
+  // longest un-eaten — and those are computed at render, never persisted. They
+  // are, in practice, exactly the snacks "added for this week", so leaving them
+  // out would flag the staples and miss the thing that prompted this.
+  // findTopSince is imported rather than reimplemented so the two pages can't
+  // disagree about which snack that is.
+  const getRecipeById = useCallback(
+    (id) => (recipes || []).find(r => r?.id === id) || null,
+    [recipes],
+  );
+  const listItems = useMemo(() => {
+    const list = [...(extras || [])];
+    const eatenMap = buildIngredientEatenMap(getRecipeById);
+    const has = (ing) => list.some(e => airFryerKey(e?.ingredient || '') === airFryerKey(ing || ''));
+    const topSnack = findTopSince(pantrySnacks, eatenMap);
+    const topFruit = findTopSince(pantryFruit, eatenMap);
+    if (topSnack?.ingredient && !has(topSnack.ingredient)) list.push({ ...topSnack, source: 'auto-snack' });
+    if (topFruit?.ingredient && !has(topFruit.ingredient)) list.push({ ...topFruit, source: 'auto-fruit' });
+    return list;
+  }, [extras, pantrySnacks, pantryFruit, getRecipeById]);
+  const extrasIndex = useMemo(() => indexExtrasByGuide(rows, listItems, links), [rows, listItems, links]);
+  const extrasFor = useCallback(
+    (row) => extrasIndex[airFryerKey(row.name)] || [],
+    [extrasIndex],
+  );
+  const onListFor = useCallback(
+    (row) => weekCountFor(row) > 0 || extrasFor(row).length > 0,
+    [weekCountFor, extrasFor],
+  );
 
   const hiddenSet = useMemo(() => new Set(hidden), [hidden]);
 
@@ -312,8 +397,8 @@ export function AirFryerPage({ onClose, user, recipes = [], weeklyRecipeIds = []
   // Anything whose ingredient is on this week's plan floats to the top — that's
   // the food actually in the house. Both halves keep the alphabetical order
   // `visible` already put them in.
-  const weekRows = useMemo(() => visible.filter(r => weekCountFor(r) > 0), [visible, weekCountFor]);
-  const restRows = useMemo(() => visible.filter(r => weekCountFor(r) === 0), [visible, weekCountFor]);
+  const weekRows = useMemo(() => visible.filter(onListFor), [visible, onListFor]);
+  const restRows = useMemo(() => visible.filter(r => !onListFor(r)), [visible, onListFor]);
 
   // Categories that survive the current search, so tapping one never lands you
   // on an empty list.
@@ -396,6 +481,7 @@ export function AirFryerPage({ onClose, user, recipes = [], weeklyRecipeIds = []
     const key = airFryerKey(row.name);
     const open = openId === key;
     const found = recipeIndex[key] || { recipes: [], weekRecipes: [] };
+    const onList = extrasFor(row);
     const isHidden = hiddenSet.has(key);
     const mapped = links[key];
     const ownRow = row.source === 'mine';
@@ -422,6 +508,17 @@ export function AirFryerPage({ onClose, user, recipes = [], weeklyRecipeIds = []
             {found.recipes.length > 0 && (
               <span className={found.weekRecipes.length > 0 ? styles.recipeTagWeek : styles.recipeTag}>
                 {found.recipes.length} recipe{found.recipes.length === 1 ? '' : 's'}
+              </span>
+            )}
+            {/* Why a row with no recipe behind it is in the week's group. A
+                snack added straight to the list has no recipe to count, so
+                without this it would sit at the top looking unexplained. */}
+            {onList.length > 0 && (
+              <span
+                className={styles.recipeTagWeek}
+                title={`On your shopping list: ${onList.join(', ')}`}
+              >
+                on your list
               </span>
             )}
           </span>

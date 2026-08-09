@@ -182,3 +182,45 @@ export function indexRecipesByGuide(guideRows, recipes = [], weekIds = new Set()
   }
   return index;
 }
+
+/**
+ * Which of the shopping list's NON-RECIPE items each guide row matches.
+ *
+ * The "In this week's shopping list" group was built only from recipes on the
+ * week's plan, so a snack you added straight to the list — venison sticks,
+ * brussel sprouts, a bag of fries — sat down in "Everything else" even though
+ * it is, literally, in this week's shopping list. Those items belong to no
+ * recipe, so no amount of recipe indexing was ever going to find them.
+ *
+ * `extras` is the shopping list's manual side (user doc `shopExtras`, plus the
+ * auto-injected top snack and fruit): items shaped { ingredient, source }.
+ * Matching reuses the same terms as the recipe index, so a row's ingredient
+ * link works here too.
+ *
+ * Returns { [rowKey]: string[] } — the matching ingredient labels, for a row to
+ * show WHY it's flagged.
+ */
+export function indexExtrasByGuide(guideRows, extras = [], links = {}) {
+  const index = {};
+  const rowTerms = (guideRows || []).map(row => {
+    const key = String(row?.name || '').trim().toLowerCase();
+    const linked = links?.[key];
+    const terms = linked ? [...guideTerms(row?.name), ...guideTerms(linked)] : guideTerms(row?.name);
+    return { key, terms: [...new Set(terms)] };
+  });
+  for (const { key } of rowTerms) if (key) index[key] = [];
+
+  for (const item of extras || []) {
+    const name = String(item?.ingredient || '').trim();
+    if (!name) continue;
+    for (const { key, terms } of rowTerms) {
+      if (!index[key] || terms.length === 0) continue;
+      if (!ingredientMatchesTerms(name, terms)) continue;
+      if (!index[key].includes(name)) index[key].push(name);
+    }
+  }
+  for (const key of Object.keys(index)) {
+    index[key].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+  }
+  return index;
+}
