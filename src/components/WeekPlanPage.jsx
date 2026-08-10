@@ -42,6 +42,13 @@ const DEFAULT_WORKOUT_GOALS = { weights: 3, cardio: 1, yoga: 1, rest: 2 };
 // The trainable categories — everything in WORKOUT_CATS except rest. These are
 // what the day suggester fills against; rest is the leftover, not a thing you do.
 const WORKOUT_KIND_KEYS = ['weights', 'cardio', 'yoga'];
+// Categories that share a day by default. Symmetric on purpose: whichever of
+// the two the planner reaches first, the other rides along with it.
+const PAIRED_WITH = { cardio: 'yoga', yoga: 'cardio' };
+// A day's second slot is stored in the same weekWorkoutPlan object under a
+// "3.2" key, so it round-trips through the existing field with no migration and
+// old clients (which parse keys with Number()) simply ignore it.
+const SECOND_SLOT_RE = /^(\d)\.2$/;
 
 // Week-total produce tiles. Servings come from each logged entry's
 // `nutrition.vegServings` / `fruitServings` — the same numbers the Prepare
@@ -430,7 +437,19 @@ function resolveWorkoutPlan(rankedTypes, overrides, workoutTypes, recordedIdxs =
 
   const validTypes = new Set(workoutTypes);
   const fixed = {};
+  const fixedSecond = {};
+  const noSecond = new Set();
   for (const [k, v] of Object.entries(overrides || {})) {
+    const m = SECOND_SLOT_RE.exec(k);
+    if (m) {
+      const i = Number(m[1]);
+      // An EMPTY companion is a decision, not an absence: it's "split this pair
+      // back onto separate days". Without recording it, the auto pairing below
+      // just puts the companion straight back and the None option does nothing.
+      if (v === '' || v === 'rest') noSecond.add(i);
+      else if (validTypes.has(v)) fixedSecond[i] = v;
+      continue;
+    }
     if (v === 'rest' || validTypes.has(v)) fixed[Number(k)] = v; // ignore stale values
   }
   const out = {};
@@ -530,6 +549,24 @@ function resolveWorkoutPlan(rankedTypes, overrides, workoutTypes, recordedIdxs =
     return best;
   }
 
+  // A day you PINNED is a pairing anchor too. Pinning cardio to Wednesday still
+  // means "cardio and yoga together" — without this the auto pass only pairs
+  // days it chose itself, so one pinned half sends the other off on its own and
+  // the default quietly stops applying the moment you touch the week.
+  for (let i = 0; i < 7; i++) {
+    if (recordedIdxs.has(i)) continue;
+    const cell = out[i];
+    if (!cell || cell.value === 'rest' || cell.second || fixedSecond[i] != null || noSecond.has(i)) continue;
+    if (cell.isAuto) continue;                       // the loop above already had its turn
+    const partner = PAIRED_WITH[categoryOf(cell.value)];
+    if (!partner || !(need[partner] > 0)) continue;
+    const mate = candidateFor(partner);
+    if (!mate) continue;
+    need[partner] -= 1;
+    usedTypes.add(mate);
+    cell.second = { value: mate, isAuto: true };
+  }
+
   // Open days that aren't rest, in week order — what the goals get to fill.
   const workoutPositions = autoSlots.map((_, pos) => pos).filter(pos => !restPos.has(pos));
   for (const pos of restPos) out[autoSlots[pos]] = { value: 'rest', isAuto: true };
@@ -558,7 +595,41 @@ function resolveWorkoutPlan(rankedTypes, overrides, workoutTypes, recordedIdxs =
     usedTypes.add(type);
     placedAt[type] = pos;
     out[slot] = { value: type, isAuto: true };
+
+    // Cardio and yoga ride together. They're the two short sessions in the week
+    // and doing them on one day is how the other days stay free — spending a
+    // whole day on each costs two of the seven for maybe an hour of work.
+    // Attaching one to the other's day satisfies both goals off a single day,
+    // and the day the pairing frees falls through to rest or a lift below.
+    //
+    // Only ever auto-paired, and only when the partner still owes a day: a
+    // pinned second slot is the user's, and a met goal doesn't need topping up.
+    const partner = PAIRED_WITH[cat];
+    if (partner && need[partner] > 0 && fixedSecond[slot] == null && !noSecond.has(slot)) {
+      const mate = candidateFor(partner);
+      if (mate) {
+        need[partner] -= 1;
+        usedTypes.add(mate);
+        placedAt[mate] = pos;
+        out[slot].second = { value: mate, isAuto: true };
+      }
+    }
   });
+
+  // A second slot the user pinned themselves always stands, whether or not the
+  // pairing above would have put anything there.
+  for (const [k, v] of Object.entries(fixedSecond)) {
+    const i = Number(k);
+    if (!out[i]) continue;
+    if (out[i].value === 'rest') {
+      // Nothing to ride along with. Pinning a companion to a day still says you
+      // want it THAT day, so it becomes the day's workout rather than being
+      // dropped on the floor — silently losing a choice is the worse answer.
+      out[i] = { value: v, isAuto: false };
+      continue;
+    }
+    out[i].second = { value: v, isAuto: false };
+  }
   return out;
 }
 
@@ -922,10 +993,17 @@ export function WeekPlanPage({ recipes, getRecipe, user, weeklyPlan = [], weekly
   }, [user?.uid, plannedRestStored, weekRestDates, days, isCurrentWeek]);
 
   // value: a workout type, 'rest', or '__auto' (clears the day so it re-suggests).
-  const setWorkoutCategory = useCallback((dayIndex, value) => {
+  // `slot` 2 writes the day's companion under a "3.2" key. Clearing the PRIMARY
+  // takes the companion with it — a day with only a second workout on it isn't a
+  // thing, and leaving one orphaned would resurrect it the next time the day
+  // resolved to a workout.
+  const setWorkoutCategory = useCallback((dayIndex, value, slot = 1) => {
     const next = { ...(weekWorkoutPlan || {}) };
-    if (value === '__auto') delete next[dayIndex];
-    else next[dayIndex] = value;
+    const key = slot === 2 ? `${dayIndex}.2` : String(dayIndex);
+    if (value === '__auto') delete next[key];
+    else if (slot === 2 && value === '__none') next[key] = '';
+    else next[key] = value;
+    if (slot === 1 && (value === '__auto' || value === 'rest')) delete next[`${dayIndex}.2`];
     onChangeWorkoutPlan(next);
   }, [weekWorkoutPlan, onChangeWorkoutPlan]);
 
@@ -1116,6 +1194,25 @@ export function WeekPlanPage({ recipes, getRecipe, user, weeklyPlan = [], weekly
             <option value="__rest">Rest</option>
           </select>
         </span>
+        {/* The companion. Cardio and yoga default to sharing a day, so a paired
+            day needs its own control — not a second dropdown on every day, only
+            where there IS a second workout, or the row turns into empty boxes.
+            "None" splits the pair back onto separate days. */}
+        {!isRest && cell.second && (
+          <span className={styles.workoutItem}>
+            <span className={styles.workoutIcon}>{CAL_ICON[categoryOf(cell.second.value)] || CAL_ICON.rest}</span>
+            <select
+              className={styles.workoutSelect}
+              value={cell.second.value}
+              onChange={(e) => setWorkoutCategory(idx, e.target.value, 2)}
+              aria-label="Second workout that day"
+            >
+              <option value="__auto">Auto</option>
+              {workoutTypes.map(t => <option key={t} value={t}>{t}</option>)}
+              <option value="__none">None</option>
+            </select>
+          </span>
+        )}
         {cell.isAuto && <span className={styles.workoutAuto}>auto</span>}
         {saunaChip}
       </div>

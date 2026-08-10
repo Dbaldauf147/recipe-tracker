@@ -108,6 +108,9 @@ function spreadIndices(len, count) {
 // goals.rest. Ported from WeekPlanPage.jsx; keep the two in step or the grid and
 // the synced calendar will name different workouts for the same day.
 const WORKOUT_KIND_KEYS = ['weights', 'cardio', 'yoga'];
+// Cardio and yoga share a day by default — mirrors PAIRED_WITH in WeekPlanPage.
+const PAIRED_WITH = { cardio: 'yoga', yoga: 'cardio' };
+const SECOND_SLOT_RE = /^(\d)\.2$/;
 const DEFAULT_WORKOUT_GOALS = { weights: 3, cardio: 1, yoga: 1, rest: 2 };
 // Keyword fallback for types with no explicit category — mirrors
 // CAL_YOGA_RE / CAL_CARDIO_RE in WorkoutPage.jsx.
@@ -130,7 +133,16 @@ function resolveWorkoutPlan(rankedTypes, overrides, workoutTypes, recordedIdxs, 
 
   const validTypes = new Set(workoutTypes);
   const fixed = {};
+  const fixedSecond = {};
+  const noSecond = new Set();
   for (const [k, v] of Object.entries(overrides || {})) {
+    const m = SECOND_SLOT_RE.exec(k);
+    if (m) {
+      const i = Number(m[1]);
+      if (v === '' || v === 'rest') noSecond.add(i);
+      else if (validTypes.has(v)) fixedSecond[i] = v;
+      continue;
+    }
     if (v === 'rest' || validTypes.has(v)) fixed[Number(k)] = v;
   }
   const out = {};
@@ -209,6 +221,23 @@ function resolveWorkoutPlan(rankedTypes, overrides, workoutTypes, recordedIdxs, 
     return best;
   }
 
+  // A day you pinned anchors the pairing too, so one pinned half doesn't send
+  // the other off on its own. Runs BEFORE the auto pass, which would otherwise
+  // have already spent the partner's day elsewhere.
+  for (let i = 0; i < 7; i++) {
+    if (recordedIdxs.has(i)) continue;
+    const cell = out[i];
+    if (!cell || cell.value === 'rest' || cell.second || fixedSecond[i] != null || noSecond.has(i)) continue;
+    if (cell.isAuto) continue;
+    const partner = PAIRED_WITH[categoryOf(cell.value)];
+    if (!partner || !(need[partner] > 0)) continue;
+    const mate = candidateFor(partner);
+    if (!mate) continue;
+    need[partner] -= 1;
+    usedTypes.add(mate);
+    cell.second = { value: mate, isAuto: true };
+  }
+
   const workoutPositions = autoSlots.map((_, pos) => pos).filter(pos => !restPos.has(pos));
   for (const pos of restPos) out[autoSlots[pos]] = { value: 'rest', isAuto: true };
 
@@ -227,7 +256,25 @@ function resolveWorkoutPlan(rankedTypes, overrides, workoutTypes, recordedIdxs, 
     usedTypes.add(type);
     placedAt[type] = pos;
     out[slot] = { value: type, isAuto: true };
+
+    const partner = PAIRED_WITH[cat];
+    if (partner && need[partner] > 0 && fixedSecond[slot] == null && !noSecond.has(slot)) {
+      const mate = candidateFor(partner);
+      if (mate) {
+        need[partner] -= 1;
+        usedTypes.add(mate);
+        placedAt[mate] = pos;
+        out[slot].second = { value: mate, isAuto: true };
+      }
+    }
   });
+
+  for (const [k, v] of Object.entries(fixedSecond)) {
+    const i = Number(k);
+    if (!out[i]) continue;
+    if (out[i].value === 'rest') { out[i] = { value: v, isAuto: false }; continue; }
+    out[i].second = { value: v, isAuto: false };
+  }
   return out;
 }
 
@@ -588,6 +635,13 @@ export default async function handler(req, res) {
         // subset of those days that should also get a sauna.
         const ranked = rankWorkoutTypesByStaleness(workoutsRaw, workoutTypes, typeSkipDates);
         const workoutByDate = {};
+        // The companion workout on a paired day (cardio + yoga). Kept beside the
+        // primary rather than turning workoutByDate into an array: every event
+        // here is already keyed by (date, kind), and the pair is always cardio
+        // AND yoga, so the two can never collide on that key. That means the
+        // existing create/patch/delete diff handles the second event with no
+        // changes — it just sees another kind on that date.
+        const workoutSecondByDate = {};
         const saunaDates = new Set();
         for (let wk = 0; wk < 2; wk++) {
           const sun = addDays(week0Sun, wk * 7);
@@ -627,6 +681,10 @@ export default async function handler(req, res) {
             const val = plan[i]?.value;
             if (val && val !== 'rest') {
               workoutByDate[dateStr] = { label: val, kind: categoryOf(val) };
+              const sec = plan[i]?.second?.value;
+              if (sec && sec !== 'rest' && categoryOf(sec) !== categoryOf(val)) {
+                workoutSecondByDate[dateStr] = { label: sec, kind: categoryOf(sec) };
+              }
               plannedDates.push(dateStr);
             }
           }
@@ -670,13 +728,21 @@ export default async function handler(req, res) {
           const present = [];
           // A workout's kind IS its category, so it picks up that row's timing.
           if (workoutByDate[date]) present.push(workoutByDate[date].kind);
+          if (workoutSecondByDate[date]) present.push(workoutSecondByDate[date].kind);
           if (saunaDates.has(date)) present.push('sauna');
           if (cookByDate[date]) present.push('cooking');
           // Cooking runs for the day's total recipe time (prep + cook); other
           // kinds keep their fixed setting.
           const times = resolveDayTimes(settings, present, { cooking: cookByDate[date]?.durationMin });
           for (const kind of present) {
-            const label = isWorkoutKind(kind) ? workoutByDate[date].label : kind === 'cooking' ? cookByDate[date].label : '';
+            // Which of the day's workouts this event is for — the kind is what
+            // tells them apart, so a paired day gets its yoga title on the yoga
+            // event rather than both reading as the primary.
+            const label = isWorkoutKind(kind)
+              ? (workoutSecondByDate[date]?.kind === kind
+                ? workoutSecondByDate[date].label
+                : workoutByDate[date]?.label || '')
+              : kind === 'cooking' ? cookByDate[date].label : '';
             desired[`${date}|${kind}`] = {
               date, kind, label,
               // Branded only while a guest is configured. Turning the guest on
