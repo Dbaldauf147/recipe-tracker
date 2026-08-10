@@ -2571,7 +2571,7 @@ export async function declineSharedMeal(docId) {
  * Create a shareable link for a recipe. Writes to sharedLinks/{token}.
  * Returns the random 10-char token.
  */
-export async function createShareLink(uid, recipe) {
+export async function createShareLink(uid, recipe, createdByName = '') {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
   let token = '';
   for (let i = 0; i < 10; i++) token += chars[Math.floor(Math.random() * chars.length)];
@@ -2579,13 +2579,23 @@ export async function createShareLink(uid, recipe) {
   await setDoc(doc(db, 'sharedLinks', token), {
     recipe: cleanRecipe,
     createdBy: uid,
+    // Stored at share time rather than looked up later: the recipient is a
+    // stranger with no permission to read the sharer's profile, and "Dan shared
+    // a recipe with you" is most of what makes the page make sense.
+    createdByName: String(createdByName || '').trim(),
     createdAt: new Date().toISOString(),
   });
   return token;
 }
 
 /**
- * Load a shared recipe by token. Returns the recipe object or null.
+ * Load a shared recipe by token. Returns { recipe, sharedByName } — or null
+ * when the link is dead.
+ *
+ * The name is returned BESIDE the recipe rather than on it: the recipe object
+ * is exactly what gets written into the recipient's own library when they save
+ * it, and a "sharedByName" riding along would be saved with it and then show up
+ * on their copy forever.
  *
  * Tries the public /api/shared-recipe endpoint first so unauthenticated
  * external users can open a shared link. Falls back to a direct Firestore
@@ -2596,7 +2606,7 @@ export async function loadSharedRecipe(token) {
     const res = await fetch(`/api/shared-recipe?token=${encodeURIComponent(token)}`);
     if (res.ok) {
       const data = await res.json();
-      if (data?.recipe) return data.recipe;
+      if (data?.recipe) return { recipe: data.recipe, sharedByName: data.createdByName || '' };
     } else if (res.status === 404) {
       return null;
     }
@@ -2607,7 +2617,8 @@ export async function loadSharedRecipe(token) {
   try {
     const snap = await getDoc(doc(db, 'sharedLinks', token));
     if (!snap.exists()) return null;
-    return snap.data().recipe;
+    const d = snap.data();
+    return { recipe: d.recipe, sharedByName: d.createdByName || '' };
   } catch {
     return null;
   }

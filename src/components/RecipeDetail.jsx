@@ -1753,7 +1753,7 @@ export function RecipeDetail({ recipe, allTags = [], onSave, onDelete, onBack, o
                           handleSave();
                           const currentRecipe = { ...recipe, ...fields, ingredients: fields.ingredients.filter(row => row.ingredient.trim() !== '') };
                           const cleanRecipe = JSON.parse(JSON.stringify(currentRecipe));
-                          const token = await createShareLink(user.uid, cleanRecipe);
+                          const token = await createShareLink(user.uid, cleanRecipe, user.displayName || '');
                           const slug = String(recipe.title || 'recipe').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
                           url = window.location.origin + '?share=' + token + '&recipe=' + slug;
                         } catch (err) {

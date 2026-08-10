@@ -41,6 +41,7 @@ export default async function handler(req, res) {
     return res.status(200).json({
       recipe: data.recipe || null,
       createdBy: data.createdBy || null,
+      createdByName: data.createdByName || '',
       createdAt: data.createdAt || null,
     });
   } catch (err) {

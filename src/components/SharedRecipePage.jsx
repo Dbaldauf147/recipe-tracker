@@ -80,11 +80,13 @@ export function SharedRecipePage({ token, user }) {
   const [error, setError] = useState(false);
   const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false);
+  // Kept beside the recipe, not inside it — see loadSharedRecipe.
+  const [sharedByName, setSharedByName] = useState('');
 
   useEffect(() => {
     loadSharedRecipe(token)
       .then(r => {
-        if (r) setRecipe(r);
+        if (r?.recipe) { setRecipe(r.recipe); setSharedByName(r.sharedByName || ''); }
         else setError(true);
       })
       .catch(() => setError(true))
@@ -134,9 +136,29 @@ export function SharedRecipePage({ token, user }) {
 
   const ingredients = (recipe.ingredients || []).filter(r => (r.ingredient || '').trim());
 
+  const sharedBy = sharedByName.trim();
+
   return (
-    <div className={styles.container}>
+    <div className={styles.page}>
+      {/* This page is the only Prep Day most of its visitors will ever see:
+          somebody was sent a link by a friend and has no idea what this is.
+          It carried a bare recipe and one line of pitch at the very bottom,
+          which is past the instructions and past the point anyone is still
+          reading. The brand goes at the top, where the question "what am I
+          looking at" is actually asked. */}
+      <header className={styles.brandBar}>
+        <a className={styles.brandLink} href={window.location.origin}>
+          <img className={styles.brandLogo} src="/prep-day-logo.png" alt="" />
+          <span className={styles.brandName}>Prep Day</span>
+        </a>
+        <a className={styles.brandCta} href={window.location.origin}>Try it free</a>
+      </header>
+
+      <div className={styles.container}>
       <div className={styles.header}>
+        <p className={styles.sharedTag}>
+          {sharedBy ? `${sharedBy} shared a recipe with you` : 'A recipe was shared with you'}
+        </p>
         <h1 className={styles.title}>{recipe.title}</h1>
         <div className={styles.meta}>
           {recipe.servings && (
@@ -210,10 +232,30 @@ export function SharedRecipePage({ token, user }) {
         </div>
       )}
 
+      {/* The pitch, at the end, where someone who has just read a recipe they
+          liked is the most receptive they will ever be. Three things the app
+          does, not adjectives about it. */}
       <div className={styles.cta}>
-        <p>Get Prep Day to save recipes and plan your week</p>
-        <a className={styles.ctaBtn} href={window.location.origin}>Try Prep Day</a>
+        <img className={styles.ctaLogo} src="/prep-day-logo.png" alt="" />
+        <h2 className={styles.ctaTitle}>Keep this recipe</h2>
+        <p className={styles.ctaText}>
+          Prep Day saves the recipes you actually cook, turns the week's meals into one
+          shopping list, and keeps track of what you ate.
+        </p>
+        <ul className={styles.ctaPoints}>
+          <li>Save recipes from anywhere — a photo, a link, or a friend</li>
+          <li>Plan the week and get the shopping list built for you</li>
+          <li>Track meals, weight and habits in one place</li>
+        </ul>
+        <a className={styles.ctaBtn} href={window.location.origin}>Get Prep Day — it's free</a>
+        <p className={styles.ctaFine}>No card needed. Works on the web and on iPhone.</p>
       </div>
+      </div>
+
+      <footer className={styles.footer}>
+        <img className={styles.footerLogo} src="/prep-day-logo.png" alt="" />
+        <span>Prep Day · <a href={window.location.origin}>prep-day.com</a></span>
+      </footer>
     </div>
   );
 }
