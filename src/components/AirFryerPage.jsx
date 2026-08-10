@@ -607,12 +607,23 @@ export function AirFryerPage({ onClose, user, recipes = [], weeklyRecipeIds = []
           >
             {rowSpices.length > 0 ? rowSpices.join(', ') : '+ Spices'}
           </span>
-          {/* Temp and time are the answer — big, on one line, readable
-              at arm's length with your hands full. */}
-          <span className={styles.rowNums}>
-            <span className={styles.temp}>{row.tempF}°F</span>
-            <span className={styles.time}>{formatTime(row)}</span>
-          </span>
+        </button>
+        {/* Temp and time are the answer — big, on one line, readable at arm's
+            length with your hands full. Also the thing most worth correcting:
+            your air fryer isn't the one the guide was written for. Tapping them
+            opens the editor directly, rather than making you expand the row and
+            hunt for "Change this time" past the recipes and spices.
+
+            Outside the row button for the same reason the ✕ is: a button inside
+            a button is invalid, and the click would toggle the row open on its
+            way through. */}
+        <button
+          className={styles.rowNumsBtn}
+          onClick={() => startEdit(row)}
+          title={`Edit the temp and time for ${mapped || row.name}`}
+        >
+          <span className={styles.temp}>{row.tempF}°F</span>
+          <span className={styles.time}>{formatTime(row)}</span>
         </button>
         {/* Its own column, outside the row button — removing something you can
             see shouldn't cost you a tap into the detail first. (It also can't

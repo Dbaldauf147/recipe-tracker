@@ -292,13 +292,27 @@
 .hiddenChip:hover { color: var(--color-text); border-color: var(--color-accent); }
 
 /* The answer. Tabular figures so the column doesn't jitter as you scroll. */
-.rowNums {
+/* The temp/time column. Its own control now — tapping the numbers
+   edits them. Width matches .headNums so the column still lines up with its
+   heading once it's no longer inside .rowMain. */
+.rowNumsBtn {
+  flex: 0 0 auto;
+  width: 9.2rem;
   display: flex;
   align-items: baseline;
+  justify-content: flex-end;
   gap: 0.6rem;
+  padding: 0.75rem 0.2rem;
+  background: none;
+  border: none;
+  font-family: inherit;
+  text-align: right;
+  cursor: pointer;
+  border-radius: 6px;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
+.rowNumsBtn:hover { background: var(--color-surface-alt); }
 .temp {
   font-size: 1.05rem;
   font-weight: 800;
@@ -621,6 +635,6 @@
      the full list still in the title and the row detail. */
   .rowSpice, .rowSpiceEmpty { width: 4.5rem; font-size: 0.7rem; }
   .headSpice { width: 4.5rem; }
-  .headNums { width: 7.5rem; }
+  .headNums, .rowNumsBtn { width: 7.5rem; }
   .time { min-width: 3.9rem; }
 }
