@@ -1565,6 +1565,17 @@ For each ingredient, include a "nutrition" object with estimated calories, prote
         carbs: Math.round(nutrition.carbs) || 0,
         fat: Math.round(nutrition.fat) || 0,
         source: 'ai',
+        // What was actually in it. The estimate knows — those same ingredients
+        // go onto the logged entry below — but the SAVED meal kept only a name
+        // and four numbers, so next time all you had to go on was "Birds of a
+        // Feather, 1240 cal" with no way to tell which of your usual orders
+        // that was. Names only, no quantities: this is a reminder, not a recipe.
+        items: (result.ingredients || [])
+          .map(i => String(i?.ingredient || '').trim())
+          .filter(Boolean),
+        // What you typed to get the estimate. Kept as the fallback for when the
+        // model returned macros without a usable ingredient breakdown.
+        note: description.trim(),
       });
     }
     onAdd({
@@ -1789,6 +1800,19 @@ function EatingOutInline({ user, onAdd, onBack, onEstimate, recentSpotIds = [] }
                     <span className={styles.eatingOutMealMacros}>
                       {Math.round(m.calories) || 0} cal · {Math.round(m.protein) || 0}p · {Math.round(m.carbs) || 0}c · {Math.round(m.fat) || 0}f
                     </span>
+                    {/* What was in it. Absent on meals saved before this was
+                        kept, and on ones added by hand on the Eating Out page —
+                        the line is simply omitted rather than showing an empty
+                        row, so an older saved meal reads exactly as it did. */}
+                    {(() => {
+                      const summary = (m.items && m.items.length)
+                        ? m.items.join(', ')
+                        : (m.note || '');
+                      if (!summary) return null;
+                      return (
+                        <span className={styles.eatingOutMealItems} title={summary}>{summary}</span>
+                      );
+                    })()}
                   </button>
                 ))}
               </div>

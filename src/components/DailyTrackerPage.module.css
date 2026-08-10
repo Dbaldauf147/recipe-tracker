@@ -1224,6 +1224,9 @@
 .eatingOutMealBtn {
   display: flex;
   align-items: center;
+  /* Wraps so the contents summary sits on its own line beneath the name and
+     macros, which stay on one row together. */
+  flex-wrap: wrap;
   gap: 0.5rem;
   width: 100%;
   text-align: left;
@@ -1248,6 +1251,21 @@
 }
 
 .eatingOutSpotCount,
+/* What was in the meal. Full width so it breaks to its own line, clamped to
+   two so a long order can't push the next saved meal off the screen — the whole
+   list is meant to be scannable at a glance. The full text is on the title. */
+.eatingOutMealItems {
+  flex-basis: 100%;
+  margin-top: 0.1rem;
+  font-size: 0.72rem;
+  line-height: 1.35;
+  color: var(--color-text-muted);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
 .eatingOutMealMacros {
   margin-left: auto;
   font-size: 0.78rem;
