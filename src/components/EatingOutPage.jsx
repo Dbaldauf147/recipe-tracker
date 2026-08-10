@@ -180,8 +180,97 @@ const HEALTH_KEYS = new Set(HEALTH_OPTIONS.map(h => h.key));
 function hasBeenVisited(r) {
   return r?.status === 'visited' || !!r?.lastVisit;
 }
+/**
+ * Filing the backlog, one place at a time.
+ *
+ * 213 of 218 visited spots arrived unfiled, and that is not a job anybody does
+ * by opening 213 cards and finding the two fields on each. This asks the two
+ * questions on their own, big enough to answer without reading, and moves on by
+ * itself once both are answered.
+ *
+ * Every answer is saved the moment it's tapped rather than at the end: a
+ * backlog this size gets done in several sittings, and losing a sitting's work
+ * to a closed tab would mean it never gets done at all.
+ */
+function FileSpotsModal({ queue, onApply, onClose }) {
+  const [i, setI] = useState(0);
+  // Answers live here as well as on the record so the buttons stay lit while
+  // the write is in flight — the underlying list updates a moment later.
+  const [answers, setAnswers] = useState({});
+  const spot = queue[i];
+  if (!spot) return null;
+
+  const current = answers[spot.id] || { health: healthOf(spot), frequency: spot.frequency || '' };
+  const done = !!current.health && !!current.frequency;
+
+  const answer = (patch) => {
+    const next = { ...current, ...patch };
+    setAnswers(a => ({ ...a, [spot.id]: next }));
+    onApply(spot, patch);
+    // Auto-advance only once BOTH are answered, so tapping health doesn't yank
+    // the frequency buttons away before they can be used.
+    if (next.health && next.frequency && i < queue.length - 1) {
+      setTimeout(() => setI(n => n + 1), 180);
+    }
+  };
+
+  return (
+    <div className={styles.fileBackdrop} onClick={onClose}>
+      <div className={styles.fileCard} onClick={e => e.stopPropagation()}>
+        <div className={styles.fileProgress}>
+          {i + 1} of {queue.length}
+          <button className={styles.fileClose} onClick={onClose}>Done for now</button>
+        </div>
+        <div className={styles.fileBar}>
+          <div className={styles.fileBarFill} style={{ width: `${((i + 1) / queue.length) * 100}%` }} />
+        </div>
+
+        <h3 className={styles.fileName}>{spot.name}</h3>
+        {(spot.cuisines?.length > 0 || spot.address) && (
+          <p className={styles.fileMeta}>
+            {[...(spot.cuisines || []), spot.address].filter(Boolean).join(' · ')}
+          </p>
+        )}
+
+        <div className={styles.fileLabel}>How does it leave you?</div>
+        <div className={styles.fileRow}>
+          {HEALTH_OPTIONS.map(h => (
+            <button
+              key={h.key}
+              className={`${styles.fileBtn} ${current.health === h.key ? styles.fileBtnOn : ''}`}
+              onClick={() => answer({ health: h.key })}
+            >
+              <span className={styles.fileBtnIcon}>{h.icon}</span>{h.label}
+            </button>
+          ))}
+        </div>
+
+        <div className={styles.fileLabel}>How often?</div>
+        <div className={styles.fileRow}>
+          {FREQUENCIES.map(f => (
+            <button
+              key={f.key}
+              className={`${styles.fileBtn} ${current.frequency === f.key ? styles.fileBtnOn : ''}`}
+              onClick={() => answer({ frequency: f.key })}
+            >
+              {f.label}
+            </button>
+          ))}
+        </div>
+
+        <div className={styles.fileNav}>
+          <button className={styles.fileNavBtn} disabled={i === 0} onClick={() => setI(n => n - 1)}>Back</button>
+          <button className={styles.fileNavBtn} onClick={() => setI(n => Math.min(queue.length - 1, n + 1))}>
+            {done ? 'Next' : 'Skip'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /** The banner. Null when there's nothing to say, so it costs no space. */
-function unfiledNotice(unfiled) {
+function unfiledNotice(unfiled, onFile) {
   if (!unfiled || unfiled.length === 0) return null;
   const names = unfiled.slice(0, 6).map(r => r.name).filter(Boolean);
   return (
@@ -197,6 +286,11 @@ function unfiledNotice(unfiled) {
       <span className={styles.unfiledWhy}>
         Filters and the healthy/regular views skip them until they're filed.
       </span>
+      {onFile && (
+        <button className={styles.unfiledBtn} onClick={() => onFile(unfiled)}>
+          File {unfiled.length === 1 ? 'it' : `them (${unfiled.length})`} — two taps each
+        </button>
+      )}
     </div>
   );
 }
@@ -3443,6 +3537,26 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
     return map;
   }, [votesFromFriends]);
 
+  // The unfiled backlog, captured when you press File on the banner so the
+  // queue can't reshuffle underneath you as answers land.
+  const [filingQueue, setFilingQueue] = useState(null);
+
+  // One answer, written immediately. `dietTags` is kept in step with `health`
+  // the same way the editor does it, or the legacy array and the new field
+  // disagree and healthOf() starts reading the stale one.
+  const applyFiling = useCallback((spot, patch) => {
+    const ownerUid = spot._ownerUid || user?.uid;
+    if (!ownerUid) return;
+    const ownerList = ownerData[ownerUid]?.restaurants || [];
+    const next = ownerList.map(r => {
+      if (r.id !== spot.id) return r;
+      const merged = { ...r, ...patch };
+      if (patch.health) merged.dietTags = syncDietTags(r.dietTags, patch.health);
+      return merged;
+    });
+    persistOwner(ownerUid, next);
+  }, [ownerData, persistOwner, user]);
+
   function handleSave(restaurant) {
     // Adds default to MY list; edits go to the original owner's list.
     const ownerUid = restaurant._ownerUid || user?.uid;
@@ -4114,7 +4228,7 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
               if (!showRank) {
                 return (
                   <>
-                    {unfiledNotice(unfiled)}
+                    {unfiledNotice(unfiled, setFilingQueue)}
                     <div className={gridClass}>{visible.map(r => renderCard(r, null, []))}</div>
                   </>
                 );
@@ -4127,7 +4241,7 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
               for (const r of rankedGroup) (rankedSeqByOwner[r._ownerUid] = rankedSeqByOwner[r._ownerUid] || []).push(r.id);
               return (
                 <>
-                  {unfiledNotice(unfiled)}
+                  {unfiledNotice(unfiled, setFilingQueue)}
                   {wantGroup.length > 0 && (
                     <>
                       <div style={labelStyle}>Want to try ({wantGroup.length})</div>
@@ -4157,6 +4271,14 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
           onClose={() => setAdding(false)}
         />
       )}
+      {filingQueue && filingQueue.length > 0 && (
+        <FileSpotsModal
+          queue={filingQueue}
+          onApply={applyFiling}
+          onClose={() => setFilingQueue(null)}
+        />
+      )}
+
       {editing && (
         <EditModal
           initial={editing}
