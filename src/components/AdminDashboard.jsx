@@ -1,10 +1,12 @@
 import { useState, useEffect, useRef, useMemo, useCallback, Fragment } from 'react';
-import { loadAllUsers, deleteUserDoc, savePendingSetup, saveField, loadRecipesFromFirestore, saveRecipesToFirestore, loadAdminSnapshots, saveAdminSnapshot } from '../utils/firestoreSync';
+import { loadAllUsers, deleteUserDoc, savePendingSetup, saveField, loadField, loadRecipesFromFirestore, saveRecipesToFirestore, loadAdminSnapshots, saveAdminSnapshot } from '../utils/firestoreSync';
 import { parseRecipeText } from '../utils/parseRecipeText';
 import { classifyMealType } from '../utils/classifyMealType';
 import { fetchRecipesFromSheet } from '../utils/sheetRecipes';
 import { PENDING_RECIPE_FIXES } from '../utils/pendingRecipeFixes';
 import { auth } from '../firebase';
+import { anonymousReason, accountEvidence, unidentifiedAccounts } from '../utils/duplicateAccounts';
+import { previewMerge, mergeRecipes } from '../utils/mergeAccounts';
 import styles from './AdminDashboard.module.css';
 
 /**
@@ -309,6 +311,7 @@ function AdminHistory({ users }) {
   }, []);
   useEffect(() => { load(); }, [load]);
 
+
   async function snapshotNow() {
     setBusy(true);
     try {
@@ -447,6 +450,14 @@ function saveColPrefs(p) { try { localStorage.setItem(ADMIN_COLS_KEY, JSON.strin
 
 export function AdminDashboard({ onClose }) {
   const [users, setUsers] = useState([]);
+  // Who the unidentifiable accounts actually are. Kept on the ADMIN's user doc
+  // rather than on theirs: it's your note about them, not a fact about their
+  // account, and it must not look like something they set themselves.
+  const [accountLinks, setAccountLinks] = useState({});
+  const [namingUid, setNamingUid] = useState(null);
+  const [nameDraft, setNameDraft] = useState('');
+  const [mergePlan, setMergePlan] = useState(null); // { source, target, preview }
+  const [mergeBusy, setMergeBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const [cleanedCount, setCleanedCount] = useState(0);
   const [sortField, setSortField] = useState('lastLogin');
@@ -473,6 +484,51 @@ export function AdminDashboard({ onClose }) {
   const [overrideApplying, setOverrideApplying] = useState(false);
   const [overrideMsg, setOverrideMsg] = useState('');
   const [fillError, setFillError] = useState('');
+
+  // The admin's own notes about who the unidentifiable accounts are.
+  useEffect(() => {
+    const uid = auth.currentUser?.uid;
+    if (!uid) return;
+    let cancelled = false;
+    loadField(uid, 'accountLinks')
+      .then(v => { if (!cancelled && v && typeof v === 'object') setAccountLinks(v); })
+      .catch(() => { /* no notes yet */ });
+    return () => { cancelled = true; };
+  }, []);
+
+  const saveAccountLink = useCallback((uid, patch) => {
+    setAccountLinks(prev => {
+      const next = { ...prev, [uid]: { ...(prev[uid] || {}), ...patch } };
+      const me = auth.currentUser?.uid;
+      if (me) saveField(me, 'accountLinks', next).catch(() => {});
+      return next;
+    });
+  }, []);
+
+  const startMerge = useCallback(async (sourceUid, targetUid) => {
+    try {
+      const preview = await previewMerge(sourceUid, targetUid);
+      setMergePlan({ source: sourceUid, target: targetUid, preview });
+    } catch (err) {
+      alert(`Couldn't read those accounts: ${err.message}`);
+    }
+  }, []);
+
+  const runMerge = useCallback(async () => {
+    if (!mergePlan) return;
+    setMergeBusy(true);
+    try {
+      const res = await mergeRecipes(mergePlan.source, mergePlan.target);
+      alert(res.copied === 0 ? res.note : `Copied ${res.copied} recipe${res.copied === 1 ? '' : 's'}. Nothing was deleted — the other account still has its own copy.`);
+      setMergePlan(null);
+      // Pull the users again so the merged counts are current.
+      loadAllUsers().then(setUsers).catch(() => {});
+    } catch (err) {
+      alert(`Merge failed: ${err.message}`);
+    } finally {
+      setMergeBusy(false);
+    }
+  }, [mergePlan]);
 
   useEffect(() => {
     loadAllUsers()
@@ -974,6 +1030,108 @@ export function AdminDashboard({ onClose }) {
           </p>
         </div>
       )}
+
+      {/* Accounts nobody can put a name to.
+          Sign in with Apple hands us a relay address, so a website user who
+          installs the app forks into a second account that looks like a
+          stranger — and their real one then reads as abandoned. There is no
+          field joining the two, and guessing from the data was tried and
+          removed (see duplicateAccounts.js), so this asks you instead. */}
+      {!loading && (() => {
+        const unknown = unidentifiedAccounts(users, accountLinks);
+        const named = users
+          .filter(u => String(u.displayName || '').trim())
+          .sort((a, b) => (a.displayName || '').localeCompare(b.displayName || ''));
+        if (unknown.length === 0) return null;
+        return (
+          <div className={styles.sourceSection}>
+            <h3 className={styles.sourceHeading}>
+              Unidentified accounts
+              <span className={styles.groupCount}>{unknown.length}</span>
+            </h3>
+            <p style={{ fontSize: '0.78rem', color: 'var(--color-text-muted)', margin: '0 0 0.6rem' }}>
+              Apple hides the real email behind a relay address, so these can't be matched automatically.
+              Name one and it shows up everywhere; link it to an existing person to bring their recipes together.
+            </p>
+            {unknown.map(u => (
+              <div key={u.uid} style={{ borderTop: '1px solid var(--color-border,#e5e7eb)', padding: '0.55rem 0' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                  <code style={{ fontSize: '0.76rem' }}>{u.email || u.uid}</code>
+                  <span style={{ fontSize: '0.7rem', color: '#b45309' }}>{anonymousReason(u)}</span>
+                </div>
+                <div style={{ fontSize: '0.74rem', color: 'var(--color-text-muted)', marginTop: 2 }}>
+                  {accountEvidence(u).join(' · ')}
+                </div>
+                {namingUid === u.uid ? (
+                  <div style={{ display: 'flex', gap: 6, marginTop: 6, flexWrap: 'wrap' }}>
+                    <input
+                      autoFocus
+                      value={nameDraft}
+                      onChange={e => setNameDraft(e.target.value)}
+                      placeholder="Who is this?"
+                      style={{ padding: '0.3rem 0.5rem', fontSize: '0.8rem', borderRadius: 6, border: '1px solid var(--color-border,#e2e8f0)' }}
+                    />
+                    <button
+                      onClick={() => { if (nameDraft.trim()) saveAccountLink(u.uid, { name: nameDraft.trim() }); setNamingUid(null); }}
+                      style={{ fontSize: '0.78rem', cursor: 'pointer' }}
+                    >Save</button>
+                    <button onClick={() => setNamingUid(null)} style={{ fontSize: '0.78rem', cursor: 'pointer' }}>Cancel</button>
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', gap: 8, marginTop: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+                    <button
+                      onClick={() => { setNamingUid(u.uid); setNameDraft(''); }}
+                      style={{ fontSize: '0.78rem', cursor: 'pointer' }}
+                    >Name this account</button>
+                    {/* Merge is deliberately a two-step: pick the person, then
+                        confirm a preview that names every recipe that moves. */}
+                    <select
+                      defaultValue=""
+                      onChange={e => { if (e.target.value) startMerge(e.target.value, u.uid); e.target.value = ''; }}
+                      style={{ fontSize: '0.78rem', padding: '0.25rem', borderRadius: 6 }}
+                      title="Copy that person's recipes into this account. Nothing is deleted."
+                    >
+                      <option value="">Bring another account's recipes here…</option>
+                      {named.map(n => (
+                        <option key={n.uid} value={n.uid}>{n.displayName} ({n.email})</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        );
+      })()}
+
+      {/* Merge confirmation. Names what moves — "are you sure" is not a
+          question anyone can answer about someone else's data. */}
+      {mergePlan && (() => {
+        const src = users.find(u => u.uid === mergePlan.source);
+        const tgt = users.find(u => u.uid === mergePlan.target);
+        const p = mergePlan.preview;
+        return (
+          <div className={styles.sourceSection} style={{ borderColor: '#fca5a5' }}>
+            <h3 className={styles.sourceHeading}>Confirm merge</h3>
+            <p style={{ fontSize: '0.82rem', margin: '0 0 0.5rem' }}>
+              Copy <strong>{p.willCopy}</strong> recipe{p.willCopy === 1 ? '' : 's'} from{' '}
+              <strong>{src?.displayName || src?.email || mergePlan.source}</strong> into{' '}
+              <strong>{tgt?.email || mergePlan.target}</strong>.
+            </p>
+            <ul style={{ fontSize: '0.78rem', color: 'var(--color-text-muted)', margin: '0 0 0.5rem', paddingLeft: '1.1rem', maxHeight: 160, overflowY: 'auto' }}>
+              {p.titles.map((t, i) => <li key={i}>{t}</li>)}
+            </ul>
+            <p style={{ fontSize: '0.76rem', color: 'var(--color-text-muted)', margin: '0 0 0.6rem' }}>
+              {p.alreadyThere > 0 && `${p.alreadyThere} already there and will be skipped. `}
+              Nothing is deleted and the other account keeps its own copy, so this can be undone.
+            </p>
+            <button onClick={runMerge} disabled={mergeBusy || p.willCopy === 0} style={{ cursor: 'pointer', fontSize: '0.82rem' }}>
+              {mergeBusy ? 'Merging…' : `Copy ${p.willCopy} recipe${p.willCopy === 1 ? '' : 's'}`}
+            </button>
+            <button onClick={() => setMergePlan(null)} style={{ cursor: 'pointer', fontSize: '0.82rem', marginLeft: 8 }}>Cancel</button>
+          </div>
+        );
+      })()}
 
       {/* Top users by engagement — the same score the table's Score column
           sorts on, so this is a shortcut, not a second opinion. */}
