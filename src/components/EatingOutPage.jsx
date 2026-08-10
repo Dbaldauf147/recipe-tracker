@@ -4,6 +4,7 @@ import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { db } from '../firebase';
+import { findDuplicateSpots, duplicateReason } from '../utils/duplicateSpots';
 import { saveOwnerRestaurants, saveOwnerEatingOutLists, saveField, subscribeRestaurants } from '../utils/firestoreSync';
 import {
   splitTsv,
@@ -1872,6 +1873,20 @@ function RestaurantCard({ r, ratingAgg, distanceMiles, rank, canMoveUp, canMoveD
       <button type="button" {...dragHandlers} style={dragStyle} className={`${styles.cardCompact} ${isRetired ? styles.cardRetired : ''}`} onClick={onClick}>
         {rank != null && <span className={styles.compactRank}>{rank}</span>}
         <span className={styles.compactName}>{r.name}</span>
+        {/* Cuisine right beside the name: scanning this list is almost always
+            "what do we feel like eating", and without it that question needs a
+            tap into every row. First one only — a place tagged Thai + Noodles +
+            Asian would push the name out of a row this tight; the rest are in
+            the title and the +N. */}
+        {r.cuisines?.length > 0 && (
+          <span
+            className={styles.compactCuisine}
+            title={r.cuisines.length > 1 ? r.cuisines.join(' · ') : undefined}
+          >
+            {r.cuisines[0]}
+            {r.cuisines.length > 1 && <span className={styles.compactCuisineMore}>+{r.cuisines.length - 1}</span>}
+          </span>
+        )}
         {r.status === 'want-to-try' && <span className={styles.wantBadge}>Want to try</span>}
         {isRetired && <span className={styles.retiredBadge}>Retired</span>}
         {!r._isMine && r._ownerUsername && (
@@ -2217,7 +2232,12 @@ function RestaurantMapView({ items, onSelect }) {
   );
 }
 
-function RestaurantTable({ items, onRowClick, myRestaurantIds, bulkUpdate, bulkDelete, cuisineSuggestions = [], locationSuggestions = [], rankCtx = null }) {
+function RestaurantTable({ items, allItems, onRowClick, myRestaurantIds, bulkUpdate, bulkDelete, cuisineSuggestions = [], locationSuggestions = [], rankCtx = null }) {
+  // Duplicates are found across the WHOLE list, not the filtered view: a second
+  // copy hidden by the current search or a status filter is still a duplicate,
+  // and only learning about it when a filter happens to show both is exactly
+  // how two rows for one place survive.
+  const duplicates = useMemo(() => findDuplicateSpots(allItems || items), [allItems, items]);
   const rankActive = !!rankCtx?.active;
   const RANK_COL_W = 92;
   // Merge stored prefs over column defaults so columns added later keep their
@@ -2601,6 +2621,21 @@ function RestaurantTable({ items, onRowClick, myRestaurantIds, bulkUpdate, bulkD
                           <a href={r.url} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()}>
                             {value}
                           </a>
+                        </td>
+                      );
+                    }
+                    if (c.key === 'name') {
+                      // The flag sits on the name, which is what you read first
+                      // and what you'd compare against the other row. It says
+                      // "possible" and never hides or merges anything — two
+                      // branches of a chain SHOULD be two rows, and the page
+                      // can't tell those from a genuine double-entry.
+                      const dupe = duplicates.get(r.id);
+                      const why = duplicateReason(dupe);
+                      return (
+                        <td key={c.key} style={{ width: c.width }} title={why || (value && value.length > 60 ? value : undefined)}>
+                          {value}
+                          {why && <span className={styles.dupeFlag} aria-label={why}> ⚠</span>}
                         </td>
                       );
                     }
@@ -4001,6 +4036,7 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
           ) : viewMode === 'table' ? (
             <RestaurantTable
               items={visible}
+              allItems={restaurants}
               onRowClick={openSpot}
               myRestaurantIds={myRestaurantIds}
               bulkUpdate={bulkUpdate}

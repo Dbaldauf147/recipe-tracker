@@ -363,6 +363,31 @@
   flex: 1;
 }
 
+/* Cuisine, next to the name in a compact row. Neutral on purpose: "Want to
+   try" and the owner chip are STATUS and both carry colour, so a coloured
+   cuisine would compete with them for the same glance. Shrinks before the name
+   does — a truncated cuisine still reads, a truncated name doesn't. */
+.compactCuisine {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  background: var(--color-surface-alt);
+  border: 1px solid var(--color-border);
+  color: var(--color-text-secondary);
+  font-size: 0.7rem;
+  font-weight: 600;
+  padding: 0.1rem 0.45rem;
+  border-radius: 999px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.compactCuisineMore {
+  color: var(--color-text-muted);
+  font-weight: 700;
+}
+
 .card {
   display: flex;
   text-align: left;
@@ -1753,4 +1778,13 @@
   margin: 0;
   font-size: 0.85rem;
   color: var(--color-text-muted);
+}
+
+/* Possible-duplicate marker on a spot's name. Amber, not red: it's a thing
+   worth a look, not an error — two branches of a chain are legitimately two
+   rows, and the page can't tell those from a genuine double entry. */
+.dupeFlag {
+  color: #d97706;
+  font-size: 0.85em;
+  cursor: help;
 }
