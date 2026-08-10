@@ -1743,20 +1743,41 @@ export function RecipeDetail({ recipe, allTags = [], onSave, onDelete, onBack, o
                     <button
                       className={styles.shareLinkBtn}
                       onClick={async () => {
+                        // Creating the link and copying it are separate
+                        // failures and must be reported separately. They shared
+                        // a catch, so a copy that was refused reported "failed
+                        // to create" for a link that existed — sending you off
+                        // to make another one that would fail the same way.
+                        let url;
                         try {
                           handleSave();
                           const currentRecipe = { ...recipe, ...fields, ingredients: fields.ingredients.filter(row => row.ingredient.trim() !== '') };
                           const cleanRecipe = JSON.parse(JSON.stringify(currentRecipe));
                           const token = await createShareLink(user.uid, cleanRecipe);
-                          const slug = recipe.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
-                          const url = window.location.origin + '?share=' + token + '&recipe=' + slug;
-                          await navigator.clipboard.writeText(url);
-                          setShowShareDropdown(false);
-                          setShareMsg('Link copied!');
-                          setTimeout(() => setShareMsg(null), 3000);
+                          const slug = String(recipe.title || 'recipe').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+                          url = window.location.origin + '?share=' + token + '&recipe=' + slug;
                         } catch (err) {
                           console.error('Create link error:', err);
                           setShareMsg('Failed to create link.');
+                          setTimeout(() => setShareMsg(null), 3000);
+                          return;
+                        }
+
+                        // The link exists from here on. The clipboard is the
+                        // part that can still refuse: writeText needs transient
+                        // user activation, and awaiting the Firestore write
+                        // above spends it — so Safari and iOS reject the copy on
+                        // a button that plainly WAS clicked. Falling back to a
+                        // prompt means the link is never lost to that.
+                        setShowShareDropdown(false);
+                        try {
+                          await navigator.clipboard.writeText(url);
+                          setShareMsg('Link copied!');
+                          setTimeout(() => setShareMsg(null), 3000);
+                        } catch (err) {
+                          console.warn('Clipboard refused, showing the link instead:', err);
+                          window.prompt('Link created — copy it here:', url);
+                          setShareMsg('Link created.');
                           setTimeout(() => setShareMsg(null), 3000);
                         }
                       }}
