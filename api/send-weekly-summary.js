@@ -116,6 +116,9 @@ async function loadUserWeekData(uid, userData, fromKey, toKey) {
     // Names of the user's stretch routines, so a logged stretch session is
     // excluded from the workout-day goal tally exactly as the Week Plan does.
     stretchRoutines: Array.isArray(userData.stretchRoutines) ? userData.stretchRoutines : [],
+    // Per-region stretch target the Workout page's goal board is set to, so
+    // the email's board scores against the same bar. Clamped downstream.
+    stretchGoalMin: userData.stretchGoalMin,
   };
 }
 

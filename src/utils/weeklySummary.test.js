@@ -245,3 +245,100 @@ test('the goals table renders bars, values and a met count', () => {
   // Singular unit when the target is 1.
   assert.match(html, /0 \/ 1 day</);
 });
+
+// ─────────────────────────────────────────────────────── stretch board
+
+// A library that tags the stretches, so the board keys off the user's own
+// exerciseType exactly as the Workout page does.
+const STRETCH_LIB = [
+  { exercise: 'Hamstring Stretch', muscleGroup: 'Legs', exerciseType: 'Stretching' },
+  { exercise: 'Pigeon Pose', muscleGroup: 'Legs', exerciseType: 'Stretching' },
+  { exercise: 'Doorway Chest Stretch', muscleGroup: 'Chest', exerciseType: 'Stretching' },
+  { exercise: 'Plank', muscleGroup: 'Abs', exerciseType: 'Strength Training' },
+];
+
+function stretchData(workouts, over = {}) {
+  return { ...emptyData({ workouts, exerciseLibrary: STRETCH_LIB }), ...over };
+}
+
+test('the stretch board covers the reported week, not a rolling window', () => {
+  const workouts = [
+    // Inside the week.
+    { id: 'a', date: WEEK.days[2], entries: [{ exercise: 'Hamstring Stretch', group: 'Legs', totalSeconds: 600 }] },
+    // The day after the week ended — the loader pulls these for the trend
+    // analysis, and they must not leak into the board.
+    { id: 'b', date: '2026-08-02', entries: [{ exercise: 'Doorway Chest Stretch', group: 'Chest', totalSeconds: 900 }] },
+    // Before the week started.
+    { id: 'c', date: '2026-07-25', entries: [{ exercise: 'Pigeon Pose', group: 'Legs', totalSeconds: 900 }] },
+  ];
+  const s = summarizeWeek(stretchData(workouts), WEEK);
+  const byGroup = Object.fromEntries(s.stretch.rows.map(r => [r.group, r.seconds]));
+  assert.equal(byGroup.Legs, 600);
+  assert.equal(byGroup.Chest, 0);
+  assert.equal(s.stretch.totalSeconds, 600);
+});
+
+test('the board is always all seven regions, and only stretch-tagged time counts', () => {
+  const workouts = [{
+    id: 'a', date: WEEK.days[0], entries: [
+      { exercise: 'Pigeon Pose', group: 'Legs', totalSeconds: 540 },   // → Hips/Glutes by name
+      { exercise: 'Plank', group: 'Abs', totalSeconds: 180 },          // strength — excluded
+    ],
+  }];
+  const s = summarizeWeek(stretchData(workouts), WEEK);
+  assert.deepEqual(s.stretch.rows.map(r => r.group), [
+    'Chest', 'Back', 'Shoulders', 'Arms', 'Abdominals', 'Hips/Glutes', 'Legs',
+  ]);
+  const byGroup = Object.fromEntries(s.stretch.rows.map(r => [r.group, r.seconds]));
+  assert.equal(byGroup['Hips/Glutes'], 540);
+  assert.equal(byGroup.Abdominals, 0, 'a timed plank is not stretching');
+});
+
+test('the goal comes from the user setting, and met is inclusive', () => {
+  const workouts = [{
+    id: 'a', date: WEEK.days[0],
+    entries: [{ exercise: 'Hamstring Stretch', group: 'Legs', totalSeconds: 300 }],
+  }];
+  const s = summarizeWeek(stretchData(workouts, { stretchGoalMin: 5 }), WEEK);
+  assert.equal(s.stretch.goalMin, 5);
+  assert.equal(s.stretch.rows.find(r => r.group === 'Legs').met, true);
+  assert.equal(s.stretch.met, 1);
+  // Junk falls back to the app default rather than zeroing the bar.
+  assert.equal(summarizeWeek(stretchData(workouts, { stretchGoalMin: 'x' }), WEEK).stretch.goalMin, 10);
+});
+
+test('the email renders the board, and omits it for someone who never stretches', () => {
+  const workouts = [{
+    id: 'a', date: WEEK.days[0],
+    entries: [{ exercise: 'Hamstring Stretch', group: 'Legs', totalSeconds: 1020 }],
+  }];
+  const stats = summarizeWeek(stretchData(workouts), WEEK);
+  const prior = summarizeWeek(stretchData([]), previousWeek(WEEK));
+  const { html, text } = renderWeeklySummary({ stats, priorStats: prior });
+  assert.match(html, /Stretching/);
+  assert.match(html, /10 min \/ muscle group/);
+  assert.match(html, /✓ 17m/);          // 1020s, goal met
+  assert.match(html, />0s</);           // neglected regions still show
+  assert.match(text, /STRETCHING — 1 of 7 regions/);
+  assert.doesNotMatch(html, /NaN|undefined/);
+
+  // Nothing tagged in either week — no section rather than seven zeros.
+  const none = summarizeWeek(emptyData(), WEEK);
+  const noneP = summarizeWeek(emptyData(), previousWeek(WEEK));
+  const bare = renderWeeklySummary({ stats: none, priorStats: noneP });
+  assert.doesNotMatch(bare.html, /Stretching/);
+  assert.doesNotMatch(bare.text, /STRETCHING/);
+});
+
+test('a zero week still gets the board when the week before had stretching', () => {
+  const priorWorkouts = [{
+    id: 'p', date: previousWeek(WEEK).days[1],
+    entries: [{ exercise: 'Hamstring Stretch', group: 'Legs', totalSeconds: 600 }],
+  }];
+  const stats = summarizeWeek(stretchData(priorWorkouts), WEEK);
+  const prior = summarizeWeek(stretchData(priorWorkouts), previousWeek(WEEK));
+  assert.equal(stats.stretch.totalSeconds, 0);
+  const { html } = renderWeeklySummary({ stats, priorStats: prior });
+  assert.match(html, /Stretching/);
+  assert.match(html, /0 of 7<\/strong> regions/);
+});
