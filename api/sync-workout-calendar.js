@@ -35,6 +35,15 @@
 // the plan without duplicates. Events predating the multi-kind tag carry no
 // prepDayKind and are adopted as 'workout'.
 //
+// QUIET: because this runs HOURLY and re-plans as you log, the diff churns —
+// days get retitled, re-keyed to another category, and swept once they're in
+// the past. With a standing guest configured that churn was going out as
+// "Cancelled" / "Updated invitation" mail, several a day, mostly for events
+// that had already happened. So `sendUpdates=all` is now spent only where a
+// guest can act on it: a NEW event, being added to or removed from one, and an
+// event actually MOVING. Deletes and title/tag-only patches go out with
+// `sendUpdates=none` — the guest's copy still updates, they just aren't mailed.
+//
 // Auth: Vercel cron sends `Authorization: Bearer <CRON_SECRET>`. Manual runs need
 // that header or ?secret=... . Add ?dryRun=1 to compute the diff without writing.
 
@@ -836,7 +845,6 @@ export default async function handler(req, res) {
 
           const prevGuest = ev.extendedProperties?.private?.prepDayGuest || '';
           const guests = resolveEventGuests(ev, guestEmail, prevGuest);
-          const hadAttendees = Array.isArray(ev.attendees) && ev.attendees.length > 0;
 
           if (ev.summary !== want.title || tagMismatch || isAllDay || timeMismatch || guests.changed) {
             const patchBody = { ...body };
@@ -844,7 +852,15 @@ export default async function handler(req, res) {
             // address would look "previously added" forever.
             if (!guestEmail && prevGuest) patchBody.extendedProperties = { private: { ...priv, prepDayGuest: '' } };
             if (guests.changed) patchBody.attendees = guests.attendees;
-            const notify = guests.changed || hadAttendees || !!guestEmail;
+            // Only mail the guest about things a guest can act on: being added
+            // or removed, and the event actually moving. A retitled workout
+            // ("Push" → "Pull"), a re-tagged legacy event or a category
+            // re-key changes nothing they need to know, and this loop runs
+            // HOURLY — notifying on those turned every plan tweak into an
+            // "Updated invitation" in their inbox. The old condition was
+            // `guests.changed || hadAttendees || !!guestEmail`, which is
+            // simply always true once a standing guest is configured.
+            const notify = guests.changed || timeMismatch || isAllDay;
             await gcal(
               accessToken,
               `/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(ev.id)}${notify ? '?sendUpdates=all' : ''}`,
@@ -854,14 +870,24 @@ export default async function handler(req, res) {
             if (guests.changed && guestEmail) summary.invited++;
           }
         }
-        // Delete tagged events no longer planned. If anyone was invited, cancel
-        // properly so the guest's copy disappears too rather than lingering.
+        // Delete tagged events no longer planned.
+        //
+        // Silently — `sendUpdates=none`. These deletions are overwhelmingly
+        // bookkeeping, not a meeting being called off: this loop also sweeps
+        // every PAST day (the listing reaches 28 days back while `desired` is
+        // built today-forward), so each midnight retired yesterday's workout,
+        // sauna and cooking events and mailed the guest a "Cancelled" for each
+        // one — for events that had already happened. The hourly re-plan adds
+        // more: a day whose category shifts is a delete plus a create under the
+        // new (date, kind) key, not a rename.
+        //
+        // The guest's copy still disappears; Google removes it from their
+        // calendar either way. All that's suppressed is the notification.
         for (const [key, ev] of existing) {
           if (!desired[key]) {
-            const hadGuests = Array.isArray(ev.attendees) && ev.attendees.length > 0;
             await gcal(
               accessToken,
-              `/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(ev.id)}${hadGuests ? '?sendUpdates=all' : ''}`,
+              `/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(ev.id)}?sendUpdates=none`,
               { method: 'DELETE' },
             );
             summary.deleted++;
