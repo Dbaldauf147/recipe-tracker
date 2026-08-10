@@ -1087,6 +1087,34 @@
   color: var(--color-accent);
   font-weight: 600;
 }
+/* The list-level version of .cardGap. Amber and quiet — a to-do, not an error. */
+.unfiledBanner {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0 2px 10px;
+  padding: 0.6rem 0.8rem;
+  border: 1px solid #fcd34d;
+  border-left: 4px solid #d97706;
+  border-radius: 8px;
+  background: #fffbeb;
+  color: #7c2d12;
+  font-size: 0.82rem;
+}
+.unfiledNames { color: #92400e; font-size: 0.78rem; }
+.unfiledWhy { color: #a16207; font-size: 0.74rem; }
+
+/* A visited spot with no health or frequency set. Amber, not red: nothing is
+   broken, there's just an answer missing that the filters depend on. */
+.cardGap {
+  margin-top: 0.15rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: #b45309;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 
 /* Shared-from-friends section (read-only restaurants from other users) */
 .sharedWrap {

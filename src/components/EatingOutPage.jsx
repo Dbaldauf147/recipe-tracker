@@ -161,6 +161,54 @@ const HEALTH_OPTIONS = [
 const HEALTH_KEYS = new Set(HEALTH_OPTIONS.map(h => h.key));
 
 /**
+ * A place you've been but never filed.
+ *
+ * Health and frequency are what the list is FOR — "somewhere sensible" and
+ * "somewhere we go a lot" are the two questions you actually ask it — and a
+ * visited spot missing either is invisible to every filter that matters. It
+ * silently drops out of the answer rather than showing up wrong, which is the
+ * kind of gap you never notice.
+ *
+ * Only visited spots: a want-to-try you've never been to has nothing to say
+ * about how it leaves you or how often you'd go, so nagging about it would be
+ * noise on the majority of the list.
+ *
+ * `retired` counts as filed — it's a deliberate answer to the frequency
+ * question, just not one of the two positive ones.
+ */
+function hasBeenVisited(r) {
+  return r?.status === 'visited' || !!r?.lastVisit;
+}
+/** The banner. Null when there's nothing to say, so it costs no space. */
+function unfiledNotice(unfiled) {
+  if (!unfiled || unfiled.length === 0) return null;
+  const names = unfiled.slice(0, 6).map(r => r.name).filter(Boolean);
+  return (
+    <div className={styles.unfiledBanner}>
+      <strong>
+        ⚠ {unfiled.length} visited {unfiled.length === 1 ? 'place has' : 'places have'} no health or frequency set
+      </strong>
+      {names.length > 0 && (
+        <span className={styles.unfiledNames}>
+          {names.join(', ')}{unfiled.length > names.length ? `, +${unfiled.length - names.length} more` : ''}
+        </span>
+      )}
+      <span className={styles.unfiledWhy}>
+        Filters and the healthy/regular views skip them until they're filed.
+      </span>
+    </div>
+  );
+}
+
+function missingCategories(r) {
+  if (!hasBeenVisited(r)) return [];
+  const gaps = [];
+  if (!healthOf(r)) gaps.push('health');
+  if (!String(r?.frequency || '').trim()) gaps.push('frequency');
+  return gaps;
+}
+
+/**
  * A spot's health tag, migrating from the legacy `dietTags` array.
  *
  * `dietTags` is free text from the original spreadsheet import — a column
@@ -1944,6 +1992,13 @@ function RestaurantCard({ r, ratingAgg, distanceMiles, rank, canMoveUp, canMoveD
         )}
         {r.lastVisit && (
           <div className={styles.cardLastVisit}>Last visit: {formatDate(r.lastVisit)}</div>
+        )}
+        {/* Been here, never filed it. Says WHICH is missing — "needs
+            attention" would leave you opening the spot to find out. */}
+        {missingCategories(r).length > 0 && (
+          <div className={styles.cardGap}>
+            ⚠ No {missingCategories(r).join(' or ')} set
+          </div>
         )}
         {r.url && (
           <a
@@ -3985,6 +4040,10 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
             (() => {
               const showRank = !proximityCenter;
               const gridClass = listDensity === 'compact' ? styles.gridCompact : styles.grid;
+              // Places you've been but never filed. Named, not just counted:
+              // the whole job is small enough to finish in one sitting, and a
+              // bare number tells you there's work without telling you where.
+              const unfiled = visible.filter(r => missingCategories(r).length > 0);
               const labelStyle = { fontSize: '0.78rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', opacity: 0.55, margin: '10px 2px 2px' };
               // rank == null → not numbered and not reorderable (Want-to-try, or
               // proximity mode). seq is the item's own group's per-owner sequence.
@@ -4017,7 +4076,12 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
                 );
               };
               if (!showRank) {
-                return <div className={gridClass}>{visible.map(r => renderCard(r, null, []))}</div>;
+                return (
+                  <>
+                    {unfiledNotice(unfiled)}
+                    <div className={gridClass}>{visible.map(r => renderCard(r, null, []))}</div>
+                  </>
+                );
               }
               // Want-to-try floats above, unnumbered; the numbered ranking below
               // is just the spots I've ranked (Visited).
@@ -4027,6 +4091,7 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
               for (const r of rankedGroup) (rankedSeqByOwner[r._ownerUid] = rankedSeqByOwner[r._ownerUid] || []).push(r.id);
               return (
                 <>
+                  {unfiledNotice(unfiled)}
                   {wantGroup.length > 0 && (
                     <>
                       <div style={labelStyle}>Want to try ({wantGroup.length})</div>
