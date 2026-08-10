@@ -991,9 +991,12 @@
   table-layout: fixed;
 }
 
-.cookModeTable col:nth-child(1) { width: 60%; }
+/* The measurement column carries the unit AND its countable-unit parenthetical
+   ("grams (0.5 regular)"), so it needs more than a bare unit's worth of room —
+   taken from the step, which has the most to spare. */
+.cookModeTable col:nth-child(1) { width: 52%; }
 .cookModeTable col:nth-child(2) { width: 8%; }
-.cookModeTable col:nth-child(3) { width: 10%; }
+.cookModeTable col:nth-child(3) { width: 18%; }
 .cookModeTable col:nth-child(4) { width: 22%; }
 
 .cookModeTable th {
@@ -1118,7 +1121,24 @@
 
 .cookModeMeas {
   color: var(--color-text-secondary, #555);
-  white-space: nowrap;
+  /* NOT nowrap: the table is table-layout:fixed, so text too wide for the
+     column overflows across the next one rather than being clipped. That's how
+     the count ended up printed over the ingredient name. */
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+/* The countable-unit parenthetical next to a cook-mode measurement — "grams
+   (0.5 regular)". Its own line under the unit, so a long one can't crowd the
+   unit itself; lighter, because the weight is what you're measuring and the
+   count is the sanity check beside it. Never underlined, so it doesn't read as
+   part of the tap-to-convert target. */
+.cookModeCount {
+  display: block;
+  color: var(--color-text-muted);
+  font-size: 0.82em;
+  font-weight: 400;
+  text-decoration: none;
 }
 
 .cookModeIng {
@@ -2910,15 +2930,4 @@
 .pasteReplaceBtn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
-}
-
-/* The countable-unit parenthetical next to a cook-mode measurement — "grams
-   (0.5 regular)". Lighter than the unit itself: the weight is what you're
-   measuring, the count is the sanity check beside it. Never underlined, so it
-   doesn't look like part of the tap-to-convert target. */
-.cookModeCount {
-  color: var(--color-text-muted);
-  font-weight: 400;
-  white-space: nowrap;
-  text-decoration: none;
 }

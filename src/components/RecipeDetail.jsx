@@ -979,7 +979,7 @@ export function RecipeDetail({ recipe, allTags = [], onSave, onDelete, onBack, o
   }
 
   /**
-   * " (0.5 regular)" for a cook-mode row — what its weight works out to in
+   * "(0.5 regular)" for a cook-mode row — what its weight works out to in
    * countable units, from the ratio taught on the ingredient database.
    *
    * Cooking from a scale still leaves you holding the thing: "130 grams" says
@@ -997,7 +997,7 @@ export function RecipeDetail({ recipe, allTags = [], onSave, onDelete, onBack, o
     const n = parseFloat(info.count);
     if (!(n > 0)) return '';
     if (normalizeUnit(row.measurement || '') === normalizeUnit(info.entry.unit)) return '';
-    return ` (${info.count} ${pluralizeUnit(info.entry.unit, n)})`;
+    return `(${info.count} ${pluralizeUnit(info.entry.unit, n)})`;
   }
 
   // Draft state per row index, so typing stays responsive before the ratio is
@@ -3646,7 +3646,9 @@ export function RecipeDetail({ recipe, allTags = [], onSave, onDelete, onBack, o
                               if (volumeOptions.length > 0 || weightOptions.length > 0) setConvertPopup({ cookIdx: `${si}-0`, volumeOptions, weightOptions, origIdx: assignedIndices[0] });
                             }}>
                               {assignedIngs[0].measurement}
-                              <span className={styles.cookModeCount}>{unitCountSuffix(assignedIngs[0])}</span>
+                              {!!unitCountSuffix(assignedIngs[0]) && (
+                                <span className={styles.cookModeCount}>{unitCountSuffix(assignedIngs[0])}</span>
+                              )}
                               {convertPopup?.cookIdx === `${si}-0` && (
                                 <div className={styles.convertPopup} ref={convertPopupRef}>
                                   <div className={styles.convertPopupColumns}>
@@ -3741,7 +3743,9 @@ export function RecipeDetail({ recipe, allTags = [], onSave, onDelete, onBack, o
                             if (volumeOptions.length > 0 || weightOptions.length > 0) setConvertPopup({ cookIdx: `${si}-${ii+1}`, volumeOptions, weightOptions, origIdx: assignedIndices[ii+1] });
                           }}>
                             {ing.measurement}
-                            <span className={styles.cookModeCount}>{unitCountSuffix(ing)}</span>
+                            {!!unitCountSuffix(ing) && (
+                              <span className={styles.cookModeCount}>{unitCountSuffix(ing)}</span>
+                            )}
                             {convertPopup?.cookIdx === `${si}-${ii+1}` && (
                               <div className={styles.convertPopup} ref={convertPopupRef}>
                                 <div className={styles.convertPopupColumns}>
