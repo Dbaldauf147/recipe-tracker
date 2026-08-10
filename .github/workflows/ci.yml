@@ -1,0 +1,52 @@
+# Build and test every pushed commit from a CLEAN checkout.
+#
+# Why this exists: this repo lives in OneDrive, which syncs the .git directory
+# between machines and between concurrent sessions. On 2026-08-08 a commit landed
+# that imported '../utils/workoutCategory' while the file itself was still
+# untracked in someone's working tree. Every local build passed — the file was
+# on disk — but the commit could not be built by anyone else. A clean checkout is
+# the only thing that catches that class of mistake, so it runs on every push.
+#
+# Deliberately NOT running eslint: the repo carries pre-existing lint errors, so
+# a lint gate would fail on arrival and get ignored. Add it once those are clear.
+
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      # `npm ci` (not install) so the lockfile is authoritative and a dependency
+      # missing from it fails here rather than on Vercel.
+      - name: Install
+        run: npm ci
+
+      # The whole point: does this commit build from nothing but itself?
+      - name: Build
+        run: npm run build
+
+      - name: Test
+        run: npm test
+
+      # The API and lib/ are not part of the Vite build, so a broken import there
+      # would sail past it and only fail when the cron next fires. Load every
+      # serverless entry point to prove its import graph resolves.
+      - name: Check API entry points import cleanly
+        run: |
+          for f in api/*.js; do
+            echo "→ $f"
+            node --input-type=module -e "await import('./$f')" || exit 1
+          done
