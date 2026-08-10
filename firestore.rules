@@ -207,11 +207,18 @@ service cloud.firestore {
     // ---- share-by-link ------------------------------------------------------
     // The token IS the credential: an unguessable id anyone with the link may
     // read. Only the creator can change or revoke it.
+    //
+    // The owner field is `createdBy` — the name BOTH clients have always
+    // written (web createShareLink, mobile createShareLink) and the name
+    // api/shared-recipe.js reads back. An earlier version of this rule said
+    // `ownerUid`, a field nothing writes, so every share-link create was denied
+    // from the day the ruleset went live. Renaming the rule rather than the
+    // field keeps the links already in the collection revocable by their owner.
     match /sharedLinks/{token} {
       allow get: if true;
       allow list: if false;
-      allow create: if signedIn() && request.resource.data.ownerUid == request.auth.uid;
-      allow update, delete: if signedIn() && resource.data.ownerUid == request.auth.uid;
+      allow create: if signedIn() && request.resource.data.createdBy == request.auth.uid;
+      allow update, delete: if signedIn() && resource.data.createdBy == request.auth.uid;
     }
 
     // ---- collaborative eating-out data --------------------------------------

@@ -123,9 +123,21 @@ CASES = [
     case('admin LISTs users', 'ALLOW', '/users/owner1', 'list', ADMIN),
     case('admin GETs any user doc', 'ALLOW', '/users/owner1', 'get', ADMIN),
 
-    # --- shared ingredientsDb on the admin user doc ------------------------
-    case('any signed-in user reads the admin user doc', 'ALLOW',
+    # --- admin-published docs every client reads ---------------------------
+    # The blanket read of the admin USER doc is deliberately gone: the three
+    # things that needed it moved into their own docs, so the grant is scoped
+    # to exactly those. The whole document — habits, weight log, restaurants —
+    # is no longer readable by every signed-in account.
+    case('signed-in user CANNOT read the whole admin user doc', 'DENY',
          '/users/' + ADMIN_UID, 'get', STRANGER),
+    case('signed-in user reads the shared ingredient DB', 'ALLOW',
+         '/users/' + ADMIN_UID + '/data/ingredients', 'get', STRANGER),
+    case('signed-in user reads the published app defaults', 'ALLOW',
+         '/users/' + ADMIN_UID + '/data/appDefaults', 'get', STRANGER),
+    case('signed-in user reads the discover recipe library', 'ALLOW',
+         '/users/' + ADMIN_UID + '/data/recipes', 'get', STRANGER),
+    case('the same grant does NOT extend to another user', 'DENY',
+         '/users/friend1/data/ingredients', 'get', STRANGER),
     case('signed-in user CANNOT write the admin user doc', 'DENY',
          '/users/' + ADMIN_UID, 'update', STRANGER, data={'x': 1}),
 
@@ -158,12 +170,24 @@ CASES = [
          STRANGER, data={'from': 'owner1', 'to': 'friend1'}),
 
     # --- share links -------------------------------------------------------
+    # The payload here is the one BOTH clients actually send — recipe +
+    # createdBy + createdAt. The first version of these cases invented an
+    # `ownerUid` field to match the rule, so they passed against a rule that
+    # denied every real share. Test data for a rule that gates on a field name
+    # has to be copied from the writer, never from the rule.
     case('anyone with the link reads it', 'ALLOW', '/sharedLinks/tok123', 'get', None),
     case('nobody can enumerate share links', 'DENY', '/sharedLinks/tok123', 'list', OWNER),
     case('creating a link for yourself', 'ALLOW', '/sharedLinks/tok123', 'create',
-         OWNER, data={'ownerUid': 'owner1'}),
+         OWNER, data={'recipe': {'title': 'Soup'}, 'createdBy': 'owner1',
+                      'createdAt': '2026-08-10T00:00:00.000Z'}),
     case('creating a link in someone else name', 'DENY', '/sharedLinks/tok123',
-         'create', STRANGER, data={'ownerUid': 'owner1'}),
+         'create', STRANGER, data={'recipe': {'title': 'Soup'}, 'createdBy': 'owner1'}),
+    case('a link with no owner field at all', 'DENY', '/sharedLinks/tok123',
+         'create', OWNER, data={'recipe': {'title': 'Soup'}}),
+    case('the creator revokes their own link', 'ALLOW', '/sharedLinks/tok123',
+         'delete', OWNER, data={'recipe': {'title': 'Soup'}, 'createdBy': 'owner1'}),
+    case('a stranger cannot revoke your link', 'DENY', '/sharedLinks/tok123',
+         'delete', STRANGER, data={'recipe': {'title': 'Soup'}, 'createdBy': 'owner1'}),
 
     # --- eating out --------------------------------------------------------
     case('signed-in reads eating-out ratings', 'ALLOW', '/eatingOutRatings/r1', 'get', FRIEND),
