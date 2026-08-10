@@ -124,7 +124,7 @@
   border-bottom: 1px solid var(--color-border);
 }
 .headName { flex: 1; min-width: 0; }
-.headMap { flex: 0 0 auto; width: 8.5rem; text-align: right; }
+.headSpice { flex: 0 0 auto; width: 8.5rem; text-align: right; }
 .headNums { flex: 0 0 auto; width: 9.2rem; text-align: right; }
 .headKill { flex: 0 0 auto; width: 2rem; }
 
@@ -166,11 +166,12 @@
   vertical-align: 1px;
 }
 
-/* Which of YOUR ingredients the row maps to. Fixed width so it reads as a
-   column down the list rather than a ragged middle, and truncated rather than
-   wrapped — a long ingredient name must not push the temp off the row. */
-.rowMap,
-.rowMapEmpty {
+/* The spices you use on this row. Fixed width so it reads as a column down the
+   list rather than a ragged middle, and truncated rather than wrapped — a long
+   rub must not push the temp off the row. The full list is in the title, and
+   the row detail below has the editor. */
+.rowSpice,
+.rowSpiceEmpty {
   flex: 0 0 auto;
   width: 8.5rem;
   font-size: 0.78rem;
@@ -179,11 +180,83 @@
   white-space: nowrap;
   text-align: right;
 }
-.rowMap { color: var(--color-text-secondary); }
-/* "Link…" rather than a dash, and readable rather than nearly invisible. With
-   nothing linked yet every row lands here, and a column of faint dashes reads
-   as an empty column — as though the feature hadn't shipped. */
-.rowMapEmpty { color: var(--color-text-muted); opacity: 0.75; font-style: italic; }
+.rowSpice { color: var(--color-text-secondary); }
+/* "+ Spices" rather than a dash, and readable rather than nearly invisible.
+   With nothing tagged yet every row lands here, and a column of faint dashes
+   reads as an empty column — as though the feature hadn't shipped. */
+.rowSpiceEmpty { color: var(--color-text-muted); opacity: 0.75; font-style: italic; }
+
+/* The spice editor in the row detail. Chips + a free-text box; see
+   renderSpices for why the list isn't a fixed vocabulary. */
+.spiceBlock {
+  margin-top: 0.6rem;
+  padding-top: 0.6rem;
+  border-top: 1px solid var(--color-border);
+}
+.spiceHead {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+.spiceLabel {
+  font-size: 0.66rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+  margin-right: 0.15rem;
+}
+.spiceChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.15rem 0.4rem;
+  border-radius: 999px;
+  background: var(--color-surface-alt);
+  border: 1px solid var(--color-border);
+  font-size: 0.75rem;
+  color: var(--color-text-secondary);
+}
+.spiceChipKill {
+  border: none;
+  background: none;
+  padding: 0;
+  cursor: pointer;
+  font-size: 0.85rem;
+  line-height: 1;
+  color: var(--color-text-muted);
+}
+.spiceChipKill:hover { color: #c0392b; }
+.spiceAddBtn,
+.spiceSaveBtn {
+  border: 1px dashed var(--color-border);
+  background: none;
+  border-radius: 999px;
+  padding: 0.15rem 0.5rem;
+  font-family: inherit;
+  font-size: 0.72rem;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+}
+.spiceSaveBtn { border-style: solid; }
+.spiceAddBtn:hover, .spiceSaveBtn:hover { background: var(--color-surface-alt); }
+.spiceAddRow {
+  display: flex;
+  gap: 0.35rem;
+  margin-top: 0.4rem;
+}
+.spiceInput {
+  flex: 1;
+  min-width: 0;
+  padding: 0.3rem 0.45rem;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  font-family: inherit;
+  font-size: 0.8rem;
+  background: var(--color-surface);
+  color: var(--color-text);
+}
 
 /* A hidden row, while you're looking at what you hid. Dimmed rather than
    restyled, so it's obviously the same row in a temporary state. */
@@ -543,11 +616,11 @@
   .rowName { font-size: 0.92rem; }
   .temp { font-size: 1rem; }
   /* Four columns don't fit across a phone, and the temp and time are what the
-     page is for. The mapping narrows rather than vanishing — knowing a row is
-     wired to your pantry is worth a few characters — and the empty dash goes
-     entirely, since a column of dashes is just noise on a small screen. */
-  .rowMap, .rowMapEmpty { width: 4.5rem; font-size: 0.7rem; }
-  .headMap { width: 4.5rem; }
+     page is for. The spice column narrows rather than vanishing — knowing a
+     row has a rub attached is worth a few characters — and it truncates, with
+     the full list still in the title and the row detail. */
+  .rowSpice, .rowSpiceEmpty { width: 4.5rem; font-size: 0.7rem; }
+  .headSpice { width: 4.5rem; }
   .headNums { width: 7.5rem; }
   .time { min-width: 3.9rem; }
 }

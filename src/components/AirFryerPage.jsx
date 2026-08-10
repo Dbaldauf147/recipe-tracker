@@ -38,6 +38,14 @@ const LINKS_CACHE = 'sunday-air-fryer-links';
 const HIDDEN_FIELD = 'airFryerHidden';
 const HIDDEN_CACHE = 'sunday-air-fryer-hidden';
 
+// The spices you use on each row, as { [lowercased guide name]: ['paprika', …] }.
+//
+// Its own field for the same reason links and hides have one: how you season
+// chicken isn't a disagreement with the guide's 375°F, so tagging it must not
+// brand the row "edited" or offer to reset a time you never touched.
+const SPICES_FIELD = 'airFryerSpices';
+const SPICES_CACHE = 'sunday-air-fryer-spices';
+
 const BLANK = { name: '', cat: 'Vegetables', tempF: '', min: '', max: '', doneF: '', note: '' };
 
 function readCache() {
@@ -51,6 +59,21 @@ function readLinksCache() {
   try {
     const raw = JSON.parse(localStorage.getItem(LINKS_CACHE) || '{}');
     return raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
+  } catch { return {}; }
+}
+
+function readSpicesCache() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(SPICES_CACHE) || '{}');
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
+    // Coerce to arrays of non-empty strings: a hand-edited cache (or an older
+    // shape) must not put a bare string where the row expects a list.
+    const out = {};
+    for (const [k, v] of Object.entries(raw)) {
+      const list = (Array.isArray(v) ? v : String(v).split(',')).map(x => String(x).trim()).filter(Boolean);
+      if (list.length > 0) out[k] = list;
+    }
+    return out;
   } catch { return {}; }
 }
 
@@ -132,6 +155,10 @@ export function AirFryerPage({ onClose, user, recipes = [], weeklyRecipeIds = []
   const [editing, setEditing] = useState(null);
   const [showRules, setShowRules] = useState(false);
   const [links, setLinks] = useState(readLinksCache);
+  // Spices per row, and the row whose spice input is open (null = none).
+  const [spices, setSpices] = useState(readSpicesCache);
+  const [spicing, setSpicing] = useState(null);
+  const [spiceDraft, setSpiceDraft] = useState('');
   // The guide row currently being linked, and the search text for its picker.
   const [linking, setLinking] = useState(null);
   const [linkQuery, setLinkQuery] = useState('');
@@ -170,6 +197,24 @@ export function AirFryerPage({ onClose, user, recipes = [], weeklyRecipeIds = []
         if (cancelled || !remote || typeof remote !== 'object' || Array.isArray(remote)) return;
         setLinks(remote);
         try { localStorage.setItem(LINKS_CACHE, JSON.stringify(remote)); } catch { /* quota */ }
+      })
+      .catch(() => { /* offline — the cached copy stands */ });
+    return () => { cancelled = true; };
+  }, [uid]);
+
+  useEffect(() => {
+    if (!uid) return;
+    let cancelled = false;
+    loadField(uid, SPICES_FIELD)
+      .then(remote => {
+        if (cancelled || !remote || typeof remote !== 'object' || Array.isArray(remote)) return;
+        const clean = {};
+        for (const [k, v] of Object.entries(remote)) {
+          const list = (Array.isArray(v) ? v : String(v).split(',')).map(x => String(x).trim()).filter(Boolean);
+          if (list.length > 0) clean[k] = list;
+        }
+        setSpices(clean);
+        try { localStorage.setItem(SPICES_CACHE, JSON.stringify(clean)); } catch { /* quota */ }
       })
       .catch(() => { /* offline — the cached copy stands */ });
     return () => { cancelled = true; };
@@ -218,6 +263,35 @@ export function AirFryerPage({ onClose, user, recipes = [], weeklyRecipeIds = []
       if (uid) {
         saveField(uid, HIDDEN_FIELD, next).catch(err => {
           console.error('[air fryer] hidden save failed', err);
+        });
+      }
+      return next;
+    });
+  }, [uid]);
+
+  /**
+   * Replace a row's spice list. An empty list DELETES the key rather than
+   * storing [], so an emptied row is indistinguishable from one never tagged —
+   * otherwise the field slowly fills with empty arrays for every row you tried.
+   */
+  const setRowSpices = useCallback((key, list) => {
+    setSpices(prev => {
+      const clean = [];
+      const seen = new Set();
+      for (const raw of list) {
+        const v = String(raw || '').trim();
+        const lc = v.toLowerCase();
+        if (!v || seen.has(lc)) continue;
+        seen.add(lc);
+        clean.push(v);
+      }
+      const next = { ...prev };
+      if (clean.length > 0) next[key] = clean;
+      else delete next[key];
+      try { localStorage.setItem(SPICES_CACHE, JSON.stringify(next)); } catch { /* quota */ }
+      if (uid) {
+        saveField(uid, SPICES_FIELD, next).catch(err => {
+          console.error('[air fryer] spices save failed', err);
         });
       }
       return next;
@@ -469,7 +543,7 @@ export function AirFryerPage({ onClose, user, recipes = [], weeklyRecipeIds = []
   const tableHead = (
     <div className={styles.tableHead}>
       <span className={styles.headName}>Ingredient</span>
-      <span className={styles.headMap}>Air fryer name</span>
+      <span className={styles.headSpice}>Spices</span>
       <span className={styles.headNums}>Temp · time</span>
       <span className={styles.headKill} aria-hidden="true" />
     </div>
@@ -484,6 +558,7 @@ export function AirFryerPage({ onClose, user, recipes = [], weeklyRecipeIds = []
     const onList = extrasFor(row);
     const isHidden = hiddenSet.has(key);
     const mapped = links[key];
+    const rowSpices = spices[key] || [];
     const ownRow = row.source === 'mine';
     return (
       <li key={key} className={`${styles.row} ${isHidden ? styles.rowHidden : ''}`}>
@@ -522,17 +597,15 @@ export function AirFryerPage({ onClose, user, recipes = [], weeklyRecipeIds = []
               </span>
             )}
           </span>
-          {/* The two names, one per column. Once a row is mapped the headline
-              is YOURS and this column keeps the guide's own wording, so you can
-              still tell which row of the printed guide you're looking at and
-              nothing is lost by the rename. Unmapped, it's the invitation to
-              say what the thing is — a gap you can see at a glance, which is
-              the whole reason this moved out of the row detail. */}
+          {/* How you season this one. Read-only in the list and editable in the
+              row detail, because an input can't live inside the row's button —
+              same constraint the ✕ works around. Empty reads as an invitation
+              rather than a dash, so an untagged column doesn't look broken. */}
           <span
-            className={mapped ? styles.rowMap : styles.rowMapEmpty}
-            title={mapped ? `The air fryer guide calls this “${row.name}”` : 'Not linked to one of your ingredients — open the row to link one'}
+            className={rowSpices.length > 0 ? styles.rowSpice : styles.rowSpiceEmpty}
+            title={rowSpices.length > 0 ? rowSpices.join(', ') : 'No spices tagged — open the row to add some'}
           >
-            {mapped ? row.name : 'Link…'}
+            {rowSpices.length > 0 ? rowSpices.join(', ') : '+ Spices'}
           </span>
           {/* Temp and time are the answer — big, on one line, readable
               at arm's length with your hands full. */}
@@ -575,6 +648,7 @@ export function AirFryerPage({ onClose, user, recipes = [], weeklyRecipeIds = []
                 </ul>
               </div>
             )}
+            {renderSpices(key)}
             {renderLink(key, row)}
             {/* No hide button here: the ✕ in the row's own column does that
                 job, and two controls for one action is how they drift apart. */}
@@ -584,6 +658,69 @@ export function AirFryerPage({ onClose, user, recipes = [], weeklyRecipeIds = []
           </div>
         )}
       </li>
+    );
+  };
+
+  // The spice tags for one row: the chips, and the box for adding another.
+  //
+  // Free text rather than a fixed list — the point is YOUR rub for YOUR
+  // chicken, and a curated dropdown would be wrong the first time you wanted
+  // "Cajun blend" or "the green jar". Commas split, so pasting a whole rub in
+  // one go works.
+  const renderSpices = (key) => {
+    const list = spices[key] || [];
+    const adding = spicing === key;
+    const commit = () => {
+      const parts = spiceDraft.split(',').map(x => x.trim()).filter(Boolean);
+      if (parts.length > 0) setRowSpices(key, [...list, ...parts]);
+      setSpiceDraft('');
+      setSpicing(null);
+    };
+    return (
+      <div className={styles.spiceBlock}>
+        <div className={styles.spiceHead}>
+          <span className={styles.spiceLabel}>Spices</span>
+          {list.map(sp => (
+            <span key={sp} className={styles.spiceChip}>
+              {sp}
+              <button
+                className={styles.spiceChipKill}
+                onClick={() => setRowSpices(key, list.filter(x => x !== sp))}
+                title={`Remove ${sp}`}
+                aria-label={`Remove ${sp}`}
+              >×</button>
+            </span>
+          ))}
+          {!adding && (
+            <button
+              className={styles.spiceAddBtn}
+              onClick={() => { setSpicing(key); setSpiceDraft(''); }}
+            >
+              {list.length > 0 ? '+ Add' : '+ Add a spice'}
+            </button>
+          )}
+        </div>
+        {adding && (
+          <div className={styles.spiceAddRow}>
+            <input
+              className={styles.spiceInput}
+              autoFocus
+              value={spiceDraft}
+              placeholder="paprika, garlic powder, cayenne"
+              onChange={e => setSpiceDraft(e.target.value)}
+              onKeyDown={e => {
+                if (e.key === 'Enter') { e.preventDefault(); commit(); }
+                else if (e.key === 'Escape') { e.preventDefault(); setSpiceDraft(''); setSpicing(null); }
+              }}
+              // Committing on blur too: the row detail collapses the moment you
+              // click the row again, and losing what you just typed to a stray
+              // click is the kind of thing you only notice a week later.
+              onBlur={commit}
+            />
+            <button className={styles.spiceSaveBtn} onMouseDown={e => e.preventDefault()} onClick={commit}>Add</button>
+          </div>
+        )}
+      </div>
     );
   };
 
