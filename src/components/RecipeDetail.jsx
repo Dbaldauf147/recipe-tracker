@@ -4,7 +4,7 @@ import { BarcodeScanner } from './BarcodeScanner';
 import { loadFriends, shareRecipe, getUsername, createShareLink } from '../utils/firestoreSync';
 import { loadIngredients, setIngredientUnitWeight } from '../utils/ingredientsStore';
 import {
-  UNIT_SIZES, composeUnit, splitUnit, findUnitWeight, defaultUnitWeight,
+  UNIT_SIZES, composeUnit, splitUnit, findUnitWeight, defaultUnitWeight, pluralizeUnit,
 } from '../utils/unitWeights';
 import { ingredientMatchScore } from '../utils/ingredientMatch';
 import { VOLUME_TO_ML, WEIGHT_TO_G, SIZE_GRAMS, getSizeGrams } from '../utils/units';
@@ -976,6 +976,28 @@ export function RecipeDetail({ recipe, allTags = [], onSave, onDelete, onBack, o
       ? String(Math.round((grams / entry.grams) * 10) / 10)
       : '';
     return { dbRow, grams, entry, size, name, count, inDb: !!dbRow };
+  }
+
+  /**
+   * " (0.5 regular)" for a cook-mode row — what its weight works out to in
+   * countable units, from the ratio taught on the ingredient database.
+   *
+   * Cooking from a scale still leaves you holding the thing: "130 grams" says
+   * nothing about whether that's half an apple or three. Same fact the shopping
+   * list already shows as "133 grams (2 regular sticks) celery".
+   *
+   * Empty when there's nothing to add — no taught unit weight, no grams to
+   * divide, or the row is ALREADY measured in that unit, where the parenthetical
+   * would just restate the quantity next to it.
+   */
+  function unitCountSuffix(row) {
+    const info = countInfoFor(row);
+    const grams = info.entry?.grams;
+    if (!(grams > 0) || !info.count) return '';
+    const n = parseFloat(info.count);
+    if (!(n > 0)) return '';
+    if (normalizeUnit(row.measurement || '') === normalizeUnit(info.entry.unit)) return '';
+    return ` (${info.count} ${pluralizeUnit(info.entry.unit, n)})`;
   }
 
   // Draft state per row index, so typing stays responsive before the ratio is
@@ -3624,6 +3646,7 @@ export function RecipeDetail({ recipe, allTags = [], onSave, onDelete, onBack, o
                               if (volumeOptions.length > 0 || weightOptions.length > 0) setConvertPopup({ cookIdx: `${si}-0`, volumeOptions, weightOptions, origIdx: assignedIndices[0] });
                             }}>
                               {assignedIngs[0].measurement}
+                              <span className={styles.cookModeCount}>{unitCountSuffix(assignedIngs[0])}</span>
                               {convertPopup?.cookIdx === `${si}-0` && (
                                 <div className={styles.convertPopup} ref={convertPopupRef}>
                                   <div className={styles.convertPopupColumns}>
@@ -3718,6 +3741,7 @@ export function RecipeDetail({ recipe, allTags = [], onSave, onDelete, onBack, o
                             if (volumeOptions.length > 0 || weightOptions.length > 0) setConvertPopup({ cookIdx: `${si}-${ii+1}`, volumeOptions, weightOptions, origIdx: assignedIndices[ii+1] });
                           }}>
                             {ing.measurement}
+                            <span className={styles.cookModeCount}>{unitCountSuffix(ing)}</span>
                             {convertPopup?.cookIdx === `${si}-${ii+1}` && (
                               <div className={styles.convertPopup} ref={convertPopupRef}>
                                 <div className={styles.convertPopupColumns}>

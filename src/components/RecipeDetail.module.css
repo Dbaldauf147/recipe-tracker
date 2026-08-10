@@ -2911,3 +2911,14 @@
   opacity: 0.5;
   cursor: not-allowed;
 }
+
+/* The countable-unit parenthetical next to a cook-mode measurement — "grams
+   (0.5 regular)". Lighter than the unit itself: the weight is what you're
+   measuring, the count is the sanity check beside it. Never underlined, so it
+   doesn't look like part of the tap-to-convert target. */
+.cookModeCount {
+  color: var(--color-text-muted);
+  font-weight: 400;
+  white-space: nowrap;
+  text-decoration: none;
+}
