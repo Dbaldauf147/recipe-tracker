@@ -45,7 +45,7 @@ export function alertGuardBlock(field, prevCount) {
   } catch { /* ignore */ }
 }
 
-async function safeOverwriteDoc({ uid, type, ref, field, value, count, extract }) {
+async function safeOverwriteDoc({ uid, type, ref, field, value, count, extract, allowEmpty = false }) {
   const newCount = count(value);
   let prevVal = null;
   let prevCount = 0;
@@ -54,12 +54,18 @@ async function safeOverwriteDoc({ uid, type, ref, field, value, count, extract }
     if (prev.exists()) { prevVal = extract(prev.data()); prevCount = count(prevVal); }
   } catch { /* unreadable → fall through to normal write */ }
 
-  if (prevCount > 0 && newCount === 0) {
+  if (prevCount > 0 && newCount === 0 && !allowEmpty) {
     const msg = `[${type}] blocked overwrite: would erase ${prevCount} items with an empty write`;
     console.error(msg);
     alertGuardBlock(type, prevCount);
-    throw new Error(msg);
+    const err = new Error(msg);
+    err.code = 'data-guard-blocked';
+    err.field = type;
+    err.prevCount = prevCount;
+    throw err;
   }
+  // Snapshot before ANY shrink, an allowed emptying included — a permitted
+  // delete is still worth being able to undo.
   if (prevVal != null && prevCount > 0 && newCount < prevCount) {
     await writeSnapshot(uid, type, prevVal, prevCount);
   }
@@ -119,6 +125,26 @@ async function guardUserField(uid, field, value) {
 /**
  * Save daily log to a separate Firestore document to avoid 1MB user doc limit.
  */
+/**
+ * Entry count of the last dailyLog this TAB loaded or successfully saved.
+ *
+ * The web has no per-date merge to prove that an empty write is deliberate the
+ * way the mobile flush can, so it proves it differently: if this tab watched
+ * the log hold N>0 entries and it is now 0, the user emptied it while looking
+ * at it. Deleting your last meal is legitimate, and refusing it left the page
+ * showing the entry gone while the server still had it.
+ *
+ * A tab that never saw a non-empty log — a failed or still-pending load — can
+ * never satisfy this, so the case the guard exists for stays blocked.
+ */
+let seenDailyLogCount = null;
+
+/** Record a dailyLog we know to be real (loaded from, or written to, the server). */
+export function noteDailyLogCount(log) {
+  const n = countDailyLogEntries(log);
+  if (n > 0) seenDailyLogCount = n;
+}
+
 export async function saveDailyLogToFirestore(uid, log) {
   try {
     const ref = doc(db, 'users', uid, 'data', 'dailyLog');
@@ -126,7 +152,9 @@ export async function saveDailyLogToFirestore(uid, log) {
       uid, type: 'dailyLog', ref, field: 'log', value: log,
       count: countDailyLogEntries,
       extract: (data) => data?.log || {},
+      allowEmpty: countDailyLogEntries(log) === 0 && seenDailyLogCount > 0,
     });
+    noteDailyLogCount(log);
   } catch (err) {
     console.error('saveDailyLogToFirestore:', err);
     throw err;
@@ -140,7 +168,13 @@ export async function loadDailyLogFromFirestore(uid) {
   try {
     const ref = doc(db, 'users', uid, 'data', 'dailyLog');
     const snap = await getDoc(ref);
-    if (snap.exists()) return snap.data().log || {};
+    if (snap.exists()) {
+      const log = snap.data().log || {};
+      // This tab has now SEEN the real log, which is what lets a later
+      // delete-everything write be recognised as deliberate.
+      noteDailyLogCount(log);
+      return log;
+    }
     // Fallback: check main user doc for legacy data
     const userRef = doc(db, 'users', uid);
     const userSnap = await getDoc(userRef);
