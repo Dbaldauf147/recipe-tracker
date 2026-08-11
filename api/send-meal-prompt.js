@@ -256,7 +256,23 @@ export default async function handler(req, res) {
       // there's no settings UI for them yet, and they can only fire for someone
       // who has deliberately pinned a weekly habit to a weekday, so they can't
       // surprise a user who hasn't asked for one.
-      const habitsOn = s.habitReminder !== false;
+      //
+      // `habitLocalReminders` is set by the phone app once it is scheduling
+      // habit reminders itself (it has notification permission and habit data
+      // cached). When that's true the cron stands down for habits: the local
+      // schedule fires at 8am in the DEVICE's timezone and works with no
+      // signal at all — which is the point, since these reminders are for
+      // habits the user pinned to a day and travels through. Sending from here
+      // too would just double every nudge.
+      //
+      // The claim EXPIRES (`habitLocalAt`, re-stamped weekly by the app) so a
+      // phone that's wiped, reinstalled, or simply never opened again hands
+      // habit reminders back instead of silencing them forever. The window is
+      // comfortably longer than the month of mornings the app queues up, so the
+      // two schedules can't overlap and double up.
+      const localClaim = s.habitLocalReminders === true
+        && Date.now() - Date.parse(`${s.habitLocalAt || '1970-01-01'}T00:00:00Z`) < 30 * 86400000;
+      const habitsOn = s.habitReminder !== false && !localClaim;
       if (!s.foodLogReminder && !s.weightReminder && !habitsOn) continue;
       // Day-aware recipients: an address only gets mail on its selected days.
       // Push goes to the user's own devices (state-aware, so it suppresses
