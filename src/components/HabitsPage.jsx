@@ -1,8 +1,28 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { saveField, loadField, loadHabitAutoStatus } from '../utils/firestoreSync';
-import { loadHabitLog, loadHabitLogAuto, saveHabitLogCells, saveHabitLogAutoCells } from '../utils/habitLogYears';
+import { loadField, loadHabitAutoStatus } from '../utils/firestoreSync';
+import { loadHabitLog, loadHabitLogAuto } from '../utils/habitLogYears';
 import { HABIT_FIELDS, seedHabits, makeHabitId } from '../data/habitsSeed';
 import { yesterdayDate, yesterdayDayKey, yesterdayUnloggedHabits } from '../utils/habitOutstanding';
+import {
+  readCache as readHabitCache, cacheRemote, replayQueue,
+  queueFieldWrite, queueMark, queueMarks,
+  flush as flushHabitQueue, startAutoFlush,
+  subscribe as subscribeHabitSync, pendingCount, failedCount, isFlushing, lastSyncedAt, discardFailed,
+} from '../utils/habitOfflineStore';
+
+// "2h ago" for the sync strip. Coarse on purpose — it answers "recently or
+// not", and it only re-renders when the page does.
+function syncRelTime(iso) {
+  if (!iso) return '';
+  const ms = Date.now() - new Date(iso).getTime();
+  if (!Number.isFinite(ms) || ms < 0) return '';
+  const mins = Math.floor(ms / 60000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  return `${Math.floor(hours / 24)}d ago`;
+}
 
 // Personal habit tracker (Atomic Habits: Cue → Craving → Response → Reward).
 // Gated to baldaufdan@gmail.com in App.jsx. Data lives on the user doc under
@@ -1186,6 +1206,17 @@ export function HabitsPage({ onBack, user }) {
   // Empty/absent → the auto-computed next-log date is shown instead.
   const [habitNextLog, setHabitNextLog] = useState({});
   const [loading, setLoading] = useState(true);
+  // ---- Offline sync state (drives the strip under the header) ----
+  // Everything the page writes goes through habitOfflineStore's queue; this is
+  // the only thing that says out loud whether it has actually landed.
+  const readSyncState = () => ({
+    pending: pendingCount(), failed: failedCount(), flushing: isFlushing(), syncedAt: lastSyncedAt(),
+  });
+  const [syncState, setSyncState] = useState(readSyncState);
+  useEffect(() => subscribeHabitSync(() => setSyncState(readSyncState())), []);
+  // Retry whenever a connection looks plausible again (back online, tab
+  // refocused, or a slow minute with work still waiting).
+  useEffect(() => startAutoFlush(user?.uid), [user?.uid]);
   const [tab, setTab] = useState('routines');
   const [importOpen, setImportOpen] = useState(false);
   const [importText, setImportText] = useState('');
@@ -1236,6 +1267,25 @@ export function HabitsPage({ onBack, user }) {
 
   useEffect(() => {
     let cancelled = false;
+    // Paint from the offline cache FIRST, with any queued edits replayed on
+    // top, so the page opens and is usable with no connection at all (and
+    // instantly on a slow one). The network load below then overwrites it.
+    const cached = readHabitCache();
+    if (cached && Array.isArray(cached.habits) && cached.habits.length > 0) {
+      const local = replayQueue({
+        habits: cached.habits,
+        habitLog: cached.habitLog || {},
+        automations: cached.automations,
+        habitLogAuto: cached.habitLogAuto || {},
+        habitNextLog: cached.habitNextLog,
+      });
+      setHabits(local.habits);
+      setHabitLog(local.habitLog);
+      if (Array.isArray(local.automations)) setAutomations(local.automations);
+      setHabitLogAuto(local.habitLogAuto);
+      if (local.habitNextLog && typeof local.habitNextLog === 'object') setHabitNextLog(local.habitNextLog);
+      setLoading(false);
+    }
     (async () => {
       try {
         const [remote, remoteLog, remoteAuto, remoteLogAuto, remoteNextLog, remoteAutoStatus] = await Promise.all([
@@ -1249,15 +1299,32 @@ export function HabitsPage({ onBack, user }) {
           user?.uid ? loadHabitAutoStatus(user.uid) : null,
         ]);
         if (cancelled) return;
-        const loadedLog = (remoteLog && typeof remoteLog === 'object') ? remoteLog : {};
-        if (Array.isArray(remote) && remote.length > 0) {
-          setHabits(remote);
+        // Cache the server's answer, then replay anything still queued on top
+        // of it — otherwise a load landing while edits are unsynced would paint
+        // the older server copy over them and marks would appear to un-log.
+        cacheRemote({
+          habits: remote,
+          habitLog: remoteLog,
+          automations: remoteAuto,
+          habitLogAuto: remoteLogAuto,
+          habitNextLog: remoteNextLog,
+        });
+        const merged = replayQueue({
+          habits: remote,
+          habitLog: (remoteLog && typeof remoteLog === 'object') ? remoteLog : {},
+          automations: remoteAuto,
+          habitLogAuto: (remoteLogAuto && typeof remoteLogAuto === 'object') ? remoteLogAuto : {},
+          habitNextLog: remoteNextLog,
+        });
+        const loadedLog = merged.habitLog;
+        if (Array.isArray(merged.habits) && merged.habits.length > 0) {
+          setHabits(merged.habits);
           // Established daily habits are OFFERED the Automatically status here
           // rather than moved into it (see habitReadyForAuto). Checked on load,
           // against the data we just fetched, rather than in an effect watching
           // habits — a watcher would re-check on every local edit, and the only
           // thing that changes the answer is the log moving under us.
-          const ready = remote.filter(h => habitReadyForAuto(h, loadedLog));
+          const ready = merged.habits.filter(h => habitReadyForAuto(h, loadedLog));
           if (ready.length > 0) {
             setAutoPromotePrompts(ready.map(h => ({
               id: h.id,
@@ -1265,14 +1332,17 @@ export function HabitsPage({ onBack, user }) {
               rate: Math.round(autoPromoteRate(h, loadedLog) || 0),
             })));
           }
-        } else setHabits(seedHabits());
-        if (remoteLog && typeof remoteLog === 'object') setHabitLog(remoteLog);
-        if (Array.isArray(remoteAuto)) setAutomations(remoteAuto);
-        if (remoteLogAuto && typeof remoteLogAuto === 'object') setHabitLogAuto(remoteLogAuto);
-        if (remoteNextLog && typeof remoteNextLog === 'object') setHabitNextLog(remoteNextLog);
+        } else if (!cached) setHabits(seedHabits());
+        setHabitLog(loadedLog);
+        if (Array.isArray(merged.automations)) setAutomations(merged.automations);
+        setHabitLogAuto(merged.habitLogAuto);
+        if (merged.habitNextLog && typeof merged.habitNextLog === 'object') setHabitNextLog(merged.habitNextLog);
         if (remoteAutoStatus && typeof remoteAutoStatus === 'object') setHabitAutoStatus(remoteAutoStatus);
       } catch {
-        if (!cancelled) setHabits(seedHabits());
+        // Offline, or the read failed. Whatever the cache already painted
+        // stands — seeding demo habits over real cached data would look
+        // exactly like losing them.
+        if (!cancelled && !cached) setHabits(seedHabits());
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -1307,13 +1377,17 @@ export function HabitsPage({ onBack, user }) {
     setAutoPromotePrompts(prev => prev.filter(p => !set.has(p.id)));
   }
 
+  // Every write on this page goes through the offline queue: it updates the
+  // local cache, records the edit durably, and pushes when a connection allows.
+  // These used to call saveField(...).catch(() => {}) directly, which meant an
+  // edit made with no connection vanished without ever saying so.
   function persist(next) {
     setHabits(next);
-    if (user?.uid) saveField(user.uid, 'habits', next).catch(() => {});
+    if (user?.uid) queueFieldWrite(user.uid, 'habits', next);
   }
   function persistAutomations(next) {
     setAutomations(next);
-    if (user?.uid) saveField(user.uid, 'habitAutomations', next).catch(() => {});
+    if (user?.uid) queueFieldWrite(user.uid, 'habitAutomations', next);
   }
 
   // "Auto-skip rest days" — a one-tap wrapper over the Automatic engine's
@@ -1359,7 +1433,7 @@ export function HabitsPage({ onBack, user }) {
       const next = { ...prev };
       if (dateStr) next[cadence] = dateStr;
       else delete next[cadence];
-      if (user?.uid) saveField(user.uid, 'habitNextLog', next).catch(() => {});
+      if (user?.uid) queueFieldWrite(user.uid, 'habitNextLog', next);
       return next;
     });
   }
@@ -1395,7 +1469,11 @@ export function HabitsPage({ onBack, user }) {
       if (removed.length === 0) return prev;
       // Only these cells are written, merged into the server's copy — never the
       // whole year from this tab's state (see habitLogYears.saveMarkCells).
-      if (user?.uid) saveHabitLogAutoCells(user.uid, removed).catch(() => {});
+      if (user?.uid) {
+        for (const cell of removed) {
+          queueMark(user.uid, { key: cell.key, habitId: cell.habitId, mark: cell.mark, kind: 'auto' });
+        }
+      }
       return next;
     });
   }
@@ -1415,7 +1493,7 @@ export function HabitsPage({ onBack, user }) {
       const next = { ...prev, [key]: bucket };
       if (Object.keys(bucket).length === 0) delete next[key];
       if (user?.uid) {
-        saveHabitLogCells(user.uid, [{ key, habitId: h.id, mark: clearing ? null : mark }]).catch(() => {});
+        queueMark(user.uid, { key, habitId: h.id, mark: clearing ? null : mark });
       }
       return next;
     });
@@ -1431,7 +1509,7 @@ export function HabitsPage({ onBack, user }) {
       else bucket[habitId] = mark;
       const next = { ...prev, [key]: bucket };
       if (Object.keys(bucket).length === 0) delete next[key];
-      if (user?.uid) saveHabitLogCells(user.uid, [{ key, habitId, mark: mark || null }]).catch(() => {});
+      if (user?.uid) queueMark(user.uid, { key, habitId, mark: mark || null });
       return next;
     });
   }
@@ -1451,10 +1529,7 @@ export function HabitsPage({ onBack, user }) {
         else next[key] = bucket;
       }
       if (user?.uid) {
-        saveHabitLogCells(
-          user.uid,
-          cells.map(c => ({ key: c.key, habitId: c.habitId, mark: mark || null })),
-        ).catch(() => {});
+        queueMarks(user.uid, cells.map(c => ({ key: c.key, habitId: c.habitId, mark: mark || null })));
       }
       return next;
     });
@@ -1488,7 +1563,7 @@ export function HabitsPage({ onBack, user }) {
         }
         if (Object.keys(next[key]).length === 0) delete next[key];
       }
-      if (user?.uid && cells.length > 0) saveHabitLogCells(user.uid, cells).catch(() => {});
+      if (user?.uid && cells.length > 0) queueMarks(user.uid, cells);
       return next;
     });
   }
@@ -1720,6 +1795,45 @@ export function HabitsPage({ onBack, user }) {
       <p style={{ fontSize: '0.88rem', color: 'var(--color-text-muted)', margin: '0 0 0.75rem', lineHeight: 1.45 }}>
         Cue → Craving → Response → Reward. The cue is about <em>noticing</em> the reward; the craving is about <em>wanting</em> it.
       </p>
+
+      {/* Offline sync strip. Says nothing about connectivity — the page can't
+          see it — only whether every edit made in this browser has been
+          confirmed by the server. Mirrors the phone's strip. */}
+      {(syncState.pending > 0 || syncState.failed > 0 || syncState.flushing) ? (
+        <div
+          style={{
+            display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
+            margin: '0 0 0.85rem', padding: '0.5rem 0.75rem',
+            border: '1px solid #fde68a', borderRadius: 8, background: '#fffbeb',
+            fontSize: '0.8rem', fontWeight: 600, color: '#b45309',
+          }}
+        >
+          <span aria-hidden="true">{syncState.flushing ? '⏳' : '☁️'}</span>
+          <span style={{ flex: 1, minWidth: 0 }}>
+            {syncState.flushing
+              ? 'Syncing…'
+              : syncState.pending > 0
+                ? `${syncState.pending} change${syncState.pending === 1 ? '' : 's'} saved in this browser, not synced yet`
+                : `${syncState.failed} change${syncState.failed === 1 ? '' : 's'} couldn’t be saved`}
+          </span>
+          {!syncState.flushing && syncState.pending > 0 && (
+            <button onClick={() => flushHabitQueue(user?.uid)} style={ghostBtn}>Sync now</button>
+          )}
+          {syncState.failed > 0 && (
+            <button
+              onClick={() => { discardFailed(); setSyncState(readSyncState()); }}
+              title="Stop retrying these and forget them"
+              style={ghostBtn}
+            >
+              Discard {syncState.failed}
+            </button>
+          )}
+        </div>
+      ) : syncState.syncedAt ? (
+        <div style={{ margin: '0 0 0.75rem', fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>
+          ✓ All changes synced{syncRelTime(syncState.syncedAt) ? ` · ${syncRelTime(syncState.syncedAt)}` : ''}
+        </div>
+      ) : null}
 
       {/* Yesterday's gaps. Deliberately a DIFFERENT warning from the red
           current-period badges — orange, past-tense, dismissible, and above the

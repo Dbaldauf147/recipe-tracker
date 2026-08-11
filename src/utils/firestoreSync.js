@@ -662,6 +662,11 @@ const BACKUP_EXCLUDE = new Set([
 const LOCAL_ONLY_CACHE_KEYS = new Set([
   'sunday-nutrition-cache',
   'sunday-nutrition-cache-version',
+  // The Habits page's offline mirror (habitOfflineStore). Re-fetched on any
+  // successful load, and the habit log alone can run to hundreds of KB — the
+  // UNSYNCED half lives in `sunday-habit-offline-queue`, which is NOT listed
+  // here because it's the only copy of that work.
+  'sunday-habit-offline-cache',
 ]);
 const LOCAL_ONLY_CACHE_PREFIXES = ['sunday-exercise-demo-v1:'];
 function isLocalOnlyCache(key) {

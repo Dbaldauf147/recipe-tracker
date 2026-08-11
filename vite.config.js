@@ -314,10 +314,26 @@ export default defineConfig({
         cleanupOutdatedCaches: true,
         navigateFallback: null,
         runtimeCaching: [
+          // Navigations. Without this the site cannot open AT ALL with no
+          // connection — the shell isn't precached (globPatterns is icons and
+          // fonts) and navigateFallback is off, so the offline Habits page
+          // could only ever be reached in a tab that was already open.
+          // NetworkFirst keeps the deploy-freshness property: online you always
+          // get the server's copy, and the cache is only reached for when
+          // there's nothing to get.
+          {
+            urlPattern: ({ request }) => request.mode === 'navigate',
+            handler: 'NetworkFirst',
+            options: { cacheName: 'pages', expiration: { maxEntries: 10 } },
+          },
           {
             urlPattern: /\.(?:js|css)$/,
             handler: 'NetworkFirst',
-            options: { cacheName: 'assets', expiration: { maxEntries: 50, maxAgeSeconds: 3600 } },
+            // Was one hour, which meant an offline visit any later than that
+            // found the bundle expired and the app unloadable. Still
+            // network-first, so a deploy is picked up on the next online load —
+            // this only changes how long the fallback copy stays usable.
+            options: { cacheName: 'assets', expiration: { maxEntries: 60, maxAgeSeconds: 60 * 60 * 24 * 30 } },
           },
         ],
       },
