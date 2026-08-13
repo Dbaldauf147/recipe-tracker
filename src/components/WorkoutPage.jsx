@@ -3922,7 +3922,34 @@ export function WorkoutPage({ onBack, user }) {
         if (e.exercise && oldSet.has(e.exercise.trim().toLowerCase())) { changed = true; return enrichEntry({ ...e, exercise: newName }); }
         return e;
       });
-      return changed ? { ...w, entries } : w;
+
+      // 1b) The saved suggestion template holds its OWN copy of these names,
+      // and fillFromLast prefers it over `entries` — so skipping it here is
+      // what made a renamed exercise come back under its old name on the next
+      // workout of that type. Deduped after renaming: it's only a suggestion
+      // list, and merging two names into one would otherwise prefill the same
+      // exercise twice.
+      let suggestedEntries = w.suggestedEntries;
+      if (Array.isArray(suggestedEntries)) {
+        let sChanged = false;
+        const renamed = suggestedEntries.map(e => {
+          if (e?.exercise && oldSet.has(e.exercise.trim().toLowerCase())) { sChanged = true; return { ...e, exercise: newName }; }
+          return e;
+        });
+        if (sChanged) {
+          const seen = new Set();
+          suggestedEntries = renamed.filter(e => {
+            const k = (e?.exercise || '').trim().toLowerCase();
+            if (!k) return true;
+            if (seen.has(k)) return false;
+            seen.add(k);
+            return true;
+          });
+          changed = true;
+        }
+      }
+
+      return changed ? { ...w, entries, ...(Array.isArray(w.suggestedEntries) ? { suggestedEntries } : {}) } : w;
     });
     commitWorkouts(nextWorkouts);
 
@@ -4213,13 +4240,59 @@ export function WorkoutPage({ onBack, user }) {
     saveWorkoutTypeCategories(nextCats, user?.uid);
   }
 
+  // Every exercise name the app still knows about — the library, the mobile
+  // mirror, and anything actually logged. A suggestion naming something outside
+  // this set is a leftover from a rename or a deletion.
+  const knownExerciseNames = useMemo(() => {
+    const s = new Set();
+    for (const it of exerciseLibrary || []) {
+      const n = (it?.exercise || '').trim().toLowerCase();
+      if (n) s.add(n);
+    }
+    for (const c of customExercises || []) {
+      const n = (c?.name || '').trim().toLowerCase();
+      if (n) s.add(n);
+    }
+    for (const w of workouts || []) {
+      for (const e of w?.entries || []) {
+        const n = (e?.exercise || '').trim().toLowerCase();
+        if (n) s.add(n);
+      }
+    }
+    return s;
+  }, [exerciseLibrary, customExercises, workouts]);
+
+  // A workout's suggestion template, with names the app no longer knows
+  // anywhere dropped, and any logged exercise the drop left unrepresented added
+  // back at the end.
+  //
+  // This repairs templates saved before renames rewrote them. The old name
+  // survives in nothing but this list, so suggesting it resurrects an exercise
+  // that doesn't exist — but plain dropping would lose the exercise instead of
+  // renaming it, so the logged (already-renamed) row is restored in its place.
+  // Unknown-name matching is checked against logged entries too, so a legacy
+  // exercise never added to the library still suggests.
+  function repairSuggested(w) {
+    const kept = (w.suggestedEntries || []).filter(e => {
+      const n = (e?.exercise || '').trim().toLowerCase();
+      return !n || knownExerciseNames.has(n);
+    });
+    if (kept.length === (w.suggestedEntries || []).length) return kept;  // nothing stale
+    const have = new Set(kept.map(e => (e?.exercise || '').trim().toLowerCase()).filter(Boolean));
+    const restored = (w.entries || []).filter(e => {
+      const n = (e?.exercise || '').trim().toLowerCase();
+      return n && !have.has(n);
+    });
+    return kept.concat(restored);
+  }
+
   function fillFromLast(t) {
     const last = lastByType[t];
     if (!last) return;
     // Prefer suggestedEntries (full logged+skipped template) so exercises the
     // user skipped last time — not logged to history — still get suggested.
     const source = (last.suggestedEntries && last.suggestedEntries.length)
-      ? last.suggestedEntries
+      ? repairSuggested(last)
       : last.entries;
     const fill = (source || []).map(e => ({
       group: e.group || '',
