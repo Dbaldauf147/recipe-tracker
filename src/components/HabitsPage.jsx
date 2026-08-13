@@ -3,6 +3,7 @@ import { loadField, loadHabitAutoStatus } from '../utils/firestoreSync';
 import { loadHabitLog, loadHabitLogAuto } from '../utils/habitLogYears';
 import { HABIT_FIELDS, seedHabits, makeHabitId } from '../data/habitsSeed';
 import { yesterdayDate, yesterdayDayKey, yesterdayUnloggedHabits } from '../utils/habitOutstanding';
+import { normalizePtoRanges, ptoCellsToStamp, activePtoRange } from '../utils/habitPto';
 import {
   readCache as readHabitCache, cacheRemote, replayQueue,
   queueFieldWrite, queueMark, queueMarks,
@@ -1156,6 +1157,11 @@ export function HabitsPage({ onBack, user }) {
   // Automatic-tracking rules (see AUTO_SOURCES). Stored on the user doc as
   // `habitAutomations`; authored on the Automatic tab.
   const [automations, setAutomations] = useState([]);
+  // PTO mode: date ranges over which every due habit is auto-stamped Skip.
+  // Stored on the user doc as `habitPto` and shared with the mobile app.
+  const [ptoRanges, setPtoRanges] = useState([]);
+  const [ptoOpen, setPtoOpen] = useState(false);
+  const [ptoDraft, setPtoDraft] = useState({ start: '', end: '', label: '' });
   // All-time completions + streaks, computed once per (habits, log) change —
   // walking the whole history is O(periods) per habit, so the Routines rows, the
   // KPI board and the habit popup all read from this one map.
@@ -1288,7 +1294,7 @@ export function HabitsPage({ onBack, user }) {
     }
     (async () => {
       try {
-        const [remote, remoteLog, remoteAuto, remoteLogAuto, remoteNextLog, remoteAutoStatus] = await Promise.all([
+        const [remote, remoteLog, remoteAuto, remoteLogAuto, remoteNextLog, remoteAutoStatus, remotePto] = await Promise.all([
           user?.uid ? loadField(user.uid, 'habits') : null,
           // Reads users/{uid}/habitLog/{YYYY}, migrating the legacy user-doc
           // field across on the first load after deploy.
@@ -1297,8 +1303,10 @@ export function HabitsPage({ onBack, user }) {
           user?.uid ? loadHabitLogAuto(user.uid) : null,
           user?.uid ? loadField(user.uid, 'habitNextLog') : null,
           user?.uid ? loadHabitAutoStatus(user.uid) : null,
+          user?.uid ? loadField(user.uid, 'habitPto') : null,
         ]);
         if (cancelled) return;
+        setPtoRanges(normalizePtoRanges(remotePto));
         // Cache the server's answer, then replay anything still queued on top
         // of it — otherwise a load landing while edits are unsynced would paint
         // the older server copy over them and marks would appear to un-log.
@@ -1388,6 +1396,11 @@ export function HabitsPage({ onBack, user }) {
   function persistAutomations(next) {
     setAutomations(next);
     if (user?.uid) queueFieldWrite(user.uid, 'habitAutomations', next);
+  }
+  function persistPto(next) {
+    const clean = normalizePtoRanges(next);
+    setPtoRanges(clean);
+    if (user?.uid) queueFieldWrite(user.uid, 'habitPto', clean);
   }
 
   // "Auto-skip rest days" — a one-tap wrapper over the Automatic engine's
@@ -1513,6 +1526,27 @@ export function HabitsPage({ onBack, user }) {
       return next;
     });
   }
+  const activePto = useMemo(() => activePtoRange(ptoRanges), [ptoRanges]);
+
+  // PTO: stamp Skip on every cell a range covers that doesn't have a mark yet.
+  //
+  // Runs on any change to the ranges, the habits or the log — which is what
+  // makes it backfill. Set a range after a trip, or come home to a week the app
+  // never saw, and the days fill in on this pass rather than needing you to
+  // have opened the app each morning.
+  //
+  // Converges: the cells it writes are exactly the ones it then sees as marked,
+  // so the next run computes an empty list. Waits for `loading` so it can't
+  // stamp against a half-loaded log and overwrite nothing it should.
+  useEffect(() => {
+    if (loading || !user?.uid) return;
+    const cells = ptoCellsToStamp(habits, habitLog, automations, ptoRanges);
+    if (cells.length > 0) setMarksForCells(cells, 'skipped');
+    // setMarksForCells is stable enough for this — it only reads state through
+    // the functional updater.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, user?.uid, habits, habitLog, automations, ptoRanges]);
+
   // Bulk set (or erase, when mark is null) many cells at once — used by the
   // weekly table's bulk-edit mode. `cells` is [{ habitId, key }, …]. One state
   // update + one Firestore write for the whole batch.
@@ -1789,9 +1823,29 @@ export function HabitsPage({ onBack, user }) {
         <button onClick={onBack} style={backBtn}>&larr; Back</button>
         <h1 style={{ fontSize: '1.6rem', fontWeight: 700, margin: 0, letterSpacing: '-0.02em' }}>Habits</h1>
         <div style={{ flex: 1 }} />
+        <button onClick={() => setPtoOpen(true)} style={activePto ? { ...ghostBtn, borderColor: MARK_META.skipped.color, color: MARK_META.skipped.color } : ghostBtn}>
+          {activePto ? '⏭ PTO on' : 'PTO'}
+        </button>
         <button onClick={() => setImportOpen(true)} style={ghostBtn}>Paste from sheet</button>
         <button onClick={addHabit} style={primaryBtn}>+ Add habit</button>
       </div>
+
+      {activePto && (
+        <div
+          style={{
+            display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
+            margin: '0 0 0.85rem', padding: '0.5rem 0.75rem',
+            border: '1px solid #cbd5e1', borderRadius: 8, background: '#f8fafc',
+            fontSize: '0.8rem', fontWeight: 600, color: '#475569',
+          }}
+        >
+          <span aria-hidden="true">⏭</span>
+          <span style={{ flex: 1, minWidth: 0 }}>
+            PTO {activePto.label ? `(${activePto.label}) ` : ''}through {activePto.end}. Everything due is marked Skip — log anything you actually do and it stays.
+          </span>
+          <button onClick={() => setPtoOpen(true)} style={ghostBtn}>Edit</button>
+        </div>
+      )}
       <p style={{ fontSize: '0.88rem', color: 'var(--color-text-muted)', margin: '0 0 0.75rem', lineHeight: 1.45 }}>
         Cue → Craving → Response → Reward. The cue is about <em>noticing</em> the reward; the craving is about <em>wanting</em> it.
       </p>
@@ -2178,6 +2232,73 @@ export function HabitsPage({ onBack, user }) {
           onDeleteHabits={() => { deleteRoutine(deleteRoutineName, 'delete-habits'); setDeleteRoutineName(null); }}
           onClose={() => setDeleteRoutineName(null)}
         />
+      )}
+
+      {ptoOpen && (
+        <div style={overlay} onClick={() => setPtoOpen(false)}>
+          <div style={modal} onClick={e => e.stopPropagation()}>
+            <h3 style={{ margin: '0 0 0.5rem' }}>PTO mode</h3>
+            <p style={{ fontSize: '0.82rem', color: 'var(--color-text-muted)', margin: '0 0 0.75rem', lineHeight: 1.45 }}>
+              Days in a range are marked <strong>Skip</strong> for every habit due on them, so nothing shows as missed
+              while you're away. Anything you log yourself on those days is left alone, and past days fill in as soon as
+              you open the page — you don't have to be here each morning. Weekly and monthly habits are only skipped when
+              the range covers the whole period they're due in.
+            </p>
+
+            {ptoRanges.length === 0 ? (
+              <p style={{ fontSize: '0.85rem', color: 'var(--color-text-muted)', fontStyle: 'italic', margin: '0 0 0.75rem' }}>
+                No PTO booked.
+              </p>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, margin: '0 0 0.75rem' }}>
+                {ptoRanges.map(r => (
+                  <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 8, border: '1px solid var(--color-border)', borderRadius: 8, padding: '0.4rem 0.6rem' }}>
+                    <span style={{ flex: 1, fontSize: '0.85rem' }}>
+                      <strong>{r.start}</strong> → <strong>{r.end}</strong>
+                      {r.label ? <span style={{ color: 'var(--color-text-muted)' }}>{`  ·  ${r.label}`}</span> : null}
+                    </span>
+                    <button
+                      onClick={() => persistPto(ptoRanges.filter(x => x.id !== r.id))}
+                      title="Remove this range. Marks it already wrote stay — erase them from the day menu if you want them gone."
+                      style={{ ...ghostBtn, color: '#dc2626', borderColor: '#fecaca' }}
+                    >
+                      Remove
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8, flexWrap: 'wrap' }}>
+              <label style={{ fontSize: '0.78rem', fontWeight: 600, display: 'flex', flexDirection: 'column', gap: 3 }}>
+                From
+                <input type="date" value={ptoDraft.start} onChange={e => setPtoDraft(d => ({ ...d, start: e.target.value }))} style={{ padding: '0.4rem', borderRadius: 8, border: '1px solid var(--color-border)' }} />
+              </label>
+              <label style={{ fontSize: '0.78rem', fontWeight: 600, display: 'flex', flexDirection: 'column', gap: 3 }}>
+                To
+                <input type="date" value={ptoDraft.end} onChange={e => setPtoDraft(d => ({ ...d, end: e.target.value }))} style={{ padding: '0.4rem', borderRadius: 8, border: '1px solid var(--color-border)' }} />
+              </label>
+              <label style={{ fontSize: '0.78rem', fontWeight: 600, display: 'flex', flexDirection: 'column', gap: 3, flex: 1, minWidth: 120 }}>
+                Label (optional)
+                <input type="text" value={ptoDraft.label} placeholder="Italy" onChange={e => setPtoDraft(d => ({ ...d, label: e.target.value }))} style={{ padding: '0.4rem', borderRadius: 8, border: '1px solid var(--color-border)' }} />
+              </label>
+              <button
+                disabled={!ptoDraft.start || !ptoDraft.end}
+                onClick={() => {
+                  persistPto([...ptoRanges, { id: `pto_${Date.now()}`, ...ptoDraft }]);
+                  setPtoDraft({ start: '', end: '', label: '' });
+                }}
+                style={{ ...primaryBtn, opacity: (!ptoDraft.start || !ptoDraft.end) ? 0.5 : 1 }}
+              >
+                Add
+              </button>
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '1rem' }}>
+              <button onClick={() => setPtoOpen(false)} style={ghostBtn}>Done</button>
+            </div>
+          </div>
+        </div>
       )}
 
       {importOpen && (

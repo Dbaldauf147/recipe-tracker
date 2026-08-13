@@ -10,7 +10,7 @@
 
 const pad2 = (n) => String(n).padStart(2, '0');
 
-function cadenceCanon(c) {
+export function cadenceCanon(c) {
   const x = (c || '').trim().toLowerCase();
   if (x === 'weekly') return 'Weekly';
   if (x === 'monthly') return 'Monthly';
@@ -18,7 +18,7 @@ function cadenceCanon(c) {
   return 'Daily';
 }
 
-function dayKey(d) {
+export function dayKey(d) {
   return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
 }
 
@@ -60,14 +60,14 @@ function habitTrackDays(h) {
   const t = h?.trackDays;
   return Array.isArray(t) && t.length > 0 ? t : ALL_WEEKDAYS;
 }
-function tracksDate(h, date = new Date()) {
+export function tracksDate(h, date = new Date()) {
   if (cadenceCanon(h?.cadence) !== 'Daily') return true;
   return habitTrackDays(h).includes(date.getDay());
 }
 
 // Weekly per-habit pinned day (`weekDays`): the habit isn't "due" until its
 // day of the week arrives. Not pinned → due all week (legacy default).
-function habitWeekDays(h) {
+export function habitWeekDays(h) {
   return (cadenceCanon(h?.cadence) === 'Weekly' && Array.isArray(h?.weekDays) && h.weekDays.length)
     ? h.weekDays : null;
 }
@@ -85,7 +85,7 @@ function weeklyDueYet(h, date = new Date()) {
 // cadenceUnlogged loop skips 'Automatically' — so totalUnlogged and this badge
 // agree. Without the two not-started statuses the nav badge over-counts every
 // imported-but-not-yet-started habit.
-const EXCLUDED_STATUSES = new Set(['On Hold', 'Abandoned', 'Automatically', 'Not Started', 'Havent Started']);
+export const EXCLUDED_STATUSES = new Set(['On Hold', 'Abandoned', 'Automatically', 'Not Started', 'Havent Started']);
 
 // ---- "Yesterday never got logged" — a different warning from the counts above ----
 // The outstanding count nags about a period still IN PROGRESS; this one is about
@@ -162,7 +162,7 @@ export function yesterdayUnloggedHabits(habits, habitLog, automations, now = new
 /** The ids of habits an ENABLED automation rule fills in — the cron logs them,
  *  so they are never the user's to log. Distinct from the manual
  *  `status:'Automatically'` opt-out, which EXCLUDED_STATUSES already drops. */
-function autoTrackedIds(automations) {
+export function autoTrackedIds(automations) {
   return new Set(
     (Array.isArray(automations) ? automations : [])
       .filter(r => r && r.enabled && r.habitId)
