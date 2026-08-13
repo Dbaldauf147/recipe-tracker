@@ -6,7 +6,7 @@ import { db } from '../firebase';
 import { saveField, loadField, saveWorkoutDraft, clearWorkoutDraft, newWorkoutId } from '../utils/firestoreSync';
 import { exportWorkoutHistoryToCSV } from '../utils/exportData';
 import { parseSetValue, formatSeconds, computeSetStats } from '../utils/setValue';
-import { ExerciseLibrary, effectiveMuscleGroup } from './ExerciseLibrary';
+import { ExerciseLibrary, effectiveMuscleGroup, videoSourceLabel } from './ExerciseLibrary';
 import { EXERCISE_TYPES, DEFAULT_EXERCISE_TYPE, effectiveExerciseType, normalizeExerciseType, inferExerciseType } from '../utils/exerciseTypes';
 import { entryBestE1rmLb } from '../utils/exerciseProgress';
 import { StretchRoutines } from './StretchRoutines';
@@ -20,7 +20,8 @@ import {
 import { loadHabitLog, saveHabitLogCells } from '../utils/habitLogYears';
 import { periodKey } from '../utils/habitOutstanding';
 import { BodyHeatmap } from './BodyHeatmap';
-import { ExerciseDemo } from './ExerciseDemo';
+import { ExerciseDemo, ExerciseMuscles } from './ExerciseDemo';
+import ExerciseChart from './ExerciseChart';
 import ExerciseProgressTracker from './ExerciseProgressTracker';
 import styles from './WorkoutPage.module.css';
 import { workoutCalendarCategory, CAL_ICON } from '../utils/workoutCategory';
@@ -2541,6 +2542,21 @@ export function WorkoutPage({ onBack, user }) {
   const [pickerIdx, setPickerIdx] = useState(null);
   // Exercise name whose "How to do it" demo modal is open (null = closed).
   const [demoName, setDemoName] = useState(null);
+  // Which subtab of the exercise popup is showing, and which Log row opened it
+  // (null when opened from somewhere with no row, e.g. a future call site) —
+  // the Notes tab edits that row's note in place.
+  const [demoTab, setDemoTab] = useState('notes');
+  const [demoRowIdx, setDemoRowIdx] = useState(null);
+
+  function openExerciseInfo(rowIdx, name) {
+    setDemoRowIdx(rowIdx);
+    setDemoName(name);
+    setDemoTab('notes');
+  }
+  function closeExerciseInfo() {
+    setDemoName(null);
+    setDemoRowIdx(null);
+  }
   const [viewMode, setViewMode] = useState('log'); // 'log' | 'history' | 'charts' | 'body' | 'exercises' | 'steps' | 'sleep' | 'stats' (Overview)
   const [exerciseLibrary, setExerciseLibrary] = useState(loadLibrary);
   // Mirror the mobile app: per-user custom exercises and hidden defaults
@@ -4801,8 +4817,8 @@ export function WorkoutPage({ onBack, user }) {
                           {entry.exercise && (
                             <button
                               type="button"
-                              title="How to do it (form + muscles)"
-                              onClick={() => setDemoName(entry.exercise)}
+                              title="Notes, videos, muscles & charts"
+                              onClick={() => openExerciseInfo(i, entry.exercise)}
                               style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-accent)', fontSize: '1.05rem', lineHeight: 1, padding: '0 2px', flexShrink: 0 }}
                             >
                               ⓘ
@@ -6555,23 +6571,148 @@ export function WorkoutPage({ onBack, user }) {
         );
       })()}
 
-      {demoName && (
-        <div
-          onClick={() => setDemoName(null)}
-          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '1rem' }}
-        >
+      {demoName && (() => {
+        const lower = demoName.trim().toLowerCase();
+        const libRow = (exerciseLibrary || []).find(
+          e => e?.exercise && e.exercise.trim().toLowerCase() === lower,
+        );
+        const videos = (libRow?.videos || []).filter(Boolean);
+        const row = demoRowIdx == null ? null : entries[demoRowIdx];
+        // Only the row the popup was opened from can be edited here; if the
+        // exercise was renamed out from under us mid-popup, don't write to it.
+        const editableRow = row && row.exercise === demoName ? row : null;
+
+        // Every note ever written against this exercise, newest first, so the
+        // Notes tab is a running log rather than just today's box.
+        const pastNotes = [];
+        for (const w of workouts || []) {
+          for (const e of w?.entries || []) {
+            if (!e?.notes || !e.notes.trim()) continue;
+            if (String(e.exercise || '').trim().toLowerCase() !== lower) continue;
+            pastNotes.push({ date: w.date, note: e.notes.trim() });
+          }
+        }
+        pastNotes.sort((a, b) => String(b.date).localeCompare(String(a.date)));
+
+        const TABS = [
+          ['notes', `Notes${pastNotes.length ? ` (${pastNotes.length})` : ''}`],
+          ['videos', `Videos${videos.length ? ` (${videos.length})` : ''}`],
+          ['muscles', 'Muscles'],
+          ['charts', 'Charts'],
+        ];
+
+        return (
           <div
-            onClick={e => e.stopPropagation()}
-            style={{ background: '#fff', borderRadius: 12, padding: '1.1rem 1.2rem', width: 'min(440px, 94vw)', maxHeight: '90vh', overflow: 'auto', boxShadow: '0 10px 40px rgba(0,0,0,0.25)' }}
+            onClick={closeExerciseInfo}
+            style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '1rem' }}
           >
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10, gap: 8 }}>
-              <div style={{ fontWeight: 700, fontSize: '1rem' }}>{demoName} — How to do it</div>
-              <button onClick={() => setDemoName(null)} style={{ background: 'none', border: 'none', fontSize: '1.4rem', cursor: 'pointer', lineHeight: 1 }}>&times;</button>
+            <div
+              onClick={e => e.stopPropagation()}
+              style={{ background: '#fff', borderRadius: 12, padding: '1.1rem 1.2rem', width: 'min(520px, 94vw)', maxHeight: '90vh', overflow: 'auto', boxShadow: '0 10px 40px rgba(0,0,0,0.25)' }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10, gap: 8 }}>
+                <div style={{ fontWeight: 700, fontSize: '1rem' }}>{demoName}</div>
+                <button onClick={closeExerciseInfo} style={{ background: 'none', border: 'none', fontSize: '1.4rem', cursor: 'pointer', lineHeight: 1 }}>&times;</button>
+              </div>
+
+              <div className={styles.tabs} style={{ marginBottom: 12, flexWrap: 'wrap' }}>
+                {TABS.map(([key, label]) => (
+                  <button
+                    key={key}
+                    type="button"
+                    className={`${styles.tab} ${demoTab === key ? styles.tabActive : ''}`}
+                    onClick={() => setDemoTab(key)}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+
+              {demoTab === 'notes' && (
+                <div>
+                  {editableRow ? (
+                    <div style={{ marginBottom: pastNotes.length ? 14 : 0 }}>
+                      <div style={{ fontSize: '0.78rem', fontWeight: 700, color: 'var(--color-text-muted)', marginBottom: 4 }}>
+                        TODAY’S NOTE
+                      </div>
+                      <textarea
+                        value={editableRow.notes || ''}
+                        onChange={e => updateEntry(demoRowIdx, 'notes', e.target.value)}
+                        rows={3}
+                        placeholder="How did it feel? Cues, tweaks, setup…"
+                        style={{ width: '100%', boxSizing: 'border-box', padding: '0.5rem 0.65rem', border: '1px solid var(--color-border)', borderRadius: 8, fontFamily: 'inherit', fontSize: '0.88rem', resize: 'vertical' }}
+                      />
+                    </div>
+                  ) : null}
+
+                  <div style={{ fontSize: '0.78rem', fontWeight: 700, color: 'var(--color-text-muted)', marginBottom: 6 }}>
+                    PAST NOTES
+                  </div>
+                  {pastNotes.length === 0 ? (
+                    <div style={{ color: 'var(--color-text-muted)', fontStyle: 'italic', fontSize: '0.88rem' }}>
+                      No notes logged for {demoName} yet.
+                    </div>
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                      {pastNotes.map((n, i) => (
+                        <div key={`${n.date}-${i}`} style={{ borderLeft: '3px solid var(--color-border)', paddingLeft: 10 }}>
+                          <div style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--color-text-muted)' }}>{formatDate(n.date)}</div>
+                          <div style={{ fontSize: '0.88rem', lineHeight: 1.45, whiteSpace: 'pre-wrap' }}>{n.note}</div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {demoTab === 'videos' && (
+                <div>
+                  {videos.length === 0 ? (
+                    <div style={{ color: 'var(--color-text-muted)', fontStyle: 'italic', fontSize: '0.88rem', marginBottom: 14 }}>
+                      No saved videos. Paste Instagram/YouTube links into this exercise’s Videos column on the Exercises tab.
+                    </div>
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 14 }}>
+                      {videos.map((url, vi) => (
+                        <a
+                          key={vi}
+                          href={url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          title={url}
+                          style={{ display: 'flex', alignItems: 'center', gap: 8, border: '1px solid var(--color-border)', borderRadius: 8, padding: '0.45rem 0.6rem', textDecoration: 'none', color: 'var(--color-text)', fontSize: '0.85rem' }}
+                        >
+                          <span style={{ background: 'var(--color-accent)', color: '#fff', borderRadius: 6, padding: '2px 7px', fontSize: 11, fontWeight: 700, flexShrink: 0 }}>
+                            {videoSourceLabel(url)}
+                          </span>
+                          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{url}</span>
+                        </a>
+                      ))}
+                    </div>
+                  )}
+
+                  <div style={{ fontSize: '0.78rem', fontWeight: 700, color: 'var(--color-text-muted)', marginBottom: 6 }}>
+                    FORM DEMO
+                  </div>
+                  <ExerciseDemo name={demoName} showMuscleMap={false} showMuscles={false} />
+                </div>
+              )}
+
+              {demoTab === 'muscles' && (
+                <ExerciseMuscles
+                  name={demoName}
+                  fallbackPrimary={libRow?.primaryMuscles}
+                  fallbackSecondary={libRow?.secondaryMuscles}
+                />
+              )}
+
+              {demoTab === 'charts' && (
+                <ExerciseChart workouts={workouts} exercise={demoName} weightUnit={weightUnit} height={260} />
+              )}
             </div>
-            <ExerciseDemo name={demoName} showMuscleMap={false} />
           </div>
-        </div>
-      )}
+        );
+      })()}
     </div>
   );
 }

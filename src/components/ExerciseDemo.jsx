@@ -475,7 +475,7 @@ export function ExerciseDemoThumb({ name, onOpen, size = 56 }) {
  * on a loop (so the rep "moves"), the muscles worked, and step-by-step
  * instructions. Renders a friendly message when the name can't be matched.
  */
-export function ExerciseDemo({ name, fallbackPrimary, fallbackSecondary, showMuscleMap = true }) {
+export function ExerciseDemo({ name, fallbackPrimary, fallbackSecondary, showMuscleMap = true, showMuscles = true }) {
   const [flip, setFlip] = useState(false);
   const [showSteps, setShowSteps] = useState(false);
   const { demo, aiImage, loading } = useExerciseDemoMatch(name, true);
@@ -563,7 +563,7 @@ export function ExerciseDemo({ name, fallbackPrimary, fallbackSecondary, showMus
 
       {showMuscleMap && <MuscleBodyMap primary={mapPrimary} secondary={mapSecondary} />}
 
-      {(primary.length > 0 || secondary.length > 0) && (
+      {showMuscles && (primary.length > 0 || secondary.length > 0) && (
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 6 }}>
           {primary.map(m => (
             <span key={`p-${m}`} style={{ background: 'var(--color-accent)', color: '#fff', borderRadius: 999, padding: '3px 10px', fontSize: 12, fontWeight: 700 }}>{titleCase(m)}</span>
@@ -594,6 +594,49 @@ export function ExerciseDemo({ name, fallbackPrimary, fallbackSecondary, showMus
       )}
 
       <ExerciseImageControls name={name} />
+    </div>
+  );
+}
+
+/**
+ * Just the muscles worked — the body map plus primary/secondary pills — with no
+ * form photos or upload controls. Split out of `ExerciseDemo` so the exercise
+ * popup's "Muscles" tab can own this view while the "Videos" tab owns the form
+ * photos. Muscle data comes from the matched demo, falling back to the
+ * exercise's own library Primary/Secondary columns.
+ */
+export function ExerciseMuscles({ name, fallbackPrimary, fallbackSecondary }) {
+  const { demo, loading } = useExerciseDemoMatch(name, true);
+
+  const primary = demo?.primaryMuscles?.length ? demo.primaryMuscles : toMuscleList(fallbackPrimary);
+  const secondary = demo?.secondaryMuscles?.length ? demo.secondaryMuscles : toMuscleList(fallbackSecondary);
+
+  if (loading && !primary.length && !secondary.length) {
+    return <div style={{ padding: '0.75rem 0', color: 'var(--color-text-muted)' }}>Looking up muscles…</div>;
+  }
+
+  if (!primary.length && !secondary.length) {
+    return (
+      <div style={{ padding: '0.75rem 0', color: 'var(--color-text-muted)', fontStyle: 'italic', fontSize: '0.88rem' }}>
+        No muscles recorded for this one. Fill in the Primary/Secondary columns on the Exercises tab and they’ll show up here.
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <MuscleBodyMap primary={primary} secondary={secondary} />
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
+        {primary.map(m => (
+          <span key={`p-${m}`} style={{ background: 'var(--color-accent)', color: '#fff', borderRadius: 999, padding: '3px 10px', fontSize: 12, fontWeight: 700 }}>{titleCase(m)}</span>
+        ))}
+        {secondary.map(m => (
+          <span key={`s-${m}`} style={{ background: 'var(--color-surface, #f1f5f9)', color: 'var(--color-text-secondary, #475569)', border: '1px solid var(--color-border)', borderRadius: 999, padding: '3px 10px', fontSize: 12, fontWeight: 700 }}>{titleCase(m)}</span>
+        ))}
+      </div>
+      <div style={{ marginTop: 6, fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>
+        Filled = primary · outlined = secondary
+      </div>
     </div>
   );
 }

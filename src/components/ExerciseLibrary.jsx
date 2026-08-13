@@ -179,7 +179,7 @@ function formatAddedDate(iso) {
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
-function videoSourceLabel(url) {
+export function videoSourceLabel(url) {
   const u = url.toLowerCase();
   if (u.includes('instagram.com')) return 'IG';
   if (u.includes('youtube.com') || u.includes('youtu.be')) return 'YT';
