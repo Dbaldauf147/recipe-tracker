@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useRecipes } from './hooks/useRecipes';
 import { useAuth } from './contexts/AuthContext';
-import { saveField, loadField, getPendingRequests, getPendingSharedRecipes, loadFriends, loadFriendShoppingList, loadFriendEatingOut, getUsername } from './utils/firestoreSync';
+import { saveField, loadField, getPendingRequests, getPendingSharedRecipes, loadFriends, loadFriendShoppingList, loadFriendEatingOut, getUsername, noteWeeklyPlanChange } from './utils/firestoreSync';
 import { trackPageView } from './utils/trackPageView';
 import { countOutstandingHabits } from './utils/habitOutstanding';
 import { loadHabitLog } from './utils/habitLogYears';
@@ -530,8 +530,12 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
   }, []);
-  function saveWeek(plan) {
+  // `prevPlan` is what the plan looked like before this change. It's what lets
+  // the sync layer hold the change against a snapshot that was already in
+  // flight when we wrote — without it, a removed meal reappears.
+  function saveWeek(plan, prevPlan) {
     try { localStorage.setItem(WEEKLY_KEY, JSON.stringify(plan)); } catch {}
+    noteWeeklyPlanChange(prevPlan, plan);
     if (user) saveField(user.uid, 'weeklyPlan', plan).catch(() => {});
   }
 
@@ -698,7 +702,7 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
     setSelectedId(null);
     setWeeklyPlan(prev => {
       const next = prev.filter(wid => wid !== id);
-      saveWeek(next);
+      saveWeek(next, prev);
       return next;
     });
     setWeeklyServings(prev => {
@@ -731,7 +735,7 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
   function handleAddToWeek(id) {
     setWeeklyPlan(prev => {
       const next = prev.includes(id) ? prev : [...prev, id];
-      saveWeek(next);
+      saveWeek(next, prev);
       return next;
     });
   }
@@ -739,7 +743,7 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
   function handleRemoveFromWeek(id) {
     setWeeklyPlan(prev => {
       const next = prev.filter(wid => wid !== id);
-      saveWeek(next);
+      saveWeek(next, prev);
       return next;
     });
     setWeeklyServings(prev => {
@@ -751,7 +755,7 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
   }
 
   function handleClearWeek() {
-    saveWeek([]);
+    saveWeek([], weeklyPlan);
     setWeeklyPlan([]);
     saveWeeklyServings({});
     setWeeklyServings({});

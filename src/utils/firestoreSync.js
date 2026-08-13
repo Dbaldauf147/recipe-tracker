@@ -72,6 +72,54 @@ async function safeOverwriteDoc({ uid, type, ref, field, value, count, extract, 
   await setDoc(ref, { [field]: value }, { merge: false });
 }
 
+/**
+ * Weekly-plan ids whose local add/remove the server hasn't echoed back yet.
+ *
+ * hydrateLocalStorage runs on EVERY user-doc snapshot and overwrites the
+ * `sunday-weekly-plan` key, and App.jsx re-reads it on the `firestore-sync`
+ * event. A snapshot generated before a save landed but delivered after it
+ * therefore put a just-removed meal straight back. The window is wide because
+ * `weeklyPlan` is a GUARDED_FIELD: every save does a getDoc round-trip, plus a
+ * shrink snapshot (a removal always shrinks), before its setDoc.
+ *
+ * Same guard as the mobile app's pendingPlanOps: force the local intent over
+ * the remote array until the remote agrees, then stop forcing. In-memory only
+ * — it covers a few seconds of round-trip, and an op surviving a reload could
+ * hide a meal added on another device.
+ */
+const pendingWeeklyPlanOps = new Map();
+
+/** Record what a weekly-plan write changed, so snapshots can't undo it. */
+export function noteWeeklyPlanChange(prevPlan, nextPlan) {
+  const before = new Set(Array.isArray(prevPlan) ? prevPlan : []);
+  const after = new Set(Array.isArray(nextPlan) ? nextPlan : []);
+  for (const id of after) if (!before.has(id)) pendingWeeklyPlanOps.set(id, 'add');
+  for (const id of before) if (!after.has(id)) pendingWeeklyPlanOps.set(id, 'remove');
+}
+
+/** Drop the guard so a deliberate reset (sign-out) isn't fought by it. */
+export function resetWeeklyPlanOps() {
+  pendingWeeklyPlanOps.clear();
+}
+
+function reconcileWeeklyPlan(remoteVal) {
+  if (pendingWeeklyPlanOps.size === 0) return remoteVal;
+  const remote = Array.isArray(remoteVal) ? remoteVal : [];
+  const remoteSet = new Set(remote);
+  // An op retires the moment the remote agrees with it — that snapshot IS the
+  // confirmation, and holding past it would override a later change made
+  // elsewhere.
+  for (const [id, op] of [...pendingWeeklyPlanOps]) {
+    if (remoteSet.has(id) === (op === 'add')) pendingWeeklyPlanOps.delete(id);
+  }
+  if (pendingWeeklyPlanOps.size === 0) return remoteVal;
+  const next = remote.filter(id => pendingWeeklyPlanOps.get(id) !== 'remove');
+  for (const [id, op] of pendingWeeklyPlanOps) {
+    if (op === 'add' && !next.includes(id)) next.push(id);
+  }
+  return next;
+}
+
 // Important user-doc array/object fields that get the snapshot-on-shrink guard.
 const GUARDED_FIELDS = new Set([
   'weightLog', 'weeklyPlan', 'weeklyServings', 'planHistory', 'habits',
@@ -1472,7 +1520,7 @@ export function hydrateLocalStorage(userData, uid) {
     localStorage.setItem(localKey, JSON.stringify(remoteVal || {}));
   }
 
-  hydrateArrayWithDefense('sunday-weekly-plan', userData.weeklyPlan, 'weeklyPlan');
+  hydrateArrayWithDefense('sunday-weekly-plan', reconcileWeeklyPlan(userData.weeklyPlan), 'weeklyPlan');
   hydrateArrayWithDefense('sunday-plan-history', userData.planHistory, 'planHistory');
   hydrateArrayWithDefense('recipe-tracker-deleted', userData.deletedRecipes, 'deletedRecipes');
   hydrateArrayWithDefense('sunday-grocery-staples', userData.groceryStaples, 'groceryStaples');
