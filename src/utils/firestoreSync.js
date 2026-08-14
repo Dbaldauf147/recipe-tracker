@@ -1,4 +1,4 @@
-import { doc, getDoc, setDoc, addDoc, deleteDoc, updateDoc, deleteField, collection, query, where, getDocs, arrayUnion, arrayRemove, increment, onSnapshot, writeBatch } from 'firebase/firestore';
+import { doc, getDoc, setDoc, addDoc, deleteDoc, updateDoc, deleteField, collection, query, where, getDocs, arrayUnion, arrayRemove, increment, onSnapshot, writeBatch, runTransaction } from 'firebase/firestore';
 import { db, auth } from '../firebase';
 
 // ── Data-safety layer (mirrors the mobile app) ──────────────────────────────
@@ -1046,6 +1046,45 @@ export function subscribeRestaurants(uid, onChange) {
     },
     (err) => console.error('subscribeRestaurants:', err),
   );
+}
+
+/**
+ * Write one spot into an eating-out list — your own, or a friend's list that
+ * they've shared with you.
+ *
+ * A TRANSACTION that re-reads the array and touches only the named spot, never
+ * a wholesale save. The whole list is one array field, so pushing a client's
+ * full copy would erase everything the other person changed since it loaded.
+ * With 400+ spots and two people editing, that's the difference between losing
+ * one simultaneous edit of the same spot and losing the entire list.
+ *
+ * Deliberately skips safeOverwriteDoc's snapshot: that writes the owner's
+ * dataSnapshots, which a friend can't write. The transaction is the protection.
+ *
+ * ⚠️ MIRRORS PrepDay/src/services/firestoreSync.ts `saveSpotForOwner`.
+ */
+export async function saveSpotForOwner(ownerUid, spot, actor, opts) {
+  if (!ownerUid || !spot?.id) return;
+  const ref = doc(db, 'users', ownerUid, 'data', 'eatingOut');
+  await runTransaction(db, async tx => {
+    const snap = await tx.get(ref);
+    const rows = (snap.exists() && Array.isArray(snap.data()?.restaurants))
+      ? snap.data().restaurants
+      : [];
+    let next;
+    if (opts?.remove) {
+      next = rows.filter(r => r?.id !== spot.id);
+    } else {
+      // Attribution only when someone else's hand is on it — the owner editing
+      // their own spot isn't "edited by".
+      const stamped = (actor?.uid && actor.uid !== ownerUid)
+        ? { ...spot, editedBy: actor.uid, editedByName: actor.name || '', editedAt: new Date().toISOString() }
+        : spot;
+      const i = rows.findIndex(r => r?.id === spot.id);
+      next = i >= 0 ? rows.map((r, n) => (n === i ? stamped : r)) : [...rows, stamped];
+    }
+    tx.set(ref, { restaurants: next }, { merge: true });
+  });
 }
 
 export async function saveRestaurants(uid, rows) {

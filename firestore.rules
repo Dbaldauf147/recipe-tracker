@@ -25,8 +25,12 @@ rules_version = '2';
 //   • a friend reading a friend's user doc          (loadFriends, shopping list,
 //                                                    eating-out votes)
 //   • a friend reading users/{uid}/data/recipes     (granted via sharedAccess)
-//   • a friend reading users/{uid}/data/eatingOut   (granted via
+//   • a friend reading AND WRITING users/{uid}/data/eatingOut and that list's
+//     users/{uid}/eatingOutImages/{spotId}          (granted via
 //                                                    sharedEatingOutWith)
+//     The only cross-user document WRITE here. A shared eating-out list is
+//     collaborative: whoever it is shared with edits, adds and deletes spots
+//     in it. See the rule for the constraint that makes it safe.
 //   • a friend reading users/{uid}/mealImages/{id}  (shared-recipe image copy)
 //   • ANY signed-in user reading three docs on the ADMIN account, and only
 //     those: data/ingredients (the shared ingredient DB), data/recipes +
@@ -113,9 +117,16 @@ service cloud.firestore {
 
       // The Eating Out list, moved off the user document: 150KB that every
       // spot edit rewrote whole, on a doc friends can read in full.
+      // Write is open to the friends you shared with, not just you: a shared
+      // list is collaborative, so they edit, add and delete spots in it. This
+      // is the one cross-user document write in this file, and it is a
+      // deliberate exception — clients MUST write it through a transaction that
+      // re-reads the array and touches a single spot by id, because the whole
+      // list is one array field and a wholesale write from a stale copy would
+      // erase everything the owner changed meanwhile.
       match /data/eatingOut {
         allow get: if isOwner(uid) || isAdmin() || hasEatingOutAccessTo(uid);
-        allow write: if isOwner(uid);
+        allow write: if isOwner(uid) || hasEatingOutAccessTo(uid);
       }
 
       // The shared ingredient database. It lives on the admin's account and
@@ -136,13 +147,13 @@ service cloud.firestore {
         allow write: if isOwner(uid);
       }
 
-      // Eating-out photos, keyed by spot id. A friend viewing a shared list
-      // needs these to see the places' pictures. Write stays owner-only, like
-      // every other cross-user surface here — a friend rates and comments on
-      // your spot (separate collections), but never writes to your document.
+      // Eating-out photos, keyed by spot id. Any friend may see them; a friend
+      // you SHARED the list with may also add or replace one, since editing a
+      // shared spot includes its picture. One document per spot, so a write
+      // here can only affect the photo of the spot it names.
       match /eatingOutImages/{spotId} {
         allow get: if isOwner(uid) || isAdmin() || isFriendOf(uid);
-        allow write: if isOwner(uid);
+        allow write: if isOwner(uid) || hasEatingOutAccessTo(uid);
       }
 
       // Everything else under a user document — dailyLog, workouts, habitLog

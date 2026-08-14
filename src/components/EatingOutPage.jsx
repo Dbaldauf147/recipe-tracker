@@ -16,7 +16,7 @@ import {
   IMPORT_FIELDS,
 } from '../utils/restaurantImport';
 import { downloadRestaurantsCsv } from '../utils/restaurantExport';
-import { saveEatingOutOrder, subscribeSpotComments, addSpotComment, deleteSpotComment, subscribeSpotRatings, subscribeEatingOutRatings, setEatingOutRating, loadSpotImage, saveSpotImage, deleteSpotImage } from '../utils/firestoreSync';
+import { saveSpotForOwner, saveEatingOutOrder, subscribeSpotComments, addSpotComment, deleteSpotComment, subscribeSpotRatings, subscribeEatingOutRatings, setEatingOutRating, loadSpotImage, saveSpotImage, deleteSpotImage } from '../utils/firestoreSync';
 // Canvas resize helper shared with the exercise-photo uploader — same ≤800px
 // JPEG budget, so a spot photo can't push its doc near Firestore's 1 MB cap.
 import { compressImage } from '../utils/exerciseImages';
@@ -1229,9 +1229,9 @@ function SpotRatings({ ownerUid, spotId, spot, user }) {
   );
 }
 
-// Read-only detail sheet for a spot a FRIEND added: their info + the shared
-// ratings and comment thread. No editing (that stays owner-only).
-function SpotDetailModal({ spot, user, onClose }) {
+// Detail sheet for a spot a FRIEND added: their info, the shared ratings and
+// the comment thread — plus Edit, since a shared list is collaborative.
+function SpotDetailModal({ spot, user, onClose, onEdit }) {
   const [uploadedPhoto] = useSpotPhoto(spot._ownerUid, spot.id);
   const photo = uploadedPhoto || spot.imageUrl || '';
   const meta = [
@@ -1265,6 +1265,11 @@ function SpotDetailModal({ spot, user, onClose }) {
           <SpotComments ownerUid={spot._ownerUid} spotId={spot.id} user={user} />
         </div>
         <div className={styles.modalFooter}>
+          {/* Editing lives behind this sheet rather than replacing it: a
+              friend's card should still lead to the ratings and comments. */}
+          {onEdit && (
+            <button type="button" className={styles.secondaryBtn} onClick={onEdit}>Edit</button>
+          )}
           <span className={styles.footerSpacer} />
           <button type="button" className={styles.primaryBtn} onClick={onClose}>Done</button>
         </div>
@@ -1421,10 +1426,10 @@ function EditModal({ initial, onSave, onClose, onDelete, cuisineSuggestions, loc
           </div>
 
           {/* Photos are keyed by the place's id, so a brand-new one shows just
-              the link preview until it's saved. Own spots only — a photo is
-              written under the owner's uid. */}
-          {initial.id && user?.uid && (!initial._ownerUid || initial._ownerUid === user.uid) ? (
-            <SpotPhotoEditor ownerUid={user.uid} spotId={initial.id} fallbackUrl={imageUrl} />
+              the link preview until it's saved. Written under the OWNER's uid,
+              so a photo added to a shared spot lands on their list. */}
+          {initial.id && user?.uid ? (
+            <SpotPhotoEditor ownerUid={initial._ownerUid || user.uid} spotId={initial.id} fallbackUrl={imageUrl} />
           ) : imageUrl ? (
             <>
               <label className={styles.fieldLabel}>Preview</label>
@@ -3557,14 +3562,44 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
     persistOwner(ownerUid, next);
   }, [ownerData, persistOwner, user]);
 
+  // One spot on SOMEONE ELSE'S list, written through the transaction rather
+  // than persistOwner. persistOwner pushes the whole array, which is right for
+  // my own list but would hand a friend's 400-spot list back from whatever copy
+  // this tab loaded — erasing anything they changed since. Local state is
+  // updated optimistically either way.
+  const writeFriendSpot = useCallback(async (ownerUid, spot, opts) => {
+    setOwnerData(prev => {
+      const list = prev[ownerUid]?.restaurants || [];
+      const next = opts?.remove
+        ? list.filter(r => r.id !== spot.id)
+        : (list.some(r => r.id === spot.id)
+            ? list.map(r => (r.id === spot.id ? spot : r))
+            : [spot, ...list]);
+      return { ...prev, [ownerUid]: { ...(prev[ownerUid] || {}), restaurants: next } };
+    });
+    try {
+      const myName = ownerData[user?.uid]?.username || user?.displayName || '';
+      await saveSpotForOwner(ownerUid, spot, { uid: user?.uid, name: myName }, opts);
+    } catch (err) {
+      console.error('Failed to save to a shared list:', err);
+      alert(`Save to @${ownerData[ownerUid]?.username || 'friend'}'s list failed — the change is local only.\n\n${err?.message || 'unknown error'}`);
+    }
+  }, [user?.uid, user?.displayName, ownerData]);
+
   function handleSave(restaurant) {
     // Adds default to MY list; edits go to the original owner's list.
     const ownerUid = restaurant._ownerUid || user?.uid;
     if (!ownerUid) return;
-    const ownerList = ownerData[ownerUid]?.restaurants || [];
-    const exists = ownerList.some(r => r.id === restaurant.id);
     // Strip our annotation fields so they don't get persisted.
     const { _ownerUid, _ownerUsername, _isMine, ...clean } = restaurant;
+    if (ownerUid !== user?.uid) {
+      writeFriendSpot(ownerUid, clean);
+      setEditing(null);
+      setAdding(false);
+      return;
+    }
+    const ownerList = ownerData[ownerUid]?.restaurants || [];
+    const exists = ownerList.some(r => r.id === restaurant.id);
     const nextList = exists
       ? ownerList.map(r => (r.id === clean.id ? clean : r))
       : [clean, ...ownerList];
@@ -3576,6 +3611,12 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
   function handleDelete(restaurant) {
     const ownerUid = restaurant?._ownerUid;
     if (!ownerUid) return;
+    const { _ownerUid, _ownerUsername, _isMine, ...clean } = restaurant;
+    if (ownerUid !== user?.uid) {
+      writeFriendSpot(ownerUid, clean, { remove: true });
+      setEditing(null);
+      return;
+    }
     const ownerList = ownerData[ownerUid]?.restaurants || [];
     const nextList = ownerList.filter(r => r.id !== restaurant.id);
     persistOwner(ownerUid, nextList);
@@ -4296,6 +4337,7 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
           spot={viewing}
           user={user}
           onClose={() => setViewing(null)}
+          onEdit={() => { setEditing(viewing); setViewing(null); }}
         />
       )}
       {rankingPopout && (
