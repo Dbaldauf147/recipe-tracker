@@ -1939,7 +1939,19 @@ export async function loadFriends(uid) {
   const mySharedEatingOut = userData.sharedEatingOutWith || [];
   const friends = [];
   for (const fid of friendUids) {
-    const fSnap = await getDoc(doc(db, 'users', fid));
+    // A friends array can hold a uid whose user document no longer exists
+    // (deleted account, or a request that never completed). That read isn't a
+    // miss: the rule needs that document's own `friends` field to authorise us
+    // and can't read a document that isn't there, so Firestore denies and
+    // getDoc THROWS — `exists()` never gets a chance to skip it. Unguarded, one
+    // dead uid rejected loadFriends entirely and took every real friend with
+    // it, which is how a correctly-shared Eating Out list showed as nothing.
+    let fSnap;
+    try {
+      fSnap = await getDoc(doc(db, 'users', fid));
+    } catch {
+      continue;
+    }
     if (fSnap.exists()) {
       const data = fSnap.data();
       friends.push({

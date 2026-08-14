@@ -956,6 +956,69 @@ export function AdminDashboard({ onClose }) {
         </p>
       )}
 
+      {loading ? (
+        <p className={styles.loading}>Loading users...</p>
+      ) : (
+        <>
+          <div className={styles.tableToolbar}>
+            <h3 className={styles.sourceHeading} style={{ margin: 0, marginRight: 'auto' }}>Users</h3>
+            <button className={styles.colBtn} onClick={() => setShowCols(v => !v)}>
+              ⚙ Columns ({visibleColumns.length}/{columns.length})
+            </button>
+            {showCols && (
+              <div className={styles.colPopover}>
+                <div className={styles.colPopoverHeader}>
+                  <span>Show columns</span>
+                  <button className={styles.colPopoverReset} onClick={resetCols}>Reset</button>
+                </div>
+                {columns.map(c => (
+                  <label key={c.key} className={styles.colPopoverItem}>
+                    <input
+                      type="checkbox"
+                      checked={c.visible}
+                      onChange={() => updateColPref(c.key, { visible: !c.visible })}
+                    />
+                    {c.label}
+                  </label>
+                ))}
+              </div>
+            )}
+          </div>
+          <div className={styles.tableWrap}>
+            <table className={styles.table} style={{ width: tableWidth }}>
+              <colgroup>
+                {visibleColumns.map(c => <col key={c.key} style={{ width: c.width }} />)}
+              </colgroup>
+              <thead>
+                <tr>
+                  {visibleColumns.map(c => (
+                    <th
+                      key={c.key}
+                      onClick={c.sortKey ? () => handleSort(c.sortKey) : undefined}
+                      className={c.sortKey ? styles.sortable : undefined}
+                    >
+                      {c.label}{c.sortKey ? arrow(c.sortKey) : ''}
+                      <span
+                        className={styles.colResizer}
+                        onPointerDown={e => startResize(e, c.key, c.width)}
+                        onClick={e => e.stopPropagation()}
+                      />
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {sorted.map(u => (
+                  <tr key={u.uid}>
+                    {visibleColumns.map(c => <td key={c.key}>{c.render(u)}</td>)}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+
       <div className={styles.statsRow}>
         <div className={styles.statCard}>
           <div className={styles.statValue}>{users.length}</div>
@@ -1459,67 +1522,6 @@ export function AdminDashboard({ onClose }) {
         )}
       </div>
 
-      {loading ? (
-        <p className={styles.loading}>Loading users...</p>
-      ) : (
-        <>
-          <div className={styles.tableToolbar}>
-            <button className={styles.colBtn} onClick={() => setShowCols(v => !v)}>
-              ⚙ Columns ({visibleColumns.length}/{columns.length})
-            </button>
-            {showCols && (
-              <div className={styles.colPopover}>
-                <div className={styles.colPopoverHeader}>
-                  <span>Show columns</span>
-                  <button className={styles.colPopoverReset} onClick={resetCols}>Reset</button>
-                </div>
-                {columns.map(c => (
-                  <label key={c.key} className={styles.colPopoverItem}>
-                    <input
-                      type="checkbox"
-                      checked={c.visible}
-                      onChange={() => updateColPref(c.key, { visible: !c.visible })}
-                    />
-                    {c.label}
-                  </label>
-                ))}
-              </div>
-            )}
-          </div>
-          <div className={styles.tableWrap}>
-            <table className={styles.table} style={{ width: tableWidth }}>
-              <colgroup>
-                {visibleColumns.map(c => <col key={c.key} style={{ width: c.width }} />)}
-              </colgroup>
-              <thead>
-                <tr>
-                  {visibleColumns.map(c => (
-                    <th
-                      key={c.key}
-                      onClick={c.sortKey ? () => handleSort(c.sortKey) : undefined}
-                      className={c.sortKey ? styles.sortable : undefined}
-                    >
-                      {c.label}{c.sortKey ? arrow(c.sortKey) : ''}
-                      <span
-                        className={styles.colResizer}
-                        onPointerDown={e => startResize(e, c.key, c.width)}
-                        onClick={e => e.stopPropagation()}
-                      />
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {sorted.map(u => (
-                  <tr key={u.uid}>
-                    {visibleColumns.map(c => <td key={c.key}>{c.render(u)}</td>)}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </>
-      )}
     </div>
   );
 }
