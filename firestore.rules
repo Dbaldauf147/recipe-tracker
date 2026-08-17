@@ -37,11 +37,16 @@ rules_version = '2';
 //     mealImages (the starter/discover library) and data/appDefaults. The
 //     blanket read of the admin's whole user document is gone — the fields
 //     that forced it were moved out, per constraint (1).
+//   • ANY signed-in user reading AND WRITING sharedData/exerciseLibrary — the
+//     one exercise list every account shares. Deliberately NOT on a user
+//     document: it is nobody's private data, so it lives in its own top-level
+//     collection where the grant can't reach anything else.
 //   • the owner account listing /users              (admin dashboard)
 //
-// Note there are NO cross-user WRITES to user documents. A friend's vote on my
-// restaurants is stored on THEIR document keyed by my uid (setEatingOutVote), so
-// every write path here is "own document only".
+// Note there are NO cross-user WRITES to user documents beyond the shared
+// eating-out list above. A friend's vote on my restaurants is stored on THEIR
+// document keyed by my uid (setEatingOutVote), so every other write path here
+// is "own document only".
 //
 // Server-side code (the crons, firebase-admin) bypasses rules entirely.
 
@@ -165,6 +170,34 @@ service cloud.firestore {
       }
     }
 
+    // ---- the shared exercise database ---------------------------------------
+    // sharedData/exerciseLibrary is ONE document holding the exercise list that
+    // every account sees, on mobile and on the website. It used to be a copy
+    // per user (users/{uid}.exerciseLibrary), which is why two accounts saw two
+    // different lists.
+    //
+    // Every signed-in user may write it, not just the admin: adding an exercise
+    // from the phone's picker, attaching a video to one, or re-filing its muscle
+    // group all publish to everybody. That is the feature, and it is why this
+    // is a top-level collection rather than a doc on the admin's account —
+    // granting a write here reaches nobody's private data, and it needs no
+    // friend/sharedAccess relationship to work between two unrelated accounts.
+    //
+    // Same collaborative-array constraint as data/eatingOut above, for the same
+    // reason: the whole list is one array field that everyone writes, so
+    // clients MUST go through a transaction that re-reads the array (see
+    // src/services/exerciseLibrary.ts — mutateSharedExercises). A wholesale
+    // write from a stale copy would drop whatever anyone else added meanwhile.
+    //
+    // Deleting an exercise removes it for every user, so the mobile picker
+    // confirms twice before it does. If that ever proves too loose, narrow the
+    // write line to `isAdmin()` — no client change is needed, though a
+    // non-admin's add would then surface as a save error.
+    match /sharedData/{docId} {
+      allow read: if signedIn();
+      allow write: if signedIn();
+    }
+
     // ---- lookup indexes -----------------------------------------------------
     // Public-ish maps of a username / email to a uid, so finding someone to add
     // as a friend doesn't require reading or querying /users. A row may only be
@@ -267,33 +300,6 @@ service cloud.firestore {
     // ---- shared read-through cache ------------------------------------------
     // Seasonal produce data, cached per region. Not user data.
     match /seasonalCache/{region} {
-      allow read: if signedIn();
-      allow write: if signedIn();
-    }
-
-    // ---- the shared exercise database ----------------------------------------
-    // ONE document, sharedData/exerciseLibrary, that every account reads and
-    // writes, so the exercise list in the Log Workout picker is the same list
-    // for everybody on the phone and on the website. Not user data: it is
-    // deliberately common property, which is why it does not live under
-    // /users/{uid} (a per-user path is what made the list diverge in the first
-    // place, and the admin's own document is only readable by the admin).
-    //
-    // ⚠ Without this block the collection falls through to the default DENY.
-    // The clients treat a denied read as "the shared library is empty" and fall
-    // back to the per-account copy, which looks exactly like the feature never
-    // shipped — no error, just everyone seeing their own list again. That is
-    // what happened between the client rollout and this rule.
-    //
-    // Write is open to every signed-in user because adding an exercise from the
-    // picker has to work for everyone, not just the admin. The clients write it
-    // through a transaction over the whole array (mobile
-    // src/services/exerciseLibrary.ts, web src/utils/sharedExerciseLibrary.js) —
-    // a plain read-modify-write from a stale copy would drop whatever anyone
-    // else added in between. To make the library admin-curated instead, narrow
-    // the write line to `request.auth.uid == adminUid()`; the clients need no
-    // change, though other people's adds would then fail visibly.
-    match /sharedData/{docId} {
       allow read: if signedIn();
       allow write: if signedIn();
     }
