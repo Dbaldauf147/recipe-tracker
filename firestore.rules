@@ -271,6 +271,33 @@ service cloud.firestore {
       allow write: if signedIn();
     }
 
+    // ---- the shared exercise database ----------------------------------------
+    // ONE document, sharedData/exerciseLibrary, that every account reads and
+    // writes, so the exercise list in the Log Workout picker is the same list
+    // for everybody on the phone and on the website. Not user data: it is
+    // deliberately common property, which is why it does not live under
+    // /users/{uid} (a per-user path is what made the list diverge in the first
+    // place, and the admin's own document is only readable by the admin).
+    //
+    // ⚠ Without this block the collection falls through to the default DENY.
+    // The clients treat a denied read as "the shared library is empty" and fall
+    // back to the per-account copy, which looks exactly like the feature never
+    // shipped — no error, just everyone seeing their own list again. That is
+    // what happened between the client rollout and this rule.
+    //
+    // Write is open to every signed-in user because adding an exercise from the
+    // picker has to work for everyone, not just the admin. The clients write it
+    // through a transaction over the whole array (mobile
+    // src/services/exerciseLibrary.ts, web src/utils/sharedExerciseLibrary.js) —
+    // a plain read-modify-write from a stale copy would drop whatever anyone
+    // else added in between. To make the library admin-curated instead, narrow
+    // the write line to `request.auth.uid == adminUid()`; the clients need no
+    // change, though other people's adds would then fail visibly.
+    match /sharedData/{docId} {
+      allow read: if signedIn();
+      allow write: if signedIn();
+    }
+
     // ---- admin metrics history ----------------------------------------------
     // Daily snapshot of the admin users table (api/snapshot-admin-metrics).
     // Every user's counts in one doc, so it is admin-only in both directions —

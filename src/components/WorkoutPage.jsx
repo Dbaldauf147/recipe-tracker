@@ -17,6 +17,9 @@ import {
   stretchSecondsByRegion, stretchEntriesByRegion, stretchGoalProgress, clampGoalMin,
   DEFAULT_STRETCH_GOAL_MIN,
 } from '../utils/stretchGoal';
+import {
+  subscribeToSharedExercises, applySharedExerciseEdit, mergeExerciseLibraries,
+} from '../utils/sharedExerciseLibrary';
 import { loadHabitLog, saveHabitLogCells } from '../utils/habitLogYears';
 import { periodKey } from '../utils/habitOutstanding';
 import { BodyHeatmap } from './BodyHeatmap';
@@ -273,6 +276,21 @@ function loadLibrary() {
   try { return JSON.parse(localStorage.getItem(LIBRARY_KEY)) || []; } catch { return []; }
 }
 
+/**
+ * The LEGACY per-account copy of the library.
+ *
+ * The list itself now lives in sharedData/exerciseLibrary and is written by
+ * commitLibrary → applySharedExerciseEdit. This mirror is still written for two
+ * reasons, both temporary:
+ *
+ *  1. The mobile app still merges an account's own rows in behind the shared
+ *     ones, so nothing anybody already had disappears the day this ships — even
+ *     if the /sharedData rule turns out not to be deployed yet.
+ *  2. It is the rollback: revert the client and the list is still here.
+ *
+ * Both go away once the shared document is confirmed populated. See
+ * PrepDay's docs/shared-exercise-library.md.
+ */
 function saveLibrary(data, uid) {
   localStorage.setItem(LIBRARY_KEY, JSON.stringify(data));
   if (uid) {
@@ -2558,7 +2576,38 @@ export function WorkoutPage({ onBack, user }) {
     setDemoRowIdx(null);
   }
   const [viewMode, setViewMode] = useState('log'); // 'log' | 'history' | 'charts' | 'body' | 'exercises' | 'steps' | 'sleep' | 'stats' (Overview)
+  // The exercise list behind every picker on this page. It is SHARED: one
+  // Firestore document (sharedData/exerciseLibrary) that every account reads
+  // and writes, so an exercise anyone adds is an exercise everyone can pick.
+  // What's on screen is that shared list merged with any row this account still
+  // has only in its own legacy copy — see mergeExerciseLibraries.
   const [exerciseLibrary, setExerciseLibrary] = useState(loadLibrary);
+  // The two halves of that merge, kept in refs rather than state: either one
+  // arriving re-runs the merge, and neither is rendered on its own.
+  const sharedLibraryRef = useRef([]);
+  const personalLibraryRef = useRef(loadLibrary());
+  // The last list we showed. Edits are published to the shared document as a
+  // DIFF against this, not as a wholesale array write — every account writes
+  // the same array field, so replacing it from a stale local copy would drop
+  // whatever somebody else added in between.
+  const libraryRef = useRef(exerciseLibrary);
+  useEffect(() => { libraryRef.current = exerciseLibrary; }, [exerciseLibrary]);
+  // Set when the shared document can't be read — in practice a
+  // permission-denied because the /sharedData rule isn't deployed. Surfaced in
+  // the Exercises tab: a silent fallback to the per-account list is
+  // indistinguishable from the feature working, which is exactly how this went
+  // unnoticed the first time.
+  const [sharedLibraryError, setSharedLibraryError] = useState(null);
+
+  // Recompute what's on screen from the shared list plus this account's
+  // leftovers. Shared wins on a name collision — it's the copy everyone else is
+  // looking at.
+  const applyMergedLibrary = useCallback(() => {
+    const merged = mergeExerciseLibraries(sharedLibraryRef.current, personalLibraryRef.current);
+    setExerciseLibrary(prev => (JSON.stringify(prev) === JSON.stringify(merged) ? prev : merged));
+    try { localStorage.setItem(LIBRARY_KEY, JSON.stringify(merged)); } catch { /* quota or disabled storage */ }
+  }, []);
+
   // Mirror the mobile app: per-user custom exercises and hidden defaults
   // live on the user doc so the picker matches across web + iOS.
   const [customExercises, setCustomExercises] = useState([]);
@@ -2898,10 +2947,41 @@ export function WorkoutPage({ onBack, user }) {
     return '';
   }
 
-  // Live-subscribe to the exerciseLibrary field on the user doc so
-  // exercises added or edited on the mobile app appear here within a
-  // second. Last write wins. Echoes from our own writes are skipped via
-  // JSON-equality so they don't trigger spurious re-renders.
+  // Live-subscribe to the SHARED library. An exercise anyone adds — from their
+  // phone or from another browser — shows up in the pickers here without a
+  // reload, which is the whole point of it being one document.
+  useEffect(() => {
+    if (!user?.uid) return;
+    const unsub = subscribeToSharedExercises(
+      rows => {
+        sharedLibraryRef.current = rows;
+        setSharedLibraryError(null);
+        applyMergedLibrary();
+      },
+      err => setSharedLibraryError(err),
+    );
+    return () => unsub();
+  }, [user?.uid, applyMergedLibrary]);
+
+  // Publish an edit to the shared library and update what's on screen.
+  //
+  // Every path that changes the list goes through here, so there is one place
+  // that knows an edit is now everyone's. The legacy per-account mirror is
+  // still written alongside — see saveLibrary.
+  const commitLibrary = useCallback((next) => {
+    const prev = libraryRef.current || [];
+    libraryRef.current = next;
+    setExerciseLibrary(next);
+    saveLibrary(next, user?.uid);
+    applySharedExerciseEdit(prev, next).catch(err => {
+      console.error('[sharedExercises] publish failed', err);
+      setSharedLibraryError(err);
+    });
+  }, [user?.uid]);
+
+  // Live-subscribe to the user doc for the per-account fields that are still
+  // personal on purpose — customExercises, hiddenExercises — and for the legacy
+  // exerciseLibrary copy that backs the merge above.
   useEffect(() => {
     if (!user?.uid) return;
     const ref = doc(db, 'users', user.uid);
@@ -2911,13 +2991,12 @@ export function WorkoutPage({ onBack, user }) {
         const data = snap.exists() ? snap.data() : null;
         const remoteLibrary = Array.isArray(data?.exerciseLibrary) ? data.exerciseLibrary : [];
         const remoteCustom = Array.isArray(data?.customExercises) ? data.customExercises : [];
+        // Only when it has something in it: an account whose rows have all been
+        // published to the shared list has nothing left to contribute here, and
+        // an empty read must not be able to drop rows off the screen.
         if (remoteLibrary.length > 0) {
-          setExerciseLibrary(prev => {
-            const remoteJson = JSON.stringify(remoteLibrary);
-            if (remoteJson === JSON.stringify(prev)) return prev;
-            try { localStorage.setItem(LIBRARY_KEY, remoteJson); } catch { /* quota or disabled storage */ }
-            return remoteLibrary;
-          });
+          personalLibraryRef.current = remoteLibrary;
+          applyMergedLibrary();
         }
         setCustomExercises(remoteCustom);
         setHiddenExercises(Array.isArray(data?.hiddenExercises) ? data.hiddenExercises : []);
@@ -2954,10 +3033,19 @@ export function WorkoutPage({ onBack, user }) {
               addedAt: new Date().toISOString(),
             }));
             const merged = [...promoted, ...remoteLibrary];
-            setExerciseLibrary(merged);
-            try { localStorage.setItem(LIBRARY_KEY, JSON.stringify(merged)); } catch { /* quota */ }
+            personalLibraryRef.current = merged;
+            applyMergedLibrary();
             saveField(user.uid, 'exerciseLibrary', merged).catch(err => {
               console.warn('exerciseLibrary backfill from customExercises failed:', err);
+            });
+            // Publish them to everyone too. These are real exercises this
+            // account is using, and the one-shot all-accounts merge only ever
+            // ran once — without this, an account that gained a custom exercise
+            // after that merge would keep it to itself forever. Names already in
+            // the shared list diff to nothing, so this is a no-op on repeat.
+            const sharedNow = sharedLibraryRef.current || [];
+            applySharedExerciseEdit(sharedNow, [...promoted, ...sharedNow]).catch(err => {
+              console.warn('[sharedExercises] custom-exercise backfill failed', err);
             });
           }
         }
@@ -2965,7 +3053,9 @@ export function WorkoutPage({ onBack, user }) {
       err => { console.error('Exercise library live sync error:', err); },
     );
     return () => unsub();
-  }, [user?.uid]);
+    // applyMergedLibrary is a stable useCallback([]), so listing it can't
+    // re-subscribe — it's here to keep the lint rule honest.
+  }, [user?.uid, applyMergedLibrary]);
 
   // User's exercises grouped by their assigned muscle group. This is the
   // source of truth for the Log Workout exercise dropdown — pick a muscle
@@ -3463,8 +3553,7 @@ export function WorkoutPage({ onBack, user }) {
         if (dup.retired) {
           const revived = (exerciseLibrary || []).map(e =>
             e === dup ? { ...e, retired: false, muscleGroup: e.muscleGroup || muscleGroup || '' } : e);
-          setExerciseLibrary(revived);
-          saveLibrary(revived, user?.uid);
+          commitLibrary(revived);
         }
         if (isHidden) {
           const nextHidden = (hiddenExercises || []).filter(n => String(n).toLowerCase() !== lower);
@@ -3494,8 +3583,7 @@ export function WorkoutPage({ onBack, user }) {
       addedAt: new Date().toISOString(),
     };
     const next = [newEx, ...(exerciseLibrary || [])];
-    setExerciseLibrary(next);
-    saveLibrary(next, user?.uid);
+    commitLibrary(next);
     // Also mirror to customExercises so the mobile picker (which reads that
     // field rather than exerciseLibrary) shows the new exercise immediately.
     if (muscleGroup && user?.uid) {
@@ -3964,8 +4052,7 @@ export function WorkoutPage({ onBack, user }) {
       if (k) libSeen.add(k);
       nextLib.push(renamed);
     }
-    setExerciseLibrary(nextLib);
-    saveLibrary(nextLib, user?.uid);
+    commitLibrary(nextLib);
 
     // 3) customExercises mirror (mobile picker reads this) — same rename + dedupe.
     const custSeen = new Set();
@@ -5995,6 +6082,7 @@ export function WorkoutPage({ onBack, user }) {
       {viewMode === 'exercises' && (
         <ExerciseLibrary
           library={exerciseLibrary}
+          sharedError={sharedLibraryError}
           onRenameExercise={renameExerciseFromLibrary}
           onChange={(next) => {
             // Diff to detect deletions so we can also drop the matching
@@ -6011,8 +6099,7 @@ export function WorkoutPage({ onBack, user }) {
                 .map(e => (e?.exercise || '').trim().toLowerCase())
                 .filter(n => n && !nextNames.has(n)),
             );
-            setExerciseLibrary(next);
-            saveLibrary(next, user?.uid);
+            commitLibrary(next);
             if (removed.size > 0 && user?.uid) {
               const trimmedCustom = (customExercises || []).filter(c => {
                 const n = String(c?.name || '').trim().toLowerCase();
