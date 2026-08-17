@@ -187,7 +187,16 @@ export function videoSourceLabel(url) {
   return '↗';
 }
 
-export function ExerciseLibrary({ library, onChange, onRenameExercise }) {
+/**
+ * The Exercises tab.
+ *
+ * The list it edits is SHARED — one Firestore document that every account reads
+ * and writes — so everything here changes what everybody sees, not just this
+ * account. That's the point (the Log Workout picker offers the same exercises
+ * to everyone), but it means removing and re-importing need to say so, and a
+ * failure to reach the shared document must not pass silently.
+ */
+export function ExerciseLibrary({ library, onChange, onRenameExercise, sharedError }) {
   const [search, setSearch] = useState('');
   // The name cell is a DRAFT while focused: renaming propagates to every logged
   // workout, so it must fire once on commit (blur/Enter) — never per keystroke,
@@ -407,7 +416,14 @@ export function ExerciseLibrary({ library, onChange, onRenameExercise }) {
   function removeRow(originalIdx) {
     const ex = library[originalIdx];
     const label = ex?.exercise?.trim() || 'this row';
-    if (!window.confirm(`Remove ${label}? This can't be undone.`)) return;
+    // Deleting is global. "I don't do this one" is the Hide control in the
+    // phone's picker, which stays personal — this takes the exercise away from
+    // everybody, so the wording has to say that outright.
+    if (!window.confirm(
+      `Remove ${label} for EVERYONE?\n\n`
+      + 'The exercise list is shared across all accounts, so this removes it from '
+      + "everybody's picker, not just yours. It can't be undone.",
+    )) return;
     onChange(library.filter((_, i) => i !== originalIdx));
   }
 
@@ -528,6 +544,18 @@ export function ExerciseLibrary({ library, onChange, onRenameExercise }) {
 
   function handleConfirmImport() {
     if (!importPreview) return;
+    // Import replaces the list, and the list belongs to everybody — so this is
+    // a bulk delete of every exercise not in the file, for every account.
+    const dropped = library.filter(e => {
+      const name = String(e?.exercise || '').trim().toLowerCase();
+      if (!name) return false;
+      return !importPreview.some(p => String(p?.exercise || '').trim().toLowerCase() === name);
+    });
+    if (dropped.length > 0 && !window.confirm(
+      `Replace the shared exercise list with these ${importPreview.length} exercises?\n\n`
+      + `${dropped.length} exercise${dropped.length === 1 ? '' : 's'} not in the file `
+      + `${dropped.length === 1 ? 'is' : 'are'} removed for EVERY account, not just yours.`,
+    )) return;
     onChange(importPreview);
     setShowImport(false);
     setImportText('');
@@ -535,11 +563,27 @@ export function ExerciseLibrary({ library, onChange, onRenameExercise }) {
     setImportError('');
   }
 
+  // The shared document is unreachable. Say so loudly: the page falls back to
+  // this account's own rows, which looks identical to everything being fine,
+  // and that silence is the reason a broken shared library went unnoticed once
+  // already.
+  const sharedBanner = sharedError ? (
+    <div className={styles.errorBox}>
+      <strong>These exercises aren’t reaching the shared list.</strong>{' '}
+      You’re looking at this account’s own copy — exercises other people added won’t
+      appear, and changes made here may not reach them.{' '}
+      {sharedError?.code === 'permission-denied'
+        ? 'Firestore denied access to sharedData/exerciseLibrary; the rule for that collection needs deploying (firebase deploy --only firestore:rules).'
+        : `Firestore said: ${String(sharedError?.message || sharedError)}`}
+    </div>
+  ) : null;
+
   if (library.length === 0 && !showImport) {
     return (
       <div className={styles.section}>
+        {sharedBanner}
         <div className={styles.empty}>
-          <p>No exercises in your library yet. Add manually or import a list.</p>
+          <p>No exercises in the shared library yet. Add manually or import a list.</p>
           <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'center', flexWrap: 'wrap' }}>
             <button className={styles.primaryBtn} onClick={addRow}>+ Add exercise</button>
             <button className={styles.secondaryBtn} onClick={() => setShowImport(true)}>Import Exercises</button>
@@ -554,6 +598,7 @@ export function ExerciseLibrary({ library, onChange, onRenameExercise }) {
 
   return (
     <div className={styles.section}>
+      {sharedBanner}
       <div className={styles.toolbar}>
         <input
           className={styles.search}
@@ -902,7 +947,8 @@ export function ExerciseLibrary({ library, onChange, onRenameExercise }) {
             <p className={styles.hint}>
               Paste a tab- or comma-separated list. Columns recognized:{' '}
               <code>Workout, Primary Muscles, Secondary Muscles, Group, This Week, Last Week, Alternative, Top, Insta, Insta 2…, Knickname</code>.
-              Importing replaces the existing library.
+              Importing replaces the shared exercise list — for every account, not
+              just yours.
             </p>
             <div className={styles.fileRow}>
               <label className={styles.fileBtn}>
