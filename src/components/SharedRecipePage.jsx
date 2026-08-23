@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { loadSharedRecipe, loadUserData, saveField } from '../utils/firestoreSync';
+import { OpenInAppBanner } from './OpenInAppBanner';
 import styles from './SharedRecipePage.module.css';
 
 const PENDING_SHARE_KEY = 'sunday-pending-shared-recipe';
@@ -172,6 +173,11 @@ export function SharedRecipePage({ token, user }) {
           )}
         </div>
       </div>
+
+      {/* Phones get the choice this page used to make for them: the app, or
+          right here. Renders nothing on a desktop, and nothing if the app
+          handoff has no token to carry. */}
+      <OpenInAppBanner token={token} />
 
       {user ? (
         <div className={styles.saveRow}>
