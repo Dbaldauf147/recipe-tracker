@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   lastCompleteWeek, previousWeek, summarizeWeek, isEmptyWeek, renderWeeklySummary,
 } from '../../lib/weeklySummary.js';
+import { DEFAULT_SAUNA_GOAL } from './saunaPlan.js';
 
 // The weekly progress email (api/send-weekly-summary.js). Lives in lib/ with
 // the other email renderers; tested from here because `npm test` only globs
@@ -208,6 +209,19 @@ test('goals with no target set are left out of the table', () => {
   assert.equal(g.total, 2);
 });
 
+test('an absent sauna goal means the Week Plan default, not "no goal"', () => {
+  // The ⚙ popup writes `saunaGoal` only once it's edited, so the field is
+  // simply missing for anyone still on the default — which the Week Plan is
+  // showing them as a goal of DEFAULT_SAUNA_GOAL, so the email owes them the
+  // row. Absent and an explicit 0 are different answers.
+  const unset = { ...GOALS_CONFIG };
+  delete unset.saunaGoal;
+  const g = goalsFor({ workouts: [{ id: '1', date: WEEK.days[2], sauna: true }] }, unset);
+  assert.equal(goalNamed(g, 'Sauna').target, DEFAULT_SAUNA_GOAL);
+  assert.equal(goalNamed(g, 'Sauna').actual, 1);
+  assert.equal(goalNamed(goalsFor({}, { ...GOALS_CONFIG, saunaGoal: 0 }), 'Sauna'), undefined);
+});
+
 test('produce goals scale the daily target across the week', () => {
   const g = goalsFor({});
   assert.equal(goalNamed(g, 'Veg').target, 35);   // 5/day × 7
@@ -230,6 +244,17 @@ test('the email omits the goals section entirely when nothing is configured', ()
   assert.equal(stats.weekGoals, null);
   assert.doesNotMatch(html, /Week goals/);
   assert.doesNotMatch(text, /WEEK GOALS/);
+});
+
+test('the email opens on the goals table — the stat tiles are gone', () => {
+  const stats = summarizeWeek(emptyData(), WEEK, { goalsConfig: GOALS_CONFIG });
+  const prior = summarizeWeek(emptyData(), previousWeek(WEEK));
+  const { html, text } = renderWeeklySummary({ stats, priorStats: prior });
+  assert.doesNotMatch(html, /slots · goal/);       // meals tile subtitle
+  assert.doesNotMatch(html, /weigh-in/);           // weight tile subtitle
+  assert.doesNotMatch(html, /vs prior week<\/span>/); // the tiles' delta chips
+  assert.doesNotMatch(text, /^Meals tracked:/m);
+  assert.doesNotMatch(text, /^Habits: /m);
 });
 
 test('the goals table renders bars, values and a met count', () => {
