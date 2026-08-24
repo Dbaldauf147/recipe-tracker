@@ -57,6 +57,13 @@ function buildStepsFromGoals(goals) {
   return steps;
 }
 
+// How long the sign-in path waits for the account read before giving up and
+// running on what localStorage already holds. Long enough for a slow phone on
+// a bad connection, short enough that nobody sits looking at a loading screen
+// wondering whether the site is broken.
+const USER_DATA_TIMEOUT_MS = 10000;
+const READ_TIMED_OUT = Symbol('firestore-read-timed-out');
+
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -76,7 +83,7 @@ export function AuthProvider({ children }) {
   const currentOnboardingStep = onboardingSteps[0] || null;
 
   useEffect(() => {
-    const unsub = onAuthStateChanged(auth, async (firebaseUser) => {
+    async function applyAuthState(firebaseUser) {
       // Clean up previous Firestore listener
       if (firestoreUnsubRef.current) {
         firestoreUnsubRef.current();
@@ -95,7 +102,25 @@ export function AuthProvider({ children }) {
         setDataReady(false);
 
         // User signed in — load or migrate data
-        const userData = await loadUserData(firebaseUser.uid);
+        // Firestore does not fail fast. With the connection blocked or dead,
+        // getDoc waits for the network instead of rejecting, so this await —
+        // the one the loading screen is sitting on — simply never settles.
+        let userData = null;
+        let userDataUnavailable = false;
+        try {
+          userData = await Promise.race([
+            loadUserData(firebaseUser.uid, { strict: true }),
+            new Promise((resolve) => setTimeout(() => resolve(READ_TIMED_OUT), USER_DATA_TIMEOUT_MS)),
+          ]);
+          if (userData === READ_TIMED_OUT) {
+            console.warn(`Firestore read timed out after ${USER_DATA_TIMEOUT_MS}ms — continuing on local data.`);
+            userData = null;
+            userDataUnavailable = true;
+          }
+        } catch (err) {
+          console.error('Could not read the account:', err);
+          userDataUnavailable = true;
+        }
         // Ensure email + displayName are saved to Firestore for search
         if (firebaseUser.email) {
           saveField(firebaseUser.uid, 'email', firebaseUser.email.toLowerCase());
@@ -131,7 +156,11 @@ export function AuthProvider({ children }) {
           saveField(firebaseUser.uid, 'displayName', firebaseUser.displayName).catch(() => {});
         }
 
-        if (userData) {
+        if (userDataUnavailable) {
+          // Account unreadable. Leave localStorage exactly as it is: it is the
+          // last known good copy of this account, and the else-branch below
+          // would push it up as if this were a first sign-in.
+        } else if (userData) {
           // Existing Firestore data → hydrate localStorage
           hydrateLocalStorage(userData, firebaseUser.uid);
         } else {
@@ -202,7 +231,14 @@ export function AuthProvider({ children }) {
           hasOnboardingComplete || hasKeyIngredients || hasRecipes || hasWeightLog || hasBodyStats;
         const hasGoals = userData?.userGoals != null;
 
-        if (looksEstablished) {
+        if (userDataUnavailable) {
+          // Nothing was read, so nothing here is evidence. Someone with a
+          // stored session has signed in before; onboarding them again on a
+          // bad connection would be the wrong guess by a mile.
+          setHasCompletedOnboarding(true);
+          setOnboardingSteps([]);
+          setCompletedSteps([]);
+        } else if (looksEstablished) {
           // Already an active user — skip onboarding regardless of which
           // marker flag(s) survived.
           setHasCompletedOnboarding(true);
@@ -265,7 +301,25 @@ export function AuthProvider({ children }) {
         setOnboardingSteps([]);
         setCompletedSteps([]);
       }
-      setLoading(false);
+    }
+
+    // Whatever happens above, `loading` has to come back down. It gates the
+    // whole app behind a full-screen loader, so a rejected promise in there
+    // used to leave the site showing nothing but that loader, for ever, with
+    // no error anywhere a user could see it.
+    const unsub = onAuthStateChanged(auth, (firebaseUser) => {
+      applyAuthState(firebaseUser)
+        .catch((err) => {
+          console.error('Auth state handler failed:', err);
+          if (firebaseUser) {
+            // Let them in on what this device already has. localStorage holds
+            // the last good copy and the realtime subscription will catch up
+            // when the connection does.
+            setUser(firebaseUser);
+            setDataReady(true);
+          }
+        })
+        .finally(() => setLoading(false));
     });
     return unsub;
   }, []);

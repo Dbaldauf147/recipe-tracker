@@ -1198,7 +1198,7 @@ export async function loadRecipesFromFirestore(uid) {
  * Load the entire user document from Firestore.
  * Recipes are loaded from subcollection if available, with migration from main doc.
  */
-export async function loadUserData(uid) {
+export async function loadUserData(uid, { strict = false } = {}) {
   try {
     const ref = doc(db, 'users', uid);
     const snap = await getDoc(ref);
@@ -1231,6 +1231,11 @@ export async function loadUserData(uid) {
     return data;
   } catch (err) {
     console.error('Firestore loadUserData:', err);
+    // `strict` callers need "the read failed" told apart from "there is no
+    // such user". The sign-in path is one: it reads a null as a first-ever
+    // sign-in and pushes localStorage UP to Firestore, which on a failed read
+    // would overwrite a real account with whatever this one device holds.
+    if (strict) throw err;
     return null;
   }
 }

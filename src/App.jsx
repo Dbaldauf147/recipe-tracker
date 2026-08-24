@@ -5,6 +5,7 @@ import { saveField, loadField, getPendingRequests, getPendingSharedRecipes, load
 import { trackPageView } from './utils/trackPageView';
 import { countOutstandingHabits } from './utils/habitOutstanding';
 import { loadHabitLog } from './utils/habitLogYears';
+import { LoadingScreen } from './components/LoadingScreen';
 import { RecipeList } from './components/RecipeList';
 import { RecipeDetail } from './components/RecipeDetail';
 import { WeightTracker, checkWeighReminder } from './components/WeightTracker';
@@ -1324,20 +1325,7 @@ function App() {
   }
 
   if (loading || (user && !dataReady)) {
-    return (
-      <div className={styles.app}>
-        <div className={styles.loadingScreen}>
-          <video
-            className={styles.loadingVideo}
-            src="/loading-bg.mp4"
-            autoPlay
-            muted
-            playsInline
-            preload="auto"
-          />
-        </div>
-      </div>
-    );
+    return <LoadingScreen />;
   }
 
   if (!user && !isGuest) {
