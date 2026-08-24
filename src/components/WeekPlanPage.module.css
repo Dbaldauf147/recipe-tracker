@@ -297,6 +297,42 @@
   line-height: 1.5;
 }
 
+/* "Mirror it into Outlook" — a subsection of the auto-sync block, set off with a
+   rule rather than its own card so it reads as part of that setting. */
+.calMirror {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  margin-top: 0.6rem;
+  padding-top: 0.6rem;
+  border-top: 1px solid var(--color-border-light);
+}
+.calMirrorLink {
+  color: var(--color-primary, #2563eb);
+  white-space: nowrap;
+}
+.calMirrorId {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+/* Calendar ids are long and opaque; let it shrink and ellipsize rather than
+   pushing the Copy button off the panel. */
+.calMirrorIdText {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--font-size-xs);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  color: var(--color-text-secondary);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: 0.2rem 0.35rem;
+}
+
 .calConnectBtn {
   display: inline-flex;
   align-items: center;
