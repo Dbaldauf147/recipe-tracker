@@ -191,3 +191,104 @@ export function previewOrder(settings, workoutKind = 'weights') {
     .map(key => ({ key, ...times[key] }))
     .sort((a, b) => a.startMin - b.startMin || kinds.indexOf(a.key) - kinds.indexOf(b.key));
 }
+
+// ---------------------------------------------------------------------------
+// Churn control for the hourly sync (api/sync-workout-calendar.js).
+//
+// The plan is re-derived every hour and it moves: rankWorkoutTypesByStaleness
+// reshuffles the week as you log, so days get retitled and re-categorized all
+// day long. Events are keyed `${date}|${kind}` where kind is the workout's
+// CATEGORY, which means a day flipping weights → cardio changes its key — and a
+// changed key is a delete plus a create, not a rename. That costs an event id,
+// and with a guest configured it costs a cancellation and a fresh invitation.
+//
+// The two functions below are what stop that. Both are pure so they can be
+// tested here; both are MIRRORED SERVER-SIDE in api/sync-workout-calendar.js
+// (the cron can't import from src/) — change both.
+// ---------------------------------------------------------------------------
+
+// A key is `${YYYY-MM-DD}|${kind}`. Dates are fixed-width, so the split is
+// unambiguous even though nothing stops a kind from containing a '|'.
+export function splitEventKey(key) {
+  const str = String(key || '');
+  const i = str.indexOf('|');
+  if (i < 0) return { date: str, kind: '' };
+  return { date: str.slice(0, i), kind: str.slice(i + 1) };
+}
+
+// Whether an event under this kind may be re-pointed at another workout
+// category. Only workouts move between categories; a sauna must never quietly
+// become a lift. ANY_WORKOUT is included because that's the tag events written
+// before per-category timing carry, and re-keying those in place is exactly
+// what stops them being deleted and recreated.
+const isAdoptableKind = (kind) => isWorkoutKind(kind) || kind === ANY_WORKOUT;
+
+/**
+ * Reconcile the keys the plan wants against the keys already on the calendar,
+ * for one user, in one run. Returns:
+ *
+ *   adopt — desiredKey → existingKey. A newly-planned workout taking over an
+ *           existing same-day event that was otherwise headed for deletion, so
+ *           a category flip is ONE patch instead of a delete plus a create.
+ *   skip  — desired keys to leave entirely alone. Only ever on a pinned day
+ *           (see `pinnedDate`), where an existing workout event already stands
+ *           in for the newly-planned one. Without this the plan would find no
+ *           exact match, create a second event, and — because a pinned day is
+ *           never swept — leave the day holding both.
+ *
+ * A desired key with an exact match appears in neither: that's an ordinary
+ * patch-or-leave. A desired key in neither AND unmatched is an ordinary create.
+ *
+ * MIRRORED SERVER-SIDE in api/sync-workout-calendar.js — change both.
+ */
+export function planEventReuse(desiredKeys, existingKeys, todayStr = '') {
+  const desired = new Set(desiredKeys);
+  const existing = new Set(existingKeys);
+
+  // Unmatched existing workout events, grouped by day — the pool to reuse from.
+  // Sorted so the pairing is deterministic run to run; an arbitrary order would
+  // re-key a different event on each pass and reintroduce the churn.
+  const poolByDate = new Map();
+  for (const key of [...existing].sort()) {
+    if (desired.has(key)) continue;
+    const { date, kind } = splitEventKey(key);
+    if (!isAdoptableKind(kind)) continue;
+    if (!poolByDate.has(date)) poolByDate.set(date, []);
+    poolByDate.get(date).push(key);
+  }
+
+  const adopt = new Map();
+  const skip = new Set();
+  for (const key of [...desired].sort()) {
+    if (existing.has(key)) continue;
+    const { date, kind } = splitEventKey(key);
+    if (!isAdoptableKind(kind)) continue;
+    const pool = poolByDate.get(date);
+    if (!pool || !pool.length) continue;   // nothing to reuse → an ordinary create
+    // A pinned day consumes the event to show it's already covered, but hands
+    // back no mapping: nothing about it is rewritten.
+    if (pinnedDate(date, todayStr)) { pool.shift(); skip.add(key); continue; }
+    adopt.set(key, pool.shift());
+  }
+  return { adopt, skip };
+}
+
+/**
+ * Whether a date's events are pinned — left as they already stand rather than
+ * re-planned. Today is, for two reasons:
+ *
+ *  - resolveWorkoutPlan puts today in `autoSlots`, so an unlogged today is
+ *    re-picked on every hourly run. A day that says "Push" at 9am and "Pull" at
+ *    2pm is just wrong.
+ *  - the moment you LOG today's workout, today lands in `recordedIdxs`, drops
+ *    out of autoSlots, and so falls out of the desired set entirely — which
+ *    used to delete the event for the workout you had just finished.
+ *
+ * Pinning covers identity only: an event on a pinned day is never retitled,
+ * re-keyed or deleted, but a kind with no event at all is still created, and an
+ * existing one is still re-timed when the timing settings change and still has
+ * its guest list corrected.
+ */
+export function pinnedDate(date, todayStr) {
+  return !!todayStr && date === todayStr;
+}

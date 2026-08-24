@@ -35,18 +35,37 @@
 // the plan without duplicates. Events predating the multi-kind tag carry no
 // prepDayKind and are adopted as 'workout'.
 //
-// QUIET: because this runs HOURLY and re-plans as you log, the diff churns —
-// days get retitled, re-keyed to another category, and swept once they're in
-// the past. With a standing guest configured that churn was going out as
-// "Cancelled" / "Updated invitation" mail, several a day, mostly for events
-// that had already happened. So `sendUpdates=all` is now spent only where a
-// guest can act on it: a NEW event, being added to or removed from one, and an
-// event actually MOVING. Deletes and title/tag-only patches go out with
-// `sendUpdates=none` — the guest's copy still updates, they just aren't mailed.
+// QUIET: this runs HOURLY and re-plans as you log, so the diff churns — days
+// get retitled, re-keyed to another category, and swept once they're in the
+// past. With a standing guest that churn went out as "Cancelled" / "Updated
+// invitation" mail, several a day, mostly for events that had already happened.
+// Four things hold it down, in rough order of how much they buy:
+//
+//   1. NO-OP RUNS DON'T RUN. `planDigest` fingerprints everything the diff would
+//      write; an unchanged plan skips the calendar entirely. `todayStr` is in the
+//      digest so a new day always forces a pass, and RECONCILE_EVERY_MS bounds
+//      how long a by-hand edit in Google can go unnoticed.
+//   2. A CATEGORY FLIP IS A PATCH, NOT A DELETE + CREATE. Events are keyed
+//      (date, kind) where kind is the category, so a day going weights → cardio
+//      changes its key. `planEventReuse` matches the new key to the old event
+//      and patches it in place, keeping the event id and costing at most one
+//      "moved" mail instead of a cancellation plus a fresh invitation.
+//   3. TODAY IS PINNED. `pinnedDate` — today is re-picked hourly until it's
+//      logged, and logging it drops it from the plan, which used to DELETE the
+//      event for the workout you just finished.
+//   4. `sendUpdates=all` is spent only where a guest can act on it: a new event,
+//      being added to or removed from one, an event MOVING, and a FUTURE event
+//      being cancelled. Title/tag-only patches and past-day sweeps stay silent.
+//
+// Note what (4) costs a guest whose calendar isn't Google: a silent delete never
+// reaches Outlook/Exchange, so its copy is orphaned rather than removed. That's
+// why mirroring the plan into your own Outlook wants a calendar subscription,
+// not this guest field — see docs/outlook-calendar-feed.md.
 //
 // Auth: Vercel cron sends `Authorization: Bearer <CRON_SECRET>`. Manual runs need
 // that header or ?secret=... . Add ?dryRun=1 to compute the diff without writing.
 
+import { createHash } from 'crypto';
 import { initializeApp, cert, getApps } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
 
@@ -62,6 +81,22 @@ const db = getFirestore();
 const CAL_NAME = 'Prep Day';
 const CAL_DESC = 'Planned workouts, saunas and cooking from Prep Day (prep-day.com). Auto-synced.';
 const TZ = 'America/New_York';
+// How long a user may go without a full reconcile against Google. The digest
+// below skips the API work when the plan hasn't moved, but the calendar is
+// editable by hand — an event deleted in Google would otherwise never come
+// back. This bounds that: a no-change user is still fully reconciled this often.
+const RECONCILE_EVERY_MS = 6 * 60 * 60 * 1000;
+// Fingerprint of everything the diff would write. Stable — the entries are
+// sorted, so an unchanged plan hashes the same however the maps were built.
+function planDigest(desired, { guestEmail, calendarId, todayStr }) {
+  const rows = Object.keys(desired).sort().map(k => {
+    const v = desired[k];
+    return `${k}|${v.title}|${v.startMin}|${v.endMin}`;
+  });
+  return createHash('sha256')
+    .update(JSON.stringify([todayStr, guestEmail, calendarId || '', rows]))
+    .digest('hex');
+}
 const pad2 = (n) => String(n).padStart(2, '0');
 
 // ---- Eastern-clock date helpers (mirror the app's local = America/New_York) ----
@@ -377,6 +412,59 @@ function resolveEventGuests(ev, guestEmail, prevGuest) {
   }
   return { changed: true, attendees: kept };
 }
+// Mirrored from src/utils/calendarSyncSettings.js — change both. Covered by
+// src/utils/calendarSyncSettings.test.js; keep these copies identical so those
+// tests mean something here.
+function splitEventKey(key) {
+  const str = String(key || '');
+  const i = str.indexOf('|');
+  if (i < 0) return { date: str, kind: '' };
+  return { date: str.slice(0, i), kind: str.slice(i + 1) };
+}
+const isAdoptableKind = (kind) => isWorkoutKind(kind) || kind === ANY_WORKOUT;
+// Reconcile the keys the plan wants against the keys already on the calendar.
+// `adopt` (desiredKey → existingKey) lets a newly-planned workout take over a
+// same-day event otherwise headed for deletion, so a category flip is ONE patch
+// instead of a delete plus a create. `skip` marks desired keys to leave alone
+// entirely — only on a pinned day, where an existing workout event already
+// stands in for the newly-planned one; without it the plan would create a
+// second event on a day the delete loop never sweeps.
+// Today's events are left as they stand rather than re-planned: today sits in
+// resolveWorkoutPlan's autoSlots, so an unlogged today is re-picked every hour,
+// and the moment you LOG it today drops out of the desired set entirely — which
+// used to delete the event for the workout you had just finished. Pinning is
+// identity-only: a pinned event is never retitled, re-keyed or deleted, but a
+// kind with no event at all is still created, and an existing one is still
+// re-timed on a settings change and still guest-corrected.
+function pinnedDate(date, todayStr) {
+  return !!todayStr && date === todayStr;
+}
+function planEventReuse(desiredKeys, existingKeys, todayStr = '') {
+  const desired = new Set(desiredKeys);
+  const existing = new Set(existingKeys);
+  // Sorted so the pairing is deterministic run to run — an arbitrary order
+  // would re-key a different event on each pass and reintroduce the churn.
+  const poolByDate = new Map();
+  for (const key of [...existing].sort()) {
+    if (desired.has(key)) continue;
+    const { date, kind } = splitEventKey(key);
+    if (!isAdoptableKind(kind)) continue;
+    if (!poolByDate.has(date)) poolByDate.set(date, []);
+    poolByDate.get(date).push(key);
+  }
+  const adopt = new Map();
+  const skip = new Set();
+  for (const key of [...desired].sort()) {
+    if (existing.has(key)) continue;
+    const { date, kind } = splitEventKey(key);
+    if (!isAdoptableKind(kind)) continue;
+    const pool = poolByDate.get(date);
+    if (!pool || !pool.length) continue;   // nothing to reuse → an ordinary create
+    if (pinnedDate(date, todayStr)) { pool.shift(); skip.add(key); continue; }
+    adopt.set(key, pool.shift());
+  }
+  return { adopt, skip };
+}
 function normalizeSyncSettings(raw) {
   const src = (raw && typeof raw === 'object') ? raw : {};
   // Pre-category docs had ONE `workout` entry covering every category.
@@ -593,7 +681,7 @@ export default async function handler(req, res) {
   // enables DELETION in the past; creation/patching stays gated on windowStart.
   const listStart = isoOf(addDays(todayDt, -28));
 
-  const summary = { scanned: 0, eligible: 0, synced: 0, created: 0, patched: 0, deleted: 0, invited: 0, calendarsCreated: 0, calendarsRenamed: 0, errors: [], dryRun };
+  const summary = { scanned: 0, eligible: 0, synced: 0, skipped: 0, created: 0, patched: 0, adopted: 0, deleted: 0, invited: 0, calendarsCreated: 0, calendarsRenamed: 0, errors: [], dryRun };
 
   try {
     const snap = await db.collection('users').get();
@@ -773,6 +861,25 @@ export default async function handler(req, res) {
           continue;
         }
 
+        // Nothing to do? Then don't touch Google at all. The cron runs hourly
+        // but the plan only moves when you log something, edit the week or
+        // change the timings — most runs are a no-op, and a no-op that still
+        // lists and re-diffs the calendar is pure risk for no gain. `todayStr`
+        // is part of the digest, so a new day always forces a pass (which is
+        // what sweeps yesterday), and RECONCILE_EVERY_MS bounds how long a
+        // by-hand edit in Google can go unnoticed.
+        const digest = planDigest(desired, {
+          guestEmail,
+          calendarId: data.googleWorkoutCalendarId,
+          todayStr,
+        });
+        const lastCheckedAt = Number(data.calendarSyncCheckedAt) || 0;
+        const staleness = Date.now() - lastCheckedAt;
+        if (data.calendarSyncDigest === digest && staleness < RECONCILE_EVERY_MS) {
+          summary.skipped++;
+          continue;
+        }
+
         // Ensure the calendar exists (and carries the current name).
         const accessToken = await getAccessToken(refreshToken);
         const { id: calendarId, created, renamed } = await ensureCalendar(accessToken, data.googleWorkoutCalendarId);
@@ -804,9 +911,30 @@ export default async function handler(req, res) {
           existing.set(`${date}|${kind}`, ev);
         }
 
+        // Before diffing, work out which about-to-be-deleted events a newly
+        // planned workout can take over. A day flipping weights → cardio changes
+        // its (date, kind) key, and without this that reads as "delete one event,
+        // create another" — a cancellation plus a fresh invitation for a day that
+        // simply changed its mind. Adopting turns it into a single patch.
+        const { adopt, skip } = planEventReuse(Object.keys(desired), [...existing.keys()], todayStr);
+
         // Diff desired vs existing.
         for (const [key, want] of Object.entries(desired)) {
-          const ev = existing.get(key);
+          // Today already has an event standing in for this one. Leave both
+          // alone: patching would retitle a day that's under way, and creating
+          // would leave today holding two, since the sweep skips today too.
+          if (skip.has(key)) continue;
+          let ev = existing.get(key);
+          if (!ev) {
+            const fromKey = adopt.get(key);
+            if (fromKey) {
+              ev = existing.get(fromKey);
+              // Drop the old key so the delete loop below leaves it alone — it
+              // is being patched into its new identity, not retired.
+              existing.delete(fromKey);
+              summary.adopted++;
+            }
+          }
           const priv = { prepDayWorkout: 'true', prepDayKind: want.kind };
           if (isWorkoutKind(want.kind)) priv.workoutType = want.label;
           // Remember who we invited, so changing or clearing the setting later
@@ -846,11 +974,30 @@ export default async function handler(req, res) {
           const prevGuest = ev.extendedProperties?.private?.prepDayGuest || '';
           const guests = resolveEventGuests(ev, guestEmail, prevGuest);
 
-          if (ev.summary !== want.title || tagMismatch || isAllDay || timeMismatch || guests.changed) {
+          // Today is pinned: its events keep the identity they already have.
+          // The planner re-picks an unlogged today on every run, so without this
+          // a day reads "Push" at 9am and "Pull" at 2pm. Timing, guest and
+          // legacy-shape fixes still apply — only the identity is frozen.
+          const pinned = pinnedDate(want.date, todayStr);
+          const identityChanged = ev.summary !== want.title || tagMismatch;
+
+          if ((identityChanged && !pinned) || isAllDay || timeMismatch || guests.changed) {
             const patchBody = { ...body };
+            // A pinned event being re-timed must not pick up the new title as a
+            // side effect of that patch, so leave its identity fields off.
+            if (pinned && identityChanged) {
+              delete patchBody.summary;
+              delete patchBody.extendedProperties;
+            }
             // Clearing the setting must also clear the stored tag, or the stale
-            // address would look "previously added" forever.
-            if (!guestEmail && prevGuest) patchBody.extendedProperties = { private: { ...priv, prepDayGuest: '' } };
+            // address would look "previously added" forever. On a pinned event
+            // that rebuild has to start from the tags it ALREADY carries —
+            // starting from `priv` would slip the new identity back in through
+            // the one patch that's still allowed to run.
+            if (!guestEmail && prevGuest) {
+              const keep = (pinned && identityChanged) ? (ev.extendedProperties?.private || {}) : priv;
+              patchBody.extendedProperties = { private: { ...keep, prepDayGuest: '' } };
+            }
             if (guests.changed) patchBody.attendees = guests.attendees;
             // Only mail the guest about things a guest can act on: being added
             // or removed, and the event actually moving. A retitled workout
@@ -872,27 +1019,42 @@ export default async function handler(req, res) {
         }
         // Delete tagged events no longer planned.
         //
-        // Silently — `sendUpdates=none`. These deletions are overwhelmingly
-        // bookkeeping, not a meeting being called off: this loop also sweeps
-        // every PAST day (the listing reaches 28 days back while `desired` is
-        // built today-forward), so each midnight retired yesterday's workout,
-        // sauna and cooking events and mailed the guest a "Cancelled" for each
-        // one — for events that had already happened. The hourly re-plan adds
-        // more: a day whose category shifts is a delete plus a create under the
-        // new (date, kind) key, not a rename.
+        // PAST days go silently. This loop sweeps them because the listing
+        // reaches 28 days back while `desired` is built today-forward, so every
+        // midnight retires yesterday's workout, sauna and cooking events — and
+        // mailing a guest a "Cancelled" for something that already happened is
+        // noise. Note the tradeoff for a guest whose calendar ISN'T Google: with
+        // no cancellation sent, Outlook/Exchange never learns the event is gone
+        // and its copy is orphaned. That's the lesser evil in the past, and the
+        // reason mirroring into your own Outlook wants a calendar subscription
+        // rather than the guest field — see docs/outlook-calendar-feed.md.
         //
-        // The guest's copy still disappears; Google removes it from their
-        // calendar either way. All that's suppressed is the notification.
+        // FUTURE deletions are real news: a day dropping to rest, or a sauna or
+        // cook day coming off the plan, is something a guest can act on, and
+        // leaving them a stale event on a non-Google calendar is worse than one
+        // email. Category flips don't land here at all any more — they're
+        // adopted above — so this fires far less than it used to.
+        //
+        // Today is pinned and never swept: the event for a workout you just
+        // logged drops out of `desired` (see pinnedDate) and used to be deleted
+        // out from under you.
         for (const [key, ev] of existing) {
-          if (!desired[key]) {
-            await gcal(
-              accessToken,
-              `/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(ev.id)}?sendUpdates=none`,
-              { method: 'DELETE' },
-            );
-            summary.deleted++;
-          }
+          if (desired[key]) continue;
+          const { date } = splitEventKey(key);
+          if (pinnedDate(date, todayStr)) continue;
+          const hasAttendees = Array.isArray(ev.attendees) && ev.attendees.length > 0;
+          const notify = date > todayStr && hasAttendees;
+          await gcal(
+            accessToken,
+            `/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(ev.id)}?sendUpdates=${notify ? 'all' : 'none'}`,
+            { method: 'DELETE' },
+          );
+          summary.deleted++;
         }
+
+        // Record what this run settled on, so an unchanged plan can skip the
+        // whole diff next hour.
+        await docSnap.ref.update({ calendarSyncDigest: digest, calendarSyncCheckedAt: Date.now() });
         summary.synced++;
       } catch (err) {
         summary.errors.push({ uid, error: err.message });

@@ -99,6 +99,50 @@ Outlook refreshes subscribed calendars on its own schedule (typically every few
 hours, and not configurable). That lag is fine here: the plan is for *this* week
 and next, so nothing depends on minute-level freshness.
 
+## What the sync does about the churn itself
+
+The subscription above makes the churn invisible to Outlook. Separately, the
+cron now works harder to not churn in the first place — which matters for the
+Google calendar itself, and for any real person you invite. Four mechanisms, in
+`api/sync-workout-calendar.js`:
+
+**No-op runs don't run.** `planDigest` fingerprints everything the diff would
+write — every desired event's key, title and times, plus the guest and calendar
+id. When it matches what the last run stored on the user doc
+(`calendarSyncDigest`), the run skips Google entirely. The plan only actually
+moves when you log something, edit the week or change the timings, so most of
+the 24 daily runs now touch nothing at all.
+
+Two escape hatches keep that honest: `todayStr` is part of the digest, so a new
+day always forces a full pass (that's what sweeps yesterday), and
+`RECONCILE_EVERY_MS` (6h) bounds how long an edit made by hand in Google can go
+unnoticed before a full reconcile puts it back.
+
+**A category flip is now a patch, not a delete plus a create.** This was the big
+one. `planEventReuse` matches a newly-planned workout to a same-day event that
+was otherwise headed for deletion, so Thursday going weights → cardio patches
+the event in place — keeping its event id, and costing at most one "moved"
+notice instead of a cancellation plus a fresh invitation. Adoption only ever
+happens between workout categories: a dropped sauna is never quietly recycled
+into a lift.
+
+**Today is pinned.** `pinnedDate` freezes today's events. Two things drove this.
+`resolveWorkoutPlan` puts today in `autoSlots`, so an unlogged today was
+re-picked on every hourly run — a day that reads "Push" at 9am and "Pull" at 2pm.
+And worse: the moment you *logged* today's workout, today landed in
+`recordedIdxs`, dropped out of `autoSlots`, and so fell out of the desired set
+entirely — which deleted the calendar event for the workout you had just
+finished. Pinning is identity-only: a pinned event is never retitled, re-keyed
+or deleted, but a kind with no event at all is still created, and an existing one
+is still re-timed when you change the timing settings.
+
+**Deletes notify only when they're news.** A *future* event coming off the plan
+(a day dropping to rest, a sauna or cook day removed) is something a guest can
+act on, so that now sends a proper cancellation — which also means a non-Google
+guest's copy is actually removed rather than orphaned. Past-day sweeps stay
+silent, since mailing someone about a workout that already happened is pure
+noise.
+
 ## What this does not change
 
 The Prep Day calendar in Google still updates hourly, and the churn described
@@ -106,9 +150,14 @@ above still happens there — days still get retitled, re-timed and re-keyed as
 you log workouts. That churn is now just invisible, because a subscribed
 calendar has no notion of an invitation to send.
 
-If you later invite a *real* person (someone you actually train with), the churn
-becomes visible again for them. The mitigations already in
-`api/sync-workout-calendar.js` limit it — `sendUpdates=all` is spent only on a
-new event, a guest being added or removed, and an event actually moving — but a
-plan that re-derives hourly will still occasionally mail them. Worth knowing
-before filling that box in.
+If you later invite a *real* person (someone you actually train with), the
+remaining churn becomes visible to them — but it is now mostly the churn that
+deserves to be: an event genuinely moving, or a day genuinely coming off the
+plan. Retitles, re-categorizations and past-day sweeps no longer reach their
+inbox at all.
+
+One caveat stands for a guest on Outlook/Exchange rather than Google: past-day
+sweeps are still silent, so those copies are still orphaned rather than removed.
+That is deliberate — the alternative is mailing them a cancellation every night
+for a workout that already happened — and it is the reason your *own* Outlook
+should be on the subscription above rather than in the guest field.

@@ -5,6 +5,10 @@ import {
   isValidGuestEmail,
   normalizeCalendarSyncSettings,
   resolveEventGuests,
+  splitEventKey,
+  planEventReuse,
+  pinnedDate,
+  ANY_WORKOUT,
 } from './calendarSyncSettings.js';
 
 const GUEST = 'friend@example.com';
@@ -110,4 +114,126 @@ test('an event with no attendees and no guest configured is a no-op', () => {
 test('case and whitespace differences do not cause a re-invite', () => {
   const ev = eventWith('  FRIEND@Example.com  ');
   assert.equal(resolveEventGuests(ev, 'friend@example.com', 'friend@example.com').changed, false);
+});
+
+// ---------------------------------------------------------------------------
+// planEventReuse / pinnedDate — the churn controls for the hourly sync.
+// ---------------------------------------------------------------------------
+
+const TODAY = '2026-08-24';
+const TOMORROW = '2026-08-25';
+const LATER = '2026-08-27';
+
+test('splitEventKey splits on the first bar only', () => {
+  assert.deepEqual(splitEventKey('2026-08-25|weights'), { date: '2026-08-25', kind: 'weights' });
+  // A kind containing a bar would still round-trip its date.
+  assert.deepEqual(splitEventKey('2026-08-25|odd|kind'), { date: '2026-08-25', kind: 'odd|kind' });
+  assert.deepEqual(splitEventKey('nope'), { date: 'nope', kind: '' });
+});
+test('a category flip adopts the day’s existing workout instead of delete+create', () => {
+  const { adopt } = planEventReuse([`${TOMORROW}|cardio`], [`${TOMORROW}|weights`], TODAY);
+  assert.equal(adopt.get(`${TOMORROW}|cardio`), `${TOMORROW}|weights`);
+});
+
+test('an exact match is neither adopted nor skipped', () => {
+  const { adopt, skip } = planEventReuse([`${TOMORROW}|weights`], [`${TOMORROW}|weights`], TODAY);
+  assert.equal(adopt.size, 0);
+  assert.equal(skip.size, 0);
+});
+
+test('adoption never crosses days', () => {
+  const { adopt } = planEventReuse([`${LATER}|cardio`], [`${TOMORROW}|weights`], TODAY);
+  assert.equal(adopt.size, 0);
+});
+
+test('sauna and cooking never adopt, and are never adopted from', () => {
+  // A dropped sauna must not be recycled into a workout...
+  assert.equal(planEventReuse([`${TOMORROW}|weights`], [`${TOMORROW}|sauna`], TODAY).adopt.size, 0);
+  // ...nor a dropped workout into a sauna.
+  assert.equal(planEventReuse([`${TOMORROW}|sauna`], [`${TOMORROW}|weights`], TODAY).adopt.size, 0);
+  assert.equal(planEventReuse([`${TOMORROW}|cooking`], [`${TOMORROW}|weights`], TODAY).adopt.size, 0);
+});
+
+test('a legacy untagged event is re-keyed in place, not replaced', () => {
+  // Events written before per-category timing carry ANY_WORKOUT.
+  const { adopt } = planEventReuse([`${TOMORROW}|weights`], [`${TOMORROW}|${ANY_WORKOUT}`], TODAY);
+  assert.equal(adopt.get(`${TOMORROW}|weights`), `${TOMORROW}|${ANY_WORKOUT}`);
+});
+
+test('today is pinned — a category flip rewrites nothing and adds nothing', () => {
+  // The regression this guards: skipping adoption on a pinned day without also
+  // skipping the CREATE leaves today holding two workout events, because the
+  // delete loop never sweeps a pinned day either.
+  const { adopt, skip } = planEventReuse([`${TODAY}|cardio`], [`${TODAY}|weights`], TODAY);
+  assert.equal(adopt.size, 0);
+  assert.ok(skip.has(`${TODAY}|cardio`));
+});
+
+test('a pinned day still creates a kind it has no event for at all', () => {
+  // Today's workout stands; a newly-planned sauna alongside it rewrites nothing,
+  // so it goes through as an ordinary create.
+  const { adopt, skip } = planEventReuse(
+    [`${TODAY}|weights`, `${TODAY}|sauna`],
+    [`${TODAY}|weights`],
+    TODAY,
+  );
+  assert.equal(adopt.size, 0);
+  assert.equal(skip.size, 0);
+});
+
+test('a pinned day with two planned workouts and one event creates only the shortfall', () => {
+  const { adopt, skip } = planEventReuse(
+    [`${TODAY}|cardio`, `${TODAY}|yoga`],
+    [`${TODAY}|weights`],
+    TODAY,
+  );
+  assert.equal(adopt.size, 0);
+  // One desired workout is covered by the standing event; the other is a create.
+  assert.equal(skip.size, 1);
+});
+
+test('a paired day adopts one event per desired workout, and no more', () => {
+  // Wednesday held cardio + yoga; the plan now wants weights + cardio there.
+  const { adopt } = planEventReuse(
+    [`${TOMORROW}|weights`, `${TOMORROW}|cardio`],
+    [`${TOMORROW}|cardio`, `${TOMORROW}|yoga`],
+    TODAY,
+  );
+  // cardio matches exactly, so only weights adopts — and the only unmatched
+  // event left to take over is the yoga one.
+  assert.equal(adopt.size, 1);
+  assert.equal(adopt.get(`${TOMORROW}|weights`), `${TOMORROW}|yoga`);
+});
+
+test('an event is never adopted twice', () => {
+  const { adopt } = planEventReuse(
+    [`${TOMORROW}|weights`, `${TOMORROW}|cardio`],
+    [`${TOMORROW}|yoga`],
+    TODAY,
+  );
+  assert.equal(adopt.size, 1);
+  assert.deepEqual([...new Set(adopt.values())], [`${TOMORROW}|yoga`]);
+});
+
+test('adoption is stable across runs given the same inputs', () => {
+  const desired = [`${TOMORROW}|cardio`, `${LATER}|yoga`];
+  const existing = [`${TOMORROW}|weights`, `${LATER}|weights`];
+  const a = planEventReuse(desired, existing, TODAY).adopt;
+  // Same sets, opposite insertion order — the pairing must not move.
+  const b = planEventReuse([...desired].reverse(), [...existing].reverse(), TODAY).adopt;
+  assert.deepEqual([...a].sort(), [...b].sort());
+});
+
+test('a day dropping to rest still deletes — there is nothing to adopt into', () => {
+  const { adopt, skip } = planEventReuse([], [`${TOMORROW}|weights`], TODAY);
+  assert.equal(adopt.size, 0);
+  assert.equal(skip.size, 0);
+});
+
+test('pinnedDate covers today and nothing else', () => {
+  assert.equal(pinnedDate(TODAY, TODAY), true);
+  assert.equal(pinnedDate(TOMORROW, TODAY), false);
+  assert.equal(pinnedDate('2026-08-23', TODAY), false);
+  // No "today" known (a caller that opted out) pins nothing.
+  assert.equal(pinnedDate(TODAY, ''), false);
 });
