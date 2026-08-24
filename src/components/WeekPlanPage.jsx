@@ -1362,6 +1362,22 @@ export function WeekPlanPage({ recipes, getRecipe, user, weeklyPlan = [], weekly
   }, [syncSettings, user?.uid]);
   useEffect(() => () => clearTimeout(guestSaveTimer.current), []);
 
+  // "Copy" feedback for the Prep Day calendar id below. Purely transient — it
+  // reverts on a timer and is never persisted.
+  const [calIdCopied, setCalIdCopied] = useState(false);
+  const calIdCopyTimer = useRef(null);
+  const copyWorkoutCalId = useCallback(() => {
+    if (!workoutCalId) return;
+    navigator.clipboard?.writeText(workoutCalId)
+      .then(() => {
+        setCalIdCopied(true);
+        clearTimeout(calIdCopyTimer.current);
+        calIdCopyTimer.current = setTimeout(() => setCalIdCopied(false), 1500);
+      })
+      .catch(() => {});
+  }, [workoutCalId]);
+  useEffect(() => () => clearTimeout(calIdCopyTimer.current), []);
+
   // Weekly sauna goal. Local-first + debounced for the same reason as the timing
   // fields: the number input fires per keystroke.
   const saunaGoalTimer = useRef(null);
@@ -1801,6 +1817,47 @@ export function WeekPlanPage({ recipes, getRecipe, user, weeklyPlan = [], weekly
                   saunas and cooking. Turning this on asks Google for permission again — that’s expected.
                   {' '}<button className={styles.calBtn} onClick={connectCalendar}>Reconnect Google</button> if events don’t appear.
                 </div>
+
+                {/* Mirroring the plan into a NON-Google calendar (Outlook) has
+                    exactly one right answer, and it isn't the guest field below
+                    — see docs/outlook-calendar-feed.md. An invitation is a push:
+                    the plan re-derives hourly, a day that changes category is a
+                    delete plus a create rather than a rename, and a delete goes
+                    out silently, which an Outlook guest never hears about. So
+                    its copy is orphaned rather than removed. A subscription is a
+                    pull — Outlook re-reads the whole calendar and matches it,
+                    with no mail either way. */}
+                {autoSyncWorkouts && (
+                  <div className={styles.calMirror}>
+                    <div className={styles.syncGearTitle}>Mirror it into Outlook (or any other calendar)</div>
+                    <div className={styles.syncGearNote}>
+                      <strong>Subscribe to this calendar — don’t invite yourself to it.</strong> In
+                      Google Calendar open <strong>Settings → Prep Day → Integrate calendar</strong> and copy the
+                      {' '}<strong>Secret address in iCal format</strong>. In Outlook on the web:
+                      {' '}<strong>Add calendar → Subscribe from web</strong>, paste it, done.
+                      {' '}<a
+                        className={styles.calMirrorLink}
+                        href="https://calendar.google.com/calendar/r/settings"
+                        target="_blank"
+                        rel="noreferrer"
+                      >Open Google Calendar settings ↗</a>
+                    </div>
+                    {workoutCalId && (
+                      <div className={styles.calMirrorId}>
+                        <code className={styles.calMirrorIdText} title={workoutCalId}>{workoutCalId}</code>
+                        <button className={styles.calBtn} onClick={copyWorkoutCalId}>
+                          {calIdCopied ? '✓ Copied' : 'Copy id'}
+                        </button>
+                      </div>
+                    )}
+                    <div className={styles.syncGearNote}>
+                      A subscription is one-way and silent: Outlook re-reads the whole calendar on its own
+                      schedule (every few hours) and adds, moves and removes items to match. The plan is
+                      re-derived hourly, so it changes a lot — a subscription absorbs that invisibly, where
+                      an invitation would mail you about every change.
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* 3 — the settings the old ⚙ held. The sauna goal drives the grid's
@@ -1888,6 +1945,15 @@ export function WeekPlanPage({ recipes, getRecipe, user, weeklyPlan = [], weekly
                     : syncSettings.guestEmail
                       ? <>Every event above is created with <strong>{syncSettings.guestEmail}</strong> as a guest, and Google emails them the invite. While someone’s invited, events are titled “<strong>Prep Day · 🏋️ Push</strong>” so the invitation email says where it came from. Clear the box to stop inviting them — existing events drop them and go back to the short title on the next sync.</>
                       : 'Optional. Add someone here and every workout, sauna and cooking event gets created with them as a guest — Google emails them the invite, and those events get titled “Prep Day · …” so the invitation says where it came from. Leave empty to invite nobody.'}
+                </div>
+                {/* The box is for a person you train with. Pointing it at your
+                    own mailbox is what fills that mailbox with cancellations and
+                    stale rows — the subscription above is the answer there. */}
+                <div className={styles.syncGearNote}>
+                  For <strong>a person you train with</strong> — not for your own other calendar. The plan
+                  re-derives hourly, so an invited address gets mailed as days move, and an Outlook guest
+                  never hears about a removal at all: its copy is left behind rather than deleted. To see
+                  the plan in your own Outlook, subscribe to the calendar instead (above).
                 </div>
                 {/* One line per workout category — now that the three can be
                     timed apart, a single example day wouldn't show the split. */}
