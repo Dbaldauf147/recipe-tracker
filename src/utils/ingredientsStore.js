@@ -316,7 +316,7 @@ export function setIngredientUnitWeight(ingredientName, unit, grams) {
   const idx = findIngredientIndex(rows, ingredientName);
   if (idx < 0) return false;
   const next = rows.slice();
-  next[idx] = { ...next[idx], unitWeights: upsertUnitWeight(next[idx].unitWeights, unit, grams) };
+  next[idx] = { ...next[idx], unitWeights: upsertUnitWeight(next[idx].unitWeights, unit, grams, true) };
   // Local first so the UI re-reads immediately; Firestore write is fire-and-
   // forget (it targets the admin doc and already logs its own failures).
   saveIngredients(next);

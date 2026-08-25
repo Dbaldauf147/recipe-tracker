@@ -110,10 +110,31 @@ export function pluralizeUnit(unit, count) {
 
 // Upsert one count-unit weight onto a list, keeping any others. Returns a new
 // array; the first entry stays the default when none is flagged.
-export function upsertUnitWeight(list, unit, grams) {
+//
+// `makeDefault` promotes the upserted unit to THE default, demoting the rest.
+// The recipe editor needs that, and the reason is worth recording: the editor
+// has nowhere else to remember which unit a row is using. Its cell resolves the
+// unit from `row.measurement` (normally "grams", which matches no count unit)
+// and otherwise falls back to defaultUnitWeight(). So a freshly taught unit that
+// is merely APPENDED is stored correctly and then never shown — teach "regular
+// stick" on an ingredient that already had "large" and the cell snaps back to
+// "large" the moment the draft clears, wiping what was typed and quietly
+// changing the count beside it. Promoting it is the only place that preference
+// can live, and it is what makes the value survive a reload.
+export function upsertUnitWeight(list, unit, grams, makeDefault = false) {
   const u = normalizeUnitName(unit);
   const kept = (Array.isArray(list) ? list : []).filter(w => normalizeUnitName(w.unit) !== u);
   const entry = { unit: (unit || '').trim(), grams: Math.round(grams * 100) / 100 };
+  if (makeDefault) {
+    // Exactly one default: strip the flag off everything else.
+    const demoted = kept.map(w => {
+      if (!w.isDefault) return w;
+      const rest = { ...w };
+      delete rest.isDefault;
+      return rest;
+    });
+    return [...demoted, { ...entry, isDefault: true }];
+  }
   const next = [...kept, entry];
   if (!next.some(w => w.isDefault)) next[0].isDefault = true;
   return next;
