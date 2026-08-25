@@ -460,7 +460,9 @@ export function AdminDashboard({ onClose }) {
   const [mergeBusy, setMergeBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const [cleanedCount, setCleanedCount] = useState(0);
-  const [sortField, setSortField] = useState('lastLogin');
+  // Default the table to the engagement Score, highest first — the one column
+  // that answers "who actually uses this" without reading across the others.
+  const [sortField, setSortField] = useState('engagementScore');
   const [sortDir, setSortDir] = useState('desc');
   // Per-admin column visibility + widths for the users table.
   const [colPrefs, setColPrefs] = useState(loadColPrefs);
