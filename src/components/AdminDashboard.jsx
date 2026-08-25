@@ -74,15 +74,19 @@ function totalLogins(u) {
   return (u?.loginCount || 0) + (u?.mobileLoginCount || 0);
 }
 
+// Last seen anywhere — the later of the web and app logins. ISO strings sort
+// lexicographically, so the plain sort is the max. '' for a user who has
+// never logged in, which sorts below every real date.
+function lastActiveIso(u) {
+  return [u?.lastLogin, u?.mobileLastLogin].filter(Boolean).sort().pop() || '';
+}
+
 function getUserEngagement(u) {
   // Engagement reflects overall activity across web AND mobile, so an
   // app-only user reads as Active rather than New.
   const logins = totalLogins(u);
   const recipes = (u.recipes || []).length;
-  const lastLoginIso = [u.lastLogin, u.mobileLastLogin]
-    .filter(Boolean)
-    .sort()
-    .pop();
+  const lastLoginIso = lastActiveIso(u);
   const daysSinceLast = lastLoginIso ? Math.floor((Date.now() - new Date(lastLoginIso).getTime()) / 86400000) : 999;
 
   if (logins >= 10 && daysSinceLast <= 14) return { label: 'Active', color: '#16a34a' };
@@ -110,7 +114,7 @@ function engagementInputs(u) {
   const sumMap = (m) => Object.values(m || {}).reduce((n, v) => n + (Number(v) || 0), 0);
   const views = sumMap(u.pageViews) + sumMap(u.appScreenViews);
   const recipes = (u.recipes || []).length;
-  const lastIso = [u.lastLogin, u.mobileLastLogin].filter(Boolean).sort().pop();
+  const lastIso = lastActiveIso(u);
   const days = lastIso ? Math.floor((Date.now() - new Date(lastIso).getTime()) / 86400000) : null;
   return { logins, views, recipes, days, lastIso };
 }
@@ -585,7 +589,14 @@ export function AdminDashboard({ onClose }) {
     }
     if (aVal < bVal) return sortDir === 'asc' ? -1 : 1;
     if (aVal > bVal) return sortDir === 'asc' ? 1 : -1;
-    return 0;
+    // Ties get a fixed order rather than whatever Firestore handed back —
+    // most of the table shares a Score of 0-2, and "recently seen" is the
+    // most useful thing to say about two users the sort can't separate.
+    // Deliberately not flipped by sortDir: ties reading the same way in both
+    // directions is less confusing than watching them invert on every click.
+    const aLast = lastActiveIso(a), bLast = lastActiveIso(b);
+    if (aLast !== bLast) return aLast < bLast ? 1 : -1;
+    return (a.email || '').localeCompare(b.email || '');
   });
 
   const sourceCounts = users.reduce((acc, u) => {
@@ -1036,7 +1047,7 @@ export function AdminDashboard({ onClose }) {
           <div className={styles.statValue}>
             {users.filter(u => {
               // Active if last seen on web OR app within 7 days.
-              const last = [u.lastLogin, u.mobileLastLogin].filter(Boolean).sort().pop();
+              const last = lastActiveIso(u);
               if (!last) return false;
               return Date.now() - new Date(last).getTime() < 7 * 24 * 60 * 60 * 1000;
             }).length}
