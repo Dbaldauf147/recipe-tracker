@@ -267,9 +267,65 @@ function loadWorkouts() {
   try { return ensureWorkoutIds(JSON.parse(localStorage.getItem(STORAGE_KEY)) || []); } catch { return []; }
 }
 
+// Recent-workout counts the local cache falls back to when the whole log will
+// not fit, largest first.
+const LOCAL_CACHE_FALLBACKS = [1000, 500, 250, 100];
+
+/**
+ * Mirror the workout log into localStorage — a CACHE, never the record.
+ *
+ * The log itself lives in Firestore (users/{uid}/workouts, one doc per
+ * workout). Ten years of it has outgrown the 5 MiB per-origin quota: 3,590
+ * workouts serialise to 3.3 MB of JSON, and browsers charge localStorage in
+ * UTF-16, so it bills as roughly 6.6 MiB.
+ *
+ * This used to be a bare setItem as the FIRST statement of saveWorkouts. Once
+ * the log crossed the quota every save threw QuotaExceededError on that line —
+ * before the line that writes to Firestore, and before the "Workout saved!"
+ * alert. React state had already been set, so the workout sat on screen looking
+ * saved and was gone on the next reload, with no error and no confirmation
+ * popup. That is the whole bug: a failing CACHE took the actual save down with
+ * it, and the missing popup was the only visible symptom.
+ *
+ * So the cache degrades instead of throwing — the full list if it fits, else the
+ * most recent N, else nothing. A missing cache costs a slower first paint; a
+ * failed cloud write costs the workout.
+ *
+ * Storing a SHORT list here is safe: the delete half of the Firestore diff is
+ * baselined on _lastSyncedWorkouts, which is in-memory and starts empty on every
+ * page load, so a truncated cache produces upserts and never deletes. It cannot
+ * turn into a mass deletion of history.
+ */
+function cacheWorkoutsLocally(data) {
+  const list = Array.isArray(data) ? data : [];
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(list));
+    return;
+  } catch { /* over quota — fall back to a recent window */ }
+
+  const byNewest = [...list].sort((x, y) => String(y?.date || '').localeCompare(String(x?.date || '')));
+  for (const n of LOCAL_CACHE_FALLBACKS) {
+    if (n >= byNewest.length) continue;
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(byNewest.slice(0, n)));
+      console.warn(`[saveWorkouts] localStorage over quota — cached only the ${n} most recent workouts. Firestore holds the full log.`);
+      return;
+    } catch { /* still too big — try a smaller window */ }
+  }
+  try { localStorage.removeItem(STORAGE_KEY); } catch { /* nothing left to try */ }
+  console.warn('[saveWorkouts] localStorage over quota — skipped the local cache entirely. Firestore holds the full log.');
+}
+
 function saveWorkouts(data, uid) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-  if (uid) saveField(uid, 'workoutLog', data);
+  cacheWorkoutsLocally(data);
+  if (!uid) return;
+  // Was fire-and-forget, so a rejected write looked exactly like a successful
+  // one and the workout vanished on the next reload — the same failure mode
+  // saveLibrary below was already fixed for. Surface it instead of losing it.
+  saveField(uid, 'workoutLog', data).catch(err => {
+    console.error('[saveWorkouts] cloud save failed:', err);
+    alert(`Saved on this device, but syncing to the cloud failed: ${err?.message || err}. It will not show on your phone yet — try saving again.`);
+  });
 }
 
 function loadLibrary() {
