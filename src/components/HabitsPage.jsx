@@ -935,19 +935,33 @@ function habitWindowKeys(cadence, trackDays, dailyDays = 30) {
 }
 
 // Completion KPI from the log: (Did it + Above & Beyond) ÷ every period in the
-// window. Falls back to the stored kpi value when the habit has no logged marks
-// in the window (e.g. established "Automatically" habits you don't log).
+// window that you were actually expected to show up for.
+//
+// A `skipped` period leaves the denominator entirely rather than counting as a
+// miss. Skip means "this one did not apply" — it is what PTO mode stamps across
+// a holiday (see utils/habitPto) — and scoring a week away as 0% punished you
+// for time you had already declared off, so the number read as a decline when
+// nothing had declined. Unlogged periods still count against you; only an
+// explicit Skip is excused, so this cannot be used to quietly inflate a score.
+//
+// Falls back to the stored kpi value when the window holds no marks at all (e.g.
+// established "Automatically" habits you do not log) and when every period in it
+// was skipped — neither leaves any evidence to score, and the second would
+// otherwise divide by zero.
 function habitKpi(h, habitLog) {
   if (!habitLog) return pctOf(h.kpi);
   const keys = habitWindowKeys(h.cadence, h.trackDays);
-  let done = 0, logged = 0;
+  let done = 0, logged = 0, skipped = 0;
   for (const k of keys) {
     const mk = habitLog[k] ? habitLog[k][h.id] : undefined;
     if (mk) logged++;
-    if (mk === 'done' || mk === 'exceeded') done++;
+    if (mk === 'skipped') skipped++;
+    else if (mk === 'done' || mk === 'exceeded') done++;
   }
   if (logged === 0) return pctOf(h.kpi);
-  return Math.round((done / keys.length) * 100);
+  const scorable = keys.length - skipped;
+  if (scorable <= 0) return pctOf(h.kpi);
+  return Math.round((done / scorable) * 100);
 }
 
 // ── Auto-promotion to "Automatically" ────────────────────────────────────────
@@ -1017,23 +1031,33 @@ function habitKpiTooltip(h, habitLog) {
   const windowLabel = habitWindowLabel(h.cadence);
   if (!habitLog) return `Stored completion value.`;
   const keys = habitWindowKeys(h.cadence, h.trackDays);
-  let done = 0, logged = 0;
+  let done = 0, logged = 0, skipped = 0;
   for (const k of keys) {
     const mk = habitLog[k] ? habitLog[k][h.id] : undefined;
     if (mk) logged++;
-    if (mk === 'done' || mk === 'exceeded') done++;
+    if (mk === 'skipped') skipped++;
+    else if (mk === 'done' || mk === 'exceeded') done++;
   }
   if (logged === 0) {
     return `Stored completion value — no marks logged in the ${windowLabel}.`;
   }
-  const total = keys.length;
-  const pct = Math.round((done / total) * 100);
+  // Skipped periods leave the denominator entirely: a Skip means the period did
+  // not apply (PTO stamps it across a holiday), so it is neither hit nor miss.
+  const scorable = keys.length - skipped;
+  if (scorable <= 0) {
+    return `Stored completion value — every ${unit} in the ${windowLabel} was skipped.`;
+  }
+  const pct = Math.round((done / scorable) * 100);
+  const skipNote = skipped
+    ? `\n${skipped} skipped ${unit}${skipped === 1 ? '' : 's'} excluded — a Skip is not a miss.`
+    : '';
   const trackedNote = hasCustomTrackDays(h)
     ? `\nOnly tracked days count — ${trackDaysLabel(h.trackDays)}.`
     : '';
   return `${pct}% completion over the ${windowLabel}.\n`
-    + `${done} of ${total} ${unit}${total === 1 ? '' : 's'} marked “Did it” or “Above & Beyond”.\n`
-    + `Every ${unit} in the window counts, so unlogged ${unit}s count as missed.`
+    + `${done} of ${scorable} ${unit}${scorable === 1 ? '' : 's'} marked “Did it” or “Above & Beyond”.\n`
+    + `Every other ${unit} in the window counts, so unlogged ${unit}s count as missed.`
+    + skipNote
     + trackedNote;
 }
 
