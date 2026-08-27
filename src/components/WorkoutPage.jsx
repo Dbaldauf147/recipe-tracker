@@ -1,5 +1,7 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
-import { createPortal } from 'react-dom';
+import { todayKey } from '../utils/localDate';
+import { subscribeWorkouts } from '../utils/workoutsSync';
+import { createPortal, flushSync } from 'react-dom';
 import { ComposedChart, Area, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, BarChart, Bar, ReferenceLine } from 'recharts';
 import { doc, collection, onSnapshot } from 'firebase/firestore';
 import { db } from '../firebase';
@@ -206,6 +208,47 @@ function loadWidthsFor(storageKey, defs) {
 
 function loadColWidths() {
   return loadWidthsFor(COL_WIDTHS_KEY, LOG_COLUMN_DEFS);
+}
+
+// The History table renders one row per logged exercise, and every row is a
+// spreadsheet line: ~19 native inputs/selects/buttons. That measures at ~5ms a
+// row of browser layout — a decade-long log (13k+ rows) is minutes of work, and
+// even a few hundred rows is over a second. So the table renders roughly a
+// screenful and grows by the same amount as you scroll toward the bottom.
+const HISTORY_ROW_PAGE = 60;
+
+const EMPTY_OPTIONS = [];
+
+/**
+ * A <select> that keeps only its current value in the DOM until the user is
+ * about to use it. The History table renders four of these per row, and at
+ * ~43 <option> nodes a row they were over half of the whole page's DOM.
+ * flushSync gets the real list rendered before the browser opens the native
+ * popup, so the first click still shows every choice.
+ */
+function LazyOptionSelect({ value, options, placeholder, ...rest }) {
+  const [expanded, setExpanded] = useState(false);
+  const expand = () => { if (!expanded) flushSync(() => setExpanded(true)); };
+  // Collapsed, the one selected value is all that has to be in the DOM. With
+  // no value there's nothing to collapse to, so render the list as before.
+  // Expanded, a value missing from the list is prepended — <option> matching
+  // is case-sensitive, so a near-miss would otherwise render as blank.
+  const list = expanded || !value
+    ? (value && !options.includes(value) ? [value, ...options] : options)
+    : [value];
+  return (
+    <select
+      {...rest}
+      value={value}
+      onMouseDown={expand}
+      onTouchStart={expand}
+      onFocus={expand}
+      onKeyDown={expand}
+    >
+      {placeholder != null && <option value="">{placeholder}</option>}
+      {list.map(o => <option key={o} value={o}>{o}</option>)}
+    </select>
+  );
 }
 
 // History table columns. Unlike the Log table these are also hideable, so each
@@ -432,8 +475,17 @@ function saveSkipDates(map, uid) {
   if (uid) saveField(uid, 'workoutTypeSkipDates', map);
 }
 
+// Today's date key, built from LOCAL calendar parts.
+//
+// This was new Date().toISOString().slice(0, 10) — UTC. East of UTC that's
+// harmless, but at UTC-4 every evening after 8pm rolled the tracker over to
+// TOMORROW: the Log Workout header read 08/26 on the evening of the 25th, an
+// evening session saved under the next day's date, and the "Nd ago" pills
+// (which measure from the real local today) disagreed with the date on screen
+// by one. The other toISOString() day-keys in this file are safe because they
+// pin the time to local noon first; this one ran off the current time.
 function todayStr() {
-  return new Date().toISOString().slice(0, 10);
+  return todayKey();
 }
 
 function formatDate(d) {
@@ -2565,33 +2617,12 @@ export function WorkoutPage({ onBack, user }) {
   // doc under users/{uid}/workouts/{id} (v2 schema — mirrors mobile).
   // Echoes from our own writes are skipped via JSON-equality so they
   // don't cause re-renders.
-  useEffect(() => {
-    if (!user?.uid) return;
-    const colRef = collection(db, 'users', user.uid, 'workouts');
-    const unsub = onSnapshot(
-      colRef,
-      snap => {
-        const remote = [];
-        // Always stamp the Firestore doc id onto the workout so each one has a
-        // stable unique key — multiple workouts can share a date, and the
-        // History tab edits/selects rows by this id, not by date.
-        snap.forEach(d => remote.push({ ...d.data(), id: d.id }));
-        if (remote.length === 0) return;
-        setWorkouts(prev => {
-          const sorted = remote.sort((a, b) =>
-            (b.date || '').localeCompare(a.date || '') ||
-            (a.savedAt || '').localeCompare(b.savedAt || '')
-          );
-          const sortedJson = JSON.stringify(sorted);
-          if (sortedJson === JSON.stringify(prev)) return prev;
-          try { localStorage.setItem(STORAGE_KEY, sortedJson); } catch { /* quota or disabled storage */ }
-          return sorted;
-        });
-      },
-      err => { console.error('Workout live sync error:', err); },
-    );
-    return () => unsub();
-  }, [user?.uid]);
+  useEffect(() => subscribeWorkouts(user?.uid, sorted => {
+    // Echoes from our own writes are skipped via JSON-equality so they don't
+    // cause re-renders. The mirror write lives in subscribeWorkouts now, so
+    // every page reading it gets the same fresh copy.
+    setWorkouts(prev => (JSON.stringify(sorted) === JSON.stringify(prev) ? prev : sorted));
+  }), [user?.uid]);
   const [gyms, setGymsState] = useState(loadGyms);
   const [gym, setGym] = useState(() => loadGyms()[0] || '');
   const [weightUnit, setWeightUnitState] = useState(loadWeightUnit);
@@ -2773,8 +2804,7 @@ export function WorkoutPage({ onBack, user }) {
   // Training' or 'Stretching' — which is the step the picker asks about before
   // the muscle group. Omitted (the dropdowns elsewhere on the page) = no
   // filtering, so those keep showing the whole group.
-  function exercisesForGroup(group, exerciseType) {
-    if (!group) return [];
+  function computeExercisesForGroup(group, exerciseType) {
     const groupLc = group.toLowerCase();
     const wantType = normalizeExerciseType(exerciseType);
     const libraryForGroup = [];
@@ -2802,6 +2832,27 @@ export function WorkoutPage({ onBack, user }) {
     }
     merged.sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
     return merged;
+  }
+
+  // computeExercisesForGroup rescans the whole library and re-sorts on every
+  // call, and the History table asks once per rendered row — so cache by
+  // group+type and drop the cache whenever the library behind it changes.
+  // Callers must treat the returned array as read-only.
+  const exerciseOptionsCache = useMemo(
+    () => new Map(),
+    // Not read by the factory — these are the cache's invalidation trigger.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [exerciseLibrary, customExercises, hiddenExercises],
+  );
+  function exercisesForGroup(group, exerciseType) {
+    if (!group) return [];
+    const key = `${group}::${exerciseType || ''}`;
+    let cached = exerciseOptionsCache.get(key);
+    if (!cached) {
+      cached = computeExercisesForGroup(group, exerciseType);
+      exerciseOptionsCache.set(key, cached);
+    }
+    return cached;
   }
 
   // Every group the pickers should offer: the built-in catalog plus whatever
@@ -2957,7 +3008,19 @@ export function WorkoutPage({ onBack, user }) {
     // The routine's own workout type, so a yoga flow and a desk-stretch don't
     // pile into the same bucket. Unset falls back to Yoga, which is what every
     // routine did before the field existed.
-    const workoutType = routine.workoutType || STRETCH_DEFAULT_WORKOUT_TYPE;
+    //
+    // A type that has since been REMOVED from the list is KEPT, not rewritten.
+    // removeWorkoutType leaves routines tagged with it, so the routine went on
+    // logging to a type no pill shows and those sessions counted toward
+    // nothing. The repair is to put the type back rather than to merge it into
+    // the default: a stretch routine is not a yoga session, and filing one
+    // under the other loses the distinction the two types exist to draw.
+    // A routine still logging to a type is what keeps that type alive.
+    const routineType = (routine.workoutType || '').trim();
+    const workoutType = routineType || STRETCH_DEFAULT_WORKOUT_TYPE;
+    if (routineType && !workoutTypes.includes(routineType)) {
+      commitWorkoutTypes([...workoutTypes, routineType]);
+    }
     const workout = {
       id: newWorkoutId(),
       date: selectedDate,
@@ -3146,6 +3209,12 @@ export function WorkoutPage({ onBack, user }) {
   // Per-column search boxes in the History table header (compose with the
   // filter-row dropdowns above via AND).
   const [historyColSearch, setHistoryColSearch] = useState({ date: '', location: '', type: '', group: '', exercise: '', notes: '', weight: '' });
+  // How many History rows are currently rendered — see HISTORY_ROW_PAGE.
+  const [historyRowLimit, setHistoryRowLimit] = useState(HISTORY_ROW_PAGE);
+  // Sits just below the last rendered row; when it scrolls into view there are
+  // more rows to show. Rendered only while some are still held back, so once
+  // the list is exhausted the observer below has nothing to watch.
+  const historySentinelRef = useRef(null);
   const [selectedRows, setSelectedRows] = useState(() => new Set());
   const [bulkWeightInput, setBulkWeightInput] = useState('');
   const [bulkNotesInput, setBulkNotesInput] = useState('');
@@ -4229,6 +4298,42 @@ export function WorkoutPage({ onBack, user }) {
     return m;
   }, [workouts]);
 
+  // The same, narrowed to the location currently selected.
+  //
+  // Weights and machine notes are gym-specific — the notes column is full of
+  // "2 seat 4 clips back at the 1 setting" and "7 height or chest" — so a Push
+  // refilled from a different building hands you settings for equipment you
+  // can't reach, and a plate count that may be the wrong lift entirely.
+  //
+  // Deliberately SEPARATE from lastByType rather than replacing it: that one
+  // still drives the pills' "9d ago" and the ⭐ suggestion, and those answer
+  // "what am I overdue for" — a question about your body, not the building. A
+  // Push done Tuesday at another gym still means you did Push on Tuesday.
+  const lastByTypeAtGym = useMemo(() => {
+    const here = (gym || '').trim().toLowerCase();
+    const m = {};
+    if (!here) return m;
+    for (const w of workouts) {
+      if (!w.workoutType) continue;
+      if ((w.gym || '').trim().toLowerCase() !== here) continue;
+      if (!m[w.workoutType] || w.date > m[w.workoutType].date) {
+        m[w.workoutType] = w;
+      }
+    }
+    return m;
+  }, [workouts, gym]);
+
+  /**
+   * Which saved workout a refill should copy: this location's most recent one
+   * of that type, falling back to any location when you've never done the type
+   * here. The fallback matters on a first visit to a new gym — last week's
+   * numbers from somewhere else beat an empty table as a starting point, and
+   * the refill button says where they came from.
+   */
+  function lastSourceForType(t) {
+    return lastByTypeAtGym[t] || lastByType[t] || null;
+  }
+
   // Effective last-activity date per type — the newer of an actual saved
   // workout and a manual "skip" recorded by the user. wasSkipped lets the
   // pill differentiate when the most recent activity is a skip vs a real
@@ -4430,7 +4535,7 @@ export function WorkoutPage({ onBack, user }) {
   }
 
   function fillFromLast(t) {
-    const last = lastByType[t];
+    const last = lastSourceForType(t);
     if (!last) return;
     // Prefer suggestedEntries (full logged+skipped template) so exercises the
     // user skipped last time — not logged to history — still get suggested.
@@ -4455,7 +4560,7 @@ export function WorkoutPage({ onBack, user }) {
     setWorkoutType(t);
     // The table reflects the selected type: refill from that type's
     // last workout, or clear to a blank slate if it's never been done.
-    if (lastByType[t]) {
+    if (lastSourceForType(t)) {
       fillFromLast(t);
     } else {
       setEntries(blankEntries());
@@ -4556,6 +4661,24 @@ export function WorkoutPage({ onBack, user }) {
   }, [workouts, historyStartDate, historyEndDate, historyGym, historyGroup, historyExercise]);
 
   const hasActiveHistoryFilters = !!(historyGroup || historyStartDate || historyEndDate || historyGym || historyExercise || Object.values(historyColSearch).some(v => v));
+  // A filter change is a different result set — show the window from the top.
+  useEffect(() => {
+    setHistoryRowLimit(HISTORY_ROW_PAGE);
+  }, [historyStartDate, historyEndDate, historyGym, historyGroup, historyExercise, historyColSearch]);
+
+  // Grow the window as the sentinel comes into view. Re-observing on every
+  // change is deliberate: the observer fires on attach when the target is
+  // already visible, so one short screenful chains into the next until the
+  // sentinel is pushed below the fold (or unmounts, the list being exhausted).
+  useEffect(() => {
+    const el = historySentinelRef.current;
+    if (viewMode !== 'history' || !el) return;
+    const io = new IntersectionObserver(([entry]) => {
+      if (entry.isIntersecting) setHistoryRowLimit(n => n + HISTORY_ROW_PAGE);
+    }, { rootMargin: '400px' });
+    io.observe(el);
+    return () => io.disconnect();
+  }, [viewMode, historyRowLimit]);
   function exportHistory() {
     const rows = [];
     for (const w of filteredHistory) {
@@ -4886,17 +5009,40 @@ export function WorkoutPage({ onBack, user }) {
               ✎ Edit
             </button>
 
-            {workoutType && lastByType[workoutType] && (
-              <button
-                className={styles.workoutTypeRefill}
-                onClick={() => fillFromLast(workoutType)}
-                type="button"
-                title={`Replace the table with your last ${workoutType} workout`}
-              >
-                ↻ Refill from last {workoutType}
-              </button>
-            )}
+            {workoutType && (() => {
+              const src = lastSourceForType(workoutType);
+              if (!src) return null;
+              const elsewhere =
+                (src.gym || '').trim().toLowerCase() !== (gym || '').trim().toLowerCase();
+              return (
+                <button
+                  className={styles.workoutTypeRefill}
+                  onClick={() => fillFromLast(workoutType)}
+                  type="button"
+                  title={elsewhere
+                    ? `No ${workoutType} logged at ${gym || 'this location'} yet — this refills from ${formatDate(src.date)}${src.gym ? ` at ${src.gym}` : ''}, so the weights and machine notes may not match here.`
+                    : `Replace the table with your ${workoutType} at ${gym} on ${formatDate(src.date)}`}
+                >
+                  ↻ Refill from last {workoutType}
+                  {elsewhere && src.gym ? ` (${src.gym})` : ''}
+                </button>
+              );
+            })()}
           </div>
+
+          {workoutType && (() => {
+            const src = lastSourceForType(workoutType);
+            if (!src) return null;
+            const elsewhere =
+              (src.gym || '').trim().toLowerCase() !== (gym || '').trim().toLowerCase();
+            return (
+              <div className={`${styles.fillSourceLine} ${elsewhere ? styles.fillSourceLineWarn : ''}`}>
+                {elsewhere
+                  ? `No ${workoutType} at ${gym || 'this location'} yet — filled from ${formatDate(src.date)}${src.gym ? ` at ${src.gym}` : ''}`
+                  : `Filled from your ${workoutType} at ${gym} · ${formatDate(src.date)}`}
+              </div>
+            );
+          })()}
 
           {/* Sauna toggle — record whether this session included a sauna. Mirrors
               the mobile app's 🧖 toggle; feeds the Week Plan's weekly sauna goal. */}
@@ -5286,7 +5432,11 @@ export function WorkoutPage({ onBack, user }) {
                 flatRows.push({ w, e: null, originalIdx: -1, isFirstOfDay: true, dayCount: 1, saunaOnly: true });
               }
             }
-            const visibleKeys = flatRows.map(({ w, originalIdx }) => rowKey(workoutKey(w), originalIdx));
+            // Only the window is rendered. Export and the "N workouts" count
+            // still cover the whole filtered set — this caps DOM, not data.
+            const shownRows = flatRows.slice(0, historyRowLimit);
+            const moreRows = flatRows.length - shownRows.length;
+            const visibleKeys = shownRows.map(({ w, originalIdx }) => rowKey(workoutKey(w), originalIdx));
             const visibleSelectedCount = visibleKeys.reduce((n, k) => n + (selectedRows.has(k) ? 1 : 0), 0);
             const allVisibleSelected = visibleKeys.length > 0 && visibleSelectedCount === visibleKeys.length;
             const someVisibleSelected = visibleSelectedCount > 0 && !allVisibleSelected;
@@ -5441,7 +5591,7 @@ export function WorkoutPage({ onBack, user }) {
                     </tr>
                   </thead>
                   <tbody>
-                    {flatRows.map(({ w, e, originalIdx, isFirstOfDay, dayCount, saunaOnly }, ri) => {
+                    {shownRows.map(({ w, e, originalIdx, isFirstOfDay, dayCount, saunaOnly }, ri) => {
                       // Sauna-only day: one compact row, no exercise cells.
                       if (saunaOnly) {
                         const wk = workoutKey(w);
@@ -5564,69 +5714,50 @@ export function WorkoutPage({ onBack, user }) {
                           )}
                           {historyColVisible('location') && (
                             <td className={styles.historyMetaCell} style={metaCellBorder('location')}>
-                              <select
+                              <LazyOptionSelect
                                 className={styles.historyGymSelect}
                                 style={{ marginTop: 0 }}
                                 value={w.gym || ''}
+                                options={gyms}
                                 onChange={ev => setHistoryGymForDate(wk, ev.target.value)}
                                 title="Edit location"
-                              >
-                                {w.gym && !gyms.includes(w.gym) && (
-                                  <option value={w.gym}>{w.gym}</option>
-                                )}
-                                {gyms.map(g => <option key={g} value={g}>{g}</option>)}
-                              </select>
+                              />
                             </td>
                           )}
                           {historyColVisible('type') && (
                             <td className={styles.historyMetaCell} style={metaCellBorder('type')}>
-                              <select
+                              <LazyOptionSelect
                                 className={styles.historyTypeSelect}
                                 style={{ marginTop: 0 }}
                                 value={w.workoutType || ''}
+                                options={workoutTypes}
+                                placeholder="No type"
                                 onChange={ev => setHistoryWorkoutType(wk, ev.target.value)}
                                 title="Tag this workout's type"
-                              >
-                                <option value="">No type</option>
-                                {workoutTypes.map(t => <option key={t} value={t}>{t}</option>)}
-                              </select>
+                              />
                             </td>
                           )}
                           {historyColVisible('group') && (
                             <td>
-                              <select
+                              <LazyOptionSelect
                                 className={`${styles.logCell} ${styles.logGroupSelect}`}
                                 value={e.group || ''}
+                                options={allMuscleGroups}
+                                placeholder="—"
                                 onChange={ev => updateHistoryField(wk, originalIdx, 'group', ev.target.value)}
-                              >
-                                <option value="">—</option>
-                                {allMuscleGroups.map(g => <option key={g} value={g}>{g}</option>)}
-                              </select>
+                              />
                             </td>
                           )}
                           {historyColVisible('exercise') && (
                             <td>
-                              <select
+                              <LazyOptionSelect
                                 className={`${styles.logCell} ${styles.logExerciseSelect}`}
                                 value={e.exercise || ''}
+                                options={e.group ? exercisesForGroup(e.group) : EMPTY_OPTIONS}
+                                placeholder="—"
                                 onChange={ev => updateHistoryField(wk, originalIdx, 'exercise', ev.target.value)}
                                 disabled={!e.group}
-                              >
-                                <option value="">—</option>
-                                {(() => {
-                                  const list = e.group ? exercisesForGroup(e.group) : [];
-                                  // Keep the currently-selected exercise visible even if it
-                                  // differs only in casing/whitespace from a list entry —
-                                  // <select> matches value case-sensitively, so a near-miss
-                                  // would render as blank instead of the saved exercise.
-                                  if (e.exercise && !list.includes(e.exercise)) {
-                                    list.unshift(e.exercise);
-                                  }
-                                  return list.map(ex => (
-                                    <option key={ex} value={ex}>{ex}</option>
-                                  ));
-                                })()}
-                              </select>
+                              />
                             </td>
                           )}
                           {historyColVisible('notes') && (
@@ -5739,6 +5870,24 @@ export function WorkoutPage({ onBack, user }) {
                     })}
                   </tbody>
                 </table>
+                {moreRows > 0 && (
+                  <div className={styles.historyMore} ref={historySentinelRef}>
+                    <span className={styles.historyMoreCount}>
+                      Showing {shownRows.length.toLocaleString()} of {flatRows.length.toLocaleString()} rows
+                    </span>
+                    <button
+                      type="button"
+                      className={styles.clearBtn}
+                      onClick={() => setHistoryRowLimit(n => n + HISTORY_ROW_PAGE)}
+                    >Show {Math.min(HISTORY_ROW_PAGE, moreRows).toLocaleString()} more</button>
+                    <button
+                      type="button"
+                      className={styles.clearBtn}
+                      onClick={() => setHistoryRowLimit(flatRows.length)}
+                      title="Renders every matching row — slow on a long log"
+                    >Show all {flatRows.length.toLocaleString()}</button>
+                  </div>
+                )}
               </div>
             );
           })()}

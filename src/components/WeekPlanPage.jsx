@@ -16,6 +16,7 @@ import {
   pruneSaunaOverrides, resolveSaunaDates, spreadIndices,
 } from '../utils/saunaPlan';
 import { isStretchWorkout } from '../utils/stretchRoutine';
+import { subscribeWorkouts } from '../utils/workoutsSync';
 import styles from './WeekPlanPage.module.css';
 
 const SLOTS = [
@@ -1218,6 +1219,15 @@ export function WeekPlanPage({ recipes, getRecipe, user, weeklyPlan = [], weekly
       </div>
     );
   }, [workoutsByDate, renderSaunaChip, resolvedWorkoutPlan, categoryOf, workoutTypes, setWorkoutCategory, onOpenWorkout]);
+
+  // Logged workouts come from their own subcollection, which the
+  // `firestore-sync` refresh below never hears about — that event is for
+  // user-doc changes. Without this the workout row rendered whatever the
+  // localStorage mirror held, so a session that never opened the Workout page
+  // (or a workout logged on the phone) simply didn't show up here.
+  useEffect(() => subscribeWorkouts(user?.uid, sorted => {
+    setWorkoutsRaw(prev => (JSON.stringify(sorted) === JSON.stringify(prev) ? prev : sorted));
+  }), [user?.uid]);
 
   // Refresh from localStorage when a Firestore sync hydrates it, or another tab writes.
   useEffect(() => {

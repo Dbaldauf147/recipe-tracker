@@ -395,6 +395,14 @@ export function StretchRoutines({
     });
   }, []);
 
+  // Where a routine's sessions land. Mirrors logStretchRoutine in WorkoutPage:
+  // only an UNSET type falls back to the default. A type that's been deleted
+  // from the list is kept as-is and put back on logging, so a stretch routine
+  // never gets filed as yoga.
+  const logsToType = useCallback((r) => {
+    return (r?.workoutType || '').trim() || defaultWorkoutType;
+  }, [defaultWorkoutType]);
+
   // Name of a linked habit, or '' if it's unset or has since been deleted —
   // a stale link shouldn't render a blank chip.
   const habitName = useCallback((habitId) => {
@@ -476,6 +484,15 @@ export function StretchRoutines({
               onChange={e => setEditing({ ...editing, workoutType: e.target.value })}
             >
               <option value="">{defaultWorkoutType} (default)</option>
+              {/* A type the routine still names but that has been deleted from
+                  the list. Without this the <select> renders blank and the
+                  routine looks like it logs to the default when it doesn't —
+                  logging restores the type rather than rewriting the tag. */}
+              {editing.workoutType && !workoutTypes.includes(editing.workoutType) && (
+                <option value={editing.workoutType}>
+                  {editing.workoutType} (not in your types — logging adds it back)
+                </option>
+              )}
               {workoutTypes.map(t => <option key={t} value={t}>{t}</option>)}
             </select>
           </div>
@@ -697,7 +714,7 @@ export function StretchRoutines({
               {/* Where it lands, visible without opening the routine — the
                   whole point of asking is not having to guess afterwards. */}
               <div className={styles.cardLinks}>
-                <span className={styles.chip}>Logs to {r.workoutType || defaultWorkoutType}</span>
+                <span className={styles.chip}>Logs to {logsToType(r)}</span>
                 {habitName(r.habitId) && (
                   <span className={styles.chip}>Marks {habitName(r.habitId)}</span>
                 )}

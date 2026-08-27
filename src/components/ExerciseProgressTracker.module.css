@@ -435,3 +435,21 @@
   flex-shrink: 0;
 }
 .modalClose:hover { color: var(--color-text, #1e293b); background: var(--color-border, #e2e8f0); }
+
+/* ── "usual gym only" filter (header) ── */
+.gymFilter {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  cursor: pointer;
+  user-select: none;
+}
+.gymFilterText {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--color-text-muted, #94a3b8);
+  white-space: nowrap;
+}
+.gymFilterCount {
+  font-weight: 400;
+}

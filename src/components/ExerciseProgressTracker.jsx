@@ -7,7 +7,7 @@
 import React, { useMemo, useState, useEffect, useCallback } from 'react';
 import styles from './ExerciseProgressTracker.module.css';
 import {
-  analyzeProgress, displayWeight, deltaTone, WINDOW_DAYS, MIN_SESSIONS, MIN_SPAN_DAYS,
+  analyzeProgress, detectHomeGym, displayWeight, deltaTone, WINDOW_DAYS, MIN_SESSIONS, MIN_SPAN_DAYS,
   PROGRESS_PCT, VOLUME_PCT, VOLUME_DROP_PCT, EPLEY_REP_CAP,
 } from '../utils/exerciseProgress';
 import { formatSeconds } from '../utils/setValue';
@@ -52,6 +52,10 @@ function daysUntil(iso) {
   return Math.max(0, Math.round(ms / 86400000));
 }
 const INTENT_KEY = 'sunday-progress-intent';
+// Whether to score only sessions at your usual gym. On by default: a day on
+// someone else's equipment isn't evidence about your strength, and reading it
+// as a regression is the failure mode this exists to stop.
+const HOME_GYM_ONLY_KEY = 'sunday-progress-home-gym-only';
 // Bodyweight history, hydrated into localStorage from the user doc by
 // firestoreSync. Read directly (the established pattern in this app) rather than
 // threaded through props — WorkoutPage doesn't receive it either.
@@ -390,13 +394,41 @@ export default function ExerciseProgressTracker({ workouts = [], weightUnit = 'l
     if (uid) saveField(uid, 'workoutTrainingIntent', v).catch(() => {});
   }, [uid]);
 
+
+  // Your usual gym over the same window the trends use, and whether to hold the
+  // page to it. Derived from the logs rather than configured: it's "where I've
+  // actually been training lately", which moves on its own when you switch gyms.
+  const homeGym = useMemo(() => detectHomeGym(workouts), [workouts]);
+
+  const [homeGymOnly, setHomeGymOnly] = useState(() => {
+    try { return localStorage.getItem(HOME_GYM_ONLY_KEY) !== 'false'; } catch { return true; }
+  });
+  useEffect(() => {
+    if (!user?.uid) return;
+    let alive = true;
+    loadField(user.uid, 'workoutProgressHomeGymOnly').then(v => {
+      if (alive && typeof v === 'boolean') {
+        setHomeGymOnly(v);
+        try { localStorage.setItem(HOME_GYM_ONLY_KEY, String(v)); } catch { /* ignore */ }
+      }
+    }).catch(() => {});
+    return () => { alive = false; };
+  }, [user?.uid]);
+
+  const changeHomeGymOnly = useCallback((v) => {
+    setHomeGymOnly(v);
+    try { localStorage.setItem(HOME_GYM_ONLY_KEY, String(v)); } catch { /* ignore */ }
+    if (uid) saveField(uid, 'workoutProgressHomeGymOnly', v).catch(() => {});
+  }, [uid]);
+
   const allGroups = useMemo(
     () => analyzeProgress(workouts, groupByName, {
       weightLog,
       intent: intent === 'normal' ? null : intent,
       typeByName,
+      homeGym: homeGymOnly ? homeGym?.gym : null,
     }),
-    [workouts, groupByName, typeByName, weightLog, intent],
+    [workouts, groupByName, typeByName, weightLog, intent, homeGymOnly, homeGym],
   );
 
   // Exercises the user has hidden from this page (lowercased names). Seed from
@@ -522,6 +554,24 @@ export default function ExerciseProgressTracker({ workouts = [], weightUnit = 'l
               {INTENT_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
             </select>
           </label>
+          {/* Only worth showing once there's somewhere else to have trained. */}
+          {homeGym && homeGym.otherSessions > 0 && (
+            <label className={styles.gymFilter} title={`Your usual gym is ${homeGym.gym} (${homeGym.sessions} of the last ${homeGym.sessions + homeGym.otherSessions} logged sessions). Sessions at another gym use different equipment, so they're left out of the trends rather than counted as a drop.`}>
+              <input
+                type="checkbox"
+                checked={homeGymOnly}
+                onChange={e => changeHomeGymOnly(e.target.checked)}
+              />
+              <span className={styles.gymFilterText}>
+                {homeGym.gym} only
+                <span className={styles.gymFilterCount}>
+                  {homeGymOnly
+                    ? ` · ${homeGym.otherSessions} away session${homeGym.otherSessions === 1 ? '' : 's'} excluded`
+                    : ` · counting all ${homeGym.sessions + homeGym.otherSessions} sessions`}
+                </span>
+              </span>
+            </label>
+          )}
           <span className={styles.legendNote}>Past {WINDOW_DAYS} days · est. 1RM (Epley) · trend line</span>
         </div>
       </div>
@@ -554,6 +604,10 @@ export default function ExerciseProgressTracker({ workouts = [], weightUnit = 'l
             <li><strong style={{ color: '#dc2626' }}>Decreasing</strong> — the trend implies ≥{PROGRESS_PCT * 100}% e1RM <em>decline</em>. Extra volume doesn't cancel this out; it's noted alongside instead.</li>
             <li><strong style={{ color: '#d97706' }}>Stagnating</strong> — e1RM within ±{PROGRESS_PCT * 100}%: flat, no added stimulus. A volume drop of ≥{VOLUME_DROP_PCT * 100}% is flagged as <em>volume down</em>.</li>
             <li><strong style={{ color: '#7c3aed' }}>Deload</strong> / <strong style={{ color: '#0891b2' }}>Maintaining</strong> — you've set your training intent above, so planned dips aren't reported as regressions.</li>
+            <li><strong>Your usual gym</strong> — sessions logged at a gym other than the one you've
+              trained in most over these {WINDOW_DAYS} days are left out entirely. Different equipment
+              means a lighter day away says nothing about your strength, and dropping only the bad ones
+              would tilt every trend upward. Sessions with no gym recorded always count.</li>
             <li><strong style={{ color: '#64748b' }}>No Baseline</strong> — needs {MIN_SESSIONS}+ sessions spread over {MIN_SPAN_DAYS}+ days. Either it's new, or it's logged too sparsely to read a trend.</li>
           </ul>
           <p>

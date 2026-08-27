@@ -1,8 +1,11 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useRecipes } from './hooks/useRecipes';
 import { useAuth } from './contexts/AuthContext';
-import { saveField, loadField, getPendingRequests, getPendingSharedRecipes, loadFriends, loadFriendShoppingList, loadFriendEatingOut, getUsername, noteWeeklyPlanChange } from './utils/firestoreSync';
+import { saveField, loadField, getPendingRequests, getPendingSharedRecipes, loadFriends, loadFriendShoppingList, loadFriendEatingOut, getUsername, noteWeeklyPlanChange, loadAppDefaults, saveAppDefault } from './utils/firestoreSync';
+import { OWNER_EMAIL, PAGE_ACCESS_KEY, canViewPage, isPageToggleable, isPageVisible, pageLabel, readCachedPageAccess, cachePageAccess } from './utils/pageAccess';
 import { trackPageView } from './utils/trackPageView';
+import { todayKey } from './utils/localDate';
+import { BUILD_LABEL, forceAppUpdate } from './utils/forceUpdate';
 import { countOutstandingHabits } from './utils/habitOutstanding';
 import { loadHabitLog } from './utils/habitLogYears';
 import { LoadingScreen } from './components/LoadingScreen';
@@ -119,6 +122,49 @@ function HelpBubble({ user, currentView }) {
         aria-label="Report an issue"
       >
         <span className={styles.helpBtnText}>Report an Issue</span>
+      </button>
+    </div>
+  );
+}
+
+/**
+ * Owner-only pill, one per page: switches this page on or off for every OTHER
+ * account. Renders nothing for anyone else, and nothing on the pages that
+ * aren't toggleable (see TOGGLEABLE_PAGES in utils/pageAccess.js).
+ */
+function PageAccessToggle({ pageKey, access, onChange, user }) {
+  const [saving, setSaving] = useState(false);
+  if (user?.email !== OWNER_EMAIL || !isPageToggleable(pageKey)) return null;
+
+  const shared = isPageVisible(access, pageKey);
+
+  async function handleToggle() {
+    const next = { ...(access || {}), [pageKey]: !shared };
+    setSaving(true);
+    onChange(next); // optimistic — the sidebar reflects it immediately
+    try {
+      await saveAppDefault(user.uid, PAGE_ACCESS_KEY, next);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className={styles.pageAccess}>
+      <button
+        className={`${styles.pageAccessBtn}${shared ? '' : ` ${styles.pageAccessBtnOff}`}`}
+        onClick={handleToggle}
+        disabled={saving}
+        title={shared
+          ? `${pageLabel(pageKey)} is visible to other users — click to hide it`
+          : `${pageLabel(pageKey)} is hidden from other users — click to share it`}
+      >
+        <span className={`material-symbols-outlined ${styles.pageAccessIcon}`}>
+          {shared ? 'visibility' : 'visibility_off'}
+        </span>
+        <span className={styles.pageAccessText}>
+          {shared ? 'Visible to others' : 'Hidden from others'}
+        </span>
       </button>
     </div>
   );
@@ -247,6 +293,32 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
   });
   const [viewHistory, setViewHistory] = useState([]);
   const [modalView, setModalView] = useState(null);
+
+  // Which pages the owner has shared with everyone else. Seeded from the last
+  // known value so the sidebar's first paint doesn't flash pages that are
+  // switched off, then refreshed from the admin's shared-defaults doc.
+  const [pageAccess, setPageAccess] = useState(readCachedPageAccess);
+  useEffect(() => {
+    // The owner reads their OWN copy — that's the doc the pill writes to, so
+    // the switch state round-trips even where VITE_ADMIN_UID is stale.
+    const sourceUid = user?.email === OWNER_EMAIL ? user.uid : ADMIN_UID;
+    if (!user || !sourceUid) return;
+    loadAppDefaults(sourceUid).then(d => {
+      const next = d?.[PAGE_ACCESS_KEY];
+      if (next && typeof next === 'object') {
+        setPageAccess(next);
+        cachePageAccess(next);
+      }
+    }).catch(() => { /* unreadable — everything stays visible */ });
+  }, [user]);
+
+  function updatePageAccess(next) {
+    setPageAccess(next);
+    cachePageAccess(next);
+  }
+
+  // The owner sees everything regardless; everyone else is bound by the map.
+  const canView = useCallback(key => canViewPage(pageAccess, key, user), [pageAccess, user]);
 
   // Record each page the user lands on for the admin usage table. The tracker
   // self-guards on auth, so it's a no-op until signed in.
@@ -626,7 +698,7 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
 
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
-  const NAV_ITEMS = [
+  const ALL_NAV_ITEMS = [
     { label: 'Recipes', id: 'weekly-menu', icon: 'restaurant_menu' },
     ...(showNutrition ? [{ label: 'Nutrition', icon: 'clinical_notes', submenu: [
       { label: 'Goals', action: 'nutrition-goals' },
@@ -642,6 +714,18 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
     ...((user?.email === 'baldaufdan@gmail.com' || localStorage.getItem('sunday-workout-enabled') === 'true') ? [{ label: 'Workout', action: 'workout', icon: 'fitness_center' }] : []),
     ...(user?.email === 'baldaufdan@gmail.com' ? [{ label: 'Habits', action: 'habits', icon: 'checklist' }] : []),
   ];
+
+  // Drop whatever the owner has switched off for other users, including
+  // submenu entries — and the whole parent once its submenu empties out.
+  const NAV_ITEMS = ALL_NAV_ITEMS.reduce((acc, item) => {
+    if (item.submenu) {
+      const submenu = item.submenu.filter(sub => canView(sub.action));
+      if (submenu.length) acc.push({ ...item, submenu });
+    } else if (canView(item.action)) {
+      acc.push(item);
+    }
+    return acc;
+  }, []);
 
   function handleNavClick(item) {
     if (item.action === 'features') {
@@ -769,7 +853,7 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
   function handleSaveToHistory() {
     if (weeklyPlan.length === 0) return;
     const entry = {
-      date: new Date().toISOString().slice(0, 10),
+      date: todayKey(), // local, not UTC — a week saved at night is today's
       recipeIds: [...weeklyPlan],
       timestamp: new Date().toISOString(),
     };
@@ -865,24 +949,40 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
                 </div>
                 <button className={styles.settingsMenuItem} onClick={() => { navigateTo('profile'); setSettingsOpen(false); }}>My Profile</button>
                 <button className={styles.settingsMenuItem} onClick={() => { navigateTo('account-settings'); setSettingsOpen(false); }}>Account Settings</button>
-                <button className={styles.settingsMenuItem} onClick={() => { navigateTo('friends'); setSettingsOpen(false); }}>
-                  Friends
-                  {pendingCount > 0 && <span className={styles.menuBadge}>{pendingCount}</span>}
-                </button>
+                {canView('friends') && (
+                  <button className={styles.settingsMenuItem} onClick={() => { navigateTo('friends'); setSettingsOpen(false); }}>
+                    Friends
+                    {pendingCount > 0 && <span className={styles.menuBadge}>{pendingCount}</span>}
+                  </button>
+                )}
                 <div className={styles.settingsDivider} />
                 {user?.uid === ADMIN_UID && (
                   <button className={styles.settingsMenuItem} onClick={() => { navigateTo('admin'); setSettingsOpen(false); }}>Admin Dashboard</button>
                 )}
-                <button className={styles.settingsMenuItem} onClick={() => { navigateTo('history'); setSettingsOpen(false); }}>Meal History</button>
-                <button className={styles.settingsMenuItem} onClick={() => { navigateTo('whoop'); setSettingsOpen(false); }}>Whoop</button>
-                <button className={styles.settingsMenuItem} onClick={() => { navigateTo('seasonal-guide'); setSettingsOpen(false); }}>Seasonal Guide</button>
-                <button className={styles.settingsMenuItem} onClick={() => { navigateTo('sources'); setSettingsOpen(false); }}>Sources</button>
-                <button className={styles.settingsMenuItem} onClick={() => { navigateTo('features'); setSettingsOpen(false); }}>Features</button>
+                {canView('history') && <button className={styles.settingsMenuItem} onClick={() => { navigateTo('history'); setSettingsOpen(false); }}>Meal History</button>}
+                {canView('whoop') && <button className={styles.settingsMenuItem} onClick={() => { navigateTo('whoop'); setSettingsOpen(false); }}>Whoop</button>}
+                {canView('seasonal-guide') && <button className={styles.settingsMenuItem} onClick={() => { navigateTo('seasonal-guide'); setSettingsOpen(false); }}>Seasonal Guide</button>}
+                {canView('sources') && <button className={styles.settingsMenuItem} onClick={() => { navigateTo('sources'); setSettingsOpen(false); }}>Sources</button>}
+                {canView('features') && <button className={styles.settingsMenuItem} onClick={() => { navigateTo('features'); setSettingsOpen(false); }}>Features</button>}
                 <div className={styles.settingsDivider} />
-                <button className={styles.settingsMenuItem} onClick={() => { navigateTo('ingredients'); setSettingsOpen(false); }}>Ingredients</button>
+                {canView('ingredients') && <button className={styles.settingsMenuItem} onClick={() => { navigateTo('ingredients'); setSettingsOpen(false); }}>Ingredients</button>}
                 <button className={styles.settingsMenuItem} onClick={() => { restartOnboarding(); setSettingsOpen(false); }}>Setup</button>
                 <div className={styles.settingsDivider} />
                 <button className={styles.settingsMenuItem} onClick={() => { logOut(); setSettingsOpen(false); }}>Sign Out</button>
+                <div className={styles.settingsDivider} />
+                {/* Which build this tab is actually running, and a way out when
+                    it isn't the deployed one. Without this, "I deployed that"
+                    vs "I don't see it" can only be settled by guessing. */}
+                <div className={styles.settingsBuildRow}>
+                  <span className={styles.settingsBuild}>Build {BUILD_LABEL}</span>
+                  <button
+                    className={styles.settingsBuildBtn}
+                    onClick={() => { setSettingsOpen(false); forceAppUpdate(); }}
+                    title="Clear this app's cached copy and reload the newest deployed build"
+                  >
+                    Check for updates
+                  </button>
+                </div>
               </div>
             )}
           </div>
@@ -957,7 +1057,20 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
             </div>
           );
         })()}
-        {view === 'barcode-scanner' ? (
+        {/* Every page renders inside the boundary: a render crash in ONE page
+            used to take out the whole app and leave a blank white screen with
+            nothing to go on. Keyed by view so navigating away clears it. */}
+        <ErrorBoundary key={view}>
+        {/* A page the owner has switched off for other accounts. The nav entry
+            is already gone; this catches a direct #hash link to it. */}
+        {!canView(view) ? (
+          <div className={styles.pageBlocked}>
+            <span className={`material-symbols-outlined ${styles.pageBlockedIcon}`}>lock</span>
+            <h2 className={styles.pageBlockedTitle}>{pageLabel(view)} isn't available</h2>
+            <p className={styles.pageBlockedText}>This page isn't shared with your account right now.</p>
+            <button className={styles.pageBlockedBtn} onClick={() => navigateTo('list')}>Back to Recipes</button>
+          </div>
+        ) : view === 'barcode-scanner' ? (
           <BarcodeScannerPage onClose={goBack} user={user} />
         ) : view === 'daily-tracker' ? (
           <DailyTrackerPage recipes={recipes} getRecipe={getRecipe} onClose={goBack} user={user} weeklyPlan={weeklyPlan} weeklyServings={weeklyServings} onViewRecipe={(id) => navigateTo('detail', id)} onImportRecipe={() => navigateTo('import')} />
@@ -1141,9 +1254,9 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
               user={user}
               ingredientsVersion={ingredientsVersion}
               onViewSources={() => navigateTo('sources')}
-              onPersistFields={(updates) => {
-                if (!transientViewRecipe && selectedId) updateRecipe(selectedId, updates);
-              }}
+              onPersistFields={transientViewRecipe || !selectedId
+                ? undefined
+                : (updates) => updateRecipe(selectedId, updates)}
             />
           </ErrorBoundary>
         ) : view === 'add' ? (
@@ -1182,7 +1295,7 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
             />
           </div>
         )}
-
+        </ErrorBoundary>
 
       </main>
 
@@ -1303,6 +1416,13 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
         </div>
       )}
 
+      {/* Suppressed while a recipe/import overlay is up: that's not "this page". */}
+      <PageAccessToggle
+        pageKey={viewRecipeId || showImportModal ? null : (modalView || view)}
+        access={pageAccess}
+        onChange={updatePageAccess}
+        user={user}
+      />
       <HelpBubble user={user} currentView={view} />
       <UpdatePill />
     </div>

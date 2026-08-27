@@ -671,6 +671,10 @@ td.logPerCell.manuallyEdited {
 .clearBtn { padding: 0.4rem 0.75rem; border: 1px solid var(--color-border); border-radius: 6px; background: var(--color-surface); font-size: 0.8rem; font-weight: 600; color: var(--color-text-muted); cursor: pointer; font-family: inherit; }
 .clearBtn:hover { border-color: var(--color-accent); color: var(--color-accent); }
 .historyCount { font-size: 0.8rem; color: var(--color-text-muted); margin-left: auto; }
+
+/* Footer under the History table when only a window of rows is rendered. */
+.historyMore { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; padding: 0.75rem 0.25rem 0.25rem; }
+.historyMoreCount { font-size: 0.8rem; color: var(--color-text-muted); }
 .historyCard { background: var(--color-surface); border: 1px solid var(--color-border-light); border-radius: 10px; padding: 0.75rem; margin-bottom: 0.5rem; }
 .historyDate { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem; }
 .historyDateText { font-weight: 700; font-size: 0.9rem; color: var(--color-text); }
@@ -1441,3 +1445,17 @@ td.logPerCell.manuallyEdited {
   cursor: pointer;
 }
 .pickerAddCancel:hover { background: var(--color-surface-alt, #f3f4f6); }
+
+/* Which saved session a refill for the selected type would pull in. Mirrors
+   the mobile app's fillSourceLine — the location-aware refill is otherwise
+   invisible, since a fallback to another gym fills the table just as quietly
+   as a correct same-gym refill does. */
+.fillSourceLine {
+  font-size: 12px;
+  color: #6B7280;
+  padding: 2px 2px 6px;
+}
+.fillSourceLineWarn {
+  color: #B45309;
+  font-weight: 600;
+}

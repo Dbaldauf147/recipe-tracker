@@ -16,6 +16,23 @@ import 'react-resizable/css/styles.css';
 const GridLayout = WidthProvider(GridLayoutLib);
 import styles from './RecipeList.module.css';
 
+/**
+ * Does Joanne like this one? Her verdict rides on the recipe's tags, the same
+ * list the existing "Not Joanne" tag uses — so tagging a recipe "Joanne" is
+ * all it takes to badge it.
+ *
+ * The catch: "Not Joanne" CONTAINS "Joanne", so a plain substring test would
+ * badge the one recipe she actively dislikes. Anything opening with "not" is
+ * a thumbs-down and is excluded.
+ */
+function joanneLikes(recipe) {
+  const tags = [...(recipe?.customTags || []), ...(recipe?.tags || [])];
+  return tags.some(t => {
+    const s = String(t || '').trim();
+    return /joanne/i.test(s) && !/^not\b/i.test(s);
+  });
+}
+
 const ADMIN_UID = import.meta.env.VITE_ADMIN_UID;
 
 const HISTORY_KEY = 'sunday-plan-history';
@@ -1552,6 +1569,11 @@ export function RecipeList({
                       key={recipe.id}
                       className={`${styles.weekItem}${lastAdded === recipe.id ? ` ${styles.weekItemNew}` : ''}`}
                     >
+                      {joanneLikes(recipe) && (
+                        <span className={styles.joanneBadge} role="img" aria-label="Joanne likes this">
+                          J&nbsp;✓
+                        </span>
+                      )}
                       <button
                         type="button"
                         className={styles.weekItemThumbBtn}

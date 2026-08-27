@@ -577,6 +577,70 @@ function isStretching(name, group, typeByName) {
 }
 
 /**
+ * Your usual gym: whichever one holds the most logged sessions in the window
+ * (the same `WINDOW_DAYS` the trends use — "the gym I've worked out in most in the
+ * past 2 months"). Ties go to whichever was used most recently.
+ *
+ * Sessions with no gym recorded are counted separately and never win: a blank
+ * isn't a place, and most blanks are imported history.
+ *
+ * Returns { gym, sessions, otherSessions, unknownSessions, gyms } or null when
+ * nothing in the window names a gym.
+ */
+export function detectHomeGym(workouts, options = {}) {
+  const now = options.now || new Date();
+  const cutoff = cutoffKey(options.windowDays ?? WINDOW_DAYS, now);
+
+  const counts = new Map(); // lowercased gym → { gym, sessions, lastDate }
+  let unknownSessions = 0;
+  for (const w of (workouts || [])) {
+    if (!w || !w.date || w.date < cutoff) continue;
+    const gym = String(w.gym || '').trim();
+    if (!gym) { unknownSessions++; continue; }
+    const key = gym.toLowerCase();
+    const prev = counts.get(key);
+    if (prev) {
+      prev.sessions++;
+      if (w.date > prev.lastDate) prev.lastDate = w.date;
+    } else {
+      counts.set(key, { gym, sessions: 1, lastDate: w.date });
+    }
+  }
+  if (counts.size === 0) return null;
+
+  const gyms = [...counts.values()].sort(
+    (a, b) => b.sessions - a.sessions || b.lastDate.localeCompare(a.lastDate),
+  );
+  const home = gyms[0];
+  return {
+    gym: home.gym,
+    sessions: home.sessions,
+    otherSessions: gyms.slice(1).reduce((n, g) => n + g.sessions, 0),
+    unknownSessions,
+    gyms,
+  };
+}
+
+/**
+ * Does this workout count toward the trends, given a home gym?
+ *
+ * A session somewhere else is a different set of equipment — a hotel rack, a
+ * different dumbbell ladder, a machine with its own stack — so a lighter day
+ * there says nothing about whether you're getting stronger. It's dropped from
+ * the trend ENTIRELY rather than only when it looks bad: keeping the good
+ * away-days and dropping the bad ones would tilt every trend upward, which is
+ * a worse lie than the one this fixes.
+ *
+ * Sessions with no gym recorded stay in — there's nothing to place them
+ * somewhere else, and dropping them would silently delete imported history.
+ */
+export function countsForHomeGym(workout, homeGym) {
+  if (!homeGym) return true;
+  const gym = String(workout?.gym || '').trim();
+  if (!gym) return true;
+  return gym.toLowerCase() === String(homeGym).trim().toLowerCase();
+}
+/**
  * workouts:    array of { date, entries:[{ exercise, group, sets, weight, ... }] }
  * groupByName: optional Map(lowercased exercise name → muscle group) for labels.
  * options:
@@ -585,6 +649,8 @@ function isStretching(name, group, typeByName) {
  *   intent            global 'deload' | 'maintenance' | null
  *   intentByExercise  Map/object of lowercased name → 'deload' | 'maintenance' | 'none'
  *   libraryByName     Map/object of lowercased name → library row (for `bodyweight`)
+ *   homeGym           name of your usual gym (see detectHomeGym); sessions
+ *                     logged at a DIFFERENT named gym are excluded entirely
  *   typeByName        Map(lowercased name → 'Strength Training' | 'Stretching');
  *                     stretches are excluded from the result entirely
  *
@@ -596,6 +662,7 @@ export function analyzeProgress(workouts, groupByName, options = {}) {
 
   const byName = {};
   for (const w of (workouts || [])) {
+    if (!countsForHomeGym(w, options.homeGym)) continue;
     for (const e of (w.entries || [])) {
       if (!e.exercise) continue;
       const key = e.exercise.trim().toLowerCase();

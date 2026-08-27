@@ -12,6 +12,8 @@ import assert from 'node:assert/strict';
 
 import {
   analyzeProgress,
+  detectHomeGym,
+  countsForHomeGym,
   decideStatus,
   deltaTone,
   epley1RM,
@@ -926,4 +928,108 @@ test('a name in typeByName that was never logged changes nothing', () => {
     { now: NOW, typeByName: new Map([['some other move', 'Stretching']]) },
   );
   assert.deepEqual(allNames(groups), ['Deadlift']);
+});
+
+
+// ------------------------------------------------------- home gym filtering
+
+// A session at `gym` on `daysAgo`, one exercise, one straight set.
+function gymSession(gym, daysAgo, weight) {
+  return {
+    date: key(daysAgo),
+    gym,
+    entries: [{ exercise: 'Bench Press', group: 'Chest', sets: ['5'], weight: String(weight) }],
+  };
+}
+
+test('the home gym is the one with the most sessions in the window', () => {
+  const workouts = [
+    gymSession('Edge South Tower', 5, 185),
+    gymSession('Edge South Tower', 12, 180),
+    gymSession('Edge South Tower', 19, 175),
+    gymSession('Hotel Gym', 8, 100),
+  ];
+  const home = detectHomeGym(workouts, { now: NOW });
+  assert.equal(home.gym, 'Edge South Tower');
+  assert.equal(home.sessions, 3);
+  assert.equal(home.otherSessions, 1);
+});
+
+test('sessions older than the window do not decide the home gym', () => {
+  const workouts = [
+    gymSession('Old Gym', 90, 185),
+    gymSession('Old Gym', 95, 185),
+    gymSession('Old Gym', 100, 185),
+    gymSession('New Gym', 3, 185),
+  ];
+  assert.equal(detectHomeGym(workouts, { now: NOW }).gym, 'New Gym');
+});
+
+test('a tie on session count goes to the more recent gym', () => {
+  const workouts = [gymSession('A Gym', 40, 185), gymSession('B Gym', 2, 185)];
+  assert.equal(detectHomeGym(workouts, { now: NOW }).gym, 'B Gym');
+});
+
+test('blank gyms never win, and are counted apart', () => {
+  const workouts = [
+    gymSession('', 2, 185),
+    gymSession('', 4, 185),
+    gymSession('   ', 6, 185),
+    gymSession('Edge South Tower', 8, 185),
+  ];
+  const home = detectHomeGym(workouts, { now: NOW });
+  assert.equal(home.gym, 'Edge South Tower');
+  assert.equal(home.unknownSessions, 3);
+});
+
+test('no named gym anywhere in the window means no home gym', () => {
+  assert.equal(detectHomeGym([gymSession('', 2, 185)], { now: NOW }), null);
+  assert.equal(detectHomeGym([], { now: NOW }), null);
+  assert.equal(detectHomeGym(undefined, { now: NOW }), null);
+});
+
+test('countsForHomeGym keeps the home gym and unrecorded gyms, drops the rest', () => {
+  assert.equal(countsForHomeGym({ gym: 'Edge South Tower' }, 'Edge South Tower'), true);
+  assert.equal(countsForHomeGym({ gym: 'edge south tower ' }, 'Edge South Tower'), true);
+  assert.equal(countsForHomeGym({ gym: '' }, 'Edge South Tower'), true);
+  assert.equal(countsForHomeGym({}, 'Edge South Tower'), true);
+  assert.equal(countsForHomeGym({ gym: 'Hotel Gym' }, 'Edge South Tower'), false);
+  assert.equal(countsForHomeGym({ gym: 'Hotel Gym' }, null), true); // filter off
+});
+
+// The point of the whole feature: one light week at a hotel gym in the middle
+// of a rising trend must not turn Progressing into Decreasing.
+test('a light away-gym week does not drag the trend down', () => {
+  const home = [
+    gymSession('Edge South Tower', 56, 175),
+    gymSession('Edge South Tower', 42, 180),
+    gymSession('Edge South Tower', 28, 185),
+    gymSession('Edge South Tower', 14, 190),
+    gymSession('Edge South Tower', 2, 195),
+  ];
+  const away = [gymSession('Hotel Gym', 21, 95), gymSession('Hotel Gym', 18, 90)];
+  const workouts = [...home, ...away];
+
+  const unfiltered = analyzeProgress(workouts, null, { now: NOW });
+  assert.equal(unfiltered.progressing.length, 0);
+  assert.equal(unfiltered.decreasing.length, 1);
+
+  const filtered = analyzeProgress(workouts, null, { now: NOW, homeGym: 'Edge South Tower' });
+  assert.equal(filtered.progressing.length, 1);
+  assert.equal(filtered.progressing[0].sessions, 5); // the two away days are gone
+});
+
+test('an exercise only ever done away from the home gym drops off the page', () => {
+  const workouts = [
+    { date: key(10), gym: 'Hotel Gym', entries: [{ exercise: 'Smith Machine Press', group: 'Chest', sets: ['8'], weight: '95' }] },
+    { date: key(3), gym: 'Edge South Tower', entries: [{ exercise: 'Bench Press', group: 'Chest', sets: ['5'], weight: '185' }] },
+  ];
+  const names = allNames(analyzeProgress(workouts, null, { now: NOW, homeGym: 'Edge South Tower' }));
+  assert.deepEqual(names, ['Bench Press']);
+});
+
+test('no homeGym option leaves every session in place', () => {
+  const workouts = [gymSession('Edge South Tower', 3, 185), gymSession('Hotel Gym', 5, 95)];
+  const r = analyzeProgress(workouts, null, { now: NOW }).nobaseline[0];
+  assert.equal(r.sessions, 2);
 });

@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import { todayKey } from '../utils/localDate';
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, ReferenceLine } from 'recharts';
 import { saveField } from '../utils/firestoreSync';
 import styles from './WeightTracker.module.css';
@@ -1227,7 +1228,7 @@ export function WeightTracker({ onClose, user, isOnboarding = false }) {
   function handleOnboardingLog() {
     const w = parseFloat(onboardingWeight);
     if (!w) return;
-    const today = new Date().toISOString().slice(0, 10);
+    const today = todayKey(); // local, not UTC — an evening weigh-in is today's
     const newLog = [...log.filter(e => e.date !== today), { date: today, weight: w }].sort((a, b) => a.date.localeCompare(b.date));
     setLog(newLog);
     saveWeightLog(newLog, user);

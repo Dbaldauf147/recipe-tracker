@@ -507,6 +507,26 @@ async function syncWorkoutsDiffToFirestore(uid, prev, next) {
  *  caller threading prev through every commit site. */
 const _lastSyncedWorkouts = new Map();
 
+/**
+ * Tell the diff cache what the remote actually holds right now.
+ *
+ * The cache used to be written only by our own saves and by the initial
+ * load, while the live subscription that feeds every page lives in
+ * workoutsSync.js and never touched it. Any remote change we didn't make —
+ * an edit from the phone, or one of our own writes losing a race — left the
+ * cache claiming a value the server no longer had. From then on
+ * saveWorkoutLogToFirestore diffed against that phantom, found "no change",
+ * and skipped the write: the edit vanished on the next snapshot and RE-DOING
+ * it did nothing, because the retry matched the phantom too.
+ *
+ * The subscription sees the real remote state, so it is the right thing to
+ * seed this from. Worst case it seeds a stale snapshot, which only ever
+ * causes a redundant re-write — the safe direction to fail in.
+ */
+export function noteWorkoutsSynced(uid, workouts) {
+  if (uid && Array.isArray(workouts)) _lastSyncedWorkouts.set(uid, workouts);
+}
+
 /** v2 single-doc-shaped writer kept for back-compat with callers that pass
  *  the full array. Computes the diff against the last in-memory snapshot
  *  and writes only the deltas to the per-workout subcollection. */

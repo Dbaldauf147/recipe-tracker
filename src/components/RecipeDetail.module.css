@@ -2931,3 +2931,16 @@
   opacity: 0.5;
   cursor: not-allowed;
 }
+
+/* Owner-only "does Joanne like this" picker. Sized like the other selects in
+   the detail popup rather than stretched full width — it holds three short
+   options, and a full-width control reads as a required field. */
+.joanneSelect {
+  min-width: 200px;
+  padding: 8px 10px;
+  font-size: 0.9rem;
+  color: var(--color-text);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+}

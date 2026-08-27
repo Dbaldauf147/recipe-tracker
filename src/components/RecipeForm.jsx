@@ -313,6 +313,32 @@ export function RecipeForm({ recipe, onSave, onCancel, saveLabel, cancelLabel, h
     setShowPasteBox(false);
   }
 
+  /**
+   * Catch a spreadsheet paste anywhere in the Instructions section.
+   *
+   * The import panel could already do this, but you had to know it was there
+   * and go press its button first — while ingredients accept the same paste
+   * straight into the section and open their panel for you. This closes that
+   * gap: Ctrl-V a column of steps from Sheets/Excel and the same panel appears
+   * pre-filled, with its preview and its Append / Replace choice intact.
+   *
+   * Routed through the panel rather than dropped straight into the steps on
+   * purpose. Replacing steps invalidates nothing here, but keeping the two editors
+   * identical matters more: the same paste should behave the same way
+   * whether the recipe is new or already saved.
+   *
+   * A single-line paste is left completely alone: that's ordinary typing into
+   * one step, and hijacking it would make the field feel broken.
+   */
+  function handleInstructionsPaste(e) {
+    const text = e.clipboardData?.getData('text') || '';
+    const isMultiRow = text.includes('\t') || text.split('\n').filter(l => l.trim()).length >= 2;
+    if (!isMultiRow) return;
+    e.preventDefault();
+    setInstrPasteText(text);
+    setShowInstrPaste(true);
+  }
+
   function applyInstrPaste(mode) {
     const steps = parsePastedInstructions(instrPasteText);
     if (steps.length === 0) {
@@ -788,7 +814,7 @@ export function RecipeForm({ recipe, onSave, onCancel, saveLabel, cancelLabel, h
         );
       })()}
 
-      <div style={{ marginBottom: '0.75rem' }}>
+      <div style={{ marginBottom: '0.75rem' }} onPaste={handleInstructionsPaste}>
         <div style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--color-text-secondary)', textTransform: 'uppercase', letterSpacing: '0.03em', marginBottom: '0.5rem' }}>Instructions</div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
           {(() => {

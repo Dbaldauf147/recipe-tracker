@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useRegisterSW } from 'virtual:pwa-register/react';
 import styles from './UpdatePrompt.module.css';
+import { forceAppUpdate } from '../utils/forceUpdate';
 
 // Query-param override for design/QA — lets you preview the pill on any page
 // without waiting for a real service-worker update. Append ?updatePill=1.
@@ -52,25 +53,10 @@ export function UpdatePrompt() {
   async function handleUpdate() {
     // Best-effort: tell the waiting SW to skip waiting so it takes over.
     try { await updateServiceWorker(true); } catch { /* ignore */ }
-    // Nuclear option for stuck SWs: unregister every registration and wipe
-    // every Cache Storage entry before reloading. Without this, an older SW
-    // built with skipWaiting:true can keep serving stale HTML/JS even after a
-    // new deploy.
-    try {
-      if ('serviceWorker' in navigator) {
-        const regs = await navigator.serviceWorker.getRegistrations();
-        await Promise.all(regs.map(r => r.unregister().catch(() => {})));
-      }
-    } catch { /* ignore */ }
-    try {
-      if ('caches' in window) {
-        const keys = await caches.keys();
-        await Promise.all(keys.map(k => caches.delete(k).catch(() => {})));
-      }
-    } catch { /* ignore */ }
-    // Hard reload. Some browsers honor `true` to bypass the HTTP cache; others
-    // ignore it, but the SW/cache purge above already did the real work.
-    setTimeout(() => window.location.reload(), 200);
+    // Nuclear option for stuck SWs, shared with the Settings menu's "Check for
+    // updates" so the two can't drift: unregister every registration, wipe
+    // every Cache Storage entry, reload.
+    setTimeout(() => { forceAppUpdate(); }, 200);
   }
 
   // Auto-apply a stale build whenever the app regains focus (e.g. reopening

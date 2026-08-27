@@ -720,3 +720,135 @@
 .navDropdown { display: none; }
 .navDropdownItem { display: none; }
 .navDropdownItemActive { display: none; }
+
+/* ---- owner-only page access toggle ------------------------------------- */
+/* Sits directly above the "Report an Issue" bubble, and above the modal
+   overlay (z-index 1000) so it still reaches the pages that open as modals. */
+.pageAccess {
+  position: fixed;
+  bottom: 4.5rem;
+  right: 1.5rem;
+  z-index: 1100;
+}
+
+.pageAccessBtn {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.5rem 1rem;
+  background: var(--color-surface);
+  color: var(--color-text-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-full);
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  box-shadow: var(--shadow-md);
+  transition: all var(--transition-normal);
+  white-space: nowrap;
+}
+
+.pageAccessBtn:hover:not(:disabled) {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+  box-shadow: var(--shadow-lg);
+}
+
+.pageAccessBtn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+/* Off state reads as a warning, so a page left hidden is obvious at a glance. */
+.pageAccessBtnOff {
+  background: #FEF3C7;
+  border-color: #FCD34D;
+  color: #92400E;
+}
+
+.pageAccessBtnOff:hover:not(:disabled) {
+  border-color: #B45309;
+  color: #78350F;
+}
+
+.pageAccessIcon {
+  font-size: 1rem;
+}
+
+/* ---- a page the owner has switched off ---------------------------------- */
+.pageBlocked {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  text-align: center;
+  padding: 4rem 1.5rem;
+  color: var(--color-text-secondary);
+}
+
+.pageBlockedIcon {
+  font-size: 2.5rem;
+  color: var(--color-text-muted);
+}
+
+.pageBlockedTitle {
+  margin: 0;
+  font-size: var(--font-size-lg);
+  color: var(--color-text);
+}
+
+.pageBlockedText {
+  margin: 0;
+  font-size: var(--font-size-sm);
+}
+
+.pageBlockedBtn {
+  margin-top: 0.75rem;
+  padding: 0.55rem 1.25rem;
+  background: var(--color-accent);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius-full);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+
+.pageBlockedBtn:hover {
+  background: var(--color-accent-hover);
+}
+
+/* ---- build stamp in the settings menu ---------------------------------- */
+.settingsBuildRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.5rem 0.9rem 0.6rem;
+}
+
+.settingsBuild {
+  font-size: 0.72rem;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+
+.settingsBuildBtn {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--color-accent);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.settingsBuildBtn:hover {
+  text-decoration: underline;
+}

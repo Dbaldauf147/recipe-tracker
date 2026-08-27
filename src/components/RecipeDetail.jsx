@@ -13,6 +13,7 @@ import { uploadMealImage, deleteMealImage, getCachedMealImage, generateMealImage
 import { getIngredientTags, getTagInfo } from '../utils/ingredientTags';
 import { detectCuisine, ALL_CUISINES, getShelfLife } from '../utils/detectCuisine';
 import { getGHGEmissions, getGHGRating, computeRecipeGHG } from '../data/ghgEmissions';
+import { OWNER_EMAIL } from '../utils/pageAccess';
 import styles from './RecipeDetail.module.css';
 
 const ADMIN_UID = import.meta.env.VITE_ADMIN_UID;
@@ -561,6 +562,32 @@ export function RecipeDetail({ recipe, allTags = [], onSave, onDelete, onBack, o
     const next = feelings.filter(f => f.id !== id);
     setFeelings(next);
     if (onPersistFields) onPersistFields({ feelings: next });
+  }
+
+  // Whether Joanne likes this recipe.
+  //
+  // `joanneLikes` ('yes' | 'no' | absent) is the MOBILE app's existing field —
+  // its recipe screen has had this since before the web control existed. Same
+  // field on purpose: a second one would mean answering the question twice,
+  // once per device, with neither answer visible to the other.
+  //
+  // Persisted the moment it changes, the same immediate path the feelings log
+  // uses, so it survives closing the popup without pressing Save. Clearing
+  // writes `undefined` rather than '': the db is initialized with
+  // ignoreUndefinedProperties, so that DROPS the field and matches how mobile
+  // clears it — '' would leave a falsy-but-present value behind instead.
+  //
+  // Rendered ONLY for the owner account. The value sits in the clear on the
+  // shared recipe record, so this is a visibility choice, not a secret: it
+  // keeps the control off the test account's screen, not off the wire.
+  const [joanne, setJoanne] = useState(() => recipe.joanneLikes || '');
+  // Requires a persist route as well as the owner: a shared meal being
+  // previewed has nowhere to store the answer, and a dropdown that forgets
+  // what you picked is worse than no dropdown.
+  const showJoanne = (user?.email || '').toLowerCase() === OWNER_EMAIL && !!onPersistFields;
+  function changeJoanne(value) {
+    setJoanne(value);
+    if (onPersistFields) onPersistFields({ joanneLikes: value || undefined });
   }
   const [cookMode, setCookMode] = useState(() => {
     try { return localStorage.getItem('sunday-cook-mode') === 'true'; } catch { return false; }
@@ -1344,6 +1371,34 @@ export function RecipeDetail({ recipe, allTags = [], onSave, onDelete, onBack, o
           .trim();
       })
       .filter(Boolean);
+  }
+
+  /**
+   * Catch a spreadsheet paste anywhere in the Instructions section.
+   *
+   * The import panel could already do this, but you had to know it was there
+   * and go press its button first — while ingredients accept the same paste
+   * straight into the section and open their panel for you. This closes that
+   * gap: Ctrl-V a column of steps from Sheets/Excel and the same panel appears
+   * pre-filled, with its preview and its Append / Replace choice intact.
+   *
+   * Routed through the panel rather than dropped straight into the steps on
+   * purpose. Replacing steps invalidates the step-to-ingredient mapping (which
+   * is keyed by step index), and the panel's Replace already clears it —
+   * spilling silently into the rows would leave those maps pointing at the
+   * wrong steps.
+   *
+   * A single-line paste is left completely alone: that's ordinary typing into
+   * one step, and hijacking it would make the field feel broken.
+   */
+  function handleStepsSectionPaste(e) {
+    if (!editing) return;
+    const text = e.clipboardData?.getData('text') || '';
+    const isMultiRow = text.includes('\t') || text.split('\n').filter(l => l.trim()).length >= 2;
+    if (!isMultiRow) return;
+    e.preventDefault();
+    setStepPasteText(text);
+    setShowStepPaste(true);
   }
 
   function applyStepPaste(mode) {
@@ -3401,6 +3456,22 @@ export function RecipeDetail({ recipe, allTags = [], onSave, onDelete, onBack, o
         />
       </div>
 
+      {showJoanne && (
+        <div className={styles.section}>
+          <h3>Does Joanne like this recipe?</h3>
+          <select
+            className={styles.joanneSelect}
+            value={joanne}
+            onChange={e => changeJoanne(e.target.value)}
+            aria-label="Whether Joanne likes this recipe"
+          >
+            <option value="">Not said yet</option>
+            <option value="yes">Joanne likes</option>
+            <option value="no">Joanne doesn&apos;t like</option>
+          </select>
+        </div>
+      )}
+
       <div className={styles.section}>
         <h3>How do you feel after eating this?</h3>
         {feelings.length > 0 ? (
@@ -3488,7 +3559,7 @@ export function RecipeDetail({ recipe, allTags = [], onSave, onDelete, onBack, o
         )}
       </div>
 
-      <div className={styles.section}>
+      <div className={styles.section} onPaste={handleStepsSectionPaste}>
         <div className={styles.instructionHeader}>
           <h3>Instructions</h3>
           {fields.steps.length <= 2 && fields.steps.some(s => /\.\s+\d+[\.\)]\s+/.test(s)) && (
