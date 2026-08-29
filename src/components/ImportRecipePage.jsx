@@ -7,6 +7,7 @@ import { classifyMealType } from '../utils/classifyMealType';
 import { loadStarterRecipes } from '../utils/starterRecipes';
 import { getPendingSharedRecipes, acceptSharedRecipe, declineSharedRecipe, loadFriends, removeFriend, searchByUsername, searchByEmail, sendFriendRequest, getUsername } from '../utils/firestoreSync';
 import { useAuth } from '../contexts/AuthContext';
+import { OWNER_EMAIL } from '../utils/pageAccess';
 import { RecipeForm } from './RecipeForm';
 import styles from './ImportRecipePage.module.css';
 
@@ -142,6 +143,16 @@ const RECIPE_SOURCE_OPTIONS = [
 
 export function ImportRecipePage({ onSave, onAddWithoutClose, onCancel, userRecipes, isOnboarding = false }) {
   const { user } = useAuth();
+  // What frequency a freshly IMPORTED recipe lands on. An import is something
+  // you haven't cooked yet, so "To Try" describes it better than "Regular" —
+  // but only the owner wants that, since it also decides whether the recipe is
+  // offered by Suggested Meals (To Try is opt-in there). Every other account
+  // keeps the old 'common' default, so nothing changes for them.
+  //
+  // Deliberately NOT applied to handleStartManual: typing a recipe in by hand
+  // isn't an import, and it keeps 'common' like the RecipeForm add flow.
+  const importFrequency =
+    (user?.email || '').toLowerCase() === OWNER_EMAIL ? 'toTry' : 'common';
   const [showSourcePicker, setShowSourcePicker] = useState(() => {
     if (isOnboarding) return true; // Always show during onboarding
     if (userRecipes && userRecipes.length > 0) return false;
@@ -310,7 +321,7 @@ export function ImportRecipePage({ onSave, onAddWithoutClose, onCancel, userReci
               ...parsed,
               title: parsed.title || docTitle || fileTitle,
               category: 'lunch-dinner',
-              frequency: 'common',
+              frequency: importFrequency,
               servings: '1',
               mealType: parsed.ingredients.length > 0 ? classifyMealType(parsed.ingredients) : '',
               sourceFile: file.name,
@@ -326,7 +337,7 @@ export function ImportRecipePage({ onSave, onAddWithoutClose, onCancel, userReci
             ...parsed,
             title,
             category: 'lunch-dinner',
-            frequency: 'common',
+            frequency: importFrequency,
             servings: '1',
             mealType: parsed.ingredients.length > 0 ? classifyMealType(parsed.ingredients) : '',
             sourceFile: file.name,
@@ -561,7 +572,7 @@ export function ImportRecipePage({ onSave, onAddWithoutClose, onCancel, userReci
         title,
         description: '',
         category: r.category.trim() || 'lunch-dinner',
-        frequency: 'common',
+        frequency: importFrequency,
         servings: String(r.servings).trim() || '1',
         mealType: ingredients.length > 0 ? classifyMealType(ingredients) : '',
         ingredients,
@@ -603,7 +614,7 @@ export function ImportRecipePage({ onSave, onAddWithoutClose, onCancel, userReci
         title: recipe.title || '',
         description: '',
         category: recipe.category || 'lunch-dinner',
-        frequency: 'common',
+        frequency: importFrequency,
         servings: recipe.servings || '1',
         mealType: ingredients.length > 0 ? classifyMealType(ingredients) : '',
         ingredients,
@@ -652,7 +663,7 @@ export function ImportRecipePage({ onSave, onAddWithoutClose, onCancel, userReci
       title: result.title,
       description: '',
       category: 'lunch-dinner',
-      frequency: 'common',
+      frequency: importFrequency,
       mealType: classifyMealType(ingredients),
       servings: '1',
       prepTime: '',
@@ -876,7 +887,7 @@ export function ImportRecipePage({ onSave, onAddWithoutClose, onCancel, userReci
       title: '',
       description: '',
       category: 'lunch-dinner',
-      frequency: 'common',
+      frequency: 'common', // typed by hand, not imported — see importFrequency
       mealType: '',
       servings: '1',
       prepTime: '',
@@ -950,7 +961,7 @@ export function ImportRecipePage({ onSave, onAddWithoutClose, onCancel, userReci
         title,
         description: `From ${data.brandName || 'restaurant'}. Serving: ${servingDesc}.`,
         category: 'lunch-dinner',
-        frequency: 'common',
+        frequency: importFrequency,
         mealType: '',
         servings: '1',
         prepTime: '',
@@ -1013,7 +1024,7 @@ export function ImportRecipePage({ onSave, onAddWithoutClose, onCancel, userReci
       title: recipe.title || '',
       description: recipe.description || '',
       category: recipe.category || 'lunch-dinner',
-      frequency: 'common',
+      frequency: importFrequency,
       mealType: classifyMealType(ingredients),
       servings: String(recipe.servings || '1'),
       prepTime: recipe.prepTime || '',
@@ -1037,7 +1048,7 @@ export function ImportRecipePage({ onSave, onAddWithoutClose, onCancel, userReci
       title: recipe.title || '',
       description: recipe.description || '',
       category: recipe.category || 'lunch-dinner',
-      frequency: 'common',
+      frequency: importFrequency,
       mealType: classifyMealType(ingredients),
       servings: String(recipe.servings || '1'),
       prepTime: recipe.prepTime || '',
@@ -1826,7 +1837,7 @@ export function ImportRecipePage({ onSave, onAddWithoutClose, onCancel, userReci
                         setBulkRecipes(prev => [...prev, {
                           ...parsed,
                           category: 'lunch-dinner',
-                          frequency: 'common',
+                          frequency: importFrequency,
                           servings: '1',
                           mealType: parsed.ingredients.length > 0 ? classifyMealType(parsed.ingredients) : '',
                           sourceFile: 'Pasted text',
@@ -2617,7 +2628,7 @@ export function ImportRecipePage({ onSave, onAddWithoutClose, onCancel, userReci
                       title: recipeTitle.trim(),
                       description: '',
                       category: 'lunch-dinner',
-                      frequency: 'common',
+                      frequency: importFrequency,
                       mealType: classifyMealType(ingredients),
                       servings: '1',
                       prepTime: '',
