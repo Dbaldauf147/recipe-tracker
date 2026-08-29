@@ -4,6 +4,7 @@ import { loadHabitLog, loadHabitLogAuto } from '../utils/habitLogYears';
 import { HABIT_FIELDS, seedHabits, makeHabitId } from '../data/habitsSeed';
 import { yesterdayDate, yesterdayDayKey, yesterdayUnloggedHabits } from '../utils/habitOutstanding';
 import { normalizePtoRanges, ptoCellsToStamp, activePtoRange } from '../utils/habitPto';
+import { nextMarkInCycle } from '../utils/habitMarkCycle';
 import {
   readCache as readHabitCache, cacheRemote, replayQueue,
   queueFieldWrite, queueMark, queueMarks,
@@ -588,11 +589,99 @@ const MARK_ORDER = ['exceeded', 'done', 'skipped', 'missed'];
 // the MARK_META colours: an empty cell is a question, not one of the four
 // answers, and borrowing "No" red or "Skip" grey would read as an answer given.
 const NEEDS_LOG_COLOR = '#d97706';
-// The per-day menu opened by clicking a strip cell: the four marks + Erase.
+// The per-day menu, opened by pressing and HOLDING a cell: the four marks + Erase.
 const DAY_MENU_OPTIONS = [
   ...MARK_ORDER.map(m => ({ mark: m, ...MARK_META[m] })),
   { mark: null, label: 'Erase', color: '#94a3b8', icon: '⌫' },
 ];
+
+// ---- Click to cycle, hold for the menu --------------------------------------
+// A plain click walks the cell through the marks (nextMarkInCycle, in
+// utils/habitMarkCycle.js) and wraps back to empty, so every answer is reachable
+// without opening anything. Pressing and holding opens the full menu.
+//
+// How long a press has to last before it counts as a hold rather than a click.
+const HOLD_MS = 450;
+// A resting finger jitters; a scroll doesn't. Past this much movement the press
+// is a drag, so the hold is cancelled rather than firing under a scrolling thumb.
+const HOLD_SLOP_PX = 8;
+
+/**
+ * A <button> where a click does one thing and a press-and-hold does another.
+ *
+ * A component rather than a hook because the cells are rendered inside .map() —
+ * a hook there would mean a different number of hook calls per render.
+ *
+ * Pointer events (not separate mouse/touch handlers) so a finger and a mouse
+ * take exactly the same path. Two details that are easy to get wrong:
+ *   • the browser still fires `click` after a hold, so a fired hold swallows the
+ *     click that follows it — otherwise holding would also cycle the mark.
+ *   • a long press on touch raises the context menu, which would cover the popup
+ *     we just opened, so it's suppressed here.
+ */
+function HoldButton({ onClick, onHold, children, ...rest }) {
+  const timer = useRef(null);
+  const held = useRef(false);
+  const origin = useRef(null);
+
+  useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
+
+  function clearTimer() {
+    if (timer.current) { clearTimeout(timer.current); timer.current = null; }
+  }
+
+  // Kill the click that follows a hold, wherever it lands.
+  //
+  // Swallowing it on this button isn't enough: opening the day menu mounts a
+  // full-screen overlay whose own onClick closes it, and the pointer is still
+  // down over that overlay. The trailing click would then be delivered to the
+  // overlay — dismissing the menu the hold had just opened. A capture-phase
+  // listener on document catches it before any of that, whatever the target.
+  function swallowNextClick() {
+    const swallow = e => {
+      e.stopPropagation();
+      e.preventDefault();
+      document.removeEventListener('click', swallow, true);
+    };
+    document.addEventListener('click', swallow, true);
+    // If no click ever arrives (a cancelled touch), don't leave it armed to eat
+    // an unrelated click later.
+    setTimeout(() => document.removeEventListener('click', swallow, true), 700);
+  }
+
+  return (
+    <button
+      {...rest}
+      onPointerDown={e => {
+        if (!onHold || (e.button != null && e.button !== 0)) return; // primary button only
+        held.current = false;
+        origin.current = { x: e.clientX, y: e.clientY };
+        clearTimer();
+        timer.current = setTimeout(() => {
+          timer.current = null;
+          held.current = true;
+          swallowNextClick();
+          onHold();
+        }, HOLD_MS);
+      }}
+      onPointerMove={e => {
+        if (!timer.current || !origin.current) return;
+        if (Math.abs(e.clientX - origin.current.x) > HOLD_SLOP_PX
+          || Math.abs(e.clientY - origin.current.y) > HOLD_SLOP_PX) clearTimer();
+      }}
+      onPointerUp={clearTimer}
+      onPointerLeave={clearTimer}
+      onPointerCancel={() => { clearTimer(); held.current = false; }}
+      onContextMenu={e => { if (onHold) e.preventDefault(); }}
+      onClick={e => {
+        if (held.current) { held.current = false; return; } // the hold already acted
+        onClick?.(e);
+      }}
+    >
+      {children}
+    </button>
+  );
+}
 
 // ---- Automatic habit tracking (config + reference hub) ---------------------
 // Rules are stored on the user doc as `habitAutomations`: an array of
@@ -2116,7 +2205,7 @@ export function HabitsPage({ onBack, user }) {
       )}
 
       {tab === 'kpi' && <KpiView habits={habits} habitLog={habitLog} streaks={streaks} />}
-      {tab === 'routines' && <RoutinesView habits={habits} habitLog={habitLog} habitLogAuto={habitLogAuto} streaks={streaks} autoTrackedIds={autoTrackedIds} autoStatusFor={autoStatusFor} nextLogMap={habitNextLog} onSetNextLog={setNextLogDate} onUpdate={updateHabit} openMenu={(habitId, key, label) => setDayMenu({ habitId, key, label })} onMove={setMoveHabitId} onReorder={reorderHabits} onSetRoutine={setHabitRoutine} onRenameRoutine={renameRoutine} onDeleteRoutine={setDeleteRoutineName} onBulkMark={setMarksForCells} onOpen={setOpenHabitId} />}
+      {tab === 'routines' && <RoutinesView habits={habits} habitLog={habitLog} habitLogAuto={habitLogAuto} streaks={streaks} autoTrackedIds={autoTrackedIds} autoStatusFor={autoStatusFor} nextLogMap={habitNextLog} onSetNextLog={setNextLogDate} onUpdate={updateHabit} openMenu={(habitId, key, label) => setDayMenu({ habitId, key, label })} onCycleMark={setMarkForKey} onMove={setMoveHabitId} onReorder={reorderHabits} onSetRoutine={setHabitRoutine} onRenameRoutine={renameRoutine} onDeleteRoutine={setDeleteRoutineName} onBulkMark={setMarksForCells} onOpen={setOpenHabitId} />}
       {tab === 'automatic' && <AutomaticView habits={habits} automations={automations} habitLog={habitLog} habitLogAuto={habitLogAuto} onChange={persistAutomations} />}
       {REVIEW_KINDS.some(k => k.id === tab) && (
         <MonthlyStatusReview
@@ -2734,7 +2823,7 @@ function StatusSelect({ value, muted, onChange }) {
   );
 }
 
-function RoutinesView({ habits, habitLog, habitLogAuto, streaks, autoTrackedIds = new Set(), autoStatusFor = () => '', nextLogMap, onSetNextLog, onUpdate, openMenu, onMove, onReorder, onSetRoutine, onRenameRoutine, onDeleteRoutine, onBulkMark, onOpen }) {
+function RoutinesView({ habits, habitLog, habitLogAuto, streaks, autoTrackedIds = new Set(), autoStatusFor = () => '', nextLogMap, onSetNextLog, onUpdate, openMenu, onCycleMark, onMove, onReorder, onSetRoutine, onRenameRoutine, onDeleteRoutine, onBulkMark, onOpen }) {
   // Habits parked on `status:'Automatically'` are established — tracked for you,
   // never yours to log — so they're hidden from the routine groups by default
   // and revealed by the toggle below. Mirrors the mobile Routines tab.
@@ -2975,7 +3064,7 @@ function RoutinesView({ habits, habitLog, habitLogAuto, streaks, autoTrackedIds 
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1.4rem' }}>
           {visibleGroups.map(([cadenceName, list]) => (
-            <RoutineSection key={cadenceName} cadenceName={cadenceName} list={list} habitLog={habitLog} habitLogAuto={habitLogAuto} streaks={streaks} autoTrackedIds={autoTrackedIds} autoStatusFor={autoStatusFor} nextLogOverride={(nextLogMap || {})[cadenceName] || ''} onSetNextLog={onSetNextLog} onUpdate={onUpdate} openMenu={openMenu} routineOptions={routineOptions} onReorder={onReorder} onSetRoutine={onSetRoutine} onBulkMark={onBulkMark} onOpen={onOpen} showAutoStatus={showAutoStatus} />
+            <RoutineSection key={cadenceName} cadenceName={cadenceName} list={list} habitLog={habitLog} habitLogAuto={habitLogAuto} streaks={streaks} autoTrackedIds={autoTrackedIds} autoStatusFor={autoStatusFor} nextLogOverride={(nextLogMap || {})[cadenceName] || ''} onSetNextLog={onSetNextLog} onUpdate={onUpdate} openMenu={openMenu} onCycleMark={onCycleMark} routineOptions={routineOptions} onReorder={onReorder} onSetRoutine={onSetRoutine} onBulkMark={onBulkMark} onOpen={onOpen} showAutoStatus={showAutoStatus} />
           ))}
         </div>
       )}
@@ -2996,7 +3085,7 @@ const VIEW_TO_CADENCE = { daily: 'Daily', weekly: 'Weekly', monthly: 'Monthly', 
 // 7-day strip (Mon–Sun of the current week) for a daily habit, today
 // highlighted. Each day is a button — clicking it opens the day menu so any day
 // (not just today) can be set to a mark or erased.
-function WeekStrip({ habit, habitId, habitName, habitLog, habitLogAuto, openMenu }) {
+function WeekStrip({ habit, habitId, habitName, habitLog, habitLogAuto, openMenu, onCycleMark }) {
   const today = dayKey(new Date());
   const monday = startOfISOWeek(new Date());
   const days = Array.from({ length: 7 }, (_, i) => {
@@ -3014,10 +3103,13 @@ function WeekStrip({ habit, habitId, habitName, habitLog, habitLogAuto, openMenu
   return (
     <div style={{ display: 'flex', gap: 4 }}>
       {days.map(d => (
-        <button
+        <HoldButton
           key={d.key}
-          onClick={() => openMenu(habitId, d.key, `${habitName || 'Habit'} · ${d.label}`)}
-          title={d.offSkip ? `${d.label} · off day — counts as a skip` : d.label}
+          // An off-day's Skip is derived, not stored — cycling it would write a
+          // mark to a day the habit isn't tracked on, so those stay menu-only.
+          onClick={d.offSkip ? undefined : () => onCycleMark(habitId, d.key, nextMarkInCycle(d.mark))}
+          onHold={() => openMenu(habitId, d.key, `${habitName || 'Habit'} · ${d.label}`)}
+          title={d.offSkip ? `${d.label} · off day — counts as a skip` : `${d.label} — click to cycle, hold for the menu`}
           style={{
             flex: 1, textAlign: 'center', borderRadius: 6, padding: '3px 0', cursor: 'pointer',
             // A logged mark's colour (green for "Did it") always wins over today's
@@ -3035,7 +3127,7 @@ function WeekStrip({ habit, habitId, habitName, habitLog, habitLogAuto, openMenu
             {d.mark ? MARK_META[d.mark].icon : (d.tracked ? '·' : '–')}
             {d.auto && <span title="Automatically logged" style={{ fontSize: '0.5rem', fontWeight: 800, color: '#2563eb', verticalAlign: 'super', marginLeft: 1 }}>A</span>}
           </div>
-        </button>
+        </HoldButton>
       ))}
     </div>
   );
@@ -3241,7 +3333,7 @@ function DeleteRoutineModal({ name, count, onUnsort, onDeleteHabits, onClose }) 
 // One cadence section (Daily / Weekly / …). Inside it, habits are split into
 // their named routine (or "No routine"), and can be dragged to reorder within
 // a routine. Grab the ⠿ handle to drag; each row has a routine dropdown.
-function RoutineSection({ cadenceName, list, habitLog, habitLogAuto, streaks, autoTrackedIds = new Set(), autoStatusFor = () => '', nextLogOverride, onSetNextLog, onUpdate, openMenu, routineOptions, onReorder, onSetRoutine, onBulkMark, onOpen, showAutoStatus = false }) {
+function RoutineSection({ cadenceName, list, habitLog, habitLogAuto, streaks, autoTrackedIds = new Set(), autoStatusFor = () => '', nextLogOverride, onSetNextLog, onUpdate, openMenu, onCycleMark, routineOptions, onReorder, onSetRoutine, onBulkMark, onOpen, showAutoStatus = false }) {
   const [drag, setDrag] = useState(null); // { id, groupKey }
   const [editingNext, setEditingNext] = useState(false);
   // Weekly table bulk-edit: when on, clicking cells/headers/rows selects them
@@ -3566,7 +3658,7 @@ function RoutineSection({ cadenceName, list, habitLog, habitLogAuto, streaks, au
           // yours to correct, and a mark you set here is never overwritten by it.
           const baseTip = off ? 'Off day — counts as a skip'
             : muted ? `${w.fullLabel} — click to set this yourself`
-            : (bulkMode ? 'Click to select' : w.fullLabel);
+            : (bulkMode ? 'Click to select' : `${w.fullLabel} — click to cycle, hold for the menu`);
           // Empty, tracked, and already arrived: this is the box to click. It
           // gets an amber ring rather than a mark — the cell is still blank, and
           // drawing anything mark-shaped in it would read as an answer you'd
@@ -3578,9 +3670,15 @@ function RoutineSection({ cadenceName, list, habitLog, habitLogAuto, streaks, au
           ].filter(Boolean).join(' — ') || undefined;
           return (
             <td key={w.key} title={disabled ? cellTitle : undefined} style={{ ...tdBase, padding: 2, borderLeft: `1px ${w.isNext ? 'dashed' : 'solid'} ${borderCol}`, textAlign: 'center', background: off ? '#f8fafc' : ((w.isCurrent && !mark) ? ACCENT + '08' : undefined) }}>
-              <button
+              <HoldButton
                 disabled={disabled}
-                onClick={disabled ? undefined : () => ((bulkMode && !muted) ? toggleCell(h.id, w.key) : openMenu(h.id, w.key, `${h.name || 'Habit'} · ${w.fullLabel}${w.isNext ? ' · upcoming' : ''}`))}
+                // Bulk mode keeps its old meaning — a click is a selection, and
+                // holding is not a second gesture on top of that.
+                onClick={disabled ? undefined : () => ((bulkMode && !muted)
+                  ? toggleCell(h.id, w.key)
+                  : onCycleMark(h.id, w.key, nextMarkInCycle(mark)))}
+                onHold={disabled || (bulkMode && !muted) ? undefined
+                  : () => openMenu(h.id, w.key, `${h.name || 'Habit'} · ${w.fullLabel}${w.isNext ? ' · upcoming' : ''}`)}
                 title={cellTitle}
                 style={{
                   width: '100%', minWidth: 34, height: 26, display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
@@ -3596,7 +3694,7 @@ function RoutineSection({ cadenceName, list, habitLog, habitLogAuto, streaks, au
               >
                 {shown ? MARK_META[shown].icon : (waiting ? '!' : '·')}
                 {auto && <span title="Automatically logged" style={{ fontSize: '0.5rem', fontWeight: 800, color: '#2563eb', verticalAlign: 'super', marginLeft: 1 }}>A</span>}
-              </button>
+              </HoldButton>
             </td>
           );
         })}
