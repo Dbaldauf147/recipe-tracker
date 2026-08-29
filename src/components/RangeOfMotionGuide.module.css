@@ -1,0 +1,187 @@
+.wrap {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md, 10px);
+  background: var(--color-surface, #fff);
+  overflow: hidden;
+}
+
+/* Collapsed by default: the goal board is the thing you check daily, this is a
+   reference you open occasionally. */
+.head {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.6rem 0.75rem;
+  background: none;
+  border: 0;
+  font-family: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+.head:hover .title { color: var(--color-accent); }
+
+.title {
+  flex: 1;
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--color-text);
+}
+.count {
+  font-size: 0.7rem;
+  color: var(--color-text-muted);
+}
+.chev {
+  font-size: 0.7rem;
+  color: var(--color-text-muted);
+}
+
+.cards {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 0 0.75rem 0.75rem;
+}
+
+.card {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md, 10px);
+  padding: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.cardHead {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+}
+.muscle {
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--color-text);
+}
+.test {
+  font-size: 0.72rem;
+  color: var(--color-text-muted);
+}
+.band {
+  margin-left: auto;
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--color-accent);
+  white-space: nowrap;
+}
+
+.image {
+  width: 100%;
+  max-width: 460px;
+  height: auto;
+  align-self: center;
+  border-radius: var(--radius-md, 10px);
+}
+
+/* A missing picture says so, and names the path to drop it at, rather than
+   leaving a broken image icon that reads as a bug. */
+.imageMissing {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  align-items: center;
+  justify-content: center;
+  padding: 1.25rem 0.75rem;
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius-md, 10px);
+  color: var(--color-text-muted);
+  font-size: 0.78rem;
+  text-align: center;
+}
+.imagePath {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.7rem;
+  opacity: 0.75;
+  word-break: break-all;
+}
+
+.steps {
+  margin: 0;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.2rem 0.6rem;
+  align-items: baseline;
+}
+.stepLabel {
+  margin: 0;
+  font-size: 0.65rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text-muted);
+}
+.stepText {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--color-text);
+}
+
+.measureRow {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+.measureLabel {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--color-text-muted);
+}
+.measureInput {
+  width: 5rem;
+  padding: 0.35rem 0.5rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm, 6px);
+  background: var(--color-surface, #fff);
+  color: var(--color-text);
+  font-family: inherit;
+  font-size: 0.85rem;
+}
+.unit {
+  font-size: 0.8rem;
+  color: var(--color-text-muted);
+}
+.status {
+  margin-left: 0.15rem;
+  padding: 0.15rem 0.5rem;
+  border: 1px solid;
+  border-radius: var(--radius-full, 999px);
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+
+.scale {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.scaleEnd {
+  font-size: 0.65rem;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+.scaleTrack {
+  flex: 1;
+  height: 4px;
+  border-radius: 999px;
+  background: linear-gradient(to right, #dc262633, #d9770633, #16a34a33);
+}
+
+.tips {
+  margin: 0;
+  padding-left: 1.1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+}

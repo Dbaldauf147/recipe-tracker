@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import styles from './StretchRoutines.module.css';
+import { RangeOfMotionGuide } from './RangeOfMotionGuide';
 import {
   buildCueSequence, routineDurationSec, normalizeRoutine, emptyRoutine, newId, mmss, sideLabel,
   DEFAULT_HOLD_SEC, DEFAULT_TRANSITION_SEC, DEFAULT_SWITCH_SEC, MIN_SEC, MAX_SEC,
@@ -667,6 +668,11 @@ export function StretchRoutines({
           </>
         )}
       </div>
+
+      {/* Reference, not a dose: how far each region actually moves, against a
+          target and a floor. Sits under the goal board because it answers the
+          question you ask after "have I stretched enough this week?". */}
+      <RangeOfMotionGuide />
 
       <div className={styles.headRow}>
         <h3 className={styles.h3}>Stretch routines</h3>
