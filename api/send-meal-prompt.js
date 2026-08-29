@@ -16,6 +16,8 @@ import { renderMealReminder } from '../lib/mealReminderEmail.js';
 import { sendExpoPush, deadTokensFrom } from '../lib/expoPush.js';
 import { habitsPinnedToday, weekKeyOfDate } from './_data/habitPeriods.js';
 import { loadHabitLogAdmin } from './_data/habitLogYears.js';
+// Same count the web left-nav badge uses, so the icon and the site agree.
+import { countOutstandingHabits } from '../src/utils/habitOutstanding.js';
 
 if (getApps().length === 0) {
   const serviceAccount = process.env.FIREBASE_SERVICE_ACCOUNT
@@ -100,11 +102,20 @@ function getPushTokens(data) {
 
 // Send a reminder push to all of a user's devices and prune any Expo reports as
 // dead. Best-effort: returns true if at least the send was attempted without
-// throwing. `badge` mirrors the old local-notification badge (1 = one item due).
-async function pushToUser(ref, tokens, { title, body }) {
+// throwing.
+//
+// `badge` is the whole app-icon count, NOT "how many things this push is about".
+// iOS treats the APNs badge as an ABSOLUTE SET, so the hardcoded `badge: 1` this
+// used to send wiped the real count off the icon — the app computes it (see the
+// mobile `computeBadgeCount`), then the next reminder push overwrote 20 with 1
+// and it stayed 1 until the app was opened again. A caller with no meaningful
+// number omits it, and then the icon keeps whatever the app last set.
+async function pushToUser(ref, tokens, { title, body, badge }) {
   if (tokens.length === 0) return false;
+  const msg = { sound: 'default', priority: 'high', channelId: 'reminders' };
+  if (Number.isFinite(badge)) msg.badge = Math.max(0, Math.round(badge));
   const { tickets } = await sendExpoPush(
-    tokens.map(to => ({ to, title, body, sound: 'default', badge: 1, priority: 'high', channelId: 'reminders' })),
+    tokens.map(to => ({ to, title, body, ...msg })),
   );
   const dead = deadTokensFrom(tokens, tickets);
   if (dead.length > 0) {
@@ -219,10 +230,10 @@ const HABIT_REMINDER_HOUR = 8;
  * every logged habit look unlogged, which is exactly why the key now lives in
  * one shared module.
  */
-async function pendingPinnedHabits(uid, data, dateKey, dayOfWeek) {
+async function pendingPinnedHabits(data, dateKey, dayOfWeek, loadLog) {
   const pinned = habitsPinnedToday(data.habits, dayOfWeek);
   if (pinned.length === 0) return [];
-  const log = await loadHabitLogAdmin(db, uid, data);
+  const log = await loadLog();
   const bucket = log?.[weekKeyOfDate(dateKey)] || {};
   return pinned.filter(h => {
     const mark = bucket[h.id];
@@ -282,6 +293,29 @@ export default async function handler(req, res) {
       const pushTokens = getPushTokens(data);
       if (to.length === 0 && pushTokens.length === 0) continue;
 
+      // The habit log is the one expensive read here, so load it at most once
+      // per user and share it between the badge count and the habit reminder.
+      let habitLogPromise = null;
+      const loadLog = () => {
+        if (!habitLogPromise) habitLogPromise = loadHabitLogAdmin(db, uid, data);
+        return habitLogPromise;
+      };
+      // Outstanding manual habits — the number the user actually reads off the
+      // icon, and the dominant term in the badge. `extra` is the meal-log or
+      // weigh-in this push is about, matching the mobile computeBadgeCount's
+      // "+1 per due item". It can be a hair low (a weigh-in push at 5pm won't
+      // know a meal log is also outstanding), which is fine: the app recomputes
+      // the exact number the moment it opens. Being approximately right beats
+      // the old constant 1, which was wrong by 19.
+      const badgeFor = async (extra = 0) => {
+        if (!Array.isArray(data.habits) || data.habits.length === 0) return extra;
+        try {
+          return countOutstandingHabits(data.habits, await loadLog(), data.habitAutomations) + extra;
+        } catch {
+          return extra; // a badge is never worth failing the send over
+        }
+      };
+
       // --- Food log reminder ---
       if (s.foodLogReminder && s.foodLogTime) {
         const targetHour = parseInt(String(s.foodLogTime).slice(0, 2), 10);
@@ -320,6 +354,7 @@ export default async function handler(req, res) {
                 await pushToUser(docSnap.ref, pushTokens, {
                   title: 'Log your meals',
                   body: remaining === 1 ? '1 meal left to log today.' : `${remaining} meals left to log today.`,
+                  badge: await badgeFor(1),
                 });
                 summary.foodPushed++;
                 delivered = true;
@@ -373,6 +408,7 @@ export default async function handler(req, res) {
                 await pushToUser(docSnap.ref, pushTokens, {
                   title: 'Time to weigh in',
                   body: 'Log your weight in Prep Day.',
+                  badge: await badgeFor(1),
                 });
                 summary.weightPushed++;
                 delivered = true;
@@ -390,7 +426,7 @@ export default async function handler(req, res) {
       if (habitsOn && pushTokens.length > 0 && hour === HABIT_REMINDER_HOUR
           && s.lastHabitSent !== dateKey) {
         try {
-          const due = await pendingPinnedHabits(uid, data, dateKey, dayOfWeek);
+          const due = await pendingPinnedHabits(data, dateKey, dayOfWeek, loadLog);
           if (due.length > 0) {
             const names = due.map(h => String(h.name).trim());
             await pushToUser(docSnap.ref, pushTokens, {
@@ -398,6 +434,8 @@ export default async function handler(req, res) {
               body: names.length === 1
                 ? 'Tap to log it in Prep Day.'
                 : `${names.join(', ')} — tap to log them in Prep Day.`,
+              // No `extra`: this push is about habits, already in the count.
+              badge: await badgeFor(),
             });
             summary.habitPushed++;
             await docSnap.ref.update({ 'reminderSettings.lastHabitSent': dateKey });
