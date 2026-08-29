@@ -300,19 +300,20 @@ export default async function handler(req, res) {
         if (!habitLogPromise) habitLogPromise = loadHabitLogAdmin(db, uid, data);
         return habitLogPromise;
       };
-      // Outstanding manual habits — the number the user actually reads off the
-      // icon, and the dominant term in the badge. `extra` is the meal-log or
-      // weigh-in this push is about, matching the mobile computeBadgeCount's
-      // "+1 per due item". It can be a hair low (a weigh-in push at 5pm won't
-      // know a meal log is also outstanding), which is fine: the app recomputes
-      // the exact number the moment it opens. Being approximately right beats
-      // the old constant 1, which was wrong by 19.
-      const badgeFor = async (extra = 0) => {
-        if (!Array.isArray(data.habits) || data.habits.length === 0) return extra;
+      // The app-icon badge is the outstanding MANUAL habit count and nothing
+      // else — same rule as the mobile computeBadgeCount, so a push and the app
+      // can never put two different numbers on the same icon. A due meal log or
+      // weigh-in does not add to it; those are what the push text is for.
+      //
+      // Returns null when there is nothing trustworthy to say, and the caller
+      // then omits `badge` so the icon keeps whatever the app last set. Never
+      // return 0 on failure: that would silently clear a real count.
+      const badgeFor = async () => {
+        if (!Array.isArray(data.habits) || data.habits.length === 0) return null;
         try {
-          return countOutstandingHabits(data.habits, await loadLog(), data.habitAutomations) + extra;
+          return countOutstandingHabits(data.habits, await loadLog(), data.habitAutomations);
         } catch {
-          return extra; // a badge is never worth failing the send over
+          return null; // a badge is never worth failing the send over
         }
       };
 
@@ -354,7 +355,7 @@ export default async function handler(req, res) {
                 await pushToUser(docSnap.ref, pushTokens, {
                   title: 'Log your meals',
                   body: remaining === 1 ? '1 meal left to log today.' : `${remaining} meals left to log today.`,
-                  badge: await badgeFor(1),
+                  badge: await badgeFor(),
                 });
                 summary.foodPushed++;
                 delivered = true;
@@ -408,7 +409,7 @@ export default async function handler(req, res) {
                 await pushToUser(docSnap.ref, pushTokens, {
                   title: 'Time to weigh in',
                   body: 'Log your weight in Prep Day.',
-                  badge: await badgeFor(1),
+                  badge: await badgeFor(),
                 });
                 summary.weightPushed++;
                 delivered = true;
