@@ -828,7 +828,15 @@ export function WeightTracker({ onClose, user, isOnboarding = false }) {
       const cutoffStr = `${cutoff.getFullYear()}-${String(cutoff.getMonth() + 1).padStart(2, '0')}-${String(cutoff.getDate()).padStart(2, '0')}`;
       filtered = log.filter(e => e.date >= cutoffStr);
     }
-    const useMonthYear = range > 70 || filtered.length > 20;
+    // Label granularity follows how wide the data ACTUALLY is, not the nominal
+    // range: "All" is a 100-year range that may hold three months of weigh-ins,
+    // and a 4-week range of daily weigh-ins is still only four weeks wide.
+    // (It also has to work for the custom range, where `range` isn't used.)
+    const spanDays = filtered.length < 2 ? 0 : Math.round(
+      (new Date(filtered[filtered.length - 1].date + 'T00:00:00')
+        - new Date(filtered[0].date + 'T00:00:00')) / 86400000,
+    );
+    const useMonthYear = spanDays > 70;
     const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
     // Dynamic gap threshold based on schedule
     const ws = getWeighSettings();
@@ -851,6 +859,13 @@ export function WeightTracker({ onClose, user, isOnboarding = false }) {
     const usedWeekLabels = {};
     function getLabel(dateStr) {
       const [y, m, d] = dateStr.split('-');
+      // Month + year wins over "Wk N" on any wide chart. Week numbers restart
+      // every January, so on an all-time chart "Wk 32" locates nothing, and the
+      // SECOND Wk 32 fell through to a bare "8/3" — which is how the axis came
+      // to read as random dates mixed with week numbers, with no year anywhere.
+      if (useMonthYear || ws.repeatUnit === 'month' || ws.repeatUnit === 'year') {
+        return `${MONTH_NAMES[parseInt(m) - 1]} '${y.slice(2)}`;
+      }
       if (ws.repeatUnit === 'week') {
         const dt = new Date(dateStr + 'T00:00:00');
         const startOfYear = new Date(dt.getFullYear(), 0, 1);
@@ -862,10 +877,6 @@ export function WeightTracker({ onClose, user, isOnboarding = false }) {
         }
         usedWeekLabels[key] = true;
         return key;
-      } else if (ws.repeatUnit === 'month' || ws.repeatUnit === 'year') {
-        return `${MONTH_NAMES[parseInt(m) - 1]} '${y.slice(2)}`;
-      } else if (useMonthYear) {
-        return `${MONTH_NAMES[parseInt(m) - 1]} '${y.slice(2)}`;
       }
       return `${parseInt(m)}/${parseInt(d)}`;
     }
