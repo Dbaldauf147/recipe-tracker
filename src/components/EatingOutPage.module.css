@@ -454,6 +454,20 @@
   flex-shrink: 0;
 }
 
+/* Next spot. Sits beside .wantBadge, so it is deliberately the stronger of
+   the two — filled rather than tinted — because it marks one spot out of the
+   whole want-to-try list rather than labelling a category. */
+.nextBadge {
+  background: #92400E;
+  color: #FEF3C7;
+  font-size: 0.7rem;
+  font-weight: 700;
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+  flex-shrink: 0;
+  letter-spacing: 0.02em;
+}
+
 .cardStars {
   font-size: 0.85rem;
   color: #F5A623;
@@ -903,6 +917,51 @@
   font-size: 0.85rem;
   color: var(--color-text-muted);
 }
+/* The curtain over everyone else's scores. Deliberately flat and grey — it
+   stands where the summary will be, so it should read as "something is
+   covered here", not as a call to action competing with your own stars. */
+.ratingCurtain {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  width: 100%;
+  margin-bottom: 8px;
+  padding: 12px 10px;
+  border: 1px dashed var(--color-border);
+  border-radius: 8px;
+  background: var(--color-surface-alt, #f1f5f9);
+  cursor: pointer;
+  font-family: inherit;
+  text-align: center;
+}
+.ratingCurtain:hover {
+  border-color: var(--color-text-muted);
+  background: var(--color-surface, #fff);
+}
+.ratingCurtainTitle {
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: var(--color-text-muted);
+}
+.ratingCurtainSub {
+  font-size: 0.76rem;
+  color: var(--color-text-muted);
+  opacity: 0.85;
+}
+/* Puts the curtain back, so revealing is not a one-way door within a visit. */
+.ratingRehide {
+  margin-left: auto;
+  border: none;
+  background: none;
+  padding: 0;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 0.76rem;
+  color: var(--color-text-muted);
+  text-decoration: underline;
+}
+.ratingRehide:hover { color: var(--color-text); }
 /* Category × person table: your stars in the first column, one read-only
    column per friend. The wrapper scrolls sideways so a long row of raters
    never squeezes the star columns (or widens the modal). */

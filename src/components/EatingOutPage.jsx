@@ -71,6 +71,17 @@ const FILTERS = [
   { key: 'visited', label: 'Visited' },
 ];
 
+// NEXT SPOT — the one you've decided on next, pinned to the top of the
+// want-to-try list (`nextSpot: true` on the spot).
+//
+// Gated on the STATUS as well as the flag, on purpose: mark a spot Visited after
+// you've been and it stops floating by itself, with no cleanup write needed to
+// un-pin a place you've already eaten at. The stale flag is harmless — it means
+// "this was next", and it comes back if you ever set the spot back to want-to-try.
+export function isNextSpot(r) {
+  return !!r?.nextSpot && r?.status === 'want-to-try';
+}
+
 // Higher-level buckets a spot can belong to. A spot can be in SEVERAL (a brewpub
 // is Lunch/Dinner and Drinking), stored as `buckets: string[]`. This replaces the
 // old single-valued `mealType`; see bucketsOf for the migration.
@@ -1097,6 +1108,13 @@ function SpotRatings({ ownerUid, spotId, spot, user }) {
   const [docs, setDocs] = useState([]);
   // Local copy of MY scores for instant feedback; re-synced from the live doc.
   const [myScores, setMyScores] = useState({});
+  // Other people's scores stay behind a curtain until you ask for them — see
+  // the note above the curtain itself. Deliberately not remembered: the point
+  // is to not be anchored while you're forming your own opinion, and that's a
+  // fresh question every time you open a place. Both call sites `key` this
+  // component on the spot, so opening a different place remounts it and the
+  // curtain is back down — no reset effect needed.
+  const [revealed, setRevealed] = useState(false);
 
   useEffect(() => {
     if (!ownerUid || !spotId) return undefined;
@@ -1122,6 +1140,13 @@ function SpotRatings({ ownerUid, spotId, spot, user }) {
       .sort((a, b) => String(a.authorUsername || '').localeCompare(String(b.authorUsername || '')))
   ), [docs, user?.uid]);
 
+  // Nothing to hide until someone else has actually scored it, so a place only
+  // you have rated shows exactly as it always did — no curtain over your own
+  // numbers.
+  const hasOthers = friends.length > 0;
+  const hidden = hasOthers && !revealed;
+  const shownFriends = hidden ? [] : friends;
+
   const setCategory = (key, value) => {
     const next = { ...myScores, [key]: value };
     setMyScores(next); // optimistic
@@ -1140,29 +1165,63 @@ function SpotRatings({ ownerUid, spotId, spot, user }) {
     <div>
       <div className={styles.fieldLabel}>Ratings</div>
 
-      {/* Aggregate summary */}
-      <div className={styles.ratingSummary}>
-        {agg.voterCount > 0 ? (
-          <>
-            <div className={styles.ratingOverall}>
-              <StarsStatic value={agg.overall} size={18} />
-              <span className={styles.ratingOverallNum}>{fmt(agg.overall)}</span>
-              <span className={styles.ratingCount}>
-                {agg.voterCount} {agg.voterCount === 1 ? 'person' : 'people'}
-              </span>
-            </div>
-            <div className={styles.ratingCats}>
-              {categories.map(c => (
-                <span key={c.key} className={styles.ratingCatChip}>
-                  {c.label.split(' ')[0]} <strong>{fmt(agg.perCategory[c.key]?.avg)}</strong>
+      {/* Everyone else's scores sit behind this until you ask for them. Rating
+          a place right after seeing what someone else gave it isn't really your
+          own rating, and the whole point of scoring the same spot separately is
+          two independent opinions.
+
+          The GROUP AVERAGE is behind the same curtain, not just the per-person
+          columns, because with one other rater the average hands their score
+          straight back: it's (yours + theirs) / 2, and you know yours. Covering
+          the columns while leaving the number that undoes them on show would
+          only look like privacy. */}
+      {hidden ? (
+        <button
+          type="button"
+          className={styles.ratingCurtain}
+          onClick={() => setRevealed(true)}
+          aria-expanded="false"
+          title="Show the group average and everyone else's scores"
+        >
+          <span className={styles.ratingCurtainTitle}>Tap to reveal</span>
+          <span className={styles.ratingCurtainSub}>
+            {friends.length === 1
+              ? '1 other person has rated this'
+              : `${friends.length} other people have rated this`}
+          </span>
+        </button>
+      ) : (
+        <div className={styles.ratingSummary}>
+          {agg.voterCount > 0 ? (
+            <>
+              <div className={styles.ratingOverall}>
+                <StarsStatic value={agg.overall} size={18} />
+                <span className={styles.ratingOverallNum}>{fmt(agg.overall)}</span>
+                <span className={styles.ratingCount}>
+                  {agg.voterCount} {agg.voterCount === 1 ? 'person' : 'people'}
                 </span>
-              ))}
-            </div>
-          </>
-        ) : (
-          <p className={styles.ratingEmpty}>No ratings yet — be the first.</p>
-        )}
-      </div>
+                {hasOthers && (
+                  <button
+                    type="button"
+                    className={styles.ratingRehide}
+                    onClick={() => setRevealed(false)}
+                    title="Hide the group average and everyone else's scores again"
+                  >Hide</button>
+                )}
+              </div>
+              <div className={styles.ratingCats}>
+                {categories.map(c => (
+                  <span key={c.key} className={styles.ratingCatChip}>
+                    {c.label.split(' ')[0]} <strong>{fmt(agg.perCategory[c.key]?.avg)}</strong>
+                  </span>
+                ))}
+              </div>
+            </>
+          ) : (
+            <p className={styles.ratingEmpty}>No ratings yet — be the first.</p>
+          )}
+        </div>
+      )}
 
       {/* Category × person table. Your column is the input; friends are
           read-only. Scrolls sideways rather than squeezing the star columns
@@ -1173,7 +1232,7 @@ function SpotRatings({ ownerUid, spotId, spot, user }) {
             <tr>
               <th scope="col" className={styles.ratingTableCatHead}>Category</th>
               <th scope="col" className={styles.ratingTableYouHead}>You</th>
-              {friends.map(f => (
+              {shownFriends.map(f => (
                 <th key={f.id} scope="col" title={f.authorUsername ? `@${f.authorUsername}` : 'Friend'}>
                   {f.authorUsername ? `@${f.authorUsername}` : 'Friend'}
                 </th>
@@ -1193,7 +1252,7 @@ function SpotRatings({ ownerUid, spotId, spot, user }) {
                 <td className={styles.ratingTableYou}>
                   <StarRating value={myScores[c.key] ?? null} onChange={v => setCategory(c.key, v)} size={18} />
                 </td>
-                {friends.map(f => {
+                {shownFriends.map(f => {
                   const v = f.scores?.[c.key];
                   const rated = typeof v === 'number' && v >= 1 && v <= 5;
                   return (
@@ -1211,7 +1270,7 @@ function SpotRatings({ ownerUid, spotId, spot, user }) {
             <tr>
               <th scope="row" className={styles.ratingTableCat}>Overall</th>
               <td className={styles.ratingTableYou}>{fmt(overallOfScores(myScores))}</td>
-              {friends.map(f => (
+              {shownFriends.map(f => (
                 <td key={f.id} className={styles.ratingTableFriend}>{fmt(overallOfScores(f.scores))}</td>
               ))}
             </tr>
@@ -1261,7 +1320,7 @@ function SpotDetailModal({ spot, user, onClose, onEdit }) {
           {spot.url && (
             <a href={spot.url} target="_blank" rel="noreferrer" style={{ fontSize: '0.85rem' }}>Open link ↗</a>
           )}
-          <SpotRatings ownerUid={spot._ownerUid} spotId={spot.id} spot={spot} user={user} />
+          <SpotRatings key={`${spot._ownerUid}__${spot.id}`} ownerUid={spot._ownerUid} spotId={spot.id} spot={spot} user={user} />
           <SpotComments ownerUid={spot._ownerUid} spotId={spot.id} user={user} />
         </div>
         <div className={styles.modalFooter}>
@@ -1290,6 +1349,7 @@ function EditModal({ initial, onSave, onClose, onDelete, cuisineSuggestions, loc
   const [rating, setRating] = useState(initial.rating ?? null);
   const [ratingLabel, setRatingLabel] = useState(initial.ratingLabel || '');
   const [status, setStatus] = useState(initial.status || 'want-to-try');
+  const [nextSpot, setNextSpot] = useState(!!initial.nextSpot);
   const [takenJoanne, setTakenJoanne] = useState(!!initial.takenJoanne);
   const [buckets, setBuckets] = useState(() => bucketsOf(initial));
   const [frequency, setFrequency] = useState(initial.frequency || '');
@@ -1381,6 +1441,9 @@ function EditModal({ initial, onSave, onClose, onDelete, cuisineSuggestions, loc
       rating,
       ratingLabel: ratingLabel.trim() || undefined,
       status,
+      // Only meaningful on a want-to-try spot; dropped otherwise so a visited
+      // spot never carries a stale pin into the sort.
+      nextSpot: status === 'want-to-try' && nextSpot ? true : undefined,
       buckets: buckets.length ? buckets : undefined,
       // Keep the legacy single field in sync so consumers that still read it
       // (CSV export, older mobile builds) get the primary bucket.
@@ -1564,6 +1627,22 @@ function EditModal({ initial, onSave, onClose, onDelete, cuisineSuggestions, loc
             ))}
           </div>
 
+          {/* Only offered on a want-to-try spot: pinning somewhere you've already
+              been to the top of the "to try" list would be meaningless. */}
+          {status === 'want-to-try' && (
+            <label
+              className={styles.fieldLabel}
+              style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: '0.6rem', cursor: 'pointer' }}
+            >
+              <input
+                type="checkbox"
+                checked={nextSpot}
+                onChange={e => setNextSpot(e.target.checked)}
+              />
+              ★ Next spot — pin to the top of Want to try
+            </label>
+          )}
+
           <label
             className={styles.fieldLabel}
             style={{
@@ -1660,6 +1739,7 @@ function EditModal({ initial, onSave, onClose, onDelete, cuisineSuggestions, loc
               {/* `buckets` (the live edit state), not `initial` — retagging a
                   spot swaps the rating rows immediately, before you hit Save. */}
               <SpotRatings
+                key={`${initial._ownerUid || user.uid}__${initial.id}`}
                 ownerUid={initial._ownerUid || user.uid}
                 spotId={initial.id}
                 spot={{ ...initial, buckets }}
@@ -1986,6 +2066,7 @@ function RestaurantCard({ r, ratingAgg, distanceMiles, rank, canMoveUp, canMoveD
             {r.cuisines.length > 1 && <span className={styles.compactCuisineMore}>+{r.cuisines.length - 1}</span>}
           </span>
         )}
+        {isNextSpot(r) && <span className={styles.nextBadge} title="Next spot — pinned to the top of Want to try">★ Next</span>}
         {r.status === 'want-to-try' && <span className={styles.wantBadge}>Want to try</span>}
         {isRetired && <span className={styles.retiredBadge}>Retired</span>}
         {!r._isMine && r._ownerUsername && (
@@ -2024,6 +2105,7 @@ function RestaurantCard({ r, ratingAgg, distanceMiles, rank, canMoveUp, canMoveD
       <div className={styles.cardBody}>
         <div className={styles.cardHeader}>
           <h3 className={styles.cardTitle}>{r.name}</h3>
+          {isNextSpot(r) && <span className={styles.nextBadge} title="Next spot — pinned to the top of Want to try">★ Next</span>}
           {r.status === 'want-to-try' && <span className={styles.wantBadge}>Want to try</span>}
           {isRetired && <span className={styles.retiredBadge}>Retired</span>}
           {!r._isMine && r._ownerUsername && (
@@ -3348,6 +3430,11 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
         (a.status === 'visited' ? 1 : 0) - (b.status === 'visited' ? 1 : 0),
       );
     }
+    // The Next Spot pin outranks every ordering above it, including proximity:
+    // it is an explicit "this is the one", so it should not slide down the page
+    // because somewhere closer exists. Stable, so everything else keeps the
+    // order the branch above gave it.
+    list = [...list].sort((a, b) => (isNextSpot(b) ? 1 : 0) - (isNextSpot(a) ? 1 : 0));
     return list;
   }, [restaurants, filter, activeCuisine, activeLocation, activeBucket, activeHealth, activeCategory, showRetired, search, proximityCenter]);
 
@@ -3600,9 +3687,18 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
     }
     const ownerList = ownerData[ownerUid]?.restaurants || [];
     const exists = ownerList.some(r => r.id === restaurant.id);
-    const nextList = exists
+    let nextList = exists
       ? ownerList.map(r => (r.id === clean.id ? clean : r))
       : [clean, ...ownerList];
+    // There is only ever ONE next spot per list, so claiming it releases it
+    // from whoever held it. Scoped to this owner's list because that is the one
+    // document this write touches — clearing a flag on a friend's list would
+    // mean writing their document as a side effect of saving mine.
+    if (clean.nextSpot) {
+      nextList = nextList.map(r => (
+        r.id === clean.id || !r?.nextSpot ? r : { ...r, nextSpot: undefined }
+      ));
+    }
     persistOwner(ownerUid, nextList);
     setEditing(null);
     setAdding(false);
