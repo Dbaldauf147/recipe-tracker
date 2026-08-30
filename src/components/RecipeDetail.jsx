@@ -14,6 +14,7 @@ import { getIngredientTags, getTagInfo } from '../utils/ingredientTags';
 import { detectCuisine, ALL_CUISINES, getShelfLife } from '../utils/detectCuisine';
 import { getGHGEmissions, getGHGRating, computeRecipeGHG } from '../data/ghgEmissions';
 import { OWNER_EMAIL } from '../utils/pageAccess';
+import { parsePastedSteps, splitClipboardRows, isSpreadsheetHtml } from '../utils/pastedSteps';
 import styles from './RecipeDetail.module.css';
 
 const ADMIN_UID = import.meta.env.VITE_ADMIN_UID;
@@ -1354,24 +1355,10 @@ export function RecipeDetail({ recipe, allTags = [], onSave, onDelete, onBack, o
   // Turn a spreadsheet/free-text paste into one step per line. Each row may be
   // tab-separated (e.g. a step-number column + the text); keep the longest cell
   // and strip leading "1." / "Step 1:" numbering.
-  function parsePastedSteps(text) {
-    return (text || '')
-      .replace(/\r\n/g, '\n')
-      .replace(/\r/g, '\n')
-      .split('\n')
-      .map(line => {
-        const cells = line.split('\t').map(c => c.trim()).filter(Boolean);
-        if (cells.length === 0) return '';
-        const step = cells.length === 1
-          ? cells[0]
-          : cells.reduce((a, b) => (b.length > a.length ? b : a), '');
-        return step
-          .replace(/^step\s*\d+\s*[:.)-]?\s*/i, '')
-          .replace(/^\d+\s*[.)-]\s*/, '')
-          .trim();
-      })
-      .filter(Boolean);
-  }
+  // parsePastedSteps / splitClipboardRows / isSpreadsheetHtml live in
+  // utils/pastedSteps.js so the quoting rules can be tested — they used to be a
+  // split on \n and \t here, which tore any cell containing a line break into
+  // several steps and left stray quote characters behind.
 
   /**
    * Catch a spreadsheet paste anywhere in the Instructions section.
@@ -1394,11 +1381,31 @@ export function RecipeDetail({ recipe, allTags = [], onSave, onDelete, onBack, o
   function handleStepsSectionPaste(e) {
     if (!editing) return;
     const text = e.clipboardData?.getData('text') || '';
-    const isMultiRow = text.includes('\t') || text.split('\n').filter(l => l.trim()).length >= 2;
-    if (!isMultiRow) return;
-    e.preventDefault();
-    setStepPasteText(text);
-    setShowStepPaste(true);
+    const html = e.clipboardData?.getData('text/html') || '';
+    const isMultiRow = text.includes('\t') || splitClipboardRows(text).length >= 2;
+
+    if (isMultiRow) {
+      e.preventDefault();
+      setStepPasteText(text);
+      setShowStepPaste(true);
+      return;
+    }
+
+    // ONE cell. The step editor is contentEditable, so left alone the browser
+    // inserts the clipboard's text/html — and a spreadsheet's is a whole
+    // <table>, borders and mso- styles included, which lands in the step as
+    // markup and gets saved that way by onInput's innerHTML read. Insert the
+    // text instead. execCommand keeps the caret and the undo stack, which
+    // rewriting innerHTML by hand would throw away.
+    //
+    // Only spreadsheet HTML is caught: a Word or web-page paste is ordinary
+    // rich text and the editor's bold/italic/underline should still take it.
+    if (isSpreadsheetHtml(html)) {
+      e.preventDefault();
+      const [firstRow] = splitClipboardRows(text);
+      const plain = (firstRow ? firstRow.join(' ') : text).trim();
+      document.execCommand('insertText', false, plain);
+    }
   }
 
   function applyStepPaste(mode) {

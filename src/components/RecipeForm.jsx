@@ -4,6 +4,7 @@ import { loadIngredients, loadIngredientsFromFirestore } from '../utils/ingredie
 import { ingredientMatchScore } from '../utils/ingredientMatch';
 import { classifyMealType } from '../utils/classifyMealType';
 import { parseIngredientLine } from '../utils/parseRecipeText';
+import { parsePastedSteps, splitClipboardRows } from '../utils/pastedSteps';
 import styles from './RecipeForm.module.css';
 
 const emptyRow = { quantity: '', measurement: '', ingredient: '' };
@@ -102,27 +103,13 @@ function applyColumnMap(text, map, hasHeader) {
   return rows;
 }
 
-// Turn a spreadsheet/free-text paste into one instruction step per line. Each
-// row may be tab-separated (e.g. a step-number column + the step text); we keep
-// the longest non-empty cell as the step and strip leading "1." / "Step 1:".
-function parsePastedInstructions(text) {
-  return (text || '')
-    .replace(/\r\n/g, '\n')
-    .replace(/\r/g, '\n')
-    .split('\n')
-    .map(line => {
-      const cells = line.split('\t').map(c => c.trim()).filter(Boolean);
-      if (cells.length === 0) return '';
-      const step = cells.length === 1
-        ? cells[0]
-        : cells.reduce((a, b) => (b.length > a.length ? b : a), '');
-      return step
-        .replace(/^step\s*\d+\s*[:.)-]?\s*/i, '')
-        .replace(/^\d+\s*[.)-]\s*/, '')
-        .trim();
-    })
-    .filter(Boolean);
-}
+// Turn a spreadsheet/free-text paste into one instruction step per line.
+//
+// The RecipeDetail popup parses the same paste, so both editors call the ONE
+// shared parser — this was a duplicate of it, and both copies split on raw
+// newlines, which tore an Excel cell containing a line break into several steps
+// and left stray quote characters on the ends.
+const parsePastedInstructions = parsePastedSteps;
 
 export function RecipeForm({ recipe, onSave, onCancel, saveLabel, cancelLabel, headerAction, titleOverride }) {
   const [title, setTitle] = useState('');
@@ -332,7 +319,10 @@ export function RecipeForm({ recipe, onSave, onCancel, saveLabel, cancelLabel, h
    */
   function handleInstructionsPaste(e) {
     const text = e.clipboardData?.getData('text') || '';
-    const isMultiRow = text.includes('\t') || text.split('\n').filter(l => l.trim()).length >= 2;
+    // splitClipboardRows, not split('\n'): a single Excel cell holding a
+    // multi-line instruction is ONE row, and counting its line breaks as rows
+    // opened the import panel for what is really an ordinary one-step paste.
+    const isMultiRow = text.includes('\t') || splitClipboardRows(text).length >= 2;
     if (!isMultiRow) return;
     e.preventDefault();
     setInstrPasteText(text);
