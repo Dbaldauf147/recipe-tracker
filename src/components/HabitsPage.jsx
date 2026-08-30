@@ -719,6 +719,12 @@ const AUTO_TRIGGERS = {
     { id: 'all_meals_logged', label: 'All 3 main meals logged' },
     { id: 'weighin_logged', label: 'A weigh-in is recorded' },
     { id: 'recipe_prepped', label: 'A planned recipe is prepped' },
+    // Leave the threshold blank to use your own "% of meals tracked" goal
+    // (nutritionGoals.dailyMealsTrackedPct, the number the Week Plan tile shows
+    // and the % of Meals Tracked chart edits). A WEEKLY habit is measured over
+    // the whole Sun–Sat week, exactly like that tile; any other cadence is
+    // measured over the single day.
+    { id: 'meals_tracked_goal', label: '% of meals tracked reaches', numeric: true, unit: '% (blank = your meal-tracking goal)' },
     { id: 'custom', label: 'Custom — describe in Logic' },
   ],
   rally: [

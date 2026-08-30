@@ -93,6 +93,7 @@ import {
   diffCells,
 } from './_data/habitLogYears.js';
 import { sundayWeekKeyFromYMD, weekKeyOfDate, periodKeyFor } from './_data/habitPeriods.js';
+import { mealStatsForDays, mealsTrackedGoalOf, sundayWeekDates } from '../src/utils/mealsTracked.js';
 
 if (getApps().length === 0) {
   const serviceAccount = process.env.FIREBASE_SERVICE_ACCOUNT
@@ -127,6 +128,7 @@ function triggerPhrasing(rule) {
     case 'hk_workout': return { pos: 'A workout was logged in Prep Day', neg: 'No workout was logged in Prep Day', noun: 'workouts' };
     case 'reach_out_goal': return { pos: 'Reach-out goal met', neg: "Reach-out goal wasn't met", noun: 'reach-outs' };
     case 'gratitude_goal': return { pos: 'Gratitude goal met', neg: "Gratitude goal wasn't met", noun: 'gratitude entries' };
+    case 'meals_tracked_goal': return { pos: 'Meals-tracked goal met', neg: "Meals-tracked goal wasn't met", noun: 'meal tracking' };
     default: return { pos: 'Trigger met', neg: 'Trigger not met', noun: 'this' };
   }
 }
@@ -222,10 +224,28 @@ function mainSlotsCovered(day) {
 // `habit` lets period-spanning cadences scan their whole period: a WEEKLY
 // weigh-in habit counts if ANY weigh-in falls in the Sun–Sat week (not just the
 // exact processed day) — matching "scan the whole week for a weigh-in".
-function evalPrepdayTrigger(trigger, ctx, habit) {
-  const { day, weightLog, dateKey, workoutsForDay } = ctx;
+function evalPrepdayTrigger(trigger, ctx, habit, rule) {
+  const { day, weightLog, dateKey, workoutsForDay, logMap, nutritionGoals } = ctx;
   const cadence = (habit?.cadence || '').trim().toLowerCase();
   switch (trigger) {
+    // "% of meals tracked ≥ my goal". Computed by the SAME functions the Week
+    // Plan's 🍽️ Tracked tile uses (utils/mealsTracked.js), so the tile showing
+    // the goal met and this rule firing can never disagree.
+    //
+    // A WEEKLY habit asks about the whole Sunday–Saturday week, which is the
+    // period that tile measures and the period the habit cell covers. Any other
+    // cadence asks about the single day, where the same 0–100% scale applies to
+    // that day's three slots.
+    //
+    // Comparison is >=, matching the tile's own `pct >= mealsTrackedGoal` — a
+    // goal of exactly 50% met at exactly 50% shows a ✓ there, so it fires here.
+    case 'meals_tracked_goal': {
+      const goal = Number(rule?.threshold) > 0
+        ? Math.max(0, Math.min(100, Number(rule.threshold)))
+        : mealsTrackedGoalOf(nutritionGoals);
+      const days = cadence === 'weekly' ? sundayWeekDates(dateKey) : [dateKey];
+      return mealStatsForDays(days, logMap || {}).pct >= goal;
+    }
     case 'meal_logged': return (day?.entries || []).length > 0;
     case 'all_meals_logged': return mainSlotsCovered(day) >= 3;
     case 'recipe_prepped': return Array.isArray(day?.cookRecipes) && day.cookRecipes.length > 0;
@@ -350,6 +370,11 @@ export default async function handler(req, res) {
       const habits = Array.isArray(data.habits) ? data.habits : [];
       const habitById = new Map(habits.map(h => [h.id, h]));
       const weightLog = Array.isArray(data.weightLog) ? data.weightLog : [];
+      // Targets for goal-comparison triggers (meals_tracked_goal reads
+      // dailyMealsTrackedPct off this — the same field the Week Plan tile uses).
+      const nutritionGoals = data.nutritionGoals && typeof data.nutritionGoals === 'object'
+        ? data.nutritionGoals
+        : null;
 
       // dailyLog lives in its own subcollection doc — load the whole day map
       // once; we index into it per processed day (today + yesterday).
@@ -476,7 +501,7 @@ export default async function handler(req, res) {
       for (const dayCtx of DAYS) {
         const day = logMap[dayCtx.dateKey] || null;
         const workoutsForDay = () => workoutsByDate[dayCtx.dateKey] || [];
-        const ctx = { day, weightLog, dateKey: dayCtx.dateKey, workoutsForDay };
+        const ctx = { day, weightLog, dateKey: dayCtx.dateKey, workoutsForDay, logMap, nutritionGoals };
         // Same context for the day BEFORE this one, so a rule can tell a single
         // rest day from the 2nd+ day of a gap (streakMarkFor).
         const prevDay = easternYesterday(dayCtx);
@@ -485,6 +510,8 @@ export default async function handler(req, res) {
           weightLog,
           dateKey: prevDay.dateKey,
           workoutsForDay: () => workoutsByDate[prevDay.dateKey] || [],
+          logMap,
+          nutritionGoals,
         };
 
         for (const rule of rules) {
@@ -499,7 +526,7 @@ export default async function handler(req, res) {
             const grat = await getGratitude(dayCtx.dateKey);
             fired = grat ? evalGratitudeTrigger(rule, grat) : null; // null → Gratitude unreachable
           } else {
-            fired = evalPrepdayTrigger(rule.trigger, ctx, habit);
+            fired = evalPrepdayTrigger(rule.trigger, ctx, habit, rule);
           }
           const key = periodKeyFor(habit.cadence, dayCtx);
           const cadence = (habit.cadence || '').trim().toLowerCase();
@@ -574,7 +601,7 @@ export default async function handler(req, res) {
           } else {
             const streak = (isDaily && dayIsOver && rule.source === 'prepday'
               && streakMarkFor(rule)
-              && evalPrepdayTrigger(rule.trigger, prevCtx, habit) === false)
+              && evalPrepdayTrigger(rule.trigger, prevCtx, habit, rule) === false)
               ? streakMarkFor(rule) : null;
             if (streak) {
               mark = streak;

@@ -17,6 +17,7 @@ import {
 } from '../utils/saunaPlan';
 import { isStretchWorkout } from '../utils/stretchRoutine';
 import { subscribeWorkouts } from '../utils/workoutsSync';
+import { MAIN_MEALS, mealStatsForDay, mealStatsForDays, mealsTrackedGoalOf } from '../utils/mealsTracked';
 import styles from './WeekPlanPage.module.css';
 
 const SLOTS = [
@@ -72,7 +73,7 @@ function fmtServings(n) {
 // derived from the workout log and daily log rather than snapshotted, which is
 // why the history goes all the way back instead of starting the day it shipped.
 
-const MAIN_MEALS = ['breakfast', 'lunch', 'dinner'];
+// MAIN_MEALS now comes from utils/mealsTracked.js — see the note above.
 const PRODUCE_MEAL_SLOTS = ['breakfast', 'lunch', 'dinner', 'snack'];
 
 /** Days with each workout category; rest = workout-free days up to today. */
@@ -98,37 +99,11 @@ function countSaunaDays(days, saunaDates) {
   return n;
 }
 
-/** Main-meal slots accounted for on ONE day, and meals eaten out that day. */
-function mealStatsForDay(day) {
-  const entries = Array.isArray(day?.entries) ? day.entries : [];
-  const eatOutMarks = Array.isArray(day?.eatingOutMeals) ? day.eatingOutMeals : [];
-  let ateOut = 0;
-  // Ate out = logged eating-out entries + planned "eating out" grid marks.
-  for (const e of entries) if (e?.eatingOut) ateOut += 1;
-  for (const s of eatOutMarks) if (MAIN_MEALS.includes(s)) ateOut += 1;
-  if (day?.daySkipped) return { tracked: MAIN_MEALS.length, ateOut };
-  const skipped = Array.isArray(day?.skippedMeals) ? day.skippedMeals : [];
-  const accounted = new Set();
-  for (const e of entries) if (MAIN_MEALS.includes(e.mealSlot)) accounted.add(e.mealSlot);
-  for (const s of skipped) if (MAIN_MEALS.includes(s)) accounted.add(s);
-  // Deciding a meal is "eating out" accounts for that slot (like a skip), so it
-  // doesn't count against the tracked %.
-  for (const s of eatOutMarks) if (MAIN_MEALS.includes(s)) accounted.add(s);
-  return { tracked: accounted.size, ateOut };
-}
-
-/** % of the period's main-meal slots tracked, plus meals eaten out. */
-function mealStatsForDays(days, dailyLog) {
-  let trackedSlots = 0;
-  let ateOut = 0;
-  for (const date of days) {
-    const s = mealStatsForDay(dailyLog[date]);
-    trackedSlots += s.tracked;
-    ateOut += s.ateOut;
-  }
-  const totalSlots = days.length * MAIN_MEALS.length;
-  return { pct: totalSlots > 0 ? Math.round((trackedSlots / totalSlots) * 100) : 0, ateOut };
-}
+// mealStatsForDay / mealStatsForDays / the goal live in utils/mealsTracked.js.
+// The habit-automation engine evaluates the "meals tracked ≥ goal" trigger from
+// those same functions — if this page and that rule computed the percentage
+// separately, the tile could show the goal met while the habit stayed unmarked,
+// with nothing on screen to explain the difference.
 
 /** Veg/fruit servings on ONE day. Skipped days and skipped slots contribute 0. */
 function produceForDay(day) {
@@ -1651,11 +1626,7 @@ export function WeekPlanPage({ recipes, getRecipe, user, weeklyPlan = [], weekly
   // Weekly meals-tracked target — reuses the same `dailyMealsTrackedPct` goal the
   // % of Meals Tracked chart edits (stored in sunday-nutrition-goals). Defaults
   // to 50% when unset, per the "at least 50% tracked" target.
-  const mealsTrackedGoal = useMemo(() => {
-    const v = nutritionGoals?.dailyMealsTrackedPct;
-    if (v == null || isNaN(Number(v))) return 50;
-    return Math.max(0, Math.min(100, Number(v)));
-  }, [nutritionGoals]);
+  const mealsTrackedGoal = useMemo(() => mealsTrackedGoalOf(nutritionGoals), [nutritionGoals]);
 
   // Distribute the "This Week" recipes across the visible week by servings:
   // each recipe fills one day-slot per serving (breakfast recipes → breakfast,
