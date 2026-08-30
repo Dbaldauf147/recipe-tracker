@@ -1,4 +1,4 @@
-import { doc, getDoc, setDoc, deleteDoc, collection, getDocs } from 'firebase/firestore';
+import { doc, getDoc, setDoc, deleteDoc, collection, getDocs, query, orderBy, limit, startAfter, documentId } from 'firebase/firestore';
 import { db, auth } from '../firebase';
 
 const MAX_SIZE = 800; // max width/height in pixels
@@ -28,19 +28,53 @@ async function deleteImageFromFirestore(uid, recipeId) {
   }
 }
 
-/** Load all meal images from Firestore for a user. */
-async function loadImagesFromFirestore(uid) {
+// Images are base64 data URLs stored one per document, so this collection is
+// measured in MEGABYTES, not kilobytes — ~11 MiB across ~100 recipes, with
+// single images up to ~200 KB. Fetching it as one query asks the browser to
+// hold the whole thing in a single response; Firestore's own REST API caps a
+// page at ~2 MiB for exactly this reason. Ten at a time keeps each round trip
+// around a megabyte.
+const IMAGE_PAGE_SIZE = 10;
+
+/**
+ * Load all meal images for a user, a page at a time.
+ *
+ * `onBatch` receives each page as it lands, so the caller can fill its cache
+ * and repaint progressively instead of showing nothing until the last byte of
+ * the last image arrives.
+ *
+ * On failure this returns WHAT IT ALREADY HAS rather than {}. The previous
+ * version threw away every image it had loaded the moment anything went wrong,
+ * which turned one bad page into a completely empty gallery.
+ */
+async function loadImagesFromFirestore(uid, onBatch) {
+  const images = {};
   try {
     const colRef = collection(db, 'users', uid, 'mealImages');
-    const snap = await getDocs(colRef);
-    const images = {};
-    snap.forEach(d => {
-      images[d.id] = d.data().dataUrl;
-    });
+    let cursor = null;
+    for (;;) {
+      const q = cursor
+        ? query(colRef, orderBy(documentId()), startAfter(cursor), limit(IMAGE_PAGE_SIZE))
+        : query(colRef, orderBy(documentId()), limit(IMAGE_PAGE_SIZE));
+      const snap = await getDocs(q);
+      if (snap.empty) break;
+      const page = {};
+      snap.forEach(d => {
+        const url = d.data()?.dataUrl;
+        if (url) { images[d.id] = url; page[d.id] = url; }
+      });
+      onBatch?.(page);
+      // A short page is the last page.
+      if (snap.size < IMAGE_PAGE_SIZE) break;
+      cursor = snap.docs[snap.docs.length - 1];
+    }
     return images;
   } catch (err) {
-    console.error('[mealImage] Firestore load failed:', err);
-    return {};
+    console.error(
+      '[mealImage] Firestore load failed after',
+      Object.keys(images).length, 'images:', err,
+    );
+    return images;
   }
 }
 
@@ -180,9 +214,16 @@ export async function generateMealImage(recipeId, recipeName, ingredients, uid) 
 export async function syncMealImages(uid) {
   if (!uid) return;
   try {
-    const remote = await loadImagesFromFirestore(uid);
+    // Fill the cache and repaint as each page lands, rather than after all
+    // ~11 MiB has arrived: the first thumbnails show in a moment instead of
+    // the whole gallery staying blank until the last image downloads. It also
+    // means a failure part-way still leaves you with the images that did load.
+    const remote = await loadImagesFromFirestore(uid, page => {
+      for (const [id, url] of Object.entries(page)) memoryCache[id] = url;
+      try { window.dispatchEvent(new Event('meal-images-synced')); } catch { /* SSR / no window */ }
+    });
 
-    // Load remote images into memory cache
+    // Belt and braces — the batches above have already done this.
     for (const [id, url] of Object.entries(remote)) {
       memoryCache[id] = url;
     }
