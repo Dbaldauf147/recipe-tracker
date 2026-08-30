@@ -590,6 +590,16 @@ export function RecipeDetail({ recipe, allTags = [], onSave, onDelete, onBack, o
     setJoanne(value);
     if (onPersistFields) onPersistFields({ joanneLikes: value || undefined });
   }
+
+  // How settled the recipe is: still an experiment, being tuned, or finished.
+  // Same gating as Joanne above and for the same two reasons — owner-only, and
+  // only where there's somewhere to persist the answer to.
+  const [devStage, setDevStage] = useState(() => recipe.devStage || '');
+  const showDevStage = showJoanne;
+  function changeDevStage(value) {
+    setDevStage(value);
+    if (onPersistFields) onPersistFields({ devStage: value || undefined });
+  }
   const [cookMode, setCookMode] = useState(() => {
     try { return localStorage.getItem('sunday-cook-mode') === 'true'; } catch { return false; }
   });
@@ -1907,6 +1917,58 @@ export function RecipeDetail({ recipe, allTags = [], onSave, onDelete, onBack, o
                   ? `${daysSinceLastPrepped}d since last prepped`
                   : 'Never prepped'}
             </span>
+            {/* Sits with the other status chips rather than in a section of its
+                own down the page: it's a one-word fact about the recipe, and it
+                was the only section heading that asked a question. */}
+            {showJoanne && (
+              <label
+                className={[
+                  styles.joanneChip,
+                  joanne === 'yes' ? styles.joanneChipYes : '',
+                  joanne === 'no' ? styles.joanneChipNo : '',
+                ].filter(Boolean).join(' ')}
+              >
+                <span className={styles.joanneChipName}>Joanne</span>
+                <select
+                  className={styles.joanneChipSelect}
+                  value={joanne}
+                  onChange={e => changeJoanne(e.target.value)}
+                  aria-label="Whether Joanne likes this recipe"
+                >
+                  <option value="">Not said yet</option>
+                  <option value="yes">Likes it</option>
+                  <option value="no">Doesn&apos;t like it</option>
+                </select>
+                <span className={styles.joanneChipCaret} aria-hidden="true">▾</span>
+              </label>
+            )}
+            {/* Sits with the other status chips for the same reason Joanne does:
+                it's a one-word fact about the recipe, not a section. */}
+            {showDevStage && (
+              <label
+                className={[
+                  styles.joanneChip,
+                  styles.stageChip,
+                  devStage === 'new' ? styles.stageChipNew : '',
+                  devStage === 'wip' ? styles.stageChipWip : '',
+                  devStage === 'nailed' ? styles.stageChipNailed : '',
+                ].filter(Boolean).join(' ')}
+              >
+                <span className={styles.joanneChipName}>Stage</span>
+                <select
+                  className={styles.joanneChipSelect}
+                  value={devStage}
+                  onChange={e => changeDevStage(e.target.value)}
+                  aria-label="How settled this recipe is"
+                >
+                  <option value="">Not set</option>
+                  <option value="new">New</option>
+                  <option value="wip">Work in progress</option>
+                  <option value="nailed">Nailed down</option>
+                </select>
+                <span className={styles.joanneChipCaret} aria-hidden="true">▾</span>
+              </label>
+            )}
           </div>
 
           {editing ? (
@@ -3408,22 +3470,6 @@ export function RecipeDetail({ recipe, allTags = [], onSave, onDelete, onBack, o
           data-placeholder="Add notes, changes to try next time, or things to remember..."
         />
       </div>
-
-      {showJoanne && (
-        <div className={styles.section}>
-          <h3>Does Joanne like this recipe?</h3>
-          <select
-            className={styles.joanneSelect}
-            value={joanne}
-            onChange={e => changeJoanne(e.target.value)}
-            aria-label="Whether Joanne likes this recipe"
-          >
-            <option value="">Not said yet</option>
-            <option value="yes">Joanne likes</option>
-            <option value="no">Joanne doesn&apos;t like</option>
-          </select>
-        </div>
-      )}
 
       <div className={styles.section}>
         <h3>How do you feel after eating this?</h3>

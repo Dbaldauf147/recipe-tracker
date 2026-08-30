@@ -2935,12 +2935,631 @@
 /* Owner-only "does Joanne like this" picker. Sized like the other selects in
    the detail popup rather than stretched full width — it holds three short
    options, and a full-width control reads as a required field. */
-.joanneSelect {
-  min-width: 200px;
-  padding: 8px 10px;
-  font-size: 0.9rem;
+/* ── "Does Joanne like this recipe?" ──
+   A status chip beside the last-prepped badge, not a section of its own. The
+   select keeps its native behaviour (real dropdown on a phone, keyboard and
+   screen-reader support) and is stripped back to look like the chip's text. */
+.joanneChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  align-self: flex-start;
+  margin-top: 0.4rem;
+  padding: 0.3rem 0.7rem;
+  border-radius: var(--radius-full);
+  background: var(--color-surface-alt);
+  border: 1px solid var(--color-border-light);
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--color-text-secondary);
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background var(--transition-normal), border-color var(--transition-normal),
+    color var(--transition-normal);
+}
+
+.joanneChip:hover {
+  border-color: var(--color-accent-subtle);
+}
+
+.joanneChipName {
+  font-weight: 700;
+  opacity: 0.7;
+}
+
+.joanneChipSelect {
+  appearance: none;
+  -webkit-appearance: none;
+  border: none;
+  background: none;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  padding: 0;
+  outline: none;
+}
+
+/* The caret is a sibling span rather than a background image on the select,
+   so it inherits the chip's colour as the answer changes — a data-URI arrow
+   can't take currentColor. */
+.joanneChipCaret {
+  font-size: 0.6rem;
+  opacity: 0.55;
+  line-height: 1;
+}
+
+.joanneChipSelect:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 3px;
+  border-radius: 2px;
+}
+
+.joanneChipYes {
+  background: var(--color-success-light);
+  border-color: #B7DEC7;
+  color: var(--color-success);
+}
+
+.joanneChipNo {
+  background: var(--color-danger-light);
+  border-color: #F3C4BF;
+  color: var(--color-danger);
+}
+
+
+/* ══════════════════════════════════════════════════════════════════
+   EDITORIAL POLISH
+   Appended last on purpose: everything here refines the look of rules
+   defined above without editing them, so the whole treatment can be
+   tuned — or lifted out — in one place.
+   ══════════════════════════════════════════════════════════════════ */
+
+/* ── Overlay & card ───────────────────────────────────────────── */
+
+.overlay {
+  background: rgba(18, 26, 35, 0.52);
+  backdrop-filter: blur(8px) saturate(1.15);
+  -webkit-backdrop-filter: blur(8px) saturate(1.15);
+  padding: 2.5rem 2rem;
+  animation: overlayIn 0.25s ease;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.35) transparent;
+}
+
+@keyframes overlayIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.overlay::-webkit-scrollbar {
+  width: 10px;
+}
+.overlay::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.3);
+  border-radius: 999px;
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+.overlay::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.5);
+  background-clip: content-box;
+}
+
+.container {
+  border-radius: 26px;
+  padding: 2.5rem 2.5rem 2.25rem;
+  /* Layered rather than a single drop: a tight contact shadow plus a wide
+     soft one is what reads as "lifted off the page" instead of "outlined". */
+  box-shadow:
+    0 1px 2px rgba(16, 24, 33, 0.06),
+    0 8px 24px rgba(16, 24, 33, 0.10),
+    0 32px 64px -12px rgba(16, 24, 33, 0.28);
+  background:
+    radial-gradient(120% 220px at 50% 0, var(--color-accent-light) 0%, transparent 72%),
+    var(--color-surface);
+  animation: cardIn 0.42s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes cardIn {
+  from { opacity: 0; transform: translateY(24px) scale(0.985); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+/* Accent hairline across the top edge. Drawn as a pseudo-element so the
+   card keeps overflow visible — the share and gear dropdowns hang outside
+   it and would be clipped by the usual overflow:hidden trick. */
+.container::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 4px;
+  border-radius: 26px 26px 0 0;
+  background: linear-gradient(
+    90deg,
+    var(--color-accent-hover) 0%,
+    var(--color-accent) 28%,
+    #7FB0DC 62%,
+    var(--color-gold) 100%
+  );
+  pointer-events: none;
+}
+
+/* ── Header actions ───────────────────────────────────────────── */
+
+/* Drop the stray 1.5rem left gutter these two carried so the title, the meta
+   chips and the section cards below all hang off one left edge. */
+.headerRow,
+.topRow {
+  padding-left: 0;
+}
+
+.headerRow {
+  margin-bottom: 1.75rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid var(--color-border-light);
+}
+
+.backBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  transition: color var(--transition-normal), transform var(--transition-normal);
+}
+.backBtn:hover {
+  transform: translateX(-3px);
+}
+
+.headerPrintBtn,
+.editToggleBtn {
+  background: var(--color-surface-alt);
+  border-color: transparent;
+  padding: 0.45rem 1.05rem;
+  transition: background var(--transition-normal), color var(--transition-normal),
+    box-shadow var(--transition-normal), transform var(--transition-normal);
+}
+.headerPrintBtn:hover,
+.editToggleBtn:hover {
+  background: var(--color-accent-light);
+  border-color: transparent;
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-sm);
+}
+
+.headerShareBtn {
+  background: linear-gradient(135deg, var(--color-accent) 0%, var(--color-accent-hover) 100%);
+  padding: 0.45rem 1.1rem;
+  letter-spacing: 0.01em;
+  box-shadow: 0 1px 2px rgba(46, 86, 128, 0.2), 0 4px 12px -2px rgba(46, 86, 128, 0.35);
+  transition: transform var(--transition-normal), box-shadow var(--transition-normal),
+    filter var(--transition-normal);
+}
+.headerShareBtn:hover:not(:disabled) {
+  filter: brightness(1.06);
+  transform: translateY(-1px);
+  box-shadow: 0 2px 4px rgba(46, 86, 128, 0.22), 0 8px 20px -4px rgba(46, 86, 128, 0.4);
+}
+
+/* The "already in this week" state keeps its gold — it is the colour that
+   already means this everywhere else — just in the same gradient treatment. */
+.headerShareBtn.boostBtnActive,
+.headerShareBtn.boostBtnActive:hover {
+  background: linear-gradient(135deg, #E0AE1F 0%, #B8900F 100%);
+  box-shadow: 0 1px 2px rgba(146, 113, 12, 0.2), 0 4px 12px -2px rgba(146, 113, 12, 0.32);
+}
+
+/* "Added" is disabled, and the shared :disabled rule fades it to 50% — which
+   on a filled gold pill just looks broken. Give the settled state its own
+   quiet treatment instead of a dimmed version of the active one. */
+.headerShareBtn.boostBtnActive:disabled {
+  opacity: 1;
+  background: var(--color-gold-light);
+  color: #854D0E;
+  box-shadow: inset 0 0 0 1px #F0D48A;
+}
+
+.shareDropdown {
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lift);
+  overflow: hidden;
+}
+
+/* ── Title & meta ─────────────────────────────────────────────── */
+
+.titleRow {
+  gap: 0.9rem;
+  margin-bottom: 0.35rem;
+}
+
+.titleDisplay {
+  font-size: clamp(2rem, 3vw, 2.6rem);
+  line-height: 1.12;
+  letter-spacing: -0.03em;
+}
+
+/* Short rule under the title — the one detail that makes the header read
+   as a cookbook page rather than a form. */
+.titleDisplay::after {
+  content: '';
+  display: block;
+  width: 52px;
+  height: 3px;
+  margin-top: 0.75rem;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--color-accent), var(--color-gold));
+}
+
+.lastPrepBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-weight: 600;
+  padding: 0.3rem 0.75rem;
+  background: var(--color-accent-light);
+  color: var(--color-accent);
+  border: 1px solid var(--color-accent-subtle);
+  align-self: flex-start;
+  margin-top: 0.4rem;
+}
+
+.lastPrepBadge::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.65;
+}
+
+/* Only the read-only meta rows become chips. The edit-mode rows hold
+   labelled inputs (.metaLabel) and are left alone. */
+.metaRow:has(.metaValue) {
+  gap: 0.45rem;
+  align-items: center;
+  margin-bottom: 0.6rem;
+}
+
+.metaRow .metaValue {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.28rem 0.7rem;
+  border-radius: var(--radius-full);
+  background: var(--color-surface-alt);
+  border: 1px solid var(--color-border-light);
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--color-text-secondary);
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+}
+
+.metaRow .metaDot {
+  display: none;
+}
+
+.sourceTag {
+  padding: 0.28rem 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  font-size: 0.7rem;
+}
+
+.sourceLink {
+  border-radius: var(--radius-full);
+  padding: 0.28rem 0.8rem;
+  border-color: var(--color-accent-subtle);
+  background: var(--color-accent-light);
+  transition: background var(--transition-normal), color var(--transition-normal),
+    border-color var(--transition-normal);
+}
+
+/* ── Meal image ───────────────────────────────────────────────── */
+
+.mealImageSection {
+  width: 320px;
+}
+
+.mealImage {
+  border-radius: 20px;
+  aspect-ratio: 4 / 3;
+  object-fit: cover;
+  margin-bottom: 0.75rem;
+  box-shadow:
+    0 2px 6px rgba(16, 24, 33, 0.08),
+    0 14px 32px -8px rgba(16, 24, 33, 0.22);
+  transition: transform var(--transition-slow), box-shadow var(--transition-slow);
+}
+
+.mealImage:hover {
+  transform: translateY(-3px);
+  box-shadow:
+    0 4px 10px rgba(16, 24, 33, 0.1),
+    0 22px 44px -10px rgba(16, 24, 33, 0.3);
+}
+
+.imagePlaceholder {
+  border-radius: 20px;
+  border-color: var(--color-border-light);
+  background: var(--color-surface-alt);
+}
+
+/* ── Section cards ────────────────────────────────────────────── */
+
+.section,
+.ingredientsCol {
+  border-radius: var(--radius-lg);
+  border-color: var(--color-border-light);
+  padding: 1.5rem 1.6rem;
+  margin-bottom: 1.25rem;
+  box-shadow: var(--shadow-sm);
+  transition: box-shadow var(--transition-slow), border-color var(--transition-slow);
+}
+
+.section:hover,
+.ingredientsCol:hover {
+  box-shadow: var(--shadow-md);
+  border-color: var(--color-border);
+}
+
+.section h3,
+.ingredientsHeader h3 {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  font-family: var(--font-family-serif);
+  font-size: 1.2rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
   color: var(--color-text);
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: 8px;
+  margin-bottom: 1rem;
+}
+
+/* Accent tick before each heading, so the sections scan as a set. */
+.section h3::before,
+.ingredientsHeader h3::before {
+  content: '';
+  flex-shrink: 0;
+  width: 3px;
+  height: 1.05em;
+  border-radius: 999px;
+  background: linear-gradient(180deg, var(--color-accent), var(--color-gold));
+}
+
+.instructionHeader h3 {
+  margin-bottom: 0;
+}
+
+/* ── Ingredient table ─────────────────────────────────────────── */
+
+.viewTable th {
+  background: transparent;
+  border-bottom: 1px solid var(--color-border);
+  padding: 0.5rem 0.75rem 0.6rem;
+  font-size: 0.66rem;
+  letter-spacing: 0.09em;
+}
+
+.viewTable td {
+  padding: 0.7rem 0.75rem;
+  border-bottom: 1px solid var(--color-border-light);
+}
+
+.viewTable tbody tr {
+  transition: background var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.viewTable tbody tr:hover {
+  background: var(--color-accent-light);
+}
+
+/* An inset bar rather than a real border — a border would shift every cell in
+   the row by 3px on hover. It goes on the first cell rather than the row:
+   box-shadow on a <tr> is unreliable under border-collapse: collapse. */
+.viewTable tbody tr:hover td:first-child {
+  box-shadow: inset 3px 0 0 var(--color-accent);
+}
+
+.sectionDivider td {
+  padding-top: 1.1rem;
+  letter-spacing: 0.09em;
+  border-bottom: 1px solid var(--color-border-light);
+}
+
+.sectionDivider:first-child td {
+  padding-top: 0.4rem;
+}
+
+/* ── Instructions ─────────────────────────────────────────────── */
+
+/* Note there is deliberately no counter-reset here. The step counter is owned
+   by the section headings below so each section can restart at 1; resetting it
+   on the list too would pin the counter to the list and the headings' resets
+   would silently do nothing. With no list-level counter, a recipe that has no
+   section headings still numbers from 1 — an undeclared counter starts at 0. */
+.stepsListReadonly {
+  list-style: none;
+  padding-left: 0;
+  gap: 1rem;
+  margin-top: 0.25rem;
+}
+
+.stepReadonly {
+  counter-increment: step;
+  position: relative;
+  padding-left: 2.85rem;
+  min-height: 1.9rem;
+  font-size: 0.95rem;
+  line-height: 1.6;
+  color: var(--color-text-secondary);
+}
+
+.stepReadonly::before {
+  content: counter(step);
+  position: absolute;
+  left: 0;
+  top: -0.1rem;
+  width: 1.9rem;
+  height: 1.9rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: var(--color-accent-light);
+  border: 1px solid var(--color-accent-subtle);
+  color: var(--color-accent);
+  font-family: var(--font-family-serif);
+  font-size: 0.85rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.stepReadonlyTitle {
+  color: var(--color-text);
+  font-weight: 800;
+}
+
+/* Section headings restart the numbering, the way a printed recipe does:
+   "For the sauce — 1, 2, 3". */
+.stepsListReadonly .stepSectionTitle {
+  counter-reset: step;
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  font-size: 0.78rem;
+  margin: 1.35rem 0 0.2rem;
+  letter-spacing: 0.09em;
+}
+
+.stepsListReadonly .stepSectionTitle::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--color-border-light);
+}
+
+/* ── Responsive ───────────────────────────────────────────────── */
+
+/* Both of these are "screen and" deliberately. A letter page with the 0.5in
+   margins set above is about 720 CSS px, so a bare max-width query here also
+   fires when printing — which stacked the photo full-bleed above the
+   ingredients and cost an extra sheet of paper. */
+@media screen and (max-width: 900px) {
+  .topRow {
+    flex-direction: column;
+  }
+  .mealImageSection {
+    width: 100%;
+  }
+}
+
+@media screen and (max-width: 768px) {
+  .overlay {
+    padding: 0;
+  }
+  .container {
+    border-radius: 0;
+    padding: 1.5rem 1.15rem 2rem;
+    background: var(--color-surface);
+    animation: none;
+  }
+  .container::before {
+    border-radius: 0;
+  }
+  /* Four controls do not fit on one phone-width line; without this the last
+     one is clipped off the right edge rather than wrapping under. */
+  .headerRow {
+    flex-wrap: wrap;
+    gap: 0.6rem;
+  }
+  .section,
+  .ingredientsCol {
+    padding: 1.15rem 1.1rem;
+  }
+  /* An older rule caps this at a 300px centred thumbnail. On a phone the
+     photo is the hero — let it run the full width of the card. */
+  .mealImageSection {
+    width: 100%;
+    max-width: none;
+    margin: 0;
+  }
+  /* The ingredient column is nowrap, which alone puts this four-column table
+     past the width of a phone. Letting the names wrap keeps the whole table
+     on screen — better than a table that scrolls sideways inside the card,
+     which is easy to miss entirely. */
+  .viewTable th:first-child,
+  .viewTable td:first-child {
+    white-space: normal;
+    padding-right: 0.75rem;
+  }
+}
+
+/* ── Print ────────────────────────────────────────────────────── */
+
+@media print {
+  /* The screen card is chrome; on paper it is just the recipe. */
+  .container::before {
+    display: none !important;
+  }
+  .container {
+    background: #fff !important;
+    box-shadow: none !important;
+    border-radius: 0 !important;
+    animation: none !important;
+  }
+  .section,
+  .ingredientsCol {
+    box-shadow: none !important;
+    border: none !important;
+    padding: 0 !important;
+    margin-bottom: 0.75rem !important;
+  }
+  /* The numbered discs are absolutely positioned, so the list needs its
+     own gutter rather than the browser's marker indent. */
+  .stepsListReadonly {
+    padding-left: 0 !important;
+  }
+  .stepReadonly {
+    padding-left: 2.2rem !important;
+  }
+  .mealImage {
+    box-shadow: none !important;
+  }
+  /* Screen-only affordances that were still printing. */
+  .cookModeBtn,
+  .cookModeBtnActive,
+  .ingToggleBtn {
+    display: none !important;
+  }
+}
+
+/* Recipe stage — New / Work in progress / Nailed down. Reuses .joanneChip for
+   shape and only overrides colour, so the two owner-only chips stay a matched
+   pair rather than drifting apart.
+   The colours are ordered as a journey rather than good/bad: cool for untried,
+   amber while it's being tuned, green once it's settled. Deliberately NOT the
+   success/danger pair — a new recipe isn't a failure. */
+.stageChip {
+  /* Unset reads as the plain chip; each state below tints it. */
+}
+
+.stageChipNew {
+  background: #EEF4FF;
+  border-color: #C7D8F5;
+  color: #2A5CAA;
+}
+
+.stageChipWip {
+  background: #FEF3C7;
+  border-color: #FCD34D;
+  color: #92400E;
+}
+
+.stageChipNailed {
+  background: var(--color-success-light);
+  border-color: #B7DEC7;
+  color: var(--color-success);
 }
