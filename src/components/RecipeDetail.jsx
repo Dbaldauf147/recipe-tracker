@@ -3273,60 +3273,6 @@ export function RecipeDetail({ recipe, allTags = [], onSave, onDelete, onBack, o
                 </div>
               );
             })()}
-            {showStepPaste && (() => {
-              const preview = parsePastedSteps(stepPasteText);
-              const close = () => { setStepPasteText(''); setShowStepPaste(false); };
-              const PREVIEW_LIMIT = 15;
-              return (
-                <div className={styles.pasteOverlay} onClick={close}>
-                  <div className={styles.pasteModal} onClick={e => e.stopPropagation()}>
-                    <div className={styles.pasteHeader}>
-                      <h3 className={styles.pasteTitle}>Paste instructions</h3>
-                      <button type="button" className={styles.pasteCloseBtn} onClick={close} aria-label="Close">×</button>
-                    </div>
-                    <div className={styles.pasteBody}>
-                      <div className={styles.pasteHint}>
-                        Paste a column of steps from Excel or Google Sheets (one step per row), or free text with one step per line. A leading step-number column or "1." numbering is stripped automatically.
-                      </div>
-                      <textarea
-                        className={styles.pasteArea}
-                        value={stepPasteText}
-                        onChange={e => setStepPasteText(e.target.value)}
-                        placeholder={'1\tPreheat oven to 400°F\n2\tToss vegetables in oil\n3\tRoast for 25 minutes'}
-                        rows={6}
-                        autoFocus
-                      />
-                      <div className={styles.pasteCount}>
-                        {preview.length === 0
-                          ? (stepPasteText.trim() ? 'No steps detected — check the layout.' : 'Paste data above to preview.')
-                          : `${preview.length} step${preview.length === 1 ? '' : 's'} detected`}
-                      </div>
-                      <div className={styles.previewWrap}>
-                        <ol style={{ margin: 0, paddingLeft: '1.25rem', display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
-                          {preview.slice(0, PREVIEW_LIMIT).map((s, i) => (
-                            <li key={i} style={{ fontSize: '0.85rem', lineHeight: 1.4 }}>{s}</li>
-                          ))}
-                        </ol>
-                        {preview.length > PREVIEW_LIMIT && (
-                          <div className={styles.previewMore}>+ {preview.length - PREVIEW_LIMIT} more</div>
-                        )}
-                      </div>
-                    </div>
-                    <div className={styles.pasteFooter}>
-                      <button className={styles.pasteAppendBtn} type="button" onClick={() => applyStepPaste('append')} disabled={preview.length === 0}>
-                        Append steps
-                      </button>
-                      <button className={styles.pasteReplaceBtn} type="button" onClick={() => applyStepPaste('replace')} disabled={preview.length === 0}>
-                        Replace existing
-                      </button>
-                      <button className={styles.pasteCancelBtn} type="button" onClick={close}>
-                        Cancel
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              );
-            })()}
           </>
         ) : (
           <table className={styles.viewTable}>
@@ -4087,6 +4033,68 @@ export function RecipeDetail({ recipe, allTags = [], onSave, onDelete, onBack, o
           onClose={() => setShowScanner(false)}
         />
       )}
+
+      {/* Step-paste modal. Lives at the component ROOT, not in the ingredients
+         column where it used to sit: that column is wrapped in
+         <div hidden={!ingredientsShown}>, and `hidden` hides descendants
+         however they are positioned — so with Ingredients collapsed, the
+         Instructions "Paste from Sheets/Excel" button set the state and
+         rendered this straight into a display:none subtree. The click did
+         nothing, visibly. */}
+      {showStepPaste && (() => {
+        const preview = parsePastedSteps(stepPasteText);
+        const close = () => { setStepPasteText(''); setShowStepPaste(false); };
+        const PREVIEW_LIMIT = 15;
+        return (
+          <div className={styles.pasteOverlay} onClick={close}>
+            <div className={styles.pasteModal} onClick={e => e.stopPropagation()}>
+              <div className={styles.pasteHeader}>
+                <h3 className={styles.pasteTitle}>Paste instructions</h3>
+                <button type="button" className={styles.pasteCloseBtn} onClick={close} aria-label="Close">×</button>
+              </div>
+              <div className={styles.pasteBody}>
+                <div className={styles.pasteHint}>
+                  Paste a column of steps from Excel or Google Sheets (one step per row), or free text with one step per line. A leading step-number column or "1." numbering is stripped automatically.
+                </div>
+                <textarea
+                  className={styles.pasteArea}
+                  value={stepPasteText}
+                  onChange={e => setStepPasteText(e.target.value)}
+                  placeholder={'1\tPreheat oven to 400°F\n2\tToss vegetables in oil\n3\tRoast for 25 minutes'}
+                  rows={6}
+                  autoFocus
+                />
+                <div className={styles.pasteCount}>
+                  {preview.length === 0
+                    ? (stepPasteText.trim() ? 'No steps detected — check the layout.' : 'Paste data above to preview.')
+                    : `${preview.length} step${preview.length === 1 ? '' : 's'} detected`}
+                </div>
+                <div className={styles.previewWrap}>
+                  <ol style={{ margin: 0, paddingLeft: '1.25rem', display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
+                    {preview.slice(0, PREVIEW_LIMIT).map((s, i) => (
+                      <li key={i} style={{ fontSize: '0.85rem', lineHeight: 1.4 }}>{s}</li>
+                    ))}
+                  </ol>
+                  {preview.length > PREVIEW_LIMIT && (
+                    <div className={styles.previewMore}>+ {preview.length - PREVIEW_LIMIT} more</div>
+                  )}
+                </div>
+              </div>
+              <div className={styles.pasteFooter}>
+                <button className={styles.pasteAppendBtn} type="button" onClick={() => applyStepPaste('append')} disabled={preview.length === 0}>
+                  Append steps
+                </button>
+                <button className={styles.pasteReplaceBtn} type="button" onClick={() => applyStepPaste('replace')} disabled={preview.length === 0}>
+                  Replace existing
+                </button>
+                <button className={styles.pasteCancelBtn} type="button" onClick={close}>
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
     </div>
   );
