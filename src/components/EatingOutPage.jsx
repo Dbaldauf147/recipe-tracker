@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef, createContext, useContext } from 'react';
 import { doc, onSnapshot } from 'firebase/firestore';
 import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
 import L from 'leaflet';
@@ -1104,17 +1104,42 @@ function overallOfScores(scores) {
 // The group aggregate sits above it. Keyed by (ownerUid, spotId) like the
 // comment thread; each collaborator writes only their own doc (deterministic id
 // in setEatingOutRating).
+/**
+ * Which spots you've asked to see other people's ratings for, this visit.
+ *
+ * Page-level rather than per-popup because the CARD BADGE has to agree with the
+ * popup: covering the average inside while printing "★ 4.0 · 2" on the card
+ * behind it would only look like privacy. One set, keyed `owner__spot`, read by
+ * both.
+ *
+ * Not persisted. Being un-anchored is a fresh question each visit, and a
+ * remembered "always show" would quietly undo the whole thing. Revealing does
+ * stick while you stay on the page — once you've seen a score, hiding it again
+ * on the card is theatre.
+ *
+ * No provider (a stray render outside the page) reads as "revealed", so the
+ * ratings degrade to how they behaved before this existed rather than to a
+ * curtain nothing can lift.
+ */
+const RatingRevealContext = createContext(null);
+
+function useRatingReveal(ownerUid, spotId) {
+  const ctx = useContext(RatingRevealContext);
+  const key = `${ownerUid}__${spotId}`;
+  return {
+    revealed: ctx ? ctx.isRevealed(key) : true,
+    setRevealed: on => ctx?.setRevealed(key, on),
+  };
+}
+
 function SpotRatings({ ownerUid, spotId, spot, user }) {
   const [docs, setDocs] = useState([]);
   // Local copy of MY scores for instant feedback; re-synced from the live doc.
   const [myScores, setMyScores] = useState({});
   // Other people's scores stay behind a curtain until you ask for them — see
-  // the note above the curtain itself. Deliberately not remembered: the point
-  // is to not be anchored while you're forming your own opinion, and that's a
-  // fresh question every time you open a place. Both call sites `key` this
-  // component on the spot, so opening a different place remounts it and the
-  // curtain is back down — no reset effect needed.
-  const [revealed, setRevealed] = useState(false);
+  // the note above the curtain itself, and RatingRevealContext for why the
+  // answer is remembered by the page rather than by this component.
+  const { revealed, setRevealed } = useRatingReveal(ownerUid, spotId);
 
   useEffect(() => {
     if (!ownerUid || !spotId) return undefined;
@@ -2024,7 +2049,12 @@ function BulkImportModal({ onClose, onImport, existing }) {
   );
 }
 
-function RestaurantCard({ r, ratingAgg, distanceMiles, rank, canMoveUp, canMoveDown, onMoveUp, onMoveDown, onClick, compact, drag }) {
+function RestaurantCard({ r, ratingAgg, ratingHasOthers = false, distanceMiles, rank, canMoveUp, canMoveDown, onMoveUp, onMoveDown, onClick, compact, drag }) {
+  // Same reveal state the spot's own ratings table reads, so the badge and the
+  // popup never disagree. A spot only YOU have rated has nothing to hide, so
+  // its average shows as it always did.
+  const { revealed: ratingRevealed } = useRatingReveal(r._ownerUid, r.id);
+  const hideRatingAvg = ratingHasOthers && !ratingRevealed;
   const isRetired = r.frequency === 'retired';
   // Stop card click from firing when the user taps a vote button.
   function stop(e) { e.stopPropagation(); }
@@ -2114,12 +2144,26 @@ function RestaurantCard({ r, ratingAgg, distanceMiles, rank, canMoveUp, canMoveD
             </span>
           )}
           {ratingAgg && ratingAgg.voterCount > 0 && (
-            <span
-              className={styles.cardRatingBadge}
-              title={`Group rating ${ratingAgg.overall.toFixed(1)}/5 · ${ratingAgg.voterCount} ${ratingAgg.voterCount === 1 ? 'vote' : 'votes'}`}
-            >
-              ★ {ratingAgg.overall.toFixed(1)} · {ratingAgg.voterCount}
-            </span>
+            /* The average is covered here for exactly as long as it's covered
+               inside the spot — otherwise the card would hand back the number
+               the popup is hiding. The vote COUNT still shows: knowing two
+               people have weighed in tells you there's something to open, and
+               it gives away nobody's score. */
+            hideRatingAvg ? (
+              <span
+                className={`${styles.cardRatingBadge} ${styles.cardRatingBadgeHidden}`}
+                title={`${ratingAgg.voterCount} ${ratingAgg.voterCount === 1 ? 'vote' : 'votes'} — open the spot and tap to reveal`}
+              >
+                ★ ? · {ratingAgg.voterCount}
+              </span>
+            ) : (
+              <span
+                className={styles.cardRatingBadge}
+                title={`Group rating ${ratingAgg.overall.toFixed(1)}/5 · ${ratingAgg.voterCount} ${ratingAgg.voterCount === 1 ? 'vote' : 'votes'}`}
+              >
+                ★ {ratingAgg.overall.toFixed(1)} · {ratingAgg.voterCount}
+              </span>
+            )
           )}
         </div>
         {rank != null && (
@@ -3167,6 +3211,19 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
   // `sharedFromFriends` adds an owner whose list I can also see/edit.
   const [ownerData, setOwnerData] = useState({});
   const [loading, setLoading] = useState(true);
+  // Spots whose other-people's-ratings you've asked to see, this visit. Shared
+  // by the ratings table in the popup and the ★ badge on the card so the two
+  // can't contradict each other — see RatingRevealContext.
+  const [revealedRatings, setRevealedRatings] = useState(() => new Set());
+  const ratingReveal = useMemo(() => ({
+    isRevealed: key => revealedRatings.has(key),
+    setRevealed: (key, on) => setRevealedRatings(prev => {
+      if (prev.has(key) === !!on) return prev;   // no-op keeps the cards from re-rendering
+      const next = new Set(prev);
+      if (on) next.add(key); else next.delete(key);
+      return next;
+    }),
+  }), [revealedRatings]);
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState('all');
   const [activeCuisine, setActiveCuisine] = useState(null);
@@ -3976,6 +4033,7 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
   }
 
   return (
+    <RatingRevealContext.Provider value={ratingReveal}>
     <div className={styles.page}>
       <div className={styles.header}>
         <h1 className={styles.title}>Eating Out</h1>
@@ -4342,6 +4400,11 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
                     key={`${r._ownerUid}:${r.id}`}
                     r={r}
                     ratingAgg={aggregateSpotRatings(ratingsBySpot[`${r._ownerUid}__${r.id}`] || [])}
+                    // Same test SpotRatings uses to build its friend columns —
+                    // somebody OTHER than me with an actual score. Without it a
+                    // spot only I had rated would cover up my own number.
+                    ratingHasOthers={(ratingsBySpot[`${r._ownerUid}__${r.id}`] || [])
+                      .some(d => d.authorUid !== user?.uid && overallOfScores(d.scores) != null)}
                     compact={listDensity === 'compact'}
                     distanceMiles={r._distance}
                     rank={rank}
@@ -4488,5 +4551,6 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
         />
       )}
     </div>
+    </RatingRevealContext.Provider>
   );
 }

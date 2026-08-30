@@ -1035,6 +1035,15 @@
   padding: 1px 8px;
   white-space: nowrap;
 }
+/* Same badge with the score still covered: drops the amber "this place scored
+   well" signal, since an unrevealed badge is saying nothing about the score.
+   Keeps the shape so the card doesn't reflow when you reveal it. */
+.cardRatingBadgeHidden {
+  color: var(--color-text-muted);
+  background: var(--color-surface-alt, #f1f5f9);
+  border-color: var(--color-border);
+  font-weight: 600;
+}
 
 .hintText {
   font-size: 0.82rem;
