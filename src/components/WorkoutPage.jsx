@@ -12,6 +12,8 @@ import { ExerciseLibrary, effectiveMuscleGroup, videoSourceLabel } from './Exerc
 import { EXERCISE_TYPES, DEFAULT_EXERCISE_TYPE, effectiveExerciseType, normalizeExerciseType, inferExerciseType } from '../utils/exerciseTypes';
 import { entryBestE1rmLb } from '../utils/exerciseProgress';
 import { StretchRoutines } from './StretchRoutines';
+import { PrCelebration } from './PrCelebration';
+import { detectPersonalRecord, priorHistory } from '../utils/personalRecord';
 import {
   normalizeRoutine, buildCueSequence, isStretchWorkout, STRETCH_WORKOUT_SOURCE,
 } from '../utils/stretchRoutine';
@@ -3795,8 +3797,33 @@ export function WorkoutPage({ onBack, user }) {
       const setDone = Array.isArray(e.setDone) ? [...e.setDone] : [false, false, false, false];
       while (setDone.length < 4) setDone.push(false);
       setDone[setIdx] = !setDone[setIdx];
-      return { ...e, setDone };
+      const next = { ...e, setDone };
+      // Greening the LAST set of a row is the moment the lift is finished, so
+      // it's the moment to check for a record. `workouts` is history only — the
+      // session being logged isn't in it yet — so there's nothing to exclude.
+      maybeCelebratePr(next);
+      return next;
     }));
+  }
+
+  // A PR fires once per exercise per session, and again only if you go HIGHER
+  // — otherwise un-ticking and re-ticking the same set would set off fireworks
+  // every time. Cleared when a new session starts.
+  const celebratedPrRef = useRef({});
+  const [prRecord, setPrRecord] = useState(null);
+  function maybeCelebratePr(entry) {
+    const { isPr, e1rmLb, gainLb } = detectPersonalRecord(entry, priorHistory(workouts, selectedDate));
+    if (!isPr) return;
+    const key = String(entry.exercise || '').trim().toLowerCase();
+    if (celebratedPrRef.current[key] >= e1rmLb) return;
+    celebratedPrRef.current[key] = e1rmLb;
+    setPrRecord({
+      exercise: String(entry.exercise || '').trim(),
+      // Shown in the unit the user reads everywhere else; the maths is lb.
+      e1rmLb: weightUnit === 'kg' ? e1rmLb / 2.2046226218 : e1rmLb,
+      gainLb: weightUnit === 'kg' ? gainLb / 2.2046226218 : gainLb,
+      unit: weightUnit,
+    });
   }
 
   function updateSetWeight(entryIdx, setIdx, value) {
@@ -7078,6 +7105,9 @@ export function WorkoutPage({ onBack, user }) {
           </div>
         );
       })()}
+
+      {/* Nothing to click, takes itself away — see PrCelebration. */}
+      <PrCelebration record={prRecord} onDone={() => setPrRecord(null)} />
     </div>
   );
 }
