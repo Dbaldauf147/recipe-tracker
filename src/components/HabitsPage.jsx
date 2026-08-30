@@ -1003,9 +1003,12 @@ function offDaySkips(habits, habitLog) {
 // (annual). "Monthly window for daily/weekly, annual for monthly." For Daily
 // habits, `trackDays` limits the window to the weekdays the habit is tracked on,
 // so untracked days (e.g. weekends) don't drag the completion % down.
-function habitWindowKeys(cadence, trackDays, dailyDays = 30) {
+// `base` is the day the window ENDS on. Every live reading wants today, which
+// is the default; only the forecast in autoPromoteEta() passes a future date,
+// because it has to ask what the window will look like once it has rolled on.
+function habitWindowKeys(cadence, trackDays, dailyDays = 30, base = new Date()) {
   const canon = cadenceCanon(cadence);
-  const now = new Date();
+  const now = base;
   const keys = [];
   if (canon === 'Weekly') {
     for (let i = 0; i < 4; i++) keys.push(weekKey(new Date(now.getFullYear(), now.getMonth(), now.getDate() - i * 7)));
@@ -1100,6 +1103,75 @@ function habitReadyForAuto(h, habitLog) {
   if (AUTO_PROMOTE_SKIP_STATUSES.includes((h.status || '').trim())) return false;
   const rate = autoPromoteRate(h, habitLog);
   return rate != null && rate > AUTO_PROMOTE_PCT;
+}
+
+/**
+ * The same arithmetic habitReadyForAuto() decides on, broken out so it can be
+ * SHOWN before it decides — press and hold a habit name on the Routines page
+ * and this is what fills the panel.
+ *
+ * Two things it deliberately does not borrow from the % column next to it:
+ * a `skipped` day counts against you here (habitKpi excuses skips, and PTO
+ * stamps a lot of them), and an unlogged day counts as a miss. The promotion
+ * rule's denominator is every tracked day in the window; a panel that quietly
+ * used the friendlier math would be explaining a number the rule never sees.
+ */
+function autoPromoteProgress(h, habitLog) {
+  const daily = cadenceCanon(h.cadence) === 'Daily';
+  const keys = daily ? habitWindowKeys(h.cadence, h.trackDays, AUTO_PROMOTE_DAYS) : [];
+  const total = keys.length;
+  let done = 0, skipped = 0, missed = 0, blank = 0;
+  for (const k of keys) {
+    const mk = habitLog?.[k]?.[h.id];
+    if (mk === 'done' || mk === 'exceeded') done++;
+    else if (mk === 'skipped') skipped++;
+    else if (mk) missed++;
+    else blank++;
+  }
+  // Fewest whole days that clear a strictly-greater-than bar: 55 of 60, not 54.
+  const needed = total ? Math.floor((total * AUTO_PROMOTE_PCT) / 100) + 1 : 0;
+  const rate = total ? (done / total) * 100 : 0;
+  const status = (h.status || '').trim();
+  return {
+    daily, total, done, skipped, missed, blank, needed, rate,
+    shortBy: Math.max(0, needed - done),
+    // `logged === 0` is the same "no evidence at all" case autoPromoteRate()
+    // returns null for — an empty window is not a habit that has earned this.
+    earned: total > 0 && (done + skipped + missed) > 0 && rate > AUTO_PROMOTE_PCT,
+    blockedByStatus: AUTO_PROMOTE_SKIP_STATUSES.includes(status) ? status : null,
+    settled: h.autoPromotedAt ? 'promoted' : (h.autoPromoteDeclinedAt ? 'declined' : null),
+    settledAt: h.autoPromotedAt || h.autoPromoteDeclinedAt || '',
+  };
+}
+
+/**
+ * The earliest date the rule could fire, if every day from today on is a
+ * "Did it".
+ *
+ * Not `shortBy` more days: the window ROLLS, so old misses fall out of the back
+ * of it while new days come in the front, and a habit 8 days short can be 3
+ * days away or 30 depending on WHERE its misses sit. So this walks the window
+ * forward a day at a time and asks the real question each time.
+ *
+ * Today counts as one of the days you'd be keeping up — unless you've already
+ * answered for it, in which case that answer stands.
+ */
+function autoPromoteEta(h, habitLog, today = new Date()) {
+  if (cadenceCanon(h.cadence) !== 'Daily') return null;
+  const todayKey = dayKey(today);
+  for (let d = 0; d <= AUTO_PROMOTE_DAYS * 2; d++) {
+    const base = new Date(today.getFullYear(), today.getMonth(), today.getDate() + d);
+    const keys = habitWindowKeys(h.cadence, h.trackDays, AUTO_PROMOTE_DAYS, base);
+    if (keys.length === 0) return null;
+    let done = 0;
+    for (const k of keys) {
+      const mk = habitLog?.[k]?.[h.id];
+      if (k > todayKey || (k === todayKey && !mk)) done++;
+      else if (mk === 'done' || mk === 'exceeded') done++;
+    }
+    if ((done / keys.length) * 100 > AUTO_PROMOTE_PCT) return { date: base, days: d };
+  }
+  return null;
 }
 
 // Human-readable label for the rolling KPI window of a cadence (see
@@ -2205,7 +2277,7 @@ export function HabitsPage({ onBack, user }) {
       )}
 
       {tab === 'kpi' && <KpiView habits={habits} habitLog={habitLog} streaks={streaks} />}
-      {tab === 'routines' && <RoutinesView habits={habits} habitLog={habitLog} habitLogAuto={habitLogAuto} streaks={streaks} autoTrackedIds={autoTrackedIds} autoStatusFor={autoStatusFor} nextLogMap={habitNextLog} onSetNextLog={setNextLogDate} onUpdate={updateHabit} openMenu={(habitId, key, label) => setDayMenu({ habitId, key, label })} onCycleMark={setMarkForKey} onMove={setMoveHabitId} onReorder={reorderHabits} onSetRoutine={setHabitRoutine} onRenameRoutine={renameRoutine} onDeleteRoutine={setDeleteRoutineName} onBulkMark={setMarksForCells} onOpen={setOpenHabitId} />}
+      {tab === 'routines' && <RoutinesView habits={habits} habitLog={habitLog} habitLogAuto={habitLogAuto} streaks={streaks} autoTrackedIds={autoTrackedIds} autoStatusFor={autoStatusFor} nextLogMap={habitNextLog} onSetNextLog={setNextLogDate} onUpdate={updateHabit} openMenu={(habitId, key, label) => setDayMenu({ habitId, key, label })} onCycleMark={setMarkForKey} onMove={setMoveHabitId} onReorder={reorderHabits} onSetRoutine={setHabitRoutine} onRenameRoutine={renameRoutine} onDeleteRoutine={setDeleteRoutineName} onBulkMark={setMarksForCells} onOpen={setOpenHabitId} onMakeAutomatic={id => resolveAutoPromotes([id], true)} />}
       {tab === 'automatic' && <AutomaticView habits={habits} automations={automations} habitLog={habitLog} habitLogAuto={habitLogAuto} onChange={persistAutomations} />}
       {REVIEW_KINDS.some(k => k.id === tab) && (
         <MonthlyStatusReview
@@ -2823,7 +2895,7 @@ function StatusSelect({ value, muted, onChange }) {
   );
 }
 
-function RoutinesView({ habits, habitLog, habitLogAuto, streaks, autoTrackedIds = new Set(), autoStatusFor = () => '', nextLogMap, onSetNextLog, onUpdate, openMenu, onCycleMark, onMove, onReorder, onSetRoutine, onRenameRoutine, onDeleteRoutine, onBulkMark, onOpen }) {
+function RoutinesView({ habits, habitLog, habitLogAuto, streaks, autoTrackedIds = new Set(), autoStatusFor = () => '', nextLogMap, onSetNextLog, onUpdate, openMenu, onCycleMark, onMove, onReorder, onSetRoutine, onRenameRoutine, onDeleteRoutine, onBulkMark, onOpen, onMakeAutomatic }) {
   // Habits parked on `status:'Automatically'` are established — tracked for you,
   // never yours to log — so they're hidden from the routine groups by default
   // and revealed by the toggle below. Mirrors the mobile Routines tab.
@@ -3064,7 +3136,7 @@ function RoutinesView({ habits, habitLog, habitLogAuto, streaks, autoTrackedIds 
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1.4rem' }}>
           {visibleGroups.map(([cadenceName, list]) => (
-            <RoutineSection key={cadenceName} cadenceName={cadenceName} list={list} habitLog={habitLog} habitLogAuto={habitLogAuto} streaks={streaks} autoTrackedIds={autoTrackedIds} autoStatusFor={autoStatusFor} nextLogOverride={(nextLogMap || {})[cadenceName] || ''} onSetNextLog={onSetNextLog} onUpdate={onUpdate} openMenu={openMenu} onCycleMark={onCycleMark} routineOptions={routineOptions} onReorder={onReorder} onSetRoutine={onSetRoutine} onBulkMark={onBulkMark} onOpen={onOpen} showAutoStatus={showAutoStatus} />
+            <RoutineSection key={cadenceName} cadenceName={cadenceName} list={list} habitLog={habitLog} habitLogAuto={habitLogAuto} streaks={streaks} autoTrackedIds={autoTrackedIds} autoStatusFor={autoStatusFor} nextLogOverride={(nextLogMap || {})[cadenceName] || ''} onSetNextLog={onSetNextLog} onUpdate={onUpdate} openMenu={openMenu} onCycleMark={onCycleMark} routineOptions={routineOptions} onReorder={onReorder} onSetRoutine={onSetRoutine} onBulkMark={onBulkMark} onOpen={onOpen} onMakeAutomatic={onMakeAutomatic} showAutoStatus={showAutoStatus} />
           ))}
         </div>
       )}
@@ -3330,12 +3402,178 @@ function DeleteRoutineModal({ name, count, onUnsort, onDeleteHabits, onClose }) 
   );
 }
 
+// ── "How close is this to Automatic?" ───────────────────────────────────────
+// Press and hold a habit's NAME on the Routines page and this opens.
+//
+// The promotion rule otherwise only ever speaks up on the single page load it
+// fires on, which makes it feel like it came out of nowhere. This shows the
+// same numbers while they're still moving — where the habit stands, what's
+// still missing, and the date it would cross the line if nothing slips.
+//
+// Read-only apart from one button: a habit that has already earned the status
+// but was asked-and-answered (autoPromoteDeclinedAt) will never be offered it
+// again, so without a way to say yes here the panel would be a dead end.
+function AutoProgressModal({ habit, habitLog, autoTracked, onMakeAutomatic, onClose }) {
+  const p = autoPromoteProgress(habit, habitLog);
+  const status = (habit.status || '').trim();
+  const alreadyAuto = status === 'Automatically';
+  // Only worth forecasting when the rule is actually watching and hasn't fired.
+  const eta = (p.daily && !p.earned && !alreadyAuto) ? autoPromoteEta(habit, habitLog) : null;
+  const noEvidence = p.total > 0 && (p.done + p.skipped + p.missed) === 0;
+
+  useEffect(() => {
+    const onKey = e => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  const fmtDay = d => d.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' });
+  const settledOn = p.settledAt ? new Date(p.settledAt) : null;
+  const muted = { fontSize: '0.82rem', lineHeight: 1.55, color: 'var(--color-text-muted, #64748b)' };
+  const note = (bg, border, color, children) => (
+    <div style={{ margin: '0.85rem 0 0', padding: '0.6rem 0.7rem', borderRadius: 8, background: bg, border: `1px solid ${border}`, fontSize: '0.82rem', lineHeight: 1.5, color }}>
+      {children}
+    </div>
+  );
+
+  const chips = [
+    { k: 'done', n: p.done, label: 'did it' },
+    { k: 'skipped', n: p.skipped, label: 'skipped' },
+    { k: 'missed', n: p.missed, label: 'no' },
+  ];
+
+  return (
+    <div style={overlay} role="dialog" aria-modal="true" aria-labelledby="auto-progress-title" onClick={onClose}>
+      <div style={modal} onClick={e => e.stopPropagation()}>
+        <h3 id="auto-progress-title" style={{ margin: '0 0 0.15rem', fontSize: '1.05rem' }}>
+          {habit.name || 'Untitled habit'}
+        </h3>
+        <p style={{ margin: '0 0 0.9rem', fontSize: '0.78rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--color-text-muted, #94a3b8)' }}>
+          Progress to “Automatically”
+        </p>
+
+        {alreadyAuto ? (
+          <p style={muted}>
+            This one is already on <strong>Automatically</strong>
+            {settledOn && p.settled === 'promoted' ? ` — made automatic on ${fmtDay(settledOn)}` : ''}
+            . It's off the needs-logging counts, and there's nothing left to earn. Set another
+            status and it comes back to your routines, and the rule starts watching it again.
+          </p>
+        ) : !p.daily ? (
+          <p style={muted}>
+            The rule only watches <strong>daily</strong> habits — this one is {cadenceCanon(habit.cadence).toLowerCase()}.
+            A {cadenceCanon(habit.cadence).toLowerCase()} habit stays on your routines until you set its status
+            to <em>Automatically</em> yourself.
+          </p>
+        ) : (
+          <>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: '0.45rem' }}>
+              <span style={{ fontSize: '1.9rem', fontWeight: 800, lineHeight: 1, color: p.earned ? '#16a34a' : ACCENT }}>
+                {Math.round(p.rate)}%
+              </span>
+              <span style={muted}>
+                {p.done} of {p.total} tracked days · needs {p.needed} (more than {AUTO_PROMOTE_PCT}%)
+              </span>
+            </div>
+
+            {/* The bar is the whole 0–100 scale, with the pass mark drawn on it,
+                so "close" and "nowhere near" look different at a glance. */}
+            <div style={{ position: 'relative', margin: '0 0 0.35rem' }}>
+              <div style={{ height: 12, borderRadius: 6, background: '#f1f5f9', border: '1px solid #e2e8f0', overflow: 'hidden' }}>
+                <div style={{ width: `${Math.max(0, Math.min(100, p.rate))}%`, height: '100%', background: p.earned ? '#16a34a' : ACCENT }} />
+              </div>
+              <div
+                title={`The bar: more than ${AUTO_PROMOTE_PCT}%`}
+                style={{ position: 'absolute', left: `${AUTO_PROMOTE_PCT}%`, top: -3, bottom: -3, width: 2, background: '#0f172a', borderRadius: 1 }}
+              />
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', fontSize: '0.68rem', fontWeight: 700, color: '#0f172a', marginBottom: '0.7rem', paddingRight: `${100 - AUTO_PROMOTE_PCT}%` }}>
+              <span style={{ transform: 'translateX(50%)' }}>{AUTO_PROMOTE_PCT}%</span>
+            </div>
+
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+              {chips.map(c => (
+                <span
+                  key={c.k}
+                  title={`${MARK_META[c.k].label} — ${c.n} of the last ${p.total} tracked days`}
+                  style={{ fontSize: '0.72rem', fontWeight: 700, borderRadius: 6, padding: '2px 7px', color: MARK_META[c.k].color, background: MARK_META[c.k].color + '18', border: `1px solid ${MARK_META[c.k].color}44` }}
+                >{MARK_META[c.k].icon} {c.n} {c.label}</span>
+              ))}
+              <span
+                title={`Tracked days in the window with no mark at all — they count against this the same as a “No”`}
+                style={{ fontSize: '0.72rem', fontWeight: 700, borderRadius: 6, padding: '2px 7px', color: '#94a3b8', background: '#f1f5f9', border: '1px solid #e2e8f0' }}
+              >· {p.blank} not logged</span>
+            </div>
+
+            {noEvidence
+              ? note('#f8fafc', '#e2e8f0', 'var(--color-text-muted, #64748b)', (
+                <>
+                  <strong>Nothing logged in this window yet.</strong> The rule needs a record to read, so it
+                  won't offer anything until this habit has some history.{' '}
+                  {eta && eta.days > 0 && <>Start today and keep it up every tracked day, and it qualifies on <strong>{fmtDay(eta.date)}</strong>.</>}
+                </>
+              ))
+              : p.earned
+                ? note('#f0fdf4', '#bbf7d0', '#166534', (
+                  <>
+                    <strong>It's earned it.</strong>{' '}
+                    {p.settled === 'declined' && settledOn
+                      ? <>You chose to keep tracking it on {fmtDay(settledOn)}, so it won't ask again — but you can move it now.</>
+                      : p.settled === 'promoted' && settledOn
+                        ? <>It was already made automatic once (on {fmtDay(settledOn)}) and moved back since, so it won't ask again — but you can move it now.</>
+                        : <>You'll be asked next time this page loads.</>}
+                  </>
+                ))
+                : note('#f8fafc', '#e2e8f0', 'var(--color-text-muted, #64748b)', (
+                  <>
+                    <strong>{p.shortBy} more {p.shortBy === 1 ? 'day' : 'days'}</strong> in the window would clear it.{' '}
+                    {eta
+                      ? (eta.days === 0
+                        ? <>Logging today gets it there.</>
+                        : <>Keep it up every tracked day and it qualifies on <strong>{fmtDay(eta.date)}</strong> — {eta.days} {eta.days === 1 ? 'day' : 'days'} away.</>)
+                      : null}
+                  </>
+                ))}
+
+            {p.blockedByStatus && !alreadyAuto && note('#fffbeb', '#fde68a', '#92400e', (
+              <>The rule skips habits set to <strong>{p.blockedByStatus}</strong> — it won't offer this one while that's the status, however the numbers above look.</>
+            ))}
+
+            {autoTracked && note('#eff6ff', '#bfdbfe', '#1e40af', (
+              <>A rule under <strong>Automatic</strong> already fills this habit in for you. That's a different thing from the <em>Automatically</em> status, which takes it off the routines entirely — the numbers above are still what decides that.</>
+            ))}
+          </>
+        )}
+
+        <p style={{ margin: '0.95rem 0 0', fontSize: '0.72rem', lineHeight: 1.5, color: '#94a3b8' }}>
+          A daily habit done on more than {AUTO_PROMOTE_PCT}% of its last {AUTO_PROMOTE_DAYS} tracked days is offered
+          the <em>Automatically</em> status, once. Skips and unlogged days both count against it here, which is why
+          this can read lower than the % column on the row.
+        </p>
+
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', marginTop: '0.9rem' }}>
+          <button type="button" style={ghostBtn} onClick={onClose}>Close</button>
+          {p.daily && p.earned && !alreadyAuto && (
+            <button type="button" style={primaryBtn} onClick={() => { onMakeAutomatic?.(habit.id); onClose(); }}>
+              Make it automatic
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // One cadence section (Daily / Weekly / …). Inside it, habits are split into
 // their named routine (or "No routine"), and can be dragged to reorder within
 // a routine. Grab the ⠿ handle to drag; each row has a routine dropdown.
-function RoutineSection({ cadenceName, list, habitLog, habitLogAuto, streaks, autoTrackedIds = new Set(), autoStatusFor = () => '', nextLogOverride, onSetNextLog, onUpdate, openMenu, onCycleMark, routineOptions, onReorder, onSetRoutine, onBulkMark, onOpen, showAutoStatus = false }) {
+function RoutineSection({ cadenceName, list, habitLog, habitLogAuto, streaks, autoTrackedIds = new Set(), autoStatusFor = () => '', nextLogOverride, onSetNextLog, onUpdate, openMenu, onCycleMark, routineOptions, onReorder, onSetRoutine, onBulkMark, onOpen, onMakeAutomatic, showAutoStatus = false }) {
   const [drag, setDrag] = useState(null); // { id, groupKey }
   const [editingNext, setEditingNext] = useState(false);
+  // Press-and-hold a habit name → how close it is to the Automatically status.
+  // Kept here rather than on the page: `list` already holds the habit and
+  // habitLog is already a prop, so only the accept action has to travel down.
+  const [autoProgressId, setAutoProgressId] = useState(null);
   // Weekly table bulk-edit: when on, clicking cells/headers/rows selects them
   // (instead of opening the single-cell menu); an action bar applies one mark to
   // the whole selection. Selection key is `${habitId}|${weekKey}`.
@@ -3540,26 +3778,30 @@ function RoutineSection({ cadenceName, list, habitLog, habitLogAuto, streaks, au
                 clicking a name is deliberate. Bulk mode still takes single
                 click for row-select (that IS the mode's job), so it keeps
                 double-click to open. Double-click stays wired everywhere so
-                the old muscle memory doesn't break. */}
-            <span
-              role="button"
-              tabIndex={0}
+                the old muscle memory doesn't break.
+
+                Press and hold is the third gesture: how close this habit is to
+                earning the Automatically status. Same HoldButton the mark cells
+                use, so a hold means the same thing everywhere on this page —
+                "tell me more about this square" — and it is deliberately not
+                offered in bulk mode, where a press is a selection. A <button>
+                rather than the old <span role="button"> because HoldButton
+                needs the real element for pointer + keyboard behaviour; the
+                style resets below keep it looking like the text it replaced. */}
+            <HoldButton
+              type="button"
               onClick={
                 bulkMode && !muted ? () => toggleRow(h.id) : () => onOpen?.(h.id)
               }
+              onHold={bulkMode ? undefined : () => setAutoProgressId(h.id)}
               onDoubleClick={() => onOpen?.(h.id)}
-              onKeyDown={(e) => {
-                if (e.key !== 'Enter' && e.key !== ' ') return;
-                e.preventDefault();
-                if (bulkMode && !muted) toggleRow(h.id); else onOpen?.(h.id);
-              }}
               title={
                 bulkMode && !muted ? 'Click to select this habit’s whole row (double-click to open)'
-                  : reviewHabit ? 'Click to review your automatic habits'
-                    : 'Click to open habit'
+                  : reviewHabit ? 'Click to review your automatic habits — hold for progress to Automatically'
+                    : 'Click to open habit — hold to see its progress to “Automatically”'
               }
-              style={{ flex: '0 1 auto', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: '0.82rem', fontWeight: 600, color: muted ? '#94a3b8' : 'inherit', cursor: 'pointer', textDecoration: rowSel ? 'underline' : 'none' }}
-            >{h.name || <em style={{ color: '#aaa' }}>untitled</em>}</span>
+              style={{ flex: '0 1 auto', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: '0.82rem', fontWeight: 600, color: muted ? '#94a3b8' : 'inherit', cursor: 'pointer', textDecoration: rowSel ? 'underline' : 'none', background: 'none', border: 'none', padding: 0, margin: 0, textAlign: 'left', fontFamily: 'inherit', lineHeight: 'inherit', display: 'block' }}
+            >{h.name || <em style={{ color: '#aaa' }}>untitled</em>}</HoldButton>
             {/* Says out loud that this row does something when you click it —
                 otherwise it looks identical to every other habit. */}
             {reviewHabit && !bulkMode && (
@@ -3915,6 +4157,21 @@ function RoutineSection({ cadenceName, list, habitLog, habitLogAuto, streaks, au
           </div>
         </>
       )}
+      {/* Looked up by id rather than held as an object so the panel re-reads a
+          habit that changed under it (a mark set behind the overlay, a sync). */}
+      {(() => {
+        const h = autoProgressId ? list.find(x => x.id === autoProgressId) : null;
+        if (!h) return null;
+        return (
+          <AutoProgressModal
+            habit={h}
+            habitLog={habitLog}
+            autoTracked={autoTrackedIds.has(h.id)}
+            onMakeAutomatic={onMakeAutomatic}
+            onClose={() => setAutoProgressId(null)}
+          />
+        );
+      })()}
     </div>
   );
 }
