@@ -98,7 +98,14 @@ export function AuthProvider({ children }) {
           clearImageCache();
           clearExerciseImageCache();
         }
-        localStorage.setItem('sunday-current-uid', firebaseUser.uid);
+        // Guarded for the same reason as the hydrate below: this is the last
+        // unguarded write standing between sign-in and the image sync, and on a
+        // full quota even a 28-byte one throws.
+        try {
+          localStorage.setItem('sunday-current-uid', firebaseUser.uid);
+        } catch (err) {
+          console.error('Could not record the current uid (quota?):', err);
+        }
         setDataReady(false);
 
         // User signed in — load or migrate data
@@ -156,13 +163,33 @@ export function AuthProvider({ children }) {
           saveField(firebaseUser.uid, 'displayName', firebaseUser.displayName).catch(() => {});
         }
 
+        // Photos do not depend on anything below, and they used to pay for it:
+        // this ran at the END of the sign-in path, so ONE throw anywhere above
+        // it — hydrateLocalStorage writes 31 localStorage keys unguarded, and a
+        // full quota throws — skipped it entirely. The outer .catch() then let
+        // you into an app with an empty image cache and no complaint, which is
+        // "no photos anywhere, no error" exactly. Started here instead, before
+        // the fragile part, and deliberately NOT awaited: sign-in should not
+        // wait on ~11 MiB of thumbnails either.
+        const mealImagesDone = syncMealImages(firebaseUser.uid).catch(() => {});
+
         if (userDataUnavailable) {
           // Account unreadable. Leave localStorage exactly as it is: it is the
           // last known good copy of this account, and the else-branch below
           // would push it up as if this were a first sign-in.
         } else if (userData) {
-          // Existing Firestore data → hydrate localStorage
-          hydrateLocalStorage(userData, firebaseUser.uid);
+          // Existing Firestore data → hydrate localStorage.
+          //
+          // Guarded because it is not worth the session: it is a cache-warming
+          // step, every value in it is already in Firestore, and letting it
+          // throw takes down the whole handler (see above). A full quota is the
+          // realistic cause and the app has hit it before — the workout log
+          // alone can pass 5 MiB.
+          try {
+            hydrateLocalStorage(userData, firebaseUser.uid);
+          } catch (err) {
+            console.error('hydrateLocalStorage failed (continuing on remote data):', err);
+          }
         } else {
           // First sign-in → push localStorage up to Firestore
           await migrateToFirestore(firebaseUser.uid);
@@ -195,8 +222,9 @@ export function AuthProvider({ children }) {
           }).catch(() => {});
         }
 
-        // Sync meal images between Firestore and localStorage
-        await syncMealImages(firebaseUser.uid).catch(() => {});
+        // Started well above, before anything that can throw. Awaited here only
+        // so the rest of this function keeps its old ordering guarantees.
+        await mealImagesDone;
         // Sync user-uploaded custom exercise photos into the memory cache
         syncExerciseImages(firebaseUser.uid).catch(() => {});
 

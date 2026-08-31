@@ -5,6 +5,7 @@ import { getUserKeyIngredients, normalize, recipeHasIngredient } from '../utils/
 import { exportToCSV, importFromCSV, exportFullJSON } from '../utils/exportData';
 import { locationToRegion, getSeasonalIngredients, getRecipeSeasonalIngredients } from '../utils/seasonal';
 import { useAuth } from '../contexts/AuthContext';
+import { OWNER_EMAIL } from '../utils/pageAccess';
 import { loadUserData, saveField, loadAppDefaults, saveAppDefault, loadFriends, loadFriendRecipes, getPendingSharedRecipes, shareRecipe, getUsername } from '../utils/firestoreSync';
 import { copyMealImage, loadAdminMealImages, generateMealImage, getCachedMealImage, getMealImageSyncReport } from '../utils/generateMealImage';
 import { ALL_TAGS, TAG_CATEGORIES, recipeMatchesTags } from '../utils/ingredientTags';
@@ -292,6 +293,9 @@ export function RecipeList({
   onSeasonalGuide,
 }) {
   const { user } = useAuth();
+  // The recipe Stage pill is owner-only, matching the chip on the popup that
+  // sets it. Gate here rather than in RecipeCard so the card stays auth-free.
+  const isOwner = (user?.email || '').toLowerCase() === OWNER_EMAIL;
   const [importing, setImporting] = useState(false);
   const [importResult, setImportResult] = useState(null);
   const [dragOverTarget, setDragOverTarget] = useState(null);
@@ -1745,12 +1749,21 @@ export function RecipeList({
       </div>
 
       </div>
-      {/* Photos didn't load — say why, on the page. Shown only when the sync
-          failed or finished with nothing, and only when there are recipes to
-          have photos for, so a healthy account never sees it. */}
+      {/* Photos didn't load — say why, on the page. Only when there are recipes
+          to have photos for, so a healthy account never sees it.
+
+          `idle` and `no-user` are in here because they were the whole point and
+          were missing: when the sign-in path threw before ever calling
+          syncMealImages, the report stayed 'idle', this banner rendered
+          nothing, and the result was no photos and no explanation — the exact
+          silence this was built to break. A sync still 'running' long after the
+          poll window is the same story with a different label. */}
       {imageReport
         && recipes.length > 0
         && (imageReport.status === 'failed'
+          || imageReport.status === 'idle'
+          || imageReport.status === 'no-user'
+          || (imageReport.status === 'running' && imageReport.loaded === 0 && Date.now() - (imageReport.at || 0) > 30000)
           || (imageReport.status === 'done' && imageReport.loaded === 0)) && (
         <div
           role="status"
@@ -1767,7 +1780,13 @@ export function RecipeList({
           <strong>Recipe photos didn&apos;t load.</strong>{' '}
           {imageReport.status === 'failed'
             ? <>The read failed after {imageReport.loaded} image{imageReport.loaded === 1 ? '' : 's'}: <code>{imageReport.error}</code></>
-            : <>The read finished but returned nothing.</>}
+            : imageReport.status === 'idle'
+              ? <>The photo sync never ran — something earlier in sign-in failed. Check the console for <code>Auth state handler failed</code>, and reload.</>
+              : imageReport.status === 'no-user'
+                ? <>The photo sync ran before you were signed in. Reload the page.</>
+                : imageReport.status === 'running'
+                  ? <>The photo sync has been running for a while without returning an image. It may just be slow — they load ~1 MiB at a time.</>
+                  : <>The read finished but returned nothing.</>}
         </div>
       )}
 
@@ -2140,6 +2159,7 @@ export function RecipeList({
                               onDelete={onDelete}
                               showTags={false}
                               dimmed={dimmedIds.has(recipe.id)}
+                              showStage={isOwner}
                             />
                           </div>
                         ))}
@@ -2196,6 +2216,7 @@ export function RecipeList({
                               onDelete={onDelete}
                               showTags={false}
                               dimmed={dimmedIds.has(recipe.id)}
+                              showStage={isOwner}
                             />
                           </div>
                         ))}

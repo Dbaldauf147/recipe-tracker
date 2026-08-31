@@ -1549,7 +1549,16 @@ export function hydrateLocalStorage(userData, uid) {
         }
       }
     } catch {
-      localStorage.setItem('recipe-tracker-recipes', JSON.stringify(remoteRecipes));
+      // The fallback writes the SAME key that just failed, so when the cause is
+      // a full quota (rather than a bad merge) this throws again — and this one
+      // is outside any try, so it escaped hydrateLocalStorage entirely and took
+      // the whole sign-in handler with it. Guarded: losing the local recipe
+      // cache is survivable, since Firestore still has every recipe.
+      try {
+        localStorage.setItem('recipe-tracker-recipes', JSON.stringify(remoteRecipes));
+      } catch (err) {
+        console.error('Could not cache recipes locally (quota?):', err);
+      }
     }
   }
   // Don't let a remote-empty value wipe a populated local one. Same
