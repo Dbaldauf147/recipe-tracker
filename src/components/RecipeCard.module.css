@@ -19,6 +19,19 @@
   box-shadow: var(--shadow-sm);
 }
 
+/* How settled a recipe is (New / Work in progress / Nailed down) reads off the
+   card's own border instead of a pill in the tag row — scanning a long list for
+   the recipes you've nailed shouldn't mean reading the same word ninety times.
+   `--stage-color` is set inline by RecipeCard from the one definition in
+   utils/recipeStage.js, so nothing here has to know the palette.
+
+   Declared BEFORE :hover on purpose. Both selectors carry the same specificity,
+   so the later one wins the left edge — which is what keeps the hover accent
+   working on a card that has a stage. */
+.card[data-stage] {
+  border-color: var(--stage-color);
+}
+
 .card:hover {
   color: var(--color-accent);
   background: var(--color-accent-light);

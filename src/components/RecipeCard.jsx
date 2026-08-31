@@ -35,8 +35,23 @@ export function RecipeCard({ recipe, onClick, draggable = false, onAdd, editMode
       draggable={draggable}
       onDragStart={draggable ? handleDragStart : undefined}
       onDragEnd={draggable ? handleDragEnd : undefined}
-      style={dimmed ? { opacity: 0.45 } : undefined}
-      title={dimmed ? 'Matches your search but hidden by the active filter — click to open' : undefined}
+      // The stage colours the CARD'S OWN BORDER rather than printing a pill in
+      // the tag row: at a glance down a long list you want to see which recipes
+      // are settled, not read the word "settled" ninety times. The tag row is
+      // for what's IN the recipe; how finished it is belongs to the card.
+      //
+      // Passed as a custom property, not as `borderColor`, so the value stays
+      // defined once in recipeStage.js while the STYLESHEET keeps control of
+      // how it's applied — an inline border-color would outrank the :hover rule
+      // and silently kill the card's hover accent.
+      data-stage={stage ? stage.key : undefined}
+      style={{
+        ...(dimmed ? { opacity: 0.45 } : null),
+        ...(stage ? { '--stage-color': stage.color } : null),
+      }}
+      title={dimmed
+        ? 'Matches your search but hidden by the active filter — click to open'
+        : (stage ? `Stage: ${stage.label}` : undefined)}
     >
       {mealImage && (
         <img className={styles.thumbnail} src={mealImage} alt="" />
@@ -45,18 +60,10 @@ export function RecipeCard({ recipe, onClick, draggable = false, onAdd, editMode
         <span className={styles.name}>{recipe.title}</span>
         {dimmed && <span className={styles.filteredTag}>Hidden by filter</span>}
         <div className={styles.tags}>
-          {/* Leads the row: it's a fact about the recipe itself, where the tags
-              after it describe what's in it. Reuses .ingredientTag so it reads
-              as the same kind of outlined pill, tinted by the stage. */}
-          {stage && (
-            <span
-              className={styles.ingredientTag}
-              style={{ color: stage.color, borderColor: stage.color }}
-              title={`Stage: ${stage.label}`}
-            >
-              {stage.label}
-            </span>
-          )}
+          {/* No stage pill here — the card's border carries it (see above), so
+              the tag row stays about what's in the recipe. The label is still
+              reachable: it's the card's hover title, and the popup spells it
+              out on the Stage chip that sets it. */}
           {recipe.source === 'shared' && recipe.sharedFrom && (
             <span className={styles.sharedFromTag}>from @{recipe.sharedFrom}</span>
           )}
