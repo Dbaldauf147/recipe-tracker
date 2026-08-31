@@ -1,10 +1,16 @@
 import { getCachedMealImage } from '../utils/generateMealImage';
 import { getRecipeTags, getTagInfo } from '../utils/ingredientTags';
 import { detectCuisine } from '../utils/detectCuisine';
+import { recipeStage } from '../utils/recipeStage';
 import styles from './RecipeCard.module.css';
 
-export function RecipeCard({ recipe, onClick, draggable = false, onAdd, editMode, onDelete, macroScore, showTags = true, dimmed = false }) {
+export function RecipeCard({ recipe, onClick, draggable = false, onAdd, editMode, onDelete, macroScore, showTags = true, dimmed = false, showStage = false }) {
   const mealImage = getCachedMealImage(recipe.id);
+  // `devStage` is owner-only, so whether to show it is the caller's call — the
+  // card has no auth of its own. Null unless asked AND actually set: an unset
+  // stage prints nothing rather than a "Not set" pill, which would put a badge
+  // on every card and say nothing.
+  const stage = showStage ? recipeStage(recipe) : null;
   const cuisine = recipe.cuisine || detectCuisine(recipe.title, recipe.ingredients);
   const recipeTags = showTags ? getRecipeTags(recipe).slice(0, 4) : [];
   function handleDragStart(e) {
@@ -39,6 +45,18 @@ export function RecipeCard({ recipe, onClick, draggable = false, onAdd, editMode
         <span className={styles.name}>{recipe.title}</span>
         {dimmed && <span className={styles.filteredTag}>Hidden by filter</span>}
         <div className={styles.tags}>
+          {/* Leads the row: it's a fact about the recipe itself, where the tags
+              after it describe what's in it. Reuses .ingredientTag so it reads
+              as the same kind of outlined pill, tinted by the stage. */}
+          {stage && (
+            <span
+              className={styles.ingredientTag}
+              style={{ color: stage.color, borderColor: stage.color }}
+              title={`Stage: ${stage.label}`}
+            >
+              {stage.label}
+            </span>
+          )}
           {recipe.source === 'shared' && recipe.sharedFrom && (
             <span className={styles.sharedFromTag}>from @{recipe.sharedFrom}</span>
           )}

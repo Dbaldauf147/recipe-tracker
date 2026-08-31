@@ -15,6 +15,7 @@ import { detectCuisine, ALL_CUISINES, getShelfLife } from '../utils/detectCuisin
 import { getGHGEmissions, getGHGRating, computeRecipeGHG } from '../data/ghgEmissions';
 import { OWNER_EMAIL } from '../utils/pageAccess';
 import { parsePastedSteps, splitClipboardRows, isSpreadsheetHtml } from '../utils/pastedSteps';
+import { RECIPE_STAGES } from '../utils/recipeStage';
 import styles from './RecipeDetail.module.css';
 
 const ADMIN_UID = import.meta.env.VITE_ADMIN_UID;
@@ -1962,9 +1963,12 @@ export function RecipeDetail({ recipe, allTags = [], onSave, onDelete, onBack, o
                   aria-label="How settled this recipe is"
                 >
                   <option value="">Not set</option>
-                  <option value="new">New</option>
-                  <option value="wip">Work in progress</option>
-                  <option value="nailed">Nailed down</option>
+                  {/* From the shared list the recipe cards read, so the pill on
+                      a card can't end up labelled differently from the option
+                      that set it. */}
+                  {RECIPE_STAGES.map(s => (
+                    <option key={s.key} value={s.key}>{s.label}</option>
+                  ))}
                 </select>
                 <span className={styles.joanneChipCaret} aria-hidden="true">▾</span>
               </label>
