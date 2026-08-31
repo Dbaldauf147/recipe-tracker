@@ -99,7 +99,12 @@ export function ManualIngredientModal({ onAdd, onClose, initialValues, title, hi
           <h3>{title || 'Manual Entry'}</h3>
           <button className={styles.modalCloseBtn} onClick={onClose}>&times;</button>
         </div>
-        <form className={styles.modalBody} onSubmit={handleSubmit}>
+        <form className={styles.manualForm} onSubmit={handleSubmit}>
+          {/* Everything you act on — the lookup that fills the form and the
+              button that commits it — is pinned in a bar under the header, and
+              only the field grid scrolls. Submit used to be at the very bottom,
+              twenty fields below the USDA hit that had just filled them in. */}
+          <div className={styles.manualTopBar}>
           {hint && <p className={styles.modalHint}>{hint}</p>}
           {showUSDALookup && (
             <>
@@ -140,6 +145,12 @@ export function ManualIngredientModal({ onAdd, onClose, initialValues, title, hi
               )}
             </>
           )}
+            <button className={styles.photoSubmitBtn} type="submit" disabled={!values.ingredient?.trim()}>
+              {submitLabel || 'Add Ingredient'}
+            </button>
+          </div>
+
+          <div className={styles.manualScroll}>
           <div className={styles.manualGrid}>
             {MANUAL_FIELDS.map(f => (
               <div key={f.key} className={f.key === 'ingredient' || f.key === 'notes' ? styles.manualFieldFull : styles.manualField}>
@@ -158,9 +169,7 @@ export function ManualIngredientModal({ onAdd, onClose, initialValues, title, hi
               </div>
             ))}
           </div>
-          <button className={styles.photoSubmitBtn} type="submit" disabled={!values.ingredient?.trim()}>
-            {submitLabel || 'Add Ingredient'}
-          </button>
+          </div>
         </form>
       </div>
     </div>
