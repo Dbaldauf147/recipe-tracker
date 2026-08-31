@@ -1928,51 +1928,53 @@
   background: var(--color-surface-alt);
 }
 
-.dbWarning {
-  color: #d97706;
-  font-size: 0.8rem;
-  cursor: help;
-}
-
-/* Wraps the ⚠ badge so the "Add to database" button can sit just outside it
-   without pushing the row around. The button is a child, so hovering it keeps
-   the wrapper in :hover and it doesn't vanish mid-reach. */
-.dbWarningWrap {
+/* The ⚠ badge for an ingredient the DB doesn't know IS the add button — the
+   whole point is that you can act on the warning, so the click target is the
+   thing you're already pointing at. */
+.dbWarningBtn {
   position: relative;
   display: inline-flex;
   align-items: center;
+  padding: 0;
+  border: none;
+  background: none;
+  color: #d97706;
+  font-size: 0.8rem;
+  line-height: 1;
+  cursor: pointer;
 }
 
-.dbWarningAdd {
+.dbWarningBtn:hover {
+  color: #b45309;
+}
+
+/* Label for the badge. Sits ABOVE it and grows leftwards, so it can't run off
+   the right edge of a narrow window the way a button beside the badge did.
+   pointer-events: none — the badge underneath takes the click. */
+.dbWarningTip {
   position: absolute;
-  left: 100%;
-  top: 50%;
-  transform: translateY(-50%);
+  bottom: calc(100% + 4px);
+  right: 0;
   z-index: 30;
+  pointer-events: none;
   white-space: nowrap;
   padding: 0.15rem 0.45rem;
   border: 1px solid #d97706;
   border-radius: 999px;
   background: var(--color-surface, #fff);
   color: #b45309;
-  font-family: inherit;
   font-size: 0.68rem;
   font-weight: 600;
   line-height: 1.3;
-  cursor: pointer;
   opacity: 0;
   visibility: hidden;
   transition: opacity 0.12s ease;
 }
 
-.dbWarningWrap:hover .dbWarningAdd,
-.dbWarningWrap:focus-within .dbWarningAdd {
+.dbWarningBtn:hover .dbWarningTip,
+.dbWarningBtn:focus-visible .dbWarningTip {
   opacity: 1;
   visibility: visible;
-}
-
-.dbWarningAdd:hover {
-  background: #fef3c7;
 }
 
 .aiSuggestion {

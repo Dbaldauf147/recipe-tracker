@@ -1094,23 +1094,25 @@ export function RecipeDetail({ recipe, allTags = [], onSave, onDelete, onBack, o
     setDbBump(v => v + 1);
   }
 
-  // The ⚠ badge on an unknown ingredient. Hovering (or tabbing to) it reveals
-  // an "Add to database" button that opens the manual-entry modal prefilled
-  // with this row's name and unit.
+  // The ⚠ badge on an unknown ingredient — itself the button that opens the
+  // manual-entry modal, prefilled with this row's name and unit. Hovering
+  // labels it; the label is decoration, so there's no pointer travel to a
+  // separate target. It hangs ABOVE the badge and grows leftwards (right: 0),
+  // because the badge sits at the right edge of the name cell: an earlier
+  // version put the button beside the badge and on a narrow window it landed
+  // off the right of the viewport, unclickable.
   function renderDbWarning(row) {
     const name = (row.ingredient || '').trim();
     return (
-      <span className={styles.dbWarningWrap}>
-        <span className={styles.dbWarning} title="Not found in ingredient database"><WarningIcon /></span>
-        <button
-          type="button"
-          className={styles.dbWarningAdd}
-          title={`Add "${name}" to the ingredient database`}
-          onClick={() => setAddToDb({ ingredient: name, measurement: row.measurement || '' })}
-        >
-          + Add to database
-        </button>
-      </span>
+      <button
+        type="button"
+        className={styles.dbWarningBtn}
+        title={`Not found in ingredient database — click to add "${name}"`}
+        onClick={() => setAddToDb({ ingredient: name, measurement: row.measurement || '' })}
+      >
+        <WarningIcon />
+        <span className={styles.dbWarningTip} aria-hidden="true">+ Add to database</span>
+      </button>
     );
   }
 
