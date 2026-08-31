@@ -3623,18 +3623,29 @@ function RoutineSection({ cadenceName, list, habitLog, habitLogAuto, streaks, au
   //                    habits you no longer track. HIDDEN by default (they aren't
   //                    yours to log, so they just pad the list), revealed by the
   //                    "Show N Automatically habits" toggle above the sections.
-  // Weekly sections order by when each habit is actually next due, so one pinned
-  // to Friday sits above the group on the section's shared Sunday — the whole
-  // point of pinning a day. The sort is stable, so routine rank / drag order /
-  // name still decide ties, and it only engages when something in the section IS
-  // pinned: with no pins every date is identical and the hand-made order stands,
-  // exactly as before.
+  // Weekly sections order by the DAY each habit is scheduled on, so one pinned
+  // to Friday reads separately from the group on the section's shared Sunday —
+  // the whole point of pinning a day. The sort is stable, so routine rank / drag
+  // order / name still decide ties, and it only engages when something in the
+  // section IS pinned: with no pins every offset is identical and the hand-made
+  // order stands, exactly as before.
+  //
+  // The key is the weekday offset and NOT the next-due date, which is what this
+  // used to sort on. A due date answers "when next?", and the answer changes the
+  // moment you tick the box: weeklyHabitSchedule returns today for a pinned
+  // habit that is due and blank, then rolls to next week once it is logged (both
+  // via its own loggedThisWeek branch and via the anchor nextRecurrenceDate
+  // derives from the log). So marking a habit re-sorted its row to the bottom of
+  // the section, out from under the cursor that had just clicked it. The offset
+  // is a property of the SCHEDULE alone — nothing in it can move because of a
+  // mark. The badges beside each row still read the real next-due date; it is
+  // only the row order that had no business depending on it.
   const activeList = (() => {
     const base = list.filter(h => !autoTrackedIds.has(h.id) && !isAuto(h));
     if (cadenceCanon(cadenceName) !== 'Weekly' || !base.some(h => habitWeekDays(h))) return base;
     return base
-      .map((h, i) => ({ h, i, t: weeklyHabitSchedule(h, weeklyRec, habitLog).date.getTime() }))
-      .sort((a, b) => a.t - b.t || a.i - b.i)
+      .map((h, i) => ({ h, i, d: weeklyDueOffset(h) ?? weekLogOffset }))
+      .sort((a, b) => a.d - b.d || a.i - b.i)
       .map(x => x.h);
   })();
   const autoList = list.filter(h => autoTrackedIds.has(h.id));
