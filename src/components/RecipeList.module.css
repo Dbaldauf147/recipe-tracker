@@ -794,6 +794,18 @@
   transform: translateY(-1px);
 }
 
+/* Recipe stage on the week's pills — the same border language the recipe cards
+   use (see RecipeCard.module.css), so a pill and its card read as one recipe.
+   `--stage-color` is set inline from the single definition in
+   utils/recipeStage.js.
+
+   Declared AFTER :hover, unlike on the cards: this border is uniform rather
+   than doubling as a hover accent, so the stage should survive hovering. The
+   pill still answers the pointer through its background, shadow and lift. */
+.weekItem[data-stage] {
+  border-color: var(--stage-color);
+}
+
 .weekItemContent {
   display: flex;
   flex-direction: column;

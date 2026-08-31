@@ -8,6 +8,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { OWNER_EMAIL } from '../utils/pageAccess';
 import { loadUserData, saveField, loadAppDefaults, saveAppDefault, loadFriends, loadFriendRecipes, getPendingSharedRecipes, shareRecipe, getUsername } from '../utils/firestoreSync';
 import { copyMealImage, loadAdminMealImages, generateMealImage, getCachedMealImage, getMealImageSyncReport } from '../utils/generateMealImage';
+import { recipeStage } from '../utils/recipeStage';
 import { ALL_TAGS, TAG_CATEGORIES, recipeMatchesTags } from '../utils/ingredientTags';
 import { detectCuisine, getRecipeMinShelfDays } from '../utils/detectCuisine';
 import { WidgetLayout } from './WidgetLayout';
@@ -1587,10 +1588,19 @@ export function RecipeList({
                 {filteredWeeklyRecipes.map(recipe => {
                   const planned = getPlannedServings(recipe);
                   const mealImage = getCachedMealImage(recipe.id);
+                  // Same border language as the recipe cards below, so a pill
+                  // and its card read as the same recipe. `devStage` is
+                  // owner-only, hence the isOwner gate the cards use too; the
+                  // friends' pills further down deliberately never get one,
+                  // since their stage isn't yours to see.
+                  const stage = isOwner ? recipeStage(recipe) : null;
                   return (
                     <div
                       key={recipe.id}
                       className={`${styles.weekItem}${lastAdded === recipe.id ? ` ${styles.weekItemNew}` : ''}`}
+                      data-stage={stage ? stage.key : undefined}
+                      style={stage ? { '--stage-color': stage.color } : undefined}
+                      title={stage ? `Stage: ${stage.label}` : undefined}
                     >
                       {joanneLikes(recipe) && (
                         <span className={styles.joanneBadge} role="img" aria-label="Joanne likes this">
