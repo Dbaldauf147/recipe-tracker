@@ -2,7 +2,8 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { NutritionPanel, PlateChart, MealScore } from './NutritionPanel';
 import { BarcodeScanner } from './BarcodeScanner';
 import { loadFriends, shareRecipe, getUsername, createShareLink } from '../utils/firestoreSync';
-import { loadIngredients, setIngredientUnitWeight } from '../utils/ingredientsStore';
+import { loadIngredients, saveIngredientsToFirestore, setIngredientUnitWeight } from '../utils/ingredientsStore';
+import { ManualIngredientModal } from './ManualIngredientModal.jsx';
 import {
   UNIT_SIZES, composeUnit, splitUnit, findUnitWeight, defaultUnitWeight, pluralizeUnit,
 } from '../utils/unitWeights';
@@ -807,6 +808,9 @@ export function RecipeDetail({ recipe, allTags = [], onSave, onDelete, onBack, o
   // Bumped after teaching, to re-read the ingredient DB maps.
   const [dbBump, setDbBump] = useState(0);
   const [activeAutoIdx, setActiveAutoIdx] = useState(-1);
+  // "Add to database" modal for an ingredient the DB doesn't know yet:
+  // null = closed, otherwise the prefilled values for the new DB row.
+  const [addToDb, setAddToDb] = useState(null);
 
   // Compute days since this recipe was last prepared
   const daysSinceLastPrepped = useMemo(() => {
@@ -1073,6 +1077,41 @@ export function RecipeDetail({ recipe, allTags = [], onSave, onDelete, onBack, o
       if (name.includes(search) || search.includes(name)) return true;
     }
     return false;
+  }
+
+  // Append (or overwrite, if the name already exists) a row on the shared
+  // ingredient database, then bump so this recipe re-reads the maps and the
+  // warning clears without a reload.
+  function saveNewDbIngredient(newRow) {
+    const db = loadIngredients() || [];
+    const key = (newRow.ingredient || '').trim().toLowerCase();
+    const idx = db.findIndex(r => (r.ingredient || '').trim().toLowerCase() === key);
+    const updated = idx >= 0
+      ? db.map((r, i) => (i === idx ? { ...r, ...newRow } : r))
+      : [...db, newRow];
+    saveIngredientsToFirestore(updated);
+    setAddToDb(null);
+    setDbBump(v => v + 1);
+  }
+
+  // The ⚠ badge on an unknown ingredient. Hovering (or tabbing to) it reveals
+  // an "Add to database" button that opens the manual-entry modal prefilled
+  // with this row's name and unit.
+  function renderDbWarning(row) {
+    const name = (row.ingredient || '').trim();
+    return (
+      <span className={styles.dbWarningWrap}>
+        <span className={styles.dbWarning} title="Not found in ingredient database"><WarningIcon /></span>
+        <button
+          type="button"
+          className={styles.dbWarningAdd}
+          title={`Add "${name}" to the ingredient database`}
+          onClick={() => setAddToDb({ ingredient: name, measurement: row.measurement || '' })}
+        >
+          + Add to database
+        </button>
+      </span>
+    );
   }
 
   const baseServings = parseInt(fields?.servings) || 1;
@@ -2927,9 +2966,7 @@ export function RecipeDetail({ recipe, allTags = [], onSave, onDelete, onBack, o
                                 }
                               />
                             )}
-                            {field === 'ingredient' && (row.ingredient || '').trim() && !isInDb(row.ingredient) && (
-                              <span className={styles.dbWarning} title="Not found in ingredient database"><WarningIcon /></span>
-                            )}
+                            {field === 'ingredient' && (row.ingredient || '').trim() && !isInDb(row.ingredient) && renderDbWarning(row)}
                             {field === 'ingredient' && (row.ingredient || '').trim() && isInDb(row.ingredient) && unitType === 'volume' && !dbGrams && (
                               <span className={styles.noWeightWarning} title="No weight conversion available — add grams to ingredient database"><ScaleIcon /></span>
                             )}
@@ -3379,7 +3416,7 @@ export function RecipeDetail({ recipe, allTags = [], onSave, onDelete, onBack, o
                               {' '}— did you mean <button className={styles.aiSuggestionBtn} onClick={() => updateIngredient(origIdx, 'ingredient', match)}>{match}</button>?
                             </span>
                           ) : (
-                            <span className={styles.dbWarning} title="Not found in ingredient database"> <WarningIcon /></span>
+                            <>{' '}{renderDbWarning(row)}</>
                           );
                         })()}
                         {noWeight && (
@@ -4091,6 +4128,17 @@ export function RecipeDetail({ recipe, allTags = [], onSave, onDelete, onBack, o
          Instructions "Paste from Sheets/Excel" button set the state and
          rendered this straight into a display:none subtree. The click did
          nothing, visibly. */}
+      {addToDb && (
+        <ManualIngredientModal
+          title="Add to ingredient database"
+          hint="This ingredient isn't in the database yet, so it contributes no nutrition. Fill it in (or look it up in USDA) and it will count everywhere it's used."
+          initialValues={addToDb}
+          showUSDALookup
+          onAdd={saveNewDbIngredient}
+          onClose={() => setAddToDb(null)}
+        />
+      )}
+
       {showStepPaste && (() => {
         const preview = parsePastedSteps(stepPasteText);
         const close = () => { setStepPasteText(''); setShowStepPaste(false); };

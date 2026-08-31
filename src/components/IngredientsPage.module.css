@@ -372,6 +372,13 @@
   padding: 1rem 0;
 }
 
+.modalHint {
+  margin: 0 0 0.75rem;
+  font-size: 0.8rem;
+  line-height: 1.45;
+  color: var(--color-text-muted);
+}
+
 .modalError {
   text-align: center;
   font-size: 0.88rem;

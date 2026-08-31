@@ -11,6 +11,8 @@ import { lookupBarcodeFullNutrition } from '../utils/openFoodFacts.js';
 import { locationToRegion, getSeasonalIngredients } from '../utils/seasonal.js';
 import { BarcodeScanner } from './BarcodeScanner.jsx';
 import { CompositeIngredientBuilder } from './CompositeIngredientBuilder.jsx';
+import { ManualIngredientModal as ManualAddModal } from './ManualIngredientModal.jsx';
+import { searchUSDA, usdaNutrients, fmtVal } from '../utils/usda.js';
 import styles from './IngredientsPage.module.css';
 
 const ADMIN_UID = import.meta.env.VITE_ADMIN_UID;
@@ -26,18 +28,6 @@ const DISPLAY_KEYS = [
 
 const FIELD_MAP = Object.fromEntries(INGREDIENT_FIELDS.map(f => [f.key, f]));
 
-const USDA_API_KEY = import.meta.env.VITE_USDA_API_KEY || 'DEMO_KEY';
-const USDA_SEARCH_URL = 'https://api.nal.usda.gov/fdc/v1/foods/search';
-
-// Nutrient IDs for extracting per-100g values from USDA results
-const USDA_NUTRIENT_IDS = {
-  calories: 1008, protein: 1003, carbs: 1005, fat: 1004,
-  saturatedFat: 1258, sugar: 2000, addedSugar: 1235, fiber: 1079,
-  sodium: 1093, potassium: 1092, calcium: 1087, iron: 1089,
-  magnesium: 1090, zinc: 1095, vitaminB12: 1178, vitaminC: 1162,
-  leucine: 1213, omega3: 1404,
-};
-
 function ordinal(n) {
   const s = ['th', 'st', 'nd', 'rd'];
   const v = n % 100;
@@ -52,13 +42,6 @@ function fmtDate(val) {
   return `${months[d.getMonth()]} ${ordinal(d.getDate())}, ${d.getFullYear()}`;
 }
 
-function fmtVal(val) {
-  if (val == null || val === 0) return '';
-  const s = String(Math.round(val * 100) / 100);
-  if (!s.includes('.')) return s;
-  return s.replace(/0+$/, '').replace(/\.$/, '');
-}
-
 const COL_WIDTHS_KEY = 'sunday-ingredients-col-widths';
 const DEFAULT_WIDTHS = { ingredient: 220, measurement: 70, notes: 100, link: 80, storage: 70, store: 120, lastBought: 140 };
 
@@ -67,89 +50,6 @@ function loadColWidths() {
     const saved = localStorage.getItem(COL_WIDTHS_KEY);
     return saved ? JSON.parse(saved) : {};
   } catch { return {}; }
-}
-
-const MANUAL_FIELDS = [
-  { key: 'ingredient', label: 'Ingredient Name', type: 'text', required: true },
-  { key: 'brand', label: 'Brand (optional)', type: 'text', placeholder: 'e.g. Siggi\'s, Chobani' },
-  { key: 'grams', label: 'Serving Size (g)', type: 'number' },
-  { key: 'measurement', label: 'Measurement', type: 'text', placeholder: 'e.g. cup, oz, piece' },
-  { key: 'calories', label: 'Calories', type: 'number' },
-  { key: 'protein', label: 'Protein (g)', type: 'number' },
-  { key: 'carbs', label: 'Carbs (g)', type: 'number' },
-  { key: 'fat', label: 'Fat (g)', type: 'number' },
-  { key: 'fiber', label: 'Fiber (g)', type: 'number' },
-  { key: 'sugar', label: 'Sugar (g)', type: 'number' },
-  { key: 'saturatedFat', label: 'Saturated Fat (g)', type: 'number' },
-  { key: 'sodium', label: 'Sodium (mg)', type: 'number' },
-  { key: 'potassium', label: 'Potassium (mg)', type: 'number' },
-  { key: 'calcium', label: 'Calcium (mg)', type: 'number' },
-  { key: 'iron', label: 'Iron (mg)', type: 'number' },
-  { key: 'magnesium', label: 'Magnesium (mg)', type: 'number' },
-  { key: 'zinc', label: 'Zinc (mg)', type: 'number' },
-  { key: 'vitaminB12', label: 'Vitamin B12 (mcg)', type: 'number' },
-  { key: 'vitaminC', label: 'Vitamin C (mg)', type: 'number' },
-  { key: 'leucine', label: 'Leucine (g)', type: 'number' },
-  { key: 'omega3', label: 'Omega-3 (g)', type: 'number' },
-  { key: 'notes', label: 'Notes', type: 'text' },
-];
-
-function ManualAddModal({ onAdd, onClose, initialValues, title }) {
-  const [values, setValues] = useState(initialValues || {});
-
-  function handleChange(key, val) {
-    setValues(prev => ({ ...prev, [key]: val }));
-  }
-
-  function handleSubmit(e) {
-    e.preventDefault();
-    if (!values.ingredient?.trim()) return;
-    const row = {};
-    for (const f of INGREDIENT_FIELDS) row[f.key] = values[f.key] || '';
-    // Compute derived fields
-    const cal = parseFloat(row.calories) || 0;
-    const prot = parseFloat(row.protein) || 0;
-    const fib = parseFloat(row.fiber) || 0;
-    if (cal > 0) {
-      row.proteinPerCal = fmtVal(prot / cal);
-      row.fiberPerCal = fmtVal(fib / cal);
-    }
-    onAdd(row);
-  }
-
-  return (
-    <div className={styles.modalOverlay} onClick={onClose}>
-      <div className={styles.addModal} onClick={e => e.stopPropagation()} style={{ maxWidth: 480 }}>
-        <div className={styles.modalHeader}>
-          <h3>{title || 'Manual Entry'}</h3>
-          <button className={styles.modalCloseBtn} onClick={onClose}>&times;</button>
-        </div>
-        <form className={styles.modalBody} onSubmit={handleSubmit}>
-          <div className={styles.manualGrid}>
-            {MANUAL_FIELDS.map(f => (
-              <div key={f.key} className={f.key === 'ingredient' || f.key === 'notes' ? styles.manualFieldFull : styles.manualField}>
-                <label className={styles.manualLabel}>{f.label}</label>
-                <input
-                  className={styles.manualInput}
-                  type={f.type}
-                  value={values[f.key] || ''}
-                  onChange={e => handleChange(f.key, e.target.value)}
-                  placeholder={f.placeholder || ''}
-                  required={f.required}
-                  step={f.type === 'number' ? 'any' : undefined}
-                  min={f.type === 'number' ? '0' : undefined}
-                  autoFocus={f.key === 'ingredient'}
-                />
-              </div>
-            ))}
-          </div>
-          <button className={styles.photoSubmitBtn} type="submit" disabled={!values.ingredient?.trim()}>
-            Add Ingredient
-          </button>
-        </form>
-      </div>
-    </div>
-  );
 }
 
 function isIngredientInSeason(name, seasonalSet) {
@@ -416,14 +316,11 @@ export function IngredientsPage({ onClose, user }) {
     setModalError(null);
     setUsdaResults([]);
     try {
-      const url = `${USDA_SEARCH_URL}?api_key=${USDA_API_KEY}&query=${encodeURIComponent(usdaQuery)}&pageSize=5&dataType=Foundation,SR%20Legacy`;
-      const res = await fetch(url);
-      if (!res.ok) throw new Error(`USDA API error: ${res.status}`);
-      const data = await res.json();
-      if (!data.foods || data.foods.length === 0) {
+      const foods = await searchUSDA(usdaQuery);
+      if (foods.length === 0) {
         setModalError('No results found. Try a different search term.');
       } else {
-        setUsdaResults(data.foods);
+        setUsdaResults(foods);
       }
     } catch (err) {
       setModalError(err.message || 'USDA search failed.');
@@ -439,11 +336,7 @@ export function IngredientsPage({ onClose, user }) {
     row.grams = '100';
     row.measurement = 'g';
 
-    const nutrients = food.foodNutrients || [];
-    for (const [key, nid] of Object.entries(USDA_NUTRIENT_IDS)) {
-      const match = nutrients.find(fn => fn.nutrientId === nid);
-      if (match) row[key] = fmtVal(match.value);
-    }
+    Object.assign(row, usdaNutrients(food));
 
     // Compute derived fields
     const cal = parseFloat(row.calories) || 0;
