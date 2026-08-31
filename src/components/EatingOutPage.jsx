@@ -1074,6 +1074,61 @@ function rankSpotsByRating(spots, ratingsBySpot, metric) {
   return { ranked, unrated };
 }
 
+/** How many spots each cuisine shows before collapsing into a "+N more" line. */
+const CUISINE_TOP_N = 3;
+
+/**
+ * The same ranking, cut by cuisine — "best Thai", "best pizza" — so the answer
+ * doesn't need one filter-and-look per cuisine.
+ *
+ * A spot with several cuisines is ranked under EACH of them, which is the point:
+ * a place tagged Italian + Pizza is a candidate for both questions. Cuisines are
+ * folded case-insensitively keeping the first-seen casing, the same way the
+ * cuisine suggestions elsewhere on the page are.
+ *
+ * Cuisines whose spots are all unrated for this metric are pulled out rather
+ * than shown as empty groups — a heading with nothing under it reads as a bug.
+ * Spots with no cuisine at all come back separately for the same reason; they
+ * are not a cuisine called "Other".
+ */
+function rankSpotsByCuisine(spots, ratingsBySpot, metric, topN = CUISINE_TOP_N) {
+  const byCuisine = new Map();
+  const noCuisine = [];
+  for (const r of spots) {
+    const names = (r.cuisines || []).map(c => String(c || '').trim()).filter(Boolean);
+    if (names.length === 0) { noCuisine.push(r); continue; }
+    for (const name of names) {
+      const key = name.toLowerCase();
+      if (!byCuisine.has(key)) byCuisine.set(key, { label: name, spots: [] });
+      byCuisine.get(key).spots.push(r);
+    }
+  }
+
+  const groups = [];
+  const unratedCuisines = [];
+  for (const { label, spots: list } of byCuisine.values()) {
+    const { ranked, unrated } = rankSpotsByRating(list, ratingsBySpot, metric);
+    if (ranked.length === 0) { unratedCuisines.push(label); continue; }
+    groups.push({
+      label,
+      top: ranked.slice(0, topN),
+      rankedCount: ranked.length,
+      unratedCount: unrated.length,
+      best: ranked[0].score,
+    });
+  }
+  // Best cuisine first. This is the Rankings tab, so the interesting read is
+  // "what am I best supplied for", not an alphabetical directory — and the
+  // group you are hunting for is findable either way at this list length.
+  groups.sort((a, b) => (
+    b.best - a.best
+    || b.rankedCount - a.rankedCount
+    || a.label.localeCompare(b.label)
+  ));
+  unratedCuisines.sort((a, b) => a.localeCompare(b));
+  return { groups, unratedCuisines, noCuisine };
+}
+
 // Small read-only star row (rounds to the nearest whole star) for aggregate
 // display. The interactive input reuses <StarRating/>.
 function StarsStatic({ value, size = 15 }) {
@@ -2262,7 +2317,32 @@ function RestaurantCard({ r, ratingAgg, ratingHasOthers = false, distanceMiles, 
  * the current filters/search leave visible, so "best Italian in Williamsburg"
  * is just the ranking with those filters on.
  */
-function RestaurantRankings({ items, ratingsBySpot, metric, onMetricChange, onSelect }) {
+/** One placed row. Shared so the flat list and the per-cuisine groups can never
+ *  drift into showing the same spot two different ways. */
+function RankingRow({ row, place, onSelect }) {
+  return (
+    <li>
+      <button type="button" className={styles.rankingRow} onClick={() => onSelect(row.r)}>
+        <span className={styles.rankingPlace}>{RANKING_MEDAL[place] || place}</span>
+        <span className={styles.rankingName}>
+          {row.r.name}
+          {row.r._ownerUsername && (
+            <span className={styles.rankingOwner}> @{row.r._ownerUsername}</span>
+          )}
+        </span>
+        <span className={styles.rankingScore}>{row.score.toFixed(1)}</span>
+        <StarsStatic value={row.score} size={14} />
+        <span className={styles.rankingVotes}>
+          {row.votes} {row.votes === 1 ? 'vote' : 'votes'}
+        </span>
+      </button>
+    </li>
+  );
+}
+
+function RestaurantRankings({
+  items, ratingsBySpot, metric, onMetricChange, grouped, onGroupedChange, onSelect,
+}) {
   const metrics = useMemo(() => rankMetricsFor(items, ratingsBySpot), [items, ratingsBySpot]);
   // The chosen metric can vanish when filters change (rank by Coffee, then
   // filter to spots nobody rated on Coffee) — fall back to Overall rather than
@@ -2271,6 +2351,10 @@ function RestaurantRankings({ items, ratingsBySpot, metric, onMetricChange, onSe
   const { ranked, unrated } = useMemo(
     () => rankSpotsByRating(items, ratingsBySpot, activeMetric),
     [items, ratingsBySpot, activeMetric],
+  );
+  const byCuisine = useMemo(
+    () => (grouped ? rankSpotsByCuisine(items, ratingsBySpot, activeMetric) : null),
+    [grouped, items, ratingsBySpot, activeMetric],
   );
   const metricLabel = metrics.find(m => m.key === activeMetric)?.label || 'Overall';
 
@@ -2289,34 +2373,93 @@ function RestaurantRankings({ items, ratingsBySpot, metric, onMetricChange, onSe
         ))}
       </div>
 
-      {ranked.length === 0 ? (
+      <div className={styles.filterRow} style={{ alignSelf: 'flex-start' }}>
+        <button
+          type="button"
+          className={`${styles.filterBtn} ${!grouped ? styles.filterBtnActive : ''}`}
+          onClick={() => onGroupedChange(false)}
+        >
+          All spots
+        </button>
+        <button
+          type="button"
+          className={`${styles.filterBtn} ${grouped ? styles.filterBtnActive : ''}`}
+          onClick={() => onGroupedChange(true)}
+        >
+          By cuisine
+        </button>
+      </div>
+
+      {grouped ? (
+        byCuisine.groups.length === 0 ? (
+          <p className={styles.rankingEmpty}>
+            No cuisine has a spot rated for {metricLabel} yet — open a place, give it a
+            cuisine, and fill in the Ratings table.
+          </p>
+        ) : (
+          <div className={styles.rankingGroups}>
+            {byCuisine.groups.map(g => (
+              <section key={g.label} className={styles.rankingGroup}>
+                <h3 className={styles.rankingGroupHead}>
+                  <span className={styles.rankingGroupName}>{g.label}</span>
+                  <span className={styles.rankingGroupCount}>
+                    {g.rankedCount} rated{g.unratedCount > 0 ? ` · ${g.unratedCount} not yet` : ''}
+                  </span>
+                </h3>
+                <ol className={styles.rankingList}>
+                  {g.top.map((row, i) => (
+                    <RankingRow
+                      key={`${row.r._ownerUid}:${row.r.id}`}
+                      row={row}
+                      place={i + 1}
+                      onSelect={onSelect}
+                    />
+                  ))}
+                </ol>
+                {g.rankedCount > g.top.length && (
+                  <p className={styles.rankingGroupMore}>
+                    +{g.rankedCount - g.top.length} more rated for {metricLabel}
+                  </p>
+                )}
+              </section>
+            ))}
+          </div>
+        )
+      ) : ranked.length === 0 ? (
         <p className={styles.rankingEmpty}>
           Nothing rated for {metricLabel} yet — open a place and fill in the Ratings table.
         </p>
       ) : (
         <ol className={styles.rankingList}>
           {ranked.map((row, i) => (
-            <li key={`${row.r._ownerUid}:${row.r.id}`}>
-              <button type="button" className={styles.rankingRow} onClick={() => onSelect(row.r)}>
-                <span className={styles.rankingPlace}>{RANKING_MEDAL[i + 1] || i + 1}</span>
-                <span className={styles.rankingName}>
-                  {row.r.name}
-                  {row.r._ownerUsername && (
-                    <span className={styles.rankingOwner}> @{row.r._ownerUsername}</span>
-                  )}
-                </span>
-                <span className={styles.rankingScore}>{row.score.toFixed(1)}</span>
-                <StarsStatic value={row.score} size={14} />
-                <span className={styles.rankingVotes}>
-                  {row.votes} {row.votes === 1 ? 'vote' : 'votes'}
-                </span>
-              </button>
-            </li>
+            <RankingRow
+              key={`${row.r._ownerUid}:${row.r.id}`}
+              row={row}
+              place={i + 1}
+              onSelect={onSelect}
+            />
           ))}
         </ol>
       )}
 
-      {unrated.length > 0 && (
+      {grouped ? (
+        <>
+          {byCuisine.unratedCuisines.length > 0 && (
+            <p className={styles.rankingUnrated}>
+              No {metricLabel} rating yet in: {byCuisine.unratedCuisines.slice(0, 8).join(', ')}
+              {byCuisine.unratedCuisines.length > 8 ? '…' : ''}
+            </p>
+          )}
+          {byCuisine.noCuisine.length > 0 && (
+            <p className={styles.rankingUnrated}>
+              {byCuisine.noCuisine.length} place{byCuisine.noCuisine.length === 1 ? '' : 's'} with
+              no cuisine set{' — '}
+              {byCuisine.noCuisine.slice(0, 6).map(r => r.name).join(', ')}
+              {byCuisine.noCuisine.length > 6 ? '…' : ''}
+            </p>
+          )}
+        </>
+      ) : unrated.length > 0 && (
         <p className={styles.rankingUnrated}>
           Not yet rated for {metricLabel}: {unrated.length} place{unrated.length === 1 ? '' : 's'}
           {' — '}{unrated.slice(0, 6).map(r => r.name).join(', ')}{unrated.length > 6 ? '…' : ''}
@@ -2334,7 +2477,9 @@ function RestaurantRankings({ items, ratingsBySpot, metric, onMetricChange, onSe
  *
  * Esc closes it, like the other sheets on this page.
  */
-function RankingPopout({ label, items, ratingsBySpot, metric, onMetricChange, onSelect, onClose }) {
+function RankingPopout({
+  label, items, ratingsBySpot, metric, onMetricChange, grouped, onGroupedChange, onSelect, onClose,
+}) {
   useEffect(() => {
     const onKey = (e) => { if (e.key === 'Escape') onClose(); };
     window.addEventListener('keydown', onKey);
@@ -2354,6 +2499,8 @@ function RankingPopout({ label, items, ratingsBySpot, metric, onMetricChange, on
             ratingsBySpot={ratingsBySpot}
             metric={metric}
             onMetricChange={onMetricChange}
+            grouped={grouped}
+            onGroupedChange={onGroupedChange}
             onSelect={onSelect}
           />
         </div>
@@ -3260,6 +3407,10 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
   const [viewMode, setViewMode] = useState('list');
   // Which score the Rankings tab orders by — 'overall' or one rating category.
   const [rankMetric, setRankMetric] = useState('overall');
+  // Rankings tab: one flat list, or the same ranking cut per cuisine. Lifted
+  // beside rankMetric so switching tabs (or opening a group pop-out) does not
+  // silently drop back to the flat list.
+  const [rankGrouped, setRankGrouped] = useState(false);
   // Label of the group whose ranking is popped out over the page, or null.
   // Filtering to a location/bucket already narrows `visible`, so the pop-out
   // just ranks that — no separate scoping to keep in step.
@@ -4340,6 +4491,8 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
               ratingsBySpot={ratingsBySpot}
               metric={rankMetric}
               onMetricChange={setRankMetric}
+              grouped={rankGrouped}
+              onGroupedChange={setRankGrouped}
               onSelect={openSpot}
             />
           ) : viewMode === 'table' ? (
@@ -4506,6 +4659,8 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
           ratingsBySpot={ratingsBySpot}
           metric={rankMetric}
           onMetricChange={setRankMetric}
+          grouped={rankGrouped}
+          onGroupedChange={setRankGrouped}
           onSelect={(r) => { setRankingPopout(null); openSpot(r); }}
           onClose={() => setRankingPopout(null)}
         />

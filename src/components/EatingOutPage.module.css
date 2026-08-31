@@ -1956,6 +1956,79 @@
   color: var(--color-text-muted);
 }
 
+/* ── Rankings cut by cuisine ──
+   Two columns where there's room: the groups are short (three rows), so a
+   single column leaves the right half of a desktop window empty and pushes
+   the fourth cuisine below the fold. */
+.rankingGroups {
+  display: grid;
+  /* 420px, not less: a ranking row spends ~300px on the medal, score, stars and
+     vote count before the name gets any, so narrower tracks turn "The Four
+     Horsemen" into "The Fou…".
+     The min() is load-bearing — a bare minmax(420px, 1fr) keeps a 420px track
+     on a 390px phone and pushes the vote counts off the right edge. */
+  grid-template-columns: repeat(auto-fill, minmax(min(420px, 100%), 1fr));
+  gap: 1.25rem 1.5rem;
+  align-items: start;
+}
+
+/* Claw back what the fixed columns were reserving for a full-width list, so
+   the name keeps a usable share of a grouped column. */
+.rankingGroup .rankingRow {
+  grid-template-columns: 1.9rem minmax(0, 1fr) auto auto auto;
+  gap: 0.5rem;
+  padding: 0.5rem 0.7rem;
+}
+
+.rankingGroup .rankingScore,
+.rankingGroup .rankingVotes {
+  min-width: 0;
+}
+
+.rankingGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  min-width: 0;
+}
+
+.rankingGroupHead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin: 0;
+  padding-bottom: 0.3rem;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.rankingGroupName {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--color-text);
+  letter-spacing: -0.01em;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rankingGroupCount {
+  flex-shrink: 0;
+  font-family: var(--font-family);
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+
+.rankingGroupMore {
+  margin: 0;
+  padding-left: 0.85rem;
+  font-size: 0.78rem;
+  color: var(--color-text-muted);
+}
+
 /* Possible-duplicate marker on a spot's name. Amber, not red: it's a thing
    worth a look, not an error — two branches of a chain are legitimately two
    rows, and the page can't tell those from a genuine double entry. */
