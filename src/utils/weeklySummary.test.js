@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  lastCompleteWeek, previousWeek, summarizeWeek, isEmptyWeek, renderWeeklySummary,
+  lastCompleteWeek, previousWeek, summarizeWeek, isEmptyWeek, renderWeeklySummary, TREND_WEEKS,
 } from '../../lib/weeklySummary.js';
 import { DEFAULT_SAUNA_GOAL } from './saunaPlan.js';
 
@@ -264,11 +264,93 @@ test('the goals table renders bars, values and a met count', () => {
   const { html, text } = renderWeeklySummary({ stats, priorStats: prior });
   assert.match(html, /Week goals/);
   assert.match(html, /of \d+<\/strong> goals met/);
-  assert.match(html, /1 \/ 3 days/);
+  // The unit sits outside the nowrap span so it can drop to a second line on a
+  // narrow phone without splitting the "1 / 3" itself.
+  assert.match(html, /1 \/ 3<\/span> days/);
   assert.match(text, /WEEK GOALS — \d+ of \d+ met/);
   assert.doesNotMatch(html, /NaN|undefined/);
   // Singular unit when the target is 1.
-  assert.match(html, /0 \/ 1 day</);
+  assert.match(html, /0 \/ 1<\/span> day</);
+});
+
+// ──────────────────────────────────────────── rolling met-rate (10 weeks)
+
+function weekBack(n) {
+  let w = WEEK;
+  for (let i = 0; i < n; i++) w = previousWeek(w);
+  return w;
+}
+
+/** `weightsDays` weights sessions in the Nth week back, one per day. */
+function weightsWeek(n, weightsDays) {
+  const w = weekBack(n);
+  return Array.from({ length: weightsDays }, (_, i) => ({
+    id: `w${n}-${i}`, date: w.days[i], workoutType: 'Push', entries: [{ exercise: 'Bench', sets: ['8'] }],
+  }));
+}
+
+test('the rolling met-rate spans the reported week and the nine before it', () => {
+  // Weights goal is 3/week. Hit in the reported week and the two before it,
+  // missed in the third — four weeks with anything logged in them at all.
+  const workouts = [
+    ...weightsWeek(0, 3), ...weightsWeek(1, 3), ...weightsWeek(2, 3), ...weightsWeek(3, 1),
+  ];
+  const g = goalsFor({ workouts });
+  assert.deepEqual(goalNamed(g, 'Weights').trend, { met: 3, weeks: 4, pct: 75 });
+  assert.equal(g.trendSpan, TREND_WEEKS);
+  assert.equal(g.trendWeeks, 4);
+  // This week's own Result column is untouched by the history beside it.
+  assert.equal(goalNamed(g, 'Weights').met, true);
+});
+
+test('weeks with nothing logged are dropped from the rate, not counted as misses', () => {
+  // Six of the ten weeks are blank. Counting them would report 3/10 = 30% for a
+  // goal that was met every week it was actually tracked — and would score Rest
+  // as met in each of them, since a week with no workouts is seven rest days.
+  const workouts = [...weightsWeek(0, 3), ...weightsWeek(1, 3), ...weightsWeek(2, 3)];
+  const g = goalsFor({ workouts });
+  assert.deepEqual(goalNamed(g, 'Weights').trend, { met: 3, weeks: 3, pct: 100 });
+  assert.deepEqual(goalNamed(g, 'Rest').trend, { met: 3, weeks: 3, pct: 100 });
+  assert.equal(g.trendWeeks, 3);
+});
+
+test('a meal-only week still counts as logged', () => {
+  // Activity is not just workouts: someone who logged meals but never trained
+  // has a real week, and their workout goals genuinely went unmet in it.
+  const older = weekBack(1);
+  const g = goalsFor({
+    workouts: weightsWeek(0, 3),
+    dailyLog: { [older.days[2]]: { entries: [{ mealSlot: 'lunch' }] } },
+  });
+  assert.equal(g.trendWeeks, 2);
+  assert.deepEqual(goalNamed(g, 'Weights').trend, { met: 1, weeks: 2, pct: 50 });
+});
+
+test('the first ever week reports 1 of 1, not a percentage of nothing', () => {
+  const g = goalsFor({ workouts: weightsWeek(0, 3) });
+  assert.deepEqual(goalNamed(g, 'Weights').trend, { met: 1, weeks: 1, pct: 100 });
+  assert.deepEqual(goalNamed(g, 'Cardio').trend, { met: 0, weeks: 1, pct: 0 });
+});
+
+test('a user with no history at all gets no rate rather than 0%', () => {
+  // Nothing logged anywhere means no week qualifies, so there is no denominator
+  // to divide by. A row of 0% would read as ten weeks of failure.
+  const g = goalsFor({});
+  assert.equal(g.trendWeeks, 0);
+  assert.equal(goalNamed(g, 'Weights').trend, null);
+});
+
+test('the goals table carries the rolling met-rate column', () => {
+  const workouts = [...weightsWeek(0, 3), ...weightsWeek(1, 3), ...weightsWeek(2, 1), ...weightsWeek(3, 1)];
+  const stats = summarizeWeek({ ...emptyData(), workouts }, WEEK, { goalsConfig: GOALS_CONFIG });
+  const prior = summarizeWeek(emptyData(), previousWeek(WEEK));
+  const { html, text } = renderWeeklySummary({ stats, priorStats: prior });
+  assert.match(html, /10 wks/);
+  assert.match(html, />50%<\/span><br><span[^>]*>2\/4</);  // Weights: met 2 of 4 logged weeks
+  assert.match(html, /Last column: weeks this goal was met out of the 4 logged weeks/);
+  assert.match(text, /10wk 50% \(2\/4\)/);
+  assert.doesNotMatch(html, /NaN|undefined/);
+  assert.doesNotMatch(text, /NaN|undefined/);
 });
 
 // ─────────────────────────────────────────────────────── stretch board

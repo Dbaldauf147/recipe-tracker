@@ -21,6 +21,7 @@ import { sendMail } from '../lib/mailer.js';
 import { loadHabitLogAdmin } from './_data/habitLogYears.js';
 import {
   lastCompleteWeek, previousWeek, summarizeWeek, isEmptyWeek, renderWeeklySummary, shiftKey,
+  TREND_WEEKS,
 } from '../lib/weeklySummary.js';
 import { WINDOW_DAYS } from '../src/utils/exerciseProgress.js';
 
@@ -93,7 +94,9 @@ async function loadUserWeekData(uid, userData, fromKey, toKey) {
   // trend regresses over the trailing WINDOW_DAYS, and a two-week pull would
   // silently give every exercise too few sessions to judge — reporting nothing
   // wrong rather than reporting nothing known. A few extra days of slack covers
-  // a session logged just outside the window boundary.
+  // a session logged just outside the window boundary. Callers can ask for more
+  // than that via `fromKey` — the goals table's rolling met-rate does — so this
+  // takes whichever of the two reaches back further.
   const workoutsFrom = shiftKey(toKey, -(WINDOW_DAYS + 7));
   const [logSnap, workoutSnap, habitLog] = await Promise.all([
     db.doc(`users/${uid}/data/dailyLog`).get().catch(() => null),
@@ -128,7 +131,14 @@ async function loadUserWeekData(uid, userData, fromKey, toKey) {
 async function buildEmail(uid, userData, todayKey, { force = false } = {}) {
   const week = lastCompleteWeek(todayKey);
   const prior = previousWeek(week);
-  const data = await loadUserWeekData(uid, userData, prior.start, shiftKey(week.end, 1));
+  // The goals table's rolling met-rate scores the trailing TREND_WEEKS weeks,
+  // so the workout pull has to reach back that far too. dailyLog and weightLog
+  // arrive whole and need no widening; workouts are the one range query.
+  // Without this the older weeks come back with no sessions in them, which
+  // reads as a run of missed workout goals rather than as missing data.
+  const trendStart = shiftKey(week.start, -7 * (TREND_WEEKS - 1));
+  const from = trendStart < prior.start ? trendStart : prior.start;
+  const data = await loadUserWeekData(uid, userData, from, shiftKey(week.end, 1));
   // The Week Plan's goal tiles, recomputed for the finished week. Every input
   // is a synced user-doc field; a goal configured only in localStorage on one
   // device can't be seen from here, which is why the tally reads
