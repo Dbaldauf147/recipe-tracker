@@ -30,6 +30,16 @@
    working on a card that has a stage. */
 .card[data-stage] {
   border-color: var(--stage-color);
+  /* 2px, not 1: at a glance down a list a hairline in a mid-tone green reads as
+     "slightly different grey" rather than as a status. Only three sides — the
+     left stays 3px because every card reserves that width for the hover accent,
+     and pulling it down to 2 would both shrink that stripe and shift the
+     content of staged cards against unstaged ones. Going up to 2 narrows the
+     gap between the edges, so the outline reads more even than it did at 1.
+     box-sizing is border-box globally (index.css), so nothing reflows. */
+  border-top-width: 2px;
+  border-right-width: 2px;
+  border-bottom-width: 2px;
 }
 
 .card:hover {

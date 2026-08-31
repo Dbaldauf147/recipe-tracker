@@ -804,6 +804,10 @@
    pill still answers the pointer through its background, shadow and lift. */
 .weekItem[data-stage] {
   border-color: var(--stage-color);
+  /* Matches the recipe cards' 2px. All four sides here — a pill reserves no
+     hover stripe, so it stays perfectly even. box-sizing is border-box
+     globally, so the pill does not change size and the grid does not reflow. */
+  border-width: 2px;
 }
 
 .weekItemContent {
