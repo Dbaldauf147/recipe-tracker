@@ -6,7 +6,7 @@ import { exportToCSV, importFromCSV, exportFullJSON } from '../utils/exportData'
 import { locationToRegion, getSeasonalIngredients, getRecipeSeasonalIngredients } from '../utils/seasonal';
 import { useAuth } from '../contexts/AuthContext';
 import { loadUserData, saveField, loadAppDefaults, saveAppDefault, loadFriends, loadFriendRecipes, getPendingSharedRecipes, shareRecipe, getUsername } from '../utils/firestoreSync';
-import { copyMealImage, loadAdminMealImages, generateMealImage, getCachedMealImage } from '../utils/generateMealImage';
+import { copyMealImage, loadAdminMealImages, generateMealImage, getCachedMealImage, getMealImageSyncReport } from '../utils/generateMealImage';
 import { ALL_TAGS, TAG_CATEGORIES, recipeMatchesTags } from '../utils/ingredientTags';
 import { detectCuisine, getRecipeMinShelfDays } from '../utils/detectCuisine';
 import { WidgetLayout } from './WidgetLayout';
@@ -560,6 +560,25 @@ export function RecipeList({
     const bump = () => setImageCacheVersion(v => v + 1);
     window.addEventListener('meal-images-synced', bump);
     return () => window.removeEventListener('meal-images-synced', bump);
+  }, []);
+  // Say out loud when the photos didn't load. Missing thumbnails otherwise look
+  // identical whether the read was denied, timed out, or simply never ran —
+  // which is why this has been guessed at more than once instead of read off
+  // the screen. Only appears when something is actually wrong.
+  const [imageReport, setImageReport] = useState(null);
+  useEffect(() => {
+    const check = () => setImageReport(getMealImageSyncReport());
+    check();
+    window.addEventListener('meal-images-synced', check);
+    // The failure cases dispatch nothing, so poll briefly after mount to catch
+    // "never ran" and "failed before the first page" as well.
+    const t = setInterval(check, 2000);
+    const stop = setTimeout(() => clearInterval(t), 30000);
+    return () => {
+      window.removeEventListener('meal-images-synced', check);
+      clearInterval(t);
+      clearTimeout(stop);
+    };
   }, []);
   const [weeklyGoals, setWeeklyGoals] = useState(() => {
     try {
@@ -1726,6 +1745,32 @@ export function RecipeList({
       </div>
 
       </div>
+      {/* Photos didn't load — say why, on the page. Shown only when the sync
+          failed or finished with nothing, and only when there are recipes to
+          have photos for, so a healthy account never sees it. */}
+      {imageReport
+        && recipes.length > 0
+        && (imageReport.status === 'failed'
+          || (imageReport.status === 'done' && imageReport.loaded === 0)) && (
+        <div
+          role="status"
+          style={{
+            margin: '0 0 0.75rem',
+            padding: '0.6rem 0.85rem',
+            borderRadius: 8,
+            border: '1px solid #FCD34D',
+            background: '#FEF3C7',
+            color: '#92400E',
+            fontSize: '0.82rem',
+          }}
+        >
+          <strong>Recipe photos didn&apos;t load.</strong>{' '}
+          {imageReport.status === 'failed'
+            ? <>The read failed after {imageReport.loaded} image{imageReport.loaded === 1 ? '' : 's'}: <code>{imageReport.error}</code></>
+            : <>The read finished but returned nothing.</>}
+        </div>
+      )}
+
       {/* 2. Suggested Meals + Discover Recipes row */}
       <div data-widget="suggestedMeals"><div className={styles.suggestDiscoverRow}>
         <div className={styles.suggestBox} role="region" aria-label="Suggested Meals">

@@ -8,6 +8,13 @@ const QUALITY = 0.7; // JPEG compression quality
 // Survives localStorage quota limits (48+ images can exceed 5MB).
 const memoryCache = {};
 
+// What the last sync actually did. Kept so the app can SHOW the answer when
+// images are missing: this has been diagnosed twice from guesswork because the
+// only evidence lived in a console nobody was looking at. Read via
+// getMealImageSyncReport().
+let syncReport = { status: 'idle', loaded: 0, error: null, at: null };
+export function getMealImageSyncReport() { return syncReport; }
+
 /** Save a single meal image to its own Firestore document. */
 async function saveImageToFirestore(uid, recipeId, dataUrl) {
   try {
@@ -47,7 +54,7 @@ const IMAGE_PAGE_SIZE = 10;
  * version threw away every image it had loaded the moment anything went wrong,
  * which turned one bad page into a completely empty gallery.
  */
-async function loadImagesFromFirestore(uid, onBatch) {
+async function loadImagesFromFirestore(uid, onBatch, onError) {
   const images = {};
   try {
     const colRef = collection(db, 'users', uid, 'mealImages');
@@ -74,6 +81,7 @@ async function loadImagesFromFirestore(uid, onBatch) {
       '[mealImage] Firestore load failed after',
       Object.keys(images).length, 'images:', err,
     );
+    onError?.(err);
     return images;
   }
 }
@@ -212,23 +220,35 @@ export async function generateMealImage(recipeId, recipeName, ingredients, uid) 
  * Firestore is the source of truth; memory cache is for fast reads.
  */
 export async function syncMealImages(uid) {
-  if (!uid) return;
+  if (!uid) {
+    syncReport = { status: 'no-user', loaded: 0, error: null, at: Date.now() };
+    return;
+  }
+  syncReport = { status: 'running', loaded: 0, error: null, at: Date.now() };
   try {
     // Fill the cache and repaint as each page lands, rather than after all
     // ~11 MiB has arrived: the first thumbnails show in a moment instead of
     // the whole gallery staying blank until the last image downloads. It also
     // means a failure part-way still leaves you with the images that did load.
+    let loadError = null;
     const remote = await loadImagesFromFirestore(uid, page => {
       for (const [id, url] of Object.entries(page)) memoryCache[id] = url;
+      syncReport = { ...syncReport, loaded: Object.keys(memoryCache).length };
       try { window.dispatchEvent(new Event('meal-images-synced')); } catch { /* SSR / no window */ }
-    });
+    }, err => { loadError = err; });
 
     // Belt and braces — the batches above have already done this.
     for (const [id, url] of Object.entries(remote)) {
       memoryCache[id] = url;
     }
 
-    console.log('[mealImage] synced', Object.keys(remote).length, 'images from Firestore');
+    syncReport = {
+      status: loadError ? 'failed' : 'done',
+      loaded: Object.keys(remote).length,
+      error: loadError ? (loadError.code || loadError.message || String(loadError)) : null,
+      at: Date.now(),
+    };
+    console.log('[mealImage] synced', Object.keys(remote).length, 'images from Firestore', loadError || '');
 
     // Tell render-time consumers (e.g. This Week's Meals thumbnails) that
     // the cache is now populated, so they can re-render. Without this,
@@ -236,6 +256,12 @@ export async function syncMealImages(uid) {
     // would silently keep showing the empty placeholder.
     try { window.dispatchEvent(new Event('meal-images-synced')); } catch { /* SSR / no window */ }
   } catch (err) {
+    syncReport = {
+      status: 'failed',
+      loaded: Object.keys(memoryCache).length,
+      error: err?.code || err?.message || String(err),
+      at: Date.now(),
+    };
     console.error('syncMealImages:', err);
   }
 }
