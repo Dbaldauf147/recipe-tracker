@@ -649,6 +649,81 @@
   background: var(--color-surface-alt);
 }
 
+/* Spot photo gallery. Tiles are a fixed 4:3 so a portrait phone photo and a
+   landscape one sit in the same grid without one of them setting the row
+   height; the picture itself is contained, not cropped, because the point of
+   the turn button is seeing which way up it actually is. */
+.photoGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 0.5rem;
+}
+
+.photoTile {
+  position: relative;
+  margin: 0;
+  aspect-ratio: 4 / 3;
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--color-surface-alt);
+}
+
+.photoTileImg {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+}
+
+.photoCover {
+  position: absolute;
+  left: 4px;
+  bottom: 4px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.6);
+  color: #fff;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.photoTileBtns {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  display: flex;
+  gap: 4px;
+}
+
+.photoTileBtn {
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: none;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  font-size: 0.85rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.photoTileBtn:hover:not(:disabled) {
+  background: rgba(0, 0, 0, 0.8);
+}
+
+.photoTileBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.hintInline {
+  font-weight: 400;
+  color: var(--color-text-muted);
+}
+
 .tagWrap {
   display: flex;
   flex-direction: column;
@@ -2128,4 +2203,50 @@
 }
 .tryNextCellAge {
   color: var(--color-text-muted);
+}
+
+/* ---- Try Next, bucket subtabs ---- */
+/* Underlined tabs rather than the page's pill filters: these sit INSIDE a view
+   that already has a pill row (Table / Cards), and two identical pill rows
+   stacked read as one control with eleven options. */
+.tryNextTabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  border-bottom: 1px solid var(--color-border);
+  margin-bottom: 0.6rem;
+}
+.tryNextTab {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: none;
+  border-bottom: 2px solid transparent;
+  background: none;
+  padding: 0.4rem 0.7rem;
+  margin-bottom: -1px;
+  font-family: inherit;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.tryNextTab:hover { color: var(--color-text); }
+.tryNextTabActive {
+  color: var(--color-accent);
+  border-bottom-color: var(--color-accent);
+}
+.tryNextTabCount {
+  font-size: 0.7rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text-muted);
+  background: var(--color-surface-alt, #f1f5f9);
+  border-radius: var(--radius-full);
+  padding: 0 6px;
+}
+.tryNextTabActive .tryNextTabCount {
+  color: var(--color-accent);
+  background: var(--color-accent-light, #eef4ff);
 }

@@ -17,10 +17,10 @@ import {
 } from '../utils/restaurantImport';
 import { downloadRestaurantsCsv } from '../utils/restaurantExport';
 import { locationsFromGeocode, mergeLocations } from '../utils/spotLocations';
-import { saveSpotForOwner, saveEatingOutOrder, subscribeSpotComments, addSpotComment, deleteSpotComment, subscribeSpotRatings, subscribeEatingOutRatings, setEatingOutRating, loadSpotImage, saveSpotImage, deleteSpotImage } from '../utils/firestoreSync';
+import { saveSpotForOwner, saveEatingOutOrder, subscribeSpotComments, addSpotComment, deleteSpotComment, subscribeSpotRatings, subscribeEatingOutRatings, setEatingOutRating, loadSpotImage, spotPhotoDocId, loadSpotImageAt, saveSpotImageAt, deleteSpotImageAt } from '../utils/firestoreSync';
 // Canvas resize helper shared with the exercise-photo uploader — same ≤800px
 // JPEG budget, so a spot photo can't push its doc near Firestore's 1 MB cap.
-import { compressImage } from '../utils/exerciseImages';
+import { compressImage, rotateDataUrl } from '../utils/exerciseImages';
 import { EatingOutFriendsPanel } from './EatingOutFriendsPanel';
 import styles from './EatingOutPage.module.css';
 
@@ -720,22 +720,87 @@ function useSpotPhoto(ownerUid, spotId) {
   return [entry.key === key ? entry.url : null, setPhoto];
 }
 
-// Photo block in the restaurant editor: the current picture plus upload /
-// replace / remove. The file is compressed through the same canvas helper the
-// exercise photos use (≤800px JPEG) so the doc stays far under Firestore's
-// 1 MB cap. Owner-only — Firestore refuses cross-user writes.
-function SpotPhotoEditor({ ownerUid, spotId, fallbackUrl }) {
-  const [photo, setPhoto] = useSpotPhoto(ownerUid, spotId);
+/** Photos one spot can hold. A ceiling on the gallery, not on the doc size —
+ *  each picture is its own ≤800px JPEG document. */
+const MAX_SPOT_PHOTOS = 6;
+
+/**
+ * The ordered photo doc ids for a spot.
+ *
+ * `photos` on the record is the index. Rows saved before this existed have no
+ * such field and exactly one picture, under the doc id that IS the spot id —
+ * so the fallback isn't a migration, it's the same answer written down.
+ */
+function spotPhotoIds(spot) {
+  const listed = Array.isArray(spot?.photos) ? spot.photos.filter(id => typeof id === 'string' && id) : null;
+  if (listed && listed.length) return listed;
+  return spot?.id ? [String(spot.id)] : [];
+}
+
+/**
+ * Photo block in the restaurant editor: a gallery of pictures, each of which
+ * can be turned a quarter-turn or thrown away, plus upload.
+ *
+ * The COVER is whichever photo sits at doc id `{spotId}` — the id the single
+ * photo has always used — so the list card, the map callout and every older
+ * build keep finding a picture without knowing this gallery exists. Deleting
+ * the cover therefore doesn't just drop a document: the next photo is copied
+ * INTO the cover id and its own doc removed, so the invariant survives.
+ *
+ * `onIdsChange` hands the new index up to the form, which writes it to the spot
+ * on save. Photos themselves are written immediately — they're big, and a
+ * half-uploaded gallery that vanishes on Cancel would be worse than one that
+ * persists — so a Cancel after adding a picture keeps the picture and loses
+ * only its place in the order, which the fallback above then recovers.
+ */
+function SpotPhotoEditor({ ownerUid, spotId, fallbackUrl, ids, onIdsChange }) {
+  // [{ id, url }] in display order, cover first.
+  const [shots, setShots] = useState([]);
   const [busy, setBusy] = useState(false);
   const inputRef = useRef(null);
+  const key = ownerUid && spotId ? `${ownerUid}__${spotId}` : '';
 
-  const handleFile = async (file) => {
-    if (!file) return;
+  useEffect(() => {
+    if (!key) return undefined;
+    let cancelled = false;
+    Promise.all(ids.map(id => loadSpotImageAt(ownerUid, id).then(url => ({ id, url }))))
+      .then(loaded => { if (!cancelled) setShots(loaded.filter(s => s.url)); });
+    return () => { cancelled = true; };
+    // `ids` is deliberately not a dependency: this loads what the spot had when
+    // the modal opened, and every later change is applied to `shots` in place.
+    // Re-running on our own writes would refetch every picture on each edit.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key, ownerUid]);
+
+  /** The lowest doc id not currently taken — reuses the gaps deletes leave. */
+  const nextFreeId = (taken) => {
+    for (let i = 0; i < MAX_SPOT_PHOTOS; i++) {
+      const id = spotPhotoDocId(spotId, i);
+      if (!taken.has(id)) return id;
+    }
+    return null;
+  };
+
+  const handleFiles = async (fileList) => {
+    const files = [...(fileList || [])];
+    if (!files.length) return;
     setBusy(true);
     try {
-      const dataUrl = await compressImage(file);
-      await saveSpotImage(ownerUid, spotId, dataUrl);
-      setPhoto(dataUrl);
+      let current = shots;
+      const room = MAX_SPOT_PHOTOS - current.length;
+      if (files.length > room) {
+        alert(`Room for ${room} more photo${room === 1 ? '' : 's'} on this place — the rest were skipped.`);
+      }
+      for (const file of files.slice(0, Math.max(0, room))) {
+        const taken = new Set(current.map(s => s.id));
+        const id = nextFreeId(taken);
+        if (!id) break;
+        const dataUrl = await compressImage(file);
+        await saveSpotImageAt(ownerUid, id, dataUrl);
+        current = [...current, { id, url: dataUrl }];
+      }
+      setShots(current);
+      onIdsChange(current.map(s => s.id));
     } catch (err) {
       alert(`Couldn't save that photo — ${err?.message || 'try again'}`);
     } finally {
@@ -744,12 +809,40 @@ function SpotPhotoEditor({ ownerUid, spotId, fallbackUrl }) {
     }
   };
 
-  const handleRemove = async () => {
-    if (!window.confirm('Remove the photo you uploaded for this place?')) return;
+  const handleRotate = async (id) => {
+    const shot = shots.find(s => s.id === id);
+    if (!shot) return;
     setBusy(true);
     try {
-      await deleteSpotImage(ownerUid, spotId);
-      setPhoto(null);
+      const turned = await rotateDataUrl(shot.url, 1);
+      await saveSpotImageAt(ownerUid, id, turned);
+      setShots(prev => prev.map(s => (s.id === id ? { ...s, url: turned } : s)));
+    } catch (err) {
+      alert(`Couldn't turn that photo — ${err?.message || 'try again'}`);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleRemove = async (id) => {
+    if (!window.confirm('Remove this photo?')) return;
+    setBusy(true);
+    try {
+      const remaining = shots.filter(s => s.id !== id);
+      const coverId = spotPhotoDocId(spotId, 0);
+      if (id === coverId && remaining.length > 0) {
+        // Promote: the next picture moves into the cover id, and its old doc goes.
+        const promoted = remaining[0];
+        await saveSpotImageAt(ownerUid, coverId, promoted.url);
+        await deleteSpotImageAt(ownerUid, promoted.id);
+        const next = [{ id: coverId, url: promoted.url }, ...remaining.slice(1)];
+        setShots(next);
+        onIdsChange(next.map(s => s.id));
+      } else {
+        await deleteSpotImageAt(ownerUid, id);
+        setShots(remaining);
+        onIdsChange(remaining.map(s => s.id));
+      }
     } catch (err) {
       alert(`Couldn't remove it — ${err?.message || 'try again'}`);
     } finally {
@@ -757,32 +850,66 @@ function SpotPhotoEditor({ ownerUid, spotId, fallbackUrl }) {
     }
   };
 
-  const shown = photo || fallbackUrl || '';
+  const full = shots.length >= MAX_SPOT_PHOTOS;
   return (
     <>
-      <label className={styles.fieldLabel}>Photo</label>
-      {shown
-        ? <img src={shown} alt="" className={styles.previewImg} />
-        : <p className={styles.hintText}>No photo yet.</p>}
-      {photo && fallbackUrl && (
-        <p className={styles.hintText}>Your photo is showing instead of the one pulled from the link.</p>
+      <label className={styles.fieldLabel}>
+        Photos {shots.length > 0 && <span className={styles.hintInline}>{shots.length} of {MAX_SPOT_PHOTOS}</span>}
+      </label>
+      {shots.length === 0 && !fallbackUrl && <p className={styles.hintText}>No photos yet.</p>}
+      {shots.length === 0 && fallbackUrl && (
+        <img src={fallbackUrl} alt="" className={styles.previewImg} />
+      )}
+      {shots.length > 0 && (
+        <div className={styles.photoGrid}>
+          {shots.map((s, i) => (
+            <figure key={s.id} className={styles.photoTile}>
+              <img src={s.url} alt="" className={styles.photoTileImg} />
+              {i === 0 && <figcaption className={styles.photoCover}>Cover</figcaption>}
+              <div className={styles.photoTileBtns}>
+                <button
+                  type="button"
+                  className={styles.photoTileBtn}
+                  disabled={busy}
+                  title="Turn a quarter-turn clockwise"
+                  onClick={() => handleRotate(s.id)}
+                >
+                  ⟳
+                </button>
+                <button
+                  type="button"
+                  className={styles.photoTileBtn}
+                  disabled={busy}
+                  title="Remove this photo"
+                  onClick={() => handleRemove(s.id)}
+                >
+                  ✕
+                </button>
+              </div>
+            </figure>
+          ))}
+        </div>
+      )}
+      {shots.length > 0 && fallbackUrl && (
+        <p className={styles.hintText}>Your photos are showing instead of the one pulled from the link.</p>
       )}
       <input
         ref={inputRef}
         type="file"
         accept="image/*"
+        multiple
         style={{ display: 'none' }}
-        onChange={e => handleFile(e.target.files?.[0])}
+        onChange={e => handleFiles(e.target.files)}
       />
       <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-        <button type="button" className={styles.fetchBtn} disabled={busy} onClick={() => inputRef.current?.click()}>
-          {busy ? 'Saving…' : photo ? 'Replace photo' : 'Upload photo'}
+        <button
+          type="button"
+          className={styles.fetchBtn}
+          disabled={busy || full}
+          onClick={() => inputRef.current?.click()}
+        >
+          {busy ? 'Saving…' : full ? `Max ${MAX_SPOT_PHOTOS} photos` : shots.length ? 'Add photos' : 'Upload photos'}
         </button>
-        {photo && (
-          <button type="button" className={styles.fetchBtn} disabled={busy} onClick={handleRemove}>
-            Remove
-          </button>
-        )}
       </div>
     </>
   );
@@ -1548,6 +1675,9 @@ function EditModal({ initial, onSave, onClose, onDelete, cuisineSuggestions, loc
   const [nextSpot, setNextSpot] = useState(!!initial.nextSpot);
   const [takenJoanne, setTakenJoanne] = useState(!!initial.takenJoanne);
   const [buckets, setBuckets] = useState(() => bucketsOf(initial));
+  // Photo doc ids, in display order. The pictures are written as they're added;
+  // this index rides along with the rest of the form and lands on save.
+  const [photoIds, setPhotoIds] = useState(() => spotPhotoIds(initial));
   const [frequency, setFrequency] = useState(initial.frequency || '');
   const [health, setHealth] = useState(() => healthOf(initial));
   const [dish, setDish] = useState(initial.dish || '');
@@ -1676,6 +1806,10 @@ function EditModal({ initial, onSave, onClose, onDelete, cuisineSuggestions, loc
       // Keep the legacy single field in sync so consumers that still read it
       // (CSV export, older mobile builds) get the primary bucket.
       mealType: buckets[0] || undefined,
+      // The gallery's index. A single photo is left implicit — it lives at the
+      // doc id that is the spot id, which is exactly what spotPhotoIds falls
+      // back to, so the field only appears once there's more than one.
+      photos: photoIds.length > 1 ? photoIds : undefined,
       frequency: frequency || undefined,
       health: health || undefined,
       dish: dish.trim() || undefined,
@@ -1720,7 +1854,13 @@ function EditModal({ initial, onSave, onClose, onDelete, cuisineSuggestions, loc
               the link preview until it's saved. Written under the OWNER's uid,
               so a photo added to a shared spot lands on their list. */}
           {initial.id && user?.uid ? (
-            <SpotPhotoEditor ownerUid={initial._ownerUid || user.uid} spotId={initial.id} fallbackUrl={imageUrl} />
+            <SpotPhotoEditor
+              ownerUid={initial._ownerUid || user.uid}
+              spotId={initial.id}
+              fallbackUrl={imageUrl}
+              ids={photoIds}
+              onIdsChange={setPhotoIds}
+            />
           ) : imageUrl ? (
             <>
               <label className={styles.fieldLabel}>Preview</label>
@@ -2497,7 +2637,10 @@ function RankingRow({ row, place, onSelect }) {
  * measured against every visited spot, so filtering the list down to, say, one
  * neighbourhood doesn't make it look like you have never eaten Thai.
  */
-function TryNextView({ items, allItems, onSelect }) {
+function TryNextView({
+  items, allItems, onSelect,
+  buckets = [], activeBucket = null, onBucketChange = () => {}, bucketCounts = {},
+}) {
   const [expanded, setExpanded] = useState(() => new Set());
   // Table by default: the interesting read here is a comparison down a column
   // ("what have I gone longest without"), which a grid of cards makes you
@@ -2514,14 +2657,10 @@ function TryNextView({ items, allItems, onSelect }) {
     return next;
   });
 
-  if (groups.length === 0 && noCuisine.length === 0) {
-    return (
-      <p className={styles.rankingEmpty}>
-        Nothing on the want-to-try list yet. Add a place and set its status to
-        “Want to try”, and it will show up here under its cuisine.
-      </p>
-    );
-  }
+  // Deliberately NOT an early return: the bucket subtabs have to stay on screen
+  // when a tab turns out to be empty, or picking one would strand you with no
+  // way back to the others.
+  const isEmpty = groups.length === 0 && noCuisine.length === 0;
 
   const row = r => (
     <li key={`${r._ownerUid}:${r.id}`}>
@@ -2562,6 +2701,49 @@ function TryNextView({ items, allItems, onSelect }) {
         Your want-to-try list by cuisine, the ones you have gone longest without
         first. “Never tried” means no visited spot in that cuisine carries a date.
       </p>
+      {/* Bucket subtabs. These ARE the page's bucket filter, not a second one:
+          a local copy would sit alongside the sidebar's bucket chips with no
+          answer to which of the two wins. Switching a tab moves the same state,
+          so the chips, the Export count and this table never disagree. */}
+      <div className={styles.tryNextTabs} role="tablist" aria-label="Filter by bucket">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={!activeBucket}
+          className={`${styles.tryNextTab} ${!activeBucket ? styles.tryNextTabActive : ''}`}
+          onClick={() => onBucketChange(null)}
+        >
+          All <span className={styles.tryNextTabCount}>{bucketCounts.__all__ ?? 0}</span>
+        </button>
+        {buckets.map(b => (
+          <button
+            key={b.key}
+            type="button"
+            role="tab"
+            aria-selected={activeBucket === b.key}
+            className={`${styles.tryNextTab} ${activeBucket === b.key ? styles.tryNextTabActive : ''}`}
+            onClick={() => onBucketChange(activeBucket === b.key ? null : b.key)}
+            title={`${b.label} — ${bucketCounts[b.key] || 0} on the want-to-try list`}
+          >
+            {b.icon} {b.label} <span className={styles.tryNextTabCount}>{bucketCounts[b.key] || 0}</span>
+          </button>
+        ))}
+        {/* Only offered when it would hold something — an always-present tab
+            reading 0 is a tab you learn to skip. */}
+        {(bucketCounts.unsorted || 0) > 0 && (
+          <button
+            type="button"
+            role="tab"
+            aria-selected={activeBucket === 'unsorted'}
+            className={`${styles.tryNextTab} ${activeBucket === 'unsorted' ? styles.tryNextTabActive : ''}`}
+            onClick={() => onBucketChange(activeBucket === 'unsorted' ? null : 'unsorted')}
+            title="Want-to-try spots not yet in any bucket"
+          >
+            Unsorted <span className={styles.tryNextTabCount}>{bucketCounts.unsorted}</span>
+          </button>
+        )}
+      </div>
+
       <div className={styles.filterRow} style={{ alignSelf: 'flex-start' }}>
         <button
           type="button"
@@ -2579,7 +2761,13 @@ function TryNextView({ items, allItems, onSelect }) {
         </button>
       </div>
 
-      {layout === 'table' ? (
+      {isEmpty ? (
+        <p className={styles.rankingEmpty}>
+          {activeBucket
+            ? 'Nothing on the want-to-try list in this bucket. Pick another tab, or put a spot in this bucket from its popup.'
+            : 'Nothing on the want-to-try list yet. Add a place and set its status to “Want to try”, and it will show up here under its cuisine.'}
+        </p>
+      ) : layout === 'table' ? (
         <div className={styles.tableScroll}>
           <table className={styles.dataTable} style={{ width: '100%' }}>
             <colgroup>
@@ -3949,13 +4137,13 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
    * worth asking. Shared with `visible` so the two can't drift — the number in
    * the header always describes the list on the page.
    */
-  const passesFilters = useCallback((r, applyStatus = true) => {
+  const passesFilters = useCallback((r, { status = true, bucket = true } = {}) => {
     const q = search.trim().toLowerCase();
     if (!showRetired && r.frequency === 'retired') return false;
-    if (applyStatus && filter !== 'all' && r.status !== filter) return false;
+    if (status && filter !== 'all' && r.status !== filter) return false;
     if (activeCuisine && !(r.cuisines || []).some(c => c.toLowerCase() === activeCuisine.toLowerCase())) return false;
     if (activeLocation && !(r.locations || []).some(l => l.toLowerCase() === activeLocation.toLowerCase())) return false;
-    if (activeBucket && !restaurantMatchesBucket(r, activeBucket)) return false;
+    if (bucket && activeBucket && !restaurantMatchesBucket(r, activeBucket)) return false;
     if (activeHealth && healthOf(r) !== activeHealth) return false;
     if (activeCategory && !(r.categories || []).some(c => c.toLowerCase() === activeCategory.toLowerCase())) return false;
     if (q) {
@@ -3977,11 +4165,32 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
     let total = 0;
     let tried = 0;
     for (const r of restaurants) {
-      if (!passesFilters(r, false)) continue;
+      if (!passesFilters(r, { status: false })) continue;
       total++;
       if (hasBeenVisited(r)) tried++;
     }
     return { total, tried, pct: total ? Math.round((tried / total) * 100) : null };
+  }, [restaurants, passesFilters]);
+
+  /**
+   * Want-to-try counts per bucket, for the Try Next subtabs.
+   *
+   * Counted with the bucket filter OFF, so every tab can show what it WOULD
+   * contain — a count measured through the active bucket would read zero on
+   * every tab but the open one, which is exactly the number you don't need.
+   * Every other filter still applies, so the tabs describe the list on screen.
+   */
+  const tryNextBucketCounts = useMemo(() => {
+    const counts = { __all__: 0, unsorted: 0 };
+    for (const r of restaurants) {
+      if (r.status !== 'want-to-try') continue;
+      if (!passesFilters(r, { bucket: false })) continue;
+      counts.__all__++;
+      const bs = bucketsOf(r);
+      if (bs.length === 0) counts.unsorted++;
+      for (const b of bs) counts[b] = (counts[b] || 0) + 1;
+    }
+    return counts;
   }, [restaurants, passesFilters]);
 
   const visible = useMemo(() => {
@@ -4891,7 +5100,15 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
           ) : viewMode === 'map' ? (
             <RestaurantMapView items={visible} onSelect={openSpot} />
           ) : viewMode === 'try-next' ? (
-            <TryNextView items={visible} allItems={restaurants} onSelect={openSpot} />
+            <TryNextView
+              items={visible}
+              allItems={restaurants}
+              onSelect={openSpot}
+              buckets={BUCKETS}
+              activeBucket={activeBucket}
+              onBucketChange={setActiveBucket}
+              bucketCounts={tryNextBucketCounts}
+            />
           ) : viewMode === 'rankings' ? (
             <RestaurantRankings
               items={visible}
