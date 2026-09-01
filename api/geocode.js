@@ -15,7 +15,11 @@ export default async function handler(req, res) {
   }
 
   try {
-    const url = `${NOMINATIM_URL}?format=json&limit=1&q=${encodeURIComponent(q)}`;
+    // addressdetails=1 adds the structured `address` object (neighbourhood,
+    // quarter, suburb, city…) that the caller needs to file a spot under a
+    // neighborhood. display_name alone is one string with no reliable way to
+    // tell the borough from the street.
+    const url = `${NOMINATIM_URL}?format=json&limit=1&addressdetails=1&q=${encodeURIComponent(q)}`;
     const response = await fetch(url, {
       headers: {
         // Identify the requester per Nominatim's usage policy.
@@ -43,6 +47,11 @@ export default async function handler(req, res) {
       lat,
       lng,
       displayName: top.display_name || q,
+      // Passed through as-is rather than reduced to one "neighborhood" here:
+      // which field deserves that name is a local convention, and the client is
+      // the side that knows the user's own list of locations to match against
+      // (see src/utils/spotLocations.js). Absent on results with no detail.
+      address: (top.address && typeof top.address === 'object') ? top.address : undefined,
     });
   } catch (err) {
     return res.status(502).json({ error: err.message || 'Geocoder failed' });
