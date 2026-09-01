@@ -64,6 +64,117 @@ const DEMOTED_FROM_AUTOMATIC_STATUS = 'Most Days';
 // "review") rather than against a fixed list: "Monthly Habit Review", "Review
 // habits 📋" and "Habit review" should all behave the same, and an exact-match
 // list silently does nothing when the name is one word off.
+/**
+ * Sync status as a chip in the header row, not a strip above the page.
+ *
+ * It says nothing about connectivity — the page cannot see that — only whether
+ * every edit made in this browser has been confirmed by the server.
+ *
+ * The point of the chip is that it NEVER MOVES ANYTHING. It renders in all four
+ * states including "everything is synced", at a fixed width, inside a row that
+ * already exists. The strip it replaces was mounted and unmounted as edits
+ * queued and flushed, which stepped the whole page down and back up under the
+ * pointer — the one thing a background status indicator must not do.
+ *
+ * Detail and actions move into a popover, so the resting state can stay small
+ * enough to ignore while the failure state is still one click from a fix.
+ *
+ * ⚠ The phone has the equivalent strip (habitAlertStore) and is untouched — the
+ * jump this fixes is a web layout problem, not a shared one.
+ */
+function SyncChip({ state, onFlush, onDiscard }) {
+  const [open, setOpen] = useState(false);
+  const busy = state.flushing;
+  const failed = state.failed > 0;
+  const pending = state.pending > 0;
+
+  const look = failed
+    ? { icon: '⚠', text: String(state.failed), color: '#b91c1c', bg: '#fef2f2', border: '#fecaca' }
+    : busy
+      ? { icon: '⏳', text: '', color: '#b45309', bg: '#fffbeb', border: '#fde68a' }
+      : pending
+        ? { icon: '☁', text: String(state.pending), color: '#b45309', bg: '#fffbeb', border: '#fde68a' }
+        : { icon: '✓', text: '', color: '#64748b', bg: 'transparent', border: 'var(--color-border, #e2e8f0)' };
+
+  const summary = failed
+    ? `${state.failed} change${state.failed === 1 ? '' : 's'} couldn’t be saved`
+    : busy
+      ? 'Syncing…'
+      : pending
+        ? `${state.pending} change${state.pending === 1 ? '' : 's'} saved in this browser, not synced yet`
+        : `All changes synced${syncRelTime(state.syncedAt) ? ` · ${syncRelTime(state.syncedAt)}` : ''}`;
+
+  return (
+    <span style={{ position: 'relative', flexShrink: 0 }}>
+      <button
+        type="button"
+        onClick={() => setOpen(o => !o)}
+        title={summary}
+        aria-label={`Sync status: ${summary}`}
+        aria-expanded={open}
+        style={{
+          // A fixed minimum width so the chip does not change size as the
+          // number of queued edits changes — that would nudge the buttons
+          // beside it, which is the same bug one axis over.
+          minWidth: 40, height: 28, padding: '0 8px',
+          display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 4,
+          borderRadius: 999, cursor: 'pointer', fontFamily: 'inherit',
+          fontSize: '0.78rem', fontWeight: 700, lineHeight: 1,
+          color: look.color, background: look.bg, border: `1px solid ${look.border}`,
+        }}
+      >
+        <span aria-hidden="true">{look.icon}</span>
+        {look.text && <span style={{ fontVariantNumeric: 'tabular-nums' }}>{look.text}</span>}
+      </button>
+
+      {open && (
+        <>
+          {/* Full-screen catcher so a click anywhere dismisses, without the
+              popover itself needing to know what it is sitting in front of. */}
+          <div
+            onClick={() => setOpen(false)}
+            style={{ position: 'fixed', inset: 0, zIndex: 40 }}
+          />
+          <div
+            role="dialog"
+            aria-label="Sync status"
+            style={{
+              position: 'absolute', top: 'calc(100% + 6px)', right: 0, zIndex: 41,
+              width: 260, padding: '0.7rem 0.8rem', textAlign: 'left',
+              background: 'var(--color-surface, #fff)',
+              border: '1px solid var(--color-border, #e2e8f0)', borderRadius: 10,
+              boxShadow: '0 10px 30px rgba(0,0,0,0.14)',
+            }}
+          >
+            <div style={{ fontSize: '0.82rem', fontWeight: 600, color: 'var(--color-text)', lineHeight: 1.45 }}>
+              {summary}
+            </div>
+            <p style={{ margin: '0.35rem 0 0', fontSize: '0.72rem', lineHeight: 1.45, color: 'var(--color-text-muted, #64748b)' }}>
+              Everything you log is saved in this browser first, then pushed. Nothing is lost while this is counting.
+            </p>
+            {(pending || failed) && (
+              <div style={{ display: 'flex', gap: '0.4rem', marginTop: '0.6rem', flexWrap: 'wrap' }}>
+                {!busy && pending && (
+                  <button onClick={() => { onFlush(); setOpen(false); }} style={ghostBtn}>Sync now</button>
+                )}
+                {failed && (
+                  <button
+                    onClick={() => { onDiscard(); setOpen(false); }}
+                    title="Stop retrying these and forget them"
+                    style={ghostBtn}
+                  >
+                    Discard {state.failed}
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+        </>
+      )}
+    </span>
+  );
+}
+
 function isReviewHabit(h) {
   const name = (h?.name || '').trim().toLowerCase();
   if (!name) return false;
@@ -2019,6 +2130,11 @@ export function HabitsPage({ onBack, user }) {
         </button>
         <button onClick={() => setImportOpen(true)} style={ghostBtn}>Paste from sheet</button>
         <button onClick={addHabit} style={primaryBtn}>+ Add habit</button>
+        <SyncChip
+          state={syncState}
+          onFlush={() => flushHabitQueue(user?.uid)}
+          onDiscard={() => { discardFailed(); setSyncState(readSyncState()); }}
+        />
       </div>
 
       {activePto && (
@@ -2041,44 +2157,11 @@ export function HabitsPage({ onBack, user }) {
         Cue → Craving → Response → Reward. The cue is about <em>noticing</em> the reward; the craving is about <em>wanting</em> it.
       </p>
 
-      {/* Offline sync strip. Says nothing about connectivity — the page can't
-          see it — only whether every edit made in this browser has been
-          confirmed by the server. Mirrors the phone's strip. */}
-      {(syncState.pending > 0 || syncState.failed > 0 || syncState.flushing) ? (
-        <div
-          style={{
-            display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
-            margin: '0 0 0.85rem', padding: '0.5rem 0.75rem',
-            border: '1px solid #fde68a', borderRadius: 8, background: '#fffbeb',
-            fontSize: '0.8rem', fontWeight: 600, color: '#b45309',
-          }}
-        >
-          <span aria-hidden="true">{syncState.flushing ? '⏳' : '☁️'}</span>
-          <span style={{ flex: 1, minWidth: 0 }}>
-            {syncState.flushing
-              ? 'Syncing…'
-              : syncState.pending > 0
-                ? `${syncState.pending} change${syncState.pending === 1 ? '' : 's'} saved in this browser, not synced yet`
-                : `${syncState.failed} change${syncState.failed === 1 ? '' : 's'} couldn’t be saved`}
-          </span>
-          {!syncState.flushing && syncState.pending > 0 && (
-            <button onClick={() => flushHabitQueue(user?.uid)} style={ghostBtn}>Sync now</button>
-          )}
-          {syncState.failed > 0 && (
-            <button
-              onClick={() => { discardFailed(); setSyncState(readSyncState()); }}
-              title="Stop retrying these and forget them"
-              style={ghostBtn}
-            >
-              Discard {syncState.failed}
-            </button>
-          )}
-        </div>
-      ) : syncState.syncedAt ? (
-        <div style={{ margin: '0 0 0.75rem', fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>
-          ✓ All changes synced{syncRelTime(syncState.syncedAt) ? ` · ${syncRelTime(syncState.syncedAt)}` : ''}
-        </div>
-      ) : null}
+      {/* The sync status used to live here, as a full-width strip that appeared
+          and vanished as edits queued and flushed — so the whole page stepped
+          down and back up while you were reading it. It is now a fixed-size
+          chip in the header row (see SyncChip), which is always rendered and
+          therefore can never move anything. */}
 
       {/* Yesterday's gaps. Deliberately a DIFFERENT warning from the red
           current-period badges — orange, past-tense, dismissible, and above the
