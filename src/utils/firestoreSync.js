@@ -2298,6 +2298,47 @@ export async function deleteSpotImage(uid, spotId) {
   await deleteDoc(doc(db, 'users', uid, 'eatingOutImages', spotId));
 }
 
+/**
+ * Extra photos for a spot beyond the first.
+ *
+ * A spot's photos live in the same `eatingOutImages` collection, one document
+ * each: the COVER keeps the doc id `{spotId}` it always had — so every older
+ * build, the list card and the map callout go on finding it with loadSpotImage
+ * — and the rest are `{spotId}__2`, `{spotId}__3`, … The ordered list of ids is
+ * stored on the SPOT record (`photos`), not discovered by querying, because the
+ * rule for this collection grants `get` but not `list` to someone you shared
+ * the list with: a friend can fetch a photo it can name, and the spot they can
+ * already read is what names them.
+ */
+export function spotPhotoDocId(spotId, index) {
+  return index <= 0 ? String(spotId) : `${spotId}__${index + 1}`;
+}
+
+/** One photo document, by its id. */
+export async function loadSpotImageAt(ownerUid, docId) {
+  if (!ownerUid || !docId) return null;
+  try {
+    const snap = await getDoc(doc(db, 'users', ownerUid, 'eatingOutImages', docId));
+    if (!snap.exists()) return null;
+    const url = snap.data()?.dataUrl;
+    return typeof url === 'string' && url ? url : null;
+  } catch {
+    return null; // no access / offline — just show no photo
+  }
+}
+
+/** Save (or replace) one photo document. `dataUrl` must already be compressed. */
+export async function saveSpotImageAt(uid, docId, dataUrl) {
+  if (!uid || !docId || !dataUrl) return;
+  await setDoc(doc(db, 'users', uid, 'eatingOutImages', docId), { dataUrl }, { merge: true });
+}
+
+/** Delete one photo document. */
+export async function deleteSpotImageAt(uid, docId) {
+  if (!uid || !docId) return;
+  await deleteDoc(doc(db, 'users', uid, 'eatingOutImages', docId));
+}
+
 function ratingDocId(ownerUid, spotId, authorUid) {
   return `${ownerUid}__${spotId}__${authorUid}`;
 }
