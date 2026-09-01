@@ -2037,3 +2037,44 @@
   font-size: 0.85em;
   cursor: help;
 }
+
+/* ---- Try Next (want-to-try, by cuisine) ---- */
+/* Reuses the Rankings group/list/row classes so the two views read as siblings;
+   only the pieces Rankings has no equivalent for are defined here. */
+.tryNextIntro {
+  margin: 0 0 0.25rem;
+  font-size: 0.8rem;
+  line-height: 1.5;
+  color: var(--color-text-muted);
+  max-width: 62ch;
+}
+/* The pinned Next Spot, called out inside its cuisine. */
+.tryNextPin {
+  flex-shrink: 0;
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: #b45309;
+  background: #fef3c7;
+  border: 1px solid #fcd34d;
+  border-radius: var(--radius-full);
+  padding: 1px 7px;
+  white-space: nowrap;
+}
+/* "never tried" earns emphasis over a plain date — it's the strongest answer
+   this view has to the question it is asking. */
+.tryNextNever {
+  color: var(--color-accent);
+  font-weight: 700;
+}
+.tryNextMore {
+  margin-top: 2px;
+  border: none;
+  background: none;
+  padding: 2px 0;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 0.74rem;
+  font-weight: 600;
+  color: var(--color-text-muted);
+}
+.tryNextMore:hover { color: var(--color-accent); }

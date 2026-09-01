@@ -16,6 +16,7 @@ import {
   IMPORT_FIELDS,
 } from '../utils/restaurantImport';
 import { downloadRestaurantsCsv } from '../utils/restaurantExport';
+import { locationsFromGeocode, mergeLocations } from '../utils/spotLocations';
 import { saveSpotForOwner, saveEatingOutOrder, subscribeSpotComments, addSpotComment, deleteSpotComment, subscribeSpotRatings, subscribeEatingOutRatings, setEatingOutRating, loadSpotImage, saveSpotImage, deleteSpotImage } from '../utils/firestoreSync';
 // Canvas resize helper shared with the exercise-photo uploader — same ≤800px
 // JPEG budget, so a spot photo can't push its doc near Firestore's 1 MB cap.
@@ -91,6 +92,7 @@ export function isNextSpot(r) {
 const DEFAULT_BUCKETS = [
   { key: 'breakfast', label: 'Breakfast', icon: '🍳' },
   { key: 'lunch-dinner', label: 'Lunch / Dinner', icon: '🍽️' },
+  { key: 'dessert', label: 'Dessert', icon: '🍰' },
   { key: 'drinking', label: 'Drinking', icon: '🍸' },
   { key: 'coffee', label: 'Coffee', icon: '☕' },
   { key: 'going-out', label: 'Going Out', icon: '🎉' },
@@ -892,6 +894,7 @@ const DEFAULT_BUCKET_RATING_CATEGORIES = {
     ...SERVICE_ATMOSPHERE_PRICE,
   ],
   'lunch-dinner': [{ key: 'food', label: 'Food' }, ...SERVICE_ATMOSPHERE_PRICE],
+  dessert: [{ key: 'food', label: 'Dessert' }, ...SERVICE_ATMOSPHERE_PRICE],
   drinking: [{ key: 'food', label: 'Drinks' }, ...SERVICE_ATMOSPHERE_PRICE],
   coffee: [{ key: 'food', label: 'Coffee' }, ...SERVICE_ATMOSPHERE_PRICE],
   // Music gets its own key rather than relabelling `food`: on a club, an old
@@ -1127,6 +1130,119 @@ function rankSpotsByCuisine(spots, ratingsBySpot, metric, topN = CUISINE_TOP_N) 
   ));
   unratedCuisines.sort((a, b) => a.localeCompare(b));
   return { groups, unratedCuisines, noCuisine };
+}
+
+// ── Try Next, by cuisine ─────────────────────────────────────────────────────
+
+/** How many spots each cuisine shows before collapsing into a "+N more" line. */
+const TRY_NEXT_TOP_N = 3;
+
+/**
+ * A cuisine name that is really a BUCKET key that leaked into `cuisines`.
+ *
+ * Buckets used to be a single `mealType` field and a lot of older rows carry
+ * their bucket in the cuisine list as well — "lunch-dinner" is on 95 want-to-try
+ * spots here and "drinking" on 50, which is more than every real cuisine put
+ * together. Left in, those two would head the list forever and bury the actual
+ * answer, so they are dropped from the grouping only. Nothing is rewritten:
+ * this is a display filter over data that other surfaces still read.
+ */
+function isBucketNameNotCuisine(name) {
+  return BUCKET_KEYS.has(String(name || '').trim().toLowerCase());
+}
+
+/** Cuisine names on a spot, minus the leaked bucket keys. */
+function realCuisines(r) {
+  return (r.cuisines || [])
+    .map(c => String(c || '').trim())
+    .filter(Boolean)
+    .filter(c => !isBucketNameNotCuisine(c));
+}
+
+/**
+ * "What should I try next?", cut by cuisine.
+ *
+ * Only want-to-try spots are candidates — this is a shortlist, not a directory.
+ * A spot tagged Italian + Pizza appears under BOTH, same as the Rankings view:
+ * it is a candidate for either craving.
+ *
+ * Cuisines are ordered by how long it has been since you actually ATE that
+ * cuisine, computed from the `lastVisit` dates on your VISITED spots (which is
+ * why `allSpots` is passed in alongside the filtered `candidates` — the answer
+ * must not change just because a filter is hiding the visited half). Never-tried
+ * cuisines lead, because "you have never had this" is the strongest version of
+ * the question this view is asking.
+ *
+ * Within a cuisine the pinned Next Spot leads, then whatever has sat on the list
+ * longest by `createdAt`. Rows with no `createdAt` predate the field, so they
+ * sort as the oldest of all — which is what they are.
+ */
+function tryNextByCuisine(candidates, allSpots, topN = TRY_NEXT_TOP_N) {
+  const want = candidates.filter(r => r?.status === 'want-to-try');
+
+  // Most recent visit per cuisine, over every visited spot regardless of filter.
+  const lastHad = new Map();
+  for (const r of allSpots || []) {
+    if (!hasBeenVisited(r) || !r.lastVisit) continue;
+    for (const name of realCuisines(r)) {
+      const key = name.toLowerCase();
+      const cur = lastHad.get(key);
+      if (cur === undefined || r.lastVisit > cur) lastHad.set(key, r.lastVisit);
+    }
+  }
+
+  const byCuisine = new Map();
+  const noCuisine = [];
+  for (const r of want) {
+    const names = realCuisines(r);
+    if (names.length === 0) { noCuisine.push(r); continue; }
+    for (const name of names) {
+      const key = name.toLowerCase();
+      if (!byCuisine.has(key)) byCuisine.set(key, { key, label: name, spots: [] });
+      byCuisine.get(key).spots.push(r);
+    }
+  }
+
+  const groups = [...byCuisine.values()].map(g => ({
+    ...g,
+    lastHad: lastHad.get(g.key) || null,
+    spots: g.spots.slice().sort((a, b) => (
+      (isNextSpot(b) ? 1 : 0) - (isNextSpot(a) ? 1 : 0)
+      || String(a.createdAt || '').localeCompare(String(b.createdAt || ''))
+      || String(a.name || '').localeCompare(String(b.name || ''))
+    )),
+  }));
+
+  // Never tried first, then longest since. Within equally-stale cuisines the one
+  // with more waiting is the more useful answer.
+  groups.sort((a, b) => {
+    if (!a.lastHad && !b.lastHad) return b.spots.length - a.spots.length || a.label.localeCompare(b.label);
+    if (!a.lastHad) return -1;
+    if (!b.lastHad) return 1;
+    return a.lastHad.localeCompare(b.lastHad)
+      || b.spots.length - a.spots.length
+      || a.label.localeCompare(b.label);
+  });
+
+  noCuisine.sort((a, b) => (
+    (isNextSpot(b) ? 1 : 0) - (isNextSpot(a) ? 1 : 0)
+    || String(a.createdAt || '').localeCompare(String(b.createdAt || ''))
+  ));
+  return { groups, noCuisine, topN };
+}
+
+/** "7 months ago" / "never tried" — the age of a cuisine, in words. */
+function lastHadLabel(iso, now = new Date()) {
+  if (!iso) return 'never tried';
+  const then = new Date(iso);
+  if (Number.isNaN(then.getTime())) return 'never tried';
+  const days = Math.floor((now - then) / 86400000);
+  if (days <= 0) return 'had today';
+  if (days === 1) return 'had yesterday';
+  if (days < 31) return `last had ${days} days ago`;
+  const months = Math.round(days / 30.44);
+  if (months < 24) return `last had ${months} month${months === 1 ? '' : 's'} ago`;
+  return `last had ${Math.floor(months / 12)} years ago`;
 }
 
 // Small read-only star row (rounds to the nearest whole star) for aggregate
@@ -1444,6 +1560,29 @@ function EditModal({ initial, onSave, onClose, onDelete, cuisineSuggestions, loc
   const [extracting, setExtracting] = useState(false);
   const [geocoding, setGeocoding] = useState(false);
 
+  /**
+   * Fill in Neighborhoods / cities from an address, unless the form already has
+   * some — an import shouldn't overwrite what you typed.
+   *
+   * Best-effort by design: this runs as a side errand of extracting or looking
+   * up, so a geocoder that is slow, rate-limited or simply doesn't recognise the
+   * address must cost nothing. It returns quietly and the field stays empty,
+   * exactly as before this existed.
+   */
+  async function fillLocationsFrom(addr, existingOnForm) {
+    const a = (addr || '').trim();
+    if (!a || (existingOnForm || []).length > 0) return;
+    try {
+      const res = await fetch(`/api/geocode?q=${encodeURIComponent(a)}`);
+      const data = await res.json();
+      if (!res.ok || !data?.address) return;
+      const derived = locationsFromGeocode(data.address, locationSuggestions);
+      if (derived.length > 0) setLocations(prev => mergeLocations(prev, derived));
+    } catch {
+      /* the spot saves fine without a neighborhood */
+    }
+  }
+
   async function handleExtract() {
     const trimmed = (url || '').trim();
     if (!trimmed) {
@@ -1458,6 +1597,9 @@ function EditModal({ initial, onSave, onClose, onDelete, cuisineSuggestions, loc
       if (data?.imageUrl && !imageUrl) setImageUrl(data.imageUrl);
       if (data?.description && !description) setDescription(data.description);
       if (data?.address && !address.trim()) setAddress(data.address);
+      // The address the import just found is the one to file under — read from
+      // `data`, not the `address` state, which this render still sees as empty.
+      await fillLocationsFrom(data?.address || address, locations);
       // Google Maps extraction returns lat/lng — populate coords so we can
       // skip the Lookup step entirely.
       if (typeof data?.lat === 'number' && typeof data?.lng === 'number' && !coords) {
@@ -1487,6 +1629,12 @@ function EditModal({ initial, onSave, onClose, onDelete, cuisineSuggestions, loc
       const data = await res.json();
       if (res.ok && typeof data.lat === 'number' && typeof data.lng === 'number') {
         setCoords({ lat: data.lat, lng: data.lng });
+        // Same response already carries the address parts, so filing the spot
+        // under its neighborhood costs no extra request here.
+        if (data.address && locations.length === 0) {
+          const derived = locationsFromGeocode(data.address, locationSuggestions);
+          if (derived.length > 0) setLocations(prev => mergeLocations(prev, derived));
+        }
         if (data.displayName && data.displayName !== a) {
           // Don't overwrite the user's typed string, but show what we matched.
           alert(`Matched: ${data.displayName}`);
@@ -2337,6 +2485,104 @@ function RankingRow({ row, place, onSelect }) {
         </span>
       </button>
     </li>
+  );
+}
+
+/**
+ * "Try Next" — the want-to-try list, cut by cuisine and ordered by what you are
+ * most overdue for. The Rankings view answers "where have I eaten well"; this
+ * one answers "where should I go".
+ *
+ * `allItems` is deliberately separate from `items`: the cuisine order is
+ * measured against every visited spot, so filtering the list down to, say, one
+ * neighbourhood doesn't make it look like you have never eaten Thai.
+ */
+function TryNextView({ items, allItems, onSelect }) {
+  const [expanded, setExpanded] = useState(() => new Set());
+  const { groups, noCuisine, topN } = useMemo(
+    () => tryNextByCuisine(items, allItems),
+    [items, allItems],
+  );
+  const toggle = key => setExpanded(prev => {
+    const next = new Set(prev);
+    if (next.has(key)) next.delete(key); else next.add(key);
+    return next;
+  });
+
+  if (groups.length === 0 && noCuisine.length === 0) {
+    return (
+      <p className={styles.rankingEmpty}>
+        Nothing on the want-to-try list yet. Add a place and set its status to
+        “Want to try”, and it will show up here under its cuisine.
+      </p>
+    );
+  }
+
+  const row = r => (
+    <li key={`${r._ownerUid}:${r.id}`}>
+      <button type="button" className={styles.rankingRow} onClick={() => onSelect(r)}>
+        <span className={styles.rankingName}>
+          {r.name}
+          {r._ownerUsername && <span className={styles.rankingOwner}> @{r._ownerUsername}</span>}
+        </span>
+        {isNextSpot(r) && <span className={styles.tryNextPin}>★ Next</span>}
+        {(r.locations || []).length > 0 && (
+          <span className={styles.rankingVotes}>{(r.locations || [])[0]}</span>
+        )}
+      </button>
+    </li>
+  );
+
+  return (
+    <div className={styles.rankingsView}>
+      <p className={styles.tryNextIntro}>
+        Your want-to-try list by cuisine, the ones you have gone longest without
+        first. “Never tried” means no visited spot in that cuisine carries a date.
+      </p>
+      <div className={styles.rankingGroups}>
+        {groups.map(g => {
+          const open = expanded.has(g.key);
+          const shown = open ? g.spots : g.spots.slice(0, topN);
+          return (
+            <section key={g.key} className={styles.rankingGroup}>
+              <h3 className={styles.rankingGroupHead}>
+                <span className={styles.rankingGroupName}>{g.label}</span>
+                <span
+                  className={`${styles.rankingGroupCount}${g.lastHad ? '' : ` ${styles.tryNextNever}`}`}
+                >
+                  {lastHadLabel(g.lastHad)} · {g.spots.length} to try
+                </span>
+              </h3>
+              <ol className={styles.rankingList}>{shown.map(row)}</ol>
+              {g.spots.length > topN && (
+                <button type="button" className={styles.tryNextMore} onClick={() => toggle(g.key)}>
+                  {open ? 'Show fewer' : `+${g.spots.length - topN} more`}
+                </button>
+              )}
+            </section>
+          );
+        })}
+
+        {/* Kept, not hidden: these are real candidates that simply have no
+            cuisine on them, and burying them would quietly shrink the list. */}
+        {noCuisine.length > 0 && (
+          <section className={styles.rankingGroup}>
+            <h3 className={styles.rankingGroupHead}>
+              <span className={styles.rankingGroupName}>No cuisine set</span>
+              <span className={styles.rankingGroupCount}>{noCuisine.length} to try</span>
+            </h3>
+            <ol className={styles.rankingList}>
+              {(expanded.has('__none__') ? noCuisine : noCuisine.slice(0, topN)).map(row)}
+            </ol>
+            {noCuisine.length > topN && (
+              <button type="button" className={styles.tryNextMore} onClick={() => toggle('__none__')}>
+                {expanded.has('__none__') ? 'Show fewer' : `+${noCuisine.length - topN} more`}
+              </button>
+            )}
+          </section>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -4304,6 +4550,16 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
               >
                 Rankings
               </button>
+              {/* Sits next to Rankings because they are the same question from
+                  two ends: where you have eaten well, and where you have not
+                  eaten yet. */}
+              <button
+                type="button"
+                className={`${styles.filterBtn} ${viewMode === 'try-next' ? styles.filterBtnActive : ''}`}
+                onClick={() => setViewMode('try-next')}
+              >
+                Try Next
+              </button>
             </div>
             {viewMode === 'list' && (
               <div className={styles.filterRow} style={{ marginLeft: 8 }}>
@@ -4485,6 +4741,8 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
             <div className={styles.empty}>Loading…</div>
           ) : viewMode === 'map' ? (
             <RestaurantMapView items={visible} onSelect={openSpot} />
+          ) : viewMode === 'try-next' ? (
+            <TryNextView items={visible} allItems={restaurants} onSelect={openSpot} />
           ) : viewMode === 'rankings' ? (
             <RestaurantRankings
               items={visible}
