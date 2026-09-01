@@ -70,6 +70,39 @@ export function compressImage(file) {
 }
 
 /**
+ * Rotate a stored JPEG data URL by whole quarter turns, clockwise.
+ *
+ * The turn is BAKED into the pixels rather than kept as a "rotation" field on
+ * the record, because a photo is read in a dozen places — list card, map
+ * callout, the friend's copy of a shared list, the phone — and every one of
+ * them would have to learn about the field or show the picture sideways. One
+ * re-encode at the moment you press the button buys correctness everywhere.
+ *
+ * Re-encoding costs a little quality each time; at Q=0.7 on an already-≤800px
+ * image that is invisible, and four presses return to the original orientation.
+ */
+export function rotateDataUrl(dataUrl, quarterTurns = 1) {
+  const turns = ((Math.round(quarterTurns) % 4) + 4) % 4;
+  if (!dataUrl || turns === 0) return Promise.resolve(dataUrl);
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      const swap = turns % 2 === 1;
+      const canvas = document.createElement('canvas');
+      canvas.width = swap ? img.height : img.width;
+      canvas.height = swap ? img.width : img.height;
+      const ctx = canvas.getContext('2d');
+      ctx.translate(canvas.width / 2, canvas.height / 2);
+      ctx.rotate((turns * Math.PI) / 2);
+      ctx.drawImage(img, -img.width / 2, -img.height / 2);
+      resolve(canvas.toDataURL('image/jpeg', QUALITY));
+    };
+    img.onerror = () => reject(new Error('Failed to load image'));
+    img.src = dataUrl;
+  });
+}
+
+/**
  * Where an image sits inside a frame, for a given transform. Shared by the live
  * preview (frame = the on-screen box) and the bake (frame = the output canvas)
  * so what you drag is exactly what gets saved.
