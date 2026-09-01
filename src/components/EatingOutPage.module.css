@@ -2078,3 +2078,44 @@
   color: var(--color-text-muted);
 }
 .tryNextMore:hover { color: var(--color-accent); }
+
+/* ---- "% tried" stat in the page header ---- */
+.triedStat {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-full);
+  background: var(--color-surface);
+  white-space: nowrap;
+  cursor: help;
+}
+.triedStatPct {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--color-text);
+  font-variant-numeric: tabular-nums;
+}
+.triedStatLabel {
+  font-size: 0.72rem;
+  color: var(--color-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+/* A short bar rather than a ring: it sits on one line of chrome next to the
+   title, and the useful read is "roughly how far along", not a precise value —
+   the exact counts are already spelled out beside it. */
+.triedStatBar {
+  width: 46px;
+  height: 5px;
+  border-radius: var(--radius-full);
+  background: var(--color-surface-alt, #f1f5f9);
+  overflow: hidden;
+  flex-shrink: 0;
+}
+.triedStatFill {
+  display: block;
+  height: 100%;
+  background: var(--color-accent);
+  border-radius: var(--radius-full);
+}

@@ -3839,25 +3839,53 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
     else setViewing(r);
   }, []);
 
-  const visible = useMemo(() => {
+  /**
+   * Every filter on the page, as one predicate.
+   *
+   * `applyStatus` exists for the tried-% in the header, which has to ignore the
+   * Want-to-try / Visited filter and honour all the others: measured against a
+   * list already narrowed to one status it could only ever read 0% or 100%,
+   * while "of my Mexican places, how many have I been to" is the whole question
+   * worth asking. Shared with `visible` so the two can't drift — the number in
+   * the header always describes the list on the page.
+   */
+  const passesFilters = useCallback((r, applyStatus = true) => {
     const q = search.trim().toLowerCase();
-    let list = restaurants.filter(r => {
-      if (!showRetired && r.frequency === 'retired') return false;
-      if (filter !== 'all' && r.status !== filter) return false;
-      if (activeCuisine && !(r.cuisines || []).some(c => c.toLowerCase() === activeCuisine.toLowerCase())) return false;
-      if (activeLocation && !(r.locations || []).some(l => l.toLowerCase() === activeLocation.toLowerCase())) return false;
-      if (activeBucket && !restaurantMatchesBucket(r, activeBucket)) return false;
-      if (activeHealth && healthOf(r) !== activeHealth) return false;
-      if (activeCategory && !(r.categories || []).some(c => c.toLowerCase() === activeCategory.toLowerCase())) return false;
-      if (q) {
-        const hay = [
-          r.name, r.dish, r.address, r.notes, r.description, r.ratingLabel,
-          ...(r.cuisines || []), ...(r.locations || []), ...(r.categories || []),
-        ].filter(Boolean).join(' ').toLowerCase();
-        if (!hay.includes(q)) return false;
-      }
-      return true;
-    });
+    if (!showRetired && r.frequency === 'retired') return false;
+    if (applyStatus && filter !== 'all' && r.status !== filter) return false;
+    if (activeCuisine && !(r.cuisines || []).some(c => c.toLowerCase() === activeCuisine.toLowerCase())) return false;
+    if (activeLocation && !(r.locations || []).some(l => l.toLowerCase() === activeLocation.toLowerCase())) return false;
+    if (activeBucket && !restaurantMatchesBucket(r, activeBucket)) return false;
+    if (activeHealth && healthOf(r) !== activeHealth) return false;
+    if (activeCategory && !(r.categories || []).some(c => c.toLowerCase() === activeCategory.toLowerCase())) return false;
+    if (q) {
+      const hay = [
+        r.name, r.dish, r.address, r.notes, r.description, r.ratingLabel,
+        ...(r.cuisines || []), ...(r.locations || []), ...(r.categories || []),
+      ].filter(Boolean).join(' ').toLowerCase();
+      if (!hay.includes(q)) return false;
+    }
+    return true;
+  }, [filter, activeCuisine, activeLocation, activeBucket, activeHealth, activeCategory, showRetired, search]);
+
+  /**
+   * How much of the list you have actually been to. Counts `hasBeenVisited`
+   * rather than `status === 'visited'`, so a spot carrying a visit date is
+   * counted as tried whatever its status says — the date is the harder evidence.
+   */
+  const triedStats = useMemo(() => {
+    let total = 0;
+    let tried = 0;
+    for (const r of restaurants) {
+      if (!passesFilters(r, false)) continue;
+      total++;
+      if (hasBeenVisited(r)) tried++;
+    }
+    return { total, tried, pct: total ? Math.round((tried / total) * 100) : null };
+  }, [restaurants, passesFilters]);
+
+  const visible = useMemo(() => {
+    let list = restaurants.filter(r => passesFilters(r));
 
     if (proximityCenter) {
       list = list
@@ -3890,7 +3918,9 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
     // order the branch above gave it.
     list = [...list].sort((a, b) => (isNextSpot(b) ? 1 : 0) - (isNextSpot(a) ? 1 : 0));
     return list;
-  }, [restaurants, filter, activeCuisine, activeLocation, activeBucket, activeHealth, activeCategory, showRetired, search, proximityCenter]);
+    // The individual filter values moved into passesFilters, which carries them
+    // in its own dependency list — depending on it here keeps the two in step.
+  }, [restaurants, passesFilters, proximityCenter]);
 
   // Per-owner sequence of currently-visible ids, so a card knows whether it can
   // move up/down (i.e. has a visible same-owner neighbor in that direction).
@@ -4434,6 +4464,25 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
     <div className={styles.page}>
       <div className={styles.header}>
         <h1 className={styles.title}>Eating Out</h1>
+        {/* How much of the list you've actually been to. Follows every filter
+            except Want-to-try / Visited — see passesFilters — so filtering to a
+            cuisine or a neighbourhood re-asks the question of that slice. */}
+        {triedStats.pct != null && (
+          <span
+            className={styles.triedStat}
+            title={`${triedStats.tried} of ${triedStats.total} places tried${
+              triedStats.total < restaurants.length ? ' (matching the current filters)' : ''
+            }. A place counts as tried once it is marked Visited or carries a visit date.`}
+          >
+            <span className={styles.triedStatPct}>{triedStats.pct}%</span>
+            <span className={styles.triedStatLabel}>
+              tried · {triedStats.tried}/{triedStats.total}
+            </span>
+            <span className={styles.triedStatBar} aria-hidden="true">
+              <span className={styles.triedStatFill} style={{ width: `${triedStats.pct}%` }} />
+            </span>
+          </span>
+        )}
         <button
           type="button"
           className={styles.secondaryBtn}
