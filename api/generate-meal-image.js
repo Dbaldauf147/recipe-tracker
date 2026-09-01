@@ -14,18 +14,31 @@ if (getApps().length === 0) {
 const db = getFirestore();
 
 // POST /api/generate-meal-image
-//   { image: <dataUrl|base64> }                      → compress an uploaded photo
+//   { image: <dataUrl|base64>, rotate?: 0|90|180|270 } → compress an uploaded
+//                                                        photo, optionally
+//                                                        turned (the phone has
+//                                                        no canvas to turn it
+//                                                        with; the website does
+//                                                        it locally)
 //   { recipeName, ingredients: [{ingredient}|str] }  → AI-generate a dish photo
 // Returns { dataUrl } as a ≤800px JPEG (well under Firestore's ~1MB doc cap), so
 // the mobile app — which has no canvas to compress with — can save it directly
 // to users/{uid}/mealImages/{recipeId}, matching the website.
-async function toCompressedDataUrl(buf) {
-  const jpeg = await sharp(buf)
-    .rotate() // honor EXIF orientation from phone photos
+async function toCompressedDataUrl(buf, rotate = 0) {
+  // .rotate() with no angle honors EXIF orientation from phone photos; with an
+  // angle it turns by that much instead. The caller's turn is applied on top of
+  // an already-EXIF-corrected image by rotating in a second pass, so "turn it
+  // once more" means the same thing whatever the phone wrote in the header.
+  const upright = await sharp(buf)
+    .rotate()
     .resize(800, 800, { fit: 'inside', withoutEnlargement: true })
     .jpeg({ quality: 72 })
     .toBuffer();
-  return `data:image/jpeg;base64,${jpeg.toString('base64')}`;
+  const deg = ((Math.round(Number(rotate) || 0) % 360) + 360) % 360;
+  const out = deg === 0
+    ? upright
+    : await sharp(upright).rotate(deg).jpeg({ quality: 72 }).toBuffer();
+  return `data:image/jpeg;base64,${out.toString('base64')}`;
 }
 
 // AI generation is a paid call, so it's gated behind the caller's Firebase ID
@@ -66,7 +79,7 @@ async function refundQuotaSlot(uid, today) {
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
   try {
-    const { image, recipeName, ingredients } = req.body || {};
+    const { image, recipeName, ingredients, rotate } = req.body || {};
 
     // Mode 1: compress an uploaded image. Unauthenticated — it's just a resize,
     // no paid API, no per-user cost.
@@ -74,7 +87,7 @@ export default async function handler(req, res) {
       const b64 = String(image).replace(/^data:[^,]+,/, '');
       const buf = Buffer.from(b64, 'base64');
       if (!buf.length) return res.status(400).json({ error: 'empty image' });
-      return res.status(200).json({ dataUrl: await toCompressedDataUrl(buf) });
+      return res.status(200).json({ dataUrl: await toCompressedDataUrl(buf, rotate) });
     }
 
     // Mode 2: AI-generate via Gemini, then compress. The key is server-only.
