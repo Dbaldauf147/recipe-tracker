@@ -2499,6 +2499,11 @@ function RankingRow({ row, place, onSelect }) {
  */
 function TryNextView({ items, allItems, onSelect }) {
   const [expanded, setExpanded] = useState(() => new Set());
+  // Table by default: the interesting read here is a comparison down a column
+  // ("what have I gone longest without"), which a grid of cards makes you
+  // reconstruct line by line. Cards stay one click away — they carry the pin
+  // and the location more comfortably on a narrow screen.
+  const [layout, setLayout] = useState('table');
   const { groups, noCuisine, topN } = useMemo(
     () => tryNextByCuisine(items, allItems),
     [items, allItems],
@@ -2533,12 +2538,106 @@ function TryNextView({ items, allItems, onSelect }) {
     </li>
   );
 
+  // One <tr> per spot, with the cuisine and its age printed only on the first
+  // row of each group — the grouping is the point, and repeating the cuisine on
+  // every line would bury it in its own noise.
+  const tableRows = [];
+  const pushGroup = (key, label, ageLabel, never, spots) => {
+    const open = expanded.has(key);
+    const shown = open ? spots : spots.slice(0, topN);
+    shown.forEach((r, i) => tableRows.push({
+      kind: 'spot', key: `${key}:${r._ownerUid}:${r.id}`, r,
+      head: i === 0 ? { label, ageLabel, never, count: spots.length } : null,
+    }));
+    if (spots.length > topN) {
+      tableRows.push({ kind: 'more', key: `${key}:more`, groupKey: key, open, hidden: spots.length - topN });
+    }
+  };
+  groups.forEach(g => pushGroup(g.key, g.label, lastHadLabel(g.lastHad), !g.lastHad, g.spots));
+  if (noCuisine.length > 0) pushGroup('__none__', 'No cuisine set', '—', false, noCuisine);
+
   return (
     <div className={styles.rankingsView}>
       <p className={styles.tryNextIntro}>
         Your want-to-try list by cuisine, the ones you have gone longest without
         first. “Never tried” means no visited spot in that cuisine carries a date.
       </p>
+      <div className={styles.filterRow} style={{ alignSelf: 'flex-start' }}>
+        <button
+          type="button"
+          className={`${styles.filterBtn} ${layout === 'table' ? styles.filterBtnActive : ''}`}
+          onClick={() => setLayout('table')}
+        >
+          Table
+        </button>
+        <button
+          type="button"
+          className={`${styles.filterBtn} ${layout === 'cards' ? styles.filterBtnActive : ''}`}
+          onClick={() => setLayout('cards')}
+        >
+          Cards
+        </button>
+      </div>
+
+      {layout === 'table' ? (
+        <div className={styles.tableScroll}>
+          <table className={styles.dataTable} style={{ width: '100%' }}>
+            <colgroup>
+              <col style={{ width: 170 }} />
+              <col style={{ width: 170 }} />
+              <col />
+              <col style={{ width: 150 }} />
+            </colgroup>
+            <thead>
+              <tr>
+                <th style={{ padding: '0.5rem 0.7rem' }}>Cuisine</th>
+                <th style={{ padding: '0.5rem 0.7rem' }}>Last had</th>
+                <th style={{ padding: '0.5rem 0.7rem' }}>Try next</th>
+                <th style={{ padding: '0.5rem 0.7rem' }}>Where</th>
+              </tr>
+            </thead>
+            <tbody>
+              {tableRows.map(row => (
+                row.kind === 'more' ? (
+                  <tr key={row.key}>
+                    <td /><td />
+                    <td colSpan={2}>
+                      <button
+                        type="button"
+                        className={styles.tryNextMore}
+                        onClick={() => toggle(row.groupKey)}
+                      >
+                        {row.open ? 'Show fewer' : `+${row.hidden} more`}
+                      </button>
+                    </td>
+                  </tr>
+                ) : (
+                  <tr
+                    key={row.key}
+                    className={styles.tableRow}
+                    onClick={() => onSelect(row.r)}
+                  >
+                    <td className={row.head ? styles.tryNextCellHead : undefined}>
+                      {row.head ? `${row.head.label} (${row.head.count})` : ''}
+                    </td>
+                    <td className={row.head && row.head.never ? styles.tryNextNever : styles.tryNextCellAge}>
+                      {row.head ? row.head.ageLabel : ''}
+                    </td>
+                    <td>
+                      {row.r.name}
+                      {isNextSpot(row.r) && <span className={styles.tryNextPin}> ★ Next</span>}
+                      {row.r._ownerUsername && (
+                        <span className={styles.rankingOwner}> @{row.r._ownerUsername}</span>
+                      )}
+                    </td>
+                    <td className={styles.tryNextCellAge}>{(row.r.locations || [])[0] || ''}</td>
+                  </tr>
+                )
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : (
       <div className={styles.rankingGroups}>
         {groups.map(g => {
           const open = expanded.has(g.key);
@@ -2582,6 +2681,7 @@ function TryNextView({ items, allItems, onSelect }) {
           </section>
         )}
       </div>
+      )}
     </div>
   );
 }

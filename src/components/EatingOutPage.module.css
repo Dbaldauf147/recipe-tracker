@@ -2119,3 +2119,13 @@
   background: var(--color-accent);
   border-radius: var(--radius-full);
 }
+
+/* ---- Try Next, table layout ---- */
+/* The cuisine and its age print once per group, on the group's first row. */
+.tryNextCellHead {
+  font-weight: 700;
+  color: var(--color-text);
+}
+.tryNextCellAge {
+  color: var(--color-text-muted);
+}
