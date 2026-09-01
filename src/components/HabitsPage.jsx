@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { loadField, loadHabitAutoStatus } from '../utils/firestoreSync';
 import { loadHabitLog, loadHabitLogAuto } from '../utils/habitLogYears';
 import { HABIT_FIELDS, seedHabits, makeHabitId } from '../data/habitsSeed';
@@ -2931,6 +2931,37 @@ function RoutinesView({ habits, habitLog, habitLogAuto, streaks, autoTrackedIds 
     );
   }, [habits]);
 
+  // ── Keep the page still while you log ──
+  //
+  // Marking a habit changes things ABOVE the rows: the past-due banner loses a
+  // line (or disappears entirely, taking ~60px with it) and the cadence badges
+  // recount. Every one of those shifts the rows down under the cursor that just
+  // clicked one, so the next habit you meant to tick has moved. Logging a habit
+  // should never move the page.
+  //
+  // This measures the sections' DOCUMENT offset, not their position in the
+  // viewport. Scrolling changes the viewport position, so comparing that would
+  // "correct" the user's own scrolling and fight them; a document offset only
+  // moves when something above it actually changes height.
+  //
+  // In a LAYOUT effect so the correction lands in the same frame as the change —
+  // from a passive effect the reflowed page paints first and the jump is visible
+  // regardless. No dependency array on purpose: the point is to catch any render
+  // that resizes something above the rows, not one known cause.
+  const sectionsRef = useRef(null);
+  const sectionsTopRef = useRef(null);
+  useLayoutEffect(() => {
+    const el = sectionsRef.current;
+    if (!el) { sectionsTopRef.current = null; return; }
+    const top = el.getBoundingClientRect().top + window.scrollY;
+    const prev = sectionsTopRef.current;
+    // Scrolling doesn't move content within the document, so this stays correct
+    // after the scrollBy below.
+    sectionsTopRef.current = top;
+    if (prev == null || top === prev) return;
+    window.scrollBy(0, top - prev);
+  });
+
   // Quick filter: each tab maps to one cadence section; 'all' shows everything.
   const [view, setView] = useState('all');
   const [query, setQuery] = useState('');
@@ -3047,7 +3078,13 @@ function RoutinesView({ habits, habitLog, habitLogAuto, streaks, autoTrackedIds 
   }
 
   return (
-    <div>
+    // overflowAnchor:none opts this subtree out of the browser's own scroll
+    // anchoring. Chrome would otherwise try to absorb the same shift the layout
+    // effect above corrects, and the two compensating for one change is how you
+    // get a jump in the opposite direction. Its heuristics are also why the
+    // jump survives today: native anchoring gives up when the element it picked
+    // is the one that got removed, which is exactly the past-due banner's case.
+    <div style={{ overflowAnchor: 'none' }}>
       {searchBar}
       {/* Daily / Weekly / Monthly view switch */}
       <div style={{ display: 'flex', gap: 4, marginBottom: '0.85rem', background: '#f1f5f9', borderRadius: 10, padding: 3, width: 'fit-content' }}>
@@ -3140,7 +3177,7 @@ function RoutinesView({ habits, habitLog, habitLogAuto, streaks, autoTrackedIds 
           No {(VIEW_TABS.find(t => t.id === view)?.label || view).toLowerCase()} habits.
         </p>
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '1.4rem' }}>
+        <div ref={sectionsRef} style={{ display: 'flex', flexDirection: 'column', gap: '1.4rem' }}>
           {visibleGroups.map(([cadenceName, list]) => (
             <RoutineSection key={cadenceName} cadenceName={cadenceName} list={list} habitLog={habitLog} habitLogAuto={habitLogAuto} streaks={streaks} autoTrackedIds={autoTrackedIds} autoStatusFor={autoStatusFor} nextLogOverride={(nextLogMap || {})[cadenceName] || ''} onSetNextLog={onSetNextLog} onUpdate={onUpdate} openMenu={openMenu} onCycleMark={onCycleMark} routineOptions={routineOptions} onReorder={onReorder} onSetRoutine={onSetRoutine} onBulkMark={onBulkMark} onOpen={onOpen} onMakeAutomatic={onMakeAutomatic} showAutoStatus={showAutoStatus} />
           ))}
