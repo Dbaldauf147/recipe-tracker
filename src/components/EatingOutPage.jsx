@@ -17,7 +17,7 @@ import {
 } from '../utils/restaurantImport';
 import { downloadRestaurantsCsv } from '../utils/restaurantExport';
 import { locationsFromGeocode, mergeLocations } from '../utils/spotLocations';
-import { saveSpotForOwner, saveEatingOutOrder, subscribeSpotComments, addSpotComment, deleteSpotComment, subscribeSpotRatings, subscribeEatingOutRatings, setEatingOutRating, loadSpotImage, spotPhotoDocId, loadSpotImageAt, saveSpotImageAt, deleteSpotImageAt } from '../utils/firestoreSync';
+import { saveSpotForOwner, saveEatingOutOrder, subscribeSpotComments, addSpotComment, deleteSpotComment, subscribeSpotRatings, subscribeEatingOutRatings, setEatingOutRating, spotPhotoDocId, loadSpotImageAt, saveSpotImageAt, deleteSpotImageAt } from '../utils/firestoreSync';
 // Canvas resize helper shared with the exercise-photo uploader — same ≤800px
 // JPEG budget, so a spot photo can't push its doc near Firestore's 1 MB cap.
 import { compressImage, rotateDataUrl } from '../utils/exerciseImages';
@@ -696,28 +696,6 @@ function MealsEditor({ value, onChange, restaurantName }) {
       </div>
     </div>
   );
-}
-
-// The photo uploaded for a spot (users/{ownerUid}/eatingOutImages/{spotId}),
-// shared with the mobile app — upload on either and it shows on both. An
-// uploaded photo wins over the image scraped from the place's link wherever
-// both exist. Fetched per open modal, never per card, so browsing the list
-// stays one read per spot you actually look at.
-//
-// The loaded photo is tagged with the spot it belongs to, and read back only
-// when that tag still matches. That keeps the previous spot's photo from
-// flashing in a reused modal, without a synchronous reset inside the effect.
-function useSpotPhoto(ownerUid, spotId) {
-  const key = ownerUid && spotId ? `${ownerUid}__${spotId}` : '';
-  const [entry, setEntry] = useState({ key: '', url: null });
-  useEffect(() => {
-    if (!key) return undefined;
-    let cancelled = false;
-    loadSpotImage(ownerUid, spotId).then(url => { if (!cancelled) setEntry({ key, url }); });
-    return () => { cancelled = true; };
-  }, [key, ownerUid, spotId]);
-  const setPhoto = useCallback(url => setEntry({ key, url }), [key]);
-  return [entry.key === key ? entry.url : null, setPhoto];
 }
 
 /** Photos one spot can hold. A ceiling on the gallery, not on the doc size —
@@ -1611,11 +1589,61 @@ function SpotRatings({ ownerUid, spotId, spot, user }) {
   );
 }
 
+/**
+ * Read-only gallery for a spot: the picture you're looking at, with the rest as
+ * thumbnails under it when there's more than one. Falls back to the image
+ * scraped from the place's link when nobody has uploaded anything.
+ *
+ * Only for surfaces that open ONE spot. The list cards deliberately don't read
+ * uploaded photos at all — a doc read per row would cost hundreds of reads to
+ * scroll a list — and that stays true with six photos per place as it was
+ * with one.
+ */
+function SpotPhotoStrip({ ownerUid, spot, fallbackUrl }) {
+  const [urls, setUrls] = useState([]);
+  const [active, setActive] = useState(0);
+  const ids = spotPhotoIds(spot);
+  const key = ownerUid && spot?.id ? `${ownerUid}__${spot.id}` : '';
+
+  useEffect(() => {
+    if (!key) return undefined;
+    let cancelled = false;
+    setActive(0);
+    Promise.all(ids.map(id => loadSpotImageAt(ownerUid, id)))
+      .then(loaded => { if (!cancelled) setUrls(loaded.filter(Boolean)); });
+    return () => { cancelled = true; };
+    // Keyed on the spot, not on `ids` — a fresh array every render would make
+    // this refetch every picture on every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key, ownerUid]);
+
+  const shown = urls[active] || urls[0] || fallbackUrl || '';
+  if (!shown) return null;
+  return (
+    <div>
+      <img src={shown} alt="" className={styles.previewImg} />
+      {urls.length > 1 && (
+        <div className={styles.photoThumbs}>
+          {urls.map((u, i) => (
+            <button
+              type="button"
+              key={u.slice(-24) + i}
+              className={`${styles.photoThumb}${i === active ? ` ${styles.photoThumbActive}` : ''}`}
+              onClick={() => setActive(i)}
+              aria-label={`Photo ${i + 1} of ${urls.length}`}
+            >
+              <img src={u} alt="" className={styles.photoThumbImg} />
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // Detail sheet for a spot a FRIEND added: their info, the shared ratings and
 // the comment thread — plus Edit, since a shared list is collaborative.
 function SpotDetailModal({ spot, user, onClose, onEdit }) {
-  const [uploadedPhoto] = useSpotPhoto(spot._ownerUid, spot.id);
-  const photo = uploadedPhoto || spot.imageUrl || '';
   const meta = [
     (spot.cuisines || []).join(', '),
     (spot.locations || []).join(', '),
@@ -1636,7 +1664,7 @@ function SpotDetailModal({ spot, user, onClose, onEdit }) {
           <button type="button" className={styles.iconBtn} onClick={onClose}>✕</button>
         </div>
         <div className={styles.modalBody} style={{ gap: '1rem' }}>
-          {photo && <img src={photo} alt="" className={styles.previewImg} />}
+          <SpotPhotoStrip ownerUid={spot._ownerUid} spot={spot} fallbackUrl={spot.imageUrl} />
           {meta && <p style={{ margin: 0, fontSize: '0.9rem', color: 'var(--color-text-muted)' }}>{meta}</p>}
           {spot.dish && <p style={{ margin: 0, fontSize: '0.9rem' }}><strong>What to order:</strong> {spot.dish}</p>}
           {spot.notes && <p style={{ margin: 0, fontSize: '0.9rem' }}>{spot.notes}</p>}
