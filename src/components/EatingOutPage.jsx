@@ -3044,6 +3044,185 @@ function RestaurantRankings({
  *
  * Esc closes it, like the other sheets on this page.
  */
+/** How many spots one round of the categorize prompt asks about. */
+const CATEGORIZE_BATCH = 5;
+
+/** My own spots still missing a bucket or a cuisine, in list order. */
+function needsCategorizing(restaurants) {
+  return (restaurants || []).filter(r => (
+    // Only my own: there is no editing someone else's list, so putting a
+    // friend's spot in this queue would ask a question with no answer.
+    r._isMine
+    // Retired spots are hidden from the list by default, so asking about them
+    // on every visit would be nagging about places already decided against.
+    && r.frequency !== 'retired'
+    && (bucketsOf(r).length === 0 || (r.cuisines || []).length === 0)
+  ));
+}
+
+/**
+ * "Categorize five of these" — the prompt that opens on arriving at the page.
+ *
+ * Filing spots is the chore that never happens on its own: an import lands a
+ * place with a name and an address and nothing else, and nothing about browsing
+ * the list later asks you to fix that. Five is small enough to actually finish
+ * standing in a kitchen, and the queue is snapshotted on open so answering one
+ * can't reshuffle the four still on screen.
+ *
+ * Saves whatever you filled, including a spot you only half-answered — a bucket
+ * with no cuisine still comes back next visit for the missing half, so partial
+ * credit costs nothing and losing it would be annoying.
+ */
+function CategorizePrompt({ queue, cuisineSuggestions, onSave, onClose }) {
+  const [offset, setOffset] = useState(0);
+  // Edits keyed by spot id, so advancing a batch can't mix answers up.
+  const [draft, setDraft] = useState({});
+  const batch = queue.slice(offset, offset + CATEGORIZE_BATCH);
+
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  if (batch.length === 0) return null;
+
+  // What to SHOW: the spot as it stands, with anything answered here on top.
+  // `draft` holds only keys actually touched, which is what lets commit() tell
+  // "said want-to-try" apart from "never answered".
+  const valueFor = (r) => ({
+    buckets: bucketsOf(r),
+    cuisines: r.cuisines || [],
+    status: r.status || '',
+    takenJoanne: !!r.takenJoanne,
+    ...(draft[r.id] || {}),
+  });
+  const setFor = (id, patch) => setDraft(prev => ({
+    ...prev,
+    [id]: { ...(prev[id] || {}), ...patch },
+  }));
+
+  function commit() {
+    // Only spots actually touched, and only the keys touched on them. A spot
+    // left alone must not be written: that would stamp updatedAt on it, and an
+    // untouched "takenJoanne" would go out as a definite false rather than the
+    // "never said" it actually is.
+    const patches = {};
+    for (const r of batch) {
+      const edited = draft[r.id];
+      if (!edited) continue;
+      const patch = {};
+      if (edited.buckets && edited.buckets.length > 0) {
+        patch.buckets = edited.buckets;
+        // mealType is kept in step with buckets everywhere else (CSV, mobile).
+        patch.mealType = edited.buckets[0];
+      }
+      if (edited.cuisines && edited.cuisines.length > 0) patch.cuisines = edited.cuisines;
+      if (edited.status) patch.status = edited.status;
+      // Stored as true-or-absent, the same shape the editor saves, so a "no"
+      // clears the field rather than writing a falsy value the filters would
+      // then have to know about.
+      if ('takenJoanne' in edited) patch.takenJoanne = edited.takenJoanne || undefined;
+      if (Object.keys(patch).length > 0) patches[r.id] = patch;
+    }
+    if (Object.keys(patches).length > 0) onSave(patches);
+
+    const nextOffset = offset + CATEGORIZE_BATCH;
+    if (nextOffset >= queue.length) onClose();
+    else { setOffset(nextOffset); setDraft({}); }
+  }
+
+  const remaining = queue.length - offset;
+  return (
+    <div className={styles.modalOverlay} onClick={onClose}>
+      <div className={styles.modal} onClick={e => e.stopPropagation()}>
+        <div className={styles.modalHeader}>
+          <h2 className={styles.modalTitle}>
+            File {batch.length} {batch.length === 1 ? 'place' : 'places'}
+          </h2>
+          <button type="button" className={styles.iconBtn} onClick={onClose} aria-label="Skip">✕</button>
+        </div>
+        <div className={styles.modalBody}>
+          <p style={{ margin: '0 0 0.9rem', fontSize: '0.85rem', color: 'var(--color-text-muted)' }}>
+            {remaining} {remaining === 1 ? 'place needs' : 'places need'} a bucket or a cuisine.
+            Fill in what you know — anything you leave blank comes back next time.
+          </p>
+          {batch.map(r => {
+            const v = valueFor(r);
+            return (
+              <div key={r.id} className={styles.categorizeRow}>
+                <div className={styles.categorizeName}>
+                  {r.name}
+                  {r.address && <span className={styles.categorizeAddr}> · {r.address}</span>}
+                </div>
+                <div className={styles.categorizeChips}>
+                  {BUCKETS.map(b => {
+                    const on = v.buckets.includes(b.key);
+                    return (
+                      <button
+                        key={b.key}
+                        type="button"
+                        className={`${styles.tagFilter} ${on ? styles.tagFilterActive : ''}`}
+                        aria-pressed={on}
+                        onClick={() => setFor(r.id, {
+                          buckets: on ? v.buckets.filter(k => k !== b.key) : [...v.buckets, b.key],
+                        })}
+                      >
+                        {b.icon} {b.label}
+                      </button>
+                    );
+                  })}
+                </div>
+                <TagChips
+                  values={v.cuisines}
+                  onChange={next => setFor(r.id, { cuisines: next })}
+                  suggestions={cuisineSuggestions}
+                  placeholder="Cuisine — type and press Enter"
+                />
+                <div className={styles.categorizeAsks}>
+                  <span className={styles.categorizeAskLabel}>Been there?</span>
+                  <button
+                    type="button"
+                    className={`${styles.tagFilter} ${v.status === 'visited' ? styles.tagFilterActive : ''}`}
+                    aria-pressed={v.status === 'visited'}
+                    onClick={() => setFor(r.id, { status: 'visited' })}
+                  >Been</button>
+                  <button
+                    type="button"
+                    className={`${styles.tagFilter} ${v.status === 'want-to-try' ? styles.tagFilterActive : ''}`}
+                    aria-pressed={v.status === 'want-to-try'}
+                    onClick={() => setFor(r.id, { status: 'want-to-try' })}
+                  >Not yet</button>
+
+                  <span className={styles.categorizeAskLabel}>Joanne?</span>
+                  <button
+                    type="button"
+                    className={`${styles.tagFilter} ${v.takenJoanne ? styles.tagFilterActive : ''}`}
+                    aria-pressed={!!v.takenJoanne}
+                    onClick={() => setFor(r.id, { takenJoanne: true })}
+                  >Taken her</button>
+                  <button
+                    type="button"
+                    className={`${styles.tagFilter} ${('takenJoanne' in (draft[r.id] || {}) && !v.takenJoanne) ? styles.tagFilterActive : ''}`}
+                    aria-pressed={'takenJoanne' in (draft[r.id] || {}) && !v.takenJoanne}
+                    onClick={() => setFor(r.id, { takenJoanne: false })}
+                  >Not yet</button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        <div className={styles.modalFooter}>
+          <button type="button" className={styles.secondaryBtn} onClick={onClose}>Skip for now</button>
+          <button type="button" className={styles.primaryBtn} onClick={commit}>
+            {remaining > CATEGORIZE_BATCH ? `Save · next ${Math.min(CATEGORIZE_BATCH, remaining - batch.length)}` : 'Save'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function RankingPopout({
   label, items, ratingsBySpot, metric, onMetricChange, grouped, onGroupedChange, onSelect, onClose,
 }) {
@@ -4459,6 +4638,29 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
   // queue can't reshuffle underneath you as answers land.
   const [filingQueue, setFilingQueue] = useState(null);
 
+  // ── "File five of these" on arrival ──
+  //
+  // Snapshotted rather than read live: answering a spot takes it out of
+  // needsCategorizing, and a queue that re-derived itself would renumber and
+  // reshuffle the four still on screen as each one was answered.
+  //
+  // Opens once per visit to the page. The ref is what makes that true — the
+  // list arrives from Firestore a beat after mount, so this waits for a loaded
+  // non-empty list and then never re-opens itself, however many times the
+  // subscription pushes an update afterwards. Skipping closes it until the next
+  // time the page is opened, which is what "prompt me every time I go there"
+  // has to mean without being a nuisance inside one sitting.
+  const [categorizeQueue, setCategorizeQueue] = useState(null);
+  const categorizeAskedRef = useRef(false);
+  useEffect(() => {
+    if (categorizeAskedRef.current || loading || !user?.uid) return;
+    const pending = needsCategorizing(restaurants);
+    if (pending.length === 0) return;
+    categorizeAskedRef.current = true;
+    setCategorizeQueue(pending);
+  }, [loading, user?.uid, restaurants]);
+
+
   // One answer, written immediately. `dietTags` is kept in step with `health`
   // the same way the editor does it, or the legacy array and the new field
   // disagree and healthOf() starts reading the stale one.
@@ -4607,6 +4809,17 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
     });
     if (changed) persistOwner(user.uid, next);
   }, [ownerData, user?.uid, persistOwner]);
+
+  /**
+   * Apply one round of the categorize prompt — a single write for all five.
+   *
+   * Must live BELOW bulkUpdate: a useCallback's dependency array is evaluated
+   * the moment the line runs, so naming bulkUpdate above its own const would
+   * throw on the page's first render, and a build won't catch it.
+   */
+  const applyCategorize = useCallback((patches) => {
+    bulkUpdate(Object.keys(patches), r => patches[r.id] || null);
+  }, [bulkUpdate]);
 
   const bulkDelete = useCallback((ids) => {
     if (!user?.uid) return;
@@ -5286,6 +5499,16 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
           queue={filingQueue}
           onApply={applyFiling}
           onClose={() => setFilingQueue(null)}
+        />
+      )}
+      {/* Behind the filing modal in source order on purpose: if both somehow
+          had a queue, the one the user explicitly asked for wins the screen. */}
+      {categorizeQueue && !filingQueue && (
+        <CategorizePrompt
+          queue={categorizeQueue}
+          cuisineSuggestions={cuisineSuggestions}
+          onSave={applyCategorize}
+          onClose={() => setCategorizeQueue(null)}
         />
       )}
 
