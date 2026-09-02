@@ -592,64 +592,15 @@
 }
 .footerSpacer { flex: 1; }
 
-/* ── "File five of these" prompt ──
-   One block per spot, separated by a rule rather than a card: five cards in a
-   modal reads as five things to decide, and the point is that it's one short
-   job. */
-.categorizeRow {
-  display: flex;
-  flex-direction: column;
-  gap: 0.45rem;
-  padding: 0.8rem 0;
-  border-bottom: 1px solid var(--color-border-light, var(--color-border));
-}
-.categorizeRow:last-child {
-  border-bottom: none;
-  padding-bottom: 0;
-}
-
-.categorizeName {
-  font-size: 0.95rem;
-  font-weight: 700;
-  color: var(--color-text);
-}
-
-.categorizeAddr {
-  font-weight: 500;
-  font-size: 0.8rem;
-  color: var(--color-text-muted);
-}
-
+/* Bucket chips on the "file this one" card. Wrapping chips rather than the
+   equal-width .fileRow buttons the yes/no questions use: there are five of
+   them with labels of very different lengths, and forcing those into one row
+   would shrink "Lunch / Dinner" to fit "Coffee". */
 .categorizeChips {
   display: flex;
   flex-wrap: wrap;
   gap: 0.35rem;
-}
-
-/* The two yes/no questions share a line — they're one tap each, and giving
-   them a row apiece would double the height of every block. */
-.categorizeAsks {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.35rem;
-}
-
-.categorizeAskLabel {
-  font-size: 0.72rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--color-text-muted);
-  margin-right: 0.1rem;
-}
-/* Breathing room before the second question, so "Been / Not yet" and
-   "Taken her / Not yet" don't read as one run of four buttons. */
-.categorizeAskLabel + .tagFilter {
-  margin-right: 0.1rem;
-}
-.categorizeAsks .categorizeAskLabel:not(:first-child) {
-  margin-left: 0.6rem;
+  margin-bottom: 0.25rem;
 }
 
 .fieldLabel {

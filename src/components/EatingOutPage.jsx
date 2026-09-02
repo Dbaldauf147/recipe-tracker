@@ -3061,23 +3061,30 @@ function needsCategorizing(restaurants) {
 }
 
 /**
- * "Categorize five of these" — the prompt that opens on arriving at the page.
+ * "File this one" — the prompt that opens on arriving at the page.
  *
  * Filing spots is the chore that never happens on its own: an import lands a
  * place with a name and an address and nothing else, and nothing about browsing
- * the list later asks you to fix that. Five is small enough to actually finish
- * standing in a kitchen, and the queue is snapshotted on open so answering one
- * can't reshuffle the four still on screen.
+ * the list later asks you to fix it. So the page asks, one place at a time, and
+ * stops after CATEGORIZE_BATCH of them — short enough to actually finish rather
+ * than a queue of 200 you close on sight.
  *
- * Saves whatever you filled, including a spot you only half-answered — a bucket
- * with no cuisine still comes back next visit for the missing half, so partial
- * credit costs nothing and losing it would be annoying.
+ * One card at a time rather than a list, matching FileSpotsModal above: a single
+ * name with four questions under it is a thing you answer, where five names with
+ * twenty questions is a form you postpone.
+ *
+ * Each place is SAVED AS YOU LEAVE IT, not batched to the end — same reason
+ * FileSpotsModal does it. A backlog gets filed in odd minutes, and losing a
+ * sitting's answers to a closed tab is how it stops getting done at all.
  */
 function CategorizePrompt({ queue, cuisineSuggestions, onSave, onClose }) {
-  const [offset, setOffset] = useState(0);
-  // Edits keyed by spot id, so advancing a batch can't mix answers up.
+  const [i, setI] = useState(0);
+  // Only the keys actually touched on the CURRENT spot. Reset on advance, which
+  // is what lets commit tell "said Not yet" apart from "never answered".
   const [draft, setDraft] = useState({});
-  const batch = queue.slice(offset, offset + CATEGORIZE_BATCH);
+  // Five per visit, or the whole queue when it's shorter than that.
+  const total = Math.min(queue.length, CATEGORIZE_BATCH);
+  const spot = queue[i];
 
   useEffect(() => {
     const onKey = (e) => { if (e.key === 'Escape') onClose(); };
@@ -3085,143 +3092,129 @@ function CategorizePrompt({ queue, cuisineSuggestions, onSave, onClose }) {
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
 
-  if (batch.length === 0) return null;
+  if (!spot || i >= total) return null;
 
-  // What to SHOW: the spot as it stands, with anything answered here on top.
-  // `draft` holds only keys actually touched, which is what lets commit() tell
-  // "said want-to-try" apart from "never answered".
-  const valueFor = (r) => ({
-    buckets: bucketsOf(r),
-    cuisines: r.cuisines || [],
-    status: r.status || '',
-    takenJoanne: !!r.takenJoanne,
-    ...(draft[r.id] || {}),
-  });
-  const setFor = (id, patch) => setDraft(prev => ({
-    ...prev,
-    [id]: { ...(prev[id] || {}), ...patch },
-  }));
+  // What to SHOW: the spot as it stands, with this card's answers on top.
+  const v = {
+    buckets: bucketsOf(spot),
+    cuisines: spot.cuisines || [],
+    status: spot.status || '',
+    takenJoanne: !!spot.takenJoanne,
+    ...draft,
+  };
+  const set = (patch) => setDraft(prev => ({ ...prev, ...patch }));
+  // "Not yet" on Joanne has to be distinguishable from never having answered,
+  // and `false` is the same falsy value the field already holds by default.
+  const joanneAnswered = 'takenJoanne' in draft;
 
-  function commit() {
-    // Only spots actually touched, and only the keys touched on them. A spot
-    // left alone must not be written: that would stamp updatedAt on it, and an
-    // untouched "takenJoanne" would go out as a definite false rather than the
-    // "never said" it actually is.
-    const patches = {};
-    for (const r of batch) {
-      const edited = draft[r.id];
-      if (!edited) continue;
+  function advance(save) {
+    if (save) {
       const patch = {};
-      if (edited.buckets && edited.buckets.length > 0) {
-        patch.buckets = edited.buckets;
+      if (draft.buckets && draft.buckets.length > 0) {
+        patch.buckets = draft.buckets;
         // mealType is kept in step with buckets everywhere else (CSV, mobile).
-        patch.mealType = edited.buckets[0];
+        patch.mealType = draft.buckets[0];
       }
-      if (edited.cuisines && edited.cuisines.length > 0) patch.cuisines = edited.cuisines;
-      if (edited.status) patch.status = edited.status;
-      // Stored as true-or-absent, the same shape the editor saves, so a "no"
-      // clears the field rather than writing a falsy value the filters would
-      // then have to know about.
-      if ('takenJoanne' in edited) patch.takenJoanne = edited.takenJoanne || undefined;
-      if (Object.keys(patch).length > 0) patches[r.id] = patch;
+      if (draft.cuisines && draft.cuisines.length > 0) patch.cuisines = draft.cuisines;
+      if (draft.status) patch.status = draft.status;
+      // Stored as true-or-absent, the shape the editor saves, so a "no" clears
+      // the field rather than writing a falsy value the filters must know about.
+      if (joanneAnswered) patch.takenJoanne = draft.takenJoanne || undefined;
+      if (Object.keys(patch).length > 0) onSave({ [spot.id]: patch });
     }
-    if (Object.keys(patches).length > 0) onSave(patches);
-
-    const nextOffset = offset + CATEGORIZE_BATCH;
-    if (nextOffset >= queue.length) onClose();
-    else { setOffset(nextOffset); setDraft({}); }
+    if (i + 1 >= total) onClose();
+    else { setI(i + 1); setDraft({}); }
   }
 
-  const remaining = queue.length - offset;
-  return (
-    <div className={styles.modalOverlay} onClick={onClose}>
-      <div className={styles.modal} onClick={e => e.stopPropagation()}>
-        <div className={styles.modalHeader}>
-          <h2 className={styles.modalTitle}>
-            File {batch.length} {batch.length === 1 ? 'place' : 'places'}
-          </h2>
-          <button type="button" className={styles.iconBtn} onClick={onClose} aria-label="Skip">✕</button>
-        </div>
-        <div className={styles.modalBody}>
-          <p style={{ margin: '0 0 0.9rem', fontSize: '0.85rem', color: 'var(--color-text-muted)' }}>
-            {remaining} {remaining === 1 ? 'place needs' : 'places need'} a bucket or a cuisine.
-            Fill in what you know — anything you leave blank comes back next time.
-          </p>
-          {batch.map(r => {
-            const v = valueFor(r);
-            return (
-              <div key={r.id} className={styles.categorizeRow}>
-                <div className={styles.categorizeName}>
-                  {r.name}
-                  {r.address && <span className={styles.categorizeAddr}> · {r.address}</span>}
-                </div>
-                <div className={styles.categorizeChips}>
-                  {BUCKETS.map(b => {
-                    const on = v.buckets.includes(b.key);
-                    return (
-                      <button
-                        key={b.key}
-                        type="button"
-                        className={`${styles.tagFilter} ${on ? styles.tagFilterActive : ''}`}
-                        aria-pressed={on}
-                        onClick={() => setFor(r.id, {
-                          buckets: on ? v.buckets.filter(k => k !== b.key) : [...v.buckets, b.key],
-                        })}
-                      >
-                        {b.icon} {b.label}
-                      </button>
-                    );
-                  })}
-                </div>
-                <TagChips
-                  values={v.cuisines}
-                  onChange={next => setFor(r.id, { cuisines: next })}
-                  suggestions={cuisineSuggestions}
-                  placeholder="Cuisine — type and press Enter"
-                />
-                <div className={styles.categorizeAsks}>
-                  <span className={styles.categorizeAskLabel}>Been there?</span>
-                  <button
-                    type="button"
-                    className={`${styles.tagFilter} ${v.status === 'visited' ? styles.tagFilterActive : ''}`}
-                    aria-pressed={v.status === 'visited'}
-                    onClick={() => setFor(r.id, { status: 'visited' })}
-                  >Been</button>
-                  <button
-                    type="button"
-                    className={`${styles.tagFilter} ${v.status === 'want-to-try' ? styles.tagFilterActive : ''}`}
-                    aria-pressed={v.status === 'want-to-try'}
-                    onClick={() => setFor(r.id, { status: 'want-to-try' })}
-                  >Not yet</button>
+  const answeredSomething = Object.keys(draft).length > 0;
 
-                  <span className={styles.categorizeAskLabel}>Joanne?</span>
-                  <button
-                    type="button"
-                    className={`${styles.tagFilter} ${v.takenJoanne ? styles.tagFilterActive : ''}`}
-                    aria-pressed={!!v.takenJoanne}
-                    onClick={() => setFor(r.id, { takenJoanne: true })}
-                  >Taken her</button>
-                  <button
-                    type="button"
-                    className={`${styles.tagFilter} ${('takenJoanne' in (draft[r.id] || {}) && !v.takenJoanne) ? styles.tagFilterActive : ''}`}
-                    aria-pressed={'takenJoanne' in (draft[r.id] || {}) && !v.takenJoanne}
-                    onClick={() => setFor(r.id, { takenJoanne: false })}
-                  >Not yet</button>
-                </div>
-              </div>
+  return (
+    <div className={styles.fileBackdrop} onClick={onClose}>
+      <div className={styles.fileCard} onClick={e => e.stopPropagation()}>
+        <div className={styles.fileProgress}>
+          {i + 1} of {total}
+          <button type="button" className={styles.fileClose} onClick={onClose}>Done for now</button>
+        </div>
+        <div className={styles.fileBar}>
+          <div className={styles.fileBarFill} style={{ width: `${((i + 1) / total) * 100}%` }} />
+        </div>
+
+        <h3 className={styles.fileName}>{spot.name}</h3>
+        {(spot.address || spot.description) && (
+          <p className={styles.fileMeta}>{spot.address || spot.description}</p>
+        )}
+
+        <div className={styles.fileLabel}>Which bucket?</div>
+        <div className={styles.categorizeChips}>
+          {BUCKETS.map(b => {
+            const on = v.buckets.includes(b.key);
+            return (
+              <button
+                key={b.key}
+                type="button"
+                className={`${styles.tagFilter} ${on ? styles.tagFilterActive : ''}`}
+                aria-pressed={on}
+                onClick={() => set({
+                  buckets: on ? v.buckets.filter(k => k !== b.key) : [...v.buckets, b.key],
+                })}
+              >
+                {b.icon} {b.label}
+              </button>
             );
           })}
         </div>
-        <div className={styles.modalFooter}>
-          <button type="button" className={styles.secondaryBtn} onClick={onClose}>Skip for now</button>
-          <button type="button" className={styles.primaryBtn} onClick={commit}>
-            {remaining > CATEGORIZE_BATCH ? `Save · next ${Math.min(CATEGORIZE_BATCH, remaining - batch.length)}` : 'Save'}
+
+        <div className={styles.fileLabel} style={{ marginTop: '0.85rem' }}>Cuisine</div>
+        <TagChips
+          values={v.cuisines}
+          onChange={next => set({ cuisines: next })}
+          suggestions={cuisineSuggestions}
+          placeholder="Type a cuisine and press Enter"
+        />
+
+        <div className={styles.fileLabel} style={{ marginTop: '0.85rem' }}>Been there?</div>
+        <div className={styles.fileRow}>
+          <button
+            type="button"
+            className={`${styles.fileBtn} ${v.status === 'visited' ? styles.fileBtnOn : ''}`}
+            onClick={() => set({ status: 'visited' })}
+          >Been</button>
+          <button
+            type="button"
+            className={`${styles.fileBtn} ${v.status === 'want-to-try' ? styles.fileBtnOn : ''}`}
+            onClick={() => set({ status: 'want-to-try' })}
+          >Not yet</button>
+        </div>
+
+        <div className={styles.fileLabel}>Taken Joanne?</div>
+        <div className={styles.fileRow}>
+          <button
+            type="button"
+            className={`${styles.fileBtn} ${v.takenJoanne ? styles.fileBtnOn : ''}`}
+            onClick={() => set({ takenJoanne: true })}
+          >Taken her</button>
+          <button
+            type="button"
+            className={`${styles.fileBtn} ${joanneAnswered && !v.takenJoanne ? styles.fileBtnOn : ''}`}
+            onClick={() => set({ takenJoanne: false })}
+          >Not yet</button>
+        </div>
+
+        <div className={styles.fileNav}>
+          <button type="button" className={styles.fileNavBtn} onClick={() => advance(false)}>
+            Skip this one
+          </button>
+          <button type="button" className={styles.primaryBtn} onClick={() => advance(true)}>
+            {answeredSomething
+              ? (i + 1 >= total ? 'Save · done' : 'Save · next')
+              : (i + 1 >= total ? 'Done' : 'Next')}
           </button>
         </div>
       </div>
     </div>
   );
 }
+
 
 function RankingPopout({
   label, items, ratingsBySpot, metric, onMetricChange, grouped, onGroupedChange, onSelect, onClose,
