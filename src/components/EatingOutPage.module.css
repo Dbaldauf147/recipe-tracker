@@ -1043,9 +1043,35 @@
   font-family: inherit;
   text-align: center;
 }
+/* The curtain pulses because it is easy to read as decoration — a grey dashed
+   box is exactly what an empty state looks like. It only ever renders when
+   someone else HAS rated the place, so the movement is telling the truth: there
+   is something behind this.
+   Slow and shallow on purpose. It sits beside your own star inputs, and a hard
+   blink next to a control you are trying to use is an obstruction. */
+@keyframes ratingCurtainPulse {
+  0%, 100% {
+    border-color: var(--color-border);
+    background: var(--color-surface-alt, #f1f5f9);
+  }
+  50% {
+    border-color: var(--color-accent);
+    background: var(--color-accent-light, #eef4ff);
+  }
+}
+.ratingCurtainWaiting {
+  animation: ratingCurtainPulse 1.9s ease-in-out infinite;
+}
+/* Settle the moment the pointer arrives: you have seen it, and a target that
+   keeps changing under the cursor reads as unstable. Hover styling wins here
+   anyway, so this only stops the two fighting over the same properties. */
 .ratingCurtain:hover {
+  animation: none;
   border-color: var(--color-text-muted);
   background: var(--color-surface, #fff);
+}
+@media (prefers-reduced-motion: reduce) {
+  .ratingCurtainWaiting { animation: none; }
 }
 .ratingCurtainTitle {
   font-size: 0.88rem;

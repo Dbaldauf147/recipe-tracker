@@ -1479,7 +1479,12 @@ function SpotRatings({ ownerUid, spotId, spot, user }) {
       {hidden ? (
         <button
           type="button"
-          className={styles.ratingCurtain}
+          // The pulse is conditional even though `hidden` already implies
+          // somebody else has rated — being explicit keeps the animation tied
+          // to the fact it is claiming ("there is a rating behind this"), so a
+          // future change to when the curtain shows cannot leave it pulsing
+          // over nothing.
+          className={`${styles.ratingCurtain}${friends.length > 0 ? ` ${styles.ratingCurtainWaiting}` : ''}`}
           onClick={() => setRevealed(true)}
           aria-expanded="false"
           title="Show the group average and everyone else's scores"
