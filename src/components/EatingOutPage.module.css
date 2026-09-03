@@ -1873,10 +1873,27 @@
 }
 .mapLegend {
   display: flex;
+  align-items: center;
+  flex-wrap: wrap;
   gap: 1rem;
   font-size: 0.78rem;
   color: var(--color-text-muted);
   padding: 0 0.25rem;
+}
+/* Pushed to the end of the legend row: it's a control, not a key. */
+.mapLegendToggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin-left: auto;
+  cursor: pointer;
+  user-select: none;
+}
+.mapLegendCount {
+  background: var(--color-surface-alt);
+  border-radius: 999px;
+  padding: 0.05rem 0.45rem;
+  font-weight: 600;
 }
 .mapLegendItem {
   display: inline-flex;

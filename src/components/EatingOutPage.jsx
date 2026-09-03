@@ -1284,8 +1284,29 @@ const TRY_NEXT_TOP_N = 3;
  * answer, so they are dropped from the grouping only. Nothing is rewritten:
  * this is a display filter over data that other surfaces still read.
  */
+/**
+ * Bucket keys that ARE also a kind of place, and so are allowed to stand as a
+ * cuisine. A café is a coffee place and a bar is a drinking place in the same
+ * sense that a trattoria is Italian; "lunch-dinner" is a time of day and never
+ * an answer to "what am I in the mood for". 83 rows carry `drinking` and 11
+ * carry `coffee` — without this they can only ever read as "no cuisine set".
+ */
+const CUISINE_LIKE_BUCKETS = new Set(['coffee', 'drinking']);
+
 function isBucketNameNotCuisine(name) {
-  return BUCKET_KEYS.has(String(name || '').trim().toLowerCase());
+  const key = String(name || '').trim().toLowerCase();
+  return BUCKET_KEYS.has(key) && !CUISINE_LIKE_BUCKETS.has(key);
+}
+
+/**
+ * How a cuisine is spelled on screen. The two bucket words that double as
+ * cuisines are stored lowercase ('drinking'), so they borrow the bucket's own
+ * label and read as "Drinking" beside "Italian" instead of shouting quietly.
+ */
+function cuisineDisplayName(name) {
+  const key = String(name || '').trim().toLowerCase();
+  if (CUISINE_LIKE_BUCKETS.has(key)) return bucketLabel(key) || name;
+  return name;
 }
 
 /** Cuisine names on a spot, minus the leaked bucket keys. */
@@ -1335,7 +1356,7 @@ function tryNextByCuisine(candidates, allSpots, topN = TRY_NEXT_TOP_N) {
     if (names.length === 0) { noCuisine.push(r); continue; }
     for (const name of names) {
       const key = name.toLowerCase();
-      if (!byCuisine.has(key)) byCuisine.set(key, { key, label: name, spots: [] });
+      if (!byCuisine.has(key)) byCuisine.set(key, { key, label: cuisineDisplayName(name), spots: [] });
       byCuisine.get(key).spots.push(r);
     }
   }
@@ -3284,22 +3305,42 @@ function RankingPopout({
   );
 }
 
+/**
+ * The map answers "where could I go", so a place you've already been to is
+ * noise on it — 196 of 345 pins here, enough to bury the 149 that are still
+ * questions. Somewhere you took Joanne counts as been-to even if the status
+ * never got set.
+ *
+ * Hidden, not dropped: the toggle brings them back, because "show me
+ * everything I've eaten in this neighbourhood" is a real thing to want, just
+ * not the default one.
+ */
+function isBeenTo(r) {
+  return hasBeenVisited(r) || !!r?.takenJoanne;
+}
+
 function RestaurantMapView({ items, onSelect }) {
+  const [showVisited, setShowVisited] = useState(false);
+  const shown = useMemo(
+    () => (showVisited ? items : items.filter(r => !isBeenTo(r))),
+    [items, showVisited],
+  );
+  const hiddenCount = items.length - shown.length;
   const mapPoints = useMemo(() => {
     const out = [];
-    for (const r of items) {
+    for (const r of shown) {
       const lat = coerceCoord(r.lat);
       const lng = coerceCoord(r.lng);
       if (Number.isFinite(lat) && Number.isFinite(lng)) {
         out.push({ ...r, lat, lng });
       }
     }
-    if (out.length === 0 && items.length > 0) {
+    if (out.length === 0 && shown.length > 0) {
       // Surfaces type/value of the first few records when nothing plots —
       // helps diagnose "coords stored as something weird" cases.
       // eslint-disable-next-line no-console
-      console.warn('[Map] no plottable points from', items.length, 'items. Sample:',
-        items.slice(0, 3).map(r => ({
+      console.warn('[Map] no plottable points from', shown.length, 'items. Sample:',
+        shown.slice(0, 3).map(r => ({
           name: r.name,
           lat: r.lat, latType: typeof r.lat,
           lng: r.lng, lngType: typeof r.lng,
@@ -3307,8 +3348,10 @@ function RestaurantMapView({ items, onSelect }) {
       );
     }
     return out;
-  }, [items]);
-  const missing = items.length - mapPoints.length;
+  }, [shown]);
+  // Counts only the spots we MEANT to plot — otherwise the hidden been-to ones
+  // would be reported as "without an address", which they aren't.
+  const missing = shown.length - mapPoints.length;
 
   return (
     <div className={styles.mapWrap}>
@@ -3382,6 +3425,17 @@ function RestaurantMapView({ items, onSelect }) {
         <span className={styles.mapLegendItem}>
           <span className={styles.mapLegendDot} style={{ background: JOANNE_COLOR }} /> Taken Joanne
         </span>
+        <label className={styles.mapLegendToggle}>
+          <input
+            type="checkbox"
+            checked={showVisited}
+            onChange={e => setShowVisited(e.target.checked)}
+          />
+          Show places I&rsquo;ve been
+          {!showVisited && hiddenCount > 0 && (
+            <span className={styles.mapLegendCount}>{hiddenCount} hidden</span>
+          )}
+        </label>
       </div>
     </div>
   );
