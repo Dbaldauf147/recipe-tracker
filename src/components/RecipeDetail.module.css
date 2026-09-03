@@ -238,6 +238,26 @@
   flex-shrink: 0;
 }
 
+/* Same chip shape as the prepped badge next to it — the stars carry the
+   colour, so the chip itself stays quiet. */
+.goalRatingBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.78rem;
+  color: var(--color-text-muted);
+  background: var(--color-surface-alt);
+  padding: 0.2rem 0.6rem;
+  border-radius: var(--radius-full, 999px);
+  white-space: nowrap;
+  flex-shrink: 0;
+  cursor: help;
+}
+
+.goalRatingCount {
+  font-weight: 600;
+}
+
 .ingredientsCol {
   margin-bottom: 1.5rem;
   background: var(--color-surface);

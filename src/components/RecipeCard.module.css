@@ -238,3 +238,10 @@
     transform: none !important;
   }
 }
+
+/* Sits directly under the title, above the tag row: the tags say what is IN
+   the recipe, the stars say how it scores against the meal goals. */
+.goalStars {
+  align-self: flex-start;
+  margin-top: -0.05rem;
+}

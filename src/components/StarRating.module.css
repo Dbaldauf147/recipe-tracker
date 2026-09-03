@@ -1,0 +1,37 @@
+.wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.04em;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: help;
+}
+
+/* The empty star sits in normal flow and sets the box; the filled one is laid
+   over it and clipped to the fill fraction, so a half star is a real half
+   rather than a different glyph (a "½" reads as a fraction, and sits
+   differently in every font). */
+.star {
+  position: relative;
+  display: inline-block;
+}
+
+.starEmpty {
+  display: block;
+  color: var(--color-border);
+}
+
+.starFill {
+  position: absolute;
+  top: 0;
+  left: 0;
+  overflow: hidden;
+  color: var(--color-gold);
+}
+
+.count {
+  margin-left: 0.3rem;
+  font-size: 0.72em;
+  font-weight: 600;
+  color: var(--color-text-muted);
+}

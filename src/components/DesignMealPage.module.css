@@ -473,6 +473,15 @@
 
 .recipeBtn:hover { background: var(--color-accent-light); }
 
+/* Title on the left, stars pushed to the right edge so a column of them reads
+   as a single scale down the list. */
+.recipeTitleRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
 .recipeTitle {
   font-size: 0.92rem;
   font-weight: 600;

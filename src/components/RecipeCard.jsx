@@ -2,9 +2,10 @@ import { getCachedMealImage } from '../utils/generateMealImage';
 import { getRecipeTags, getTagInfo } from '../utils/ingredientTags';
 import { detectCuisine } from '../utils/detectCuisine';
 import { recipeStage } from '../utils/recipeStage';
+import { StarRating } from './StarRating';
 import styles from './RecipeCard.module.css';
 
-export function RecipeCard({ recipe, onClick, draggable = false, onAdd, editMode, onDelete, macroScore, showTags = true, dimmed = false, showStage = false }) {
+export function RecipeCard({ recipe, onClick, draggable = false, onAdd, editMode, onDelete, macroScore, showTags = true, dimmed = false, showStage = false, goalRating = null }) {
   const mealImage = getCachedMealImage(recipe.id);
   // `devStage` is owner-only, so whether to show it is the caller's call — the
   // card has no auth of its own. Null unless asked AND actually set: an unset
@@ -58,6 +59,11 @@ export function RecipeCard({ recipe, onClick, draggable = false, onAdd, editMode
       )}
       <div className={styles.cardContent}>
         <span className={styles.name}>{recipe.title}</span>
+        {/* How well the recipe hits the Design a Meal goals — one star per goal
+            met on a five-goal profile. A recipe whose nutrition has never been
+            computed passes null and draws nothing: five empty stars would read
+            as a bad recipe rather than an unmeasured one. */}
+        {goalRating && <StarRating rating={goalRating} className={styles.goalStars} />}
         {dimmed && <span className={styles.filteredTag}>Hidden by filter</span>}
         <div className={styles.tags}>
           {/* No stage pill here — the card's border carries it (see above), so

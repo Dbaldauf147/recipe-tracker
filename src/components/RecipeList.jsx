@@ -11,6 +11,8 @@ import { copyMealImage, loadAdminMealImages, generateMealImage, getCachedMealIma
 import { recipeStage } from '../utils/recipeStage';
 import { ALL_TAGS, TAG_CATEGORIES, recipeMatchesTags } from '../utils/ingredientTags';
 import { detectCuisine, getRecipeMinShelfDays } from '../utils/detectCuisine';
+import { loadMealGoals, activeProfile } from '../utils/mealGoals';
+import { rateRecipes, compareByRating, readNutritionCache } from '../utils/mealRating';
 import { WidgetLayout } from './WidgetLayout';
 import GridLayoutLib, { WidthProvider } from 'react-grid-layout';
 import 'react-grid-layout/css/styles.css';
@@ -495,6 +497,10 @@ export function RecipeList({
   const shareSelected = manageSelected;
   const setShareSelected = setManageSelected;
   const [searchQuery, setSearchQuery] = useState('');
+  // Order within each column: A–Z by default, or by meal-goal stars when the
+  // user asks for it. Session-only on purpose — sorting by score is something
+  // you do while deciding what to cook, not a setting you keep.
+  const [sortByRating, setSortByRating] = useState(false);
   // Predictive dropdown under the search box — shown while the field is focused
   // and there's a query. Clicking a suggestion opens that recipe.
   const [searchFocused, setSearchFocused] = useState(false);
@@ -761,6 +767,24 @@ export function RecipeList({
         .slice(0, 8)
     : [];
 
+  // ── meal-goal star ratings ───────────────────────────────────────────────
+  //
+  // One star per goal the recipe meets, out of the goals set on the Design a
+  // Meal page. Scored off nutrition the app has already computed (the
+  // per-serving macros persisted on the recipe, or the local nutrition cache),
+  // so rating the whole collection costs no lookups — a recipe whose nutrition
+  // has never been computed simply has no stars.
+  const goalProfile = useMemo(() => activeProfile(loadMealGoals()), []);
+  const goalRatings = useMemo(
+    () => rateRecipes(goalProfile, recipes, readNutritionCache()),
+    [goalProfile, recipes],
+  );
+  const anyGoalRatings = Object.keys(goalRatings).length > 0;
+  // Within a column, either A–Z (the default) or best-scoring first.
+  const recipeSort = (a, b) => (
+    sortByRating ? compareByRating(goalRatings, a, b) : (a.title || '').localeCompare(b.title || '')
+  );
+
   const passesFilters = (r) => {
     const freq = r.frequency || 'common';
     if (freq === 'retired') { if (!showRetired) return false; }
@@ -804,7 +828,7 @@ export function RecipeList({
     }
   }
   for (const cat of CATEGORIES) {
-    grouped[cat.key].sort((a, b) => a.title.localeCompare(b.title));
+    grouped[cat.key].sort(recipeSort);
   }
 
   // Weekly plan recipes
@@ -1390,6 +1414,19 @@ export function RecipeList({
             </ul>
           )}
         </div>
+        {/* Only offered once something is actually rated — a sort by a score no
+            recipe has would just shuffle the columns for no reason. */}
+        {anyGoalRatings && (
+          <button
+            className={`${styles.filterBtn} ${sortByRating ? styles.filterBtnActive : ''}`}
+            onClick={() => setSortByRating(p => !p)}
+            title={sortByRating
+              ? 'Sorted by how well each recipe meets your Design a Meal goals — click for A–Z'
+              : 'Sort each column by how well the recipe meets your Design a Meal goals'}
+          >
+            {sortByRating ? '★ Goal score' : '★ Sort by goals'}
+          </button>
+        )}
         <div className={styles.mealFilterWrap} ref={mealFilterRef}>
           <button
             className={`${styles.filterBtn} ${(checkedTypes.size > 0 || checkedCategories.size > 0 || checkedCuisines.size > 0 || checkedTags.size > 0 || checkedSources.size > 0 || showToTry || showRare || showRetired || !showCommon) ? styles.filterBtnActive : ''}`}
@@ -2170,6 +2207,7 @@ export function RecipeList({
                               showTags={false}
                               dimmed={dimmedIds.has(recipe.id)}
                               showStage={isOwner}
+                              goalRating={goalRatings[recipe.id]}
                             />
                           </div>
                         ))}
@@ -2183,7 +2221,7 @@ export function RecipeList({
               const tagName = cw.label.toLowerCase();
               const taggedRecipes = visible.filter(r =>
                 (r.customTags || []).some(t => t.toLowerCase() === tagName)
-              ).sort((a, b) => a.title.localeCompare(b.title));
+              ).sort(recipeSort);
               return (
                 <div key={cw.id} className={styles.column}>
                   <div className={styles.columnHeadingRow}>
@@ -2227,6 +2265,7 @@ export function RecipeList({
                               showTags={false}
                               dimmed={dimmedIds.has(recipe.id)}
                               showStage={isOwner}
+                              goalRating={goalRatings[recipe.id]}
                             />
                           </div>
                         ))}

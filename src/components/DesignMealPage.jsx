@@ -12,6 +12,8 @@ import {
   makeRow, totalsForRows, evaluateMeal, suggestFixes, candidatesFromIngredientsDb,
   formatAmount, formatQty, nutrientLabel, nutrientUnit,
 } from '../utils/mealGoals';
+import { rateRecipes, compareByRating, readNutritionCache } from '../utils/mealRating';
+import { StarRating } from './StarRating';
 import styles from './DesignMealPage.module.css';
 
 const UNIT_CHOICES = [
@@ -401,19 +403,30 @@ function GoalsEditor({ store, setStore, profile, dailyGoals }) {
 
 // ── meal picker ────────────────────────────────────────────────────────────
 
-function MealPicker({ recipes, onPick, onScratch }) {
+function MealPicker({ recipes, profile, onPick, onScratch }) {
   const [query, setQuery] = useState('');
   const withIngredients = useMemo(
     () => (recipes || []).filter(r => (r.ingredients || []).some(i => (i.ingredient || '').trim())),
     [recipes],
+  );
+  // Stars from the nutrition already computed for each recipe, so the picker
+  // can say which meals are close before you open one. The page itself scores
+  // the meal you pick from fresh ingredient lookups, so the two can disagree
+  // by a goal on a recipe whose saved macros are stale — this is the shortlist,
+  // the score panel below is the verdict.
+  const ratings = useMemo(
+    () => rateRecipes(profile, withIngredients, readNutritionCache()),
+    [profile, withIngredients],
   );
   const matches = useMemo(() => {
     const q = query.trim().toLowerCase();
     const list = q
       ? withIngredients.filter(r => (r.title || '').toLowerCase().includes(q))
       : withIngredients;
-    return list.slice(0, 40);
-  }, [withIngredients, query]);
+    // Best fit first when anything is scored: the point of this list is
+    // finding a meal worth bending, not finding one alphabetically.
+    return [...list].sort((a, b) => compareByRating(ratings, a, b)).slice(0, 40);
+  }, [withIngredients, query, ratings]);
 
   return (
     <section className={styles.card}>
@@ -438,7 +451,10 @@ function MealPicker({ recipes, onPick, onScratch }) {
           {matches.map(r => (
             <li key={r.id}>
               <button type="button" className={styles.recipeBtn} onClick={() => onPick(r)}>
-                <span className={styles.recipeTitle}>{r.title || 'Untitled'}</span>
+                <span className={styles.recipeTitleRow}>
+                  <span className={styles.recipeTitle}>{r.title || 'Untitled'}</span>
+                  <StarRating rating={ratings[r.id]} />
+                </span>
                 <span className={styles.recipeMeta}>
                   {(r.ingredients || []).filter(i => (i.ingredient || '').trim()).length} ingredients
                   {r.servings ? ` · serves ${r.servings}` : ''}
@@ -898,7 +914,7 @@ export function DesignMealPage({ recipes, savedGoals, onBack, onSelect, onUpdate
       <GoalsEditor store={store} setStore={setStore} profile={profile} dailyGoals={savedGoals} />
 
       {!meal ? (
-        <MealPicker recipes={recipes} onPick={pickRecipe} onScratch={startScratch} />
+        <MealPicker recipes={recipes} profile={profile} onPick={pickRecipe} onScratch={startScratch} />
       ) : (
         <>
           <section className={styles.card}>

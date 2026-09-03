@@ -17,6 +17,9 @@ import { getGHGEmissions, getGHGRating, computeRecipeGHG } from '../data/ghgEmis
 import { OWNER_EMAIL } from '../utils/pageAccess';
 import { parsePastedSteps, splitClipboardRows, isSpreadsheetHtml } from '../utils/pastedSteps';
 import { RECIPE_STAGES } from '../utils/recipeStage';
+import { loadMealGoals, activeProfile } from '../utils/mealGoals';
+import { rateMeal, perServingForRecipe, readNutritionCache, ratingSummary } from '../utils/mealRating';
+import { StarRating } from './StarRating';
 import styles from './RecipeDetail.module.css';
 
 const ADMIN_UID = import.meta.env.VITE_ADMIN_UID;
@@ -519,6 +522,18 @@ export function RecipeDetail({ recipe, allTags = [], onSave, onDelete, onBack, o
   const [friendsList, setFriendsList] = useState(null);
   const [shareMsg, setShareMsg] = useState(null);
   const [nutritionTotals, setNutritionTotals] = useState(null);
+  // Per-serving nutrition as the panel below currently has it. The star chip
+  // scores off this while the page is open, so editing an ingredient moves the
+  // stars with the macros instead of showing the last-saved score.
+  const [nutritionPerServing, setNutritionPerServing] = useState(null);
+  // How this recipe measures up against the Design a Meal goals: one star per
+  // goal met. Falls back to the nutrition saved on the recipe until the panel
+  // below has computed its own.
+  const goalProfile = useMemo(() => activeProfile(loadMealGoals()), []);
+  const goalRating = useMemo(
+    () => rateMeal(goalProfile, nutritionPerServing || perServingForRecipe(recipe, readNutritionCache())),
+    [goalProfile, nutritionPerServing, recipe],
+  );
   const shareRef = useRef(null);
   const isInWeek = recipe ? (weeklyPlan || []).includes(recipe.id) : false;
   const [adjustedServings, setAdjustedServings] = useState(null);
@@ -1952,6 +1967,20 @@ export function RecipeDetail({ recipe, allTags = [], onSave, onDelete, onBack, o
             ) : (
               <h1 className={styles.titleDisplay}>{fields.title}</h1>
             )}
+            {/* Sits with the other status chips: how this recipe scores
+                against the Design a Meal goals is a fact about the recipe, and
+                the score panel that explains it lives on that page. Absent
+                until there are goals AND nutrition — an unscored recipe shows
+                no chip rather than an empty one. */}
+            {goalRating && (
+              <span
+                className={styles.goalRatingBadge}
+                title={`${ratingSummary(goalRating)} — set on the Design a Meal page`}
+              >
+                <StarRating rating={goalRating} size="0.9rem" />
+                <span className={styles.goalRatingCount}>{goalRating.met}/{goalRating.total} goals</span>
+              </span>
+            )}
             <span className={styles.lastPrepBadge}>
               {daysSinceLastPrepped === 0
                 ? 'Prepped today'
@@ -2408,6 +2437,7 @@ export function RecipeDetail({ recipe, allTags = [], onSave, onDelete, onBack, o
         onViewSources={onViewSources}
         onNutritionData={(d) => {
           setNutritionTotals(d?.totals || null);
+          setNutritionPerServing(d?.perServing || null);
           // Persist the computed nutrition to Firestore so the mobile app
           // (and any other consumer) can mirror this data instead of
           // recomputing it. Re-persist when:
