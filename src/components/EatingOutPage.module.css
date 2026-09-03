@@ -1902,8 +1902,9 @@
   font-size: 0.78rem;
 }
 .mapPopupBtn {
-  align-self: flex-start;
-  margin-top: 4px;
+  /* Spacing lives on .mapPopupActions now — a margin here would push the button
+     4px below the link it sits beside. */
+  align-self: center;
   background: var(--color-accent);
   color: #fff;
   border: none;
@@ -1915,6 +1916,29 @@
   font-family: inherit;
 }
 .mapPopupBtn:hover { filter: brightness(1.1); }
+
+/* Open + Google Maps sit on one row. Leaflet styles anchors inside a popup
+   itself, so the link states are set explicitly rather than inherited. */
+.mapPopupActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+  flex-wrap: wrap;
+}
+
+.mapPopupLink,
+.mapPopupLink:visited {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--color-accent);
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.mapPopupLink:hover {
+  text-decoration: underline;
+}
 
 /* Strip Leaflet's default white background from our divIcon markers */
 :global(.leaflet-div-icon.restaurant-marker),

@@ -46,6 +46,38 @@ function hasValidCoords(r) {
   return Number.isFinite(coerceCoord(r?.lat)) && Number.isFinite(coerceCoord(r?.lng));
 }
 
+// Mirrors isGoogleMapsUrl in api/extract-restaurant.js — the importer's test for
+// "this link IS a Google Maps place", covering google.<tld>/maps,
+// maps.google.<tld> and both short forms.
+const GOOGLE_MAPS_URL_RE = /(?:\/\/|\.)(?:google\.[a-z.]+\/maps|maps\.google\.[a-z.]+|maps\.app\.goo\.gl|goo\.gl\/maps)/i;
+
+/**
+ * Where "Google Maps" on a spot should send you.
+ *
+ * A spot imported FROM Google Maps already carries that link, and the place's
+ * own page beats anything a search can reconstruct, so it wins outright.
+ *
+ * Failing that, search the NAME near the pin (`/search/<name>/@lat,lng,17z`)
+ * rather than searching name + address blind: half these rows are bars and
+ * taquerias whose names repeat across a city, and the coordinates are the one
+ * thing that says which one you meant. Address search is for the rows with no
+ * coordinates, and bare coordinates for the ones with no name worth searching.
+ */
+function googleMapsUrl(r) {
+  const own = (r?.url || '').trim();
+  if (own && GOOGLE_MAPS_URL_RE.test(own)) return own;
+  const name = (r?.name || '').trim();
+  const address = (r?.address || '').trim();
+  const hasCoords = Number.isFinite(r?.lat) && Number.isFinite(r?.lng);
+  if (name && hasCoords) {
+    return `https://www.google.com/maps/search/${encodeURIComponent(name)}/@${r.lat},${r.lng},17z`;
+  }
+  const query = [name, address].filter(Boolean).join(', ');
+  if (query) return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`;
+  if (hasCoords) return `https://www.google.com/maps/search/?api=1&query=${r.lat},${r.lng}`;
+  return null;
+}
+
 function makeMarkerIcon(color) {
   return L.divIcon({
     className: 'restaurant-marker',
@@ -3315,13 +3347,25 @@ function RestaurantMapView({ items, onSelect }) {
                   {r.cuisines?.length > 0 && (
                     <div className={styles.mapPopupMeta}>{r.cuisines.join(' · ')}</div>
                   )}
-                  <button
-                    type="button"
-                    className={styles.mapPopupBtn}
-                    onClick={() => onSelect(r)}
-                  >
-                    Open
-                  </button>
+                  <div className={styles.mapPopupActions}>
+                    <button
+                      type="button"
+                      className={styles.mapPopupBtn}
+                      onClick={() => onSelect(r)}
+                    >
+                      Open
+                    </button>
+                    {googleMapsUrl(r) && (
+                      <a
+                        className={styles.mapPopupLink}
+                        href={googleMapsUrl(r)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
+                        Google Maps ↗
+                      </a>
+                    )}
+                  </div>
                 </div>
               </Popup>
             </Marker>
