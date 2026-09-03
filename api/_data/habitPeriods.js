@@ -56,7 +56,19 @@ const SKIP_STATUSES = new Set([
   'on hold', 'abandoned', 'automatically', 'not started', 'havent started', "haven't started",
 ]);
 
+/**
+ * A BAD habit — one you are trying not to do — is logged only when it happens,
+ * so the server must never remind about it. Mirrors `isBadHabit` in
+ * habitOutstanding.js and PrepDay's habitTracking.ts.
+ */
+export function isBadHabit(h) {
+  return String(h?.habitType || '').trim().toLowerCase() === 'bad';
+}
+
 export function isLoggableHabit(h) {
+  // Not "is it a habit" but "is this one the user's to log right now" — which a
+  // bad habit never is, whatever its status or cadence says.
+  if (isBadHabit(h)) return false;
   return !SKIP_STATUSES.has(String(h?.status || '').trim().toLowerCase());
 }
 

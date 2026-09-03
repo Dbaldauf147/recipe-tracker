@@ -2,9 +2,10 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { loadField, loadHabitAutoStatus } from '../utils/firestoreSync';
 import { loadHabitLog, loadHabitLogAuto } from '../utils/habitLogYears';
 import { HABIT_FIELDS, seedHabits, makeHabitId } from '../data/habitsSeed';
-import { yesterdayDate, yesterdayDayKey, yesterdayUnloggedHabits } from '../utils/habitOutstanding';
+import { yesterdayDate, yesterdayDayKey, yesterdayUnloggedHabits, isBadHabit } from '../utils/habitOutstanding';
 import { normalizePtoRanges, ptoCellsToStamp, activePtoRange } from '../utils/habitPto';
 import { nextMarkInCycle } from '../utils/habitMarkCycle';
+import { badHabitStats, recentDayKeys, cleanLabel, dayKeyOf, dateOfDayKey } from '../utils/badHabits';
 import {
   readCache as readHabitCache, cacheRemote, replayQueue,
   queueFieldWrite, queueMark, queueMarks,
@@ -40,6 +41,9 @@ const SUB_TABS = [
   { id: 'history', label: 'History' },
   { id: 'onhold', label: 'On Hold' },
   { id: 'notstarted', label: 'Not Started' },
+  // Bad habits sit in their own tab: they are logged only when they happen, so
+  // they must never appear beside habits that are asking to be logged.
+  { id: 'bad', label: 'Bad Habits' },
   { id: 'habits', label: 'Habits' },
 ];
 // "On Hold" habits are paused — hidden from the Routines/Daily lists and parked
@@ -1921,9 +1925,17 @@ export function HabitsPage({ onBack, user }) {
   // Habits table for you to find and edit inline. The row is still written
   // first because the editor saves per keystroke — closeHabitPopup discards it
   // again if you never give it a name.
-  function addHabit() {
-    const blank = { id: makeHabitId() };
+  // `overrides` seeds fields on the new habit (the Bad Habits tab passes
+  // habitType). Guarded because the "+ Add habit" button wires this straight to
+  // onClick, which hands it a click event — spreading a SyntheticEvent onto the
+  // habit would persist its whole guts to Firestore.
+  function addHabit(overrides) {
+    const seed = (overrides && typeof overrides === 'object' && !overrides.nativeEvent) ? overrides : {};
+    const blank = { id: makeHabitId(), ...seed };
     HABIT_FIELDS.forEach(f => { blank[f.key] = ''; });
+    // HABIT_FIELDS blanks every known field, so any override has to be put back
+    // afterwards or 'new bad habit' would create an ordinary one.
+    Object.assign(blank, seed);
     // Stamp today as the start date — adding a habit IS the moment you start
     // tracking it, and this is the only date nothing else can reconstruct
     // (the log only knows the first day you marked it, which may be later).
@@ -2064,6 +2076,13 @@ export function HabitsPage({ onBack, user }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [habits, habitLog]);
 
+  // Bad habits are logged only when they happen, so they are kept out of every
+  // surface that asks to be logged: the routines, the KPI and charts, the
+  // history grid, the review tabs and the tab badges. They reach only their own
+  // tab and the full Habits table, which is the master list of everything.
+  const goodHabits = useMemo(() => habits.filter(h => !isBadHabit(h)), [habits]);
+  const badHabits = useMemo(() => habits.filter(h => isBadHabit(h)), [habits]);
+
   // get 0.
   const tabBadges = useMemo(() => {
     const isActive = (h) => {
@@ -2080,7 +2099,7 @@ export function HabitsPage({ onBack, user }) {
     const reviewPending = {};
     for (const k of REVIEW_KINDS) reviewPending[k.id] = 0;
     let routines = 0, daily = 0, auto = 0;
-    for (const h of habits) {
+    for (const h of goodHabits) {
       if (isActive(h) && needsMark(h)) {
         if (autoTrackedIds.has(h.id)) {
           auto++; // the automation engine will fill this one in
@@ -2094,7 +2113,7 @@ export function HabitsPage({ onBack, user }) {
       }
     }
     return { routines, daily, auto, ...reviewPending };
-  }, [habits, habitLog, autoTrackedIds]);
+  }, [goodHabits, habitLog, autoTrackedIds]);
 
   // Daily habits that were due YESTERDAY and never got a mark. A different kind
   // of warning from the red badges above: that day is over, so these are gaps in
@@ -2129,7 +2148,7 @@ export function HabitsPage({ onBack, user }) {
           {activePto ? '⏭ PTO on' : 'PTO'}
         </button>
         <button onClick={() => setImportOpen(true)} style={ghostBtn}>Paste from sheet</button>
-        <button onClick={addHabit} style={primaryBtn}>+ Add habit</button>
+        <button onClick={() => addHabit()} style={primaryBtn}>+ Add habit</button>
         <SyncChip
           state={syncState}
           onFlush={() => flushHabitQueue(user?.uid)}
@@ -2365,19 +2384,28 @@ export function HabitsPage({ onBack, user }) {
         </div>
       )}
 
-      {tab === 'kpi' && <KpiView habits={habits} habitLog={habitLog} streaks={streaks} />}
-      {tab === 'routines' && <RoutinesView habits={habits} habitLog={habitLog} habitLogAuto={habitLogAuto} streaks={streaks} autoTrackedIds={autoTrackedIds} autoStatusFor={autoStatusFor} nextLogMap={habitNextLog} onSetNextLog={setNextLogDate} onUpdate={updateHabit} openMenu={(habitId, key, label) => setDayMenu({ habitId, key, label })} onCycleMark={setMarkForKey} onMove={setMoveHabitId} onReorder={reorderHabits} onSetRoutine={setHabitRoutine} onRenameRoutine={renameRoutine} onDeleteRoutine={setDeleteRoutineName} onBulkMark={setMarksForCells} onOpen={setOpenHabitId} onMakeAutomatic={id => resolveAutoPromotes([id], true)} />}
-      {tab === 'automatic' && <AutomaticView habits={habits} automations={automations} habitLog={habitLog} habitLogAuto={habitLogAuto} onChange={persistAutomations} />}
+      {tab === 'kpi' && <KpiView habits={goodHabits} habitLog={habitLog} streaks={streaks} />}
+      {tab === 'routines' && <RoutinesView habits={goodHabits} habitLog={habitLog} habitLogAuto={habitLogAuto} streaks={streaks} autoTrackedIds={autoTrackedIds} autoStatusFor={autoStatusFor} nextLogMap={habitNextLog} onSetNextLog={setNextLogDate} onUpdate={updateHabit} openMenu={(habitId, key, label) => setDayMenu({ habitId, key, label })} onCycleMark={setMarkForKey} onMove={setMoveHabitId} onReorder={reorderHabits} onSetRoutine={setHabitRoutine} onRenameRoutine={renameRoutine} onDeleteRoutine={setDeleteRoutineName} onBulkMark={setMarksForCells} onOpen={setOpenHabitId} onMakeAutomatic={id => resolveAutoPromotes([id], true)} />}
+      {tab === 'automatic' && <AutomaticView habits={goodHabits} automations={automations} habitLog={habitLog} habitLogAuto={habitLogAuto} onChange={persistAutomations} />}
       {REVIEW_KINDS.some(k => k.id === tab) && (
         <MonthlyStatusReview
           kind={REVIEW_KINDS.find(k => k.id === tab)}
-          habits={habits}
+          habits={goodHabits}
           onUpdate={updateHabit}
           onOpen={setOpenHabitId}
         />
       )}
-      {tab === 'charts' && <ChartsView habits={habits} habitLog={habitLog} />}
-      {tab === 'history' && <HistoryView habitLog={habitLog} habits={habits} autoTrackedIds={autoTrackedIds} autoStatusFor={autoStatusFor} onImport={mergeHabitLog} openMenu={(habitId, key, label) => setDayMenu({ habitId, key, label })} />}
+      {tab === 'charts' && <ChartsView habits={goodHabits} habitLog={habitLog} />}
+      {tab === 'history' && <HistoryView habitLog={habitLog} habits={goodHabits} autoTrackedIds={autoTrackedIds} autoStatusFor={autoStatusFor} onImport={mergeHabitLog} openMenu={(habitId, key, label) => setDayMenu({ habitId, key, label })} />}
+      {tab === 'bad' && (
+        <BadHabitsView
+          habits={badHabits}
+          habitLog={habitLog}
+          onCycleMark={setMarkForKey}
+          onOpen={setOpenHabitId}
+          onAdd={() => addHabit({ habitType: 'bad', cadence: 'Daily', status: 'Some Days' })}
+        />
+      )}
       {tab === 'habits' && (
         <HabitsTable habits={habits} onUpdate={updateHabit} onDelete={deleteHabit} onOpen={setOpenHabitId} onBulkUpdate={bulkUpdate} onBulkDelete={bulkDelete} />
       )}
@@ -5862,6 +5890,143 @@ const BULK_FIELDS = [
   { key: 'kpi', label: 'KPI' },
 ];
 
+// ── Bad habits ───────────────────────────────────────────────────────────────
+//
+// A habit you are trying NOT to do. Nothing is ever due, so nothing here counts
+// toward a badge, a red dot or a reminder — you log an occurrence when it
+// happens and an empty day is the win.
+//
+// That inverts the page's colour language on purpose. Everywhere else a filled
+// cell is green because something got done; here a filled cell is red because
+// something happened. Using the same green tick for "bit my nails" would read
+// as an achievement.
+const BAD_MARK = 'done';        // the value stored — "the habit occurred"
+const BAD_COLOR = '#dc2626';
+const STRIP_DAYS = 14;
+
+function BadHabitRow({ habit, habitLog, stripKeys, todayKey, onCycleMark, onOpen }) {
+  const stats = useMemo(
+    () => badHabitStats(habit.id, habitLog, dateOfDayKey(todayKey) || new Date()),
+    [habit.id, habitLog, todayKey],
+  );
+  // Only the slip mark counts — other machinery (a PTO range stamping Skip)
+  // writes to these same cells, and those days are not slips.
+  const marked = (key) => (habitLog[key] || {})[habit.id] === BAD_MARK;
+
+  return (
+    <div style={{ border: '1px solid var(--color-border, #e2e8f0)', borderRadius: 12, padding: '0.85rem 1rem', marginBottom: '0.75rem', background: 'var(--color-surface, #fff)' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: '0.7rem' }}>
+        <button
+          type="button"
+          onClick={() => onOpen(habit.id)}
+          title="Open this habit"
+          style={{ border: 'none', background: 'none', padding: 0, cursor: 'pointer', font: 'inherit', fontWeight: 700, fontSize: '0.98rem', color: 'var(--color-text, #0f172a)' }}
+        >
+          {habit.name || 'Untitled'}
+        </button>
+        <span style={{
+          fontSize: '0.72rem', fontWeight: 700, padding: '0.12rem 0.5rem', borderRadius: 999,
+          color: stats.daysClean === 0 ? BAD_COLOR : '#15803d',
+          background: stats.daysClean === 0 ? '#fee2e2' : '#dcfce7',
+        }}>
+          {cleanLabel(stats)}
+        </span>
+        <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, alignItems: 'center' }}>
+          <button
+            type="button"
+            onClick={() => onCycleMark(habit.id, todayKey, marked(todayKey) ? null : BAD_MARK)}
+            style={{
+              border: `1px solid ${marked(todayKey) ? BAD_COLOR : 'var(--color-border, #e2e8f0)'}`,
+              background: marked(todayKey) ? BAD_COLOR : 'var(--color-surface, #fff)',
+              color: marked(todayKey) ? '#fff' : 'var(--color-text-muted, #64748b)',
+              borderRadius: 999, padding: '0.35rem 0.85rem', cursor: 'pointer',
+              fontSize: '0.8rem', fontWeight: 700,
+            }}
+          >
+            {marked(todayKey) ? '✓ Logged today' : 'It happened'}
+          </button>
+        </div>
+      </div>
+
+      {/* The last fortnight. Click any day to log or unlog it — a slip is often
+          remembered later in the evening, or the next morning. */}
+      <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+        {stripKeys.map(key => {
+          const on = marked(key);
+          const d = dateOfDayKey(key);
+          const isToday = key === todayKey;
+          return (
+            <button
+              key={key}
+              type="button"
+              title={`${d ? d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' }) : key}${on ? ' — logged' : ''}`}
+              onClick={() => onCycleMark(habit.id, key, on ? null : BAD_MARK)}
+              style={{
+                width: 34, height: 40, borderRadius: 8, cursor: 'pointer',
+                display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 1,
+                border: isToday ? `2px solid ${on ? BAD_COLOR : 'var(--color-text-muted, #94a3b8)'}` : '1px solid var(--color-border, #e2e8f0)',
+                background: on ? BAD_COLOR : 'var(--color-surface, #fff)',
+                color: on ? '#fff' : 'var(--color-text-muted, #94a3b8)',
+                fontSize: '0.7rem', fontWeight: 700,
+              }}
+            >
+              <span style={{ fontSize: '0.58rem', fontWeight: 600, opacity: 0.85 }}>
+                {d ? ['S', 'M', 'T', 'W', 'T', 'F', 'S'][d.getDay()] : ''}
+              </span>
+              <span>{d ? d.getDate() : '?'}</span>
+            </button>
+          );
+        })}
+      </div>
+
+      <div style={{ marginTop: '0.6rem', fontSize: '0.76rem', color: 'var(--color-text-muted, #64748b)', display: 'flex', gap: '0.9rem', flexWrap: 'wrap' }}>
+        <span><strong style={{ color: 'var(--color-text, #0f172a)' }}>{stats.thisWeek}</strong> this week</span>
+        <span><strong style={{ color: 'var(--color-text, #0f172a)' }}>{stats.thisMonth}</strong> this month</span>
+        <span><strong style={{ color: 'var(--color-text, #0f172a)' }}>{stats.last30}</strong> in 30 days</span>
+        <span><strong style={{ color: 'var(--color-text, #0f172a)' }}>{stats.total}</strong> all time</span>
+      </div>
+    </div>
+  );
+}
+
+function BadHabitsView({ habits, habitLog, onCycleMark, onOpen, onAdd }) {
+  // Recomputed only when the calendar day turns over, not on every render.
+  const todayKey = dayKeyOf(new Date());
+  const stripKeys = useMemo(() => recentDayKeys(STRIP_DAYS, dateOfDayKey(todayKey) || new Date()), [todayKey]);
+
+  return (
+    <div>
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap', marginBottom: '0.9rem' }}>
+        <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--color-text-muted, #64748b)', maxWidth: 620, lineHeight: 1.5 }}>
+          Habits you are trying <em>not</em> to do. These are logged only when they happen —
+          they never appear in a routine, never count toward the red badge, and never
+          trigger a reminder. An empty day is the good outcome.
+        </p>
+        <button type="button" onClick={onAdd} style={{ ...primaryBtn, marginLeft: 'auto' }}>+ Add bad habit</button>
+      </div>
+
+      {habits.length === 0 ? (
+        <div style={{ border: '1px dashed var(--color-border, #e2e8f0)', borderRadius: 12, padding: '1.5rem', textAlign: 'center', color: 'var(--color-text-muted, #64748b)', fontSize: '0.88rem' }}>
+          No bad habits yet.<br />
+          Add one here, or open any existing habit and switch on <strong>Bad habit</strong> in its popup.
+        </div>
+      ) : (
+        habits.map(h => (
+          <BadHabitRow
+            key={h.id}
+            habit={h}
+            habitLog={habitLog}
+            stripKeys={stripKeys}
+            todayKey={todayKey}
+            onCycleMark={onCycleMark}
+            onOpen={onOpen}
+          />
+        ))
+      )}
+    </div>
+  );
+}
+
 function HabitsTable({ habits, onUpdate, onDelete, onOpen, onBulkUpdate, onBulkDelete }) {
   const [visibleCols, setVisibleCols] = useState(() => {
     try { const raw = localStorage.getItem('sunday-habits-cols'); if (raw) return new Set(JSON.parse(raw)); } catch { /* default below */ }
@@ -6279,8 +6444,30 @@ function HabitDetailModal({ habit, streak: streakProp, onUpdate, onDelete, onClo
           </div>
         )}
 
-        {/* Tracking cadence — the core of this popup */}
+        {/* Bad habit — logged only when it happens.
+            Sits above the cadence chips because it decides whether a cadence
+            means anything at all: a bad habit is never due, so there is nothing
+            for a Daily or Weekly setting to schedule. */}
         <div style={{ marginBottom: '1.1rem' }}>
+          <label style={{ display: 'flex', alignItems: 'flex-start', gap: 10, cursor: 'pointer' }}>
+            <input
+              type="checkbox"
+              checked={isBadHabit(h)}
+              onChange={e => onUpdate(h.id, 'habitType', e.target.checked ? 'bad' : '')}
+              style={{ marginTop: 3 }}
+            />
+            <span>
+              <span style={{ fontWeight: 700, fontSize: '0.9rem' }}>Bad habit</span>
+              <span style={{ display: 'block', fontSize: '0.78rem', color: 'var(--color-text-muted, #64748b)', lineHeight: 1.45, marginTop: 2 }}>
+                Something you are trying not to do. Logged only when it happens — no
+                reminders, no red badge, and it moves to the Bad Habits tab.
+              </span>
+            </span>
+          </label>
+        </div>
+
+        {/* Tracking cadence — the core of this popup */}
+        <div style={{ marginBottom: '1.1rem', display: isBadHabit(h) ? 'none' : undefined }}>
           <div style={{ ...fieldLabel, marginBottom: 6 }}>Tracking cadence</div>
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
             {CADENCE_OPTIONS.map(opt => {

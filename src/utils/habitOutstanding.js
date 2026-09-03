@@ -87,6 +87,24 @@ function weeklyDueYet(h, date = new Date()) {
 // imported-but-not-yet-started habit.
 export const EXCLUDED_STATUSES = new Set(['On Hold', 'Abandoned', 'Automatically', 'Not Started', 'Havent Started']);
 
+/**
+ * A BAD habit — one you are trying not to do — is logged only when it happens.
+ * It is never "due", so it never appears in an outstanding count, a red dot, a
+ * nav badge, the yesterday banner or the 8am reminder push. An empty cell on a
+ * bad habit is the good outcome, not a question waiting to be answered, and
+ * nagging someone daily about whether they bit their nails is the opposite of
+ * what the tracker is for.
+ *
+ * Stored as `habitType: 'bad'`. Its cadence stays Daily so its marks land on
+ * ordinary day keys and the existing grid, streak and history machinery reads
+ * them unchanged — "bad" changes what an empty cell MEANS, not where it lives.
+ *
+ * ⚠️ MIRRORS PrepDay/src/utils/habitTracking.ts `isBadHabit`.
+ */
+export function isBadHabit(h) {
+  return (h?.habitType || '').trim().toLowerCase() === 'bad';
+}
+
 // ---- "Yesterday never got logged" — a different warning from the counts above ----
 // The outstanding count nags about a period still IN PROGRESS; this one is about
 // a day that is OVER, so an empty cell is a permanent gap in the record unless
@@ -148,6 +166,7 @@ export function yesterdayUnloggedHabits(habits, habitLog, automations, now = new
   for (const h of habits) {
     if (!h) continue;
     if (cadenceCanon(h.cadence) !== 'Daily') continue;
+    if (isBadHabit(h)) continue;                        // never due, so never missed
     if (EXCLUDED_STATUSES.has((h.status || '').trim())) continue;
     if (autoIds.has(h.id)) continue;
     if (!tracksDate(h, y)) continue;                    // off-day → wasn't due
@@ -202,6 +221,7 @@ export function countHabitsNeedingLog(habits, habitLog, automations) {
   let auto = 0;
   for (const h of habits) {
     if (!h) continue;
+    if (isBadHabit(h)) continue;                        // logged only when it happens
     if (EXCLUDED_STATUSES.has((h.status || '').trim())) continue;
     if ((log[periodKey(h.cadence)] || {})[h.id] !== undefined) continue; // already logged
     const due = cadenceCanon(h.cadence) === 'Weekly' ? weeklyDueYet(h) : tracksDate(h);
