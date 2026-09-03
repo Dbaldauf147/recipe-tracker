@@ -1,3 +1,4 @@
+import { computeFermentedServings, computeOmega3Servings } from './mealQualities.js';
 import { loadIngredients } from './ingredientsStore.js';
 import { getSizeGrams } from './units.js';
 
@@ -297,6 +298,8 @@ export async function lookupFromSheet(ingredient) {
   const totalGrams = match.grams ? match.grams * multiplier : null;
   nutrients.vegServings = computeVegServings(name, totalGrams || 0);
   nutrients.fruitServings = computeFruitServings(name, totalGrams || 0);
+  nutrients.fermentedServings = computeFermentedServings(name, totalGrams || 0);
+  nutrients.omega3Servings = computeOmega3Servings(name, totalGrams || 0);
 
   return {
     name: match.name + ' (from your sheet)',

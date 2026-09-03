@@ -25,6 +25,7 @@ const APP_STORAGE_KEYS = [
   'sunday-user-goals',
   'sunday-user-diet',
   'sunday-nutrition-goals',
+  'sunday-meal-goals',
   'sunday-body-stats',
   'sunday-weekly-servings',
   'sunday-daily-log',

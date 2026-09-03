@@ -1086,6 +1086,8 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
               savedGoals={savedGoals}
               onBack={goBack}
               onSelect={id => navigateTo('detail', id)}
+              onUpdateRecipe={updateRecipe}
+              user={user}
             />
           );
         })() : view === 'account-settings' ? (

@@ -116,7 +116,9 @@ const INGREDIENT_TAG_MAP = {
   // Eggs & dairy protein
   egg: ['high-protein', 'gluten-free', 'dairy-free'],
   'egg white': ['high-protein', 'gluten-free', 'dairy-free'],
-  'greek yogurt': ['high-protein', 'gluten-free', 'low-gi'],
+  // Longest-match wins in getIngredientTags, so "greek yogurt" never falls
+  // through to the plain "yogurt" entry below — it needs its own fermented tag.
+  'greek yogurt': ['high-protein', 'gluten-free', 'fermented', 'low-gi'],
   yogurt: ['high-protein', 'gluten-free', 'fermented', 'low-gi'],
   'cottage cheese': ['high-protein', 'gluten-free'],
   cottage: ['high-protein', 'gluten-free'],

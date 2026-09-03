@@ -1350,6 +1350,11 @@ export async function migrateToFirestore(uid) {
   } catch {}
 
   try {
+    const mealGoals = localStorage.getItem('sunday-meal-goals');
+    if (mealGoals) data.mealGoals = JSON.parse(mealGoals);
+  } catch {}
+
+  try {
     const mealChartColors = localStorage.getItem('sunday-meal-chart-colors');
     if (mealChartColors) data.mealChartColors = JSON.parse(mealChartColors);
   } catch {}
@@ -1616,6 +1621,10 @@ export function hydrateLocalStorage(userData, uid) {
 
   if (userData.nutritionGoals) {
     localStorage.setItem('sunday-nutrition-goals', JSON.stringify(userData.nutritionGoals));
+  }
+
+  if (userData.mealGoals) {
+    localStorage.setItem('sunday-meal-goals', JSON.stringify(userData.mealGoals));
   }
 
   if (userData.mealChartColors) {

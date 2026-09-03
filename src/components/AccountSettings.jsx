@@ -14,7 +14,7 @@ const BACKUP_FIELDS = [
   // Habit tracking: the rules + derived state, so a restore brings back the
   // whole tracker, not just the habit definitions.
   'habitAutomations', 'habitNextLog',
-  'bodyStats', 'nutritionGoals', 'reminderSettings', 'groceryCategories',
+  'bodyStats', 'nutritionGoals', 'mealGoals', 'reminderSettings', 'groceryCategories',
   'groceryItemSections', 'shopLinks', 'restaurants', 'eatingOutVotes',
   'eatingOutOrder', 'keyIngredients', 'userDiet', 'userLocation',
   'customGridWidgets', 'catLayout', 'hiddenCategories',

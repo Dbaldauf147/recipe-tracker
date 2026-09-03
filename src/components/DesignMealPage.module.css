@@ -1,0 +1,819 @@
+.container {
+  max-width: 100%;
+}
+
+/* ── header ─────────────────────────────────────────────────────────────── */
+
+.header {
+  display: flex;
+  align-items: baseline;
+  gap: 1rem;
+  margin-bottom: 1.25rem;
+  flex-wrap: wrap;
+}
+
+.backBtn {
+  background: none;
+  border: none;
+  color: var(--color-text-muted);
+  font-size: 0.9rem;
+  font-weight: 500;
+  font-family: inherit;
+  cursor: pointer;
+  padding: 0;
+  transition: color 0.15s ease;
+}
+
+.backBtn:hover {
+  color: var(--color-accent);
+}
+
+.title {
+  margin: 0;
+  font-size: 1.4rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.subtitle {
+  font-size: 0.82rem;
+  color: var(--color-text-muted);
+}
+
+/* ── cards ──────────────────────────────────────────────────────────────── */
+
+.card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  padding: 1rem 1.1rem 1.15rem;
+  margin-bottom: 1rem;
+}
+
+.cardLabel {
+  display: block;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+.emptyNote {
+  margin: 0.5rem 0 0;
+  font-size: 0.85rem;
+  color: var(--color-text-muted);
+}
+
+.loading {
+  margin: 0.75rem 0 0;
+  font-size: 0.88rem;
+  color: var(--color-text-muted);
+}
+
+.error {
+  margin: 0.5rem 0 0;
+  font-size: 0.85rem;
+  color: var(--color-danger);
+}
+
+.savedNote {
+  margin: 0.5rem 0 0;
+  font-size: 0.85rem;
+  color: var(--color-success);
+}
+
+.linkBtn {
+  background: none;
+  border: none;
+  padding: 0;
+  font-family: inherit;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--color-accent);
+  cursor: pointer;
+}
+
+.linkBtn:hover { color: var(--color-accent-hover); }
+.linkBtn:disabled { color: var(--color-text-muted); cursor: default; }
+.linkDanger { color: var(--color-danger); }
+
+/* ── goal profiles ──────────────────────────────────────────────────────── */
+
+.profileBar {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  padding-bottom: 0.85rem;
+  border-bottom: 1px solid var(--color-border-light);
+}
+
+.profileSelect,
+.profileNameInput {
+  font-family: inherit;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--color-text);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  padding: 0.35rem 0.55rem;
+  max-width: 16rem;
+}
+
+.profileActions {
+  display: flex;
+  gap: 0.9rem;
+  flex-wrap: wrap;
+  margin-left: auto;
+}
+
+.goalSection {
+  padding-top: 0.9rem;
+}
+
+.goalSectionTitle {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  margin: 0 0 0.6rem;
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
+.goalSectionHint {
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--color-text-muted);
+}
+
+.macroRow {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.3rem 0;
+  flex-wrap: wrap;
+}
+
+.macroToggle {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-width: 8rem;
+  font-size: 0.88rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.macroOff {
+  font-size: 0.8rem;
+  color: var(--color-text-muted);
+}
+
+.rangeInputs {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.rangeDash {
+  color: var(--color-text-muted);
+}
+
+.numInput {
+  width: 4.5rem;
+  padding: 0.35rem 0.5rem;
+  font-family: inherit;
+  font-size: 0.88rem;
+  color: var(--color-text);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+}
+
+.unitTag {
+  font-size: 0.8rem;
+  color: var(--color-text-muted);
+  min-width: 2.2rem;
+}
+
+.goalEditRow {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.25rem 0;
+  flex-wrap: wrap;
+}
+
+.goalKeySelect,
+.goalOpSelect {
+  font-family: inherit;
+  font-size: 0.85rem;
+  color: var(--color-text);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  padding: 0.35rem 0.4rem;
+}
+
+.goalKeySelect { min-width: 9rem; }
+
+.removeBtn {
+  background: none;
+  border: none;
+  color: var(--color-text-muted);
+  font-size: 1.15rem;
+  line-height: 1;
+  padding: 0 0.25rem;
+  cursor: pointer;
+}
+
+.removeBtn:hover { color: var(--color-danger); }
+
+.addGoalBtn {
+  margin-top: 0.55rem;
+  padding: 0.35rem 0.85rem;
+  background: var(--color-surface);
+  color: var(--color-accent);
+  border: 1px solid var(--color-border);
+  border-radius: 50px;
+  font-family: inherit;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.addGoalBtn:hover {
+  background: var(--color-accent-light);
+  border-color: var(--color-accent);
+}
+
+/* ── score panel ────────────────────────────────────────────────────────── */
+
+.scorePanel {
+  margin-top: 0.9rem;
+  padding: 0.85rem 0.9rem;
+  background: var(--color-surface-alt);
+  border-radius: 10px;
+}
+
+.scoreSummary {
+  display: flex;
+  align-items: baseline;
+  gap: 0.9rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.85rem;
+}
+
+.scoreCal {
+  font-size: 1.25rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.scoreSplit {
+  display: flex;
+  gap: 0.8rem;
+  flex-wrap: wrap;
+}
+
+.scoreSplitItem {
+  font-size: 0.82rem;
+  color: var(--color-text-secondary);
+}
+
+.scoreSplitPct {
+  margin-left: 0.3rem;
+  font-weight: 700;
+  color: var(--color-text);
+}
+
+.scorePer {
+  margin-left: auto;
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+}
+
+.goalGrid {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.goalScoreRow {
+  display: grid;
+  grid-template-columns: 9rem minmax(6rem, 1fr) 4.5rem 6.5rem 5rem;
+  align-items: center;
+  gap: 0.6rem;
+  font-size: 0.83rem;
+}
+
+.goalScoreLabel {
+  font-weight: 600;
+  display: flex;
+  flex-direction: column;
+}
+
+.goalScoreSub {
+  font-size: 0.68rem;
+  font-weight: 500;
+  color: var(--color-text-muted);
+}
+
+.goalScoreActual {
+  font-weight: 700;
+  text-align: right;
+}
+
+.goalScoreTarget {
+  color: var(--color-text-muted);
+  font-size: 0.78rem;
+}
+
+.goalScoreStatus {
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: lowercase;
+}
+
+.statusPass { color: var(--color-success); }
+.statusOver { color: var(--color-danger); }
+.statusUnder { color: var(--color-gold); }
+.statusUnknown { color: var(--color-text-muted); }
+
+/* The track: the shaded band is the accepted range, the dot is this meal. */
+.bar {
+  position: relative;
+  height: 8px;
+  border-radius: 4px;
+  background: var(--color-border-light);
+}
+
+/* A yes/no goal fills the whole track or none of it. */
+.barFill {
+  position: absolute;
+  inset: 0;
+  border-radius: 4px;
+  background: currentColor;
+  opacity: 0.55;
+}
+
+.presenceHint {
+  font-size: 0.72rem;
+  color: var(--color-text-muted);
+  flex: 1 1 8rem;
+}
+
+.barBand {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: var(--color-accent-subtle);
+  border-radius: 4px;
+}
+
+.barMarker {
+  position: absolute;
+  top: 50%;
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  border: 2px solid var(--color-surface);
+  background: currentColor;
+}
+
+/* ── meal ───────────────────────────────────────────────────────────────── */
+
+.mealHead {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.mealTitle {
+  margin: 0.15rem 0 0;
+  font-size: 1.15rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.mealActions {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.servingsLabel {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.8rem;
+  color: var(--color-text-muted);
+}
+
+.servingsInput {
+  width: 3.5rem;
+  padding: 0.3rem 0.45rem;
+  font-family: inherit;
+  font-size: 0.88rem;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+
+.pickerHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.searchInput {
+  width: 100%;
+  margin-top: 0.7rem;
+  padding: 0.5rem 0.7rem;
+  font-family: inherit;
+  font-size: 0.9rem;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  box-sizing: border-box;
+}
+
+.recipeList {
+  list-style: none;
+  margin: 0.7rem 0 0;
+  padding: 0;
+  max-height: 22rem;
+  overflow-y: auto;
+}
+
+.recipeBtn {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  width: 100%;
+  text-align: left;
+  padding: 0.55rem 0.6rem;
+  background: none;
+  border: none;
+  border-bottom: 1px solid var(--color-border-light);
+  font-family: inherit;
+  cursor: pointer;
+  border-radius: 6px;
+}
+
+.recipeBtn:hover { background: var(--color-accent-light); }
+
+.recipeTitle {
+  font-size: 0.92rem;
+  font-weight: 600;
+}
+
+.recipeMeta {
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+}
+
+/* ── ingredient rows ────────────────────────────────────────────────────── */
+
+.rowsHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-top: 1.1rem;
+  flex-wrap: wrap;
+}
+
+.rowsActions {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  flex-wrap: wrap;
+}
+
+.dirtyTag {
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-gold);
+  background: var(--color-gold-light);
+  padding: 0.15rem 0.45rem;
+  border-radius: 50px;
+}
+
+.saveBtn {
+  padding: 0.4rem 0.9rem;
+  background: var(--color-accent);
+  color: #fff;
+  border: none;
+  border-radius: 50px;
+  font-family: inherit;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.saveBtn:hover { background: var(--color-accent-hover); }
+
+.saveBtn:disabled {
+  background: var(--color-border);
+  color: var(--color-text-muted);
+  cursor: default;
+}
+
+.rowList {
+  list-style: none;
+  margin: 0.6rem 0 0;
+  padding: 0;
+}
+
+.ingRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid var(--color-border-light);
+  flex-wrap: wrap;
+}
+
+.ingRowOff {
+  opacity: 0.45;
+}
+
+.ingName {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 10rem;
+  flex: 1 1 12rem;
+  font-size: 0.9rem;
+}
+
+.ingMeta {
+  font-size: 0.72rem;
+  color: var(--color-text-muted);
+}
+
+.ingAmount {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.qtyInput {
+  width: 4.5rem;
+  padding: 0.3rem 0.45rem;
+  font-family: inherit;
+  font-size: 0.88rem;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+
+.ingUnit {
+  min-width: 3rem;
+  font-size: 0.8rem;
+  color: var(--color-text-muted);
+}
+
+.slider {
+  width: 8rem;
+  accent-color: var(--color-accent);
+}
+
+.rowToggle {
+  background: none;
+  border: 1px solid var(--color-border);
+  border-radius: 50px;
+  padding: 0.2rem 0.6rem;
+  font-family: inherit;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+}
+
+.rowToggle:hover {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+
+.addRow {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.85rem;
+  flex-wrap: wrap;
+}
+
+.unitInput {
+  width: 5rem;
+  padding: 0.3rem 0.45rem;
+  font-family: inherit;
+  font-size: 0.88rem;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+
+.addNameInput {
+  flex: 1 1 12rem;
+  padding: 0.35rem 0.6rem;
+  font-family: inherit;
+  font-size: 0.9rem;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+
+/* ── suggestions ────────────────────────────────────────────────────────── */
+
+.allGood {
+  margin: 0.6rem 0 0;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--color-success);
+}
+
+.autoFixBtn {
+  padding: 0.35rem 0.85rem;
+  background: var(--color-accent-light);
+  color: var(--color-accent);
+  border: 1px solid var(--color-accent-subtle);
+  border-radius: 50px;
+  font-family: inherit;
+  font-size: 0.78rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.autoFixBtn:hover { background: var(--color-accent-subtle); }
+
+.fixGroup {
+  margin-top: 0.9rem;
+  padding-top: 0.7rem;
+  border-top: 1px solid var(--color-border-light);
+}
+
+.fixGoalTitle {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  margin: 0 0 0.5rem;
+  font-size: 0.92rem;
+  font-weight: 700;
+  flex-wrap: wrap;
+}
+
+.fixGoalTarget {
+  font-size: 0.76rem;
+  font-weight: 500;
+  color: var(--color-text-muted);
+}
+
+.fixRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.45rem 0;
+  flex-wrap: wrap;
+}
+
+.fixMain {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  flex: 1 1 16rem;
+}
+
+.fixChange {
+  font-size: 0.88rem;
+  font-weight: 600;
+}
+
+.fixProjection {
+  font-size: 0.78rem;
+  color: var(--color-text-secondary);
+}
+
+.fixAlso {
+  font-size: 0.74rem;
+  color: var(--color-success);
+}
+
+.fixWarn {
+  font-size: 0.74rem;
+  color: var(--color-danger);
+}
+
+.applyBtn {
+  padding: 0.32rem 0.85rem;
+  background: var(--color-surface);
+  color: var(--color-accent);
+  border: 1px solid var(--color-border);
+  border-radius: 50px;
+  font-family: inherit;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.applyBtn:hover {
+  background: var(--color-accent-light);
+  border-color: var(--color-accent);
+}
+
+.applyBtn:disabled {
+  color: var(--color-text-muted);
+  cursor: default;
+}
+
+/* ── AI ideas ───────────────────────────────────────────────────────────── */
+
+.aiHint {
+  margin: 0.5rem 0 0;
+  font-size: 0.78rem;
+  color: var(--color-text-muted);
+}
+
+.ideaList {
+  margin-top: 0.7rem;
+  display: flex;
+  flex-direction: column;
+}
+
+.ideaRow {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  padding: 0.45rem 0;
+  border-top: 1px solid var(--color-border-light);
+  flex-wrap: wrap;
+}
+
+.ideaKind {
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+  min-width: 2.6rem;
+}
+
+.ideaText {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  flex: 1 1 14rem;
+  font-size: 0.87rem;
+}
+
+.ideaReason {
+  font-size: 0.74rem;
+  color: var(--color-text-muted);
+}
+
+.aiNote {
+  margin: 0.5rem 0 0;
+  font-size: 0.8rem;
+  color: var(--color-text-secondary);
+}
+
+@media (max-width: 700px) {
+  .goalScoreRow {
+    grid-template-columns: 1fr auto;
+    grid-template-areas:
+      "label status"
+      "bar bar"
+      "actual target";
+    gap: 0.3rem 0.6rem;
+    padding-bottom: 0.4rem;
+    border-bottom: 1px solid var(--color-border-light);
+  }
+  .goalScoreLabel { grid-area: label; }
+  .goalScoreStatus { grid-area: status; text-align: right; }
+  .bar { grid-area: bar; }
+  .goalScoreActual { grid-area: actual; text-align: left; }
+  .goalScoreTarget { grid-area: target; text-align: right; }
+
+  .scorePer { margin-left: 0; }
+  .slider { width: 100%; flex: 1 1 100%; order: 5; }
+}
