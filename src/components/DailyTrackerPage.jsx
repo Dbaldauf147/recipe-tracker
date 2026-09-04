@@ -111,6 +111,20 @@ function prepareWeekDays(anchorStr) {
   return out;
 }
 
+// `count` consecutive date keys starting at `startStr`. Unlike
+// prepareWeekDays this isn't pinned to a Sun→Sat week, so a run of leftovers
+// that starts on a Friday can carry on into the following week.
+function daysFrom(startStr, count) {
+  const [y, m, d] = String(startStr).split('-').map(Number);
+  if (!y || !m || !d) return [];
+  const out = [];
+  for (let i = 0; i < count; i++) {
+    const dd = new Date(y, m - 1, d + i);
+    out.push(`${dd.getFullYear()}-${String(dd.getMonth() + 1).padStart(2, '0')}-${String(dd.getDate()).padStart(2, '0')}`);
+  }
+  return out;
+}
+
 function uuid() {
   return crypto.randomUUID();
 }
@@ -5528,18 +5542,25 @@ export function DailyTrackerPage({ recipes, getRecipe, onClose, user, weeklyPlan
     }
     const nutrition = perServing ? scaleNutrition(perServing, 1) : {};
 
-    // Visible prepare week (Sun→Sat), following the ‹ › nav.
-    const windowDays = prepareWeekDays(prepareAnchorStr);
-    const startIdx = windowDays.indexOf(startDate);
-    if (startIdx < 0) return;
+    // The run walks forward from the day you dropped on — NOT to the end of
+    // the visible Sun→Sat week. That window is what the table shows, not a
+    // wall the leftovers stop at: dropping a 4-serving recipe on Friday means
+    // four meals, and two of them belong to next week. Capping the fill at
+    // Saturday silently placed one or two and dropped the rest on the floor.
+    //
+    // The horizon is the servings plus a fortnight of slack, so days that are
+    // skipped, eating-out or already spoken for can be jumped over without the
+    // run running out of road — and it still can't wander off indefinitely.
+    const fillDays = daysFrom(startDate, plannedServings + 14);
+    if (fillDays.length === 0) return;
 
     setDailyLog(prev => {
       const next = {};
       for (const [k, v] of Object.entries(prev)) next[k] = { ...v, entries: [...(v.entries || [])] };
 
       let placed = 0;
-      for (let i = startIdx; i < windowDays.length && placed < plannedServings; i++) {
-        const d = windowDays[i];
+      for (let i = 0; i < fillDays.length && placed < plannedServings; i++) {
+        const d = fillDays[i];
         if (!next[d]) next[d] = { entries: [] };
         const dayData = next[d];
         if (dayData.daySkipped) continue;
@@ -5551,7 +5572,7 @@ export function DailyTrackerPage({ recipes, getRecipe, onClose, user, weeklyPlan
         // skipping it moved the 🍳 to whichever later day happened to be free.
         // Only the forward leftover fill skips an occupied slot, so leftovers
         // still spread into free days rather than stacking up.
-        const isDropDay = i === startIdx;
+        const isDropDay = i === 0;
         if (!isDropDay && (dayData.entries || []).some(e => (e.mealSlot || 'snack') === slot)) continue;
 
         dayData.entries = [...(dayData.entries || []), {
@@ -5577,19 +5598,30 @@ export function DailyTrackerPage({ recipes, getRecipe, onClose, user, weeklyPlan
   }
 
   // Auto-rebuild auto-suggested entries whenever the user changes which
-  // recipes they're cooking on each day. Logic: wipe all `autoSuggested:true`
-  // entries in the next 7 days, then for each cook-day (chronological), drop
-  // each recipe's servings into empty slots starting on that day — breakfast
+  // recipes they're cooking on each day. Logic: wipe this schedule's
+  // `autoSuggested:true` entries across the run, then for each cook-day
+  // (chronological), drop each recipe's servings into empty slots starting on
+  // that day and carrying into the following week if need be — breakfast
   // recipes fill breakfasts, lunch-dinner recipes fill lunches first, then
   // dinners. Manually-added entries and skipped slots are never touched.
   // Idempotent: stable IDs let us no-op when nothing meaningfully changed.
   const lastRebuildKeyRef = useRef('');
   useEffect(() => {
     if (!prepareOnly && viewMode !== 'prepare') return;
-    // Operate on the SAME Sun→Sat week the table shows (follows the ‹ › nav),
-    // not a rolling today+6 window.
+    // Cook days come from the SAME Sun→Sat week the table shows (follows the
+    // ‹ › nav), not a rolling today+6 window.
     const days = prepareWeekDays(prepareAnchorStr);
+    // ...but the meals they produce don't stop at Saturday. A four-serving
+    // recipe cooked on Friday is four meals, and two of them are next week's.
+    // So everything the rebuild OWNS — the wipe, the fill, the vacate records
+    // it honours and the days it commits — reaches past the week's edge.
+    // Anything less and the spread either stops short (the servings vanish) or
+    // writes entries into days it can never see to clean up again.
+    const fillDays = [...days, ...daysFrom(days[days.length - 1], 22).slice(1)];
 
+    // Both are read off the cook days only: a vacate is recorded on the day the
+    // meal was COOKED (naming the date it was cleared from), so clearing a
+    // leftover that landed on next Tuesday is already covered here.
     const cookSchedule = {};
     const autoSkips = {}; // [cookDay] -> [{ recipeId, date, slot }, ...]
     for (const d of days) {
@@ -5604,8 +5636,10 @@ export function DailyTrackerPage({ recipes, getRecipe, onClose, user, weeklyPlan
       autoSkips,
       ws: weeklyServings,
       // Track manual entries so a freshly added manual entry triggers a
-      // re-distribution (its slot is no longer eligible for auto-fill).
-      manual: days.map(d => ({
+      // re-distribution (its slot is no longer eligible for auto-fill). Over
+      // the whole run, not just the week: a meal added by hand to next Monday
+      // takes a day the spread was going to use.
+      manual: fillDays.map(d => ({
         d,
         skipped: dailyLog[d]?.daySkipped ? 'y' : '',
         slots: dailyLog[d]?.skippedMeals || [],
@@ -5621,12 +5655,14 @@ export function DailyTrackerPage({ recipes, getRecipe, onClose, user, weeklyPlan
       next[k] = { ...v, entries: [...(v.entries || [])] };
     }
 
-    // 1. Drop existing auto-suggested entries in the 7-day window — but only
-    // for cookDates that are part of THIS rebuild's schedule. Auto entries
-    // whose cookDate has fallen off the visible window are orphans from
-    // an earlier cook day; leaving them untouched lets the rebuild keep
-    // its hands off them rather than wipe-and-not-replace.
-    for (const d of days) {
+    // 1. Drop existing auto-suggested entries across the run — but only for
+    // cookDates that are part of THIS rebuild's schedule. Auto entries whose
+    // cookDate has fallen off the visible window are orphans from an earlier
+    // cook day; leaving them untouched lets the rebuild keep its hands off
+    // them rather than wipe-and-not-replace. That test is what makes it safe
+    // to sweep past the week's edge: next week's own auto entries name a cook
+    // day this rebuild has never heard of.
+    for (const d of fillDays) {
       if (next[d]?.entries) {
         next[d].entries = next[d].entries.filter(e =>
           !(e.autoSuggested && e.cookDate && cookSchedule[e.cookDate])
@@ -5639,7 +5675,7 @@ export function DailyTrackerPage({ recipes, getRecipe, onClose, user, weeklyPlan
     const cookDays = Object.keys(cookSchedule).sort();
     for (const cookDay of cookDays) {
       const recipeIds = cookSchedule[cookDay] || [];
-      const startIdx = days.indexOf(cookDay);
+      const startIdx = fillDays.indexOf(cookDay);
       if (startIdx < 0) continue;
 
       let ordinalCounter = 0;
@@ -5681,8 +5717,8 @@ export function DailyTrackerPage({ recipes, getRecipe, onClose, user, weeklyPlan
         const cookDaySkips = autoSkips[cookDay] || [];
         const placeIntoSlot = (slot) => {
           let placedHere = 0;
-          for (let i = startIdx; i < days.length && placedHere < servingsToPlace; i++) {
-            const d = days[i];
+          for (let i = startIdx; i < fillDays.length && placedHere < servingsToPlace; i++) {
+            const d = fillDays[i];
             if (!next[d]) next[d] = { entries: [] };
             const dayData = next[d];
             if (dayData.daySkipped) continue;
@@ -5723,19 +5759,18 @@ export function DailyTrackerPage({ recipes, getRecipe, onClose, user, weeklyPlan
       }
     }
 
-    // 3. Only commit if the auto-suggested set actually changed.
-    let changed = false;
-    for (const d of days) {
+    // 3. Only commit the days whose auto-suggested set actually changed. The
+    // run is four weeks wide now, and writing every day of it back on every
+    // rebuild would widen the race below for no reason — a day the rebuild
+    // didn't touch has nothing to say.
+    const dirtyDays = fillDays.filter(d => {
       const a = (dailyLog[d]?.entries || []).filter(e => e.autoSuggested);
       const b = (next[d]?.entries || []).filter(e => e.autoSuggested);
-      if (a.length !== b.length || a.some((e, i) => e.id !== b[i].id)) {
-        changed = true;
-        break;
-      }
-    }
-    if (!changed) return;
-    // Commit FUNCTIONALLY, and touch only auto-suggested entries on the visible
-    // days. `next` was cloned from the `dailyLog` this effect closed over, so
+      return a.length !== b.length || a.some((e, i) => e.id !== b[i].id);
+    });
+    if (dirtyDays.length === 0) return;
+    // Commit FUNCTIONALLY, and touch only auto-suggested entries on the days
+    // that changed. `next` was cloned from the `dailyLog` this effect closed over, so
     // writing it wholesale reverts anything that changed in between — and
     // because it persists in the same breath, that revert reaches storage too.
     // That's a whole-day wipe when a manual entry landed in the gap (two
@@ -5744,10 +5779,10 @@ export function DailyTrackerPage({ recipes, getRecipe, onClose, user, weeklyPlan
     //
     // Manual entries are never this rebuild's to remove — it only ever owns the
     // `autoSuggested` set — so re-apply that set on top of the LATEST state
-    // rather than overwriting it, and leave dates outside the week alone.
+    // rather than overwriting it, and leave every other date alone.
     setDailyLog(prev => {
       const merged = { ...prev };
-      for (const d of days) {
+      for (const d of dirtyDays) {
         const rebuiltAuto = (next[d]?.entries || []).filter(e => e.autoSuggested);
         const base = prev[d];
         const keptManual = (base?.entries || []).filter(e => !e.autoSuggested);
