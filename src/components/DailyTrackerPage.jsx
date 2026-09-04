@@ -3,7 +3,7 @@ import { NUTRIENTS, fetchNutritionForIngredient, fetchNutritionForRecipe, effect
 import { loadIngredients } from '../utils/ingredientsStore';
 import { ingredientMatchScore } from '../utils/ingredientMatch';
 import { getSizeGrams } from '../utils/units';
-import { saveField, loadField, loadRestaurants, saveRestaurants, saveDailyLogToFirestore, loadDailyLogFromFirestore, loadFriends, getUsername, shareMeal } from '../utils/firestoreSync';
+import { saveField, loadField, loadRestaurants, saveRestaurants, saveSpotForOwner, saveDailyLogToFirestore, loadDailyLogFromFirestore, loadFriends, getUsername, shareMeal } from '../utils/firestoreSync';
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, ReferenceLine, Legend, CartesianGrid, Area, ComposedChart } from 'recharts';
 import { RecipeDetail } from './RecipeDetail';
 import styles from './DailyTrackerPage.module.css';
@@ -1681,6 +1681,12 @@ function EatingOutInline({ user, onAdd, onBack, onEstimate, recentSpotIds = [] }
   const [restaurants, setRestaurants] = useState(null); // null = loading
   const [query, setQuery] = useState('');
   const [selected, setSelected] = useState(null); // chosen restaurant
+  // Which spot the Joanne question has been answered for IN THIS SESSION.
+  // Storage can't tell "not yet" from "never asked" — the Eating Out page
+  // drops the field either way — so "Not yet" lights up only while you can
+  // still see yourself having clicked it, exactly as it does over there.
+  const [joanneAnsweredId, setJoanneAnsweredId] = useState(null);
+  const [joanneError, setJoanneError] = useState(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -1695,7 +1701,7 @@ function EatingOutInline({ user, onAdd, onBack, onEstimate, recentSpotIds = [] }
   // Predict from ALL your Eating Out spots — matching name OR any of a spot's
   // locations — not just ones with saved meals, so every place you've listed
   // shows up as you type. Spots with saved meals sort first (ready to log with
-  // real macros); the rest fall back to an AI estimate.
+  // real macros); the rest can still be logged as just the place, or estimated.
   const spots = restaurants || [];
   const q = query.trim().toLowerCase();
   const matchesQuery = r => !q
@@ -1723,11 +1729,64 @@ function EatingOutInline({ user, onAdd, onBack, onEstimate, recentSpotIds = [] }
       <button key={r.id} className={styles.eatingOutSpotBtn} onClick={() => setSelected(r)}>
         <span className={styles.eatingOutSpotName}>{r.name}</span>
         <span className={styles.eatingOutSpotCount}>
-          {n ? `${n} meal${n === 1 ? '' : 's'} ` : 'Estimate '}&rsaquo;
+          {n ? `${n} meal${n === 1 ? '' : 's'} ` : 'Log it '}&rsaquo;
         </span>
       </button>
     );
   };
+
+  // Log that you ate here and nothing more. Estimating the nutrition is the
+  // richer answer, but it shouldn't be the price of admission: plenty of
+  // meals out are worth recording as "we went to X" even when nobody wants to
+  // guess at the macros. Zeros rather than a missing block, so every consumer
+  // that sums nutrition keeps working — and the entry stays editable, so an
+  // estimate can still be filled in later from the day's log.
+  function logPlaceOnly(restaurant) {
+    onAdd({
+      id: uuid(),
+      type: 'custom_meal',
+      recipeName: restaurant.name,
+      mealSlot: 'lunch', // overridden by addEntry's targetSlot
+      timestamp: new Date().toISOString(),
+      nutrition: { calories: 0, protein: 0, carbs: 0, fat: 0 },
+      eatingOut: true,
+      restaurantId: restaurant.id,
+    });
+  }
+
+  /**
+   * Answer "have I taken Joanne here" from this popup and write it straight
+   * back to the spot, so the Eating Out page's Joanne column, map pin and
+   * filing flow all see it without a second trip over there.
+   *
+   * `saveSpotForOwner` is a transaction that touches only this spot — the list
+   * is one array field, and pushing a whole client-side copy of 400+ spots to
+   * flip one boolean is how you lose someone else's edit.
+   */
+  async function setJoanne(taken) {
+    if (!selected || !user?.uid) return;
+    const previous = selected;
+    const next = { ...selected };
+    // "Not yet" DELETES the key rather than storing false — same shape the
+    // Eating Out page writes, so the two can't disagree about what absence
+    // means.
+    if (taken) next.takenJoanne = true;
+    else delete next.takenJoanne;
+    setSelected(next);
+    setRestaurants(list => (list || []).map(r => (r.id === next.id ? next : r)));
+    setJoanneAnsweredId(next.id);
+    setJoanneError(null);
+    try {
+      await saveSpotForOwner(user.uid, next, { uid: user.uid });
+    } catch {
+      // Put the answer back rather than leaving the popup claiming something
+      // the spot doesn't say.
+      setSelected(previous);
+      setRestaurants(list => (list || []).map(r => (r.id === previous.id ? previous : r)));
+      setJoanneAnsweredId(null);
+      setJoanneError("Couldn't save that to the spot — try again.");
+    }
+  }
 
   function logMeal(restaurant, meal) {
     onAdd({
@@ -1790,9 +1849,42 @@ function EatingOutInline({ user, onAdd, onBack, onEstimate, recentSpotIds = [] }
       ) : (
         <>
           <button className={styles.trackMenuBack} onClick={() => setSelected(null)}>&larr; {selected.name}</button>
+
+          {/* The Joanne question, asked where you're already saying you ate
+              here — the moment you actually know the answer. It writes back to
+              the spot itself, not to this meal. */}
+          <div className={styles.eatingOutJoanne}>
+            <span className={styles.eatingOutJoanneLabel}>Taken Joanne?</span>
+            <button
+              type="button"
+              className={`${styles.eatingOutJoanneBtn} ${selected.takenJoanne ? styles.eatingOutJoanneBtnOn : ''}`}
+              onClick={() => setJoanne(true)}
+            >Taken her</button>
+            <button
+              type="button"
+              className={`${styles.eatingOutJoanneBtn} ${(joanneAnsweredId === selected.id && !selected.takenJoanne) ? styles.eatingOutJoanneBtnOn : ''}`}
+              onClick={() => setJoanne(false)}
+            >Not yet</button>
+          </div>
+          {joanneError && <p className={styles.aiEstimateHint}>{joanneError}</p>}
+
+          {/* First, because it's the answer that asks nothing of you. The
+              nutrition options below are the ones you take when you want them,
+              which is the point — estimating is optional here. */}
+          <button
+            className={styles.trackMenuBtn}
+            onClick={() => logPlaceOnly(selected)}
+          >
+            <div className={styles.trackMenuBtnInfo}>
+              <span className={styles.trackMenuBtnLabel}>📍 Just log the place</span>
+              <span className={styles.trackMenuBtnDesc}>No nutrition — you ate at {selected.name}, that&rsquo;s all</span>
+            </div>
+            <span className={styles.trackMenuBtnArrow}>&rsaquo;</span>
+          </button>
+
           {selectedMeals.length > 0 ? (
             <>
-              <p className={styles.aiEstimateHint}>Tap a saved meal to log it.</p>
+              <p className={styles.aiEstimateHint}>Or tap a saved meal to log it with its macros.</p>
               <div className={styles.eatingOutList}>
                 {selectedMeals.map(m => (
                   <button key={m.id} className={styles.eatingOutMealBtn} onClick={() => logMeal(selected, m)}>
@@ -1832,7 +1924,7 @@ function EatingOutInline({ user, onAdd, onBack, onEstimate, recentSpotIds = [] }
             </>
           ) : (
             <>
-              <p className={styles.aiEstimateHint}>No saved meals for {selected.name} yet.</p>
+              <p className={styles.aiEstimateHint}>No saved meals for {selected.name} yet — logging the place above is enough.</p>
               {onEstimate ? (
                 <button
                   className={styles.trackMenuBtn}

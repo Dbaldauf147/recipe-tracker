@@ -1220,6 +1220,49 @@
   margin-top: 0;
 }
 
+/* "Taken Joanne?" inside the spot picker. A quiet strip rather than another
+   full-width button: it asks about the PLACE, while everything below it logs a
+   meal, and the two shouldn't look like the same kind of choice. */
+.eatingOutJoanne {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin: 0.1rem 0 0.6rem;
+}
+
+.eatingOutJoanneLabel {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  margin-right: 0.15rem;
+}
+
+.eatingOutJoanneBtn {
+  padding: 0.25rem 0.6rem;
+  font-family: inherit;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-full, 999px);
+  cursor: pointer;
+}
+
+.eatingOutJoanneBtn:hover {
+  border-color: var(--color-accent);
+  color: var(--color-text);
+}
+
+/* Joanne's pink, the same colour her pin gets on the Eating Out map. */
+.eatingOutJoanneBtnOn,
+.eatingOutJoanneBtnOn:hover {
+  color: #fff;
+  background: #ec4899;
+  border-color: #ec4899;
+}
+
 .eatingOutSpotBtn,
 .eatingOutMealBtn {
   display: flex;
