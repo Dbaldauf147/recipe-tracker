@@ -300,21 +300,61 @@ export default async function handler(req, res) {
         if (!habitLogPromise) habitLogPromise = loadHabitLogAdmin(db, uid, data);
         return habitLogPromise;
       };
-      // The app-icon badge is the outstanding MANUAL habit count and nothing
-      // else — same rule as the mobile computeBadgeCount, so a push and the app
-      // can never put two different numbers on the same icon. A due meal log or
-      // weigh-in does not add to it; those are what the push text is for.
+      // Same trick for the daily log: badgeFor can run up to three times in one
+      // pass (a food push, a weigh-in push and a habit push all carry a badge),
+      // and each would otherwise re-read the same document.
+      let dailyLogPromise = null;
+      const loadDailyLog = () => {
+        if (!dailyLogPromise) {
+          dailyLogPromise = db.doc(`users/${uid}/data/dailyLog`).get()
+            .then(snap => (snap.exists ? (snap.data().log || {}) : {}));
+        }
+        return dailyLogPromise;
+      };
+      // The app-icon badge is EVERYTHING outstanding: the manual habits still
+      // owed, plus one each for a due meal log and a due weigh-in. Same rule as
+      // the mobile notificationCount, so a push and the app can never put two
+      // different numbers on the same icon, and the icon matches the count on
+      // the gear inside the app.
       //
       // Returns null when there is nothing trustworthy to say, and the caller
       // then omits `badge` so the icon keeps whatever the app last set. Never
       // return 0 on failure: that would silently clear a real count.
       const badgeFor = async () => {
         if (!Array.isArray(data.habits) || data.habits.length === 0) return null;
+        let count;
         try {
-          return countOutstandingHabits(data.habits, await loadLog(), data.habitAutomations);
+          count = countOutstandingHabits(data.habits, await loadLog(), data.habitAutomations);
         } catch {
           return null; // a badge is never worth failing the send over
         }
+        // A due meal log and a due weigh-in, judged as of NOW rather than at
+        // their reminder hour — the icon should say what is outstanding, not
+        // what this particular run happens to be sending about.
+        try {
+          if (s.foodLogReminder && s.foodLogTime) {
+            const targetHour = parseInt(String(s.foodLogTime).slice(0, 2), 10);
+            const daysOk = Array.isArray(s.foodLogDays) ? s.foodLogDays.includes(dayOfWeek) : true;
+            if (Number.isFinite(targetHour) && hour >= targetHour && daysOk) {
+              const day = (await loadDailyLog())[dateKey] || {};
+              const mainMeals = (day.entries || []).filter(e => ['breakfast', 'lunch', 'dinner'].includes(e.mealSlot)).length;
+              const skipped = (day.skippedMeals || []).length;
+              if (!day.daySkipped && (mainMeals + skipped) < 3) count += 1;
+            }
+          }
+        } catch { /* a missing log just means no meal item on the badge */ }
+        try {
+          if (s.weightReminder && s.weightTime) {
+            const targetHour = parseInt(String(s.weightTime).slice(0, 2), 10);
+            const daysOk = Array.isArray(s.weightDays) ? s.weightDays.includes(dayOfWeek) : true;
+            if (Number.isFinite(targetHour) && hour >= targetHour && daysOk
+              && shouldWeighToday(data.weightLog, data.bodyStats, dateKey, dayOfWeek)
+              && !weighedWithin(data.weightLog, dateKey, 1)) {
+              count += 1;
+            }
+          }
+        } catch { /* same — an unreadable schedule just doesn't add to it */ }
+        return count;
       };
 
       // --- Food log reminder ---
