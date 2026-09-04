@@ -124,6 +124,37 @@ async function pushToUser(ref, tokens, { title, body, badge }) {
   return true;
 }
 
+/**
+ * Move the app-icon number without saying anything.
+ *
+ * A closed app cannot change its own badge — iOS only writes it when the app
+ * runs or a push arrives. Reminder pushes carry the count, but they fire once
+ * at their hour, so between them the icon keeps whatever it last heard while
+ * habits come due through the day. That is the "icon says 1, app says twelve"
+ * gap, and the only mechanism iOS offers to close it is a silent push.
+ *
+ * `_contentAvailable` with no title, body or sound is the silent form: iOS
+ * updates the badge and shows nothing. Delivery is explicitly best-effort — the
+ * system throttles these — so the icon ends up usually right rather than
+ * always right, and the app still recomputes the truth the moment it opens.
+ */
+async function pushBadgeOnly(ref, tokens, badge) {
+  if (tokens.length === 0 || !Number.isFinite(badge)) return false;
+  const { tickets } = await sendExpoPush(
+    tokens.map(to => ({
+      to,
+      badge: Math.max(0, Math.round(badge)),
+      _contentAvailable: true,
+      priority: 'normal',
+    })),
+  );
+  const dead = deadTokensFrom(tokens, tickets);
+  if (dead.length > 0) {
+    await ref.update({ expoPushTokens: FieldValue.arrayRemove(...dead) }).catch(() => {});
+  }
+  return true;
+}
+
 // ── Server-side mirror of WeightTracker.jsx's weigh-schedule logic ──
 // The client only prompts on scheduled weigh-in days; without this the cron
 // would email "log your weight" every single day a user with a weekly/monthly
@@ -252,7 +283,7 @@ export default async function handler(req, res) {
 
   const { hour, dayOfWeek, dateKey } = eastern();
   const weekParity = weekParityOf(dateKey);
-  const summary = { scanned: 0, foodSent: 0, weightSent: 0, foodPushed: 0, weightPushed: 0, habitPushed: 0, errors: [] };
+  const summary = { scanned: 0, foodSent: 0, weightSent: 0, foodPushed: 0, weightPushed: 0, habitPushed: 0, badgeSynced: 0, errors: [] };
 
   try {
     const snap = await db.collection('users').get();
@@ -291,6 +322,9 @@ export default async function handler(req, res) {
       // when there's no way to reach them at all today.
       const to = recipientsForDay(s, dayOfWeek, weekParity);
       const pushTokens = getPushTokens(data);
+      // Set by any reminder push below — each already carries the badge, so the
+      // sync at the end has nothing left to say this hour.
+      let pushedThisRun = false;
       if (to.length === 0 && pushTokens.length === 0) continue;
 
       // The habit log is the one expensive read here, so load it at most once
@@ -398,6 +432,7 @@ export default async function handler(req, res) {
                   badge: await badgeFor(),
                 });
                 summary.foodPushed++;
+                pushedThisRun = true;
                 delivered = true;
               } catch (err) {
                 summary.errors.push({ uid, type: 'food-push', err: err.message });
@@ -452,6 +487,7 @@ export default async function handler(req, res) {
                   badge: await badgeFor(),
                 });
                 summary.weightPushed++;
+                pushedThisRun = true;
                 delivered = true;
               } catch (err) {
                 summary.errors.push({ uid, type: 'weight-push', err: err.message });
@@ -479,10 +515,36 @@ export default async function handler(req, res) {
               badge: await badgeFor(),
             });
             summary.habitPushed++;
+            pushedThisRun = true;
             await docSnap.ref.update({ 'reminderSettings.lastHabitSent': dateKey });
           }
         } catch (err) {
           summary.errors.push({ uid, type: 'habit-push', err: err.message });
+        }
+      }
+
+      // --- Badge sync ---
+      // Keep the home-screen number honest between reminders. Every push above
+      // already carries the count, but they fire once at their hour; this fills
+      // the rest of the day, when habits come due and the icon would otherwise
+      // sit on the last number it heard.
+      //
+      // Only when it CHANGED. `lastBadge` is what this cron last put on the
+      // icon, so a steady count sends nothing at all and a typical day is a
+      // handful of silent pushes rather than 24. A reminder push this hour has
+      // already set the same number, so that path just records it.
+      if (pushTokens.length > 0) {
+        try {
+          const badge = await badgeFor();
+          if (Number.isFinite(badge) && badge !== s.lastBadge) {
+            if (!pushedThisRun) {
+              await pushBadgeOnly(docSnap.ref, pushTokens, badge);
+              summary.badgeSynced++;
+            }
+            await docSnap.ref.update({ 'reminderSettings.lastBadge': badge });
+          }
+        } catch (err) {
+          summary.errors.push({ uid, type: 'badge-sync', err: err.message });
         }
       }
     }
