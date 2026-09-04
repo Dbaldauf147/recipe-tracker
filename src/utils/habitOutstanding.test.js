@@ -10,6 +10,14 @@ const NOW = new Date(2026, 8, 3, 9, 0, 0);       // Thu 3 Sep 2026, local
 const TODAY = dayKey(NOW);
 const YESTERDAY = yesterdayDayKey(NOW);
 
+// `countOutstandingHabits` and `countHabitsNeedingLog` take no clock — they ask
+// `periodKey(cadence)` for TODAY at the moment they run. So any log a test
+// hands them has to be keyed by the real current day, not by NOW above, or the
+// mark simply isn't found and the habit reads as unlogged. (This bit: written
+// on 3 Sep, green all day, red the next morning.) Anything that DOES accept a
+// date keeps using NOW.
+const TODAY_REAL = dayKey(new Date());
+
 const good = (over = {}) => ({ id: 'g1', name: 'Read', cadence: 'Daily', status: 'Most Days', ...over });
 const bad = (over = {}) => ({ id: 'b1', name: 'Bit nails', cadence: 'Daily', status: 'Most Days', habitType: 'bad', ...over });
 
@@ -44,7 +52,7 @@ test('a bad habit stays uncounted no matter its cadence or status', () => {
 
 test('logging a bad habit does not turn it into an outstanding one either', () => {
   // Marked or unmarked, it is simply never in the count.
-  const log = { [TODAY]: { b1: 'done' } };
+  const log = { [TODAY_REAL]: { b1: 'done' } };
   assert.equal(countOutstandingHabits([bad()], log, []), 0);
   assert.equal(countOutstandingHabits([bad()], {}, []), 0);
 });
@@ -75,6 +83,6 @@ test('bad habits keep writing to ordinary day keys', () => {
 test('the good half of the tracker is untouched by the change', () => {
   const habits = [good(), good({ id: 'g2', name: 'Walk' })];
   assert.equal(countOutstandingHabits(habits, {}, []), 2);
-  assert.equal(countOutstandingHabits(habits, { [TODAY]: { g1: 'done' } }, []), 1);
-  assert.equal(countOutstandingHabits(habits, { [TODAY]: { g1: 'done', g2: 'missed' } }, []), 0);
+  assert.equal(countOutstandingHabits(habits, { [TODAY_REAL]: { g1: 'done' } }, []), 1);
+  assert.equal(countOutstandingHabits(habits, { [TODAY_REAL]: { g1: 'done', g2: 'missed' } }, []), 0);
 });
