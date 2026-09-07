@@ -179,7 +179,11 @@ function RomCard({ test, store, onSave, onClear, disabled }) {
 }
 
 export function RangeOfMotionGuide({ measurements, onSave, onClear, loading }) {
-  const [open, setOpen] = useState(false);
+  // Open by default. Collapsed, it read as a spare link rather than a part of
+  // the page, and the numbers behind it are the ones you check BEFORE deciding
+  // what to stretch — no use one click away. Still collapsible for when it is
+  // in the way.
+  const [open, setOpen] = useState(true);
   const regions = useMemo(() => romRegions(), []);
   const [region, setRegion] = useState(regions[0]);
   // Memoised so the empty fallback isn't a fresh object every render, which

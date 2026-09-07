@@ -611,77 +611,6 @@ export function StretchRoutines({
 
   return (
     <div className={styles.wrap}>
-      {/* Goal board. Time held per muscle group over a rolling window, which is
-          the unit stretching is actually dosed in. Always the same seven regions
-          in body order, so a neglected one shows as an empty bar rather than
-          quietly dropping off the board. */}
-      <div className={styles.goalCard}>
-        <div className={styles.goalHead}>
-          <span className={styles.goalTitle}>Last {STRETCH_GOAL_WINDOW_DAYS} days</span>
-          <span className={styles.goalEdit}>
-            <input
-              type="number"
-              className={styles.goalInput}
-              min={MIN_GOAL_MIN}
-              max={MAX_GOAL_MIN}
-              value={goalMin}
-              onChange={e => onGoalMinChange(e.target.value)}
-              onBlur={e => onGoalMinChange(clampGoalMin(e.target.value))}
-              aria-label="Stretch goal in minutes per muscle group"
-            />
-            <span className={styles.unit}>min / muscle group</span>
-          </span>
-        </div>
-        {(!goalRows || goalRows.length === 0) ? (
-          <div className={styles.empty}>
-            Tag some exercises as “Stretching” and log a routine — each of the seven main
-            muscle groups shows its progress toward {goalMin} minutes here.
-          </div>
-        ) : (
-          <>
-          {goalRows.every(r => r.seconds === 0) && (
-            <div className={styles.empty}>
-              Nothing held yet this week — tag exercises as “Stretching” and log a routine
-              to fill these in.
-            </div>
-          )}
-          <div className={styles.goalRows}>
-            {goalRows.map(r => (
-              <div key={r.group} className={styles.goalRow}>
-                <span className={styles.goalGroup}>{r.group}</span>
-                <span className={styles.goalTrack}>
-                  <span
-                    className={`${styles.goalFill} ${r.met ? styles.goalFillMet : ''}`}
-                    style={{ width: `${r.pct * 100}%` }}
-                  />
-                </span>
-                {/* The number is a button: a total is only trustworthy if you
-                    can see what went into it — and a 0 is worth explaining too. */}
-                <button
-                  type="button"
-                  className={`${styles.goalTime} ${styles.goalTimeBtn} ${r.met ? styles.goalTimeMet : ''}`}
-                  onClick={() => setGoalDetail(r.group)}
-                  title={`What makes up ${r.group}?`}
-                >
-                  {r.met ? '✓ ' : ''}{formatStretchDuration(r.seconds)}
-                </button>
-              </div>
-            ))}
-          </div>
-          </>
-        )}
-      </div>
-
-      {/* Reference, not a dose: how far each region actually moves, against a
-          target and a floor. Sits under the goal board because it answers the
-          question you ask after "have I stretched enough this week?". */}
-      <RangeOfMotionGuide
-        measurements={romMeasurements}
-        loading={romLoading}
-        onSave={onRomSave}
-        onClear={onRomClear}
-      />
-
       <div className={styles.headRow}>
         <h3 className={styles.h3}>Stretch routines</h3>
         <button
@@ -744,6 +673,78 @@ export function StretchRoutines({
           </div>
         ))}
       </div>
+
+      {/* Goal board. Time held per muscle group over a rolling window, which is
+          the unit stretching is actually dosed in. Always the same seven regions
+          in body order, so a neglected one shows as an empty bar rather than
+          quietly dropping off the board. */}
+      <div className={styles.goalCard}>
+        <div className={styles.goalHead}>
+          <span className={styles.goalTitle}>Last {STRETCH_GOAL_WINDOW_DAYS} days</span>
+          <span className={styles.goalEdit}>
+            <input
+              type="number"
+              className={styles.goalInput}
+              min={MIN_GOAL_MIN}
+              max={MAX_GOAL_MIN}
+              value={goalMin}
+              onChange={e => onGoalMinChange(e.target.value)}
+              onBlur={e => onGoalMinChange(clampGoalMin(e.target.value))}
+              aria-label="Stretch goal in minutes per muscle group"
+            />
+            <span className={styles.unit}>min / muscle group</span>
+          </span>
+        </div>
+        {(!goalRows || goalRows.length === 0) ? (
+          <div className={styles.empty}>
+            Tag some exercises as “Stretching” and log a routine — each of the seven main
+            muscle groups shows its progress toward {goalMin} minutes here.
+          </div>
+        ) : (
+          <>
+          {goalRows.every(r => r.seconds === 0) && (
+            <div className={styles.empty}>
+              Nothing held yet this week — tag exercises as “Stretching” and log a routine
+              to fill these in.
+            </div>
+          )}
+          <div className={styles.goalRows}>
+            {goalRows.map(r => (
+              <div key={r.group} className={styles.goalRow}>
+                <span className={styles.goalGroup}>{r.group}</span>
+                <span className={styles.goalTrack}>
+                  <span
+                    className={`${styles.goalFill} ${r.met ? styles.goalFillMet : ''}`}
+                    style={{ width: `${r.pct * 100}%` }}
+                  />
+                </span>
+                {/* The number is a button: a total is only trustworthy if you
+                    can see what went into it — and a 0 is worth explaining too. */}
+                <button
+                  type="button"
+                  className={`${styles.goalTime} ${styles.goalTimeBtn} ${r.met ? styles.goalTimeMet : ''}`}
+                  onClick={() => setGoalDetail(r.group)}
+                  title={`What makes up ${r.group}?`}
+                >
+                  {r.met ? '✓ ' : ''}{formatStretchDuration(r.seconds)}
+                </button>
+              </div>
+            ))}
+          </div>
+          </>
+        )}
+      </div>
+
+      {/* Reference, not a dose: how far each region actually moves, against a
+          target and a floor. Last of the three because it changes on a scale of
+          months, where the routines above are what you came here to start and
+          the goal board is this week. */}
+      <RangeOfMotionGuide
+        measurements={romMeasurements}
+        loading={romLoading}
+        onSave={onRomSave}
+        onClear={onRomClear}
+      />
 
       {playing && (
         <Player
