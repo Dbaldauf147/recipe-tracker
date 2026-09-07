@@ -53,6 +53,24 @@ const ON_HOLD_STATUS = 'On Hold';
 // tab; Abandoned is managed in the main Habits table. Mirrors the mobile app.
 const PARKED_STATUSES = [ON_HOLD_STATUS, 'Abandoned'];
 
+/**
+ * Does this habit belong in a list you TICK — Routines and Daily Routine?
+ *
+ * Parked ones have their own tab, not-yet-started ones haven't begun, and an
+ * "Automatically" habit is recorded by a rule: asking you to mark it by hand is
+ * asking you to do the engine's job, and it's the one row on the page where a
+ * blank cell doesn't mean you owe anything. They stay in History and on the
+ * Automatic tab, which is where their record actually lives.
+ *
+ * The badge counts already drew this exact line; the lists didn't, which is how
+ * a habit could sit in Routines all day without ever being counted as due.
+ * One predicate now, so the number and the list can't disagree.
+ */
+const NOT_IN_LOGGING_LISTS = [...PARKED_STATUSES, 'Not Started', 'Havent Started', 'Automatically'];
+function isLoggableHabit(h) {
+  return !NOT_IN_LOGGING_LISTS.includes((h?.status || '').trim());
+}
+
 const DAILY_ROUTINES = ['Morning', 'Lunch', 'Afternoon', 'After Work', 'Bedtime'];
 const STATUS_OPTIONS = ['Automatically', 'Most Days', 'Some Days', 'Rarely', 'On Hold', 'Not Started', 'Abandoned'];
 // Where a habit lands when you say it's no longer running on autopilot. "Most
@@ -2085,10 +2103,7 @@ export function HabitsPage({ onBack, user }) {
 
   // get 0.
   const tabBadges = useMemo(() => {
-    const isActive = (h) => {
-      const st = (h.status || '').trim();
-      return !PARKED_STATUSES.includes(st) && st !== 'Not Started' && st !== 'Havent Started' && st !== 'Automatically';
-    };
+    const isActive = isLoggableHabit;
     const needsMark = (h) => {
       // A daily habit that isn't tracked today (e.g. weekends off) isn't due.
       if (!tracksDate(h)) return false;
@@ -3028,10 +3043,9 @@ function RoutinesView({ habits, habitLog, habitLogAuto, streaks, autoTrackedIds 
   const groups = useMemo(() => {
     const map = new Map();
     for (const h of habits) {
-      const st = (h.status || '').trim();
-      if (PARKED_STATUSES.includes(st)) continue; // parked (On Hold tab / Habits table)
-      // Not-yet-started habits don't belong in the active routines list either.
-      if (st === 'Not Started' || st === 'Havent Started') continue;
+      // Parked, not-yet-started and rule-automated habits are all out — see
+      // isLoggableHabit.
+      if (!isLoggableHabit(h)) continue;
       const key = cadenceCanon(h.cadence); // Daily | Weekly | Monthly | Annually
       if (!map.has(key)) map.set(key, []);
       map.get(key).push(h);
@@ -5229,7 +5243,7 @@ function DailyView({ habits, habitLogAuto, markOf, onMark, onReorder }) {
   // Today's checklist — exclude daily habits that aren't tracked today (e.g. a
   // weekday-only habit on a Saturday).
   const daily = useMemo(() => habits
-    .filter(h => routineType(h.routine) === 'daily' && !PARKED_STATUSES.includes((h.status || '').trim()) && tracksDate(h))
+    .filter(h => routineType(h.routine) === 'daily' && isLoggableHabit(h) && tracksDate(h))
     .sort(compareByRoutine), [habits]);
 
   // Group into routine blocks (Morning / Lunch / …). Drag reorders within one.
