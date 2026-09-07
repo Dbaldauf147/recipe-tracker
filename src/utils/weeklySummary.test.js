@@ -246,6 +246,28 @@ test('the email omits the goals section entirely when nothing is configured', ()
   assert.doesNotMatch(text, /WEEK GOALS/);
 });
 
+test('the workout totals block is gone — only the lifts that need a decision remain', () => {
+  // Sessions / sets / volume / top volume were a scoreboard nobody acted on.
+  // A week WITH workouts is used deliberately: an empty week would pass this
+  // by rendering nothing at all.
+  const workouts = [
+    {
+      date: WEEK.days[1], gym: 'Edge', sauna: true, entries: [
+        { exercise: 'Row', sets: ['10', '10'], weight: '100' },
+      ],
+    },
+  ];
+  const stats = summarizeWeek(emptyData({ workouts }), WEEK);
+  const prior = summarizeWeek(emptyData(), previousWeek(WEEK));
+  const { html, text } = renderWeeklySummary({ stats, priorStats: prior });
+  assert.ok(stats.workouts.sessions > 0, 'the week really does have a workout in it');
+  assert.doesNotMatch(html, /Sessions/);
+  assert.doesNotMatch(html, /Top volume/);
+  assert.doesNotMatch(html, /Timed work/);
+  assert.doesNotMatch(text, /WORKOUTS/);
+  assert.doesNotMatch(text, /Top volume/);
+});
+
 test('the email opens on the goals table — the stat tiles are gone', () => {
   const stats = summarizeWeek(emptyData(), WEEK, { goalsConfig: GOALS_CONFIG });
   const prior = summarizeWeek(emptyData(), previousWeek(WEEK));

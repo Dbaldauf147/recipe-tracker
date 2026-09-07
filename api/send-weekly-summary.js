@@ -157,7 +157,6 @@ async function buildEmail(uid, userData, todayKey, { force = false } = {}) {
     priorStats,
     goals: userData.nutritionGoals || null,
     bodyStats: userData.bodyStats || null,
-    weightUnit: userData.workoutWeightUnit === 'kg' ? 'kg' : 'lb',
     name: userData.displayName || '',
   });
   return { ...email, week };
