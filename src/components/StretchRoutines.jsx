@@ -314,6 +314,9 @@ export function StretchRoutines({
   // stored ones. See the comment on stretchLoaded in WorkoutPage.
   routines, loading = false, onChange, stretchOptions, onLogRoutine, goalRows, goalEntries = {},
   goalMin, onGoalMinChange,
+  // Range-of-motion measurements: a separate user-doc field, passed straight
+  // through to the guide below the goal board.
+  romMeasurements, romLoading = false, onRomSave, onRomClear,
   workoutTypes = [], habits = [], defaultWorkoutType = 'Yoga',
 }) {
   const [editing, setEditing] = useState(null);
@@ -672,7 +675,12 @@ export function StretchRoutines({
       {/* Reference, not a dose: how far each region actually moves, against a
           target and a floor. Sits under the goal board because it answers the
           question you ask after "have I stretched enough this week?". */}
-      <RangeOfMotionGuide />
+      <RangeOfMotionGuide
+        measurements={romMeasurements}
+        loading={romLoading}
+        onSave={onRomSave}
+        onClear={onRomClear}
+      />
 
       <div className={styles.headRow}>
         <h3 className={styles.h3}>Stretch routines</h3>

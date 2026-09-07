@@ -22,6 +22,9 @@ import {
   DEFAULT_STRETCH_GOAL_MIN,
 } from '../utils/stretchGoal';
 import {
+  normalizeRomMeasurements, recordRomMeasurement, clearRomMeasurement,
+} from '../utils/romMeasurements';
+import {
   subscribeToSharedExercises, applySharedExerciseEdit, mergeExerciseLibraries,
 } from '../utils/sharedExerciseLibrary';
 import { loadHabitLog, saveHabitLogCells } from '../utils/habitLogYears';
@@ -2794,6 +2797,72 @@ export function WorkoutPage({ onBack, user }) {
     }, 700);
   }, [user?.uid]);
   useEffect(() => () => clearTimeout(goalSaveTimer.current), []);
+
+  // Range-of-motion measurements (users/{uid}.romMeasurements). Same shape of
+  // hazard as stretchRoutines: every save is built from the current store, so a
+  // save made before the read lands would write one measurement over all of
+  // them, and the read landing afterwards would put the old ones back on
+  // screen. Hence the same loaded flag + dirty ref.
+  const [romMeasurements, setRomMeasurements] = useState(() => normalizeRomMeasurements(null));
+  const [romLoaded, setRomLoaded] = useState(false);
+  const romDirty = useRef(false);
+  // The store as of the last write, so a save can build on it without a
+  // functional setState — the new store has to be handed to saveField as well
+  // as to React, and a state updater must stay pure.
+  const romRef = useRef(romMeasurements);
+  useEffect(() => {
+    if (!user?.uid) return;
+    let cancelled = false;
+    setRomLoaded(false);
+    romDirty.current = false;
+    loadField(user.uid, 'romMeasurements').then(v => {
+      if (cancelled) return;
+      if (!romDirty.current) {
+        const loaded = normalizeRomMeasurements(v);
+        romRef.current = loaded;
+        setRomMeasurements(loaded);
+      }
+      setRomLoaded(true);
+    }).catch(() => { if (!cancelled) setRomLoaded(true); });
+    return () => { cancelled = true; };
+  }, [user?.uid]);
+  // The dial commits on every arrow-key nudge and the number box on every blur,
+  // so the write is debounced — otherwise holding an arrow key is one Firestore
+  // write per degree. Local state stays immediate; only the network waits.
+  const romSaveTimer = useRef(null);
+  const romPending = useRef(false);
+  const flushRom = useCallback(() => {
+    clearTimeout(romSaveTimer.current);
+    if (!romPending.current || !user?.uid) return;
+    romPending.current = false;
+    // Say so when the write fails. A measurement that silently doesn't persist
+    // looks right until the next reload, and by then you've lost the reading.
+    saveField(user.uid, 'romMeasurements', romRef.current).catch(err => {
+      console.error('[romMeasurements] save failed', err);
+      alert(`Couldn't save your range-of-motion measurement: ${err?.message || err}`);
+    });
+  }, [user?.uid]);
+  const persistRom = useCallback((next) => {
+    romDirty.current = true;
+    romRef.current = next;
+    setRomMeasurements(next);
+    if (!user?.uid) return;
+    romPending.current = true;
+    clearTimeout(romSaveTimer.current);
+    romSaveTimer.current = setTimeout(flushRom, 600);
+  }, [user?.uid, flushRom]);
+  // Leaving the page (or the tab) must not drop a debounced measurement.
+  useEffect(() => {
+    const onHide = () => { if (document.visibilityState === 'hidden') flushRom(); };
+    document.addEventListener('visibilitychange', onHide);
+    return () => { document.removeEventListener('visibilitychange', onHide); flushRom(); };
+  }, [flushRom]);
+  const saveRomMeasurement = useCallback((id, side, value) => {
+    persistRom(recordRomMeasurement(romRef.current, id, side, value));
+  }, [persistRom]);
+  const clearRomMeasurementFor = useCallback((id, side) => {
+    persistRom(clearRomMeasurement(romRef.current, id, side));
+  }, [persistRom]);
 
   // Resolve the visible exercise list for a muscle group from the user's own
   // data only (so the web stays in sync with the mobile app):
@@ -6394,6 +6463,10 @@ export function WorkoutPage({ onBack, user }) {
           goalEntries={stretchGoalEntries()}
           goalMin={stretchGoalMin}
           onGoalMinChange={updateStretchGoalMin}
+          romMeasurements={romMeasurements}
+          romLoading={!romLoaded}
+          onRomSave={saveRomMeasurement}
+          onRomClear={clearRomMeasurementFor}
           workoutTypes={workoutTypes}
           habits={habits}
           defaultWorkoutType={STRETCH_DEFAULT_WORKOUT_TYPE}
