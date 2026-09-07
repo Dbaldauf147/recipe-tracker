@@ -10,7 +10,7 @@ import { exportWorkoutHistoryToCSV } from '../utils/exportData';
 import { parseSetValue, formatSeconds, computeSetStats } from '../utils/setValue';
 import { ExerciseLibrary, effectiveMuscleGroup, videoSourceLabel } from './ExerciseLibrary';
 import { EXERCISE_TYPES, DEFAULT_EXERCISE_TYPE, effectiveExerciseType, normalizeExerciseType, inferExerciseType } from '../utils/exerciseTypes';
-import { entryBestE1rmLb } from '../utils/exerciseProgress';
+import { entryBestE1rmLb, withoutOneOffLocations, oneOffLocations } from '../utils/exerciseProgress';
 import { StretchRoutines } from './StretchRoutines';
 import { PrCelebration } from './PrCelebration';
 import { detectPersonalRecord, priorHistory } from '../utils/personalRecord';
@@ -4787,7 +4787,11 @@ export function WorkoutPage({ onBack, user }) {
   function buildChartData(exerciseName) {
     if (!exerciseName) return [];
     const history = exerciseHistoryByName[exerciseName.trim().toLowerCase()] || [];
-    return [...history]
+    // One afternoon on a hotel cable stack isn't a dip in your strength, it's a
+    // different machine — so a location this lift has only ever seen once is
+    // left off the chart rather than plotted as a drop and dragged through the
+    // trend line. Same rule the Progress tab applies.
+    return [...withoutOneOffLocations(history)]
       .sort((a, b) => a.date.localeCompare(b.date))
       .map(h => ({
         date: h.date,
@@ -5962,9 +5966,27 @@ export function WorkoutPage({ onBack, user }) {
                 return ticks;
               })()
             : undefined;
+          // Say so when a location has been left out. A chart that quietly
+          // drops points is worse than one that plots a bad point: the reader
+          // can't tell the difference between "I never trained there" and
+          // "this chart decided not to count it".
+          const skipped = [...oneOffLocations(exerciseHistoryByName[exercise.trim().toLowerCase()] || [])];
+          const skippedNames = skipped.length > 0
+            ? [...new Set((exerciseHistoryByName[exercise.trim().toLowerCase()] || [])
+              .filter(h => skipped.includes(String(h.gym || '').trim().toLowerCase()))
+              .map(h => String(h.gym).trim()))]
+            : [];
           return (
             <>
               <div className={styles.chartCardTitle}>{exercise}</div>
+              {skippedNames.length > 0 && (
+                <div
+                  className={styles.chartCardNote}
+                  title="A location you've only trained this lift at once or twice uses different equipment, so its weights aren't comparable — they're left off the chart rather than plotted as a dip."
+                >
+                  one-off location{skippedNames.length === 1 ? '' : 's'} not charted: {skippedNames.join(', ')}
+                </div>
+              )}
               <div className={styles.chartCardChart}>
                 <ResponsiveContainer width="100%" height="100%">
                   <ComposedChart
@@ -6038,7 +6060,10 @@ export function WorkoutPage({ onBack, user }) {
           const byDate = {};
           for (const ex of exercises) {
             const history = exerciseHistoryByName[ex.trim().toLowerCase()] || [];
-            for (const h of history) {
+            // Per exercise, for the same reason the single-lift chart does it:
+            // a one-off location is judged against that lift's own history, so
+            // rolling a group up can't launder a hotel session back in.
+            for (const h of withoutOneOffLocations(history)) {
               const d = h.date;
               if (!byDate[d]) {
                 byDate[d] = { totalReps: 0, totalWeight: 0, maxReps: 0, maxWeight: 0, avgRepsSum: 0, avgRepsCount: 0 };

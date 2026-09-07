@@ -14,6 +14,8 @@ import {
   analyzeProgress,
   detectHomeGym,
   countsForHomeGym,
+  oneOffLocations,
+  withoutOneOffLocations,
   decideStatus,
   deltaTone,
   epley1RM,
@@ -1032,4 +1034,95 @@ test('no homeGym option leaves every session in place', () => {
   const workouts = [gymSession('Edge South Tower', 3, 185), gymSession('Hotel Gym', 5, 95)];
   const r = analyzeProgress(workouts, null, { now: NOW }).nobaseline[0];
   assert.equal(r.sessions, 2);
+});
+
+// ------------------------------------------------- one-off locations
+
+// One logged row of an exercise, at a location, on a date.
+function at(gym, daysAgo, weight) {
+  return { exercise: 'Cable lateral raise', group: 'Shoulders', sets: ['6', '6', '6'], weight: String(weight), gym, date: key(daysAgo) };
+}
+
+test('a location visited once in a long history is a one-off', () => {
+  // The reported case: months of lateral raises at 45 lb, one hotel day at 30.
+  const history = [];
+  for (let i = 0; i < 12; i++) history.push(at('Edge South Tower', 7 * i, 45));
+  history.push(at('Hotel', 24, 30));
+  const oneOffs = oneOffLocations(history);
+  assert.deepEqual([...oneOffs], ['hotel']);
+  const kept = withoutOneOffLocations(history);
+  assert.equal(kept.length, 12);
+  assert.ok(kept.every(h => h.gym === 'Edge South Tower'));
+});
+
+test('several rows logged on one day are one visit, not several', () => {
+  // Three sets of the same lift on the same afternoon shouldn't buy a location
+  // its way past the "seen on at most two days" bar.
+  const history = [];
+  for (let i = 0; i < 12; i++) history.push(at('Edge South Tower', 7 * i, 45));
+  history.push(at('Planet Fitness', 30, 30), at('Planet Fitness', 30, 30), at('Planet Fitness', 30, 30));
+  assert.deepEqual([...oneOffLocations(history)], ['planet fitness']);
+});
+
+test('a second gym you actually train at is kept', () => {
+  const history = [];
+  for (let i = 0; i < 10; i++) history.push(at('Edge South Tower', 7 * i, 45));
+  for (let i = 0; i < 5; i++) history.push(at('Second Gym', 3 + 7 * i, 40));
+  assert.equal(oneOffLocations(history).size, 0);
+  assert.equal(withoutOneOffLocations(history).length, 15);
+});
+
+test('a permanent gym change is not mistaken for a run of one-offs', () => {
+  // Long history at the old place, only a few sessions at the new one so far.
+  const history = [];
+  for (let i = 0; i < 40; i++) history.push(at('Old Gym', 60 + 7 * i, 45));
+  for (let i = 0; i < 4; i++) history.push(at('New Gym', 7 * i, 45));
+  assert.equal(oneOffLocations(history).size, 0);   // 4 days > the 2-day bar
+});
+
+test('a lift with barely any history rules nothing out', () => {
+  const history = [at('A', 1, 45), at('B', 8, 40), at('C', 15, 35)];
+  assert.equal(oneOffLocations(history).size, 0);
+});
+
+test('a lift done once at each of many places keeps all of them', () => {
+  // Everywhere is thin, so there is no "usual" to measure against — dropping
+  // them all would leave the trend with nothing.
+  const history = ['A', 'B', 'C', 'D', 'E'].map((g, i) => at(g, 7 * i, 40));
+  assert.equal(oneOffLocations(history).size, 0);
+  assert.equal(withoutOneOffLocations(history).length, 5);
+});
+
+test('sessions with no location recorded are never one-offs', () => {
+  // Imported history carries no gym; dropping it would delete years of logs.
+  const history = [];
+  for (let i = 0; i < 12; i++) history.push(at('Edge South Tower', 7 * i, 45));
+  history.push(at('', 30, 45), at(undefined, 37, 45));
+  assert.equal(oneOffLocations(history).size, 0);
+  assert.equal(withoutOneOffLocations(history).length, 14);
+});
+
+test('the hotel day does not drag the trend down', () => {
+  // Steady climb at the home gym, plus one much lighter hotel session in the
+  // middle of it. Without the filter the drop lands in the trend.
+  const workouts = [];
+  for (let i = 0; i < 8; i++) {
+    workouts.push({
+      date: key(56 - 7 * i),
+      gym: 'Edge South Tower',
+      entries: [{ exercise: 'Cable lateral raise', group: 'Shoulders', sets: ['6', '6', '6'], weight: String(40 + i) }],
+    });
+  }
+  const hotel = {
+    date: key(24),
+    gym: 'Hotel',
+    entries: [{ exercise: 'Cable lateral raise', group: 'Shoulders', sets: ['6', '6', '6'], weight: '25' }],
+  };
+  const withHotel = analyzeProgress([...workouts, hotel], null, { now: NOW });
+  const clean = analyzeProgress(workouts, null, { now: NOW });
+  const find = (groups) => STATUS_KEYS.flatMap(k => groups[k]).find(r => r.name === 'Cable lateral raise');
+  // The hotel session is excluded, so both runs reach the same verdict.
+  assert.equal(find(withHotel).status, find(clean).status);
+  assert.equal(find(withHotel).status, 'progressing');
+  assert.equal(find(withHotel).sessions, find(clean).sessions);
 });

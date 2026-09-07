@@ -1115,6 +1115,16 @@ td.logPerCell.manuallyEdited {
   text-align: center;
   margin-top: 0.2rem;
 }
+/* Quiet by design: it's a footnote about what the chart left out, not a
+   warning. Reads on hover for the full reason. */
+.chartCardNote {
+  text-align: center;
+  font-size: 0.7rem;
+  color: var(--color-text-muted);
+  margin-top: 0.1rem;
+  cursor: help;
+}
+
 .chartCardChart { height: 360px; }
 .chartCardSummary {
   display: flex;

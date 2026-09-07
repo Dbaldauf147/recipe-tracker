@@ -640,6 +640,69 @@ export function countsForHomeGym(workout, homeGym) {
   if (!gym) return true;
   return gym.toLowerCase() === String(homeGym).trim().toLowerCase();
 }
+
+// ─────────────────────────────────────────────── one-off locations
+//
+// The home-gym filter above is a switch the user can turn off, and it judges
+// "where am I training now" across ALL lifts over the last two months. Neither
+// property suits the case it keeps getting asked about: one afternoon in a
+// hotel gym, on a cable stack whose 30 reads nothing like the 45 at home,
+// sitting in the middle of a year of otherwise identical sessions.
+//
+// So this is a floor rather than an option, and it asks the question per
+// EXERCISE: for this lift, is this somewhere I go, or somewhere I went once?
+// A location you visit once and never again can't establish anything about
+// your strength; a location you train at regularly can, even if it isn't your
+// main gym. Judged on distinct DATES, not rows — three logged sets of lateral
+// raises on the same afternoon are one visit, not three.
+
+export const ONE_OFF_MAX_SESSIONS = 2;   // seen on at most this many days…
+export const ONE_OFF_MAX_SHARE = 0.2;    // …and under this share of the lift's days
+export const ONE_OFF_MIN_HISTORY = 4;    // …with at least this much history to judge against
+
+/**
+ * The locations that are one-offs for one exercise's history.
+ *
+ * `history` is that exercise's entries, each carrying `date` and `gym`.
+ * Returns a Set of lowercased location names to disregard — empty when the
+ * exercise is too new to call anything unusual, which is the honest answer:
+ * with three sessions in three gyms there is no "usual" yet.
+ *
+ * A session with no location recorded is never a one-off. There's nothing to
+ * place it somewhere else, and most blanks are imported history — dropping
+ * them would quietly delete years of it.
+ */
+export function oneOffLocations(history) {
+  const datesBy = new Map();      // lowercased gym → Set of dates
+  const allDates = new Set();
+  for (const e of (history || [])) {
+    if (!e?.date) continue;
+    allDates.add(e.date);
+    const gym = String(e.gym || '').trim();
+    if (!gym) continue;
+    const key = gym.toLowerCase();
+    if (!datesBy.has(key)) datesBy.set(key, new Set());
+    datesBy.get(key).add(e.date);
+  }
+  const total = allDates.size;
+  const out = new Set();
+  if (total < ONE_OFF_MIN_HISTORY) return out;
+  for (const [key, dates] of datesBy) {
+    if (dates.size <= ONE_OFF_MAX_SESSIONS && dates.size / total < ONE_OFF_MAX_SHARE) out.add(key);
+  }
+  // Never rule out everywhere: if every location the lift has ever been done
+  // at is thin, they're all it has, and the trend is better computed from all
+  // of them than from nothing.
+  if (out.size === datesBy.size) return new Set();
+  return out;
+}
+
+/** `history` with the one-off locations dropped. */
+export function withoutOneOffLocations(history) {
+  const oneOffs = oneOffLocations(history);
+  if (oneOffs.size === 0) return history || [];
+  return (history || []).filter(e => !oneOffs.has(String(e?.gym || '').trim().toLowerCase()));
+}
 /**
  * workouts:    array of { date, entries:[{ exercise, group, sets, weight, ... }] }
  * groupByName: optional Map(lowercased exercise name → muscle group) for labels.
@@ -668,7 +731,9 @@ export function analyzeProgress(workouts, groupByName, options = {}) {
       const key = e.exercise.trim().toLowerCase();
       if (!byName[key]) byName[key] = { name: e.exercise.trim(), group: e.group || '', entries: [] };
       if (!byName[key].group && e.group) byName[key].group = e.group;
-      byName[key].entries.push({ ...e, date: w.date });
+      // The location rides on the workout, not the entry — carried along so
+      // the one-off filter below can see it.
+      byName[key].entries.push({ ...e, date: w.date, gym: w.gym });
     }
   }
 
@@ -677,7 +742,11 @@ export function analyzeProgress(workouts, groupByName, options = {}) {
   for (const key of Object.keys(byName)) {
     const g = (groupByName && groupByName.get(key)) || byName[key].group || '';
     if (isStretching(byName[key].name, g, options.typeByName)) continue;
-    const r = analyzeExercise(byName[key].name, g, byName[key].entries, opts);
+    // Judged over the lift's whole history, not just the trend window: a place
+    // you trained at all last year isn't a one-off because only one session
+    // happens to fall inside the last two months.
+    const entries = withoutOneOffLocations(byName[key].entries);
+    const r = analyzeExercise(byName[key].name, g, entries, opts);
     if (r) groups[r.status].push(r);
   }
 
