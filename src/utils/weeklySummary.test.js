@@ -449,3 +449,103 @@ test('a zero week still gets the board when the week before had stretching', () 
   assert.match(html, /Stretching/);
   assert.match(html, /0 of 7<\/strong> regions/);
 });
+
+// ── the meals-section charts ───────────────────────────────────────────────
+
+test('protein per day distinguishes a zero-protein day from an untracked one', () => {
+  const dailyLog = {
+    [WEEK.days[0]]: { entries: [{ mealSlot: 'lunch', nutrition: { protein: 40 } }, { mealSlot: 'dinner', nutrition: { protein: 55 } }] },
+    [WEEK.days[1]]: { entries: [{ mealSlot: 'lunch', nutrition: { protein: 0 } }] },
+    // days[2] has entries but no nutrition on them; days[3+] have nothing.
+    [WEEK.days[2]]: { entries: [{ mealSlot: 'dinner' }] },
+  };
+  const s = summarizeWeek(emptyData({ dailyLog }), WEEK);
+  const by = s.meals.proteinByDay;
+  assert.equal(by.length, 7);
+  assert.equal(by[0].protein, 95);
+  assert.equal(by[1].protein, 0);        // logged, and it really was zero
+  assert.equal(by[2].protein, null);     // logged a meal, never priced it
+  assert.equal(by[6].protein, null);     // nothing logged at all
+  assert.equal(by[0].dow, 'Sun');
+  assert.equal(by[6].dow, 'Sat');
+});
+
+test('a skipped day contributes no protein reading', () => {
+  const dailyLog = { [WEEK.days[0]]: { daySkipped: true, entries: [{ nutrition: { protein: 40 } }] } };
+  const s = summarizeWeek(emptyData({ dailyLog }), WEEK);
+  assert.equal(s.meals.proteinByDay[0].protein, null);
+});
+
+test('the ate-out history is four weeks, oldest first, ending with this one', () => {
+  const dailyLog = {};
+  // 3 this week, 1 the week before, 0 before that, 2 four weeks back.
+  for (const d of WEEK.days.slice(0, 3)) dailyLog[d] = { entries: [{ mealSlot: 'dinner', eatingOut: true }] };
+  const w1 = previousWeek(WEEK);
+  dailyLog[w1.days[2]] = { entries: [{ mealSlot: 'lunch', eatingOut: true }] };
+  const w3 = previousWeek(previousWeek(w1));
+  dailyLog[w3.days[0]] = { eatingOutMeals: ['lunch', 'dinner'] };
+
+  const s = summarizeWeek(emptyData({ dailyLog }), WEEK);
+  const h = s.meals.ateOutHistory;
+  assert.equal(h.length, 4);
+  assert.deepEqual(h.map(x => x.ateOut), [2, 0, 1, 3]);
+  assert.equal(h[3].start, WEEK.start);
+  assert.equal(h[3].end, WEEK.end);
+  assert.equal(h[0].start, w3.start);
+  assert.equal(h[3].label, 'Jul 26–Aug 1');
+  // A week inside one month says the month once.
+  assert.equal(h[1].label, 'Jul 12–18');
+  // The last row's count is the same number the "Ate out" line reports.
+  assert.equal(h[3].ateOut, s.meals.ateOut);
+});
+
+test('a month with nothing logged still returns four zero weeks', () => {
+  const s = summarizeWeek(emptyData(), WEEK);
+  assert.deepEqual(s.meals.ateOutHistory.map(x => x.ateOut), [0, 0, 0, 0]);
+});
+
+test('the email draws both charts, with the goal line and the week labels', () => {
+  const dailyLog = {
+    [WEEK.days[0]]: { entries: [{ mealSlot: 'dinner', nutrition: { protein: 160, calories: 900 } }] },
+    [WEEK.days[1]]: { entries: [{ mealSlot: 'dinner', nutrition: { protein: 40, calories: 500 }, eatingOut: true }] },
+  };
+  const data = emptyData({ dailyLog });
+  const s = summarizeWeek(data, WEEK, { withProgress: true });
+  const email = renderWeeklySummary({
+    stats: s,
+    priorStats: summarizeWeek(data, previousWeek(WEEK)),
+    goals: { protein: 145 },
+  });
+  assert.match(email.html, /Protein per day/);
+  assert.match(email.html, /145g daily goal/);
+  assert.match(email.html, /border-top:1px dashed/);      // the goal line itself
+  assert.match(email.html, /Meals eaten out · last 4 weeks/);
+  assert.match(email.html, /Jul 26–Aug 1/);
+  assert.match(email.html, /#16a34a/);                    // the 160g day beat the goal
+  assert.match(email.html, /#dc2626/);                    // the 40g day fell well short
+  // Plain text carries the same numbers rather than a shrug.
+  assert.match(email.text, /Protein per day \(g\) — goal 145/);
+  assert.match(email.text, /Sun {2}█+░* {2}160 {2}✓/);
+  assert.match(email.text, /Wed {2}·+ {2}no data/);
+  assert.match(email.text, /Meals eaten out, last 4 weeks/);
+});
+
+test('with no protein goal the chart drops the goal line rather than inventing one', () => {
+  const dailyLog = { [WEEK.days[0]]: { entries: [{ mealSlot: 'dinner', nutrition: { protein: 90, calories: 700 } }] } };
+  const data = emptyData({ dailyLog });
+  const s = summarizeWeek(data, WEEK, { withProgress: true });
+  const email = renderWeeklySummary({ stats: s, priorStats: summarizeWeek(data, previousWeek(WEEK)), goals: {} });
+  assert.match(email.html, /Protein per day/);
+  assert.doesNotMatch(email.html, /daily goal/);
+  assert.doesNotMatch(email.html, /border-top:1px dashed/);
+});
+
+test('a week with no nutrition at all draws no protein chart', () => {
+  const dailyLog = { [WEEK.days[0]]: { entries: [{ mealSlot: 'dinner' }] } };
+  const data = emptyData({ dailyLog });
+  const s = summarizeWeek(data, WEEK, { withProgress: true });
+  const email = renderWeeklySummary({ stats: s, priorStats: summarizeWeek(data, previousWeek(WEEK)), goals: { protein: 145 } });
+  assert.doesNotMatch(email.html, /Protein per day/);
+  // The eating-out breakdown still renders — zero is a real answer there.
+  assert.match(email.html, /Meals eaten out/);
+});
