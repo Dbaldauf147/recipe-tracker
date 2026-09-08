@@ -84,8 +84,9 @@ test('inserting in the middle shifts every index-keyed map with it', () => {
     'Air fry the sprouts.',
     'Rest the chicken for 5 minutes.',
   ]);
-  // 3:[0] was the rest step; it is now step 4.
-  assert.deepEqual(out.stepIngredients, { 1: [0], 2: [1], 3: [1], 4: [0] });
+  // 3:[0] was the rest step; it is now step 4. The new step 3 does NOT claim
+  // ingredient 1 — step 2 already has it, and two claims render it twice.
+  assert.deepEqual(out.stepIngredients, { 1: [0], 2: [1], 4: [0] });
   assert.deepEqual(out.stepSections, { 0: 'Prep', 2: 'Cook' });
   assert.deepEqual(out.stepTitles, { 1: 'Season', 4: 'Rest' });
 });
@@ -115,8 +116,9 @@ test('an out-of-range or missing position appends rather than throwing', () => {
 });
 
 test('the new step is tied to the ingredient it came from', () => {
-  const out = insertStep(RECIPE, 4, 'Air fry the chicken.', 0);
-  assert.deepEqual(out.stepIngredients[4], [0]);
+  // Ingredient 2 is in the recipe but no step claims it, so the new step does.
+  const out = insertStep(RECIPE, 4, 'Fry the halloumi.', 2);
+  assert.deepEqual(out.stepIngredients[4], [2]);
 });
 
 test('no ingredient given means no assignment invented for it', () => {
@@ -136,4 +138,33 @@ test('survives a recipe with no steps and no maps at all', () => {
   assert.deepEqual(out.stepIngredients, { 0: [0] });
   assert.deepEqual(out.stepSections, {});
   assert.deepEqual(out.stepTitles, {});
+});
+
+test('does not claim an ingredient another step already has', () => {
+  // Cook mode renders a row per assigned ingredient per step and treats the
+  // assignment as a partition, so a second claim listed the ingredient — and
+  // its quantity — twice in the instructions. The recipe already decided where
+  // the chicken belongs; an imported step must not stake a second claim.
+  const out = insertStep(RECIPE, 2, 'Air fry the chicken.', 0);   // 0 is on step 1
+  assert.equal(out.stepIngredients[2], undefined, 'no second claim on the new step');
+  assert.deepEqual(out.stepIngredients[1], [0], 'the original claim is left alone');
+  const claimsBefore = Object.values(RECIPE.stepIngredients).flat().filter(i => i === 0).length;
+  const claimsAfter = Object.values(out.stepIngredients).flat().filter(i => i === 0).length;
+  assert.equal(claimsAfter, claimsBefore, 'the insert adds no new claim');
+});
+
+test('still claims it when no step had it', () => {
+  // The other half: a recipe with nothing assigned needs the new step to carry
+  // the ingredient, or cook mode shows the step with no ingredient beside it.
+  const bare = { steps: ['Heat the oven.'], stepIngredients: {}, stepSections: {}, stepTitles: {} };
+  const out = insertStep(bare, 1, 'Air fry the chicken.', 0);
+  assert.deepEqual(out.stepIngredients[1], [0]);
+});
+
+test('an ingredient claimed by a step that shifted is still seen as claimed', () => {
+  // The check has to run against the SHIFTED map, not the original — otherwise
+  // inserting above the claiming step misses it and duplicates anyway.
+  const out = insertStep(RECIPE, 0, 'Read the recipe.', 0);   // 0 was on step 1, now 2
+  assert.equal(out.stepIngredients[0], undefined);
+  assert.deepEqual(out.stepIngredients[2], [0]);
 });

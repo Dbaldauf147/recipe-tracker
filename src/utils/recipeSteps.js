@@ -97,8 +97,19 @@ export function insertStep(fields, at, text, ingredientIndex = null) {
   };
 
   const stepIngredients = shift(fields?.stepIngredients);
+  // Assigning the ingredient to the new step is only right when no other step
+  // has claimed it. Cook mode treats stepIngredients as a PARTITION — its
+  // "unassigned" list excludes anything assigned to any step, and it renders a
+  // row per assigned ingredient per step — so a second claim shows the
+  // ingredient, and its quantity, twice in the instructions.
+  //
+  // The existing claim is also the better one to keep: the recipe already
+  // decided which step that ingredient belongs beside, and an imported step
+  // should not quietly move it.
   if (Number.isInteger(ingredientIndex) && ingredientIndex >= 0) {
-    stepIngredients[index] = [ingredientIndex];
+    const claimedElsewhere = Object.values(stepIngredients)
+      .some(list => Array.isArray(list) && list.includes(ingredientIndex));
+    if (!claimedElsewhere) stepIngredients[index] = [ingredientIndex];
   }
 
   return {
