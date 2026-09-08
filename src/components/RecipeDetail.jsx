@@ -4,6 +4,7 @@ import { BarcodeScanner } from './BarcodeScanner';
 import { loadFriends, shareRecipe, getUsername, createShareLink, loadField } from '../utils/firestoreSync';
 import AIR_FRYER_GUIDE from '../data/airFryerGuide.js';
 import { airFryerForIngredient, airFryerStepText, mergeAirFryerGuide } from '../utils/airFryerRecipes';
+import { insertStep, insertPointForIngredient } from '../utils/recipeSteps';
 import { loadIngredients, saveIngredientsToFirestore, setIngredientUnitWeight } from '../utils/ingredientsStore';
 import { ManualIngredientModal } from './ManualIngredientModal.jsx';
 import {
@@ -1554,14 +1555,20 @@ export function RecipeDetail({ recipe, allTags = [], onSave, onDelete, onBack, o
   }, [fields.ingredients, airFryerGuide, airFryerData.links]);
 
   /**
-   * Append the guide's instruction as a new step, tied to the ingredient it
-   * came from so cook mode highlights it like any hand-written step.
+   * Drop the guide's instruction in with the ingredient it is about — directly
+   * after the last step that already deals with it, rather than at the bottom
+   * of the recipe. "Air fry the chicken" belongs after you seasoned the
+   * chicken, not after the salad is dressed.
+   *
+   * Falls back to the end when nothing in the recipe mentions it yet. The new
+   * step is tied to the ingredient so cook mode highlights it like any
+   * hand-written one; insertStep shifts stepIngredients, stepSections and
+   * stepTitles so the steps below keep the ones that are actually theirs.
    */
   function importAirFryerStep(match) {
     setFields(prev => {
-      const steps = [...prev.steps, airFryerStepText(match.row, match.name)];
-      const stepIngredients = { ...prev.stepIngredients, [steps.length - 1]: [match.index] };
-      return { ...prev, steps, stepIngredients };
+      const at = insertPointForIngredient(prev.steps, prev.stepIngredients, match.index, match.name);
+      return { ...prev, ...insertStep(prev, at, airFryerStepText(match.row, match.name), match.index) };
     });
     setStepVersion(v => v + 1);
     setAirFryerOpen(false);
