@@ -27,6 +27,10 @@ import {
 import {
   subscribeToSharedExercises, applySharedExerciseEdit, mergeExerciseLibraries,
 } from '../utils/sharedExerciseLibrary';
+import {
+  normalizeTypePaused, isTypePaused as isPausedIn, typesInRotation,
+  toggleTypePaused, withoutTypePause, pausedLast,
+} from '../utils/workoutTypeRotation';
 import { loadHabitLog, saveHabitLogCells } from '../utils/habitLogYears';
 import { periodKey } from '../utils/habitOutstanding';
 import { BodyHeatmap } from './BodyHeatmap';
@@ -460,6 +464,34 @@ function loadWorkoutTypeCategories() {
 function saveWorkoutTypeCategories(map, uid) {
   localStorage.setItem(WORKOUT_TYPE_CATEGORIES_KEY, JSON.stringify(map));
   if (uid) saveField(uid, 'workoutTypeCategories', map);
+}
+
+// Paused workout types. Shape: { [typeName]: true } — an unpaused type has its
+// key DELETED rather than set to false, so the map only ever lists the paused
+// ones and `Object.keys(...).length` is the count.
+//
+// A pause is NOT a skip. A skip says "not today", moves the days-ago counter,
+// and leaves the type in the rotation; a pause says "leave me out of the
+// rotation entirely until I say otherwise" — an injury, a season, a gym you
+// don't have access to this month. So it deliberately does not touch the
+// days-ago counter: unpause and you are however overdue you actually are.
+//
+// Synced to users/{uid}.workoutTypePaused and honoured by the mobile app too.
+const WORKOUT_TYPE_PAUSED_KEY = 'sunday-workout-type-paused';
+
+function loadWorkoutTypePaused() {
+  try {
+    const raw = localStorage.getItem(WORKOUT_TYPE_PAUSED_KEY);
+    if (raw) {
+      return normalizeTypePaused(JSON.parse(raw));
+    }
+  } catch { /* fall through */ }
+  return {};
+}
+
+function saveWorkoutTypePaused(map, uid) {
+  localStorage.setItem(WORKOUT_TYPE_PAUSED_KEY, JSON.stringify(map));
+  if (uid) saveField(uid, 'workoutTypePaused', map);
 }
 
 const SKIP_DATES_KEY = 'sunday-workout-type-skip-dates';
@@ -3265,6 +3297,8 @@ export function WorkoutPage({ onBack, user }) {
   }, [exerciseLibrary]);
   const [workoutTypes, setWorkoutTypes] = useState(loadWorkoutTypes);
   const [workoutTypeCategories, setWorkoutTypeCategories] = useState(loadWorkoutTypeCategories);
+  const [workoutTypePaused, setWorkoutTypePaused] = useState(loadWorkoutTypePaused);
+  const isTypePaused = useCallback((t) => isPausedIn(workoutTypePaused, t), [workoutTypePaused]);
   const [typeSkipDates, setTypeSkipDates] = useState(loadSkipDates);
   // ✎ Edit opens the workout-types popup: order them, set each one's category,
   // skip or remove it. `typeDrag` is the name being dragged inside it.
@@ -4449,10 +4483,14 @@ export function WorkoutPage({ onBack, user }) {
   }, [lastByType, typeSkipDates, workoutTypes]);
 
   const suggestedType = useMemo(() => {
-    if (workoutTypes.length === 0) return '';
-    let suggested = workoutTypes[0];
+    // A paused type is out of the rotation, so it can never be what's up next —
+    // however overdue it looks. Pause everything and there is simply no ⭐,
+    // which is the honest answer rather than starring the least-paused thing.
+    const inRotation = typesInRotation(workoutTypes, workoutTypePaused);
+    if (inRotation.length === 0) return '';
+    let suggested = inRotation[0];
     let suggestedDate = effectiveLastByType[suggested]?.date || '';
-    for (const t of workoutTypes) {
+    for (const t of inRotation) {
       const d = effectiveLastByType[t]?.date || '';
       if (!d) return t; // never done yet — suggest immediately
       if (suggestedDate && d < suggestedDate) {
@@ -4461,7 +4499,7 @@ export function WorkoutPage({ onBack, user }) {
       }
     }
     return suggested;
-  }, [effectiveLastByType, workoutTypes]);
+  }, [effectiveLastByType, workoutTypes, workoutTypePaused]);
 
   // Long-press / right-click on a workout-type pill (normal mode) brings
   // up a Skip confirm. Mirrors the mobile onLongPress behavior so users
@@ -4525,7 +4563,27 @@ export function WorkoutPage({ onBack, user }) {
       setWorkoutTypeCategories(nextCats);
       saveWorkoutTypeCategories(nextCats, user?.uid);
     }
+    // Otherwise re-adding a type you had paused brings the pause back with it.
+    if (workoutTypePaused[t]) {
+      const nextPaused = withoutTypePause(workoutTypePaused, t);
+      setWorkoutTypePaused(nextPaused);
+      saveWorkoutTypePaused(nextPaused, user?.uid);
+    }
     if (workoutType === t) setWorkoutType('');
+  }
+
+  /**
+   * Pause / resume a type — take it out of the rotation, or put it back.
+   *
+   * Unpausing DELETES the key rather than writing false, so the stored map only
+   * ever lists what's actually paused. Nothing else is touched: the days-ago
+   * counter keeps running while paused, so resuming tells you the truth about
+   * how long it's been rather than pretending you just did it.
+   */
+  function toggleWorkoutTypePause(t) {
+    const next = toggleTypePaused(workoutTypePaused, t);
+    setWorkoutTypePaused(next);
+    saveWorkoutTypePaused(next, user?.uid);
   }
 
   /** Cycle a type through weights → cardio → yoga (what it counts as on the calendar). */
@@ -4558,6 +4616,12 @@ export function WorkoutPage({ onBack, user }) {
    * thing there is, not the least. Ties keep the user's configured order, so
    * the row doesn't reshuffle arbitrarily between equal types.
    *
+   * Paused types sort BEHIND every active one regardless of how overdue they
+   * look — the row answers "what am I overdue for", and something you have
+   * deliberately taken out of the rotation is not an answer to that. They stay
+   * in the row (greyed) rather than vanishing, so you can still log one on a
+   * whim and so the pause is visible where you'd notice it.
+   *
    * Deliberately a VIEW: `workoutTypes` itself keeps its configured order for
    * the ✎ Edit popup (which reorders it) and every type <select>.
    */
@@ -4569,9 +4633,9 @@ export function WorkoutPage({ onBack, user }) {
     };
     return workoutTypes
       .map((t, i) => ({ t, i, d: sinceDays(t) }))
-      .sort((a, b) => (b.d - a.d) || (a.i - b.i))
+      .sort((a, b) => pausedLast(workoutTypePaused)(a.t, b.t) || (b.d - a.d) || (a.i - b.i))
       .map(x => x.t);
-  }, [workoutTypes, effectiveLastByType]);
+  }, [workoutTypes, effectiveLastByType, workoutTypePaused]);
 
   function addWorkoutType(name) {
     const trimmed = (name || '').trim();
@@ -5035,12 +5099,16 @@ export function WorkoutPage({ onBack, user }) {
             {typesBySince.map(t => {
               const isSuggested = t === suggestedType && !workoutType;
               const isActive = workoutType === t;
+              const isPaused = isTypePaused(t);
               const lastReal = lastByType[t];
-              const subLabel = sinceLabelForType(t);
+              // A paused pill says "paused", not "23d ago" — the days-ago
+              // figure is a nudge, and nudging you about something you took out
+              // of the rotation on purpose is the noise this is meant to stop.
+              const subLabel = isPaused ? 'paused' : sinceLabelForType(t);
               return (
                 <button
                   key={t}
-                  className={`${styles.workoutTypePill} ${isActive ? styles.workoutTypePillActive : ''} ${isSuggested ? styles.workoutTypePillSuggested : ''}`}
+                  className={`${styles.workoutTypePill} ${isActive ? styles.workoutTypePillActive : ''} ${isSuggested ? styles.workoutTypePillSuggested : ''} ${isPaused ? styles.workoutTypePillPaused : ''}`}
                   onClick={() => {
                     if (pillLongPressFiredRef.current) {
                       pillLongPressFiredRef.current = false;
@@ -5055,11 +5123,17 @@ export function WorkoutPage({ onBack, user }) {
                   onTouchEnd={cancelPillLongPress}
                   onTouchCancel={cancelPillLongPress}
                   onContextMenu={(e) => { e.preventDefault(); cancelPillLongPress(); promptSkipWorkoutType(t); }}
-                  title={lastReal ? `Last ${t}: ${daysSince(lastReal.date)} day${daysSince(lastReal.date) === 1 ? '' : 's'} ago (${formatDate(lastReal.date)}) — long-press / right-click to skip today` : `Never done ${t} — long-press / right-click to skip today`}
+                  title={[
+                    isPaused ? `${t} is paused — it won't be suggested or sorted as overdue. Resume it in ✎ Edit.` : '',
+                    lastReal
+                      ? `Last ${t}: ${daysSince(lastReal.date)} day${daysSince(lastReal.date) === 1 ? '' : 's'} ago (${formatDate(lastReal.date)})`
+                      : `Never done ${t}`,
+                    'Long-press / right-click to skip today',
+                  ].filter(Boolean).join(' · ')}
                   type="button"
                 >
                   <span className={styles.workoutTypePillName}>
-                    {isSuggested && '⭐ '}{t}
+                    {isPaused ? '⏸ ' : isSuggested ? '⭐ ' : ''}{t}
                   </span>
                   <span className={styles.workoutTypePillSub}>
                     {subLabel}
@@ -6895,11 +6969,17 @@ export function WorkoutPage({ onBack, user }) {
                 Drag a type, or use ↑ ↓, to set the order they appear in. The ⭐ suggestion still goes by
                 whichever is most overdue — this is the order of the row.
               </p>
+              <p style={{ margin: '-0.5rem 0 0.85rem', fontSize: '0.78rem', color: 'var(--color-text-muted)', lineHeight: 1.45 }}>
+                <strong>⏸ Pause</strong> takes a type out of the rotation until you resume it: no ⭐, and it
+                sits greyed at the end of the row instead of looking overdue. <strong>⏭ Skip</strong> is the
+                other one — it just means &ldquo;not today&rdquo; and resets the days-ago counter.
+              </p>
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                 {workoutTypes.map((t, idx) => {
                   const cat = workoutTypeCategories[t] || guessWorkoutCategory(t);
                   const dragging = typeDrag === t;
+                  const paused = isTypePaused(t);
                   return (
                     <div
                       key={t}
@@ -6921,11 +7001,16 @@ export function WorkoutPage({ onBack, user }) {
                     >
                       <span title="Drag to reorder" style={{ color: 'var(--color-text-muted)', fontSize: '0.9rem' }}>⠿</span>
                       <span style={{ flex: 1, minWidth: 0, overflow: 'hidden' }}>
-                        <span style={{ display: 'block', fontSize: '0.86rem', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t}</span>
+                        <span style={{ display: 'block', fontSize: '0.86rem', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', opacity: paused ? 0.55 : 1 }}>
+                          {paused && '⏸ '}{t}
+                        </span>
                         {/* Same "days since" the pill row shows, so ordering the
-                            list doesn't mean guessing which one you're overdue for. */}
+                            list doesn't mean guessing which one you're overdue for.
+                            A paused row keeps its figure — unlike the pill, which
+                            hides it: here you're deciding whether to resume, and
+                            "paused · 23d ago" is exactly what that turns on. */}
                         <span style={{ display: 'block', fontSize: '0.7rem', color: 'var(--color-text-muted)', whiteSpace: 'nowrap' }}>
-                          {sinceLabelForType(t)}
+                          {paused ? `paused · ${sinceLabelForType(t)}` : sinceLabelForType(t)}
                         </span>
                       </span>
                       <button
@@ -6948,6 +7033,15 @@ export function WorkoutPage({ onBack, user }) {
                         title={`Counts on the calendar as ${cat} — click to change`}
                         style={rowBtn}
                       >{CAL_ICON[cat]} {cat}</button>
+                      <button
+                        type="button"
+                        onClick={() => toggleWorkoutTypePause(t)}
+                        title={paused
+                          ? `Resume ${t} — put it back in the rotation`
+                          : `Pause ${t} — keep it out of the ⭐ suggestion and off the overdue end of the row until you resume it`}
+                        aria-pressed={paused}
+                        style={{ ...rowBtn, ...(paused ? { borderColor: '#d97706', color: '#d97706', fontWeight: 700 } : {}) }}
+                      >{paused ? '▶' : '⏸'}</button>
                       <button
                         type="button"
                         onClick={() => skipWorkoutType(t)}

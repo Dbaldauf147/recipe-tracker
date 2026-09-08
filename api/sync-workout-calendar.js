@@ -68,6 +68,7 @@
 import { createHash } from 'crypto';
 import { initializeApp, cert, getApps } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
+import { typesInRotation, normalizeTypePaused } from '../src/utils/workoutTypeRotation.js';
 
 if (getApps().length === 0) {
   const serviceAccount = process.env.FIREBASE_SERVICE_ACCOUNT
@@ -115,19 +116,25 @@ function addDays(dt, n) { const x = new Date(dt); x.setUTCDate(x.getUTCDate() + 
 function sundayOf(dt) { const x = new Date(dt); x.setUTCDate(x.getUTCDate() - x.getUTCDay()); return x; } // getUTCDay 0=Sun
 
 // ---- Workout-plan resolution (ported from WeekPlanPage.jsx) ----
-function rankWorkoutTypesByStaleness(workoutsRaw, workoutTypes, typeSkipDates) {
+// Paused types (users/{uid}.workoutTypePaused) are dropped, not sorted last:
+// this list only fills days AUTOMATICALLY, so dropping them is what stops a
+// paused type being planned into the week and pushed into Google Calendar. A
+// day you pinned by hand is resolved against the full workoutTypes list below,
+// so an explicit pin still syncs even while the type is paused.
+function rankWorkoutTypesByStaleness(workoutsRaw, workoutTypes, typeSkipDates, typePaused) {
   const lastByType = {};
   for (const w of workoutsRaw || []) {
     if (!w?.workoutType || !w.date) continue;
     if (!lastByType[w.workoutType] || w.date > lastByType[w.workoutType]) lastByType[w.workoutType] = w.date;
   }
+  const inRotation = typesInRotation(workoutTypes, typePaused);
   const eff = {};
-  for (const t of workoutTypes) {
+  for (const t of inRotation) {
     const wd = lastByType[t] || '';
     const sd = (typeSkipDates && typeSkipDates[t]) || '';
     eff[t] = sd > wd ? sd : wd;
   }
-  return [...workoutTypes].sort((a, b) => {
+  return inRotation.sort((a, b) => {
     const ea = eff[a], eb = eff[b];
     if (!ea && !eb) return 0;
     if (!ea) return -1;
@@ -699,6 +706,11 @@ export default async function handler(req, res) {
         const guestEmail = settings.guestEmail || '';
         const workoutTypes = Array.isArray(data.workoutTypes) ? data.workoutTypes : [];
         const typeSkipDates = (data.workoutTypeSkipDates && typeof data.workoutTypeSkipDates === 'object') ? data.workoutTypeSkipDates : {};
+        // Types the user has taken out of the rotation. Honoured here as well as
+        // in the app: the cron plans the same week the Week Plan page shows, so a
+        // pause the page respects but the cron doesn't would put the workout on
+        // the calendar anyway.
+        const typePaused = normalizeTypePaused(data.workoutTypePaused);
         // type name → 'weights' | 'cardio' | 'yoga'. Drives which timing row a
         // day's workout uses; anything unmapped is treated as weights (same
         // fallback the Week Plan's icon uses).
@@ -730,7 +742,7 @@ export default async function handler(req, res) {
 
         // Planned workout type per date across this week + next week, plus the
         // subset of those days that should also get a sauna.
-        const ranked = rankWorkoutTypesByStaleness(workoutsRaw, workoutTypes, typeSkipDates);
+        const ranked = rankWorkoutTypesByStaleness(workoutsRaw, workoutTypes, typeSkipDates, typePaused);
         const workoutByDate = {};
         // The companion workout on a paired day (cardio + yoga). Kept beside the
         // primary rather than turning workoutByDate into an array: every event

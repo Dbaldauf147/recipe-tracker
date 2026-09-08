@@ -1701,6 +1701,13 @@ export function hydrateLocalStorage(userData, uid) {
     localStorage.setItem('sunday-workout-type-categories', JSON.stringify(userData.workoutTypeCategories));
   }
 
+  // Written even when empty, unlike the maps above: an empty object is the
+  // meaningful state "nothing is paused any more". Skipping it would leave a
+  // stale pause in localStorage after the last type was resumed elsewhere.
+  if (userData.workoutTypePaused && typeof userData.workoutTypePaused === 'object') {
+    localStorage.setItem('sunday-workout-type-paused', JSON.stringify(userData.workoutTypePaused));
+  }
+
   // Workout tab gating: anyone with this flag set on their user doc sees
   // the Workout nav entry. baldaufdan@gmail.com always sees it.
   if (userData.workoutEnabled) {

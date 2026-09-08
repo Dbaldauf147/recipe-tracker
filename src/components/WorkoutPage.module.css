@@ -232,6 +232,21 @@
   border-width: 2px;
   padding: calc(0.4rem - 1px) calc(0.85rem - 1px);
 }
+
+/* Paused: out of the rotation, still clickable. Faded and dashed so it reads as
+   parked rather than disabled — you can absolutely still log one. */
+.workoutTypePillPaused {
+  opacity: 0.5;
+  border-style: dashed;
+}
+.workoutTypePillPaused:hover {
+  opacity: 0.8;
+}
+/* An active pill must stay legible even when paused, or selecting the type you
+   just paused makes the row look broken. */
+.workoutTypePillPaused.workoutTypePillActive {
+  opacity: 0.85;
+}
 .workoutTypeRefill {
   margin-left: auto;
   padding: 0.4rem 0.75rem;

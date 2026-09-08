@@ -17,6 +17,7 @@ import {
 } from '../utils/saunaPlan';
 import { isStretchWorkout } from '../utils/stretchRoutine';
 import { subscribeWorkouts } from '../utils/workoutsSync';
+import { typesInRotation, normalizeTypePaused } from '../utils/workoutTypeRotation';
 import { MAIN_MEALS, mealStatsForDay, mealStatsForDays, mealsTrackedGoalOf } from '../utils/mealsTracked';
 import styles from './WeekPlanPage.module.css';
 
@@ -356,19 +357,27 @@ function normalizeWorkoutGoals(goals) {
 // Rank workout types by how overdue they are (most overdue first). Effective
 // last-activity = newer of the last logged workout of that type and a manual
 // skip; never done = most overdue. Mirrors WorkoutPage's Workout Type view.
-function rankWorkoutTypesByStaleness(workoutsRaw, workoutTypes, typeSkipDates) {
+//
+// PAUSED types are dropped here rather than sorted to the back, because this
+// list is only ever used to fill days automatically — dropping them is what
+// keeps a paused type from being planned into the week and pushed to Google
+// Calendar. A type you PINNED to a day by hand still stands even while paused:
+// that's checked against the full `workoutTypes` in resolveWorkoutPlan, so an
+// explicit choice always beats the pause.
+function rankWorkoutTypesByStaleness(workoutsRaw, workoutTypes, typeSkipDates, typePaused) {
   const lastByType = {};
   for (const w of workoutsRaw || []) {
     if (!w?.workoutType || !w.date) continue;
     if (!lastByType[w.workoutType] || w.date > lastByType[w.workoutType]) lastByType[w.workoutType] = w.date;
   }
+  const inRotation = typesInRotation(workoutTypes, typePaused);
   const eff = {};
-  for (const t of workoutTypes) {
+  for (const t of inRotation) {
     const wd = lastByType[t] || '';
     const sd = (typeSkipDates && typeSkipDates[t]) || '';
     eff[t] = sd > wd ? sd : wd; // '' = never done
   }
-  return [...workoutTypes].sort((a, b) => {
+  return inRotation.sort((a, b) => {
     const ea = eff[a], eb = eff[b];
     if (!ea && !eb) return 0;
     if (!ea) return -1; // never done = most overdue → first
@@ -692,6 +701,14 @@ function loadTypeSkipDates() {
   return {};
 }
 
+/** Paused workout types — { [name]: true }. See WorkoutPage's ⏸ Pause. */
+function loadTypePaused() {
+  try {
+    return normalizeTypePaused(JSON.parse(localStorage.getItem('sunday-workout-type-paused')));
+  } catch { /* ignore */ }
+  return {};
+}
+
 function loadNutritionGoals() {
   try {
     const r = JSON.parse(localStorage.getItem('sunday-nutrition-goals'));
@@ -786,6 +803,7 @@ export function WeekPlanPage({ recipes, getRecipe, user, weeklyPlan = [], weekly
   const [workoutGoals, setWorkoutGoals] = useState(loadWorkoutGoals);
   const [workoutTypes, setWorkoutTypes] = useState(loadWorkoutTypes);
   const [typeSkipDates, setTypeSkipDates] = useState(loadTypeSkipDates);
+  const [typePaused, setTypePaused] = useState(loadTypePaused);
   const [nutritionGoals, setNutritionGoals] = useState(loadNutritionGoals);
   const [dailyLog, setDailyLog] = useState(loadDailyLog);
   // Stretch routines (user doc `stretchRoutines`), only so a session logged
@@ -852,6 +870,11 @@ export function WeekPlanPage({ recipes, getRecipe, user, weeklyPlan = [], weekly
       setTypeSkipDates(remote);
       try { localStorage.setItem('sunday-workout-type-skip-dates', JSON.stringify(remote)); } catch { /* ignore */ }
     }).catch(() => { /* keep local */ });
+    loadField(user.uid, 'workoutTypePaused').then(remote => {
+      if (cancelled || !remote || typeof remote !== 'object') return;
+      setTypePaused(remote);
+      try { localStorage.setItem('sunday-workout-type-paused', JSON.stringify(remote)); } catch { /* ignore */ }
+    }).catch(() => { /* keep local */ });
     loadField(user.uid, 'stretchRoutines').then(remote => {
       if (!cancelled && Array.isArray(remote)) setStretchRoutines(remote);
     }).catch(() => { /* tag alone still catches current sessions */ });
@@ -870,8 +893,8 @@ export function WeekPlanPage({ recipes, getRecipe, user, weeklyPlan = [], weekly
   // the remaining days re-rank around them. Recomputes on every render so it
   // auto-adjusts when a day is changed/cleared or staleness changes.
   const rankedTypes = useMemo(
-    () => rankWorkoutTypesByStaleness(workoutsRaw, workoutTypes, typeSkipDates),
-    [workoutsRaw, workoutTypes, typeSkipDates]
+    () => rankWorkoutTypesByStaleness(workoutsRaw, workoutTypes, typeSkipDates, typePaused),
+    [workoutsRaw, workoutTypes, typeSkipDates, typePaused]
   );
   // Which Sun..Sat (0..6) days of the CURRENT week already have a logged workout,
   // and which types were trained — so suggestions skip already-trained days and
