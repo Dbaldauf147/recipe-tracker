@@ -3,7 +3,7 @@ import GUIDE, {
   AIR_FRYER_CATEGORIES, AIR_FRYER_RULES, airFryerKey, toCelsius,
 } from '../data/airFryerGuide.js';
 import { loadField, saveField } from '../utils/firestoreSync';
-import { indexRecipesByGuide, indexExtrasByGuide, rankIngredientsForGuide, bestIngredientForGuide } from '../utils/airFryerRecipes';
+import { indexRecipesByGuide, indexExtrasByGuide, rankIngredientsForGuide, bestIngredientForGuide, mergeAirFryerGuide } from '../utils/airFryerRecipes';
 import { findTopSince, buildIngredientEatenMap } from '../utils/pantryAutoAdd';
 import { loadIngredients, ingredientRowByName } from '../utils/ingredientsStore';
 import { ingredientMatchScore } from '../utils/ingredientMatch';
@@ -346,19 +346,9 @@ export function AirFryerPage({ onClose, user, recipes = [], weeklyRecipeIds = []
   // name matches a built-in REPLACES it rather than sitting next to it — a
   // duplicate row with a different time is worse than no row at all, because
   // now you have to remember which one you trusted.
-  const rows = useMemo(() => {
-    const byKey = new Map();
-    for (const row of GUIDE) byKey.set(airFryerKey(row.name), { ...row, source: 'built-in' });
-    for (const row of mine) {
-      const key = airFryerKey(row.name);
-      byKey.set(key, {
-        ...row,
-        source: byKey.has(key) ? 'edited' : 'mine',
-        cat: row.cat || byKey.get(key)?.cat || 'Vegetables',
-      });
-    }
-    return Array.from(byKey.values());
-  }, [mine]);
+  // Hiding is applied further down (this page can reveal hidden rows), so the
+  // merge is asked for the unfiltered set here.
+  const rows = useMemo(() => mergeAirFryerGuide(GUIDE, mine, []), [mine]);
 
   const weekIds = useMemo(() => new Set(weeklyRecipeIds || []), [weeklyRecipeIds]);
 

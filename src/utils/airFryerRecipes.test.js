@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   guideTerms, ingredientMatchesTerms, indexRecipesByGuide,
   rankIngredientsForGuide, bestIngredientForGuide, CONFIDENT_MATCH_SCORE,
+  airFryerForIngredient, airFryerStepText,
 } from './airFryerRecipes.js';
 import GUIDE from '../data/airFryerGuide.js';
 
@@ -189,4 +190,100 @@ test('every built-in guide row survives ranking against a real-ish database', ()
   for (const row of GUIDE) {
     assert.doesNotThrow(() => rankIngredientsForGuide(row.name, db), row.name);
   }
+});
+
+// ── ingredient → guide row ───────────────────────────────────────────────────
+// The reverse direction, used by the recipe popup to drop air-fryer
+// instructions into a step. Wrong row = cooking fish at chicken temperatures,
+// so these are about what it must REFUSE as much as what it finds.
+
+test('finds the row for an ingredient written the way a recipe writes it', () => {
+  assert.equal(airFryerForIngredient('chicken breasts', GUIDE).name, 'Chicken breast (boneless)');
+  assert.equal(airFryerForIngredient('Salmon fillet', GUIDE).name, 'Salmon fillet (6 oz)');
+  assert.equal(airFryerForIngredient('brussels sprouts', GUIDE).name, 'Brussels sprouts (halved)');
+});
+
+test('a parenthetical qualifier picks between two rows of the same thing', () => {
+  // Both rows match on "chicken thigh"; the qualifier is the whole difference,
+  // and it is 20 minutes at 400°F vs 16 at 400°F with different done temps.
+  assert.equal(airFryerForIngredient('boneless chicken thighs', GUIDE).name, 'Chicken thighs (boneless)');
+  assert.equal(airFryerForIngredient('bone-in chicken thighs', GUIDE).name, 'Chicken thighs (bone-in)');
+});
+
+test('the qualifier match is whole-word — "bone" is not inside "boneless"', () => {
+  // The bug this replaced: substring matching filed "boneless chicken thighs"
+  // under the (bone-in) row, i.e. exactly backwards.
+  const row = airFryerForIngredient('boneless chicken thighs', GUIDE);
+  assert.doesNotMatch(row.name, /bone-in/i);
+});
+
+test('refuses an ingredient the guide has nothing to say about', () => {
+  for (const name of ['olive oil', 'salt', 'vanilla extract', 'water']) {
+    assert.equal(airFryerForIngredient(name, GUIDE), null, name);
+  }
+});
+
+test('refuses blank and junk input rather than guessing', () => {
+  assert.equal(airFryerForIngredient('', GUIDE), null);
+  assert.equal(airFryerForIngredient('   ', GUIDE), null);
+  assert.equal(airFryerForIngredient(null, GUIDE), null);
+  assert.equal(airFryerForIngredient('chicken', []), null);
+  assert.equal(airFryerForIngredient('chicken', undefined), null);
+});
+
+test('does not match on a fragment of a longer word', () => {
+  // "Toast" must not claim "toasted sesame oil", the same trap the forward
+  // matcher documents.
+  const row = airFryerForIngredient('toasted sesame oil', GUIDE);
+  assert.equal(row, null);
+});
+
+test('an explicit link outranks the heuristic', () => {
+  const rows = [
+    { name: 'Halloumi', cat: 'Cheese', tempF: 390, min: 8, max: 10 },
+    { name: 'Tofu (extra firm)', cat: 'Vegetarian', tempF: 400, min: 15, max: 18 },
+  ];
+  // Nothing matches "paneer" on its own …
+  assert.equal(airFryerForIngredient('paneer cubes', rows), null);
+  // … until the user ties the Halloumi row to it on the air fryer page.
+  const links = { halloumi: 'Paneer' };
+  assert.equal(airFryerForIngredient('paneer cubes', rows, links).name, 'Halloumi');
+});
+
+test('every guide row can be looked up by its own name', () => {
+  // A row nothing can reach is a row that never reaches a recipe.
+  for (const row of GUIDE) {
+    assert.notEqual(airFryerForIngredient(row.name, GUIDE), null, row.name);
+  }
+});
+
+// ── the step it writes ───────────────────────────────────────────────────────
+
+test('reads as an instruction, not a table row', () => {
+  const row = { name: 'Chicken breast (boneless)', tempF: 375, min: 18, max: 22, doneF: 165, note: 'Flip halfway.' };
+  assert.equal(
+    airFryerStepText(row, 'chicken breasts'),
+    'Air fry the chicken breasts at 375°F for 18–22 min, until it reaches 165°F inside. Flip halfway.',
+  );
+});
+
+test('drops the done temperature for things that have none', () => {
+  const row = { name: 'Broccoli florets', tempF: 400, min: 8, max: 10, note: 'Shake once.' };
+  assert.equal(airFryerStepText(row, 'broccoli'), 'Air fry the broccoli at 400°F for 8–10 min. Shake once.');
+});
+
+test('collapses a range that is not a range, and survives a missing note', () => {
+  assert.equal(
+    airFryerStepText({ name: 'Bacon', tempF: 350, min: 9, max: 9 }, 'bacon'),
+    'Air fry the bacon at 350°F for 9 min.',
+  );
+});
+
+test('falls back to the row name when no ingredient name is given', () => {
+  const row = { name: 'Halloumi', tempF: 390, min: 8, max: 10 };
+  assert.match(airFryerStepText(row), /^Air fry the halloumi at 390°F/);
+});
+
+test('writes nothing for no row', () => {
+  assert.equal(airFryerStepText(null, 'chicken'), '');
 });

@@ -224,3 +224,116 @@ export function indexExtrasByGuide(guideRows, extras = [], links = {}) {
   }
   return index;
 }
+
+/**
+ * The guide row for one ingredient, or null — the reverse of the lookups above,
+ * which all go row → ingredients.
+ *
+ * Same conservative whole-word matching, for the same reason: this drops
+ * cooking instructions into a recipe, and a wrong row tells you to cook fish at
+ * chicken temperatures.
+ *
+ * Where several rows match, the MOST SPECIFIC wins: "boneless chicken thighs"
+ * matches both "Chicken thighs (boneless)" and "Chicken thighs (bone-in)" on
+ * the word "thigh", and the one whose qualifier also appears in your
+ * ingredient is the one you meant. Ties break toward more matched terms, then
+ * the longer term, then alphabetically so the answer never wobbles.
+ *
+ * `links` is the user's airFryerLinks map (guide key → the ingredient name they
+ * tied it to). An explicit link is a stated fact, so it outranks any heuristic.
+ */
+export function airFryerForIngredient(ingredientName, guideRows = [], links = {}) {
+  const name = String(ingredientName || '').trim();
+  if (!name) return null;
+  const mine = ` ${singularize(normalize(name))} `;
+
+  let best = null;
+  for (const row of guideRows) {
+    const key = String(row?.name || '').trim().toLowerCase();
+    const linked = links?.[key];
+    const terms = [...new Set(linked ? [...guideTerms(row?.name), ...guideTerms(linked)] : guideTerms(row?.name))];
+    if (terms.length === 0) continue;
+    const hits = terms.filter(term => mine.includes(` ${term} `));
+    if (hits.length === 0) continue;
+
+    // A qualifier the guide puts in parentheses — "(boneless)", "(frozen)" —
+    // is dropped by normalize, so check the raw row name for it separately.
+    // It is what separates two rows that match on the same noun.
+    const quals = String(row?.name || '').toLowerCase().match(/\(([^)]*)\)/g) || [];
+    // Whole words, like everything else here. Substring matching files
+    // "boneless chicken thighs" under the (bone-in) row, because "bone" is
+    // inside "boneless" — which is the exact opposite of what was asked for.
+    const qualHit = quals.some(q => {
+      const words = q.replace(/[()]/g, '').split(/[^a-z]+/).filter(w => w.length >= 3);
+      return words.some(w => mine.includes(` ${w} `));
+    });
+
+    const longest = hits.reduce((n, t) => Math.max(n, t.length), 0);
+    const cand = {
+      row,
+      linked: !!linked,
+      qualHit,
+      hits: hits.length,
+      longest,
+    };
+    if (!best || betterAirFryerMatch(cand, best)) best = cand;
+  }
+  return best ? best.row : null;
+}
+
+function betterAirFryerMatch(a, b) {
+  if (a.linked !== b.linked) return a.linked;
+  if (a.qualHit !== b.qualHit) return a.qualHit;
+  if (a.hits !== b.hits) return a.hits > b.hits;
+  if (a.longest !== b.longest) return a.longest > b.longest;
+  return String(a.row.name).localeCompare(String(b.row.name), undefined, { sensitivity: 'base' }) < 0;
+}
+
+/**
+ * One guide row written as a recipe step.
+ *
+ * Reads as an instruction ("Air fry the chicken breast at…") rather than as a
+ * table row, because it is going to sit in a numbered list between steps
+ * someone wrote by hand. The note is appended verbatim — it is the sentence
+ * that makes the thing come out right, and paraphrasing it would lose that.
+ */
+export function airFryerStepText(row, ingredientName = '') {
+  if (!row) return '';
+  const what = String(ingredientName || row.name || '').trim().toLowerCase();
+  const time = row.min && row.max && row.min !== row.max
+    ? `${row.min}–${row.max} min`
+    : `${row.min || row.max} min`;
+  let s = `Air fry the ${what} at ${row.tempF}°F for ${time}`;
+  if (row.doneF) s += `, until it reaches ${row.doneF}°F inside`;
+  s += '.';
+  const note = String(row.note || '').trim();
+  if (note) s += ` ${note}`;
+  return s;
+}
+
+/**
+ * The guide as this user actually has it: the built-in rows, with their own
+ * edits and additions layered over the top by name, and anything they hid
+ * dropped.
+ *
+ * Shared with the recipe popup so an instruction imported into a recipe uses
+ * the temperature they corrected on the air fryer page rather than the shipped
+ * default. Two copies of this merge would mean the guide could tell you 375°F
+ * in one place and 390°F in the other, which is worse than either number.
+ */
+export function mergeAirFryerGuide(builtIn = [], mine = [], hidden = []) {
+  const key = (name) => String(name || '').trim().toLowerCase();
+  const byKey = new Map();
+  for (const row of builtIn) byKey.set(key(row?.name), { ...row, source: 'built-in' });
+  for (const row of mine || []) {
+    const k = key(row?.name);
+    if (!k) continue;
+    byKey.set(k, {
+      ...row,
+      source: byKey.has(k) ? 'edited' : 'mine',
+      cat: row.cat || byKey.get(k)?.cat || 'Vegetables',
+    });
+  }
+  const hiddenSet = new Set((hidden || []).map(key));
+  return Array.from(byKey.values()).filter(r => !hiddenSet.has(key(r.name)));
+}

@@ -1,7 +1,9 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { NutritionPanel, PlateChart, MealScore } from './NutritionPanel';
 import { BarcodeScanner } from './BarcodeScanner';
-import { loadFriends, shareRecipe, getUsername, createShareLink } from '../utils/firestoreSync';
+import { loadFriends, shareRecipe, getUsername, createShareLink, loadField } from '../utils/firestoreSync';
+import AIR_FRYER_GUIDE from '../data/airFryerGuide.js';
+import { airFryerForIngredient, airFryerStepText, mergeAirFryerGuide } from '../utils/airFryerRecipes';
 import { loadIngredients, saveIngredientsToFirestore, setIngredientUnitWeight } from '../utils/ingredientsStore';
 import { ManualIngredientModal } from './ManualIngredientModal.jsx';
 import {
@@ -1499,6 +1501,70 @@ export function RecipeDetail({ recipe, allTags = [], onSave, onDelete, onBack, o
       ...prev,
       steps: prev.steps.map((s, i) => (i === index ? value : s)),
     }));
+  }
+
+  // ── Air fryer instructions ────────────────────────────────────────────────
+  // Which of THIS recipe's ingredients the air fryer guide has a row for, so
+  // the picker offers the three things you might actually air fry rather than
+  // the whole guide. Uses the user's merged guide (their edits and additions,
+  // minus what they hid), so an imported step carries the temperature they
+  // corrected rather than the one that shipped.
+  const [airFryerOpen, setAirFryerOpen] = useState(false);
+  const [airFryerData, setAirFryerData] = useState({ mine: [], links: {}, hidden: [] });
+
+  useEffect(() => {
+    if (!airFryerOpen || !user?.uid) return;
+    let cancelled = false;
+    Promise.all([
+      loadField(user.uid, 'airFryerNotes').catch(() => null),
+      loadField(user.uid, 'airFryerLinks').catch(() => null),
+      loadField(user.uid, 'airFryerHidden').catch(() => null),
+    ]).then(([mine, links, hidden]) => {
+      if (cancelled) return;
+      setAirFryerData({
+        mine: Array.isArray(mine) ? mine : [],
+        links: links && typeof links === 'object' ? links : {},
+        hidden: Array.isArray(hidden) ? hidden : [],
+      });
+    });
+    return () => { cancelled = true; };
+  }, [airFryerOpen, user?.uid]);
+
+  const airFryerGuide = useMemo(
+    () => mergeAirFryerGuide(AIR_FRYER_GUIDE, airFryerData.mine, airFryerData.hidden),
+    [airFryerData],
+  );
+
+  // One entry per ingredient the guide can speak to, in the recipe's own order
+  // so the list reads like the ingredient list above it.
+  const airFryerMatches = useMemo(() => {
+    const out = [];
+    const seen = new Set();
+    (fields.ingredients || []).forEach((ing, index) => {
+      const name = (ing?.ingredient || '').trim();
+      if (!name) return;
+      const row = airFryerForIngredient(name, airFryerGuide, airFryerData.links);
+      if (!row) return;
+      const key = `${index}:${row.name}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      out.push({ index, name, row });
+    });
+    return out;
+  }, [fields.ingredients, airFryerGuide, airFryerData.links]);
+
+  /**
+   * Append the guide's instruction as a new step, tied to the ingredient it
+   * came from so cook mode highlights it like any hand-written step.
+   */
+  function importAirFryerStep(match) {
+    setFields(prev => {
+      const steps = [...prev.steps, airFryerStepText(match.row, match.name)];
+      const stepIngredients = { ...prev.stepIngredients, [steps.length - 1]: [match.index] };
+      return { ...prev, steps, stepIngredients };
+    });
+    setStepVersion(v => v + 1);
+    setAirFryerOpen(false);
   }
 
   function addStep() {
@@ -3664,6 +3730,48 @@ export function RecipeDetail({ recipe, allTags = [], onSave, onDelete, onBack, o
               Split Steps
             </button>
           )}
+          {/* Pull the air fryer guide's line for one of this recipe's own
+              ingredients straight into the steps, rather than opening the guide
+              in another tab and copying the numbers across while cooking. */}
+          <div className={styles.airFryerWrap}>
+            <button
+              type="button"
+              className={airFryerOpen ? styles.cookModeBtnActive : styles.cookModeBtn}
+              onClick={() => setAirFryerOpen(o => !o)}
+              title="Add an air fryer step for one of these ingredients"
+            >
+              Air fryer
+            </button>
+            {airFryerOpen && (
+              <div className={styles.airFryerMenu}>
+                {airFryerMatches.length === 0 ? (
+                  <div className={styles.airFryerEmpty}>
+                    Nothing in this recipe is in your air fryer guide.
+                  </div>
+                ) : (
+                  airFryerMatches.map(m => (
+                    <button
+                      key={`${m.index}-${m.row.name}`}
+                      type="button"
+                      className={styles.airFryerItem}
+                      onClick={() => importAirFryerStep(m)}
+                    >
+                      <span className={styles.airFryerItemName}>{m.name}</span>
+                      <span className={styles.airFryerItemMeta}>
+                        {m.row.tempF}°F · {m.row.min}
+                        {m.row.max && m.row.max !== m.row.min ? `–${m.row.max}` : ''} min
+                        {m.row.doneF ? ` · to ${m.row.doneF}°F` : ''}
+                      </span>
+                      {/* The row it matched, spelled the guide's way — the only
+                          way to see it picked (boneless) and not (bone-in)
+                          BEFORE the step lands in the recipe. */}
+                      <span className={styles.airFryerItemRow}>{m.row.name}</span>
+                    </button>
+                  ))
+                )}
+              </div>
+            )}
+          </div>
           <button className={cookMode ? styles.cookModeBtnActive : styles.cookModeBtn} onClick={() => {
             setCookMode(prev => {
               const next = !prev;
