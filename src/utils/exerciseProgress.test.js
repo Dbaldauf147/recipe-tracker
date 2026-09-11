@@ -16,6 +16,7 @@ import {
   countsForHomeGym,
   oneOffLocations,
   withoutOneOffLocations,
+  offsiteMarker,
   decideStatus,
   deltaTone,
   epley1RM,
@@ -1125,4 +1126,29 @@ test('the hotel day does not drag the trend down', () => {
   assert.equal(find(withHotel).status, find(clean).status);
   assert.equal(find(withHotel).status, 'progressing');
   assert.equal(find(withHotel).sessions, find(clean).sessions);
+});
+
+// ------------------------------------------------- chart marking
+
+test('offsiteMarker marks a one-off location with its name', () => {
+  const history = [];
+  for (let i = 0; i < 12; i++) history.push(at('Edge South Tower', 7 * i, 45));
+  history.push(at('Hotel', 24, 30));
+  const mark = offsiteMarker(history);
+  assert.equal(mark('Hotel'), 'Hotel');
+  assert.equal(mark(' hotel '), 'hotel');
+  assert.equal(mark('Edge South Tower'), null);
+  assert.equal(mark(''), null);
+  assert.equal(mark(undefined), null);
+});
+
+test('offsiteMarker with a home gym marks every other named gym', () => {
+  const history = [];
+  for (let i = 0; i < 10; i++) history.push(at('Edge South Tower', 7 * i, 45));
+  for (let i = 0; i < 5; i++) history.push(at('Second Gym', 3 + 7 * i, 40));
+  assert.equal(offsiteMarker(history)('Second Gym'), null); // a regular place, no home gym
+  const mark = offsiteMarker(history, 'Edge South Tower');
+  assert.equal(mark('Second Gym'), 'Second Gym');
+  assert.equal(mark('edge south tower'), null);
+  assert.equal(mark(''), null);
 });

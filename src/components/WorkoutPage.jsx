@@ -10,7 +10,7 @@ import { exportWorkoutHistoryToCSV } from '../utils/exportData';
 import { parseSetValue, formatSeconds, computeSetStats } from '../utils/setValue';
 import { ExerciseLibrary, effectiveMuscleGroup, videoSourceLabel } from './ExerciseLibrary';
 import { EXERCISE_TYPES, DEFAULT_EXERCISE_TYPE, effectiveExerciseType, normalizeExerciseType, inferExerciseType } from '../utils/exerciseTypes';
-import { entryBestE1rmLb, withoutOneOffLocations, oneOffLocations } from '../utils/exerciseProgress';
+import { entryBestE1rmLb, offsiteMarker } from '../utils/exerciseProgress';
 import { StretchRoutines } from './StretchRoutines';
 import { PrCelebration } from './PrCelebration';
 import { detectPersonalRecord, priorHistory } from '../utils/personalRecord';
@@ -4921,13 +4921,16 @@ export function WorkoutPage({ onBack, user }) {
     if (!exerciseName) return [];
     const history = exerciseHistoryByName[exerciseName.trim().toLowerCase()] || [];
     // One afternoon on a hotel cable stack isn't a dip in your strength, it's a
-    // different machine — so a location this lift has only ever seen once is
-    // left off the chart rather than plotted as a drop and dragged through the
-    // trend line. Same rule the Progress tab applies.
-    return [...withoutOneOffLocations(history)]
+    // different machine. So a location this lift has only seen once or twice
+    // is plotted in amber and kept out of the trend line: the session stays
+    // visibly on the record without dragging the line down. Same rule the
+    // Progress tab applies to its verdict.
+    const offsiteOf = offsiteMarker(history);
+    return [...history]
       .sort((a, b) => a.date.localeCompare(b.date))
       .map(h => ({
         date: h.date,
+        offsite: offsiteOf(h.gym) || undefined,
         avgReps: Number(h.avgReps) || 0,
         totalReps: Number(h.totalReps) || 0,
         maxReps: Number(h.maxReps) || 0,
@@ -4940,22 +4943,34 @@ export function WorkoutPage({ onBack, user }) {
       }));
   }
 
+  // Least-squares trend on the right series. An away session (`offsite`) keeps
+  // its x position but stays out of the fit — plotted, not counted.
   function withTrend(data, rightField) {
     if (data.length < 2) return data;
-    const n = data.length;
-    let sumX = 0, sumY = 0, sumXY = 0, sumXX = 0;
-    for (let i = 0; i < n; i++) {
+    let n = 0, sumX = 0, sumY = 0, sumXY = 0, sumXX = 0;
+    for (let i = 0; i < data.length; i++) {
+      if (data[i].offsite) continue;
       const y = data[i][rightField];
+      n++;
       sumX += i;
       sumY += y;
       sumXY += i * y;
       sumXX += i * i;
     }
+    if (n < 2) return data;
     const denom = n * sumXX - sumX * sumX;
     if (denom === 0) return data;
     const slope = (n * sumXY - sumX * sumY) / denom;
     const intercept = (sumY - slope * sumX) / n;
     return data.map((d, i) => ({ ...d, trend: intercept + slope * i }));
+  }
+
+  // Ringed amber marker on an away session; nothing on a normal one (the
+  // areas already draw the line).
+  function awayDot(p) {
+    const k = `${p.dataKey}-${p.index}`;
+    if (!p.payload?.offsite || p.cx == null || p.cy == null) return <g key={k} />;
+    return <circle key={k} cx={p.cx} cy={p.cy} r={4.5} fill="#fff" stroke="#d97706" strokeWidth={2} />;
   }
 
   // On each page load, default the chart slots to the most-recently-logged
@@ -6087,8 +6102,13 @@ export function WorkoutPage({ onBack, user }) {
           if (data.length === 0) return <div className={styles.chartCardEmpty}>No sessions logged for {exercise}</div>;
           if (data.length < 2) return <div className={styles.chartCardEmpty}>Need 2+ sessions to chart {exercise}</div>;
           const dataT = withTrend(data, rightMeta.field);
-          const first = data[0];
-          const last = data[data.length - 1];
+          // The first→last summary reads the sessions the trend counts. An away
+          // day is still plotted, but opening or closing on one would report a
+          // swing the chart itself marks as not comparable.
+          const counted = data.filter(d => !d.offsite);
+          const ends = counted.length >= 2 ? counted : data;
+          const first = ends[0];
+          const last = ends[ends.length - 1];
           const ld = last[leftMeta.field] - first[leftMeta.field];
           const rd = last[rightMeta.field] - first[rightMeta.field];
           const lPct = first[leftMeta.field] ? ld / first[leftMeta.field] : 0;
@@ -6109,25 +6129,19 @@ export function WorkoutPage({ onBack, user }) {
                 return ticks;
               })()
             : undefined;
-          // Say so when a location has been left out. A chart that quietly
-          // drops points is worse than one that plots a bad point: the reader
-          // can't tell the difference between "I never trained there" and
-          // "this chart decided not to count it".
-          const skipped = [...oneOffLocations(exerciseHistoryByName[exercise.trim().toLowerCase()] || [])];
-          const skippedNames = skipped.length > 0
-            ? [...new Set((exerciseHistoryByName[exercise.trim().toLowerCase()] || [])
-              .filter(h => skipped.includes(String(h.gym || '').trim().toLowerCase()))
-              .map(h => String(h.gym).trim()))]
-            : [];
+          // Name the places behind the amber days, so a marked session explains
+          // itself rather than looking like a rendering glitch.
+          const awayNames = [...new Set(data.filter(d => d.offsite).map(d => d.offsite))];
           return (
             <>
               <div className={styles.chartCardTitle}>{exercise}</div>
-              {skippedNames.length > 0 && (
+              {awayNames.length > 0 && (
                 <div
                   className={styles.chartCardNote}
-                  title="A location you've only trained this lift at once or twice uses different equipment, so its weights aren't comparable — they're left off the chart rather than plotted as a dip."
+                  title="A location you've only trained this lift at once or twice uses different equipment, so its weights aren't comparable. Those sessions are shown in amber and left out of the trend line."
                 >
-                  one-off location{skippedNames.length === 1 ? '' : 's'} not charted: {skippedNames.join(', ')}
+                  <span style={{ display: 'inline-block', width: 9, height: 9, background: '#fde68a', border: '1.5px solid #d97706', borderRadius: 2, marginRight: 4, verticalAlign: '-1px' }} />
+                  {awayNames.join(', ')} · different location, not in the trend
                 </div>
               )}
               <div className={styles.chartCardChart}>
@@ -6142,6 +6156,10 @@ export function WorkoutPage({ onBack, user }) {
                     style={{ cursor: 'pointer' }}
                   >
                     <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" vertical={false} />
+                    {/* Amber column behind each away session. */}
+                    {data.map((d, i) => d.offsite ? (
+                      <ReferenceLine key={`away-${i}`} yAxisId="left" x={d.date} stroke="#fde68a" strokeWidth={14} strokeOpacity={0.8} />
+                    ) : null)}
                     <XAxis
                       dataKey="date"
                       tick={{ fontSize: 11, fill: '#6b7280' }}
@@ -6165,11 +6183,12 @@ export function WorkoutPage({ onBack, user }) {
                           <div style={{ fontWeight: 700, marginBottom: 2 }}>{formatDate(label)}</div>
                           <div style={{ color: '#dc2626' }}>{leftMeta.label}{leftMeta.isWeight ? ` (${weightUnit})` : ''}: {leftMeta.isWeight ? lbToUnitNum(d[leftMeta.field], weightUnit) : d[leftMeta.field]}</div>
                           <div style={{ color: '#3B6B9C' }}>{rightMeta.label}{rightMeta.isWeight ? ` (${weightUnit})` : ''}: {rightMeta.isWeight ? lbToUnitNum(d[rightMeta.field], weightUnit) : d[rightMeta.field]}</div>
+                          {d.offsite && <div style={{ color: '#b45309', fontWeight: 600, marginTop: 2 }}>At {d.offsite}, not in the trend</div>}
                         </div>
                       );
                     }} />
-                    <Area yAxisId="left" type="stepAfter" dataKey={leftMeta.field} stroke="#dc2626" strokeWidth={2} fill="#fca5a5" fillOpacity={0.45} dot={false} activeDot={{ r: 4 }} isAnimationActive={false} />
-                    <Area yAxisId="right" type="stepAfter" dataKey={rightMeta.field} stroke="#3B6B9C" strokeWidth={2} fill="#bfdbfe" fillOpacity={0.45} dot={false} activeDot={{ r: 4 }} isAnimationActive={false} />
+                    <Area yAxisId="left" type="stepAfter" dataKey={leftMeta.field} stroke="#dc2626" strokeWidth={2} fill="#fca5a5" fillOpacity={0.45} dot={awayDot} activeDot={{ r: 4 }} isAnimationActive={false} />
+                    <Area yAxisId="right" type="stepAfter" dataKey={rightMeta.field} stroke="#3B6B9C" strokeWidth={2} fill="#bfdbfe" fillOpacity={0.45} dot={awayDot} activeDot={{ r: 4 }} isAnimationActive={false} />
                     <Line yAxisId="right" type="linear" dataKey="trend" stroke="#3B6B9C" strokeWidth={1.25} strokeOpacity={0.6} strokeDasharray="4 3" dot={false} activeDot={false} legendType="none" isAnimationActive={false} />
                   </ComposedChart>
                 </ResponsiveContainer>
@@ -6205,13 +6224,16 @@ export function WorkoutPage({ onBack, user }) {
             const history = exerciseHistoryByName[ex.trim().toLowerCase()] || [];
             // Per exercise, for the same reason the single-lift chart does it:
             // a one-off location is judged against that lift's own history, so
-            // rolling a group up can't launder a hotel session back in.
-            for (const h of withoutOneOffLocations(history)) {
+            // rolling a group up can't launder a hotel session into looking normal.
+            const offsiteOf = offsiteMarker(history);
+            for (const h of history) {
               const d = h.date;
               if (!byDate[d]) {
-                byDate[d] = { totalReps: 0, totalWeight: 0, maxReps: 0, maxWeight: 0, avgRepsSum: 0, avgRepsCount: 0 };
+                byDate[d] = { totalReps: 0, totalWeight: 0, maxReps: 0, maxWeight: 0, avgRepsSum: 0, avgRepsCount: 0, away: '', home: false };
               }
               const b = byDate[d];
+              const away = offsiteOf(h.gym);
+              if (away) { if (!b.away) b.away = away; } else b.home = true;
               const ar = Number(h.avgReps) || 0;
               b.totalReps += Number(h.totalReps) || 0;
               b.totalWeight += Number(h.totalWeight) || 0;
@@ -6231,6 +6253,8 @@ export function WorkoutPage({ onBack, user }) {
                 maxReps: b.maxReps,
                 totalWeight: b.totalWeight,
                 maxWeight: b.maxWeight,
+                // Only a day that was ENTIRELY somewhere else is marked.
+                offsite: !b.home && b.away ? b.away : undefined,
               };
             });
         }
