@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {
   guideTerms, ingredientMatchesTerms, indexRecipesByGuide,
   rankIngredientsForGuide, bestIngredientForGuide, CONFIDENT_MATCH_SCORE,
-  airFryerForIngredient, airFryerStepText,
+  airFryerForIngredient, airFryerStepText, mergeAirFryerGuide,
 } from './airFryerRecipes.js';
 import GUIDE from '../data/airFryerGuide.js';
 
@@ -286,4 +286,43 @@ test('falls back to the row name when no ingredient name is given', () => {
 
 test('writes nothing for no row', () => {
   assert.equal(airFryerStepText(null, 'chicken'), '');
+});
+
+// ── The mid-cook stop ────────────────────────────────────────────────────────
+//
+// The row renders `stop` as a real column, so "every row has one" is an
+// invariant of the data, not a hope. A blank would read as "nothing to do" on a
+// page whose standing rule is that you flip at halfway unless told otherwise.
+
+test('every built-in row says when to open the basket', () => {
+  const silent = GUIDE.filter(r => !String(r.stop || '').trim());
+  assert.deepEqual(silent.map(r => r.name), []);
+});
+
+test('a stop stays short enough to read at arm\'s length', () => {
+  const tooLong = GUIDE.filter(r => r.stop.length > 18).map(r => `${r.name}: ${r.stop}`);
+  assert.deepEqual(tooLong, []);
+});
+
+test('an override saved before `stop` existed keeps the built-in one', () => {
+  const builtIn = [{ name: 'Chicken wings', tempF: 400, min: 20, max: 24, stop: 'Shake every 8 min' }];
+  // No `stop` key at all — the shape every edit written before this field.
+  const mine = [{ name: 'Chicken wings', tempF: 390, min: 24, max: 28 }];
+  const [row] = mergeAirFryerGuide(builtIn, mine, []);
+  assert.equal(row.stop, 'Shake every 8 min');
+  assert.equal(row.tempF, 390, 'the edit itself still wins');
+  assert.equal(row.source, 'edited');
+});
+
+test('clearing the stop on purpose is not undone by the built-in', () => {
+  const builtIn = [{ name: 'Chicken wings', tempF: 400, min: 20, max: 24, stop: 'Shake every 8 min' }];
+  const mine = [{ name: 'Chicken wings', tempF: 400, min: 20, max: 24, stop: '' }];
+  const [row] = mergeAirFryerGuide(builtIn, mine, []);
+  assert.equal(row.stop, '');
+});
+
+test('a row of your own carries its own stop, with nothing to fall back to', () => {
+  const [row] = mergeAirFryerGuide([], [{ name: 'Halloumi', tempF: 390, min: 8, max: 10, stop: 'Flip halfway' }], []);
+  assert.equal(row.stop, 'Flip halfway');
+  assert.equal(row.source, 'mine');
 });
