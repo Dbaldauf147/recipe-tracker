@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {
   guideTerms, ingredientMatchesTerms, indexRecipesByGuide,
   rankIngredientsForGuide, bestIngredientForGuide, CONFIDENT_MATCH_SCORE,
-  airFryerForIngredient, airFryerStepText, mergeAirFryerGuide,
+  airFryerForIngredient, airFryerStepText, mergeAirFryerGuide, cookLegs,
 } from './airFryerRecipes.js';
 import GUIDE from '../data/airFryerGuide.js';
 
@@ -325,4 +325,73 @@ test('a row of your own carries its own stop, with nothing to fall back to', () 
   const [row] = mergeAirFryerGuide([], [{ name: 'Halloumi', tempF: 390, min: 8, max: 10, stop: 'Flip halfway' }], []);
   assert.equal(row.stop, 'Flip halfway');
   assert.equal(row.source, 'mine');
+});
+
+// ── The cook as legs: time, action, time ─────────────────────────────────────
+//
+// Derived from `stop`, never stored, so a time edited on the page can't leave a
+// stale first leg behind. Every phrase the guide's closed vocabulary uses has a
+// case here, because an unmatched one falls through to "halve it" silently.
+
+test('halfway splits down the middle', () => {
+  assert.deepEqual(cookLegs({ min: 18, max: 22, stop: 'Flip halfway' }),
+    { first: '9–11 min', action: 'Flip', second: '9–11 min' });
+});
+
+test('an odd range halves per end rather than faking precision', () => {
+  assert.deepEqual(cookLegs({ min: 7, max: 9, stop: 'Shake halfway' }),
+    { first: '4–5 min', action: 'Shake', second: '3–4 min' });
+});
+
+test('once is a single stop in the middle, same as halfway', () => {
+  assert.deepEqual(cookLegs({ min: 8, max: 10, stop: 'Shake once' }),
+    { first: '4–5 min', action: 'Shake', second: '4–5 min' });
+});
+
+test('twice puts the first stop at a third, and says so', () => {
+  assert.deepEqual(cookLegs({ min: 12, max: 15, stop: 'Shake twice' }),
+    { first: '4–5 min', action: 'Shake ×2', second: '8–10 min' });
+});
+
+test('every N minutes starts at N and keeps the repeat in the action', () => {
+  assert.deepEqual(cookLegs({ min: 20, max: 24, stop: 'Shake every 8 min' }),
+    { first: '8 min', action: 'Shake every 8 min', second: '12–16 min' });
+});
+
+test('a stop the row names outright is taken at its word', () => {
+  assert.deepEqual(cookLegs({ min: 50, max: 60, stop: 'Flip at 30 min' }),
+    { first: '30 min', action: 'Flip', second: '20–30 min' });
+});
+
+test('no flip is one unbroken leg and no second', () => {
+  assert.deepEqual(cookLegs({ min: 8, max: 11, stop: 'No flip' }),
+    { first: '8–11 min', action: 'No flip', second: '' });
+});
+
+test('a missing stop reads as no flip rather than half a cook', () => {
+  assert.deepEqual(cookLegs({ min: 6, max: 8 }),
+    { first: '6–8 min', action: 'No flip', second: '' });
+});
+
+test('a single time collapses instead of showing a fake range', () => {
+  assert.deepEqual(cookLegs({ min: 10, max: 10, stop: 'Flip halfway' }),
+    { first: '5 min', action: 'Flip', second: '5 min' });
+});
+
+test('every built-in row splits into legs that add back up to its time', () => {
+  const bad = [];
+  for (const row of GUIDE) {
+    const { first, second } = cookLegs(row);
+    if (!first) { bad.push(`${row.name}: no first leg`); continue; }
+    // An "every N" row repeats, so its two legs deliberately don't cover the
+    // whole cook; every other shape must add up to the row's own range.
+    if (/every/i.test(row.stop) || !second) continue;
+    const ends = s => s.replace(' min', '').split('–').map(Number);
+    const [f1, f2 = f1] = ends(first);
+    const [s1, s2 = s1] = ends(second);
+    if (f1 + s1 !== row.min || f2 + s2 !== row.max) {
+      bad.push(`${row.name}: ${first} + ${second} != ${row.min}–${row.max}`);
+    }
+  }
+  assert.deepEqual(bad, []);
 });
