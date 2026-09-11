@@ -332,6 +332,11 @@ export function mergeAirFryerGuide(builtIn = [], mine = [], hidden = []) {
       ...row,
       source: byKey.has(k) ? 'edited' : 'mine',
       cat: row.cat || byKey.get(k)?.cat || 'Vegetables',
+      // Only when the override doesn't have the key at all — which means it was
+      // saved before `stop` existed, not that someone cleared it. An edit made
+      // since then always writes the field, so an intentional '' survives and
+      // an old override of the time doesn't blank out the flip instruction.
+      stop: row.stop === undefined ? byKey.get(k)?.stop : row.stop,
     });
   }
   const hiddenSet = new Set((hidden || []).map(key));

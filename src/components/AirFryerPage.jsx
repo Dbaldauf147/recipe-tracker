@@ -46,7 +46,7 @@ const HIDDEN_CACHE = 'sunday-air-fryer-hidden';
 const SPICES_FIELD = 'airFryerSpices';
 const SPICES_CACHE = 'sunday-air-fryer-spices';
 
-const BLANK = { name: '', cat: 'Vegetables', tempF: '', min: '', max: '', doneF: '', note: '' };
+const BLANK = { name: '', cat: 'Vegetables', tempF: '', min: '', max: '', doneF: '', stop: '', note: '' };
 
 function readCache() {
   try {
@@ -440,6 +440,9 @@ export function AirFryerPage({ onClose, user, recipes = [], weeklyRecipeIds = []
     if (!q) return true;
     if (r.name.toLowerCase().includes(q)) return true;
     if ((r.note || '').toLowerCase().includes(q)) return true;
+    // So "no flip" and "shake" find the rows that say so, now that the answer
+    // is its own field rather than a phrase somewhere in the note.
+    if ((r.stop || '').toLowerCase().includes(q)) return true;
     return (links[airFryerKey(r.name)] || '').toLowerCase().includes(q);
   }, [links]);
 
@@ -474,7 +477,7 @@ export function AirFryerPage({ onClose, user, recipes = [], weeklyRecipeIds = []
 
   const startEdit = useCallback((row) => {
     setEditing(row
-      ? { ...BLANK, ...row, tempF: row.tempF ?? '', min: row.min ?? '', max: row.max ?? '', doneF: row.doneF ?? '', original: row.name }
+      ? { ...BLANK, ...row, tempF: row.tempF ?? '', min: row.min ?? '', max: row.max ?? '', doneF: row.doneF ?? '', stop: row.stop ?? '', original: row.name }
       : { ...BLANK });
   }, []);
 
@@ -487,6 +490,7 @@ export function AirFryerPage({ onClose, user, recipes = [], weeklyRecipeIds = []
       tempF: Number(editing.tempF) || 0,
       min: Number(editing.min) || 0,
       max: Number(editing.max) || 0,
+      stop: editing.stop.trim(),
       note: editing.note.trim(),
     };
     // Absent, not zero: a 0 here would render as a real "0°F" reading.
@@ -534,7 +538,7 @@ export function AirFryerPage({ onClose, user, recipes = [], weeklyRecipeIds = []
     <div className={styles.tableHead}>
       <span className={styles.headName}>Ingredient</span>
       <span className={styles.headSpice}>Spices</span>
-      <span className={styles.headNums}>Temp · time</span>
+      <span className={styles.headNums}>Temp · stop · time</span>
       <span className={styles.headKill} aria-hidden="true" />
     </div>
   );
@@ -613,6 +617,13 @@ export function AirFryerPage({ onClose, user, recipes = [], weeklyRecipeIds = []
           title={`Edit the temp and time for ${mapped || row.name}`}
         >
           <span className={styles.temp}>{row.tempF}°F</span>
+          {/* The middle of the cook, in the middle of the column: when to open
+              the basket. It reads between the two numbers because that's where
+              it happens — hot at one end, done at the other, this in between.
+              Every row has one, and "No flip" is a real answer: blank here
+              would read as "nothing to do" against the standing rule at the
+              top of the page that you flip at halfway unless told otherwise. */}
+          <span className={styles.stop}>{row.stop || '—'}</span>
           <span className={styles.time}>{formatTime(row)}</span>
         </button>
         {/* Its own column, outside the row button — removing something you can
@@ -878,6 +889,17 @@ export function AirFryerPage({ onClose, user, recipes = [], weeklyRecipeIds = []
               onChange={e => setEditing({ ...editing, doneF: e.target.value })} placeholder="—" />
           </div>
         </div>
+
+        {/* Short on purpose — it has to read at a glance from across the
+            kitchen, in a column sized for about "Shake every 8 min". */}
+        <label className={styles.label}>Stop to flip / shake</label>
+        <input
+          className={styles.input}
+          value={editing.stop}
+          onChange={e => setEditing({ ...editing, stop: e.target.value })}
+          placeholder="Flip halfway"
+          maxLength={18}
+        />
 
         <label className={styles.label}>Note</label>
         <textarea

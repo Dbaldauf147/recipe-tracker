@@ -297,8 +297,9 @@
    heading once it's no longer inside .rowMain. */
 .rowNumsBtn {
   flex: 0 0 auto;
-  width: 9.2rem;
+  width: 16rem;
   display: flex;
+  flex-wrap: wrap;
   align-items: baseline;
   justify-content: flex-end;
   gap: 0.6rem;
@@ -317,6 +318,20 @@
   font-size: 1.05rem;
   font-weight: 800;
   color: var(--color-accent);
+}
+/* Between the two numbers, because that's where it happens in the cook. Quieter
+   than either — it's an interruption, not the answer — but not muted to the
+   point of decoration: this is the line that decides whether the time works. */
+.stop {
+  flex: 0 0 auto;
+  width: 6.6rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--color-text-secondary);
+  text-align: right;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .time {
   font-size: 0.9rem;
@@ -635,6 +650,13 @@
      the full list still in the title and the row detail. */
   .rowSpice, .rowSpiceEmpty { width: 4.5rem; font-size: 0.7rem; }
   .headSpice { width: 4.5rem; }
-  .headNums, .rowNumsBtn { width: 7.5rem; }
+  .headNums, .rowNumsBtn { width: 8.5rem; }
   .time { min-width: 3.9rem; }
+  /* Three across doesn't fit a phone, so the stop drops onto its own line
+     underneath the numbers rather than squeezing them. `order` is what puts it
+     there: full width alone would push the TIME down to a third line, since it
+     comes after the stop in the markup. Temp and time stay on one line, which
+     is what the column is for. */
+  .rowNumsBtn { row-gap: 0.15rem; }
+  .stop { order: 1; width: 100%; font-size: 0.72rem; }
 }
