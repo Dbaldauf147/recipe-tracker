@@ -703,6 +703,32 @@ export function withoutOneOffLocations(history) {
   if (oneOffs.size === 0) return history || [];
   return (history || []).filter(e => !oneOffs.has(String(e?.gym || '').trim().toLowerCase()));
 }
+
+/**
+ * For CHARTS: which sessions to draw as "somewhere else".
+ *
+ * The trend drops these sessions; a chart doesn't. It plots them in their own
+ * colour, so the dip is still on the record, visibly different, instead of
+ * vanishing and leaving you wondering whether the day was logged at all.
+ *
+ * `history` is one exercise's sessions ({ date, gym }). Marks that lift's
+ * one-off locations, plus — when `homeGym` is given (the Progress page with its
+ * "<gym> only" switch on) — any other named gym, so a Progress chart's marks
+ * are exactly the sessions its verdict left out.
+ *
+ * Returns gym → the trimmed location name to label it with, or null.
+ * ⚠️ MIRRORS offsiteMarker in the mobile app's src/utils/exerciseProgress.ts.
+ */
+export function offsiteMarker(history, homeGym = null) {
+  const oneOffs = oneOffLocations(history);
+  return (gym) => {
+    const g = String(gym || '').trim();
+    if (!g) return null; // no location recorded is never "somewhere else"
+    if (oneOffs.has(g.toLowerCase())) return g;
+    if (homeGym && !countsForHomeGym({ gym: g }, homeGym)) return g;
+    return null;
+  };
+}
 /**
  * workouts:    array of { date, entries:[{ exercise, group, sets, weight, ... }] }
  * groupByName: optional Map(lowercased exercise name → muscle group) for labels.

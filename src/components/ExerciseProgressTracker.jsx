@@ -721,7 +721,14 @@ export default function ExerciseProgressTracker({ workouts = [], weightUnit = 'l
               <h3 className={styles.modalTitle}>{chartExercise}</h3>
               <button className={styles.modalClose} onClick={() => setChartExercise(null)} aria-label="Close chart">×</button>
             </div>
-            <ExerciseChart workouts={workouts} exercise={chartExercise} weightUnit={weightUnit} />
+            <ExerciseChart
+              workouts={workouts}
+              exercise={chartExercise}
+              weightUnit={weightUnit}
+              // With "<gym> only" on, the verdict left other gyms out — mark
+              // them on the chart so what's amber is what wasn't counted.
+              homeGym={homeGymOnly ? homeGym?.gym : null}
+            />
           </div>
         </div>
       )}
