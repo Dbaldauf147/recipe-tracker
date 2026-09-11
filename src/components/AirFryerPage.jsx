@@ -3,7 +3,7 @@ import GUIDE, {
   AIR_FRYER_CATEGORIES, AIR_FRYER_RULES, airFryerKey, toCelsius,
 } from '../data/airFryerGuide.js';
 import { loadField, saveField } from '../utils/firestoreSync';
-import { indexRecipesByGuide, indexExtrasByGuide, rankIngredientsForGuide, bestIngredientForGuide, mergeAirFryerGuide } from '../utils/airFryerRecipes';
+import { indexRecipesByGuide, indexExtrasByGuide, rankIngredientsForGuide, bestIngredientForGuide, mergeAirFryerGuide, cookLegs } from '../utils/airFryerRecipes';
 import { findTopSince, buildIngredientEatenMap } from '../utils/pantryAutoAdd';
 import { loadIngredients, ingredientRowByName } from '../utils/ingredientsStore';
 import { ingredientMatchScore } from '../utils/ingredientMatch';
@@ -538,7 +538,7 @@ export function AirFryerPage({ onClose, user, recipes = [], weeklyRecipeIds = []
     <div className={styles.tableHead}>
       <span className={styles.headName}>Ingredient</span>
       <span className={styles.headSpice}>Spices</span>
-      <span className={styles.headNums}>Temp · stop · time</span>
+      <span className={styles.headNums}>Temp · time · action · time</span>
       <span className={styles.headKill} aria-hidden="true" />
     </div>
   );
@@ -554,6 +554,7 @@ export function AirFryerPage({ onClose, user, recipes = [], weeklyRecipeIds = []
     const mapped = links[key];
     const rowSpices = spices[key] || [];
     const ownRow = row.source === 'mine';
+    const legs = cookLegs(row);
     return (
       <li key={key} className={`${styles.row} ${isHidden ? styles.rowHidden : ''}`}>
         <div className={styles.rowTop}>
@@ -617,14 +618,21 @@ export function AirFryerPage({ onClose, user, recipes = [], weeklyRecipeIds = []
           title={`Edit the temp and time for ${mapped || row.name}`}
         >
           <span className={styles.temp}>{row.tempF}°F</span>
-          {/* The middle of the cook, in the middle of the column: when to open
-              the basket. It reads between the two numbers because that's where
-              it happens — hot at one end, done at the other, this in between.
-              Every row has one, and "No flip" is a real answer: blank here
-              would read as "nothing to do" against the standing rule at the
-              top of the page that you flip at halfway unless told otherwise. */}
-          <span className={styles.stop}>{row.stop || '—'}</span>
-          <span className={styles.time}>{formatTime(row)}</span>
+          {/* The cook read left to right the way you do it: ten minutes, flip,
+              another fifteen. The action sits between its two stretches of
+              time because that's where it happens, and "No flip" is a real
+              answer — a row that wants to be left alone shows one unbroken
+              leg and a dash, rather than a blank that reads as "nothing to
+              do" against the standing rule at the top of the page.
+
+              `legs` is display:contents on desktop, so these three are direct
+              children of the flex row and line up as real columns; on a phone
+              it becomes a flex line of its own. */}
+          <span className={styles.legs}>
+            <span className={styles.legTime}>{legs.first || '—'}</span>
+            <span className={styles.legAction}>{legs.action}</span>
+            <span className={styles.legTime}>{legs.second || '—'}</span>
+          </span>
         </button>
         {/* Its own column, outside the row button — removing something you can
             see shouldn't cost you a tap into the detail first. (It also can't
@@ -643,6 +651,10 @@ export function AirFryerPage({ onClose, user, recipes = [], weeklyRecipeIds = []
           <div className={styles.detail}>
             <div className={styles.detailMeta}>
               <span>{toCelsius(row.tempF)}°C</span>
+              {/* The row itself now shows the cook in legs, so the total only
+                  lives here — it's what you set a timer for when you'd rather
+                  not do the addition with your hands full. */}
+              <span>{formatTime(row)} total</span>
               {!!row.doneF && <span className={styles.doneTemp}>Done at {row.doneF}°F internal</span>}
               <span className={styles.detailCat}>{row.cat}</span>
             </div>

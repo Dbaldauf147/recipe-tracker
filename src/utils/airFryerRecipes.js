@@ -289,6 +289,91 @@ function betterAirFryerMatch(a, b) {
   return String(a.row.name).localeCompare(String(b.row.name), undefined, { sensitivity: 'base' }) < 0;
 }
 
+/** "9–11 min", "30 min", or '' for nothing. */
+function legTime(lo, hi) {
+  const a = Math.max(0, Math.round(lo));
+  const b = Math.max(0, Math.round(hi));
+  if (!a && !b) return '';
+  if (!b || a === b) return `${a} min`;
+  return `${a}–${b} min`;
+}
+
+/**
+ * The cook as a sequence: a stretch of time, the thing you stop to do, another
+ * stretch of time. Ten minutes, flip, another fifteen.
+ *
+ * The legs are DERIVED from `stop` rather than stored, because the row already
+ * says where the interruption falls and storing it twice is how the two drift
+ * apart — a time edited from 18–22 to 24–28 would leave a hand-written "9–11
+ * min" first leg behind, silently wrong. The vocabulary `stop` is written in is
+ * small and closed, and every phrase in it lands in one of these cases:
+ *
+ *   halfway / once      split down the middle — the common case
+ *   twice               two stops, so the first leg is a third
+ *   every N min         the first stop is N in; the action says it repeats
+ *   at N min            the row names the moment outright
+ *   No flip             nothing to do, so there's one leg and no second
+ *
+ * Rounding is per-end, so 7–9 minutes halves into 4–5 then 3–4 rather than
+ * pretending to a precision the range never had.
+ *
+ * Returns { first, action, second }; `second` is '' when nothing interrupts.
+ */
+export function cookLegs(row) {
+  const min = Number(row?.min) || 0;
+  const max = Number(row?.max) || min;
+  const stop = String(row?.stop || '').trim();
+  const whole = legTime(min, max);
+  const verb = (stop.match(/^(flip|shake|turn)/i) || [])[1] || '';
+  const cap = verb ? verb[0].toUpperCase() + verb.slice(1).toLowerCase() : '';
+
+  // Nothing to do: the whole cook is one leg, and saying so is the point.
+  if (!stop || /^no\b/i.test(stop)) {
+    return { first: whole, action: stop || 'No flip', second: '' };
+  }
+
+  const every = stop.match(/every\s+(\d+)\s*min/i);
+  if (every) {
+    const n = Number(every[1]);
+    return {
+      first: legTime(n, n),
+      action: `${cap} every ${n} min`,
+      second: legTime(Math.max(min - n, 0), Math.max(max - n, 0)),
+    };
+  }
+
+  const at = stop.match(/\bat\s+(\d+)\s*min/i);
+  if (at) {
+    const n = Number(at[1]);
+    return {
+      first: legTime(n, n),
+      action: cap || stop,
+      second: legTime(Math.max(min - n, 0), Math.max(max - n, 0)),
+    };
+  }
+
+  // Two stops fall on the thirds, so the first leg is a third and the second
+  // covers the rest — the middle stop lives in the action's "×2", because a
+  // third column can't hold a third leg.
+  if (/twice|×\s*2|x2/i.test(stop)) {
+    const a = min / 3;
+    const b = max / 3;
+    return {
+      first: legTime(a, b),
+      action: `${cap || stop} ×2`,
+      second: legTime(min - Math.round(a), max - Math.round(b)),
+    };
+  }
+
+  const a = min / 2;
+  const b = max / 2;
+  return {
+    first: legTime(a, b),
+    action: cap || stop,
+    second: legTime(min - Math.round(a), max - Math.round(b)),
+  };
+}
+
 /**
  * One guide row written as a recipe step.
  *
