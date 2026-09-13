@@ -3,17 +3,16 @@
 // series from raw logged sets so it doesn't depend on entry enrichment.
 // Used by the Progress page's click-to-view popup.
 //
-// Sessions somewhere else (see offsiteMarker) are drawn in amber and left out
+// Sessions somewhere else (see offsiteMarker) are drawn as grey dots and left out
 // of the trend line: on the record, visibly different, not counted.
 import React, { useMemo } from 'react';
-import { ComposedChart, Area, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, ReferenceLine } from 'recharts';
+import { ComposedChart, Area, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
 import { parseSetValue } from '../utils/setValue';
 import { displayWeight, offsiteMarker } from '../utils/exerciseProgress';
 
 const LEFT = '#dc2626';   // reps
 const RIGHT = '#3B6B9C';  // weight
-const AWAY = '#d97706';   // a session somewhere else
-const AWAY_BAND = '#fde68a';
+const AWAY = '#9ca3af';   // a session somewhere else
 
 // Total lb moved for set `i` of an entry (per-set weight if present, ×2 per-arm).
 function setWeightLb(entry, i) {
@@ -30,7 +29,7 @@ function setWeightLb(entry, i) {
 
 // One point per session date: average reps + heaviest set (in the display unit).
 // `homeGym` (the Progress page's "<gym> only" switch) also marks sessions at any
-// other gym, so the amber points are exactly the ones its verdict left out.
+// other gym, so the grey points are exactly the ones its verdict left out.
 function buildSeries(workouts, exercise, unit, homeGym) {
   const key = (exercise || '').trim().toLowerCase();
   // Where this lift was done over its WHOLE history: a one-off is judged
@@ -102,11 +101,11 @@ function withTrend(data) {
   return data.map((d, i) => ({ ...d, trend: Math.round((intercept + slope * i) * 10) / 10 }));
 }
 
-// Ringed amber marker on an away session; nothing on a normal one.
+// Grey dot, normal size, on an away session; nothing on a normal one.
 function awayDot(p) {
   const k = `${p.dataKey}-${p.index}`;
   if (!p.payload?.offsite || p.cx == null || p.cy == null) return <g key={k} />;
-  return <circle key={k} cx={p.cx} cy={p.cy} r={4.5} fill="#fff" stroke={AWAY} strokeWidth={2} />;
+  return <circle key={k} cx={p.cx} cy={p.cy} r={3} fill={AWAY} stroke="none" />;
 }
 
 function fmtDate(d) {
@@ -140,10 +139,6 @@ export default function ExerciseChart({ workouts = [], exercise, weightUnit = 'l
         <ResponsiveContainer width="100%" height="100%">
           <ComposedChart data={dataT} margin={{ top: 12, right: 40, left: 4, bottom: 8 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" vertical={false} />
-            {/* Amber column behind each away session. */}
-            {data.map((d, i) => d.offsite ? (
-              <ReferenceLine key={`away-${i}`} yAxisId="left" x={d.date} stroke={AWAY_BAND} strokeWidth={14} strokeOpacity={0.8} />
-            ) : null)}
             <XAxis
               dataKey="date"
               tick={{ fontSize: 11, fill: '#6b7280' }}
@@ -165,7 +160,7 @@ export default function ExerciseChart({ workouts = [], exercise, weightUnit = 'l
                   <div style={{ fontWeight: 700, marginBottom: 2, color: '#111' }}>{fmtDate(label)}</div>
                   <div style={{ color: LEFT }}>Avg reps: {d.avgReps}</div>
                   <div style={{ color: RIGHT }}>Top weight: {d.weight} {weightUnit}</div>
-                  {d.offsite && <div style={{ color: '#b45309', fontWeight: 600, marginTop: 2 }}>At {d.offsite}, not in the trend</div>}
+                  {d.offsite && <div style={{ color: '#6b7280', fontWeight: 600, marginTop: 2 }}>At {d.offsite}, not in the trend</div>}
                 </div>
               );
             }} />
@@ -180,8 +175,8 @@ export default function ExerciseChart({ workouts = [], exercise, weightUnit = 'l
         <span style={{ color: LEFT }}>● Avg reps</span>
         <span style={{ color: RIGHT }}>● Weight ({weightUnit})</span>
         {awayNames.length > 0 && (
-          <span style={{ color: '#b45309' }} title="Sessions at a different location use different equipment, so they're shown but left out of the trend.">
-            <span style={{ display: 'inline-block', width: 9, height: 9, background: AWAY_BAND, border: `1.5px solid ${AWAY}`, borderRadius: 2, marginRight: 4, verticalAlign: '-1px' }} />
+          <span style={{ color: '#6b7280' }} title="Sessions at a different location use different equipment, so they're shown but left out of the trend.">
+            <span style={{ display: 'inline-block', width: 6, height: 6, background: AWAY, borderRadius: '50%', marginRight: 4, verticalAlign: '-1px' }} />
             {awayNames.join(', ')} · not in the trend
           </span>
         )}

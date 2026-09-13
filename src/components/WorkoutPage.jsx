@@ -4922,7 +4922,7 @@ export function WorkoutPage({ onBack, user }) {
     const history = exerciseHistoryByName[exerciseName.trim().toLowerCase()] || [];
     // One afternoon on a hotel cable stack isn't a dip in your strength, it's a
     // different machine. So a location this lift has only seen once or twice
-    // is plotted in amber and kept out of the trend line: the session stays
+    // is plotted as a grey dot and kept out of the trend line: the session stays
     // visibly on the record without dragging the line down. Same rule the
     // Progress tab applies to its verdict.
     const offsiteOf = offsiteMarker(history);
@@ -4965,12 +4965,12 @@ export function WorkoutPage({ onBack, user }) {
     return data.map((d, i) => ({ ...d, trend: intercept + slope * i }));
   }
 
-  // Ringed amber marker on an away session; nothing on a normal one (the
+  // Grey dot, normal size, on an away session; nothing on a normal one (the
   // areas already draw the line).
   function awayDot(p) {
     const k = `${p.dataKey}-${p.index}`;
     if (!p.payload?.offsite || p.cx == null || p.cy == null) return <g key={k} />;
-    return <circle key={k} cx={p.cx} cy={p.cy} r={4.5} fill="#fff" stroke="#d97706" strokeWidth={2} />;
+    return <circle key={k} cx={p.cx} cy={p.cy} r={3} fill="#9ca3af" stroke="none" />;
   }
 
   // On each page load, default the chart slots to the most-recently-logged
@@ -6129,7 +6129,7 @@ export function WorkoutPage({ onBack, user }) {
                 return ticks;
               })()
             : undefined;
-          // Name the places behind the amber days, so a marked session explains
+          // Name the places behind the grey dots, so a marked session explains
           // itself rather than looking like a rendering glitch.
           const awayNames = [...new Set(data.filter(d => d.offsite).map(d => d.offsite))];
           return (
@@ -6138,9 +6138,9 @@ export function WorkoutPage({ onBack, user }) {
               {awayNames.length > 0 && (
                 <div
                   className={styles.chartCardNote}
-                  title="A location you've only trained this lift at once or twice uses different equipment, so its weights aren't comparable. Those sessions are shown in amber and left out of the trend line."
+                  title="A location you've only trained this lift at once or twice uses different equipment, so its weights aren't comparable. Those sessions are shown as grey dots and left out of the trend line."
                 >
-                  <span style={{ display: 'inline-block', width: 9, height: 9, background: '#fde68a', border: '1.5px solid #d97706', borderRadius: 2, marginRight: 4, verticalAlign: '-1px' }} />
+                  <span style={{ display: 'inline-block', width: 6, height: 6, background: '#9ca3af', borderRadius: '50%', marginRight: 4, verticalAlign: '-1px' }} />
                   {awayNames.join(', ')} · different location, not in the trend
                 </div>
               )}
@@ -6156,10 +6156,6 @@ export function WorkoutPage({ onBack, user }) {
                     style={{ cursor: 'pointer' }}
                   >
                     <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" vertical={false} />
-                    {/* Amber column behind each away session. */}
-                    {data.map((d, i) => d.offsite ? (
-                      <ReferenceLine key={`away-${i}`} yAxisId="left" x={d.date} stroke="#fde68a" strokeWidth={14} strokeOpacity={0.8} />
-                    ) : null)}
                     <XAxis
                       dataKey="date"
                       tick={{ fontSize: 11, fill: '#6b7280' }}
@@ -6183,7 +6179,7 @@ export function WorkoutPage({ onBack, user }) {
                           <div style={{ fontWeight: 700, marginBottom: 2 }}>{formatDate(label)}</div>
                           <div style={{ color: '#dc2626' }}>{leftMeta.label}{leftMeta.isWeight ? ` (${weightUnit})` : ''}: {leftMeta.isWeight ? lbToUnitNum(d[leftMeta.field], weightUnit) : d[leftMeta.field]}</div>
                           <div style={{ color: '#3B6B9C' }}>{rightMeta.label}{rightMeta.isWeight ? ` (${weightUnit})` : ''}: {rightMeta.isWeight ? lbToUnitNum(d[rightMeta.field], weightUnit) : d[rightMeta.field]}</div>
-                          {d.offsite && <div style={{ color: '#b45309', fontWeight: 600, marginTop: 2 }}>At {d.offsite}, not in the trend</div>}
+                          {d.offsite && <div style={{ color: '#6b7280', fontWeight: 600, marginTop: 2 }}>At {d.offsite}, not in the trend</div>}
                         </div>
                       );
                     }} />
