@@ -184,6 +184,39 @@ export function indexRecipesByGuide(guideRows, recipes = [], weekIds = new Set()
 }
 
 /**
+ * What was on your shopping lists over the last `days` days, from planHistory.
+ *
+ * planHistory is the shopping-list archive: "Reset Shopping List" appends
+ * { date, recipeIds, extras? } before clearing the list. `extras` (the
+ * hand-added items) only exists on entries saved after it was added, so older
+ * entries contribute their recipes alone.
+ *
+ * `today` is a local 'YYYY-MM-DD'. The window includes today, so days = 14 goes
+ * back to 13 days ago. Returns { recipeIds: string[], extras: string[] },
+ * de-duplicated.
+ */
+export function recentShoppingLists(history = [], today, days = 14) {
+  const [y, m, d] = String(today || '').split('-').map(Number);
+  if (!y || !m || !d) return { recipeIds: [], extras: [] };
+  const start = new Date(y, m - 1, d - (days - 1));
+  const pad = n => String(n).padStart(2, '0');
+  const cutoff = `${start.getFullYear()}-${pad(start.getMonth() + 1)}-${pad(start.getDate())}`;
+
+  const recipeIds = new Set();
+  const extras = new Map();
+  for (const entry of Array.isArray(history) ? history : []) {
+    const date = String(entry?.date || '');
+    if (!date || date < cutoff || date > today) continue;
+    for (const id of entry.recipeIds || []) if (id) recipeIds.add(id);
+    for (const name of entry.extras || []) {
+      const v = String(name || '').trim();
+      if (v && !extras.has(v.toLowerCase())) extras.set(v.toLowerCase(), v);
+    }
+  }
+  return { recipeIds: [...recipeIds], extras: [...extras.values()] };
+}
+
+/**
  * Which of the shopping list's NON-RECIPE items each guide row matches.
  *
  * The "In this week's shopping list" group was built only from recipes on the

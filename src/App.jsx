@@ -850,13 +850,18 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
     updateRecipe(id, { category: newCategory });
   }
 
-  function handleSaveToHistory() {
+  // `extras` is the shopping list's hand-added items (names), passed by the
+  // Shopping List page's reset so the archive keeps the whole list, not just
+  // its recipes. The Air fryer page reads it back for "past 2 weeks".
+  function handleSaveToHistory(extras = []) {
     if (weeklyPlan.length === 0) return;
     const entry = {
       date: todayKey(), // local, not UTC — a week saved at night is today's
       recipeIds: [...weeklyPlan],
       timestamp: new Date().toISOString(),
     };
+    const extraNames = (Array.isArray(extras) ? extras : []).map(n => String(n || '').trim()).filter(Boolean);
+    if (extraNames.length > 0) entry.extras = [...new Set(extraNames)];
     try {
       const existing = JSON.parse(localStorage.getItem('sunday-plan-history') || '[]');
       const next = [...existing, entry];

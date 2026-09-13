@@ -4,12 +4,30 @@ import {
   guideTerms, ingredientMatchesTerms, indexRecipesByGuide,
   rankIngredientsForGuide, bestIngredientForGuide, CONFIDENT_MATCH_SCORE,
   airFryerForIngredient, airFryerStepText, mergeAirFryerGuide, cookLegs,
+  recentShoppingLists,
 } from './airFryerRecipes.js';
 import GUIDE from '../data/airFryerGuide.js';
 
 // The guide is written for a human holding food; recipe ingredients are written
 // for a shopping list. Everything here is about surviving that gap without
 // inventing matches that aren't there.
+
+test('recentShoppingLists keeps the last two weeks of trips, today included', () => {
+  const history = [
+    { date: '2026-08-30', recipeIds: ['old'] },                        // 15 days back: out
+    { date: '2026-08-31', recipeIds: ['a', 'b'] },                     // 13 days back: in
+    { date: '2026-09-07', recipeIds: ['b', 'c'], extras: ['Fries', 'fries', ' Wings '] },
+    { date: '2026-09-13', recipeIds: ['d'], extras: [''] },            // today: in
+    { date: '2026-09-14', recipeIds: ['future'] },                     // not yet: out
+    { recipeIds: ['undated'] },
+  ];
+  const r = recentShoppingLists(history, '2026-09-13');
+  assert.deepEqual(r.recipeIds.sort(), ['a', 'b', 'c', 'd']);
+  assert.deepEqual(r.extras, ['Fries', 'Wings']);
+  // Crosses a month boundary by calendar, not by string arithmetic.
+  assert.deepEqual(recentShoppingLists([{ date: '2026-02-25', recipeIds: ['x'] }], '2026-03-05').recipeIds, ['x']);
+  assert.deepEqual(recentShoppingLists(history, ''), { recipeIds: [], extras: [] });
+});
 
 test('guideTerms strips qualifiers and splits alternatives', () => {
   assert.deepEqual(guideTerms('Chicken breast (boneless)'), ['chicken breast']);

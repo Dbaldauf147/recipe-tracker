@@ -651,7 +651,7 @@ export function ShoppingListPage({ weeklyRecipes, weeklyServings = {}, getRecipe
                 if (user) saveField(user.uid, 'pantryFruit', fBump.next);
               }
 
-              onSaveToHistory();
+              onSaveToHistory(extrasWithAutoAdds.map(e => e?.ingredient).filter(Boolean));
               // Send grocery staples back to their boxes
               handleClearExtras();
               // Clear checked items for both the shopping list and grocery staples

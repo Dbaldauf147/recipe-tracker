@@ -4,7 +4,7 @@
    search box that has to be scrolled past. */
 
 .container {
-  max-width: 720px;
+  max-width: 1200px;
   margin: 0 auto;
   padding-bottom: 3rem;
 }
@@ -125,6 +125,7 @@
 }
 .headName { flex: 1; min-width: 0; }
 .headSpice { flex: 0 0 auto; width: 8.5rem; text-align: right; }
+.headNotes { flex: 0 0 auto; width: 18rem; text-align: left; }
 .headNums { flex: 0 0 auto; width: 21rem; text-align: right; }
 .headKill { flex: 0 0 auto; width: 2rem; }
 
@@ -185,6 +186,67 @@
    With nothing tagged yet every row lands here, and a column of faint dashes
    reads as an empty column — as though the feature hadn't shipped. */
 .rowSpiceEmpty { color: var(--color-text-muted); opacity: 0.75; font-style: italic; }
+
+/* Notes on the low and high ends of the time range. A column like spices:
+   fixed width, truncated, full text in the title. */
+.rowNotes,
+.rowNotesEmpty {
+  flex: 0 0 auto;
+  width: 18rem;
+  font-size: 0.78rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+}
+.rowNotes { color: var(--color-text-secondary); }
+.rowNotesEmpty { color: var(--color-text-muted); opacity: 0.75; font-style: italic; }
+
+/* The note boxes in the row detail, one per end of the range. */
+.timeNotes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 1rem;
+  margin: 0.2rem 0 0.6rem;
+}
+.timeNoteRow {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex: 1 1 18rem;
+  min-width: 0;
+}
+.timeNoteLabel {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: baseline;
+  gap: 0.3rem;
+  font-size: 0.66rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+.timeNoteMin {
+  font-size: 0.85rem;
+  font-weight: 700;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--color-text);
+  font-variant-numeric: tabular-nums;
+}
+.timeNoteInput {
+  flex: 1;
+  min-width: 0;
+  padding: 0.3rem 0.45rem;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  font-family: inherit;
+  font-size: 0.8rem;
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+.timeNoteInput:focus { outline: none; border-color: var(--color-accent); }
 
 /* The spice editor in the row detail. Chips + a free-text box; see
    renderSpices for why the list isn't a fixed vocabulary. */
@@ -646,6 +708,12 @@
   cursor: pointer;
 }
 .dangerBtn:hover { background: rgba(192, 57, 43, 0.08); }
+
+/* Below this the notes column squeezes the ingredient name to nothing; the
+   notes stay one tap away in the row detail. */
+@media (max-width: 900px) {
+  .rowNotes, .rowNotesEmpty, .headNotes { display: none; }
+}
 
 @media (max-width: 520px) {
   .editGrid { grid-template-columns: repeat(2, 1fr); }
