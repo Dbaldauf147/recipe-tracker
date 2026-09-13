@@ -674,7 +674,18 @@ export function AirFryerPage({ onClose, user, recipes = [], weeklyRecipeIds = []
       <span className={styles.headName}>Ingredient</span>
       <span className={styles.headSpice}>Spices</span>
       <span className={styles.headNotes}>Time notes</span>
-      <span className={styles.headNums}>Temp · time · action · time</span>
+      {/* One heading per cell on desktop, so every grid line in the rows runs
+          up through the heading too; the phone stacks the cook under the temp
+          and gets the single combined label back. */}
+      <span className={styles.headNums}>
+        <span className={styles.headNumsLabel}>Temp · time · action · time</span>
+        <span className={styles.headNumsParts}>
+          <span className={styles.headTemp}>Temp</span>
+          <span className={styles.headLeg}>Time</span>
+          <span className={styles.headAction}>Action</span>
+          <span className={styles.headLeg}>Time</span>
+        </span>
+      </span>
       <span className={styles.headKill} aria-hidden="true" />
     </div>
   );
