@@ -1807,9 +1807,15 @@ function EditModal({ initial, onSave, onClose, onDelete, cuisineSuggestions, loc
     }
     setExtracting(true);
     try {
-      const res = await fetch(`/api/extract-restaurant?url=${encodeURIComponent(trimmed)}`);
+      // The cuisine vocabulary goes along so a guessed cuisine comes back spelled
+      // the way this user already tags spots, not as a near-duplicate.
+      const vocab = (cuisineSuggestions || []).join(',');
+      const res = await fetch(`/api/extract-restaurant?url=${encodeURIComponent(trimmed)}&cuisines=${encodeURIComponent(vocab)}`);
       const data = await res.json();
       if (data?.name && !name.trim()) setName(data.name);
+      if (Array.isArray(data?.cuisines) && data.cuisines.length > 0 && cuisines.length === 0) {
+        setCuisines(data.cuisines);
+      }
       if (data?.imageUrl && !imageUrl) setImageUrl(data.imageUrl);
       if (data?.description && !description) setDescription(data.description);
       if (data?.address && !address.trim()) setAddress(data.address);
