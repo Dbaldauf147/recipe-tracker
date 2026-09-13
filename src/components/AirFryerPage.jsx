@@ -188,7 +188,6 @@ export function AirFryerPage({ onClose, user, recipes = [], weeklyRecipeIds = []
   const [mine, setMine] = useState(readCache);
   const [query, setQuery] = useState('');
   const [cat, setCat] = useState('');
-  const [openId, setOpenId] = useState(null);
   const [editing, setEditing] = useState(null);
   const [showRules, setShowRules] = useState(false);
   const [links, setLinks] = useState(readLinksCache);
@@ -575,27 +574,69 @@ export function AirFryerPage({ onClose, user, recipes = [], weeklyRecipeIds = []
       : { ...BLANK });
   }, []);
 
-  const saveEdit = useCallback(() => {
-    const name = editing.name.trim();
-    if (!name) { alert('Give it a name.'); return; }
+  // The row the popup is showing (null while adding a new one).
+  const editingRow = useMemo(
+    () => (editing?.original ? rows.find(r => airFryerKey(r.name) === airFryerKey(editing.original)) || null : null),
+    [editing, rows],
+  );
+
+  // The draft as a stored entry, so it can be compared with the row and saved.
+  const draftEntry = useMemo(() => {
+    if (!editing) return null;
     const entry = {
-      name,
+      name: editing.name.trim(),
       cat: editing.cat,
       tempF: Number(editing.tempF) || 0,
       min: Number(editing.min) || 0,
       max: Number(editing.max) || 0,
-      stop: editing.stop.trim(),
-      note: editing.note.trim(),
+      stop: String(editing.stop || '').trim(),
+      note: String(editing.note || '').trim(),
     };
     // Absent, not zero: a 0 here would render as a real "0°F" reading.
     if (Number(editing.doneF)) entry.doneF = Number(editing.doneF);
-    const key = airFryerKey(name);
-    const oldKey = airFryerKey(editing.original || name);
+    return entry;
+  }, [editing]);
+
+  // Whether the popup's fields differ from the row. Opening a built-in to read
+  // its recipes and closing it must not save an identical copy — that would
+  // brand the row "edited" for no reason.
+  const draftDirty = useMemo(() => {
+    if (!draftEntry) return false;
+    if (!editingRow) return true;
+    const r = editingRow;
+    return draftEntry.name !== r.name
+      || draftEntry.cat !== r.cat
+      || draftEntry.tempF !== (Number(r.tempF) || 0)
+      || draftEntry.min !== (Number(r.min) || 0)
+      || draftEntry.max !== (Number(r.max) || 0)
+      || (draftEntry.doneF || 0) !== (Number(r.doneF) || 0)
+      || draftEntry.stop !== String(r.stop || '').trim()
+      || draftEntry.note !== String(r.note || '').trim();
+  }, [draftEntry, editingRow]);
+
+  const saveEdit = useCallback(() => {
+    if (!draftDirty) { setEditing(null); return; }
+    const entry = draftEntry;
+    if (!entry.name) { alert('Give it a name.'); return; }
+    const key = airFryerKey(entry.name);
+    const oldKey = airFryerKey(editing.original || entry.name);
     const next = mine.filter(r => airFryerKey(r.name) !== key && airFryerKey(r.name) !== oldKey);
     persist([...next, entry]);
     setEditing(null);
-    setOpenId(key);
-  }, [editing, mine, persist]);
+  }, [draftDirty, draftEntry, editing, mine, persist]);
+
+  const closePopup = useCallback(() => {
+    if (draftDirty && editing?.original && !window.confirm('Discard your changes to the temp and time?')) return;
+    setEditing(null);
+  }, [draftDirty, editing]);
+
+  // Escape closes the popup, the same as its Close button.
+  useEffect(() => {
+    if (!editing) return;
+    const onKey = (e) => { if (e.key === 'Escape') closePopup(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [editing, closePopup]);
 
   // Removing an edited built-in restores the original rather than deleting the
   // row — you're undoing your change, not throwing the reference away.
@@ -642,7 +683,6 @@ export function AirFryerPage({ onClose, user, recipes = [], weeklyRecipeIds = []
   // list and the rest can't drift into looking like different things.
   const renderRow = (row) => {
     const key = airFryerKey(row.name);
-    const open = openId === key;
     const found = recipeIndex[key] || { recipes: [], weekRecipes: [] };
     const onList = extrasFor(row);
     const isHidden = hiddenSet.has(key);
@@ -660,8 +700,8 @@ export function AirFryerPage({ onClose, user, recipes = [], weeklyRecipeIds = []
         <div className={styles.rowTop}>
         <button
           className={styles.rowMain}
-          onClick={() => setOpenId(open ? null : key)}
-          aria-expanded={open}
+          onClick={() => startEdit(row)}
+          aria-haspopup="dialog"
         >
           <span className={styles.rowName}>
             {/* Your name for the thing, once you've said what it is. The guide
@@ -712,18 +752,17 @@ export function AirFryerPage({ onClose, user, recipes = [], weeklyRecipeIds = []
           </span>
         </button>
         {/* Temp and time are the answer — big, on one line, readable at arm's
-            length with your hands full. Also the thing most worth correcting:
-            your air fryer isn't the one the guide was written for. Tapping them
-            opens the editor directly, rather than making you expand the row and
-            hunt for "Change this time" past the recipes and spices.
+            length with your hands full. Tapping them opens the same popup as
+            the name: one place for everything about this row, with the temp
+            and time fields at the top.
 
-            Outside the row button for the same reason the ✕ is: a button inside
-            a button is invalid, and the click would toggle the row open on its
-            way through. */}
+            Its own button, beside the row button rather than inside it: a
+            button inside a button is invalid. */}
         <button
           className={styles.rowNumsBtn}
           onClick={() => startEdit(row)}
-          title={`Edit the temp and time for ${mapped || row.name}`}
+          aria-haspopup="dialog"
+          title={`Open ${mapped || row.name}`}
         >
           <span className={styles.temp}>{row.tempF}°F</span>
           {/* The cook read left to right the way you do it: ten minutes, flip,
@@ -755,43 +794,6 @@ export function AirFryerPage({ onClose, user, recipes = [], weeklyRecipeIds = []
           {isHidden ? '↩' : '✕'}
         </button>
         </div>
-        {open && (
-          <div className={styles.detail}>
-            <div className={styles.detailMeta}>
-              <span>{toCelsius(row.tempF)}°C</span>
-              {/* The row itself now shows the cook in legs, so the total only
-                  lives here — it's what you set a timer for when you'd rather
-                  not do the addition with your hands full. */}
-              <span>{formatTime(row)} total</span>
-              {!!row.doneF && <span className={styles.doneTemp}>Done at {row.doneF}°F internal</span>}
-              <span className={styles.detailCat}>{row.cat}</span>
-            </div>
-            {renderTimeNotes(key, row)}
-            {!!row.note && <p className={styles.note}>{row.note}</p>}
-            {found.recipes.length > 0 && (
-              <div className={styles.recipeMap}>
-                <div className={styles.recipeMapHead}>Your recipes using this</div>
-                <ul className={styles.recipeMapList}>
-                  {found.recipes.map(r => (
-                    <li key={r.id}>
-                      {r.title}
-                      {weekIds.has(r.id)
-                        ? <span className={styles.weekFlag}>this week</span>
-                        : recentIds.has(r.id) && <span className={styles.weekFlag}>past 2 weeks</span>}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
-            {renderSpices(key)}
-            {renderLink(key, row)}
-            {/* No hide button here: the ✕ in the row's own column does that
-                job, and two controls for one action is how they drift apart. */}
-            <button className={styles.editBtn} onClick={() => startEdit(row)}>
-              {row.source === 'built-in' ? 'Change this time' : 'Edit'}
-            </button>
-          </div>
-        )}
       </li>
     );
   };
@@ -996,15 +998,82 @@ export function AirFryerPage({ onClose, user, recipes = [], weeklyRecipeIds = []
     );
   };
 
-  if (editing) {
+  // The ONE popup for a row: its temp and time fields at the top, then the time
+  // notes, your recipes, spices and the ingredient link. It used to be two
+  // things — the name expanded the row inline, the numbers opened a separate
+  // edit screen — so the same row had two different places to look.
+  //
+  // Spices, notes and the link save the moment you change them, as before. The
+  // temp/time fields save with Save, because a half-typed "4" for 400°F must
+  // not land in the table, and they only write when something actually changed.
+  // "+ Add" opens the same popup with the fields alone.
+  const renderPopup = () => {
+    const row = editingRow;
+    const key = row ? airFryerKey(row.name) : '';
+    const found = row ? (recipeIndex[key] || { recipes: [], weekRecipes: [] }) : null;
+    const onList = row ? extrasFor(row) : [];
+    const heading = row ? (links[key] || row.name) : 'Add your own';
     return (
-      <div className={styles.container}>
-        <div className={styles.header}>
-          <button className={styles.backBtn} onClick={() => setEditing(null)}>← Cancel</button>
-          <h2 className={styles.title}>{editing.original ? 'Edit' : 'Add your own'}</h2>
-          <button className={styles.saveBtn} onClick={saveEdit}>Save</button>
-        </div>
+      <div
+        className={styles.popupOverlay}
+        onMouseDown={e => { if (e.target === e.currentTarget) closePopup(); }}
+      >
+        <div className={styles.popup} role="dialog" aria-modal="true" aria-label={heading}>
+          <div className={styles.popupHeader}>
+            <div className={styles.popupTitleWrap}>
+              <h3 className={styles.popupTitle}>{heading}</h3>
+              {row && (
+                <div className={styles.detailMeta}>
+                  <span>{row.tempF}°F · {toCelsius(row.tempF)}°C</span>
+                  <span>{formatTime(row)} total</span>
+                  {!!row.doneF && <span className={styles.doneTemp}>Done at {row.doneF}°F internal</span>}
+                  {row.source === 'mine' && <span className={styles.tag}>yours</span>}
+                  {row.source === 'edited' && <span className={styles.tag}>edited</span>}
+                  {onList.length > 0 && <span className={styles.recipeTagWeek}>on your list</span>}
+                </div>
+              )}
+            </div>
+            <button className={styles.backBtn} onClick={closePopup}>Close</button>
+            <button className={styles.saveBtn} onClick={saveEdit} disabled={!!row && !draftDirty}>Save</button>
+          </div>
 
+          <div className={styles.popupBody}>
+            {renderFields()}
+            {row && renderTimeNotes(key, row)}
+            {row && found.recipes.length > 0 && (
+              <div className={styles.recipeMap}>
+                <div className={styles.recipeMapHead}>Your recipes using this</div>
+                <ul className={styles.recipeMapList}>
+                  {found.recipes.map(r => (
+                    <li key={r.id}>
+                      {r.title}
+                      {weekIds.has(r.id)
+                        ? <span className={styles.weekFlag}>this week</span>
+                        : recentIds.has(r.id) && <span className={styles.weekFlag}>past 2 weeks</span>}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {row && renderSpices(key)}
+            {row && renderLink(key, row)}
+            {/* Only where there's something of yours to undo. A built-in you
+                haven't changed has nothing to reset or delete — the ✕ on the
+                row hides it. */}
+            {row && (row.source === 'mine' || row.source === 'edited') && (
+              <button className={styles.dangerBtn} onClick={() => removeMine(row)}>
+                {row.source === 'edited' ? 'Reset to the built-in time' : 'Delete this one'}
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  // The temp/time/category fields, inside the popup.
+  const renderFields = () => (
+      <div className={styles.popupFields}>
         <label className={styles.label}>Ingredient</label>
         <input
           className={styles.input}
@@ -1065,20 +1134,8 @@ export function AirFryerPage({ onClose, user, recipes = [], weeklyRecipeIds = []
           placeholder="Shake halfway. Spray the breading."
           rows={3}
         />
-
-        {editing.original && (
-          <button
-            className={styles.dangerBtn}
-            onClick={() => removeMine(rows.find(r => airFryerKey(r.name) === airFryerKey(editing.original)) || { name: editing.original, source: 'mine' })}
-          >
-            {rows.find(r => airFryerKey(r.name) === airFryerKey(editing.original))?.source === 'edited'
-              ? 'Reset to the built-in time'
-              : 'Delete this one'}
-          </button>
-        )}
       </div>
-    );
-  }
+  );
 
   return (
     <div className={styles.container}>
@@ -1171,6 +1228,7 @@ export function AirFryerPage({ onClose, user, recipes = [], weeklyRecipeIds = []
           {AIR_FRYER_RULES.map(r => <li key={r}>{r}</li>)}
         </ul>
       )}
+      {editing && renderPopup()}
     </div>
   );
 }

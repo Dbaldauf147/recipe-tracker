@@ -667,6 +667,61 @@
   color: var(--color-text-muted);
 }
 
+/* ── The row popup ──────────────────────────────────────────────────────── */
+/* One dialog per row: fields on top, then notes, recipes, spices and link.
+   Centered with its own scroll on a desktop; the full screen on a phone, where
+   a floating card would leave a sliver of page around it for no reason. */
+.popupOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 5vh 1rem;
+  background: rgba(15, 23, 42, 0.45);
+  overflow-y: auto;
+}
+.popup {
+  width: 100%;
+  max-width: 640px;
+  background: var(--color-surface);
+  border-radius: 14px;
+  box-shadow: 0 20px 50px rgba(15, 23, 42, 0.25);
+}
+.popupHeader {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: flex-start;
+  gap: 1rem;
+  padding: 1rem 1.2rem 0.75rem;
+  background: var(--color-surface);
+  border-bottom: 1px solid var(--color-border-light);
+  border-radius: 14px 14px 0 0;
+}
+.popupTitleWrap { flex: 1; min-width: 0; }
+.popupTitle {
+  margin: 0 0 0.3rem;
+  font-size: 1.2rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--color-text);
+}
+.popupTitleWrap .detailMeta { margin-bottom: 0; align-items: center; }
+.popupTitleWrap .tag,
+.popupTitleWrap .recipeTagWeek { margin-left: 0; }
+.popupBody { padding: 0.2rem 1.2rem 1.2rem; }
+.popupFields { margin-bottom: 1rem; }
+.saveBtn:disabled { color: var(--color-text-muted); opacity: 0.5; cursor: default; }
+
+@media (max-width: 520px) {
+  .popupOverlay { padding: 0; }
+  .popup { min-height: 100%; border-radius: 0; box-shadow: none; }
+  .popupHeader { border-radius: 0; }
+}
+
 /* ── Editor ─────────────────────────────────────────────────────────────── */
 .label {
   display: block;
