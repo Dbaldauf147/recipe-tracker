@@ -4908,15 +4908,41 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
   }, [ownerData, user?.uid, persistOwner]);
 
   /**
-   * Apply one round of the categorize prompt — a single write for all five.
+   * Save the categorize prompt's answers, one spot at a time.
    *
-   * Must live BELOW bulkUpdate: a useCallback's dependency array is evaluated
-   * the moment the line runs, so naming bulkUpdate above its own const would
-   * throw on the page's first render, and a build won't catch it.
+   * Through saveSpotForOwner's transaction rather than persistOwner: pushing
+   * this tab's copy of all 400 spots meant the answers only survived until
+   * another copy was written back over them — and the phone did exactly that,
+   * saving the list it had loaded at launch. The transaction re-reads the live
+   * array and swaps just this spot, so nothing else can be carrying it away.
    */
-  const applyCategorize = useCallback((patches) => {
-    bulkUpdate(Object.keys(patches), r => patches[r.id] || null);
-  }, [bulkUpdate]);
+  const applyCategorize = useCallback(async (patches) => {
+    const uid = user?.uid;
+    if (!uid) return;
+    const myList = ownerData[uid]?.restaurants || [];
+    const now = new Date().toISOString();
+    const spots = Object.entries(patches)
+      .map(([id, patch]) => {
+        const current = myList.find(r => r.id === id);
+        return current ? { ...current, ...patch, updatedAt: now } : null;
+      })
+      .filter(Boolean);
+    if (spots.length === 0) return;
+    const byId = new Map(spots.map(s => [s.id, s]));
+    setOwnerData(prev => ({
+      ...prev,
+      [uid]: {
+        ...(prev[uid] || {}),
+        restaurants: (prev[uid]?.restaurants || []).map(r => byId.get(r.id) || r),
+      },
+    }));
+    try {
+      for (const spot of spots) await saveSpotForOwner(uid, spot, { uid });
+    } catch (err) {
+      console.error('Failed to save categorize answers:', err);
+      alert(`Couldn't save that spot — ${err?.message || 'try again'}`);
+    }
+  }, [ownerData, user?.uid]);
 
   const bulkDelete = useCallback((ids) => {
     if (!user?.uid) return;
