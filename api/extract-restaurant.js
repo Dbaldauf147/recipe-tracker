@@ -214,12 +214,23 @@ function looksLikeOpaqueToken(s) {
 // policy, same normalized shape) — kept as a direct call rather than a self-
 // request so this doesn't need to know its own deployment URL. Best-effort: a
 // failure here just means no pin, which is where we started.
-async function geocodeAddress(query) {
+//
+// `extratags=1` comes along for free: when OpenStreetMap knows the place, its
+// `cuisine=ramen;japanese` tag is the one factual cuisine source we have (Google
+// hides its category from servers, and there's no Places API key). `near`
+// narrows a name-only search to a small box around known coordinates, so a
+// full /maps/place/ URL can still pick up that tag.
+async function geocodeAddress(query, { near = null } = {}) {
   const q = String(query || '').trim();
   if (!q) return null;
+  let bounds = '';
+  if (near) {
+    const d = 0.005; // ~500 m
+    bounds = `&viewbox=${near.lng - d},${near.lat + d},${near.lng + d},${near.lat - d}&bounded=1`;
+  }
   try {
     const r = await fetch(
-      `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(q)}`,
+      `https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&extratags=1${bounds}&q=${encodeURIComponent(q)}`,
       {
         headers: {
           'User-Agent': 'PrepDay/1.0 (https://prep-day.com; baldaufdan@gmail.com)',
@@ -233,9 +244,99 @@ async function geocodeAddress(query) {
     const top = Array.isArray(data) ? data[0] : null;
     const lat = parseFloat(top?.lat);
     const lng = parseFloat(top?.lon);
-    return Number.isFinite(lat) && Number.isFinite(lng) ? { lat, lng } : null;
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+    return {
+      lat,
+      lng,
+      osmType: top?.type || '',
+      osmCuisine: top?.extratags?.cuisine || '',
+    };
   } catch {
     return null;
+  }
+}
+
+// ── cuisine ──────────────────────────────────────────────────────────────────
+
+/**
+ * The model's answer, cleaned: at most two names, trimmed, deduped, and
+ * re-spelled to match the user's existing cuisine list where one matches
+ * case-insensitively ("japanese" → "Japanese"), so an import never splits a
+ * tag the user already has into a second spelling.
+ */
+export function normalizeCuisines(raw, vocab = []) {
+  const bySpelling = new Map();
+  for (const v of vocab) {
+    const s = String(v || '').trim();
+    if (s && !bySpelling.has(s.toLowerCase())) bySpelling.set(s.toLowerCase(), s);
+  }
+  const out = [];
+  for (const c of Array.isArray(raw) ? raw : []) {
+    const s = String(c || '').trim().replace(/\s+/g, ' ');
+    if (!s || s.length > 40) continue;
+    const spelled = bySpelling.get(s.toLowerCase())
+      || s.replace(/\b\w/g, ch => ch.toUpperCase());
+    if (!out.some(o => o.toLowerCase() === spelled.toLowerCase())) out.push(spelled);
+    if (out.length === 2) break;
+  }
+  return out;
+}
+
+/** "a, b,c" → ["a","b","c"]; the client sends its cuisine vocabulary this way. */
+export function parseVocab(param) {
+  return String(param || '')
+    .split(',')
+    .map(s => s.trim())
+    .filter(Boolean)
+    .slice(0, 200);
+}
+
+/**
+ * Best guess at a restaurant's cuisine, from its name and address plus the OSM
+ * cuisine tag when there is one. Returns [] on any failure or when the model
+ * isn't reasonably sure — an empty Cuisines box is fine, a wrong tag gets saved.
+ */
+async function guessCuisines({ name, address, osmCuisine, osmType, vocab }) {
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey || !name) return [];
+  const system =
+    'You tag restaurants, cafes and bars with their cuisine. Return ONLY JSON, no markdown: '
+    + '{"cuisines": ["..."]} with one or two short cuisine names (e.g. "Japanese", "Ramen", '
+    + '"Pizza", "Mexican", "Coffee", "Cocktail Bar"). Most specific first. If the user\'s existing '
+    + 'list has a name that fits, use that exact spelling. If you cannot tell with reasonable '
+    + 'confidence, return {"cuisines": []}.';
+  const lines = [`Name: ${name}`];
+  if (address) lines.push(`Address: ${address}`);
+  if (osmCuisine || osmType) lines.push(`OpenStreetMap tags: ${[osmType && `type=${osmType}`, osmCuisine && `cuisine=${osmCuisine}`].filter(Boolean).join(', ')}`);
+  if (vocab.length) lines.push(`User's existing cuisine list: ${vocab.join(', ')}`);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 8000);
+  try {
+    const r = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      signal: controller.signal,
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 100,
+        system,
+        messages: [{ role: 'user', content: lines.join('\n') }],
+      }),
+    });
+    if (!r.ok) return [];
+    const data = await r.json();
+    const text = data.content?.[0]?.text || '';
+    const json = text.match(/\{[\s\S]*\}/);
+    if (!json) return [];
+    return normalizeCuisines(JSON.parse(json[0]).cuisines, vocab);
+  } catch {
+    return [];
+  } finally {
+    clearTimeout(timer);
   }
 }
 
@@ -252,7 +353,7 @@ function splitNameAndAddress(q) {
   return { name: parts[0], address: rest };
 }
 
-async function extractFromGoogleMaps(url) {
+async function extractFromGoogleMaps(url, { vocab = [] } = {}) {
   // Fetch the page following redirects — this resolves short links
   // (maps.app.goo.gl / goo.gl/maps) to the canonical /maps/place/<Name>/@lat,lng
   // URL, which is where we read the name and coords from.
@@ -367,10 +468,22 @@ async function extractFromGoogleMaps(url) {
 
   // No @lat,lng in the URL (every short link) — fall back to geocoding the
   // address the redirect gave us, so the spot still lands on the map.
+  let osm = null;
   if (lat == null && address) {
-    const geo = await geocodeAddress(name ? `${name}, ${address}` : address);
-    if (geo) { lat = geo.lat; lng = geo.lng; }
+    osm = await geocodeAddress(name ? `${name}, ${address}` : address);
+    if (osm) { lat = osm.lat; lng = osm.lng; }
+  } else if (name && lat != null) {
+    // Coords already known — this lookup is only for OSM's cuisine tag.
+    osm = await geocodeAddress(name, { near: { lat, lng } });
   }
+
+  const cuisines = await guessCuisines({
+    name,
+    address,
+    osmCuisine: osm?.osmCuisine || '',
+    osmType: osm?.osmType || '',
+    vocab,
+  });
 
   // og:image fallback for the card preview.
   let imageUrl;
@@ -385,6 +498,7 @@ async function extractFromGoogleMaps(url) {
     address,
     lat: lat ?? undefined,
     lng: lng ?? undefined,
+    cuisines,
     sourceUrl: longUrl,
     source: 'google-maps',
   };
@@ -402,7 +516,9 @@ export default async function handler(req, res) {
     let result;
     let source;
     if (isGoogleMaps) {
-      result = await extractFromGoogleMaps(url);
+      result = await extractFromGoogleMaps(url, {
+        vocab: parseVocab(req.query?.cuisines || req.body?.cuisines),
+      });
       source = 'google-maps';
     } else if (isInstagram) {
       result = await extractFromInstagram(url);

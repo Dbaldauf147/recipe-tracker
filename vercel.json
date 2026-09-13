@@ -10,6 +10,7 @@
     "api/parse-sudoku-image.js": { "maxDuration": 60 },
     "api/parse-nutrition-label.js": { "maxDuration": 60 },
     "api/extract-recipe.js": { "maxDuration": 60 },
+    "api/extract-restaurant.js": { "maxDuration": 30 },
     "api/backup-user-data.js": { "maxDuration": 60 }
   },
   "crons": [
