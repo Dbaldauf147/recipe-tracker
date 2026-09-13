@@ -87,6 +87,47 @@ test('weight reports first/last inside the window only', () => {
   assert.equal(s.weight.change, -2);
 });
 
+test('weight history is eight weeks, oldest first, using each week\'s last weigh-in', () => {
+  const prior = previousWeek(WEEK);
+  const weightLog = [
+    { date: WEEK.days[1], weight: 179 },
+    { date: WEEK.days[5], weight: 178.4 },   // last of the week wins
+    { date: prior.days[2], weight: 176.4 },
+    { date: previousWeek(previousWeek(prior)).days[0], weight: 181 }, // 4th week back
+    { date: '2026-08-04', weight: 170 },     // after the window
+  ];
+  const s = summarizeWeek(emptyData({ weightLog }), WEEK);
+  const h = s.weight.history;
+  assert.equal(h.length, 8);
+  assert.equal(h[7].start, WEEK.start);
+  assert.equal(h[7].label, 'Jul 26');
+  assert.deepEqual(h.map(w => w.weight), [null, null, null, null, 181, null, 176.4, 178.4]);
+});
+
+test('the email draws the weight chart with the goal line, and skips it with no weigh-ins', () => {
+  const weightLog = [
+    { date: previousWeek(WEEK).days[3], weight: 176.4 },
+    { date: WEEK.days[4], weight: 178.4 },
+  ];
+  const stats = summarizeWeek(emptyData({ weightLog }), WEEK);
+  const prior = summarizeWeek(emptyData({ weightLog }), previousWeek(WEEK));
+  const email = renderWeeklySummary({ stats, priorStats: prior, bodyStats: { goalWeight: 175 } });
+  assert.match(email.html, /Weight · last 8 weeks · lbs/);
+  assert.match(email.html, /dashed line is your 175\.0 lbs goal/);
+  assert.match(email.html, /border-top:1px dashed #9ca3af/);
+  assert.match(email.html, />178\.4</);
+  assert.match(email.html, /Vs prior week/);                 // the table stays
+  assert.match(email.text, /Last weigh-in each week, last 8 weeks/);
+
+  const none = renderWeeklySummary({
+    stats: summarizeWeek(emptyData(), WEEK),
+    priorStats: summarizeWeek(emptyData(), previousWeek(WEEK)),
+    bodyStats: { goalWeight: 175 },
+  });
+  assert.doesNotMatch(none.html, /Weight · last/);
+  assert.doesNotMatch(none.text, /Last weigh-in each week/);
+});
+
 test('workout volume honours per-set weights and per-arm loads', () => {
   const workouts = [
     {
