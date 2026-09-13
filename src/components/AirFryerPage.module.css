@@ -750,3 +750,102 @@
   /* Small enough to keep the four-part heading on one line over its column. */
   .headNums { font-size: 0.6rem; }
 }
+
+/* ── Grid lines ──
+   Every cell boxed, vertical lines included, so the guide reads as a real table
+   you can run a finger down. Gaps become cell padding and the rows stretch, so
+   each vertical line runs the full height of its row and lines up with the one
+   in the heading above it. Kept together here, after the column rules, so the
+   borders are one block to change rather than edits spread through the file. */
+.list {
+  border-left: 1px solid var(--color-border-light);
+  border-right: 1px solid var(--color-border-light);
+}
+.tableHead {
+  gap: 0;
+  padding: 0;
+  align-items: stretch;
+  border: 1px solid var(--color-border-light);
+  border-bottom: 1px solid var(--color-border);
+}
+/* The heading's bottom line is the first row's top line. */
+.tableHead + .list { border-top: none; }
+.tableHead > span { padding: 0.35rem 0.5rem; border-left: 1px solid var(--color-border-light); }
+.tableHead > span:first-child { border-left: none; }
+.tableHead > .headNums { display: flex; padding: 0; border-left: none; }
+.headNumsLabel { display: none; }
+.headNumsParts { display: contents; }
+.headTemp,
+.headLeg,
+.headAction {
+  flex: 0 0 auto;
+  padding: 0.35rem 0.5rem;
+  border-left: 1px solid var(--color-border-light);
+  text-align: right;
+}
+.headTemp { flex: 1 1 auto; }
+.headLeg { width: 5.6rem; }
+.headAction { width: 6.6rem; }
+/* Cell padding eats into the fixed widths, so the time cells get wider (a
+   "18–23 min" ran over its line) and the notes column gives up the room. */
+.headNums, .rowNumsBtn { width: 23rem; }
+.headNotes, .rowNotes, .rowNotesEmpty { width: 16rem; }
+.legTime { width: 5.6rem; }
+
+.rowTop { align-items: stretch; }
+.rowMain { gap: 0; padding: 0; align-items: stretch; }
+.rowName,
+.rowSpice,
+.rowSpiceEmpty,
+.rowNotes,
+.rowNotesEmpty {
+  padding: 0.75rem 0.5rem;
+  line-height: 1.35rem;
+}
+.rowSpice,
+.rowSpiceEmpty,
+.rowNotes,
+.rowNotesEmpty { border-left: 1px solid var(--color-border-light); }
+.rowNumsBtn {
+  gap: 0;
+  padding: 0;
+  align-items: stretch;
+  flex-wrap: nowrap;
+  border-radius: 0;
+}
+.temp,
+.legTime,
+.legAction {
+  padding: 0.75rem 0.5rem;
+  line-height: 1.35rem;
+  border-left: 1px solid var(--color-border-light);
+}
+.temp { flex: 1 1 auto; text-align: right; }
+.rowKill {
+  align-self: stretch;
+  padding: 0;
+  border-left: 1px solid var(--color-border-light);
+}
+
+/* A phone stacks the cook under the temperature, so the numbers become one
+   boxed cell with the combined heading over it rather than four slivers. */
+@media (max-width: 520px) {
+  .headNumsLabel { display: inline; }
+  .headNumsParts { display: none; }
+  .tableHead > .headNums { display: block; padding: 0.35rem 0.5rem; border-left: 1px solid var(--color-border-light); }
+  /* Back to the phone widths — the desktop grid rules above come later in the
+     file than the original phone block, so they'd otherwise win here too. */
+  .headNums, .rowNumsBtn { width: 10.5rem; }
+  .rowNumsBtn {
+    flex-wrap: wrap;
+    align-items: baseline;
+    row-gap: 0.1rem;
+    padding: 0.5rem;
+    border-left: 1px solid var(--color-border-light);
+  }
+  .temp { flex: 0 0 auto; }
+  .temp,
+  .legTime,
+  .legAction { padding: 0; border-left: none; line-height: normal; }
+  .legTime { width: auto; }
+}
