@@ -492,6 +492,32 @@ test('protein per day distinguishes a zero-protein day from an untracked one', (
   assert.equal(by[6].dow, 'Sat');
 });
 
+test('protein per meal averages the main meals and leaves snacks out', () => {
+  const dailyLog = {
+    // Two lunch items make one lunch: (30+10 + 50) / 2 meals = 45.
+    [WEEK.days[0]]: { entries: [
+      { mealSlot: 'lunch', nutrition: { protein: 30 } },
+      { mealSlot: 'lunch', nutrition: { protein: 10 } },
+      { mealSlot: 'dinner', nutrition: { protein: 50 } },
+      { mealSlot: 'snack', nutrition: { protein: 20 } },
+    ] },
+    // Only a snack: a day total, but no meal to average.
+    [WEEK.days[1]]: { entries: [{ mealSlot: 'snack', nutrition: { protein: 15 } }] },
+  };
+  const s = summarizeWeek(emptyData({ dailyLog }), WEEK);
+  const by = s.meals.proteinByDay;
+  assert.equal(by[0].protein, 110);
+  assert.equal(by[0].perMeal, 45);
+  assert.equal(by[1].protein, 15);
+  assert.equal(by[1].perMeal, null);
+  assert.equal(by[6].perMeal, null);
+
+  const { html, text } = renderWeeklySummary({ stats: s, priorStats: s });
+  assert.match(html, /Protein per day · g/);
+  assert.match(html, /Avg protein per meal · g/);
+  assert.match(text, /Avg protein per meal/);
+});
+
 test('a skipped day contributes no protein reading', () => {
   const dailyLog = { [WEEK.days[0]]: { daySkipped: true, entries: [{ nutrition: { protein: 40 } }] } };
   const s = summarizeWeek(emptyData({ dailyLog }), WEEK);
