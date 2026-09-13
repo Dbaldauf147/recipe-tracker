@@ -3,7 +3,7 @@ import GUIDE, {
   AIR_FRYER_CATEGORIES, AIR_FRYER_RULES, airFryerKey, toCelsius,
 } from '../data/airFryerGuide.js';
 import { loadField, saveField } from '../utils/firestoreSync';
-import { indexRecipesByGuide, indexExtrasByGuide, rankIngredientsForGuide, bestIngredientForGuide, mergeAirFryerGuide, cookLegs } from '../utils/airFryerRecipes';
+import { indexRecipesByGuide, indexExtrasByGuide, rankIngredientsForGuide, bestIngredientForGuide, mergeAirFryerGuide, cookLegs, recentShoppingLists } from '../utils/airFryerRecipes';
 import { findTopSince, buildIngredientEatenMap } from '../utils/pantryAutoAdd';
 import { loadIngredients, ingredientRowByName } from '../utils/ingredientsStore';
 import { ingredientMatchScore } from '../utils/ingredientMatch';
@@ -46,7 +46,31 @@ const HIDDEN_CACHE = 'sunday-air-fryer-hidden';
 const SPICES_FIELD = 'airFryerSpices';
 const SPICES_CACHE = 'sunday-air-fryer-spices';
 
+// A note on each end of a row's time range, as
+// { [lowercased guide name]: { low: 'still soft', high: 'extra crispy' } }.
+//
+// Own field, same reason as spices: a note about how 18 vs 22 minutes turns out
+// isn't a change to the guide's time, so it mustn't brand the row "edited".
+const TIME_NOTES_FIELD = 'airFryerTimeNotes';
+const TIME_NOTES_CACHE = 'sunday-air-fryer-time-notes';
+
+// The shopping-list archive ("Reset Shopping List" appends to it) and how far
+// back the top group looks.
+const PLAN_HISTORY_KEY = 'sunday-plan-history';
+const RECENT_LIST_DAYS = 14;
+
 const BLANK = { name: '', cat: 'Vegetables', tempF: '', min: '', max: '', doneF: '', stop: '', note: '' };
+
+function readTimeNotesCache() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(TIME_NOTES_CACHE) || '{}');
+    return raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
+  } catch { return {}; }
+}
+
+function localDateKey(d = new Date()) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
 
 function readCache() {
   try {
@@ -121,6 +145,19 @@ function formatTime(row) {
   return `${min}–${max} min`;
 }
 
+/**
+ * The ends of a row's time range that can carry a note: low and high for a
+ * real range, just one ('low') when the time is a single number, none when the
+ * row has no time.
+ */
+function timeEnds(row) {
+  const min = Number(row?.min) || 0;
+  const max = Number(row?.max) || 0;
+  if (!min && !max) return [];
+  if (!max || !min || max === min) return [{ end: 'low', minutes: min || max }];
+  return [{ end: 'low', minutes: min }, { end: 'high', minutes: max }];
+}
+
 // Written by the Shopping List page; read here so both agree on what's on the
 // list without this page owning any of it.
 const EXTRAS_FIELD = 'shopExtras';
@@ -175,6 +212,48 @@ export function AirFryerPage({ onClose, user, recipes = [], weeklyRecipeIds = []
   // from. Cached-first for the same reason as everything else here.
   const [pantrySnacks, setPantrySnacks] = useState(() => readListCache('sunday-pantry-snacks'));
   const [pantryFruit, setPantryFruit] = useState(() => readListCache('sunday-pantry-fruit'));
+  const [planHistory, setPlanHistory] = useState(() => readListCache(PLAN_HISTORY_KEY));
+  const [timeNotes, setTimeNotes] = useState(readTimeNotesCache);
+
+  useEffect(() => {
+    if (!uid) return;
+    let cancelled = false;
+    loadField(uid, 'planHistory')
+      .then(remote => { if (!cancelled && Array.isArray(remote)) setPlanHistory(remote); })
+      .catch(() => { /* cached copy stands */ });
+    loadField(uid, TIME_NOTES_FIELD)
+      .then(remote => {
+        if (cancelled || !remote || typeof remote !== 'object' || Array.isArray(remote)) return;
+        setTimeNotes(remote);
+        try { localStorage.setItem(TIME_NOTES_CACHE, JSON.stringify(remote)); } catch { /* quota */ }
+      })
+      .catch(() => { /* offline — the cached copy stands */ });
+    return () => { cancelled = true; };
+  }, [uid]);
+
+  /**
+   * Set the note on one end ('low' | 'high') of a row's time range. A row with
+   * both notes empty DELETES its key, same as an emptied spice list.
+   */
+  const setTimeNote = useCallback((key, end, text) => {
+    setTimeNotes(prev => {
+      const value = String(text || '').trim();
+      const cur = prev[key] || {};
+      if ((cur[end] || '') === value) return prev;
+      const entry = { ...cur, [end]: value };
+      if (!entry[end]) delete entry[end];
+      const next = { ...prev };
+      if (entry.low || entry.high) next[key] = entry;
+      else delete next[key];
+      try { localStorage.setItem(TIME_NOTES_CACHE, JSON.stringify(next)); } catch { /* quota */ }
+      if (uid) {
+        saveField(uid, TIME_NOTES_FIELD, next).catch(err => {
+          console.error('[air fryer] time note save failed', err);
+        });
+      }
+      return next;
+    });
+  }, [uid]);
 
   useEffect(() => {
     if (!uid) return;
@@ -350,7 +429,18 @@ export function AirFryerPage({ onClose, user, recipes = [], weeklyRecipeIds = []
   // merge is asked for the unfiltered set here.
   const rows = useMemo(() => mergeAirFryerGuide(GUIDE, mine, []), [mine]);
 
+  // This week's plan, for the "this week" flag in a row's recipe list.
   const weekIds = useMemo(() => new Set(weeklyRecipeIds || []), [weeklyRecipeIds]);
+  // What the top group is built from: the current list plus every shopping
+  // trip saved in the last two weeks.
+  const recentLists = useMemo(
+    () => recentShoppingLists(planHistory, localDateKey(), RECENT_LIST_DAYS),
+    [planHistory],
+  );
+  const recentIds = useMemo(
+    () => new Set([...(weeklyRecipeIds || []), ...recentLists.recipeIds]),
+    [weeklyRecipeIds, recentLists],
+  );
 
   // The row whose picker is open, so the picker can predict from its name.
   const linkingRow = useMemo(
@@ -389,8 +479,8 @@ export function AirFryerPage({ onClose, user, recipes = [], weeklyRecipeIds = []
   // week's plan. Keyed by the row's lowercased name — the same key the list
   // renders with, so a lookup is direct.
   const recipeIndex = useMemo(
-    () => indexRecipesByGuide(rows, recipes, weekIds, links),
-    [rows, recipes, weekIds, links],
+    () => indexRecipesByGuide(rows, recipes, recentIds, links),
+    [rows, recipes, recentIds, links],
   );
   const weekCountFor = useCallback(
     (row) => recipeIndex[airFryerKey(row.name)]?.weekRecipes.length || 0,
@@ -419,8 +509,12 @@ export function AirFryerPage({ onClose, user, recipes = [], weeklyRecipeIds = []
     const topFruit = findTopSince(pantryFruit, eatenMap);
     if (topSnack?.ingredient && !has(topSnack.ingredient)) list.push({ ...topSnack, source: 'auto-snack' });
     if (topFruit?.ingredient && !has(topFruit.ingredient)) list.push({ ...topFruit, source: 'auto-fruit' });
+    // Hand-added items from the last two weeks' saved trips.
+    for (const name of recentLists.extras) {
+      if (!has(name)) list.push({ ingredient: name, source: 'history' });
+    }
     return list;
-  }, [extras, pantrySnacks, pantryFruit, getRecipeById]);
+  }, [extras, pantrySnacks, pantryFruit, getRecipeById, recentLists]);
   const extrasIndex = useMemo(() => indexExtrasByGuide(rows, listItems, links), [rows, listItems, links]);
   const extrasFor = useCallback(
     (row) => extrasIndex[airFryerKey(row.name)] || [],
@@ -538,6 +632,7 @@ export function AirFryerPage({ onClose, user, recipes = [], weeklyRecipeIds = []
     <div className={styles.tableHead}>
       <span className={styles.headName}>Ingredient</span>
       <span className={styles.headSpice}>Spices</span>
+      <span className={styles.headNotes}>Time notes</span>
       <span className={styles.headNums}>Temp · time · action · time</span>
       <span className={styles.headKill} aria-hidden="true" />
     </div>
@@ -553,6 +648,11 @@ export function AirFryerPage({ onClose, user, recipes = [], weeklyRecipeIds = []
     const isHidden = hiddenSet.has(key);
     const mapped = links[key];
     const rowSpices = spices[key] || [];
+    const ends = timeEnds(row);
+    const rowTimeNotes = ends
+      .filter(e => timeNotes[key]?.[e.end])
+      .map(e => `${e.minutes} min: ${timeNotes[key][e.end]}`)
+      .join(' · ');
     const ownRow = row.source === 'mine';
     const legs = cookLegs(row);
     return (
@@ -586,7 +686,7 @@ export function AirFryerPage({ onClose, user, recipes = [], weeklyRecipeIds = []
             {onList.length > 0 && (
               <span
                 className={styles.recipeTagWeek}
-                title={`On your shopping list: ${onList.join(', ')}`}
+                title={`On your shopping lists (past 2 weeks): ${onList.join(', ')}`}
               >
                 on your list
               </span>
@@ -601,6 +701,14 @@ export function AirFryerPage({ onClose, user, recipes = [], weeklyRecipeIds = []
             title={rowSpices.length > 0 ? rowSpices.join(', ') : 'No spices tagged — open the row to add some'}
           >
             {rowSpices.length > 0 ? rowSpices.join(', ') : '+ Spices'}
+          </span>
+          {/* The low/high time notes, read-only here like spices; edited in the
+              row detail. Hidden on a phone, where the temp and time need the room. */}
+          <span
+            className={rowTimeNotes ? styles.rowNotes : styles.rowNotesEmpty}
+            title={rowTimeNotes || 'No time notes — open the row to add them'}
+          >
+            {rowTimeNotes || '+ Notes'}
           </span>
         </button>
         {/* Temp and time are the answer — big, on one line, readable at arm's
@@ -658,6 +766,7 @@ export function AirFryerPage({ onClose, user, recipes = [], weeklyRecipeIds = []
               {!!row.doneF && <span className={styles.doneTemp}>Done at {row.doneF}°F internal</span>}
               <span className={styles.detailCat}>{row.cat}</span>
             </div>
+            {renderTimeNotes(key, row)}
             {!!row.note && <p className={styles.note}>{row.note}</p>}
             {found.recipes.length > 0 && (
               <div className={styles.recipeMap}>
@@ -666,7 +775,9 @@ export function AirFryerPage({ onClose, user, recipes = [], weeklyRecipeIds = []
                   {found.recipes.map(r => (
                     <li key={r.id}>
                       {r.title}
-                      {weekIds.has(r.id) && <span className={styles.weekFlag}>this week</span>}
+                      {weekIds.has(r.id)
+                        ? <span className={styles.weekFlag}>this week</span>
+                        : recentIds.has(r.id) && <span className={styles.weekFlag}>past 2 weeks</span>}
                     </li>
                   ))}
                 </ul>
@@ -682,6 +793,39 @@ export function AirFryerPage({ onClose, user, recipes = [], weeklyRecipeIds = []
           </div>
         )}
       </li>
+    );
+  };
+
+  // A note beside each end of the time range: "18 min — still soft",
+  // "22 min — extra crispy". Saved on blur (and Enter), so a stray click that
+  // collapses the row doesn't lose what you typed. Keyed on the stored value so
+  // a note arriving from the cloud replaces a stale box.
+  const renderTimeNotes = (key, row) => {
+    const ends = timeEnds(row);
+    if (ends.length === 0) return null;
+    const notes = timeNotes[key] || {};
+    return (
+      <div className={styles.timeNotes}>
+        {ends.map(e => (
+          <label key={e.end} className={styles.timeNoteRow}>
+            <span className={styles.timeNoteLabel}>
+              {ends.length > 1 ? (e.end === 'low' ? 'Low' : 'High') : 'Time'}
+              <strong className={styles.timeNoteMin}>{e.minutes} min</strong>
+            </span>
+            <input
+              key={`${e.end}:${notes[e.end] || ''}`}
+              className={styles.timeNoteInput}
+              defaultValue={notes[e.end] || ''}
+              placeholder={e.end === 'low' && ends.length > 1 ? 'e.g. still a little soft' : e.end === 'high' ? 'e.g. extra crispy' : 'e.g. how it turns out'}
+              maxLength={120}
+              onBlur={ev => setTimeNote(key, e.end, ev.target.value)}
+              onKeyDown={ev => {
+                if (ev.key === 'Enter') { ev.preventDefault(); ev.currentTarget.blur(); }
+              }}
+            />
+          </label>
+        ))}
+      </div>
     );
   };
 
@@ -989,7 +1133,7 @@ export function AirFryerPage({ onClose, user, recipes = [], weeklyRecipeIds = []
           {weekRows.length > 0 && (
             <>
               <div className={styles.groupHead}>
-                In this week’s shopping list
+                In your shopping lists · past 2 weeks
                 <span className={styles.groupCount}>{weekRows.length}</span>
               </div>
               {tableHead}
