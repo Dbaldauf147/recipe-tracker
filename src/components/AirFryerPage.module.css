@@ -432,27 +432,34 @@
   letter-spacing: 0;
 }
 
-/* How many of your recipes use this ingredient. Muted normally; it takes the
-   accent colour when one of those recipes is on this week's plan. */
-.recipeTag,
-.recipeTagWeek {
+/* Which shopping list a row is on. Two colours, not two shades of one: blue
+   for the list you're shopping from now, amber for a trip already shopped, so
+   the top group splits into its two weeks at a glance. The row takes a light
+   wash of the same colour and the tag names it. */
+.weekTagThis,
+.weekTagLast {
   margin-left: 0.4rem;
-  padding: 0.05rem 0.35rem;
+  padding: 0.05rem 0.4rem;
   font-size: 0.62rem;
-  font-weight: 700;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
   border-radius: 4px;
   vertical-align: 1px;
   white-space: nowrap;
 }
-.recipeTag {
-  color: var(--color-text-muted);
-  border: 1px solid var(--color-border-light);
-}
-.recipeTagWeek {
+.weekTagThis {
   color: #fff;
   background: var(--color-accent);
   border: 1px solid var(--color-accent);
 }
+.weekTagLast {
+  color: var(--color-secondary);
+  background: var(--color-gold-light);
+  border: 1px solid var(--color-gold);
+}
+.rowThisWeek .rowTop { background: var(--color-accent-light); }
+.rowLastWeek .rowTop { background: var(--color-gold-light); }
 
 .recipeMap { margin: 0.5rem 0 0.6rem; }
 .recipeMapHead {
@@ -473,7 +480,8 @@
   font-size: 0.82rem;
   line-height: 1.35;
 }
-.weekFlag {
+.weekFlag,
+.weekFlagLast {
   margin-left: 0.35rem;
   font-size: 0.62rem;
   font-weight: 800;
@@ -481,6 +489,7 @@
   text-transform: uppercase;
   color: var(--color-accent);
 }
+.weekFlagLast { color: var(--color-secondary); }
 
 .detail { padding: 0 0.2rem 0.85rem; }
 
@@ -711,7 +720,8 @@
 }
 .popupTitleWrap .detailMeta { margin-bottom: 0; align-items: center; }
 .popupTitleWrap .tag,
-.popupTitleWrap .recipeTagWeek { margin-left: 0; }
+.popupTitleWrap .weekTagThis,
+.popupTitleWrap .weekTagLast { margin-left: 0; }
 .popupBody { padding: 0.2rem 1.2rem 1.2rem; }
 .popupFields { margin-bottom: 1rem; }
 .saveBtn:disabled { color: var(--color-text-muted); opacity: 0.5; cursor: default; }
@@ -861,6 +871,27 @@
 .rowSpiceEmpty,
 .rowNotes,
 .rowNotesEmpty { border-left: 1px solid var(--color-border-light); }
+/* Notes sit at the far right now, as their own button (outside .rowMain), so
+   they need the button chrome stripped that .rowMain used to provide. */
+.rowNotes,
+.rowNotesEmpty {
+  display: block;
+  align-self: stretch;
+  margin: 0;
+  background: none;
+  border-top: none;
+  border-right: none;
+  border-bottom: none;
+  font-family: inherit;
+  cursor: pointer;
+}
+.rowNotes:hover,
+.rowNotesEmpty:hover { background: var(--color-surface-alt); }
+/* Repeated from the 900px block above: the display:block just set comes later
+   in the file and would otherwise bring the column back on narrow screens. */
+@media (max-width: 900px) {
+  .rowNotes, .rowNotesEmpty, .headNotes { display: none; }
+}
 .rowNumsBtn {
   gap: 0;
   padding: 0;
@@ -903,4 +934,22 @@
   .legTime,
   .legAction { padding: 0; border-left: none; line-height: normal; }
   .legTime { width: auto; }
+}
+
+/* Below a comfortable width the fixed columns no longer fit beside the name,
+   and flex squeezed the row until cells drew over each other. Instead the table
+   keeps a minimum width and scrolls sideways. The minimum is the fixed columns
+   plus ~10rem for the name: notes included above 900px, without them below
+   (where the notes column is hidden). The phone keeps its own stacked layout. */
+.tableScroll { overflow-x: auto; }
+.tableHead,
+.list { min-width: 60rem; }
+.rowName { min-width: 0; overflow-wrap: anywhere; }
+@media (max-width: 900px) {
+  .tableHead,
+  .list { min-width: 44rem; }
+}
+@media (max-width: 520px) {
+  .tableHead,
+  .list { min-width: 0; }
 }
