@@ -180,6 +180,15 @@ function readExtrasCache() {
   }
 }
 
+/** "This week" (on the list you're shopping from) or "Last week" (on a trip
+ *  saved in the last two weeks). Filled vs outlined so the two read apart at a
+ *  glance down the column. */
+function WeekTag({ week }) {
+  if (week === 'this') return <span className={styles.weekTagThis}>This week</span>;
+  if (week === 'last') return <span className={styles.weekTagLast}>Last week</span>;
+  return null;
+}
+
 export function AirFryerPage({ onClose, user, recipes = [], weeklyRecipeIds = [] }) {
   const uid = user?.uid;
   // Seeded from localStorage so the page paints instantly on a phone — the
@@ -500,7 +509,9 @@ export function AirFryerPage({ onClose, user, recipes = [], weeklyRecipeIds = []
     (id) => (recipes || []).find(r => r?.id === id) || null,
     [recipes],
   );
-  const listItems = useMemo(() => {
+  // Split by WHICH list: the one you're shopping from now ("This week") and the
+  // trips saved by Reset Shopping List in the last two weeks ("Last week").
+  const currentListItems = useMemo(() => {
     const list = [...(extras || [])];
     const eatenMap = buildIngredientEatenMap(getRecipeById);
     const has = (ing) => list.some(e => airFryerKey(e?.ingredient || '') === airFryerKey(ing || ''));
@@ -508,21 +519,29 @@ export function AirFryerPage({ onClose, user, recipes = [], weeklyRecipeIds = []
     const topFruit = findTopSince(pantryFruit, eatenMap);
     if (topSnack?.ingredient && !has(topSnack.ingredient)) list.push({ ...topSnack, source: 'auto-snack' });
     if (topFruit?.ingredient && !has(topFruit.ingredient)) list.push({ ...topFruit, source: 'auto-fruit' });
-    // Hand-added items from the last two weeks' saved trips.
-    for (const name of recentLists.extras) {
-      if (!has(name)) list.push({ ingredient: name, source: 'history' });
-    }
     return list;
-  }, [extras, pantrySnacks, pantryFruit, getRecipeById, recentLists]);
-  const extrasIndex = useMemo(() => indexExtrasByGuide(rows, listItems, links), [rows, listItems, links]);
-  const extrasFor = useCallback(
-    (row) => extrasIndex[airFryerKey(row.name)] || [],
-    [extrasIndex],
+  }, [extras, pantrySnacks, pantryFruit, getRecipeById]);
+  // Hand-added items from the saved trips.
+  const pastListItems = useMemo(
+    () => recentLists.extras.map(name => ({ ingredient: name, source: 'history' })),
+    [recentLists],
   );
-  const onListFor = useCallback(
-    (row) => weekCountFor(row) > 0 || extrasFor(row).length > 0,
-    [weekCountFor, extrasFor],
+  const currentExtrasIndex = useMemo(() => indexExtrasByGuide(rows, currentListItems, links), [rows, currentListItems, links]);
+  const pastExtrasIndex = useMemo(() => indexExtrasByGuide(rows, pastListItems, links), [rows, pastListItems, links]);
+  // This week's recipes only, so a row can tell "on the list now" from "on a
+  // trip you already shopped". The recipe index above covers both weeks.
+  const thisWeekRecipeIndex = useMemo(
+    () => indexRecipesByGuide(rows, recipes, weekIds, links),
+    [rows, recipes, weekIds, links],
   );
+  // 'this' | 'last' | null. This week wins when it's on both.
+  const listWeekFor = useCallback((row) => {
+    const key = airFryerKey(row.name);
+    if ((thisWeekRecipeIndex[key]?.weekRecipes.length || 0) > 0 || (currentExtrasIndex[key] || []).length > 0) return 'this';
+    if (weekCountFor(row) > 0 || (pastExtrasIndex[key] || []).length > 0) return 'last';
+    return null;
+  }, [thisWeekRecipeIndex, currentExtrasIndex, pastExtrasIndex, weekCountFor]);
+  const onListFor = useCallback((row) => listWeekFor(row) !== null, [listWeekFor]);
 
   const hiddenSet = useMemo(() => new Set(hidden), [hidden]);
 
@@ -673,7 +692,6 @@ export function AirFryerPage({ onClose, user, recipes = [], weeklyRecipeIds = []
     <div className={styles.tableHead}>
       <span className={styles.headName}>Ingredient</span>
       <span className={styles.headSpice}>Spices</span>
-      <span className={styles.headNotes}>Time notes</span>
       {/* One heading per cell on desktop, so every grid line in the rows runs
           up through the heading too; the phone stacks the cook under the temp
           and gets the single combined label back. */}
@@ -686,6 +704,7 @@ export function AirFryerPage({ onClose, user, recipes = [], weeklyRecipeIds = []
           <span className={styles.headLeg}>Time</span>
         </span>
       </span>
+      <span className={styles.headNotes}>Time notes</span>
       <span className={styles.headKill} aria-hidden="true" />
     </div>
   );
@@ -694,8 +713,7 @@ export function AirFryerPage({ onClose, user, recipes = [], weeklyRecipeIds = []
   // list and the rest can't drift into looking like different things.
   const renderRow = (row) => {
     const key = airFryerKey(row.name);
-    const found = recipeIndex[key] || { recipes: [], weekRecipes: [] };
-    const onList = extrasFor(row);
+    const listWeek = listWeekFor(row);
     const isHidden = hiddenSet.has(key);
     const mapped = links[key];
     const rowSpices = spices[key] || [];
@@ -707,7 +725,10 @@ export function AirFryerPage({ onClose, user, recipes = [], weeklyRecipeIds = []
     const ownRow = row.source === 'mine';
     const legs = cookLegs(row);
     return (
-      <li key={key} className={`${styles.row} ${isHidden ? styles.rowHidden : ''}`}>
+      <li
+        key={key}
+        className={`${styles.row} ${isHidden ? styles.rowHidden : ''} ${listWeek === 'this' ? styles.rowThisWeek : listWeek === 'last' ? styles.rowLastWeek : ''}`}
+      >
         <div className={styles.rowTop}>
         <button
           className={styles.rowMain}
@@ -724,24 +745,9 @@ export function AirFryerPage({ onClose, user, recipes = [], weeklyRecipeIds = []
             {row.source === 'mine' && <span className={styles.tag}>yours</span>}
             {row.source === 'edited' && <span className={styles.tag}>edited</span>}
             {isHidden && <span className={styles.tagHidden}>hidden</span>}
-            {/* A count, not the names: the row has to stay readable at arm's
-                length. The names are one tap away, in the detail. */}
-            {found.recipes.length > 0 && (
-              <span className={found.weekRecipes.length > 0 ? styles.recipeTagWeek : styles.recipeTag}>
-                {found.recipes.length} recipe{found.recipes.length === 1 ? '' : 's'}
-              </span>
-            )}
-            {/* Why a row with no recipe behind it is in the week's group. A
-                snack added straight to the list has no recipe to count, so
-                without this it would sit at the top looking unexplained. */}
-            {onList.length > 0 && (
-              <span
-                className={styles.recipeTagWeek}
-                title={`On your shopping lists (past 2 weeks): ${onList.join(', ')}`}
-              >
-                on your list
-              </span>
-            )}
+            {/* Which shopping list it's on. No recipe count — the recipes are
+                in the popup, and a number on every row was noise. */}
+            <WeekTag week={listWeek} />
           </span>
           {/* How you season this one. Read-only in the list and editable in the
               row detail, because an input can't live inside the row's button —
@@ -752,14 +758,6 @@ export function AirFryerPage({ onClose, user, recipes = [], weeklyRecipeIds = []
             title={rowSpices.length > 0 ? rowSpices.join(', ') : 'No spices tagged — open the row to add some'}
           >
             {rowSpices.length > 0 ? rowSpices.join(', ') : '+ Spices'}
-          </span>
-          {/* The low/high time notes, read-only here like spices; edited in the
-              row detail. Hidden on a phone, where the temp and time need the room. */}
-          <span
-            className={rowTimeNotes ? styles.rowNotes : styles.rowNotesEmpty}
-            title={rowTimeNotes || 'No time notes — open the row to add them'}
-          >
-            {rowTimeNotes || '+ Notes'}
           </span>
         </button>
         {/* Temp and time are the answer — big, on one line, readable at arm's
@@ -791,6 +789,18 @@ export function AirFryerPage({ onClose, user, recipes = [], weeklyRecipeIds = []
             <span className={styles.legAction}>{legs.action}</span>
             <span className={styles.legTime}>{legs.second || '—'}</span>
           </span>
+        </button>
+        {/* The low/high time notes, at the far right of the table: read-only
+            here, opening the same popup to edit. Its own button beside the
+            others (a button can't nest in a button). Hidden on narrow
+            screens, where the temp and time need the room. */}
+        <button
+          className={rowTimeNotes ? styles.rowNotes : styles.rowNotesEmpty}
+          onClick={() => startEdit(row)}
+          aria-haspopup="dialog"
+          title={rowTimeNotes || 'No time notes — open the row to add them'}
+        >
+          {rowTimeNotes || '+ Notes'}
         </button>
         {/* Its own column, outside the row button — removing something you can
             see shouldn't cost you a tap into the detail first. (It also can't
@@ -1022,7 +1032,7 @@ export function AirFryerPage({ onClose, user, recipes = [], weeklyRecipeIds = []
     const row = editingRow;
     const key = row ? airFryerKey(row.name) : '';
     const found = row ? (recipeIndex[key] || { recipes: [], weekRecipes: [] }) : null;
-    const onList = row ? extrasFor(row) : [];
+    const listWeek = row ? listWeekFor(row) : null;
     const heading = row ? (links[key] || row.name) : 'Add your own';
     return (
       <div
@@ -1040,7 +1050,7 @@ export function AirFryerPage({ onClose, user, recipes = [], weeklyRecipeIds = []
                   {!!row.doneF && <span className={styles.doneTemp}>Done at {row.doneF}°F internal</span>}
                   {row.source === 'mine' && <span className={styles.tag}>yours</span>}
                   {row.source === 'edited' && <span className={styles.tag}>edited</span>}
-                  {onList.length > 0 && <span className={styles.recipeTagWeek}>on your list</span>}
+                  <WeekTag week={listWeek} />
                 </div>
               )}
             </div>
@@ -1060,7 +1070,7 @@ export function AirFryerPage({ onClose, user, recipes = [], weeklyRecipeIds = []
                       {r.title}
                       {weekIds.has(r.id)
                         ? <span className={styles.weekFlag}>this week</span>
-                        : recentIds.has(r.id) && <span className={styles.weekFlag}>past 2 weeks</span>}
+                        : recentIds.has(r.id) && <span className={styles.weekFlagLast}>last week</span>}
                     </li>
                   ))}
                 </ul>
@@ -1195,13 +1205,15 @@ export function AirFryerPage({ onClose, user, recipes = [], weeklyRecipeIds = []
           )}
         </div>
       ) : (
-        <>
+        // Scrolls sideways when the window is narrower than the columns, so the
+        // grid keeps its lines instead of cells piling onto each other.
+        <div className={styles.tableScroll}>
           {/* The week's food first, under its own heading. Without the heading
               the reordering just looks like a broken alphabetical sort. */}
           {weekRows.length > 0 && (
             <>
               <div className={styles.groupHead}>
-                In your shopping lists · past 2 weeks
+                In your shopping lists · this week &amp; last week
                 <span className={styles.groupCount}>{weekRows.length}</span>
               </div>
               {tableHead}
@@ -1215,7 +1227,7 @@ export function AirFryerPage({ onClose, user, recipes = [], weeklyRecipeIds = []
               <ul className={styles.list}>{restRows.map(renderRow)}</ul>
             </>
           )}
-        </>
+        </div>
       )}
 
       {/* Hidden rows are recoverable, and visibly so. A hide you can't find
