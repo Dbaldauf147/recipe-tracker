@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { todayKey } from '../utils/localDate';
-import { subscribeWorkouts } from '../utils/workoutsSync';
+import { subscribeWorkouts, writeWorkoutsMirror } from '../utils/workoutsSync';
 import { createPortal, flushSync } from 'react-dom';
 import { ComposedChart, Area, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, BarChart, Bar, ReferenceLine } from 'recharts';
 import { doc, collection, onSnapshot } from 'firebase/firestore';
@@ -319,10 +319,6 @@ function loadWorkouts() {
   try { return ensureWorkoutIds(JSON.parse(localStorage.getItem(STORAGE_KEY)) || []); } catch { return []; }
 }
 
-// Recent-workout counts the local cache falls back to when the whole log will
-// not fit, largest first.
-const LOCAL_CACHE_FALLBACKS = [1000, 500, 250, 100];
-
 /**
  * Mirror the workout log into localStorage — a CACHE, never the record.
  *
@@ -349,23 +345,10 @@ const LOCAL_CACHE_FALLBACKS = [1000, 500, 250, 100];
  * turn into a mass deletion of history.
  */
 function cacheWorkoutsLocally(data) {
-  const list = Array.isArray(data) ? data : [];
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(list));
-    return;
-  } catch { /* over quota — fall back to a recent window */ }
-
-  const byNewest = [...list].sort((x, y) => String(y?.date || '').localeCompare(String(x?.date || '')));
-  for (const n of LOCAL_CACHE_FALLBACKS) {
-    if (n >= byNewest.length) continue;
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(byNewest.slice(0, n)));
-      console.warn(`[saveWorkouts] localStorage over quota — cached only the ${n} most recent workouts. Firestore holds the full log.`);
-      return;
-    } catch { /* still too big — try a smaller window */ }
-  }
-  try { localStorage.removeItem(STORAGE_KEY); } catch { /* nothing left to try */ }
-  console.warn('[saveWorkouts] localStorage over quota — skipped the local cache entirely. Firestore holds the full log.');
+  // One implementation, shared with the live subscription in workoutsSync —
+  // two copies of the shrink rule would drift, and the failure mode of the
+  // loser is a mirror that never refreshes.
+  writeWorkoutsMirror(Array.isArray(data) ? data : []);
 }
 
 function saveWorkouts(data, uid) {

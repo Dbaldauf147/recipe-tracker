@@ -16,8 +16,14 @@
 import { collection, onSnapshot } from 'firebase/firestore';
 import { db } from '../firebase';
 import { noteWorkoutsSynced } from './firestoreSync';
+import {
+  WORKOUTS_STORAGE_KEY, writeWorkoutsMirror, isWorkoutsMirrorPartial,
+} from './workoutsMirror';
 
-export const WORKOUTS_STORAGE_KEY = 'sunday-workout-log';
+// Re-exported so the pages that already import them from here keep working;
+// the implementation lives in workoutsMirror.js, which has no Firebase imports
+// and so can also be used from firestoreSync without a cycle.
+export { WORKOUTS_STORAGE_KEY, writeWorkoutsMirror, isWorkoutsMirrorPartial };
 
 /** The localStorage mirror, for first paint before the snapshot lands. */
 export function loadWorkoutsMirror() {
@@ -51,12 +57,7 @@ export function subscribeWorkouts(uid, onWorkouts) {
         (b.date || '').localeCompare(a.date || '') ||
         (a.savedAt || '').localeCompare(b.savedAt || '')
       );
-      const json = JSON.stringify(sorted);
-      try {
-        if (localStorage.getItem(WORKOUTS_STORAGE_KEY) !== json) {
-          localStorage.setItem(WORKOUTS_STORAGE_KEY, json);
-        }
-      } catch { /* quota or disabled storage — the callback still fires */ }
+      writeWorkoutsMirror(sorted);
       // This snapshot IS the remote state, so it is what the save-path's diff
       // cache should be measured against. Without this the cache only ever
       // heard about our own writes, and any divergence made the next save a

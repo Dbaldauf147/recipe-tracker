@@ -1,5 +1,6 @@
 import { doc, getDoc, setDoc, addDoc, deleteDoc, updateDoc, deleteField, collection, query, where, getDocs, arrayUnion, arrayRemove, increment, onSnapshot, writeBatch, runTransaction } from 'firebase/firestore';
 import { db, auth } from '../firebase';
+import { writeWorkoutsMirror } from './workoutsMirror';
 
 // ── Data-safety layer (mirrors the mobile app) ──────────────────────────────
 // Every full-document overwrite of a big "blob" doc (dailyLog, recipes) goes
@@ -1681,7 +1682,10 @@ export function hydrateLocalStorage(userData, uid) {
       } catch { /* fall through */ }
     }
     if (nextLog) {
-      localStorage.setItem('sunday-workout-log', JSON.stringify(nextLog));
+      // Degrade to a recent window rather than throwing: a log past the quota
+      // used to blow up here, in the MIDDLE of hydration, so every field after
+      // this one silently never landed.
+      writeWorkoutsMirror(nextLog);
     }
   }
 
