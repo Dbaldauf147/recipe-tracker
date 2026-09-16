@@ -852,7 +852,19 @@ test('the result shape the UI depends on is preserved', () => {
 test('analyzeProgress still works with the legacy 2-argument call', () => {
   // The component used to call analyzeProgress(workouts, groupByName) with no
   // options; that must keep working (it just can't inject `now`).
-  const groups = analyzeProgress(workoutsFor('Row', [{ daysAgo: 0, weight: 100, sets: ['5'] }]), new Map([['row', 'Back']]));
+  //
+  // The session is dated from the REAL today, not the pinned NOW: with no
+  // options there is no `now` to inject, so the analyzer uses the actual date
+  // and anything older than its window falls out. Dating this one off NOW made
+  // the test pass only while the real date stayed within that window of
+  // Jul 16 2026 — it started failing on Sep 15, 61 days later, with nothing
+  // having changed.
+  const today = new Date();
+  const todayKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+  const groups = analyzeProgress(
+    [{ date: todayKey, entries: [{ exercise: 'Row', group: 'Chest', sets: ['5'], weight: '100' }] }],
+    new Map([['row', 'Back']]),
+  );
   assert.equal(groups.nobaseline.length, 1);
   assert.equal(groups.nobaseline[0].group, 'Back');
 });
