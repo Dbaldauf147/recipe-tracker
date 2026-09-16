@@ -1,7 +1,7 @@
 import { Fragment, useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { RecipeCombobox, DailyTrackerPage, MealsTrackedChart, HistoryChart, ServingsChart, KpiAlerts, DailySupplementsPanel, saveDailyLog } from './DailyTrackerPage';
 import { workoutCalendarCategory, CAL_ICON } from './WorkoutPage';
-import { loadField, saveField, newWorkoutId } from '../utils/firestoreSync';
+import { loadField, saveField, newWorkoutId, saveWorkoutDay, deleteWorkoutDay } from '../utils/firestoreSync';
 import {
   hasGoogleToken, storeTokenFromPopup, disconnectGoogle,
   openGoogleAuthPopup, fetchGoogleCalendars, fetchGoogleEvents, parseEventDate, SELECTED_KEY,
@@ -16,7 +16,7 @@ import {
   pruneSaunaOverrides, resolveSaunaDates, spreadIndices,
 } from '../utils/saunaPlan';
 import { isStretchWorkout } from '../utils/stretchRoutine';
-import { subscribeWorkouts } from '../utils/workoutsSync';
+import { subscribeWorkouts, writeWorkoutsMirror } from '../utils/workoutsSync';
 import { typesInRotation, normalizeTypePaused } from '../utils/workoutTypeRotation';
 import { MAIN_MEALS, mealStatsForDay, mealStatsForDays, mealsTrackedGoalOf } from '../utils/mealsTracked';
 import styles from './WeekPlanPage.module.css';
@@ -1045,49 +1045,63 @@ export function WeekPlanPage({ recipes, getRecipe, user, weeklyPlan = [], weekly
     if (user?.uid) saveField(user.uid, 'saunaOverrides', next).catch(() => {});
   }, [saunaOverrides, suggestedSaunaDates, todayKey, user?.uid]);
 
-  // Write the workouts array everywhere the app expects it: the local mirror
-  // (same 'sunday-workout-log' key WorkoutPage owns), our own state, and the
-  // diff-aware per-workout Firestore writer. saveField('workoutLog') only
-  // upserts/deletes the rows that actually changed, so this is a ~1-doc write.
-  const persistWorkouts = useCallback((next) => {
+  // Update our own state + the local mirror after a sauna edit.
+  //
+  // This deliberately does NOT write the whole array to Firestore any more.
+  // saveField('workoutLog') diffs the array it is handed against the live
+  // remote and DELETES every row missing from it — so one of these calls made
+  // from a truncated local copy would delete real training history. The sauna
+  // handlers below write the single day they touched instead.
+  const applyWorkouts = useCallback((next) => {
     setWorkoutsRaw(next);
-    try { localStorage.setItem('sunday-workout-log', JSON.stringify(next)); } catch { /* quota or disabled storage */ }
-    if (user?.uid) saveField(user.uid, 'workoutLog', next).catch(() => {});
-  }, [user?.uid]);
+    writeWorkoutsMirror(next);
+  }, []);
 
   // Log a real sauna day into workout history for `dateStr`: flip sauna:true on
   // an existing workout that date, or create a sauna-only day (empty entries).
   // Mirrors WorkoutPage.logSaunaDay so both surfaces write the same shape; the
-  // Week Plan then reads it back as the solid "🧖 Sauna" logged chip. Read
-  // fresh from localStorage so we never clobber a concurrent Workout-page save.
+  // Week Plan then reads it back as the solid "🧖 Sauna" logged chip. Built
+  // from the live list (`workoutsRaw`, kept current by the subscription), not
+  // from localStorage, which can be a trimmed window of the log.
   const logSaunaForDate = useCallback((dateStr) => {
-    const current = loadWorkoutsRaw();
+    const current = workoutsRaw;
     const existing = current.find(w => w?.date === dateStr);
     const workout = existing
       ? { ...existing, sauna: true, savedAt: new Date().toISOString() }
       : { id: newWorkoutId(), date: dateStr, gym: '', workoutType: '', entries: [], sauna: true, savedAt: new Date().toISOString() };
     const next = [workout, ...current.filter(w => w?.date !== dateStr)]
       .sort((a, b) => (b.date || '').localeCompare(a.date || '') || (a.savedAt || '').localeCompare(b.savedAt || ''));
-    persistWorkouts(next);
-  }, [persistWorkouts]);
+    applyWorkouts(next);
+    if (user?.uid) saveWorkoutDay(user.uid, workout).catch(() => {});
+  }, [workoutsRaw, applyWorkouts, user?.uid]);
 
   // Un-log a sauna from `dateStr`: drop a sauna-only day entirely, or just clear
   // the flag on a day that also has logged exercises (keep the workout itself).
   const removeSaunaForDate = useCallback((dateStr) => {
-    const current = loadWorkoutsRaw();
+    const current = workoutsRaw;
     const existing = current.find(w => w?.date === dateStr && w?.sauna);
     if (!existing) return;
     const hasExercises = Array.isArray(existing.entries) && existing.entries.length > 0;
     let next;
+    let cleared = null;
     if (hasExercises) {
       const { sauna, ...rest } = existing; // eslint-disable-line no-unused-vars
-      next = [{ ...rest, savedAt: new Date().toISOString() }, ...current.filter(w => w?.date !== dateStr)];
+      cleared = { ...rest, sauna: false, savedAt: new Date().toISOString() };
+      next = [cleared, ...current.filter(w => w?.date !== dateStr)];
     } else {
       next = current.filter(w => !(w?.date === dateStr && w?.sauna));
     }
     next = next.sort((a, b) => (b.date || '').localeCompare(a.date || '') || (a.savedAt || '').localeCompare(b.savedAt || ''));
-    persistWorkouts(next);
-  }, [persistWorkouts]);
+    applyWorkouts(next);
+    // One document either way: the day keeps its exercises with the flag off,
+    // or a sauna-only placeholder goes away.
+    if (user?.uid) {
+      const p = cleared
+        ? saveWorkoutDay(user.uid, cleared)
+        : (existing.id ? deleteWorkoutDay(user.uid, existing.id) : Promise.resolve());
+      p.catch(() => {});
+    }
+  }, [workoutsRaw, applyWorkouts, user?.uid]);
 
   // The 🧖 chip under a workout cell. A logged sauna is a plain (solid) chip;
   // upcoming days get a clickable chip — dashed when suggested, ghosted when not
@@ -1223,14 +1237,22 @@ export function WeekPlanPage({ recipes, getRecipe, user, weeklyPlan = [], weekly
   // user-doc changes. Without this the workout row rendered whatever the
   // localStorage mirror held, so a session that never opened the Workout page
   // (or a workout logged on the phone) simply didn't show up here.
+  const hasLiveWorkoutsRef = useRef(false);
   useEffect(() => subscribeWorkouts(user?.uid, sorted => {
+    hasLiveWorkoutsRef.current = true;
     setWorkoutsRaw(prev => (JSON.stringify(sorted) === JSON.stringify(prev) ? prev : sorted));
   }), [user?.uid]);
 
   // Refresh from localStorage when a Firestore sync hydrates it, or another tab writes.
   useEffect(() => {
     function refresh() {
-      setWorkoutsRaw(loadWorkoutsRaw());
+      // Only ever SEED from the mirror. Once the live subscription has spoken,
+      // re-reading localStorage here would replace real data with a cache that
+      // can be a trimmed window of the log — which is how Monday's and
+      // Tuesday's sessions showed up in Workout ▸ History and as rest days on
+      // this page. `firestore-sync` fires for user-doc changes, which say
+      // nothing about the workouts subcollection anyway.
+      if (!hasLiveWorkoutsRef.current) setWorkoutsRaw(loadWorkoutsRaw());
       setTypeCategories(loadTypeCategories());
       setWorkoutTypes(loadWorkoutTypes());
       setTypeSkipDates(loadTypeSkipDates());
