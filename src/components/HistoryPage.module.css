@@ -275,3 +275,205 @@
     padding: 0.5rem 0.5rem;
   }
 }
+
+/* ── Subtabs: Weekly Menus | Daily ── */
+
+.subtabBar {
+  display: flex;
+  gap: 0.25rem;
+  border-bottom: 1px solid var(--color-border, #e5e7eb);
+  margin-bottom: 1rem;
+}
+
+.subtab {
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  font: inherit;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--color-text-muted, #64748b);
+  padding: 0.5rem 0.9rem;
+  cursor: pointer;
+}
+
+.subtab:hover { color: var(--color-accent); }
+
+.subtabActive {
+  color: var(--color-accent);
+  border-bottom-color: var(--color-accent);
+}
+
+/* ── Daily tab ── */
+
+.dailyAvg {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.35rem 1rem;
+  padding: 0.6rem 0.85rem;
+  margin-bottom: 0.75rem;
+  background: var(--color-surface-alt, #f8fafc);
+  border: 1px solid var(--color-border, #e5e7eb);
+  border-radius: var(--radius-sm, 8px);
+}
+
+.dailyAvgLabel {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--color-text-muted, #64748b);
+}
+
+.dailyCard {
+  border: 1px solid var(--color-border, #e5e7eb);
+  border-radius: var(--radius-sm, 8px);
+  margin-bottom: 0.5rem;
+  overflow: hidden;
+}
+
+.dailyHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.5rem 1rem;
+  width: 100%;
+  background: none;
+  border: none;
+  font: inherit;
+  text-align: left;
+  padding: 0.6rem 0.85rem;
+  cursor: pointer;
+}
+
+.dailyHead:hover { background: var(--color-surface-alt, #f8fafc); }
+
+.dailyDate {
+  font-weight: 700;
+  font-size: 0.92rem;
+  min-width: 8.5rem;
+}
+
+.dailyMacros {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.9rem;
+}
+
+.dailyMacro {
+  font-size: 0.85rem;
+  white-space: nowrap;
+}
+
+.dailyMacroLabel {
+  color: var(--color-text-muted, #64748b);
+  font-size: 0.78rem;
+  margin-left: 0.15rem;
+}
+
+.dailyMeta {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-left: auto;
+  font-size: 0.78rem;
+  color: var(--color-text-muted, #64748b);
+}
+
+.dailySupPill {
+  background: var(--color-surface-alt, #f1f5f9);
+  border: 1px solid var(--color-border, #e5e7eb);
+  border-radius: 999px;
+  padding: 0.1rem 0.5rem;
+}
+
+.dailySkipped {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--color-text-muted, #64748b);
+}
+
+.dailyChevron { font-size: 0.8rem; }
+
+.dailyBody {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+  padding: 0.25rem 0.85rem 0.85rem;
+  border-top: 1px solid var(--color-border, #e5e7eb);
+}
+
+@media (max-width: 640px) {
+  .dailyBody { grid-template-columns: 1fr; }
+  .dailyMeta { margin-left: 0; }
+}
+
+.dailyColTitle {
+  margin: 0.75rem 0 0.35rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text-muted, #64748b);
+}
+
+.dailySlot { margin-bottom: 0.4rem; }
+
+.dailySlotName {
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: capitalize;
+  color: var(--color-text-muted, #64748b);
+}
+
+.dailyList {
+  margin: 0.15rem 0 0;
+  padding-left: 1.1rem;
+  font-size: 0.85rem;
+}
+
+.dailyList li { margin-bottom: 0.15rem; }
+
+.dailyDim { color: var(--color-text-muted, #64748b); font-size: 0.8rem; }
+
+.dailyNone, .dailyNote {
+  margin: 0.15rem 0;
+  font-size: 0.82rem;
+  color: var(--color-text-muted, #64748b);
+}
+
+.dailyTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+.dailyTable td {
+  padding: 0.15rem 0.3rem 0.15rem 0;
+  border-bottom: 1px solid var(--color-border-light, #f1f5f9);
+  vertical-align: baseline;
+}
+
+.dailyNutLabel { color: var(--color-text-muted, #64748b); }
+.dailyNutValue { font-weight: 600; text-align: right; white-space: nowrap; }
+.dailyNutGoal {
+  text-align: right;
+  white-space: nowrap;
+  font-size: 0.78rem;
+  color: var(--color-text-muted, #64748b);
+}
+
+.dailyMoreBtn {
+  display: block;
+  width: 100%;
+  margin-top: 0.5rem;
+  padding: 0.5rem;
+  background: none;
+  border: 1px dashed var(--color-border, #e5e7eb);
+  border-radius: var(--radius-sm, 8px);
+  font: inherit;
+  font-size: 0.85rem;
+  color: var(--color-text-muted, #64748b);
+  cursor: pointer;
+}
+
+.dailyMoreBtn:hover { color: var(--color-accent); border-color: var(--color-accent); }
