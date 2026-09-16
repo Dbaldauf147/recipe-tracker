@@ -1,10 +1,16 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { auth } from '../firebase';
 import { saveField, listFullBackups, restoreFieldFromBackup } from '../utils/firestoreSync';
 import { importSheetHistory } from '../utils/importHistory';
+import { NUTRIENTS } from '../utils/nutrition';
+import { dayTotals, dayHasContent, countedSupplements, activeEntries, formatNutrient } from '../utils/dailyTotals';
 import styles from './HistoryPage.module.css';
 
 const HISTORY_KEY = 'sunday-plan-history';
+// Written by the Daily Tracker; read here so the Daily tab reports exactly
+// what was logged, without a second copy of the data.
+const DAILY_LOG_KEY = 'sunday-daily-log';
+const GOALS_KEY = 'sunday-nutrition-goals';
 
 function loadHistory() {
   try {
@@ -41,8 +47,267 @@ function getYear(dateStr) {
   return dateStr.split('-')[0];
 }
 
+function loadDailyLog() {
+  try {
+    const raw = localStorage.getItem(DAILY_LOG_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+}
+
+function loadGoals() {
+  try {
+    const raw = localStorage.getItem(GOALS_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+}
+
+// "Sat, Sep 12" — short enough to sit in a row, unambiguous across years.
+function formatDayLabel(dateStr) {
+  const [y, m, d] = String(dateStr).split('-').map(Number);
+  if (!y || !m || !d) return dateStr;
+  const date = new Date(y, m - 1, d);
+  const thisYear = new Date().getFullYear();
+  return date.toLocaleDateString('en-US', {
+    weekday: 'short', month: 'short', day: 'numeric',
+    ...(y === thisYear ? {} : { year: 'numeric' }),
+  });
+}
+
+function entryLabel(entry, getRecipe) {
+  return entry?.recipeName
+    || entry?.ingredientName
+    || (entry?.recipeId ? getRecipe?.(entry.recipeId)?.title : null)
+    || 'Logged item';
+}
+
+const SLOT_ORDER = ['breakfast', 'lunch', 'dinner', 'snack'];
+const MACRO_KEYS = ['calories', 'protein', 'carbs', 'fat'];
+const DAYS_PER_PAGE = 30;
+
+/**
+ * One day of the food log, expandable. Collapsed it's the headline macros;
+ * open it lists what was eaten, the supplements taken, and every nutrient the
+ * day came to — meals and supplements together, matching the tracker's card.
+ */
+function DailyRow({ date, day, goals, getRecipe }) {
+  const [open, setOpen] = useState(false);
+  const { totals, fromSupplements, mealCount, skipped } = useMemo(() => dayTotals(day), [day]);
+  const supplements = Array.isArray(day?.supplements) ? day.supplements : [];
+  const countedIds = useMemo(
+    () => new Set(countedSupplements(supplements).map(c => c.supplement.id)),
+    [supplements]
+  );
+
+  const nutrientRows = NUTRIENTS.filter(n => (totals[n.key] || 0) > 0 || (goals?.[n.key] || 0) > 0);
+  const meals = activeEntries(day);
+  const bySlot = SLOT_ORDER
+    .map(slot => ({ slot, items: meals.filter(e => (e.mealSlot || (e.type === 'custom' ? 'snack' : 'snack')) === slot) }))
+    .filter(g => g.items.length > 0);
+
+  return (
+    <div className={styles.dailyCard}>
+      <button className={styles.dailyHead} onClick={() => setOpen(o => !o)} aria-expanded={open}>
+        <span className={styles.dailyDate}>{formatDayLabel(date)}</span>
+        {skipped ? (
+          <span className={styles.dailySkipped}>Day skipped</span>
+        ) : mealCount === 0 ? (
+          // A day with supplements but no meals: a row of zeroed macros would
+          // read as "you ate nothing measurable", which isn't what happened.
+          <span className={styles.dailySkipped}>Supplements only</span>
+        ) : (
+          <span className={styles.dailyMacros}>
+            {MACRO_KEYS.map(key => {
+              const n = NUTRIENTS.find(x => x.key === key);
+              return (
+                <span key={key} className={styles.dailyMacro}>
+                  <strong>{formatNutrient(totals[key], n)}</strong>
+                  <span className={styles.dailyMacroLabel}>{key === 'calories' ? 'cal' : `g ${n.label.toLowerCase()}`}</span>
+                </span>
+              );
+            })}
+          </span>
+        )}
+        <span className={styles.dailyMeta}>
+          {mealCount > 0 && <span>{mealCount} item{mealCount === 1 ? '' : 's'}</span>}
+          {supplements.length > 0 && (
+            <span className={styles.dailySupPill}>
+              {supplements.length} supplement{supplements.length === 1 ? '' : 's'}
+            </span>
+          )}
+          <span className={styles.dailyChevron}>{open ? '▾' : '▸'}</span>
+        </span>
+      </button>
+
+      {open && (
+        <div className={styles.dailyBody}>
+          <div className={styles.dailyCol}>
+            <h4 className={styles.dailyColTitle}>Eaten</h4>
+            {bySlot.length === 0 ? (
+              <p className={styles.dailyNone}>Nothing logged.</p>
+            ) : bySlot.map(g => (
+              <div key={g.slot} className={styles.dailySlot}>
+                <span className={styles.dailySlotName}>{g.slot}</span>
+                <ul className={styles.dailyList}>
+                  {g.items.map((e, i) => (
+                    <li key={e.id || i}>
+                      {entryLabel(e, getRecipe)}
+                      {e.servings ? <span className={styles.dailyDim}> × {e.servings}</span> : null}
+                      {e.nutrition?.calories ? <span className={styles.dailyDim}> · {Math.round(e.nutrition.calories)} cal</span> : null}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+            {day?.skippedMeals?.length > 0 && (
+              <p className={styles.dailyNote}>Skipped: {day.skippedMeals.join(', ')}</p>
+            )}
+
+            <h4 className={styles.dailyColTitle}>Supplements</h4>
+            {supplements.length === 0 ? (
+              <p className={styles.dailyNone}>None logged.</p>
+            ) : (
+              <ul className={styles.dailyList}>
+                {supplements.map((s, i) => (
+                  <li key={s.id || i}>
+                    {s.name || s.nutrientKey || 'Supplement'}
+                    {s.amount ? <span className={styles.dailyDim}> · {s.amount}{s.unit ? ` ${s.unit}` : ''}</span> : null}
+                    {!countedIds.has(s.id) && (
+                      <span className={styles.dailyDim} title="No nutrient amount to add — it's on the record, but not in the totals."> · not counted</span>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+
+          <div className={styles.dailyCol}>
+            <h4 className={styles.dailyColTitle}>Nutrients{skipped ? ' (day skipped)' : ''}</h4>
+            {nutrientRows.length === 0 ? (
+              <p className={styles.dailyNone}>Nothing to total.</p>
+            ) : (
+              <table className={styles.dailyTable}>
+                <tbody>
+                  {nutrientRows.map(n => {
+                    const goal = goals?.[n.key] || 0;
+                    const pct = goal > 0 ? Math.round((totals[n.key] / goal) * 100) : null;
+                    const fromSup = fromSupplements?.[n.key] || 0;
+                    return (
+                      <tr key={n.key}>
+                        <td className={styles.dailyNutLabel}>{n.label}</td>
+                        <td className={styles.dailyNutValue}>
+                          {formatNutrient(totals[n.key], n)}{n.unit ? ` ${n.unit}` : ''}
+                          {fromSup > 0 && (
+                            <span className={styles.dailyDim} title="Included above, from the day's supplements">
+                              {' '}(incl. {formatNutrient(fromSup, n)} supp.)
+                            </span>
+                          )}
+                        </td>
+                        <td className={styles.dailyNutGoal}>
+                          {pct == null ? '' : `${pct}% of ${formatNutrient(goal, n)}`}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** The Daily tab: one row per logged day, newest first. */
+function DailyNutritionHistory({ getRecipe }) {
+  const [log, setLog] = useState(loadDailyLog);
+  const [goals, setGoals] = useState(loadGoals);
+  const [limit, setLimit] = useState(DAYS_PER_PAGE);
+
+  // The tracker fires `firestore-sync` after every save, and `storage` covers
+  // another tab; without these the tab would show whatever was cached when
+  // Meal History opened.
+  useEffect(() => {
+    const refresh = () => { setLog(loadDailyLog()); setGoals(loadGoals()); };
+    window.addEventListener('firestore-sync', refresh);
+    window.addEventListener('storage', refresh);
+    window.addEventListener('goals-updated', refresh);
+    return () => {
+      window.removeEventListener('firestore-sync', refresh);
+      window.removeEventListener('storage', refresh);
+      window.removeEventListener('goals-updated', refresh);
+    };
+  }, []);
+
+  const dates = useMemo(
+    () => Object.keys(log).filter(d => dayHasContent(log[d])).sort().reverse(),
+    [log]
+  );
+
+  // A week's averages read as the summary of recent eating; a single day is
+  // noise. Days with no meals logged — skipped, or supplements only — would
+  // drag every average towards zero, so they're out.
+  const recentAvg = useMemo(() => {
+    const days = dates.filter(d => (log[d]?.entries || []).length > 0 && !log[d]?.daySkipped).slice(0, 7);
+    if (days.length === 0) return null;
+    const sum = {};
+    for (const key of MACRO_KEYS) sum[key] = 0;
+    for (const d of days) {
+      const { totals } = dayTotals(log[d]);
+      for (const key of MACRO_KEYS) sum[key] += totals[key] || 0;
+    }
+    return { days: days.length, avg: Object.fromEntries(MACRO_KEYS.map(k => [k, sum[k] / days.length])) };
+  }, [dates, log]);
+
+  if (dates.length === 0) {
+    return (
+      <p className={styles.empty}>
+        No days logged yet. Meals you track on the Daily Tracker show up here, with the day's supplements.
+      </p>
+    );
+  }
+
+  return (
+    <div>
+      {recentAvg && (
+        <div className={styles.dailyAvg}>
+          <span className={styles.dailyAvgLabel}>
+            Last {recentAvg.days} logged day{recentAvg.days === 1 ? '' : 's'}, average
+          </span>
+          {MACRO_KEYS.map(key => {
+            const n = NUTRIENTS.find(x => x.key === key);
+            return (
+              <span key={key} className={styles.dailyMacro}>
+                <strong>{formatNutrient(recentAvg.avg[key], n)}</strong>
+                <span className={styles.dailyMacroLabel}>{key === 'calories' ? 'cal' : `g ${n.label.toLowerCase()}`}</span>
+              </span>
+            );
+          })}
+        </div>
+      )}
+
+      {dates.slice(0, limit).map(date => (
+        <DailyRow key={date} date={date} day={log[date]} goals={goals} getRecipe={getRecipe} />
+      ))}
+
+      {dates.length > limit && (
+        <button className={styles.dailyMoreBtn} onClick={() => setLimit(l => l + DAYS_PER_PAGE)}>
+          Show {Math.min(DAYS_PER_PAGE, dates.length - limit)} more day{dates.length - limit === 1 ? '' : 's'}
+        </button>
+      )}
+    </div>
+  );
+}
+
 export function HistoryPage({ getRecipe, recipes, deletedRecipes = [], onRestoreDeleted, onPurgeDeleted, onClose }) {
   const [entries, setEntries] = useState(loadHistory);
+  // 'weeks' = saved weekly menus (what this page has always been),
+  // 'daily'  = per-day nutrients from the food log.
+  const [tab, setTab] = useState('weeks');
   const [editingDate, setEditingDate] = useState(null);
   const [editingCell, setEditingCell] = useState(null); // { timestamp, index }
   const [importStatus, setImportStatus] = useState(null); // null | 'done' | { imported, skipped, unmatched }
@@ -290,7 +555,28 @@ export function HistoryPage({ getRecipe, recipes, deletedRecipes = [], onRestore
         </div>
       )}
 
-      {sorted.length === 0 ? (
+      <div className={styles.subtabBar} role="tablist">
+        <button
+          role="tab"
+          aria-selected={tab === 'weeks'}
+          className={`${styles.subtab} ${tab === 'weeks' ? styles.subtabActive : ''}`}
+          onClick={() => setTab('weeks')}
+        >
+          Weekly Menus
+        </button>
+        <button
+          role="tab"
+          aria-selected={tab === 'daily'}
+          className={`${styles.subtab} ${tab === 'daily' ? styles.subtabActive : ''}`}
+          onClick={() => setTab('daily')}
+        >
+          Daily
+        </button>
+      </div>
+
+      {tab === 'daily' ? (
+        <DailyNutritionHistory getRecipe={getRecipe} />
+      ) : sorted.length === 0 ? (
         <p className={styles.empty}>
           No history yet — save a weekly menu to start tracking your meal history
         </p>

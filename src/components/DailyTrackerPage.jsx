@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { NUTRIENTS, fetchNutritionForIngredient, fetchNutritionForRecipe, effectiveCalorieGoal, whoopBudgetEnabled, whoopCaloriesForDate } from '../utils/nutrition';
 import { loadIngredients } from '../utils/ingredientsStore';
+import { dayTotals, convertSupplementAmount } from '../utils/dailyTotals';
 import { ingredientMatchScore } from '../utils/ingredientMatch';
 import { getSizeGrams } from '../utils/units';
 import { saveField, loadField, loadRestaurants, saveRestaurants, saveSpotForOwner, saveDailyLogToFirestore, loadDailyLogFromFirestore, loadFriends, getUsername, shareMeal } from '../utils/firestoreSync';
@@ -3103,34 +3104,9 @@ function MealLog({ entries, onDelete, onEdit, onUpdateEntry, goalKeys, skippedMe
 }
 
 /* ── Daily Totals Progress Bars ── */
-// Returns the supplement's amount expressed in the canonical unit the
-// nutrient is tracked in (matches NUTRIENTS[*].unit on the website). Returns
-// null when the unit is unrecognized OR doesn't apply to the nutrient
-// (e.g. amount in "capsule" — we can't convert that to mg automatically).
-export function convertSupplementAmount(amount, fromUnit, nutrientKey) {
-  if (!isFinite(amount) || amount <= 0) return null;
-  const unit = (fromUnit || '').toLowerCase().trim();
-  const target = (NUTRIENTS.find(n => n.key === nutrientKey)?.unit || '').toLowerCase();
-  if (!target) return null;
-  if (!unit || unit === target) return amount;
-  // mg ↔ mcg ↔ g ↔ µg ↔ ug
-  const norm = (u) => (u === 'µg' || u === 'ug' || u === 'mcg') ? 'mcg' : u;
-  const u = norm(unit);
-  const t = norm(target);
-  if (u === t) return amount;
-  const factors = {
-    'g_mg': 1000,
-    'mg_g': 0.001,
-    'mg_mcg': 1000,
-    'mcg_mg': 0.001,
-    'g_mcg': 1_000_000,
-    'mcg_g': 0.000001,
-  };
-  const f = factors[`${u}_${t}`];
-  if (typeof f === 'number') return amount * f;
-  // IU and pill-count units don't have a clean conversion to mass.
-  return null;
-}
+// Lives in utils/dailyTotals now, re-exported here for the views that already
+// import it from this module.
+export { convertSupplementAmount };
 
 function DailyTotalsBar({ entries, daySkipped, skippedMeals, supplements }) {
   const goals = useMemo(loadGoals, []);
@@ -3146,35 +3122,9 @@ function DailyTotalsBar({ entries, daySkipped, skippedMeals, supplements }) {
     );
   }
 
-  // Filter out entries in skipped meal slots
-  const activeEntries = skippedMeals && skippedMeals.length > 0
-    ? entries.filter(e => {
-        const slot = e.type === 'custom' && !e.mealSlot ? 'snack' : (MEAL_SLOTS.includes(e.mealSlot) ? e.mealSlot : 'snack');
-        return !skippedMeals.includes(slot);
-      })
-    : entries;
-
-  const totals = {};
-  for (const n of NUTRIENTS) totals[n.key] = 0;
-  for (const entry of activeEntries) {
-    for (const n of NUTRIENTS) {
-      totals[n.key] += entry.nutrition?.[n.key] || 0;
-    }
-  }
-  // Fold supplement amounts into the day's totals. Each supplement row
-  // contributes `amount` (converted to the nutrient's display unit when
-  // it differs, e.g. mcg → mg) to its mapped nutrient. Custom rows with
-  // no nutrientKey are ignored — those are tracked but uncategorised.
-  if (Array.isArray(supplements) && supplements.length > 0) {
-    for (const s of supplements) {
-      if (!s.nutrientKey || s.nutrientKey === '__custom') continue;
-      const amount = parseFloat(s.amount);
-      if (!isFinite(amount) || amount <= 0) continue;
-      const converted = convertSupplementAmount(amount, s.unit, s.nutrientKey);
-      if (converted == null) continue;
-      totals[s.nutrientKey] = (totals[s.nutrientKey] || 0) + converted;
-    }
-  }
+  // Meals (minus skipped slots) plus the day's supplements — the same shared
+  // rule Meal History's Daily tab reports, so the two always agree.
+  const { totals } = dayTotals({ entries, skippedMeals, supplements });
 
   // Adjust goals: each skipped main meal = 33% of daily target
   const MAIN_MEALS = ['breakfast', 'lunch', 'dinner'];
