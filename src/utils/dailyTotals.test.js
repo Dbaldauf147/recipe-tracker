@@ -1,4 +1,4 @@
-import test from 'node:test';
+﻿import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   dayTotals,
@@ -6,11 +6,13 @@ import {
   convertSupplementAmount,
   countedSupplements,
   activeEntries,
+  resolveSupplements,
+  formatNutrient,
 } from './dailyTotals.js';
 
 const meal = (slot, nutrition, type) => ({ id: slot + Math.random(), mealSlot: slot, type, nutrition });
 
-test('totals add up the day’s logged meals', () => {
+test('totals add up the dayâ€™s logged meals', () => {
   const day = {
     entries: [
       meal('breakfast', { calories: 400, protein: 30 }),
@@ -56,10 +58,10 @@ test('supplements land in the totals, separately from the meals', () => {
   assert.equal(totals.vitaminD, 27);
 });
 
-test('supplement units convert to the nutrient’s own unit', () => {
+test('supplement units convert to the nutrientâ€™s own unit', () => {
   // Magnesium is tracked in mg, so 0.4 g is 400 mg.
   assert.equal(convertSupplementAmount(0.4, 'g', 'magnesium'), 400);
-  // Vitamin D is tracked in µg; mcg is the same unit spelled differently.
+  // Vitamin D is tracked in Âµg; mcg is the same unit spelled differently.
   assert.equal(convertSupplementAmount(25, 'mcg', 'vitaminD'), 25);
   // A count of capsules can't become a mass.
   assert.equal(convertSupplementAmount(2, 'capsule', 'magnesium'), null);
@@ -86,3 +88,77 @@ test('dayHasContent keeps meals, supplements and skipped days; drops empty ones'
   assert.equal(dayHasContent({ entries: [], supplements: [] }), false);
   assert.equal(dayHasContent(undefined), false);
 });
+
+const vitD = [{ id: 's1', nutrientKey: 'vitaminD', name: 'Vitamin D', amount: '50', unit: 'mcg' }];
+const withZinc = [...vitD, { id: 's2', nutrientKey: 'zinc', name: 'Zinc', amount: '15', unit: 'mg' }];
+
+test('a day with no list of its own inherits the standing one', () => {
+  const log = {
+    '2026-09-10': { entries: [], supplements: vitD },
+    '2026-09-11': { entries: [] },
+    '2026-09-12': { entries: [] },
+  };
+  const res = resolveSupplements(log);
+  assert.equal(res['2026-09-10'].carried, false);
+  assert.deepEqual(res['2026-09-11'].supplements, vitD);
+  assert.equal(res['2026-09-11'].carried, true);
+  assert.deepEqual(res['2026-09-12'].supplements, vitD);
+});
+
+test('editing the list changes later days, not earlier ones', () => {
+  const log = {
+    '2026-09-10': { entries: [], supplements: vitD },
+    '2026-09-11': { entries: [] },
+    '2026-09-12': { entries: [], supplements: withZinc },
+    '2026-09-13': { entries: [] },
+  };
+  const res = resolveSupplements(log);
+  assert.deepEqual(res['2026-09-11'].supplements, vitD);
+  assert.deepEqual(res['2026-09-13'].supplements, withZinc);
+});
+
+test('days before the first recorded list reach forward to it', () => {
+  const log = {
+    '2026-09-01': { entries: [] },
+    '2026-09-02': { entries: [] },
+    '2026-09-10': { entries: [], supplements: withZinc },
+  };
+  const res = resolveSupplements(log);
+  assert.deepEqual(res['2026-09-01'].supplements, withZinc);
+  assert.equal(res['2026-09-01'].carried, true);
+});
+
+test('an explicitly emptied list means none that day, and stays empty after', () => {
+  const log = {
+    '2026-09-10': { entries: [], supplements: vitD },
+    '2026-09-11': { entries: [], supplements: [] },
+    '2026-09-12': { entries: [] },
+  };
+  const res = resolveSupplements(log);
+  assert.deepEqual(res['2026-09-11'].supplements, []);
+  assert.equal(res['2026-09-11'].carried, false);
+  assert.deepEqual(res['2026-09-12'].supplements, []);
+  assert.equal(res['2026-09-12'].carried, false);
+});
+
+test('no recorded list anywhere leaves every day empty', () => {
+  const res = resolveSupplements({ '2026-09-10': { entries: [] }, '2026-09-11': { entries: [] } });
+  assert.deepEqual(res['2026-09-10'].supplements, []);
+  assert.equal(res['2026-09-11'].carried, false);
+});
+
+test('carried supplements count in that dayâ€™s totals', () => {
+  const log = { '2026-09-10': { entries: [], supplements: vitD }, '2026-09-11': { entries: [] } };
+  const carried = resolveSupplements(log)['2026-09-11'].supplements;
+  assert.equal(dayTotals({ entries: [], supplements: carried }).totals.vitaminD, 50);
+});
+
+test('an amount too small to round to a visible figure reads as â€œ<0.1â€', () => {
+  const omega3 = { key: 'omega3', unit: 'g', decimals: 1 };
+  // 360 mcg of a nutrient tracked in grams.
+  assert.equal(formatNutrient(0.00036, omega3), '<0.1');
+  assert.equal(formatNutrient(0.36, omega3), '0.4');
+  assert.equal(formatNutrient(0, omega3), '0');
+  assert.equal(formatNutrient(0.4, { key: 'calories', unit: '', decimals: 0 }), '<1');
+});
+

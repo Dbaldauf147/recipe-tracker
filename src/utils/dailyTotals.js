@@ -101,6 +101,45 @@ export function dayTotals(day) {
   return { totals, fromMeals, fromSupplements, mealCount: meals.length, skipped: false };
 }
 
+/**
+ * Which supplements each day counts as taken.
+ *
+ * The Week Plan panel is a STANDING list, not a per-day form: it only writes
+ * `dailyLog[date].supplements` on the day you edit it, so every other day has
+ * no array at all. Treating those as "took nothing" was wrong — the list is
+ * what you take daily. So a day with no list of its own inherits the nearest
+ * one: the most recent earlier day that has one, or — for days before you
+ * first recorded a list — the earliest one on record.
+ *
+ * Returns { [date]: { supplements, carried } }, `carried` marking a day that
+ * inherited rather than recorded, so a view can say so.
+ */
+export function resolveSupplements(log) {
+  const dates = Object.keys(log || {}).sort();
+  const out = {};
+  let running = null;
+  for (const date of dates) {
+    const own = log[date]?.supplements;
+    if (Array.isArray(own)) {
+      running = own;
+      out[date] = { supplements: own, carried: false };
+    } else {
+      out[date] = { supplements: running || [], carried: (running || []).length > 0 };
+    }
+  }
+  // Days before the first recorded list have nothing behind them, so they
+  // reach forward to the earliest list instead — the same standing list.
+  const firstRecorded = dates.find(d => Array.isArray(log[d]?.supplements) && log[d].supplements.length > 0);
+  if (firstRecorded) {
+    const earliest = log[firstRecorded].supplements;
+    for (const date of dates) {
+      if (date >= firstRecorded) break;
+      if (out[date].supplements.length === 0) out[date] = { supplements: earliest, carried: true };
+    }
+  }
+  return out;
+}
+
 // True when the day holds something worth showing — a meal, a supplement, or
 // a deliberate "skipped" mark. Empty days are left out of history entirely.
 export function dayHasContent(day) {
@@ -111,9 +150,17 @@ export function dayHasContent(day) {
 }
 
 // Round for display the way the catalogue asks (calories whole, iron to 0.1…).
+//
+// An amount that is real but rounds to nothing reads as "<0.1" rather than a
+// flat "0": Omega-3 is tracked in grams, so 360 mcg of it is 0.00036 g, and
+// printing "0" makes a logged supplement look like it was dropped.
 export function formatNutrient(value, nutrient) {
   const dp = nutrient?.decimals ?? 0;
-  const rounded = Number(value || 0).toFixed(dp);
+  const num = Number(value || 0);
+  const rounded = num.toFixed(dp);
+  if (num > 0 && Number(rounded) === 0) {
+    return `<${(1 / 10 ** dp).toFixed(dp)}`;
+  }
   // Drop a trailing ".0" so whole numbers don't read as measurements.
-  return dp > 0 && rounded.endsWith('.' + '0'.repeat(dp)) ? String(Math.round(Number(value || 0))) : rounded;
+  return dp > 0 && rounded.endsWith('.' + '0'.repeat(dp)) ? String(Math.round(num)) : rounded;
 }
