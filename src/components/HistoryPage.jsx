@@ -3,7 +3,7 @@ import { auth } from '../firebase';
 import { saveField, listFullBackups, restoreFieldFromBackup } from '../utils/firestoreSync';
 import { importSheetHistory } from '../utils/importHistory';
 import { NUTRIENTS } from '../utils/nutrition';
-import { dayTotals, dayHasContent, countedSupplements, activeEntries, formatNutrient } from '../utils/dailyTotals';
+import { dayTotals, dayHasContent, countedSupplements, activeEntries, formatNutrient, resolveSupplements } from '../utils/dailyTotals';
 import styles from './HistoryPage.module.css';
 
 const HISTORY_KEY = 'sunday-plan-history';
@@ -93,10 +93,12 @@ const DAYS_PER_PAGE = 30;
  * open it lists what was eaten, the supplements taken, and every nutrient the
  * day came to — meals and supplements together, matching the tracker's card.
  */
-function DailyRow({ date, day, goals, getRecipe }) {
+function DailyRow({ date, day, goals, getRecipe, supplements = [], suppCarried = false }) {
   const [open, setOpen] = useState(false);
-  const { totals, fromSupplements, mealCount, skipped } = useMemo(() => dayTotals(day), [day]);
-  const supplements = Array.isArray(day?.supplements) ? day.supplements : [];
+  // The day as it counts: its own meals, plus the supplements it either
+  // recorded or inherits from the standing list.
+  const dayWithSupps = useMemo(() => ({ ...day, supplements }), [day, supplements]);
+  const { totals, fromSupplements, mealCount, skipped } = useMemo(() => dayTotals(dayWithSupps), [dayWithSupps]);
   const countedIds = useMemo(
     () => new Set(countedSupplements(supplements).map(c => c.supplement.id)),
     [supplements]
@@ -166,7 +168,10 @@ function DailyRow({ date, day, goals, getRecipe }) {
               <p className={styles.dailyNote}>Skipped: {day.skippedMeals.join(', ')}</p>
             )}
 
-            <h4 className={styles.dailyColTitle}>Supplements</h4>
+            <h4 className={styles.dailyColTitle}>
+              Supplements
+              {suppCarried && <span className={styles.dailyCarried} title="This day didn't record its own list, so it uses your standing daily supplements."> · carried forward</span>}
+            </h4>
             {supplements.length === 0 ? (
               <p className={styles.dailyNone}>None logged.</p>
             ) : (
@@ -248,6 +253,9 @@ function DailyNutritionHistory({ getRecipe }) {
     [log]
   );
 
+  // The standing supplement list, resolved per day (see resolveSupplements).
+  const suppByDate = useMemo(() => resolveSupplements(log), [log]);
+
   // A week's averages read as the summary of recent eating; a single day is
   // noise. Days with no meals logged — skipped, or supplements only — would
   // drag every average towards zero, so they're out.
@@ -257,11 +265,11 @@ function DailyNutritionHistory({ getRecipe }) {
     const sum = {};
     for (const key of MACRO_KEYS) sum[key] = 0;
     for (const d of days) {
-      const { totals } = dayTotals(log[d]);
+      const { totals } = dayTotals({ ...log[d], supplements: suppByDate[d]?.supplements || [] });
       for (const key of MACRO_KEYS) sum[key] += totals[key] || 0;
     }
     return { days: days.length, avg: Object.fromEntries(MACRO_KEYS.map(k => [k, sum[k] / days.length])) };
-  }, [dates, log]);
+  }, [dates, log, suppByDate]);
 
   if (dates.length === 0) {
     return (
@@ -291,7 +299,15 @@ function DailyNutritionHistory({ getRecipe }) {
       )}
 
       {dates.slice(0, limit).map(date => (
-        <DailyRow key={date} date={date} day={log[date]} goals={goals} getRecipe={getRecipe} />
+        <DailyRow
+          key={date}
+          date={date}
+          day={log[date]}
+          goals={goals}
+          getRecipe={getRecipe}
+          supplements={suppByDate[date]?.supplements || []}
+          suppCarried={suppByDate[date]?.carried || false}
+        />
       ))}
 
       {dates.length > limit && (

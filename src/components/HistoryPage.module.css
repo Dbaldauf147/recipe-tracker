@@ -477,3 +477,10 @@
 }
 
 .dailyMoreBtn:hover { color: var(--color-accent); border-color: var(--color-accent); }
+
+.dailyCarried {
+  font-weight: 600;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--color-text-muted, #94a3b8);
+}
