@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { NUTRIENTS, fetchNutritionForIngredient, fetchNutritionForRecipe, effectiveCalorieGoal, whoopBudgetEnabled, whoopCaloriesForDate } from '../utils/nutrition';
 import { loadIngredients } from '../utils/ingredientsStore';
-import { dayTotals, convertSupplementAmount } from '../utils/dailyTotals';
+import { dayTotals, convertSupplementAmount, resolveSupplements } from '../utils/dailyTotals';
 import { ingredientMatchScore } from '../utils/ingredientMatch';
 import { getSizeGrams } from '../utils/units';
 import { saveField, loadField, loadRestaurants, saveRestaurants, saveSpotForOwner, saveDailyLogToFirestore, loadDailyLogFromFirestore, loadFriends, getUsername, shareMeal } from '../utils/firestoreSync';
@@ -4930,6 +4930,12 @@ export function KpiAlerts({ dailyLog, recipes, onImportRecipe, cacheVersion, onV
   }
   const dateRangeLabel = `${formatShort(startDate)} – ${formatShort(endDate)}`;
 
+  // Supplements are a standing list, written to a day only when that day's
+  // panel is edited, so reading `day.supplements` alone counted every other
+  // day as "took none" — which is what made a daily vitamin D read as a
+  // deficiency here while the tracker's own card showed 250% of goal.
+  const supplementsByDate = useMemo(() => resolveSupplements(dailyLog), [dailyLog]);
+
   const data = useMemo(() => {
     if (!goals) return [];
     const cache = loadNutritionCache();
@@ -4951,40 +4957,22 @@ export function KpiAlerts({ dailyLog, recipes, onImportRecipe, cacheVersion, onV
       const entries = dayData.entries || [];
       if (entries.length === 0) continue;
 
+      // dayTotals drops entries in skipped slots itself; the goal still has to
+      // be scaled down for the meals that weren't eaten.
       const skippedMeals = dayData.skippedMeals || [];
-      const activeEntries = skippedMeals.length > 0
-        ? entries.filter(e => {
-            const slot = e.mealSlot && MEAL_SLOTS.includes(e.mealSlot) ? e.mealSlot : 'snack';
-            return !skippedMeals.includes(slot);
-          })
-        : entries;
-
       const skippedMainMeals = skippedMeals.filter(s => ['breakfast', 'lunch', 'dinner'].includes(s)).length;
       const activeFraction = Math.max(0, 1 - (skippedMainMeals / 3));
 
-      // Fold in any supplements logged for this day, mapping each into
-      // the canonical unit for its nutrient. Supplements supplement
-      // (heh) the food intake — they should count toward the user's
-      // weekly totals, otherwise we'd be over-recommending things they
-      // already get from a daily multivitamin.
-      const dailySupp = (dayData.supplements || []);
-      const suppNutrientAdditions = {};
-      for (const s of dailySupp) {
-        if (!s.nutrientKey || s.nutrientKey === '__custom') continue;
-        const amount = parseFloat(s.amount);
-        if (!isFinite(amount) || amount <= 0) continue;
-        const converted = convertSupplementAmount(amount, s.unit, s.nutrientKey);
-        if (converted == null) continue;
-        suppNutrientAdditions[s.nutrientKey] =
-          (suppNutrientAdditions[s.nutrientKey] || 0) + converted;
-      }
+      // Meals plus the supplements this day counts as taken — its own list, or
+      // the standing one it inherits. Otherwise we over-recommend nutrients the
+      // user already gets from a daily supplement.
+      const { totals: dayNutrients } = dayTotals({
+        ...dayData,
+        supplements: supplementsByDate[dateStr]?.supplements || [],
+      });
 
       for (const key of Object.keys(nutrientTotals)) {
-        let total = 0;
-        for (const entry of activeEntries) {
-          total += entry.nutrition?.[key] || 0;
-        }
-        total += suppNutrientAdditions[key] || 0;
+        const total = dayNutrients[key] || 0;
         const adjustedGoal = goals[key] * activeFraction;
         if (adjustedGoal > 0) {
           nutrientTotals[key] += total / adjustedGoal;
@@ -5089,7 +5077,7 @@ export function KpiAlerts({ dailyLog, recipes, onImportRecipe, cacheVersion, onV
 
     results.sort((a, b) => a.pct - b.pct);
     return results;
-  }, [dailyLog, goals, recipes, cacheVersion, endDate]);
+  }, [dailyLog, supplementsByDate, goals, recipes, cacheVersion, endDate]);
 
   // Admin-only: tracking quality stats for past week
   const trackingStats = useMemo(() => {
