@@ -2484,6 +2484,9 @@ export function HabitsPage({ onBack, user }) {
         <HabitDetailModal
           habit={openHabit}
           streak={streaks.get(openHabit.id)}
+          habitLog={habitLog}
+          autoTracked={autoTrackedIds.has(openHabit.id)}
+          onMakeAutomatic={id => { resolveAutoPromotes([id], true); closeHabitPopup(); }}
           onUpdate={updateHabit}
           onDelete={(id) => { deleteHabit(id); closeHabitPopup(); }}
           onClose={closeHabitPopup}
@@ -3581,20 +3584,22 @@ function DeleteRoutineModal({ name, count, onUnsort, onDeleteHabits, onClose }) 
 // Read-only apart from one button: a habit that has already earned the status
 // but was asked-and-answered (autoPromoteDeclinedAt) will never be offered it
 // again, so without a way to say yes here the panel would be a dead end.
-function AutoProgressModal({ habit, habitLog, autoTracked, onMakeAutomatic, onClose }) {
+/**
+ * The body of that panel, on its own so the habit popup can show the same
+ * answer without press-and-holding anything: "when does this get offered
+ * Automatically, and where is it now?" is a question about the habit, and the
+ * popup is where you go to ask questions about a habit.
+ *
+ * Read-only. Both callers render their own "Make it automatic" button, because
+ * one has a modal footer to put it in and the other is a section in a longer
+ * form.
+ */
+function AutoPromoteBody({ habit, habitLog, autoTracked, compact = false }) {
   const p = autoPromoteProgress(habit, habitLog);
   const status = (habit.status || '').trim();
   const alreadyAuto = status === 'Automatically';
-  // Only worth forecasting when the rule is actually watching and hasn't fired.
   const eta = (p.daily && !p.earned && !alreadyAuto) ? autoPromoteEta(habit, habitLog) : null;
   const noEvidence = p.total > 0 && (p.done + p.skipped + p.missed) === 0;
-
-  useEffect(() => {
-    const onKey = e => { if (e.key === 'Escape') onClose(); };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [onClose]);
-
   const fmtDay = d => d.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' });
   const settledOn = p.settledAt ? new Date(p.settledAt) : null;
   const muted = { fontSize: '0.82rem', lineHeight: 1.55, color: 'var(--color-text-muted, #64748b)' };
@@ -3611,6 +3616,120 @@ function AutoProgressModal({ habit, habitLog, autoTracked, onMakeAutomatic, onCl
   ];
 
   return (
+    <>
+      {alreadyAuto ? (
+        <p style={muted}>
+          This one is already on <strong>Automatically</strong>
+          {settledOn && p.settled === 'promoted' ? ` — made automatic on ${fmtDay(settledOn)}` : ''}
+          . It's off the needs-logging counts, and there's nothing left to earn. Set another
+          status and it comes back to your routines, and the rule starts watching it again.
+        </p>
+      ) : !p.daily ? (
+        <p style={muted}>
+          The rule only watches <strong>daily</strong> habits — this one is {cadenceCanon(habit.cadence).toLowerCase()}.
+          A {cadenceCanon(habit.cadence).toLowerCase()} habit stays on your routines until you set its status
+          to <em>Automatically</em> yourself.
+        </p>
+      ) : (
+        <>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: '0.45rem' }}>
+            <span style={{ fontSize: compact ? '1.5rem' : '1.9rem', fontWeight: 800, lineHeight: 1, color: p.earned ? '#16a34a' : ACCENT }}>
+              {Math.round(p.rate)}%
+            </span>
+            <span style={muted}>
+              {p.done} of {p.total} tracked days · needs {p.needed} (more than {AUTO_PROMOTE_PCT}%)
+            </span>
+          </div>
+
+          {/* The bar is the whole 0–100 scale, with the pass mark drawn on it,
+              so "close" and "nowhere near" look different at a glance. */}
+          <div style={{ position: 'relative', margin: '0 0 0.35rem' }}>
+            <div style={{ height: 12, borderRadius: 6, background: '#f1f5f9', border: '1px solid #e2e8f0', overflow: 'hidden' }}>
+              <div style={{ width: `${Math.max(0, Math.min(100, p.rate))}%`, height: '100%', background: p.earned ? '#16a34a' : ACCENT }} />
+            </div>
+            <div
+              title={`The bar: more than ${AUTO_PROMOTE_PCT}%`}
+              style={{ position: 'absolute', left: `${AUTO_PROMOTE_PCT}%`, top: -3, bottom: -3, width: 2, background: '#0f172a', borderRadius: 1 }}
+            />
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', fontSize: '0.68rem', fontWeight: 700, color: '#0f172a', marginBottom: '0.7rem', paddingRight: `${100 - AUTO_PROMOTE_PCT}%` }}>
+            <span style={{ transform: 'translateX(50%)' }}>{AUTO_PROMOTE_PCT}%</span>
+          </div>
+
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            {chips.map(c => (
+              <span
+                key={c.k}
+                title={`${MARK_META[c.k].label} — ${c.n} of the last ${p.total} tracked days`}
+                style={{ fontSize: '0.72rem', fontWeight: 700, borderRadius: 6, padding: '2px 7px', color: MARK_META[c.k].color, background: MARK_META[c.k].color + '18', border: `1px solid ${MARK_META[c.k].color}44` }}
+              >{MARK_META[c.k].icon} {c.n} {c.label}</span>
+            ))}
+            <span
+              title={`Tracked days in the window with no mark at all — they count against this the same as a “No”`}
+              style={{ fontSize: '0.72rem', fontWeight: 700, borderRadius: 6, padding: '2px 7px', color: '#94a3b8', background: '#f1f5f9', border: '1px solid #e2e8f0' }}
+            >· {p.blank} not logged</span>
+          </div>
+
+          {noEvidence
+            ? note('#f8fafc', '#e2e8f0', 'var(--color-text-muted, #64748b)', (
+              <>
+                <strong>Nothing logged in this window yet.</strong> The rule needs a record to read, so it
+                won't offer anything until this habit has some history.{' '}
+                {eta && eta.days > 0 && <>Start today and keep it up every tracked day, and it qualifies on <strong>{fmtDay(eta.date)}</strong>.</>}
+              </>
+            ))
+            : p.earned
+              ? note('#f0fdf4', '#bbf7d0', '#166534', (
+                <>
+                  <strong>It's earned it.</strong>{' '}
+                  {p.settled === 'declined' && settledOn
+                    ? <>You chose to keep tracking it on {fmtDay(settledOn)}, so it won't ask again — but you can move it now.</>
+                    : p.settled === 'promoted' && settledOn
+                      ? <>It was already made automatic once (on {fmtDay(settledOn)}) and moved back since, so it won't ask again — but you can move it now.</>
+                      : <>You'll be asked next time this page loads.</>}
+                </>
+              ))
+              : note('#f8fafc', '#e2e8f0', 'var(--color-text-muted, #64748b)', (
+                <>
+                  <strong>{p.shortBy} more {p.shortBy === 1 ? 'day' : 'days'}</strong> in the window would clear it.{' '}
+                  {eta
+                    ? (eta.days === 0
+                      ? <>Logging today gets it there.</>
+                      : <>Keep it up every tracked day and it qualifies on <strong>{fmtDay(eta.date)}</strong> — {eta.days} {eta.days === 1 ? 'day' : 'days'} away.</>)
+                    : null}
+                </>
+              ))}
+
+          {p.blockedByStatus && !alreadyAuto && note('#fffbeb', '#fde68a', '#92400e', (
+            <>The rule skips habits set to <strong>{p.blockedByStatus}</strong> — it won't offer this one while that's the status, however the numbers above look.</>
+          ))}
+
+          {autoTracked && note('#eff6ff', '#bfdbfe', '#1e40af', (
+            <>A rule under <strong>Automatic</strong> already fills this habit in for you. That's a different thing from the <em>Automatically</em> status, which takes it off the routines entirely — the numbers above are still what decides that.</>
+          ))}
+        </>
+      )}
+
+      <p style={{ margin: '0.95rem 0 0', fontSize: '0.72rem', lineHeight: 1.5, color: '#94a3b8' }}>
+        A daily habit done on more than {AUTO_PROMOTE_PCT}% of its last {AUTO_PROMOTE_DAYS} tracked days is offered
+        the <em>Automatically</em> status, once. Skips and unlogged days both count against it here, which is why
+        this can read lower than the % column on the row.
+      </p>
+    </>
+  );
+}
+
+function AutoProgressModal({ habit, habitLog, autoTracked, onMakeAutomatic, onClose }) {
+  const p = autoPromoteProgress(habit, habitLog);
+  const alreadyAuto = (habit.status || '').trim() === 'Automatically';
+
+  useEffect(() => {
+    const onKey = e => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  return (
     <div style={overlay} role="dialog" aria-modal="true" aria-labelledby="auto-progress-title" onClick={onClose}>
       <div style={modal} onClick={e => e.stopPropagation()}>
         <h3 id="auto-progress-title" style={{ margin: '0 0 0.15rem', fontSize: '1.05rem' }}>
@@ -3620,104 +3739,7 @@ function AutoProgressModal({ habit, habitLog, autoTracked, onMakeAutomatic, onCl
           Progress to “Automatically”
         </p>
 
-        {alreadyAuto ? (
-          <p style={muted}>
-            This one is already on <strong>Automatically</strong>
-            {settledOn && p.settled === 'promoted' ? ` — made automatic on ${fmtDay(settledOn)}` : ''}
-            . It's off the needs-logging counts, and there's nothing left to earn. Set another
-            status and it comes back to your routines, and the rule starts watching it again.
-          </p>
-        ) : !p.daily ? (
-          <p style={muted}>
-            The rule only watches <strong>daily</strong> habits — this one is {cadenceCanon(habit.cadence).toLowerCase()}.
-            A {cadenceCanon(habit.cadence).toLowerCase()} habit stays on your routines until you set its status
-            to <em>Automatically</em> yourself.
-          </p>
-        ) : (
-          <>
-            <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: '0.45rem' }}>
-              <span style={{ fontSize: '1.9rem', fontWeight: 800, lineHeight: 1, color: p.earned ? '#16a34a' : ACCENT }}>
-                {Math.round(p.rate)}%
-              </span>
-              <span style={muted}>
-                {p.done} of {p.total} tracked days · needs {p.needed} (more than {AUTO_PROMOTE_PCT}%)
-              </span>
-            </div>
-
-            {/* The bar is the whole 0–100 scale, with the pass mark drawn on it,
-                so "close" and "nowhere near" look different at a glance. */}
-            <div style={{ position: 'relative', margin: '0 0 0.35rem' }}>
-              <div style={{ height: 12, borderRadius: 6, background: '#f1f5f9', border: '1px solid #e2e8f0', overflow: 'hidden' }}>
-                <div style={{ width: `${Math.max(0, Math.min(100, p.rate))}%`, height: '100%', background: p.earned ? '#16a34a' : ACCENT }} />
-              </div>
-              <div
-                title={`The bar: more than ${AUTO_PROMOTE_PCT}%`}
-                style={{ position: 'absolute', left: `${AUTO_PROMOTE_PCT}%`, top: -3, bottom: -3, width: 2, background: '#0f172a', borderRadius: 1 }}
-              />
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'flex-end', fontSize: '0.68rem', fontWeight: 700, color: '#0f172a', marginBottom: '0.7rem', paddingRight: `${100 - AUTO_PROMOTE_PCT}%` }}>
-              <span style={{ transform: 'translateX(50%)' }}>{AUTO_PROMOTE_PCT}%</span>
-            </div>
-
-            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-              {chips.map(c => (
-                <span
-                  key={c.k}
-                  title={`${MARK_META[c.k].label} — ${c.n} of the last ${p.total} tracked days`}
-                  style={{ fontSize: '0.72rem', fontWeight: 700, borderRadius: 6, padding: '2px 7px', color: MARK_META[c.k].color, background: MARK_META[c.k].color + '18', border: `1px solid ${MARK_META[c.k].color}44` }}
-                >{MARK_META[c.k].icon} {c.n} {c.label}</span>
-              ))}
-              <span
-                title={`Tracked days in the window with no mark at all — they count against this the same as a “No”`}
-                style={{ fontSize: '0.72rem', fontWeight: 700, borderRadius: 6, padding: '2px 7px', color: '#94a3b8', background: '#f1f5f9', border: '1px solid #e2e8f0' }}
-              >· {p.blank} not logged</span>
-            </div>
-
-            {noEvidence
-              ? note('#f8fafc', '#e2e8f0', 'var(--color-text-muted, #64748b)', (
-                <>
-                  <strong>Nothing logged in this window yet.</strong> The rule needs a record to read, so it
-                  won't offer anything until this habit has some history.{' '}
-                  {eta && eta.days > 0 && <>Start today and keep it up every tracked day, and it qualifies on <strong>{fmtDay(eta.date)}</strong>.</>}
-                </>
-              ))
-              : p.earned
-                ? note('#f0fdf4', '#bbf7d0', '#166534', (
-                  <>
-                    <strong>It's earned it.</strong>{' '}
-                    {p.settled === 'declined' && settledOn
-                      ? <>You chose to keep tracking it on {fmtDay(settledOn)}, so it won't ask again — but you can move it now.</>
-                      : p.settled === 'promoted' && settledOn
-                        ? <>It was already made automatic once (on {fmtDay(settledOn)}) and moved back since, so it won't ask again — but you can move it now.</>
-                        : <>You'll be asked next time this page loads.</>}
-                  </>
-                ))
-                : note('#f8fafc', '#e2e8f0', 'var(--color-text-muted, #64748b)', (
-                  <>
-                    <strong>{p.shortBy} more {p.shortBy === 1 ? 'day' : 'days'}</strong> in the window would clear it.{' '}
-                    {eta
-                      ? (eta.days === 0
-                        ? <>Logging today gets it there.</>
-                        : <>Keep it up every tracked day and it qualifies on <strong>{fmtDay(eta.date)}</strong> — {eta.days} {eta.days === 1 ? 'day' : 'days'} away.</>)
-                      : null}
-                  </>
-                ))}
-
-            {p.blockedByStatus && !alreadyAuto && note('#fffbeb', '#fde68a', '#92400e', (
-              <>The rule skips habits set to <strong>{p.blockedByStatus}</strong> — it won't offer this one while that's the status, however the numbers above look.</>
-            ))}
-
-            {autoTracked && note('#eff6ff', '#bfdbfe', '#1e40af', (
-              <>A rule under <strong>Automatic</strong> already fills this habit in for you. That's a different thing from the <em>Automatically</em> status, which takes it off the routines entirely — the numbers above are still what decides that.</>
-            ))}
-          </>
-        )}
-
-        <p style={{ margin: '0.95rem 0 0', fontSize: '0.72rem', lineHeight: 1.5, color: '#94a3b8' }}>
-          A daily habit done on more than {AUTO_PROMOTE_PCT}% of its last {AUTO_PROMOTE_DAYS} tracked days is offered
-          the <em>Automatically</em> status, once. Skips and unlogged days both count against it here, which is why
-          this can read lower than the % column on the row.
-        </p>
+        <AutoPromoteBody habit={habit} habitLog={habitLog} autoTracked={autoTracked} />
 
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', marginTop: '0.9rem' }}>
           <button type="button" style={ghostBtn} onClick={onClose}>Close</button>
@@ -6390,10 +6412,16 @@ function HabitsTable({ habits, onUpdate, onDelete, onOpen, onBulkUpdate, onBulkD
 // Full habit editor popup. Opened by clicking a habit's name on the Habits
 // tab. Every edit persists immediately via onUpdate (which saves to Firestore).
 // The headline control is the tracking-cadence selector.
-function HabitDetailModal({ habit, streak: streakProp, onUpdate, onDelete, onClose, autoSkipOn = false, onToggleAutoSkip, isNew = false, routineOptions = [] }) {
+function HabitDetailModal({ habit, streak: streakProp, habitLog = {}, autoTracked = false, onMakeAutomatic, onUpdate, onDelete, onClose, autoSkipOn = false, onToggleAutoSkip, isNew = false, routineOptions = [] }) {
   const h = habit;
   const cadence = (h.cadence || '').trim();
   const streak = streakProp || EMPTY_STREAK;
+  const autoProgress = autoPromoteProgress(h, habitLog);
+  const alreadyAuto = (h.status || '').trim() === 'Automatically';
+  // Collapsed by default: it answers a question you only sometimes have, and
+  // this popup is already long. Open on a habit that has earned the status, so
+  // the one moment it's actionable isn't hidden behind a click.
+  const [autoOpen, setAutoOpen] = useState(autoProgress.earned && !alreadyAuto);
   const field = (key, label, opts = {}) => (
     <label style={fieldWrap}>
       <span style={fieldLabel}>{label}</span>
@@ -6455,6 +6483,48 @@ function HabitDetailModal({ habit, streak: streakProp, onUpdate, onDelete, onClo
           <div style={{ fontSize: '0.72rem', color: 'var(--color-text-muted)', margin: '-0.8rem 0 1.1rem', lineHeight: 1.4 }}>
             Best run: {periodLabel(streak.longestStart)}{streak.longestEnd && streak.longestEnd !== streak.longestStart ? ` → ${periodLabel(streak.longestEnd)}` : ''}
             {' · '}since {periodLabel(streak.firstKey)}
+          </div>
+        )}
+
+        {/* When does this get offered the "Automatically" status?
+            The same panel the Routines page shows on a press-and-hold, which is
+            a gesture nobody finds. A bad habit is never due and never promoted,
+            so it has nothing to say there. */}
+        {!isBadHabit(h) && (
+          <div style={{ marginBottom: '1.1rem', border: '1px solid var(--color-border, #e2e8f0)', borderRadius: 10, overflow: 'hidden' }}>
+            <button
+              type="button"
+              onClick={() => setAutoOpen(o => !o)}
+              aria-expanded={autoOpen}
+              style={{
+                width: '100%', display: 'flex', alignItems: 'center', gap: 8, textAlign: 'left', cursor: 'pointer',
+                padding: '0.55rem 0.7rem', border: 'none', background: 'var(--color-surface-alt, #f8fafc)',
+                fontSize: '0.78rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em',
+                color: 'var(--color-text-muted, #64748b)',
+              }}
+            >
+              <span style={{ flex: 1 }}>Progress to “Automatically”</span>
+              {/* The headline number stays visible while collapsed — that is the
+                  answer to "where is this?" most of the time. */}
+              {autoProgress.daily && !alreadyAuto && (
+                <span style={{ fontWeight: 800, color: autoProgress.earned ? '#16a34a' : ACCENT }}>
+                  {Math.round(autoProgress.rate)}%
+                </span>
+              )}
+              <span aria-hidden="true" style={{ fontSize: '0.9rem' }}>{autoOpen ? '▾' : '▸'}</span>
+            </button>
+            {autoOpen && (
+              <div style={{ padding: '0.7rem' }}>
+                <AutoPromoteBody habit={h} habitLog={habitLog} autoTracked={autoTracked} compact />
+                {autoProgress.daily && autoProgress.earned && !alreadyAuto && onMakeAutomatic && (
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '0.8rem' }}>
+                    <button type="button" style={primaryBtn} onClick={() => onMakeAutomatic(h.id)}>
+                      Make it automatic
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         )}
 
