@@ -2405,15 +2405,7 @@ export function RecipeList({
                               </td>
                             )}
                             {suggestCols.seasonal && <td className={styles.suggestSeasonal}>{seasonalMatches.length > 0 ? seasonalMatches.slice(0, 3).join(', ') : '—'}</td>}
-                            <td style={{ display: 'flex', gap: '0.35rem', alignItems: 'center' }}>
-                              <button
-                                className={styles.suggestWhyBtn}
-                                onClick={() => setWhySuggested(item)}
-                                aria-label={`Why ${recipe.title} is suggested`}
-                                title="Why is this suggested?"
-                              >?</button>
-                              <button className={styles.suggestAddBtn} onClick={() => handleAddToWeekWithPulse(recipe.id)} aria-label={`Add ${recipe.title} to this week`}>+</button>
-                            </td>
+                            <td><button className={styles.suggestAddBtn} onClick={() => handleAddToWeekWithPulse(recipe.id)} aria-label={`Add ${recipe.title} to this week`}>+</button></td>
                           </tr>
                         );
                       });
@@ -2500,15 +2492,7 @@ export function RecipeList({
                               </td>
                             )}
                             {suggestCols.seasonal && <td className={styles.suggestSeasonal}>{seasonalMatches.length > 0 ? seasonalMatches.slice(0, 3).join(', ') : '—'}</td>}
-                            <td style={{ display: 'flex', gap: '0.35rem', alignItems: 'center' }}>
-                              <button
-                                className={styles.suggestWhyBtn}
-                                onClick={() => setWhySuggested(item)}
-                                aria-label={`Why ${recipe.title} is suggested`}
-                                title="Why is this suggested?"
-                              >?</button>
-                              <button className={styles.suggestAddBtn} onClick={() => handleAddToWeekWithPulse(recipe.id)} aria-label={`Add ${recipe.title} to this week`}>+</button>
-                            </td>
+                            <td><button className={styles.suggestAddBtn} onClick={() => handleAddToWeekWithPulse(recipe.id)} aria-label={`Add ${recipe.title} to this week`}>+</button></td>
                           </tr>
                         );
                       });
