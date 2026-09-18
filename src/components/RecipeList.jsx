@@ -6,7 +6,7 @@ import { exportToCSV, importFromCSV, exportFullJSON } from '../utils/exportData'
 import { locationToRegion, getSeasonalIngredients, getRecipeSeasonalIngredients } from '../utils/seasonal';
 import { useAuth } from '../contexts/AuthContext';
 import { OWNER_EMAIL } from '../utils/pageAccess';
-import { loadUserData, saveField, loadAppDefaults, saveAppDefault, loadFriends, loadFriendRecipes, getPendingSharedRecipes, shareRecipe, getUsername } from '../utils/firestoreSync';
+import { loadUserData, saveField, loadAppDefaults, saveAppDefault, loadFriends, loadFriendRecipes, getPendingSharedRecipes, shareRecipe, getUsername, loadDailyLogFromFirestore } from '../utils/firestoreSync';
 import { copyMealImage, loadAdminMealImages, generateMealImage, getCachedMealImage, getMealImageSyncReport } from '../utils/generateMealImage';
 import { recipeStage } from '../utils/recipeStage';
 import { ALL_TAGS, TAG_CATEGORIES, recipeMatchesTags } from '../utils/ingredientTags';
@@ -364,6 +364,38 @@ export function RecipeList({
   // sunday-plan-history and sunday-daily-log refresh, instead of holding
   // a stale snapshot from first render.
   const [historyTick, setHistoryTick] = useState(0);
+
+  // Pull the daily log subcollection on mount, the way Shopping List does.
+  //
+  // "Last cooked" — the biggest term in the Suggested Meals score — is read
+  // from localStorage, but only Track Meals and Shopping List ever refresh that
+  // copy from Firestore. So a meal logged on the phone, or in another browser,
+  // was invisible here: the recipe looked NEVER COOKED (9999 days), which is
+  // the top of the list. That is how a meal cooked last week came back as the
+  // next thing to try.
+  useEffect(() => {
+    if (!user?.uid) return;
+    let cancelled = false;
+    loadDailyLogFromFirestore(user.uid).then(remote => {
+      if (cancelled || !remote) return;
+      try {
+        const localRaw = localStorage.getItem('sunday-daily-log');
+        const local = localRaw ? JSON.parse(localRaw) : {};
+        // Merge per date, keeping whichever side holds more entries — the same
+        // rule Shopping List uses, so neither copy can delete the other's.
+        const merged = { ...remote };
+        for (const date of Object.keys(local)) {
+          const localEntries = local[date]?.entries || [];
+          const remoteEntries = merged[date]?.entries || [];
+          if (localEntries.length >= remoteEntries.length) merged[date] = local[date];
+        }
+        localStorage.setItem('sunday-daily-log', JSON.stringify(merged));
+      } catch { /* a stale local copy is better than none */ }
+      // Recompute the suggestions against what just arrived.
+      setHistoryTick(t => t + 1);
+    }).catch(() => { /* offline: keep whatever is cached */ });
+    return () => { cancelled = true; };
+  }, [user?.uid]);
 
   // Sync layout and custom widgets from Firestore when another device changes it
   useEffect(() => {
