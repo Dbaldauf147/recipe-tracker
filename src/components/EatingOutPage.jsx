@@ -1774,6 +1774,10 @@ function EditModal({ initial, onSave, onClose, onDelete, cuisineSuggestions, loc
   );
   const [lastVisit, setLastVisit] = useState(initial.lastVisit ? initial.lastVisit.slice(0, 10) : '');
   const [extracting, setExtracting] = useState(false);
+  // Where an imported name came from, when that isn't obvious — a name heard in
+  // a TikTok's audio is a guess off speech and deserves a second look before
+  // it's saved as a spot.
+  const [extractNote, setExtractNote] = useState('');
   const [geocoding, setGeocoding] = useState(false);
 
   /**
@@ -1806,6 +1810,7 @@ function EditModal({ initial, onSave, onClose, onDelete, cuisineSuggestions, loc
       return;
     }
     setExtracting(true);
+    setExtractNote('');
     try {
       // The cuisine vocabulary goes along so a guessed cuisine comes back spelled
       // the way this user already tags spots, not as a near-duplicate.
@@ -1826,6 +1831,23 @@ function EditModal({ initial, onSave, onClose, onDelete, cuisineSuggestions, loc
       // skip the Lookup step entirely.
       if (typeof data?.lat === 'number' && typeof data?.lng === 'number' && !coords) {
         setCoords({ lat: data.lat, lng: data.lng });
+      }
+      // A name nobody wrote down, taken off the soundtrack: say so, and quote
+      // what was heard, so a mis-heard name is caught here and not months later.
+      if (data?.nameSource === 'audio' && data?.name) {
+        setExtractNote(
+          data.nameQuote
+            ? `Heard in the video: “${data.nameQuote}” — check the name before saving.`
+            : 'Name heard in the video — check it before saving.'
+        );
+      } else if (data?.source === 'tiktok' && !data?.name) {
+        setExtractNote(
+          data?.heardAudio
+            ? 'Listened to the video, but nobody named the place — type the name in.'
+            : data?.audioUnavailable
+              ? "Couldn't listen to this video — type the name in."
+              : "Couldn't read or hear a name in this video — type the name in."
+        );
       }
       const hasAnything = data?.name || data?.imageUrl || data?.address
         || (typeof data?.lat === 'number' && typeof data?.lng === 'number');
@@ -1941,6 +1963,12 @@ function EditModal({ initial, onSave, onClose, onDelete, cuisineSuggestions, loc
               {extracting ? 'Fetching…' : 'Fetch'}
             </button>
           </div>
+          {extracting && /tiktok\.com/i.test(url) && (
+            <p className={styles.extractNote}>Reading the caption, and listening to the video if it doesn't name the place…</p>
+          )}
+          {extractNote && !extracting && (
+            <p className={styles.extractNote}>{extractNote}</p>
+          )}
 
           {/* Photos are keyed by the place's id, so a brand-new one shows just
               the link preview until it's saved. Written under the OWNER's uid,

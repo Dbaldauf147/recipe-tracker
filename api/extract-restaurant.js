@@ -82,6 +82,264 @@ async function extractFromInstagram(url) {
   };
 }
 
+// ── TikTok ─────────────────────────────────────────────────────────────────
+//
+// A TikTok that recommends a restaurant usually never writes its name down:
+// the caption is "you NEED to try this 🤤", the on-page title is the same
+// caption, and the place is only ever SAID out loud. So when the written
+// material yields no name, fall back to what the creator actually says: the
+// clip itself goes to Gemini, which hears the spoken name (and reads anything
+// on screen) and answers with the venue.
+export function isTikTokUrl(url) {
+  return /(?:\/\/|\.)(?:tiktok\.com|vm\.tiktok\.com)\//i.test(String(url || ''));
+}
+
+/**
+ * The name out of the model's answer, or '' when it couldn't tell.
+ *
+ * Kept separate (and exported) because this is the judgement call worth
+ * testing: a model that hedges, answers in prose, or offers the creator's handle
+ * instead of the restaurant must come back as "no name", not as a wrong name
+ * silently saved onto a spot.
+ */
+export function parsePlaceFromModel(text) {
+  const empty = { name: '', address: '', quote: '' };
+  const match = String(text || '').match(/\{[\s\S]*\}/);
+  if (!match) return empty;
+  let parsed;
+  try {
+    parsed = JSON.parse(match[0]);
+  } catch {
+    return empty;
+  }
+  const name = typeof parsed.name === 'string' ? parsed.name.trim() : '';
+  const confident = parsed.confident === true || parsed.confident === 'true';
+  // No name, no confidence, or a model that answered with a placeholder.
+  if (!name || !confident) return empty;
+  if (/^(unknown|unclear|n\/?a|none|not (?:stated|mentioned|specified))$/i.test(name)) return empty;
+  if (name.length > 80) return empty;
+  return {
+    name,
+    address: typeof parsed.address === 'string' ? parsed.address.trim() : '',
+    quote: typeof parsed.quote === 'string' ? parsed.quote.trim().slice(0, 200) : '',
+  };
+}
+
+// oEmbed gives the caption, creator and thumbnail; tikwm gives a direct media
+// URL to download. Both are the same sources api/extract-recipe.js already
+// relies on for recipe videos.
+async function fetchTikTokMeta(url) {
+  let caption = '';
+  let author = '';
+  let imageUrl = null;
+  let videoUrl = '';
+  try {
+    const r = await fetch(`https://www.tiktok.com/oembed?url=${encodeURIComponent(url)}`, {
+      headers: { 'User-Agent': 'Mozilla/5.0', Accept: 'application/json' },
+    });
+    if (r.ok) {
+      const data = await r.json();
+      caption = decodeEntities(data.title || '');
+      author = data.author_name || '';
+      imageUrl = data.thumbnail_url || null;
+    }
+  } catch { /* oEmbed is best-effort */ }
+  try {
+    const r = await fetch(`https://tikwm.com/api/?url=${encodeURIComponent(url)}`);
+    if (r.ok) {
+      const data = await r.json();
+      if (data?.data?.play) videoUrl = data.data.play;
+      if (!imageUrl && data?.data?.cover) imageUrl = data.data.cover;
+      if (!caption && data?.data?.title) caption = decodeEntities(data.data.title);
+    }
+  } catch { /* tikwm is best-effort; without it there's simply no audio */ }
+  return { caption, author, imageUrl, videoUrl };
+}
+
+// Gemini takes the video itself, so it hears the audio AND reads whatever is
+// on screen. Inline media has to travel inside the request, so the clip has a
+// size ceiling; TikToks are comfortably under it, and one that isn't is simply
+// left unheard rather than blowing up the import.
+const MAX_VIDEO_BYTES = 18 * 1024 * 1024;
+
+async function fetchVideoBytes(videoUrl, signal) {
+  const r = await fetch(videoUrl, { signal, headers: { 'User-Agent': 'Mozilla/5.0' } });
+  if (!r.ok) return { error: `media fetch ${r.status}` };
+  const declared = Number(r.headers.get('content-length') || 0);
+  if (declared > MAX_VIDEO_BYTES) return { error: `video too large (${declared} bytes)` };
+  const buf = Buffer.from(await r.arrayBuffer());
+  if (buf.length > MAX_VIDEO_BYTES) return { error: `video too large (${buf.length} bytes)` };
+  return { base64: buf.toString('base64'), bytes: buf.length };
+}
+
+/**
+ * Watch and listen to the video, and say which venue it is about.
+ *
+ * Returns { place, heard, unavailable }: `heard` means the video actually
+ * reached the model, `unavailable` that it never could (no media URL, clip too
+ * big, no key, or the service refused) — a different story from "listened, and
+ * nobody said a name", and the UI tells them apart.
+ */
+export async function askVideoForPlace(videoUrl, { caption = '', author = '', budgetMs = 30000 } = {}) {
+  const apiKey = process.env.GEMINI_API_KEY;
+  const none = { place: { name: '', address: '', quote: '' }, heard: false, unavailable: true };
+  if (!apiKey || !videoUrl) return none;
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), budgetMs);
+  try {
+    const media = await fetchVideoBytes(videoUrl, controller.signal);
+    if (media.error) {
+      console.error(`TikTok place import: ${media.error}`);
+      return none;
+    }
+    const prompt = [
+      'This is a social video recommending somewhere to eat or drink.',
+      'Identify the venue. Listen to what the speaker SAYS — the name is usually spoken, not written.',
+      'Text on screen counts too. The creator\'s username is NOT the venue name unless they say the venue is called that.',
+      'A dish, a cuisine or a city on its own is NOT a venue name.',
+      'Answer with ONLY JSON, no markdown:',
+      '{"name": "...", "address": "...", "quote": "...", "confident": true|false}',
+      '"address" only if a city, neighbourhood or street is actually stated, else "".',
+      '"quote" is the words that named the place, as spoken or shown.',
+      'If no specific venue is named anywhere, answer {"name": "", "confident": false}.',
+      author ? `Creator handle: ${author}` : '',
+      caption ? `Caption: ${caption}` : '',
+    ].filter(Boolean).join('\n');
+
+    const r = await fetch(
+      // gemini-2.5-flash is retired for new callers and answers 404; 3.6-flash
+      // is the current one that takes video.
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${apiKey}`,
+      {
+        method: 'POST',
+        signal: controller.signal,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{
+            parts: [
+              { inline_data: { mime_type: 'video/mp4', data: media.base64 } },
+              { text: prompt },
+            ],
+          }],
+          generationConfig: { temperature: 0, maxOutputTokens: 300 },
+        }),
+      },
+    );
+    if (!r.ok) {
+      // Loud on purpose: a dead key answers the same way every time, and
+      // swallowing it is how this quietly stops working for months.
+      console.error(`Gemini video read failed: ${r.status} ${(await r.text()).slice(0, 200)}`);
+      return none;
+    }
+    const data = await r.json();
+    const text = (data.candidates?.[0]?.content?.parts || []).map(p => p.text || '').join('');
+    return { place: parsePlaceFromModel(text), heard: true, unavailable: false };
+  } catch (err) {
+    // An abort here is the time budget, not a failure to reach the service.
+    const aborted = err?.name === 'AbortError';
+    console.error(`Gemini video read ${aborted ? 'timed out' : 'threw'}: ${err?.message || err}`);
+    return { place: { name: '', address: '', quote: '' }, heard: false, unavailable: !aborted };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * Ask the model which venue the WRITTEN material is about — the caption and the
+ * creator's handle. Cheap and instant, and it answers on the minority of posts
+ * that actually write the name down; everything else goes to the video.
+ */
+export async function askModelForPlace({ caption, author, transcript = '' }) {
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey || (!caption && !transcript)) return { name: '', address: '', quote: '' };
+  const system =
+    'You identify the restaurant, cafe, bar or food shop a social video is about. '
+    + 'Return ONLY JSON, no markdown: {"name": "...", "address": "...", "quote": "...", "confident": true|false}. '
+    + '"name" is the venue\'s own name as a person would search it. '
+    + '"address" is a city, neighbourhood or street ONLY if one is actually stated — otherwise "". '
+    + '"quote" is the short phrase from the material that names the place. '
+    + 'The creator\'s username or channel is NOT the venue name unless the material says the venue is called that. '
+    + 'A dish, cuisine or city on its own is NOT a venue name. '
+    + 'If no specific venue is named, return {"name": "", "confident": false}.';
+  const lines = [];
+  if (author) lines.push(`Creator handle: ${author}`);
+  if (caption) lines.push(`Caption: ${caption}`);
+  if (transcript) lines.push(`What the creator says in the video: ${transcript.slice(0, 6000)}`);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 12000);
+  try {
+    const r = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      signal: controller.signal,
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 200,
+        system,
+        messages: [{ role: 'user', content: lines.join('\n') }],
+      }),
+    });
+    if (!r.ok) return { name: '', address: '', quote: '' };
+    const data = await r.json();
+    return parsePlaceFromModel(data.content?.[0]?.text || '');
+  } catch {
+    return { name: '', address: '', quote: '' };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function extractFromTikTok(url, { budgetMs = 30000 } = {}) {
+  const meta = await fetchTikTokMeta(url);
+  if (!meta.caption && !meta.videoUrl && !meta.imageUrl) return null;
+
+  // The written material first — it's instant and cheap when the caption does
+  // name the place, and most of the time it doesn't.
+  let place = await askModelForPlace({ caption: meta.caption, author: meta.author });
+  let nameSource = place.name ? 'caption' : '';
+  let heardAudio = false;
+  let audioUnavailable = false;
+
+  // Nothing written down: watch and listen to the video itself.
+  if (!place.name) {
+    const watched = await askVideoForPlace(meta.videoUrl, {
+      caption: meta.caption,
+      author: meta.author,
+      budgetMs,
+    });
+    heardAudio = watched.heard;
+    audioUnavailable = watched.unavailable;
+    if (watched.place.name) {
+      place = watched.place;
+      nameSource = 'audio';
+    }
+  }
+
+  return {
+    name: place.name,
+    address: place.address,
+    description: meta.caption,
+    imageUrl: meta.imageUrl,
+    sourceUrl: url,
+    source: 'tiktok',
+    // How the name was found — '' when nothing named the place, so the caller
+    // can say "we couldn't hear a name" rather than pretend the field is empty
+    // by accident.
+    nameSource,
+    nameQuote: place.quote,
+    heardAudio,
+    // True when we never got to hear the video at all (no media URL, or the
+    // transcription service refused) — a different story from "listened, and
+    // nobody said a name", and the UI says so.
+    audioUnavailable,
+  };
+}
+
 async function extractFromGenericUrl(url) {
   const response = await fetch(url, {
     headers: {
@@ -520,6 +778,9 @@ export default async function handler(req, res) {
         vocab: parseVocab(req.query?.cuisines || req.body?.cuisines),
       });
       source = 'google-maps';
+    } else if (isTikTokUrl(url)) {
+      result = await extractFromTikTok(url);
+      source = 'tiktok';
     } else if (isInstagram) {
       result = await extractFromInstagram(url);
       source = 'instagram';
