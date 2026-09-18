@@ -1190,6 +1190,36 @@
   margin-top: 0;
 }
 
+/* The column heading doubles as "why these, in this order?". Styled as the
+   heading it already was, so the section doesn't grow a row of buttons. */
+.suggestCategoryBtn {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  text-align: left;
+  width: 100%;
+  cursor: pointer;
+}
+
+.suggestCategoryHint {
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  padding: 0 6px;
+  margin-left: 6px;
+  text-transform: none;
+  letter-spacing: 0;
+  vertical-align: 1px;
+}
+
+.suggestCategoryBtn:hover .suggestCategoryHint {
+  color: var(--color-accent);
+  border-color: var(--color-accent);
+}
+
 .suggestList {
   display: flex;
   flex-direction: column;
