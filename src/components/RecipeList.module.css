@@ -2890,3 +2890,12 @@
     font-size: var(--font-size-md);
   }
 }
+
+/* Note under the gear menu's column checkboxes. */
+.suggestGearNote {
+  margin: 0.4rem 0 0;
+  font-size: 0.72rem;
+  line-height: 1.4;
+  color: var(--color-text-muted);
+  max-width: 230px;
+}

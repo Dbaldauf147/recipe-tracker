@@ -41,6 +41,59 @@ const ADMIN_UID = import.meta.env.VITE_ADMIN_UID;
 
 const HISTORY_KEY = 'sunday-plan-history';
 
+// How much each term of the Suggested Meals score counts. `on: false` drops a
+// term entirely (weight is remembered, so switching it back on restores it).
+//
+// The gear menu's Seasonal / Overdue checkboxes only ever showed and hid
+// TABLE COLUMNS — they never touched the score, which is why switching
+// Seasonal off still left in-season meals climbing the list. These are the
+// knobs that actually rank.
+const SUGGEST_WEIGHTS_KEY = 'sunday-suggest-weights';
+const DEFAULT_SUGGEST_WEIGHTS = {
+  staleness: { on: true, weight: 1 },
+  ingredients: { on: true, weight: 1 },
+  seasonal: { on: true, weight: 1 },
+  macro: { on: true, weight: 1 },
+};
+export const SUGGEST_WEIGHT_TERMS = [
+  { key: 'staleness', label: 'Days since you last cooked it', hint: 'never cooked counts as 9999' },
+  { key: 'ingredients', label: 'Key ingredients you have not eaten lately', hint: 'days since each, added up' },
+  { key: 'seasonal', label: 'In season now', hint: '50 per in-season ingredient' },
+  { key: 'macro', label: 'Fits your macro goals', hint: 'macro match, doubled' },
+];
+
+export function normalizeSuggestWeights(raw) {
+  const out = {};
+  for (const { key } of SUGGEST_WEIGHT_TERMS) {
+    const fallback = DEFAULT_SUGGEST_WEIGHTS[key];
+    const given = raw && typeof raw === 'object' ? raw[key] : null;
+    const weight = Number(given?.weight);
+    out[key] = {
+      on: given?.on === undefined ? fallback.on : given.on !== false,
+      // Clamped: a negative weight would invert the meaning of a term, and an
+      // enormous one silently makes every other term irrelevant.
+      weight: Number.isFinite(weight) ? Math.min(5, Math.max(0, weight)) : fallback.weight,
+    };
+  }
+  return out;
+}
+
+function loadSuggestWeights() {
+  try {
+    const raw = localStorage.getItem(SUGGEST_WEIGHTS_KEY);
+    return normalizeSuggestWeights(raw ? JSON.parse(raw) : null);
+  } catch {
+    return normalizeSuggestWeights(null);
+  }
+}
+
+// The multiplier a term actually contributes: 0 when switched off.
+export function weightFor(weights, key) {
+  const term = weights?.[key];
+  if (!term || term.on === false) return 0;
+  return Number.isFinite(term.weight) ? term.weight : 1;
+}
+
 // "Sept 11, 2026" from a YYYY-MM-DD key, without the timezone shift a bare
 // new Date(str) would introduce.
 function formatLogDate(dateStr) {
@@ -64,8 +117,11 @@ function formatLogDate(dateStr) {
  * which is a different question — it needs the meals side by side with the
  * same four numbers, so the sort is something you can check rather than trust.
  */
-export function WhyColumnPanel({ title, items, onClose, onSelectItem }) {
+export function WhyColumnPanel({ title, items, onClose, onSelectItem, weights, onWeightsChange }) {
   const top = items[0];
+  const editable = typeof onWeightsChange === 'function';
+  const setTerm = (key, patch) => onWeightsChange({ ...weights, [key]: { ...weights[key], ...patch } });
+  const allDefault = SUGGEST_WEIGHT_TERMS.every(t => weightFor(weights, t.key) === 1);
   return (
     <div
       style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }}
@@ -88,15 +144,66 @@ export function WhyColumnPanel({ title, items, onClose, onSelectItem }) {
           <button onClick={onClose} aria-label="Close" style={{ background: 'none', border: 'none', fontSize: '1.4rem', cursor: 'pointer', color: 'var(--color-text-muted)', lineHeight: 1 }}>×</button>
         </div>
 
-        <p style={{ fontSize: '0.85rem', color: 'var(--color-text)', lineHeight: 1.55, marginTop: '0.9rem', marginBottom: '0.3rem' }}>
-          Each meal gets one score, and the column is that score, highest first:
+        <p style={{ fontSize: '0.85rem', color: 'var(--color-text)', lineHeight: 1.55, marginTop: '0.9rem', marginBottom: '0.5rem' }}>
+          Each meal gets one score, and the column is that score, highest first.
+          {editable && ' Switch a term off to ignore it, or drag its weight to make it count for more or less — the list re-ranks as you go.'}
         </p>
-        <ul style={{ fontSize: '0.83rem', color: 'var(--color-text-muted)', lineHeight: 1.5, margin: '0 0 0.9rem', paddingLeft: '1.1rem' }}>
-          <li><strong>Days since you last cooked it</strong> — the biggest term. A meal with no record at all counts as 9999, which is why an unlogged meal sits at the top.</li>
-          <li><strong>Key ingredients</strong> — for each of your key ingredients the recipe uses, how many days since you last ate it, added up.</li>
-          <li><strong>In season</strong> — 50 for each in-season ingredient it uses.</li>
-          <li><strong>Macro fit</strong> — how well it matches your goals, doubled.</li>
-        </ul>
+
+        {editable ? (
+          <div style={{ border: '1px solid var(--color-border, #e5e7eb)', borderRadius: 10, padding: '0.6rem 0.75rem', marginBottom: '1rem' }}>
+            {SUGGEST_WEIGHT_TERMS.map(term => {
+              const t = weights[term.key];
+              const on = t.on !== false;
+              return (
+                <div key={term.key} style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', padding: '0.3rem 0', flexWrap: 'wrap' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flex: '1 1 260px', cursor: 'pointer', minWidth: 0 }}>
+                    <input
+                      type="checkbox"
+                      checked={on}
+                      onChange={() => setTerm(term.key, { on: !on })}
+                    />
+                    <span style={{ minWidth: 0 }}>
+                      <span style={{ fontSize: '0.85rem', fontWeight: 600, color: on ? 'var(--color-text)' : 'var(--color-text-muted)' }}>{term.label}</span>
+                      <span style={{ display: 'block', fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>{term.hint}</span>
+                    </span>
+                  </label>
+                  <input
+                    type="range"
+                    min="0"
+                    max="3"
+                    step="0.25"
+                    value={t.weight}
+                    disabled={!on}
+                    onChange={e => setTerm(term.key, { weight: Number(e.target.value), on: true })}
+                    aria-label={`${term.label} weight`}
+                    style={{ flex: '0 0 130px', opacity: on ? 1 : 0.4 }}
+                  />
+                  <span style={{ flex: '0 0 44px', textAlign: 'right', fontSize: '0.8rem', fontWeight: 700, color: on ? 'var(--color-text)' : 'var(--color-text-muted)' }}>
+                    {on ? `×${t.weight}` : 'off'}
+                  </span>
+                </div>
+              );
+            })}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '0.4rem', gap: '0.5rem' }}>
+              <span style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>
+                {allDefault ? 'Default weighting' : 'Custom weighting — saved to your account'}
+              </span>
+              <button
+                onClick={() => onWeightsChange(null)}
+                disabled={allDefault}
+                style={{ background: 'none', border: '1px solid var(--color-border)', borderRadius: 6, padding: '0.2rem 0.6rem', fontSize: '0.78rem', cursor: allDefault ? 'default' : 'pointer', color: allDefault ? 'var(--color-text-muted)' : 'var(--color-accent)', opacity: allDefault ? 0.5 : 1 }}
+              >
+                Reset
+              </button>
+            </div>
+          </div>
+        ) : (
+          <ul style={{ fontSize: '0.83rem', color: 'var(--color-text-muted)', lineHeight: 1.5, margin: '0 0 0.9rem', paddingLeft: '1.1rem' }}>
+            {SUGGEST_WEIGHT_TERMS.map(term => (
+              <li key={term.key}><strong>{term.label}</strong> — {term.hint}</li>
+            ))}
+          </ul>
+        )}
         <p style={{ fontSize: '0.83rem', color: 'var(--color-text-muted)', lineHeight: 1.5, margin: '0 0 1rem' }}>
           Meals already in this week&apos;s plan are left out, as are retired ones — and rare or &quot;to try&quot; meals unless you switch them on with the gear.
         </p>
@@ -107,10 +214,15 @@ export function WhyColumnPanel({ title, items, onClose, onSelectItem }) {
               <tr style={{ textAlign: 'left', color: 'var(--color-text-muted)', fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.03em' }}>
                 <th style={{ padding: '0.35rem 0.4rem 0.35rem 0' }}>#</th>
                 <th style={{ padding: '0.35rem 0.4rem 0.35rem 0' }}>Meal</th>
-                <th style={{ padding: '0.35rem 0.4rem', textAlign: 'right' }} title="Days since you last cooked it">Days</th>
-                <th style={{ padding: '0.35rem 0.4rem', textAlign: 'right' }} title="Key ingredients you have not eaten lately">Ingr.</th>
-                <th style={{ padding: '0.35rem 0.4rem', textAlign: 'right' }} title="In-season bonus">Season</th>
-                <th style={{ padding: '0.35rem 0.4rem', textAlign: 'right' }} title="Macro fit bonus">Macro</th>
+                {SUGGEST_WEIGHT_TERMS.map(term => {
+                  const w = weightFor(weights, term.key);
+                  const short = { staleness: 'Days', ingredients: 'Ingr.', seasonal: 'Season', macro: 'Macro' }[term.key];
+                  return (
+                    <th key={term.key} style={{ padding: '0.35rem 0.4rem', textAlign: 'right', color: w === 0 ? 'var(--color-text-muted)' : undefined }} title={`${term.label} — ${term.hint}`}>
+                      {short}{w === 0 ? ' (off)' : w === 1 ? '' : ` ×${w}`}
+                    </th>
+                  );
+                })}
                 <th style={{ padding: '0.35rem 0 0.35rem 0.4rem', textAlign: 'right' }}>Score</th>
               </tr>
             </thead>
@@ -130,12 +242,19 @@ export function WhyColumnPanel({ title, items, onClose, onSelectItem }) {
                         {item.recipe.title}
                       </button>
                     </td>
-                    <td style={{ padding: '0.4rem', textAlign: 'right', color: never ? '#b45309' : 'inherit', fontWeight: never ? 700 : 400 }}>
-                      {never ? 'never' : b.recipeDays}
+                    {/* What each term actually contributed, after weighting. */}
+                    <td style={{ padding: '0.4rem', textAlign: 'right', color: weightFor(weights, 'staleness') === 0 ? 'var(--color-text-muted)' : never ? '#b45309' : 'inherit', fontWeight: never ? 700 : 400 }}>
+                      {weightFor(weights, 'staleness') === 0 ? '—' : never ? 'never' : Math.round(b.stalenessPoints)}
                     </td>
-                    <td style={{ padding: '0.4rem', textAlign: 'right' }}>{Math.round(b.ingredientScore)}</td>
-                    <td style={{ padding: '0.4rem', textAlign: 'right' }}>{Math.round(b.seasonalBonus)}</td>
-                    <td style={{ padding: '0.4rem', textAlign: 'right' }}>{Math.round(b.macroBonus)}</td>
+                    <td style={{ padding: '0.4rem', textAlign: 'right', color: weightFor(weights, 'ingredients') === 0 ? 'var(--color-text-muted)' : undefined }}>
+                      {weightFor(weights, 'ingredients') === 0 ? '—' : Math.round(b.ingredientPoints)}
+                    </td>
+                    <td style={{ padding: '0.4rem', textAlign: 'right', color: weightFor(weights, 'seasonal') === 0 ? 'var(--color-text-muted)' : undefined }}>
+                      {weightFor(weights, 'seasonal') === 0 ? '—' : Math.round(b.seasonalBonus)}
+                    </td>
+                    <td style={{ padding: '0.4rem', textAlign: 'right', color: weightFor(weights, 'macro') === 0 ? 'var(--color-text-muted)' : undefined }}>
+                      {weightFor(weights, 'macro') === 0 ? '—' : Math.round(b.macroBonus)}
+                    </td>
                     <td style={{ padding: '0.4rem 0 0.4rem 0.4rem', textAlign: 'right', fontWeight: 700 }}>{Math.round(b.totalScore)}</td>
                   </tr>
                 );
@@ -146,13 +265,20 @@ export function WhyColumnPanel({ title, items, onClose, onSelectItem }) {
 
         {top && (
           <p style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)', lineHeight: 1.5, marginTop: '0.9rem', marginBottom: 0 }}>
-            {top.recipe.title} is first because {top.breakdown.recipeDays === 9999
-              ? 'nothing here has a record of it being cooked, which scores 9999'
-              : `it scores ${Math.round(top.breakdown.totalScore)}` + (
-                top.breakdown.ingredientScore > top.breakdown.recipeDays
-                  ? ` — mostly key ingredients you have not eaten lately (${Math.round(top.breakdown.ingredientScore)})`
-                  : ` — mostly the ${top.breakdown.recipeDays} days since you cooked it`
-              )}. Click any meal for its full breakdown.
+            {top.recipe.title} is first because {(() => {
+              const b = top.breakdown;
+              const parts = [
+                { what: `the ${b.recipeDays} days since you cooked it`, points: b.stalenessPoints },
+                { what: 'key ingredients you have not eaten lately', points: b.ingredientPoints },
+                { what: 'what is in season', points: b.seasonalBonus },
+                { what: 'how well it fits your macros', points: b.macroBonus },
+              ].sort((x, y) => y.points - x.points);
+              if (b.recipeDays === 9999 && b.stalenessPoints > 0) {
+                return 'nothing here has a record of it being cooked, which scores 9999';
+              }
+              if (parts[0].points <= 0) return `it scores ${Math.round(b.totalScore)}`;
+              return `it scores ${Math.round(b.totalScore)} — mostly ${parts[0].what} (${Math.round(parts[0].points)})`;
+            })()}. Click any meal for its full breakdown.
           </p>
         )}
       </div>
@@ -163,11 +289,20 @@ export function WhyColumnPanel({ title, items, onClose, onSelectItem }) {
 export function WhySuggestedPanel({ item, onClose }) {
   const b = item.breakdown;
   const neverCooked = b.recipeDays === 9999;
+  // Weight note per term: what the raw number was multiplied by, so a row
+  // reading "+0" is explained by the weighting rather than looking broken.
+  const weightNote = (key, base) => {
+    const w = weightFor(b.weights, key);
+    if (w === 0) return 'switched off';
+    if (w === 1) return base;
+    return base ? `${base} × ${w}` : `× ${w}`;
+  };
   const rows = [
     {
       label: neverCooked ? 'Never cooked (as far as this page knows)' : `Not cooked in ${b.recipeDays} day${b.recipeDays === 1 ? '' : 's'}`,
       detail: b.lastCooked ? `last logged ${formatLogDate(b.lastCooked)}` : 'no entry in your food log or weekly menus',
-      points: b.recipeDays,
+      points: b.stalenessPoints,
+      note: weightNote('staleness', null),
     },
     {
       label: 'Key ingredients you have not eaten lately',
@@ -176,19 +311,20 @@ export function WhySuggestedPanel({ item, onClose }) {
         : b.ingredientDetails
           .map(i => `${i.label} ${i.days === 9999 ? '(never)' : `${i.days}d`}`)
           .join(', '),
-      points: b.ingredientScore,
+      points: b.ingredientPoints,
+      note: weightNote('ingredients', null),
     },
     {
       label: 'In season now',
       detail: item.seasonalMatches.length > 0 ? item.seasonalMatches.join(', ') : 'nothing in season',
       points: b.seasonalBonus,
-      note: item.seasonalMatches.length > 0 ? '50 each' : null,
+      note: weightNote('seasonal', item.seasonalMatches.length > 0 ? '50 each' : null),
     },
     {
       label: 'Fits your macro goals',
       detail: b.macroScore > 0 ? `match score ${b.macroScore}` : 'no macro match',
       points: b.macroBonus,
-      note: b.macroBonus > 0 ? 'match × 2' : null,
+      note: weightNote('macro', b.macroRaw > 0 ? 'match × 2' : null),
     },
   ];
   if (b.boostBonus > 0) rows.push({ label: 'Pinned by you', detail: 'manually boosted', points: b.boostBonus });
@@ -560,6 +696,12 @@ export function RecipeList({
   useEffect(() => {
     if (!user) return;
     loadUserData(user.uid).then(data => {
+      // Weighting set on another device wins over this browser's copy.
+      if (data?.suggestWeights) {
+        const clean = normalizeSuggestWeights(data.suggestWeights);
+        setSuggestWeights(clean);
+        try { localStorage.setItem(SUGGEST_WEIGHTS_KEY, JSON.stringify(clean)); } catch { /* quota */ }
+      }
       if (data?.catLayout) {
         setCatLayout(data.catLayout);
         localStorage.setItem('sunday-cat-layout', JSON.stringify(data.catLayout));
@@ -576,7 +718,9 @@ export function RecipeList({
   const [historyTick, setHistoryTick] = useState(0);
   // The suggestion whose scoring is being shown ("why is this suggested?").
   const [whySuggested, setWhySuggested] = useState(null);
-  // The column whose ORDER is being explained ({ title, items }).
+  // The column whose ORDER is being explained: 'breakfast' | 'lunch'. Held as
+  // a key rather than a snapshot of rows, so re-weighting from inside the
+  // panel re-ranks the list you are looking at.
   const [whyColumn, setWhyColumn] = useState(null);
 
   // Pull the daily log subcollection on mount, the way Shopping List does.
@@ -763,6 +907,16 @@ export function RecipeList({
   // When on, recipes marked "To Try" are included in Suggested Meals even if
   // the main list's "To Try" frequency filter is off. Persisted like aiEnabled.
   const [includeToTry, setIncludeToTry] = useState(() => localStorage.getItem('sunday-suggest-include-totry') === 'true');
+  // What each term of the suggestion score is worth, editable from the "why?"
+  // panel. Synced so the phone can follow the same weighting later.
+  const [suggestWeights, setSuggestWeights] = useState(loadSuggestWeights);
+
+  function updateSuggestWeights(next) {
+    const clean = normalizeSuggestWeights(next);
+    setSuggestWeights(clean);
+    try { localStorage.setItem(SUGGEST_WEIGHTS_KEY, JSON.stringify(clean)); } catch { /* quota */ }
+    if (user?.uid) saveField(user.uid, 'suggestWeights', clean);
+  }
   const [aiMeals, setAiMeals] = useState([]);
   const [aiPreview, setAiPreview] = useState(null);
   const [aiSkipping, setAiSkipping] = useState(null); // null or category string being loaded
@@ -1575,14 +1729,20 @@ export function RecipeList({
 
       // Seasonal boost: find in-season ingredients and add bonus
       const seasonalMatches = getRecipeSeasonalIngredients(recipe, seasonalSet);
-      const seasonalBonus = seasonalMatches.length * 50;
+      const seasonalRaw = seasonalMatches.length * 50;
 
       // Macro match score
       const macroScore = macroMatchMap[recipe.id] || 0;
-      const macroBonus = macroScore * 2;
+      const macroRaw = macroScore * 2;
+
+      // Each term counts for what the weighting says — 0 when switched off.
+      const stalenessPoints = recipeDays * weightFor(suggestWeights, 'staleness');
+      const ingredientPoints = ingredientScore * weightFor(suggestWeights, 'ingredients');
+      const seasonalBonus = seasonalRaw * weightFor(suggestWeights, 'seasonal');
+      const macroBonus = macroRaw * weightFor(suggestWeights, 'macro');
 
       const boostBonus = boostedIds.has(recipe.id) ? 100000 : 0;
-      const totalScore = recipeDays + ingredientScore + seasonalBonus + macroBonus + boostBonus;
+      const totalScore = stalenessPoints + ingredientPoints + seasonalBonus + macroBonus + boostBonus;
 
       // Build reason text
       const parts = [];
@@ -1600,7 +1760,12 @@ export function RecipeList({
         breakdown: {
           lastCooked, recipeDays,
           ingredientScore, ingredientDetails,
-          seasonalBonus, macroScore, macroBonus, boostBonus, totalScore,
+          macroScore, boostBonus, totalScore,
+          // Raw = what the term is worth before weighting; the *Points/Bonus
+          // values are what actually went into the total.
+          seasonalRaw, macroRaw,
+          stalenessPoints, ingredientPoints, seasonalBonus, macroBonus,
+          weights: suggestWeights,
         },
       };
     });
@@ -1614,7 +1779,7 @@ export function RecipeList({
     const lunches = withRank(scored.filter(s => s.recipe.category === 'lunch-dinner')).slice(0, 10);
     return { breakfasts, lunches };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [recipes, weeklyPlan, showCommon, showRare, showToTry, showRetired, includeToTry, checkedTypes, checkedCategories, checkedCuisines, checkedTags, checkedSources, historyTick]);
+  }, [recipes, weeklyPlan, showCommon, showRare, showToTry, showRetired, includeToTry, checkedTypes, checkedCategories, checkedCuisines, checkedTags, checkedSources, historyTick, suggestWeights]);
 
   return (
     <>
@@ -2150,7 +2315,7 @@ export function RecipeList({
                       checked={suggestCols.overdue}
                       onChange={() => setSuggestCols(p => ({ ...p, overdue: !p.overdue }))}
                     />
-                    Overdue Ingredients
+                    Overdue Ingredients column
                   </label>
                   <label className={styles.suggestGearLabel}>
                     <input
@@ -2158,8 +2323,14 @@ export function RecipeList({
                       checked={suggestCols.seasonal}
                       onChange={() => setSuggestCols(p => ({ ...p, seasonal: !p.seasonal }))}
                     />
-                    Seasonal
+                    Seasonal column
                   </label>
+                  {/* These two only show and hide table columns. Saying so
+                      stops "Seasonal off" reading as "stop ranking by season",
+                      which is what the weighting in the why? panel does. */}
+                  <p className={styles.suggestGearNote}>
+                    Columns only. To change how meals are ranked, open <strong>why?</strong> next to Breakfast or Lunch &amp; Dinner.
+                  </p>
                 </div>
               )}
             </div>
@@ -2169,7 +2340,7 @@ export function RecipeList({
               <div className={styles.suggestColumn}>
                 <button
                   className={`${styles.suggestCategoryLabel} ${styles.suggestCategoryBtn}`}
-                  onClick={() => setWhyColumn({ title: 'Breakfast', items: suggestions.breakfasts })}
+                  onClick={() => setWhyColumn('breakfast')}
                   title="Why these, in this order?"
                 >
                   Breakfast <span className={styles.suggestCategoryHint}>why?</span>
@@ -2265,7 +2436,7 @@ export function RecipeList({
               <div className={styles.suggestColumn}>
                 <button
                   className={`${styles.suggestCategoryLabel} ${styles.suggestCategoryBtn}`}
-                  onClick={() => setWhyColumn({ title: 'Lunch & Dinner', items: suggestions.lunches })}
+                  onClick={() => setWhyColumn('lunch')}
                   title="Why these, in this order?"
                 >
                   Lunch &amp; Dinner <span className={styles.suggestCategoryHint}>why?</span>
@@ -2591,16 +2762,19 @@ export function RecipeList({
       </div>
       </WidgetLayout>
 
-      {/* AI Recipe Preview Modal */}
       {whyColumn && (
         <WhyColumnPanel
-          title={whyColumn.title}
-          items={whyColumn.items}
+          title={whyColumn === 'breakfast' ? 'Breakfast' : 'Lunch & Dinner'}
+          items={whyColumn === 'breakfast' ? suggestions.breakfasts : suggestions.lunches}
+          weights={suggestWeights}
+          onWeightsChange={updateSuggestWeights}
           onClose={() => setWhyColumn(null)}
           // Straight from the column to one meal's full arithmetic.
           onSelectItem={(item) => { setWhyColumn(null); setWhySuggested(item); }}
         />
       )}
+
+      {/* AI Recipe Preview Modal */}
 
       {whySuggested && <WhySuggestedPanel item={whySuggested} onClose={() => setWhySuggested(null)} />}
 
