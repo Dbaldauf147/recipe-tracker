@@ -1241,6 +1241,27 @@
   color: var(--color-text-muted);
 }
 
+/* "Why is this suggested?" — quieter and smaller than the add button next to
+   it, since it explains rather than acts. */
+.suggestWhyBtn {
+  background: none;
+  border: 1px solid var(--color-border);
+  color: var(--color-text-muted);
+  font-size: 0.85rem;
+  font-weight: 700;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: color var(--transition-normal), border-color var(--transition-normal);
+}
+
+.suggestWhyBtn:hover {
+  color: var(--color-accent);
+  border-color: var(--color-accent);
+}
+
 .suggestAddBtn {
   background: none;
   border: 1px solid var(--color-border);
