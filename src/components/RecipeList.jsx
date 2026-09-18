@@ -57,6 +57,109 @@ function formatLogDate(dateStr) {
  * Seeing "last cooked: no record" next to a meal you cooked last week is also
  * the fastest way to spot a log that hasn't reached this browser.
  */
+/**
+ * Why a whole column is in the order it is.
+ *
+ * The per-meal panel answers "why this one"; this answers "why this ORDER",
+ * which is a different question — it needs the meals side by side with the
+ * same four numbers, so the sort is something you can check rather than trust.
+ */
+export function WhyColumnPanel({ title, items, onClose, onSelectItem }) {
+  const top = items[0];
+  return (
+    <div
+      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }}
+      onClick={onClose}
+      role="presentation"
+    >
+      <div
+        style={{ background: 'var(--color-surface)', borderRadius: '16px', maxWidth: '760px', width: '100%', maxHeight: '85vh', overflowY: 'auto', boxShadow: '0 8px 32px rgba(0,0,0,0.2)', padding: '1.5rem' }}
+        onClick={e => e.stopPropagation()}
+        role="dialog"
+        aria-label={`How ${title} suggestions are ranked`}
+      >
+        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '1rem' }}>
+          <div>
+            <h2 style={{ margin: 0, fontSize: '1.15rem', fontWeight: 700, color: 'var(--color-text)' }}>How {title} is ordered</h2>
+            <p style={{ margin: '0.2rem 0 0', fontSize: '0.85rem', color: 'var(--color-text-muted)' }}>
+              {items.length === 0 ? 'Nothing to rank yet.' : `${items.length} meal${items.length === 1 ? '' : 's'}, highest score first`}
+            </p>
+          </div>
+          <button onClick={onClose} aria-label="Close" style={{ background: 'none', border: 'none', fontSize: '1.4rem', cursor: 'pointer', color: 'var(--color-text-muted)', lineHeight: 1 }}>×</button>
+        </div>
+
+        <p style={{ fontSize: '0.85rem', color: 'var(--color-text)', lineHeight: 1.55, marginTop: '0.9rem', marginBottom: '0.3rem' }}>
+          Each meal gets one score, and the column is that score, highest first:
+        </p>
+        <ul style={{ fontSize: '0.83rem', color: 'var(--color-text-muted)', lineHeight: 1.5, margin: '0 0 0.9rem', paddingLeft: '1.1rem' }}>
+          <li><strong>Days since you last cooked it</strong> — the biggest term. A meal with no record at all counts as 9999, which is why an unlogged meal sits at the top.</li>
+          <li><strong>Key ingredients</strong> — for each of your key ingredients the recipe uses, how many days since you last ate it, added up.</li>
+          <li><strong>In season</strong> — 50 for each in-season ingredient it uses.</li>
+          <li><strong>Macro fit</strong> — how well it matches your goals, doubled.</li>
+        </ul>
+        <p style={{ fontSize: '0.83rem', color: 'var(--color-text-muted)', lineHeight: 1.5, margin: '0 0 1rem' }}>
+          Meals already in this week&apos;s plan are left out, as are retired ones — and rare or &quot;to try&quot; meals unless you switch them on with the gear.
+        </p>
+
+        {items.length > 0 && (
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
+            <thead>
+              <tr style={{ textAlign: 'left', color: 'var(--color-text-muted)', fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.03em' }}>
+                <th style={{ padding: '0.35rem 0.4rem 0.35rem 0' }}>#</th>
+                <th style={{ padding: '0.35rem 0.4rem 0.35rem 0' }}>Meal</th>
+                <th style={{ padding: '0.35rem 0.4rem', textAlign: 'right' }} title="Days since you last cooked it">Days</th>
+                <th style={{ padding: '0.35rem 0.4rem', textAlign: 'right' }} title="Key ingredients you have not eaten lately">Ingr.</th>
+                <th style={{ padding: '0.35rem 0.4rem', textAlign: 'right' }} title="In-season bonus">Season</th>
+                <th style={{ padding: '0.35rem 0.4rem', textAlign: 'right' }} title="Macro fit bonus">Macro</th>
+                <th style={{ padding: '0.35rem 0 0.35rem 0.4rem', textAlign: 'right' }}>Score</th>
+              </tr>
+            </thead>
+            <tbody>
+              {items.map(item => {
+                const b = item.breakdown;
+                const never = b.recipeDays === 9999;
+                return (
+                  <tr key={item.recipe.id} style={{ borderTop: '1px solid var(--color-border, #e5e7eb)' }}>
+                    <td style={{ padding: '0.4rem 0.4rem 0.4rem 0', color: 'var(--color-text-muted)' }}>{item.rank}</td>
+                    <td style={{ padding: '0.4rem 0.4rem 0.4rem 0' }}>
+                      <button
+                        onClick={() => onSelectItem?.(item)}
+                        style={{ background: 'none', border: 'none', padding: 0, font: 'inherit', color: 'var(--color-accent)', cursor: 'pointer', textAlign: 'left' }}
+                        title="Show this meal's full breakdown"
+                      >
+                        {item.recipe.title}
+                      </button>
+                    </td>
+                    <td style={{ padding: '0.4rem', textAlign: 'right', color: never ? '#b45309' : 'inherit', fontWeight: never ? 700 : 400 }}>
+                      {never ? 'never' : b.recipeDays}
+                    </td>
+                    <td style={{ padding: '0.4rem', textAlign: 'right' }}>{Math.round(b.ingredientScore)}</td>
+                    <td style={{ padding: '0.4rem', textAlign: 'right' }}>{Math.round(b.seasonalBonus)}</td>
+                    <td style={{ padding: '0.4rem', textAlign: 'right' }}>{Math.round(b.macroBonus)}</td>
+                    <td style={{ padding: '0.4rem 0 0.4rem 0.4rem', textAlign: 'right', fontWeight: 700 }}>{Math.round(b.totalScore)}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        )}
+
+        {top && (
+          <p style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)', lineHeight: 1.5, marginTop: '0.9rem', marginBottom: 0 }}>
+            {top.recipe.title} is first because {top.breakdown.recipeDays === 9999
+              ? 'nothing here has a record of it being cooked, which scores 9999'
+              : `it scores ${Math.round(top.breakdown.totalScore)}` + (
+                top.breakdown.ingredientScore > top.breakdown.recipeDays
+                  ? ` — mostly key ingredients you have not eaten lately (${Math.round(top.breakdown.ingredientScore)})`
+                  : ` — mostly the ${top.breakdown.recipeDays} days since you cooked it`
+              )}. Click any meal for its full breakdown.
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export function WhySuggestedPanel({ item, onClose }) {
   const b = item.breakdown;
   const neverCooked = b.recipeDays === 9999;
@@ -473,6 +576,8 @@ export function RecipeList({
   const [historyTick, setHistoryTick] = useState(0);
   // The suggestion whose scoring is being shown ("why is this suggested?").
   const [whySuggested, setWhySuggested] = useState(null);
+  // The column whose ORDER is being explained ({ title, items }).
+  const [whyColumn, setWhyColumn] = useState(null);
 
   // Pull the daily log subcollection on mount, the way Shopping List does.
   //
@@ -2062,7 +2167,13 @@ export function RecipeList({
           </div>
           {suggestOpen && <div className={styles.suggestColumns}>
               <div className={styles.suggestColumn}>
-                <span className={styles.suggestCategoryLabel}>Breakfast</span>
+                <button
+                  className={`${styles.suggestCategoryLabel} ${styles.suggestCategoryBtn}`}
+                  onClick={() => setWhyColumn({ title: 'Breakfast', items: suggestions.breakfasts })}
+                  title="Why these, in this order?"
+                >
+                  Breakfast <span className={styles.suggestCategoryHint}>why?</span>
+                </button>
                 {suggestions.breakfasts.length > 0 ? (
                 <table className={styles.suggestTable}>
                   <thead>
@@ -2152,7 +2263,13 @@ export function RecipeList({
                 )}
               </div>
               <div className={styles.suggestColumn}>
-                <span className={styles.suggestCategoryLabel}>Lunch & Dinner</span>
+                <button
+                  className={`${styles.suggestCategoryLabel} ${styles.suggestCategoryBtn}`}
+                  onClick={() => setWhyColumn({ title: 'Lunch & Dinner', items: suggestions.lunches })}
+                  title="Why these, in this order?"
+                >
+                  Lunch &amp; Dinner <span className={styles.suggestCategoryHint}>why?</span>
+                </button>
                 {suggestions.lunches.length > 0 ? (
                 <table className={styles.suggestTable}>
                   <thead>
@@ -2475,6 +2592,16 @@ export function RecipeList({
       </WidgetLayout>
 
       {/* AI Recipe Preview Modal */}
+      {whyColumn && (
+        <WhyColumnPanel
+          title={whyColumn.title}
+          items={whyColumn.items}
+          onClose={() => setWhyColumn(null)}
+          // Straight from the column to one meal's full arithmetic.
+          onSelectItem={(item) => { setWhyColumn(null); setWhySuggested(item); }}
+        />
+      )}
+
       {whySuggested && <WhySuggestedPanel item={whySuggested} onClose={() => setWhySuggested(null)} />}
 
       {aiPreview && (
