@@ -40,6 +40,113 @@ function joanneLikes(recipe) {
 const ADMIN_UID = import.meta.env.VITE_ADMIN_UID;
 
 const HISTORY_KEY = 'sunday-plan-history';
+
+// "Sept 11, 2026" from a YYYY-MM-DD key, without the timezone shift a bare
+// new Date(str) would introduce.
+function formatLogDate(dateStr) {
+  const [y, m, d] = String(dateStr || '').split('-').map(Number);
+  if (!y || !m || !d) return dateStr || '';
+  return new Date(y, m - 1, d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+/**
+ * The arithmetic behind one suggestion, itemised.
+ *
+ * Suggested Meals is a single sum, and every term is a number of days or a flat
+ * bonus — so the honest explanation is the sum itself, not a sentence about it.
+ * Seeing "last cooked: no record" next to a meal you cooked last week is also
+ * the fastest way to spot a log that hasn't reached this browser.
+ */
+export function WhySuggestedPanel({ item, onClose }) {
+  const b = item.breakdown;
+  const neverCooked = b.recipeDays === 9999;
+  const rows = [
+    {
+      label: neverCooked ? 'Never cooked (as far as this page knows)' : `Not cooked in ${b.recipeDays} day${b.recipeDays === 1 ? '' : 's'}`,
+      detail: b.lastCooked ? `last logged ${formatLogDate(b.lastCooked)}` : 'no entry in your food log or weekly menus',
+      points: b.recipeDays,
+    },
+    {
+      label: 'Key ingredients you have not eaten lately',
+      detail: b.ingredientDetails.length === 0
+        ? 'none of your key ingredients are in this recipe'
+        : b.ingredientDetails
+          .map(i => `${i.label} ${i.days === 9999 ? '(never)' : `${i.days}d`}`)
+          .join(', '),
+      points: b.ingredientScore,
+    },
+    {
+      label: 'In season now',
+      detail: item.seasonalMatches.length > 0 ? item.seasonalMatches.join(', ') : 'nothing in season',
+      points: b.seasonalBonus,
+      note: item.seasonalMatches.length > 0 ? '50 each' : null,
+    },
+    {
+      label: 'Fits your macro goals',
+      detail: b.macroScore > 0 ? `match score ${b.macroScore}` : 'no macro match',
+      points: b.macroBonus,
+      note: b.macroBonus > 0 ? 'match × 2' : null,
+    },
+  ];
+  if (b.boostBonus > 0) rows.push({ label: 'Pinned by you', detail: 'manually boosted', points: b.boostBonus });
+
+  return (
+    <div
+      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }}
+      onClick={onClose}
+      role="presentation"
+    >
+      <div
+        style={{ background: 'var(--color-surface)', borderRadius: '16px', maxWidth: '560px', width: '100%', maxHeight: '85vh', overflowY: 'auto', boxShadow: '0 8px 32px rgba(0,0,0,0.2)', padding: '1.5rem' }}
+        onClick={e => e.stopPropagation()}
+        role="dialog"
+        aria-label={`Why ${item.recipe.title} is suggested`}
+      >
+        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '1rem' }}>
+          <div>
+            <h2 style={{ margin: 0, fontSize: '1.15rem', fontWeight: 700, color: 'var(--color-text)' }}>{item.recipe.title}</h2>
+            <p style={{ margin: '0.2rem 0 0', fontSize: '0.85rem', color: 'var(--color-text-muted)' }}>
+              Ranked #{item.rank} of {item.outOf} {item.recipe.category === 'breakfast' ? 'breakfasts' : 'lunches & dinners'}
+            </p>
+          </div>
+          <button onClick={onClose} aria-label="Close" style={{ background: 'none', border: 'none', fontSize: '1.4rem', cursor: 'pointer', color: 'var(--color-text-muted)', lineHeight: 1 }}>×</button>
+        </div>
+
+        <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: '1rem', fontSize: '0.88rem' }}>
+          <tbody>
+            {rows.map(r => (
+              <tr key={r.label} style={{ borderBottom: '1px solid var(--color-border, #e5e7eb)' }}>
+                <td style={{ padding: '0.5rem 0.5rem 0.5rem 0', verticalAlign: 'top' }}>
+                  <div style={{ fontWeight: 600, color: 'var(--color-text)' }}>{r.label}</div>
+                  <div style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)', marginTop: 2 }}>{r.detail}</div>
+                </td>
+                <td style={{ padding: '0.5rem 0', textAlign: 'right', whiteSpace: 'nowrap', fontWeight: 700, verticalAlign: 'top' }}>
+                  +{Math.round(r.points)}
+                  {r.note && <div style={{ fontSize: '0.72rem', fontWeight: 400, color: 'var(--color-text-muted)' }}>{r.note}</div>}
+                </td>
+              </tr>
+            ))}
+            <tr>
+              <td style={{ padding: '0.6rem 0.5rem 0 0', fontWeight: 700 }}>Total score</td>
+              <td style={{ padding: '0.6rem 0 0', textAlign: 'right', fontWeight: 700 }}>{Math.round(b.totalScore)}</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <p style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)', lineHeight: 1.5, marginTop: '1rem', marginBottom: 0 }}>
+          Meals are ranked by this total, highest first. Days since you last cooked it is the biggest term, so a meal
+          you have just eaten drops to the bottom — and one with no record at all counts as 9999 and goes to the top.
+        </p>
+        {neverCooked && (
+          <p style={{ fontSize: '0.8rem', color: '#92400e', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 8, padding: '0.5rem 0.7rem', lineHeight: 1.5, marginTop: '0.6rem', marginBottom: 0 }}>
+            If you have cooked this, the log entry has not reached this browser — it syncs when the food log loads.
+            Open Track Meals, or reload, and this should fall down the list.
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
 const SHOP_KEY = 'sunday-shopping-selection';
 const WEEKLY_GOALS_KEY = 'sunday-weekly-goals';
 
@@ -364,6 +471,8 @@ export function RecipeList({
   // sunday-plan-history and sunday-daily-log refresh, instead of holding
   // a stale snapshot from first render.
   const [historyTick, setHistoryTick] = useState(0);
+  // The suggestion whose scoring is being shown ("why is this suggested?").
+  const [whySuggested, setWhySuggested] = useState(null);
 
   // Pull the daily log subcollection on mount, the way Shopping List does.
   //
@@ -1341,18 +1450,23 @@ export function RecipeList({
       // Sum days-since-last-eaten for each key ingredient this recipe has
       let ingredientScore = 0;
       const neglectedIngredients = [];
+      // Every ingredient that scored, with its own number — this is what the
+      // "why is this suggested?" panel itemises.
+      const ingredientDetails = [];
       for (const keyIng of userIngredients) {
         const normKey = normalize(keyIng);
         if (recipeHasIngredient(recipe, normKey)) {
           const ingDate = ingredientDateMap[normKey];
           const ingDays = ingDate ? daysSince(ingDate) : 9999;
           ingredientScore += ingDays;
+          const label = keyIng.replace(/_/g, ' ');
+          ingredientDetails.push({ label, days: ingDays, lastEaten: ingDate || null });
           if (ingDays >= 14) {
-            const label = keyIng.replace(/_/g, ' ');
             neglectedIngredients.push(label);
           }
         }
       }
+      ingredientDetails.sort((a, b) => b.days - a.days);
 
       // Seasonal boost: find in-season ingredients and add bonus
       const seasonalMatches = getRecipeSeasonalIngredients(recipe, seasonalSet);
@@ -1374,13 +1488,25 @@ export function RecipeList({
       }
       const reason = parts.join(' · ') || 'good variety pick';
 
-      return { recipe, totalScore, reason, recipeDays, neglectedIngredients, seasonalMatches };
+      return {
+        recipe, totalScore, reason, recipeDays, neglectedIngredients, seasonalMatches,
+        // The full arithmetic, kept so the panel can show the sum rather than
+        // assert a conclusion.
+        breakdown: {
+          lastCooked, recipeDays,
+          ingredientScore, ingredientDetails,
+          seasonalBonus, macroScore, macroBonus, boostBonus, totalScore,
+        },
+      };
     });
 
     scored.sort((a, b) => b.totalScore - a.totalScore);
 
-    const breakfasts = scored.filter(s => s.recipe.category === 'breakfast').slice(0, 10);
-    const lunches = scored.filter(s => s.recipe.category === 'lunch-dinner').slice(0, 10);
+    // Rank + field size go on each item so the "why?" panel can say where a
+    // meal placed and out of how many, without recomputing any of this.
+    const withRank = (list) => list.map((s, i) => ({ ...s, rank: i + 1, outOf: list.length }));
+    const breakfasts = withRank(scored.filter(s => s.recipe.category === 'breakfast')).slice(0, 10);
+    const lunches = withRank(scored.filter(s => s.recipe.category === 'lunch-dinner')).slice(0, 10);
     return { breakfasts, lunches };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [recipes, weeklyPlan, showCommon, showRare, showToTry, showRetired, includeToTry, checkedTypes, checkedCategories, checkedCuisines, checkedTags, checkedSources, historyTick]);
@@ -1997,7 +2123,15 @@ export function RecipeList({
                               </td>
                             )}
                             {suggestCols.seasonal && <td className={styles.suggestSeasonal}>{seasonalMatches.length > 0 ? seasonalMatches.slice(0, 3).join(', ') : '—'}</td>}
-                            <td><button className={styles.suggestAddBtn} onClick={() => handleAddToWeekWithPulse(recipe.id)} aria-label={`Add ${recipe.title} to this week`}>+</button></td>
+                            <td style={{ display: 'flex', gap: '0.35rem', alignItems: 'center' }}>
+                              <button
+                                className={styles.suggestWhyBtn}
+                                onClick={() => setWhySuggested(item)}
+                                aria-label={`Why ${recipe.title} is suggested`}
+                                title="Why is this suggested?"
+                              >?</button>
+                              <button className={styles.suggestAddBtn} onClick={() => handleAddToWeekWithPulse(recipe.id)} aria-label={`Add ${recipe.title} to this week`}>+</button>
+                            </td>
                           </tr>
                         );
                       });
@@ -2078,7 +2212,15 @@ export function RecipeList({
                               </td>
                             )}
                             {suggestCols.seasonal && <td className={styles.suggestSeasonal}>{seasonalMatches.length > 0 ? seasonalMatches.slice(0, 3).join(', ') : '—'}</td>}
-                            <td><button className={styles.suggestAddBtn} onClick={() => handleAddToWeekWithPulse(recipe.id)} aria-label={`Add ${recipe.title} to this week`}>+</button></td>
+                            <td style={{ display: 'flex', gap: '0.35rem', alignItems: 'center' }}>
+                              <button
+                                className={styles.suggestWhyBtn}
+                                onClick={() => setWhySuggested(item)}
+                                aria-label={`Why ${recipe.title} is suggested`}
+                                title="Why is this suggested?"
+                              >?</button>
+                              <button className={styles.suggestAddBtn} onClick={() => handleAddToWeekWithPulse(recipe.id)} aria-label={`Add ${recipe.title} to this week`}>+</button>
+                            </td>
                           </tr>
                         );
                       });
@@ -2333,6 +2475,8 @@ export function RecipeList({
       </WidgetLayout>
 
       {/* AI Recipe Preview Modal */}
+      {whySuggested && <WhySuggestedPanel item={whySuggested} onClose={() => setWhySuggested(null)} />}
+
       {aiPreview && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }} onClick={() => setAiPreview(null)}>
           <div style={{ background: 'var(--color-surface)', borderRadius: '16px', maxWidth: '600px', width: '100%', maxHeight: '85vh', overflowY: 'auto', boxShadow: '0 8px 32px rgba(0,0,0,0.2)', padding: '1.5rem' }} onClick={e => e.stopPropagation()}>
