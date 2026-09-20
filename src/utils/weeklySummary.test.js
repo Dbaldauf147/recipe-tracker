@@ -565,7 +565,7 @@ test('a skipped day contributes no protein reading', () => {
   assert.equal(s.meals.proteinByDay[0].protein, null);
 });
 
-test('the ate-out history is four weeks, oldest first, ending with this one', () => {
+test('the ate-out history is ten weeks, oldest first, ending with this one', () => {
   const dailyLog = {};
   // 3 this week, 1 the week before, 0 before that, 2 four weeks back.
   for (const d of WEEK.days.slice(0, 3)) dailyLog[d] = { entries: [{ mealSlot: 'dinner', eatingOut: true }] };
@@ -576,21 +576,24 @@ test('the ate-out history is four weeks, oldest first, ending with this one', ()
 
   const s = summarizeWeek(emptyData({ dailyLog }), WEEK);
   const h = s.meals.ateOutHistory;
-  assert.equal(h.length, 4);
-  assert.deepEqual(h.map(x => x.ateOut), [2, 0, 1, 3]);
-  assert.equal(h[3].start, WEEK.start);
-  assert.equal(h[3].end, WEEK.end);
-  assert.equal(h[0].start, w3.start);
-  assert.equal(h[3].label, 'Jul 26–Aug 1');
+  assert.equal(h.length, 10);
+  assert.deepEqual(h.map(x => x.ateOut), [0, 0, 0, 0, 0, 0, 2, 0, 1, 3]);
+  assert.equal(h[9].start, WEEK.start);
+  assert.equal(h[9].end, WEEK.end);
+  assert.equal(h[6].start, w3.start);
+  // The chart labels a column with the week's start alone, as the weight chart
+  // does; the full span stays on `range` for the plain-text email.
+  assert.equal(h[9].label, 'Jul 26');
+  assert.equal(h[9].range, 'Jul 26–Aug 1');
   // A week inside one month says the month once.
-  assert.equal(h[1].label, 'Jul 12–18');
-  // The last row's count is the same number the "Ate out" line reports.
-  assert.equal(h[3].ateOut, s.meals.ateOut);
+  assert.equal(h[7].range, 'Jul 12–18');
+  // The last point's count is the same number the "Ate out" line reports.
+  assert.equal(h[9].ateOut, s.meals.ateOut);
 });
 
-test('a month with nothing logged still returns four zero weeks', () => {
+test('ten weeks with nothing logged still return ten zero points', () => {
   const s = summarizeWeek(emptyData(), WEEK);
-  assert.deepEqual(s.meals.ateOutHistory.map(x => x.ateOut), [0, 0, 0, 0]);
+  assert.deepEqual(s.meals.ateOutHistory.map(x => x.ateOut), [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
 });
 
 test('the email draws both charts, with the goal line and the week labels', () => {
@@ -608,15 +611,18 @@ test('the email draws both charts, with the goal line and the week labels', () =
   assert.match(email.html, /Protein per day/);
   assert.match(email.html, /145g daily goal/);
   assert.match(email.html, /border-top:1px dashed/);      // the goal line itself
-  assert.match(email.html, /Meals eaten out · last 4 weeks/);
-  assert.match(email.html, /Jul 26–Aug 1/);
+  assert.match(email.html, /Meals eaten out · last 10 weeks/);
+  // Columns are labelled by week start, like the weight chart underneath.
+  assert.match(email.html, /font-size:10px;color:#111827;white-space:nowrap;">Jul 26</);
   assert.match(email.html, /#16a34a/);                    // the 160g day beat the goal
   assert.match(email.html, /#dc2626/);                    // the 40g day fell well short
   // Plain text carries the same numbers rather than a shrug.
   assert.match(email.text, /Protein per day \(g\) — goal 145/);
   assert.match(email.text, /Sun {2}█+░* {2}160 {2}✓/);
   assert.match(email.text, /Wed {2}·+ {2}no data/);
-  assert.match(email.text, /Meals eaten out, last 4 weeks/);
+  assert.match(email.text, /Meals eaten out, last 10 weeks/);
+  // The text rows keep the full span even though the chart columns don't.
+  assert.match(email.text, /Jul 26–Aug 1 {2}█+/);
 });
 
 test('with no protein goal the chart drops the goal line rather than inventing one', () => {
@@ -637,4 +643,160 @@ test('a week with no nutrition at all draws no protein chart', () => {
   assert.doesNotMatch(email.html, /Protein per day/);
   // The eating-out breakdown still renders — zero is a real answer there.
   assert.match(email.html, /Meals eaten out/);
+});
+
+// ── per-meal protein hit rate and fibre, over the same ten weeks ─────────────
+// The trend the eating-out chart established, applied to meal QUALITY: what
+// share of logged meals cleared the per-meal protein goal, and how much fibre
+// the average logged meal carried. The traps are both "unknown isn't zero" —
+// a week nobody logged must not read as a 0% week, and a meal with no fibre
+// figure must not drag the fibre average down.
+
+test('the meal-quality history is ten weeks, oldest first, ending with this one', () => {
+  const dailyLog = {
+    [WEEK.days[0]]: {
+      entries: [
+        { mealSlot: 'breakfast', nutrition: { protein: 50, fiber: 10 } },
+        { mealSlot: 'dinner', nutrition: { protein: 20, fiber: 4 } },
+      ],
+    },
+  };
+  const w2 = previousWeek(previousWeek(WEEK));
+  dailyLog[w2.days[3]] = { entries: [{ mealSlot: 'lunch', nutrition: { protein: 60, fiber: 8 } }] };
+
+  const h = summarizeWeek(emptyData({ dailyLog }), WEEK).meals.qualityHistory;
+  assert.equal(h.length, 10);
+  assert.deepEqual(h.map(w => w.meals), [0, 0, 0, 0, 0, 0, 0, 1, 0, 2]);
+  assert.equal(h[9].start, WEEK.start);
+  assert.equal(h[7].start, w2.start);
+  // Labels match the eating-out history's, so the columns line up under it.
+  assert.equal(h[9].label, 'Jul 26');
+  assert.equal(h[9].range, 'Jul 26–Aug 1');
+  assert.deepEqual(h[9].proteins, [50, 20]);
+  assert.equal(h[9].fiberAvg, 7);
+});
+
+test('several entries in one slot are one meal, summed', () => {
+  const dailyLog = {
+    [WEEK.days[0]]: {
+      entries: [
+        { mealSlot: 'dinner', nutrition: { protein: 30, fiber: 5 } },
+        { mealSlot: 'dinner', nutrition: { protein: 15, fiber: 3 } },
+      ],
+    },
+  };
+  const h = summarizeWeek(emptyData({ dailyLog }), WEEK).meals.qualityHistory;
+  assert.equal(h[9].meals, 1);
+  assert.deepEqual(h[9].proteins, [45]);
+  assert.equal(h[9].fiberAvg, 8);
+});
+
+test('snacks and unpriced meals are not meals here', () => {
+  const dailyLog = {
+    [WEEK.days[0]]: {
+      entries: [
+        { mealSlot: 'snack', nutrition: { protein: 40, fiber: 9 } },
+        { mealSlot: 'lunch' },                                   // logged, never priced
+        { mealSlot: 'dinner', nutrition: { protein: 35, fiber: 6 } },
+      ],
+    },
+    [WEEK.days[1]]: { daySkipped: true, entries: [{ mealSlot: 'dinner', nutrition: { protein: 99, fiber: 99 } }] },
+  };
+  const h = summarizeWeek(emptyData({ dailyLog }), WEEK).meals.qualityHistory;
+  assert.deepEqual(h[9].proteins, [35]);
+  assert.equal(h[9].fiberAvg, 6);
+});
+
+test('a meal with no fibre figure is left out of the fibre average, not counted as 0g', () => {
+  const dailyLog = {
+    [WEEK.days[0]]: {
+      entries: [
+        { mealSlot: 'breakfast', nutrition: { protein: 30, fiber: 12 } },
+        { mealSlot: 'dinner', nutrition: { protein: 30 } },       // no fibre estimated
+      ],
+    },
+  };
+  const h = summarizeWeek(emptyData({ dailyLog }), WEEK).meals.qualityHistory;
+  assert.equal(h[9].meals, 2);            // both count as meals for protein
+  assert.deepEqual(h[9].fibers, [12]);    // only one carried fibre
+  assert.equal(h[9].fiberAvg, 12);        // not 6
+});
+
+test('a week that priced nothing is null fibre, not a zero-fibre week', () => {
+  const h = summarizeWeek(emptyData(), WEEK).meals.qualityHistory;
+  assert.equal(h.length, 10);
+  assert.deepEqual(h.map(w => w.fiberAvg), Array(10).fill(null));
+  assert.deepEqual(h.map(w => w.meals), Array(10).fill(0));
+});
+
+test('the email charts the protein hit rate and the fibre average over ten weeks', () => {
+  const dailyLog = {
+    // 3 priced meals: two clear the 48g per-meal goal (145/3), one doesn't.
+    [WEEK.days[0]]: {
+      entries: [
+        { mealSlot: 'breakfast', nutrition: { protein: 50, fiber: 12 } },
+        { mealSlot: 'dinner', nutrition: { protein: 60, fiber: 6 } },
+      ],
+    },
+    [WEEK.days[1]]: { entries: [{ mealSlot: 'lunch', nutrition: { protein: 20, fiber: 3 } }] },
+  };
+  const data = emptyData({ dailyLog });
+  const s = summarizeWeek(data, WEEK, { withProgress: true });
+  const email = renderWeeklySummary({
+    stats: s,
+    priorStats: summarizeWeek(data, previousWeek(WEEK)),
+    goals: { protein: 145, fiber: 27 },
+  });
+
+  assert.match(email.html, /Meals hitting the 48g protein goal · last 10 weeks/);
+  assert.match(email.html, /Avg fibre per meal · g · last 10 weeks/);
+  assert.match(email.html, /dashed line is 9g \(your daily goal ÷ 3\)/);
+  // 2 of 3 meals cleared the goal.
+  assert.match(email.html, />67%</);
+  // (12 + 6 + 3) / 3 = 7.0g — short of the 9g line, so the dot is amber.
+  assert.match(email.html, />7\.0</);
+  assert.match(email.html, /#d97706/);
+
+  // Plain text carries the same two trends.
+  assert.match(email.text, /Meals hitting the 48g protein goal, last 10 weeks \(%\)/);
+  assert.match(email.text, /Jul 26–Aug 1 {2}█+░* {2}67%/);
+  assert.match(email.text, /Avg fibre per meal, last 10 weeks \(g\) — goal 9/);
+  assert.match(email.text, /Jul 26–Aug 1 {2}█+░* {2}7\.0/);
+  // A week nobody logged is a dash, not a zero. (Labels are padded to the
+  // width of the longest span, so the gap is variable.)
+  assert.match(email.text, /May 24–30 +·+ {2}—/);
+});
+
+test('with no protein goal the hit-rate chart is dropped rather than assumed', () => {
+  const dailyLog = {
+    [WEEK.days[0]]: { entries: [{ mealSlot: 'dinner', nutrition: { protein: 40, fiber: 9 } }] },
+  };
+  const data = emptyData({ dailyLog });
+  const s = summarizeWeek(data, WEEK, { withProgress: true });
+  const email = renderWeeklySummary({
+    stats: s,
+    priorStats: summarizeWeek(data, previousWeek(WEEK)),
+    goals: { fiber: 27 },
+  });
+  assert.doesNotMatch(email.html, /protein goal · last/);
+  assert.doesNotMatch(email.text, /protein goal, last/);
+  // Fibre stands on its own — it has its own goal.
+  assert.match(email.html, /Avg fibre per meal/);
+});
+
+test('nobody who logs no fibre gets a fibre chart', () => {
+  const dailyLog = {
+    [WEEK.days[0]]: { entries: [{ mealSlot: 'dinner', nutrition: { protein: 60 } }] },
+  };
+  const data = emptyData({ dailyLog });
+  const s = summarizeWeek(data, WEEK, { withProgress: true });
+  const email = renderWeeklySummary({
+    stats: s,
+    priorStats: summarizeWeek(data, previousWeek(WEEK)),
+    goals: { protein: 145, fiber: 27 },
+  });
+  assert.doesNotMatch(email.html, /Avg fibre per meal/);
+  assert.doesNotMatch(email.text, /Avg fibre per meal/);
+  // The protein hit rate still renders — that week's one meal missed the goal.
+  assert.match(email.html, /Meals hitting the 48g protein goal/);
 });
