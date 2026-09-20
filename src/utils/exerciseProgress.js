@@ -393,6 +393,41 @@ export function makeBodyweightLookup(weightLog) {
   };
 }
 
+/**
+ * Like makeBodyweightLookup, but null for any date BEFORE the first weigh-in
+ * rather than reaching forward to it.
+ *
+ * The forward-fill above is right for its own job: a pull-up needs SOME
+ * bodyweight to add to the bar, and the earliest reading is the best guess
+ * going. It is wrong for a ratio. Dividing years of lifting logged before you
+ * ever stepped on a scale by the first weight you happened to record invents a
+ * trend that never happened — the lifts went up, the divisor sat frozen, and
+ * the line climbs for a reason that isn't real. Before the first weigh-in the
+ * honest answer is "unknown", and an unknown point is left off the chart.
+ *
+ * Mirrors makeBodyweightLookupStrict in the mobile app's exerciseProgress.ts.
+ */
+export function makeBodyweightLookupStrict(weightLog) {
+  const sorted = (Array.isArray(weightLog) ? weightLog : [])
+    .filter(e => e && e.date && Number(e.weight) > 0)
+    .sort((a, b) => String(a.date).localeCompare(String(b.date)));
+  if (sorted.length === 0) return () => null;
+  const first = String(sorted[0].date);
+  return (dateStr) => {
+    if (String(dateStr) < first) return null;
+    let best = null;
+    for (const e of sorted) {
+      if (String(e.date) <= String(dateStr)) best = e; else break;
+    }
+    if (!best) return null;
+    // The website only ever writes lbs and omits `unit`; the mobile app writes
+    // whatever the scale was read in. Set loads are canonical lb, so the
+    // divisor has to be too — otherwise a kg weigh-in is out by 2.2×.
+    const n = Number(best.weight);
+    return best.unit === 'kg' ? n * LB_PER_KG : n;
+  };
+}
+
 function resolveIntent(name, options) {
   const key = String(name || '').trim().toLowerCase();
   const byEx = options.intentByExercise;

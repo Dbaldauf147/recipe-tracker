@@ -10,7 +10,9 @@ import { exportWorkoutHistoryToCSV } from '../utils/exportData';
 import { parseSetValue, formatSeconds, computeSetStats } from '../utils/setValue';
 import { ExerciseLibrary, effectiveMuscleGroup, videoSourceLabel } from './ExerciseLibrary';
 import { EXERCISE_TYPES, DEFAULT_EXERCISE_TYPE, effectiveExerciseType, normalizeExerciseType, inferExerciseType } from '../utils/exerciseTypes';
-import { entryBestE1rmLb, offsiteMarker } from '../utils/exerciseProgress';
+import {
+  entryBestE1rmLb, offsiteMarker, makeBodyweightLookupStrict, isBodyweightExercise,
+} from '../utils/exerciseProgress';
 import { StretchRoutines } from './StretchRoutines';
 import { PrCelebration } from './PrCelebration';
 import { detectPersonalRecord, priorHistory } from '../utils/personalRecord';
@@ -50,6 +52,10 @@ const CHART_METRICS = {
   // cap) the Progress page classifies on, so a rising line here can't sit next
   // to a "Decreasing" verdict there.
   e1rm: { label: 'Est. 1RM', field: 'e1rm', isWeight: true },
+  // Est. 1RM as a multiple of that day's bodyweight. NOT isWeight: the ratio is
+  // unitless, so running it through the kg/lb conversion would be wrong. Only
+  // offered when there are weigh-ins behind it — see metricEntries below.
+  e1rmPerBw: { label: 'Strength ÷ bodyweight', field: 'e1rmPerBw' },
 };
 
 const NUM_CHART_SLOTS = 8;
@@ -2611,6 +2617,27 @@ export function WorkoutPage({ onBack, user }) {
   const [workouts, setWorkouts] = useState(loadWorkouts);
   const [selectedDate, setSelectedDate] = useState(todayStr());
 
+  // Weigh-ins, for the strength-to-bodyweight chart metric. Seeded from
+  // localStorage (firestoreSync hydrates it there) and refreshed when a weigh-in
+  // lands — the same pattern the Progress page uses for the same array.
+  const [weightLog, setWeightLog] = useState(() => {
+    try { const a = JSON.parse(localStorage.getItem('sunday-weight-log') || '[]'); return Array.isArray(a) ? a : []; }
+    catch { return []; }
+  });
+  useEffect(() => {
+    const reload = () => {
+      try { const a = JSON.parse(localStorage.getItem('sunday-weight-log') || '[]'); setWeightLog(Array.isArray(a) ? a : []); }
+      catch { /* keep what we have */ }
+    };
+    window.addEventListener('weight-logged', reload);
+    window.addEventListener('firestore-sync', reload);
+    return () => {
+      window.removeEventListener('weight-logged', reload);
+      window.removeEventListener('firestore-sync', reload);
+    };
+  }, []);
+  const bodyweightAt = useMemo(() => makeBodyweightLookupStrict(weightLog), [weightLog]);
+
   // Long-open tabs drift: selectedDate is set once at mount, so a tab opened
   // yesterday and used today would save against yesterday's date. Refresh it
   // to today every time the tab regains focus, but only if the user hasn't
@@ -4909,6 +4936,10 @@ export function WorkoutPage({ onBack, user }) {
     // visibly on the record without dragging the line down. Same rule the
     // Progress tab applies to its verdict.
     const offsiteOf = offsiteMarker(history);
+    // Pull-ups and dips already carry bodyweight IN the load, so dividing by it
+    // again gives a near-constant line that reads as a plateau rather than as
+    // an inapplicable question. Mirrors the mobile guard in buildExerciseSeries.
+    const isBw = isBodyweightExercise(exerciseName);
     return [...history]
       .sort((a, b) => a.date.localeCompare(b.date))
       .map(h => ({
@@ -4923,6 +4954,12 @@ export function WorkoutPage({ onBack, user }) {
         // per-session best needs each set's own weight and reps, and nothing
         // persists that.
         e1rm: entryBestE1rmLb(h),
+        e1rmPerBw: (() => {
+          if (isBw) return 0;
+          const e1 = entryBestE1rmLb(h);
+          const bw = bodyweightAt(h.date);
+          return e1 > 0 && bw > 0 ? Math.round((e1 / bw) * 100) / 100 : 0;
+        })(),
       }));
   }
 
@@ -6271,6 +6308,11 @@ export function WorkoutPage({ onBack, user }) {
           setChartSearchInput('');
         }
 
+        // Strength ÷ bodyweight only means something with weigh-ins behind it.
+        // With none, every point would be zero, so it isn't offered at all.
+        const metricEntries = Object.entries(CHART_METRICS)
+          .filter(([k]) => k !== 'e1rmPerBw' || weightLog.length > 0);
+
         return (
           <div className={styles.chartsSection}>
             <div className={styles.chartFilterRow}>
@@ -6281,7 +6323,7 @@ export function WorkoutPage({ onBack, user }) {
                   value={chartLeftMetric}
                   onChange={e => setChartLeftMetric(e.target.value)}
                 >
-                  {Object.entries(CHART_METRICS).map(([k, m]) => <option key={k} value={k}>{m.label}</option>)}
+                  {metricEntries.map(([k, m]) => <option key={k} value={k}>{m.label}</option>)}
                 </select>
               </label>
               <label className={styles.chartMetricLabel}>
@@ -6291,7 +6333,7 @@ export function WorkoutPage({ onBack, user }) {
                   value={chartRightMetric}
                   onChange={e => setChartRightMetric(e.target.value)}
                 >
-                  {Object.entries(CHART_METRICS).map(([k, m]) => <option key={k} value={k}>{m.label}</option>)}
+                  {metricEntries.map(([k, m]) => <option key={k} value={k}>{m.label}</option>)}
                 </select>
               </label>
               <span className={styles.chartHint}>
