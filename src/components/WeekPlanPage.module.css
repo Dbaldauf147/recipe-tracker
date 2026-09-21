@@ -648,6 +648,48 @@
   color: var(--color-text-muted);
 }
 
+/* "Skip" on a proposed workout — pushes the week's remaining proposals a day
+   later. Quiet until hovered: it sits on every upcoming day, so it has to stay
+   out of the way of reading the plan. */
+.workoutSkip {
+  font-size: 0.58rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text-muted);
+  background: transparent;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  padding: 1px 7px;
+  cursor: pointer;
+  white-space: nowrap;
+  font-family: var(--font-family);
+}
+.workoutSkip:hover {
+  color: #b91c1c;
+  border-color: #fecaca;
+  background: #fef2f2;
+}
+
+/* The same day once it's been skipped: says so, and clicking puts it back. */
+.workoutSkipped {
+  font-size: 0.58rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #b91c1c;
+  background: #fef2f2;
+  border: 1px dashed #fecaca;
+  border-radius: 999px;
+  padding: 1px 7px;
+  cursor: pointer;
+  white-space: nowrap;
+  font-family: var(--font-family);
+}
+.workoutSkipped:hover {
+  background: #fee2e2;
+}
+
 /* 🧖 chip shown under the workout cell when a sauna was logged that day. */
 .workoutSauna {
   font-size: 0.62rem;
