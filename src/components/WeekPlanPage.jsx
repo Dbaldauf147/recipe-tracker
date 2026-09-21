@@ -1331,15 +1331,26 @@ export function WeekPlanPage({ recipes, getRecipe, user, weeklyPlan = [], weekly
           </span>
         )}
         {cell.isAuto && <span className={styles.workoutAuto}>auto</span>}
-        {/* Skip only offers itself on a PROPOSED workout still to come. A day you
-            pinned is a decision — you change that with the dropdown — and a day
-            that's been and gone has nothing left to reshuffle. */}
-        {!isRest && cell.isAuto && dateStr >= todayKey && (
+        {/* Every day still to come can be skipped, including a rest day — there
+            the gesture reads "I'll train after all", pulling the next workout
+            forward into it. The two days that CAN'T are the ones with nothing
+            behind them to shift: a day already gone (the planner only resolves
+            today→Saturday) and a day with a workout logged on it, which returns
+            above and never reaches here. */}
+        {dateStr >= todayKey && (
           <button
             type="button"
             className={styles.workoutSkip}
-            onClick={() => bumpSkip(dateStr, 1)}
-            title="Not this one — pull the next day's workout forward to here"
+            onClick={() => {
+              // A pinned day sits outside the shift by design, so the pin has to
+              // go before the day can take part: back to auto first, then skip.
+              // Undo returns the day to auto — the pinned choice isn't kept.
+              if (!cell.isAuto) setWorkoutCategory(idx, '__auto');
+              bumpSkip(dateStr, 1);
+            }}
+            title={isRest
+              ? 'Pull the next workout forward into this day'
+              : "Not this one — pull the next day's workout forward to here"}
           >
             Skip
           </button>
