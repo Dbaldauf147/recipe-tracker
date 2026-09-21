@@ -20,7 +20,7 @@
 //
 // Layout: users/{uid}/{field}/{YYYY} = { marks: '<json>', v: 1, updatedAt }
 
-import { doc, getDoc, getDocs, setDoc, collection, deleteField, updateDoc, runTransaction } from 'firebase/firestore';
+import { doc, getDoc, getDocs, setDoc, collection, deleteField, updateDoc, runTransaction, onSnapshot } from 'firebase/firestore';
 import { db } from '../firebase';
 import { writeDataSnapshot, alertGuardBlock } from './firestoreSync';
 // The key parsing / merge rules are shared verbatim with the crons — see
@@ -81,6 +81,44 @@ export async function loadMarkYears(uid, field = HABIT_LOG) {
   });
   return mergeYearDocs(byYear);
 }
+
+/**
+ * Live updates to a mark map, for as long as the page is open.
+ *
+ * The marks moved off the user document, so they no longer ride the user-doc
+ * subscription — without a listener of their own the page reads them once on
+ * mount and never learns that the phone logged anything. Mirrors the mobile
+ * app's habitLogYears.subscribeToHabitLog, including what it deliberately does
+ * NOT do: an error (offline, rules) leaves the cached log alone rather than
+ * calling back with {}, because an empty habitLog is always a bug and never an
+ * answer.
+ *
+ * `yearMarkCounts` is refreshed from each snapshot for the same reason
+ * loadMarkYears fills it — it's the shrink guard's cheap baseline, and letting
+ * it go stale while another device writes would make the next local save look
+ * like a mass deletion.
+ *
+ * Returns the unsubscribe function.
+ */
+export function subscribeToMarkYears(uid, field, cb) {
+  if (!uid) return () => {};
+  return onSnapshot(
+    collection(db, 'users', uid, field),
+    snap => {
+      const byYear = {};
+      snap.forEach(s => {
+        const part = parseYearDoc(s.data());
+        byYear[s.id] = part;
+        yearMarkCounts.set(countKey(uid, field, s.id), countMarks(part));
+      });
+      cb(mergeYearDocs(byYear));
+    },
+    () => { /* offline or rules — whatever is already painted stands */ },
+  );
+}
+
+export const subscribeToHabitLog = (uid, cb) => subscribeToMarkYears(uid, HABIT_LOG, cb);
+export const subscribeToHabitLogAuto = (uid, cb) => subscribeToMarkYears(uid, HABIT_LOG_AUTO, cb);
 
 /** Read the legacy user-doc field (absent once migrated). */
 export async function loadLegacyMarkField(uid, field = HABIT_LOG) {

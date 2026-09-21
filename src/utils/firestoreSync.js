@@ -1757,6 +1757,36 @@ export function hydrateLocalStorage(userData, uid) {
 }
 
 /**
+ * Subscribe to a handful of user-document FIELDS.
+ *
+ * subscribeToUserData below hands back the whole document (and attaches a
+ * second listener for recipes), which is far more than a page watching three
+ * small fields wants to re-render on. This delivers only the named fields, and
+ * only when one of them actually changed — a habits page shouldn't repaint
+ * because a weigh-in landed.
+ *
+ * Writes from THIS tab are skipped (`hasPendingWrites`): the page already
+ * applied them optimistically, and echoing them back mid-flight is how a
+ * half-written value flickers on screen.
+ */
+export function subscribeToUserFields(uid, fields, onChange) {
+  if (!uid || !Array.isArray(fields) || fields.length === 0) return () => {};
+  let last = null;
+  return onSnapshot(doc(db, 'users', uid), (snap) => {
+    if (!snap.exists() || snap.metadata.hasPendingWrites) return;
+    const data = snap.data() || {};
+    const picked = {};
+    for (const f of fields) picked[f] = data[f];
+    // Cheap equality: these are small, JSON-safe fields, and the alternative is
+    // repainting the page on every unrelated user-doc write.
+    const stamp = JSON.stringify(picked);
+    if (stamp === last) return;
+    last = stamp;
+    onChange(picked);
+  }, (err) => { console.error('Firestore user-fields subscription error:', err); });
+}
+
+/**
  * Subscribe to real-time updates on the user document.
  * Calls onChange(data) whenever the document changes on the server.
  * Returns an unsubscribe function.

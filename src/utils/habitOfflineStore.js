@@ -28,6 +28,7 @@ import {
   withFieldOp, withMarkOps, withAttempt, dropOps as dropFromQueue,
   applyOps, applyCellsToLog, mergeHabits,
   pendingCountOf, failedCountOf, livingOps,
+  recordConfirmed, reconcileConfirmed,
 } from './habitOfflineQueue';
 
 // The cached copy of server state. Listed in firestoreSync's
@@ -49,6 +50,13 @@ const listeners = new Set();
 let flushing = false;
 let flushTimer = null;
 let opSeq = 0;
+
+// Marks written to the server but not yet seen coming back on the
+// subscription, per kind. In memory only, deliberately: the whole point is to
+// cover the seconds between a write and its echo, and a reload re-reads
+// everything authoritatively anyway. See habitOfflineQueue's confirmed-marks
+// section for what this is protecting against.
+const confirmed = { manual: {}, auto: {} };
 
 function emit() {
   for (const fn of [...listeners]) {
@@ -179,6 +187,23 @@ export function replayQueue(loaded) {
   return applyOps(loaded, readQueue());
 }
 
+/**
+ * Bring a live snapshot of one mark map up to date with this tab's reality:
+ * force marks we have written but not yet seen echoed back, then replay
+ * anything still queued on top.
+ *
+ * Order matters. Confirmed marks are already on the server, so they go under
+ * the queue — a still-queued edit to the same cell is newer and must win.
+ */
+export function reconcileMarks(remoteLog, kind = 'manual') {
+  const k = kind === 'auto' ? 'auto' : 'manual';
+  const { confirmed: kept, log } = reconcileConfirmed(confirmed[k], remoteLog || {}, Date.now());
+  confirmed[k] = kept;
+  const logKey = k === 'auto' ? 'habitLogAuto' : 'habitLog';
+  const replayed = applyOps({ [logKey]: log }, readQueue());
+  return replayed[logKey] || {};
+}
+
 // ---- Flushing --------------------------------------------------------------
 
 function bumpAttempts(ids) {
@@ -234,6 +259,9 @@ export async function flush(uid) {
         if (kind === 'auto') await saveHabitLogAutoCells(uid, cells);
         else await saveHabitLogCells(uid, cells);
         dropOps(new Set(marks.map(o => o.id)));
+        // Written, but the subscription hasn't echoed it yet — hold these so a
+        // snapshot generated before the write can't roll them back on screen.
+        confirmed[kind] = recordConfirmed(confirmed[kind], marks, readQueue(), Date.now());
         wrote = true;
       } catch {
         bumpAttempts(new Set(marks.map(o => o.id)));

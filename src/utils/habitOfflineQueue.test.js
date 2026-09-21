@@ -4,6 +4,7 @@ import {
   withFieldOp, withMarkOps, withAttempt, dropOps,
   applyOps, applyCellsToLog, mergeHabits,
   pendingCountOf, failedCountOf, livingOps,
+  recordConfirmed, reconcileConfirmed, confirmCellKey, CONFIRM_TTL_MS,
 } from './habitOfflineQueue.js';
 
 // These rules decide whether an edit made with no connection survives. A wrong
@@ -165,4 +166,76 @@ test('applyCellsToLog sets, clears, and prunes empty buckets', () => {
   assert.deepEqual(log.d1, { h1: 'done', h2: 'skipped' });
   log = applyCellsToLog(log, [{ key: 'd1', habitId: 'h1', mark: null }, { key: 'd1', habitId: 'h2', mark: null }]);
   assert.deepEqual(log, {});
+});
+
+// ---- confirmed-but-unobserved marks ----------------------------------------
+//
+// The live subscription's hazard: a mark is on the server, its op has left the
+// queue, but a snapshot generated BEFORE the write lands afterwards carrying
+// the old value. Without this guard the tick visibly un-ticks itself.
+
+const markOp = (key, habitId, mark) => ({ id: `${key}:${habitId}`, t: 'mark', kind: 'manual', key, habitId, mark });
+
+test('a flushed mark is held, and forced over a snapshot that predates it', () => {
+  const held = recordConfirmed({}, [markOp('2026-09-20', 'h1', 'done')], [], 1000);
+  assert.deepEqual(Object.keys(held), [confirmCellKey('2026-09-20', 'h1')]);
+
+  // The stale snapshot doesn't know about the mark yet.
+  const { confirmed, log } = reconcileConfirmed(held, {}, 1500);
+  assert.equal(log['2026-09-20'].h1, 'done');        // forced back on
+  assert.equal(Object.keys(confirmed).length, 1);    // still held — not seen yet
+});
+
+test('the mark is released as soon as the snapshot echoes it', () => {
+  const held = recordConfirmed({}, [markOp('2026-09-20', 'h1', 'done')], [], 1000);
+  const remote = { '2026-09-20': { h1: 'done' } };
+  const { confirmed, log } = reconcileConfirmed(held, remote, 1500);
+  assert.deepEqual(confirmed, {});
+  assert.equal(log, remote);   // nothing to force, so the snapshot passes through
+});
+
+test('a cleared cell is observed by its ABSENCE, not by a value', () => {
+  const held = recordConfirmed({}, [markOp('2026-09-20', 'h1', null)], [], 1000);
+  // Snapshot still shows the old mark — the clear hasn't landed yet.
+  const stale = reconcileConfirmed(held, { '2026-09-20': { h1: 'done' } }, 1500);
+  assert.equal(stale.log['2026-09-20'], undefined);        // forced back off
+  assert.equal(Object.keys(stale.confirmed).length, 1);
+  // Once the server agrees the cell is gone, stop forcing it.
+  const fresh = reconcileConfirmed(held, {}, 1500);
+  assert.deepEqual(fresh.confirmed, {});
+});
+
+test('a held mark is let go once it ages past the TTL', () => {
+  const held = recordConfirmed({}, [markOp('2026-09-20', 'h1', 'done')], [], 1000);
+  const { confirmed, log } = reconcileConfirmed(held, {}, 1000 + CONFIRM_TTL_MS + 1);
+  assert.deepEqual(confirmed, {});
+  assert.deepEqual(log, {});   // a write that never showed up is not forced forever
+});
+
+test('an edit that arrived mid-flush outranks the value just written', () => {
+  // We flushed "done", but the user already re-tapped to "skip" and that op is
+  // still queued. Recording "done" would fight the queue on the next snapshot.
+  const held = recordConfirmed({}, [markOp('2026-09-20', 'h1', 'done')], [markOp('2026-09-20', 'h1', 'skip')], 1000);
+  assert.deepEqual(held, {});
+});
+
+test('only mark ops are held — a field write is not a cell', () => {
+  const held = recordConfirmed({}, [{ id: 'a', t: 'field', field: 'habits', value: [] }], [], 1000);
+  assert.deepEqual(held, {});
+});
+
+test('holding one cell leaves every other cell in the snapshot alone', () => {
+  const held = recordConfirmed({}, [markOp('2026-09-20', 'h1', 'done')], [], 1000);
+  const remote = { '2026-09-20': { h2: 'done' }, '2026-09-19': { h1: 'skip' } };
+  const { log } = reconcileConfirmed(held, remote, 1500);
+  assert.equal(log['2026-09-20'].h1, 'done');   // ours, forced
+  assert.equal(log['2026-09-20'].h2, 'done');   // the phone's, untouched
+  assert.equal(log['2026-09-19'].h1, 'skip');
+});
+
+test('with nothing held the snapshot is returned as-is', () => {
+  const remote = { '2026-09-20': { h1: 'done' } };
+  const { confirmed, log } = reconcileConfirmed({}, remote, 5000);
+  assert.deepEqual(confirmed, {});
+  assert.equal(log, remote);
 });
