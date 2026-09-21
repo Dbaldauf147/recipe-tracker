@@ -2887,6 +2887,85 @@ export async function loadSharedRecipe(token) {
   }
 }
 
+/* ── Air fryer: one public link to your table ── */
+
+// Where the token lives once it exists. Kept on the user doc rather than
+// generated fresh each time, because the whole point is a link you can put in
+// the family group chat once — a second press must hand back the SAME url, or
+// every link you've ever sent quietly stops being the one you're looking at.
+const AIR_FRYER_TOKEN_FIELD = 'airFryerShareToken';
+
+/**
+ * The public link to your air fryer table, creating it on first use.
+ * Returns the token.
+ *
+ * The doc holds a POINTER — `{ kind, createdBy }` and nothing else. The table
+ * is read off your user doc by /api/air-fryer-share at open time, so the link
+ * is always current and there is no "publish" step to forget. It also means
+ * revoking is a single delete rather than chasing copies.
+ */
+export async function createAirFryerShareLink(uid, createdByName = '') {
+  const existing = await loadField(uid, AIR_FRYER_TOKEN_FIELD);
+  if (typeof existing === 'string' && /^[A-Za-z0-9]{6,32}$/.test(existing)) {
+    // Re-assert the pointer doc: cheap, and it heals a token whose doc was
+    // deleted (revoked on another device, or a failed write) instead of
+    // handing back a link that 404s.
+    await setDoc(doc(db, 'sharedLinks', existing), {
+      kind: 'air-fryer',
+      createdBy: uid,
+      createdByName: String(createdByName || '').trim(),
+      createdAt: new Date().toISOString(),
+    }, { merge: true });
+    return existing;
+  }
+
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+  let token = '';
+  for (let i = 0; i < 10; i++) token += chars[Math.floor(Math.random() * chars.length)];
+  await setDoc(doc(db, 'sharedLinks', token), {
+    kind: 'air-fryer',
+    createdBy: uid,
+    createdByName: String(createdByName || '').trim(),
+    createdAt: new Date().toISOString(),
+  });
+  await saveField(uid, AIR_FRYER_TOKEN_FIELD, token);
+  return token;
+}
+
+/** The existing token, or '' when the table has never been shared. */
+export async function getAirFryerShareToken(uid) {
+  const existing = await loadField(uid, AIR_FRYER_TOKEN_FIELD);
+  return typeof existing === 'string' && /^[A-Za-z0-9]{6,32}$/.test(existing) ? existing : '';
+}
+
+/**
+ * Kill the link. Deletes the pointer doc first — that's what makes every copy
+ * of the url stop working — and only then forgets the token, so a failure
+ * mid-way leaves a token we can still revoke rather than an orphan doc serving
+ * your table with nothing pointing at it.
+ */
+export async function revokeAirFryerShareLink(uid) {
+  const token = await getAirFryerShareToken(uid);
+  if (token) {
+    try { await deleteDoc(doc(db, 'sharedLinks', token)); } catch {}
+  }
+  await saveField(uid, AIR_FRYER_TOKEN_FIELD, '');
+}
+
+/**
+ * Load a shared air fryer table by token, for a visitor who is not signed in.
+ *
+ * Always through the API: the reader has no Firestore permission on the
+ * owner's user doc, and shouldn't — the endpoint is what limits a public link
+ * to the air-fryer fields.
+ */
+export async function loadSharedAirFryer(token) {
+  const res = await fetch(`/api/air-fryer-share?token=${encodeURIComponent(token)}`);
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error(`air-fryer-share ${res.status}`);
+  return res.json();
+}
+
 /* ── Login tracking ── */
 
 /**

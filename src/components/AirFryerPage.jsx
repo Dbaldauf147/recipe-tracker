@@ -2,7 +2,10 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import GUIDE, {
   AIR_FRYER_CATEGORIES, AIR_FRYER_RULES, airFryerKey, toCelsius,
 } from '../data/airFryerGuide.js';
-import { loadField, saveField } from '../utils/firestoreSync';
+import {
+  loadField, saveField,
+  createAirFryerShareLink, getAirFryerShareToken, revokeAirFryerShareLink,
+} from '../utils/firestoreSync';
 import { indexRecipesByGuide, indexExtrasByGuide, rankIngredientsForGuide, bestIngredientForGuide, mergeAirFryerGuide, cookLegs, recentShoppingLists } from '../utils/airFryerRecipes';
 import { findTopSince, buildIngredientEatenMap } from '../utils/pantryAutoAdd';
 import { loadIngredients, ingredientRowByName } from '../utils/ingredientsStore';
@@ -269,6 +272,76 @@ export function AirFryerPage({ onClose, user, recipes = [], weeklyRecipeIds = []
   const [pantryFruit, setPantryFruit] = useState(() => readListCache('sunday-pantry-fruit'));
   const [planHistory, setPlanHistory] = useState(() => readListCache(PLAN_HISTORY_KEY));
   const [timeNotes, setTimeNotes] = useState(readTimeNotesCache);
+  // The public link to this table: the token once it exists, whether the panel
+  // is open, and whether the url is on the clipboard. Not cached in
+  // localStorage — it's a once-a-year action, and a stale "link is on" read
+  // from a device that revoked it elsewhere would be a lie about who can see
+  // your food.
+  const [shareToken, setShareToken] = useState('');
+  const [sharePanel, setSharePanel] = useState(false);
+  const [shareBusy, setShareBusy] = useState(false);
+  const [shareError, setShareError] = useState('');
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    if (!uid) return;
+    let cancelled = false;
+    getAirFryerShareToken(uid)
+      .then(t => { if (!cancelled) setShareToken(t); })
+      .catch(() => { /* the button just reads "Share" until it's pressed */ });
+    return () => { cancelled = true; };
+  }, [uid]);
+
+  const shareUrl = shareToken ? `${window.location.origin}/air-fryer/${shareToken}` : '';
+
+  // Opening the panel is what creates the link, the first time. No separate
+  // "publish" — the link serves the live table, so there is never a version of
+  // it to push.
+  const openShare = useCallback(async () => {
+    setSharePanel(true);
+    setShareError('');
+    if (shareToken || !uid || shareBusy) return;
+    setShareBusy(true);
+    try {
+      const t = await createAirFryerShareLink(uid, user?.displayName || '');
+      setShareToken(t);
+    } catch (err) {
+      console.error('air fryer share link:', err);
+      setShareError('Couldn’t create the link. Check your connection and try again.');
+    } finally {
+      setShareBusy(false);
+    }
+  }, [uid, user?.displayName, shareToken, shareBusy]);
+
+  const copyShare = useCallback(async () => {
+    if (!shareUrl) return;
+    try {
+      await navigator.clipboard.writeText(shareUrl);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // Clipboard blocked (http, old browser, permissions): the url is in a
+      // selectable box right there, so say what to do rather than fail silently.
+      setShareError('Copying isn’t allowed here — select the link and copy it.');
+    }
+  }, [shareUrl]);
+
+  const stopShare = useCallback(async () => {
+    if (!uid || shareBusy) return;
+    if (!window.confirm('Turn off the link? Anyone you sent it to will stop seeing your table. Sharing again makes a new link — the old one stays dead.')) return;
+    setShareBusy(true);
+    setShareError('');
+    try {
+      await revokeAirFryerShareLink(uid);
+      setShareToken('');
+      setSharePanel(false);
+    } catch (err) {
+      console.error('air fryer revoke:', err);
+      setShareError('Couldn’t turn the link off. Try again.');
+    } finally {
+      setShareBusy(false);
+    }
+  }, [uid, shareBusy]);
 
   useEffect(() => {
     if (!uid) return;
@@ -1227,8 +1300,56 @@ export function AirFryerPage({ onClose, user, recipes = [], weeklyRecipeIds = []
       <div className={styles.header}>
         <button className={styles.backBtn} onClick={onClose}>← Back</button>
         <h2 className={styles.title}>Air fryer</h2>
+        {/* One link, to this table, that needs no account. The state is on the
+            button: "Link on" is how you find out from across the room that the
+            table is public without having to open anything. */}
+        <button
+          className={shareToken ? styles.shareBtnOn : styles.shareBtn}
+          onClick={() => (sharePanel ? setSharePanel(false) : openShare())}
+          aria-expanded={sharePanel}
+        >
+          {shareToken ? 'Link on' : 'Share'}
+        </button>
         <button className={styles.addBtn} onClick={() => startEdit(null)}>+ Add</button>
       </div>
+
+      {sharePanel && (
+        <div className={styles.sharePanel}>
+          <div className={styles.shareTitle}>A link to this table — no login needed</div>
+          <p className={styles.shareBlurb}>
+            Whoever opens it sees this table as it is right now, including your
+            spices, oils and time notes. Edit a row and the link updates itself —
+            there’s nothing to re-send.
+          </p>
+          {shareUrl ? (
+            <>
+              <div className={styles.shareRow}>
+                <input
+                  className={styles.shareInput}
+                  value={shareUrl}
+                  readOnly
+                  onFocus={e => e.target.select()}
+                  aria-label="Public link to your air fryer table"
+                />
+                <button className={styles.shareCopy} onClick={copyShare}>
+                  {copied ? 'Copied' : 'Copy'}
+                </button>
+              </div>
+              <div className={styles.shareActions}>
+                <a className={styles.shareOpen} href={shareUrl} target="_blank" rel="noreferrer">
+                  Open it
+                </a>
+                <button className={styles.shareOff} onClick={stopShare} disabled={shareBusy}>
+                  Turn the link off
+                </button>
+              </div>
+            </>
+          ) : (
+            <div className={styles.shareBlurb}>{shareBusy ? 'Making the link…' : 'No link yet.'}</div>
+          )}
+          {shareError && <div className={styles.shareError}>{shareError}</div>}
+        </div>
+      )}
 
       <input
         className={styles.search}
