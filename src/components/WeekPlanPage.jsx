@@ -412,8 +412,8 @@ function rankWorkoutTypesByStaleness(workoutsRaw, workoutTypes, typeSkipDates, t
 // type→category resolver (must match the one the tally uses, or the two never
 // converge), days already logged per category this week, and today's Sun..Sat
 // index so the days still ahead of you are the only ones being planned.
-// `skippedIdxs` = days you skipped, which slide the rest of the week later —
-// see the comment where they're applied.
+// `skipsAt` = Map of day index → how many proposals you skipped there, which
+// pulls the following days' proposals forward — see where they're applied.
 function resolveWorkoutPlan(rankedTypes, overrides, workoutTypes, recordedIdxs = new Set(), recordedTypes = new Set(), opts = {}) {
   const goals = normalizeWorkoutGoals(opts.goals);
   const categoryOf = opts.categoryOf || (() => 'weights');
@@ -474,30 +474,8 @@ function resolveWorkoutPlan(rankedTypes, overrides, workoutTypes, recordedIdxs =
   const need = {};
   for (const cat of WORKOUT_KIND_KEYS) need[cat] = Math.max(0, goals[cat] - have[cat]);
 
-  // Days you skipped. A skip is NOT a pinned rest day, and the difference is the
-  // whole feature: a pinned rest counts against goals.rest above, which shrinks
-  // restNeeded and lets the same number of workouts re-pack into the remaining
-  // days — the week rearranges instead of sliding. Taking the day out of
-  // autoSlots BEFORE the rest days are spread leaves restNeeded alone, so there
-  // is one fewer workout position and the ranked types each land a day later.
-  // The one that no longer fits simply isn't placed: it was never logged, so it
-  // stays the most overdue type and leads the ranking next week by itself.
-  //
-  // Only auto days can be skipped — a day you pinned is a decision, changed with
-  // the dropdown — so `fixed` and recorded days are left alone here.
-  const skipped = new Set();
-  for (const raw of opts.skippedIdxs || []) {
-    const i = Number(raw);
-    if (!Number.isInteger(i) || i < todayIdx || i > 6) continue;
-    if (recordedIdxs.has(i) || fixed[i] != null) continue;
-    skipped.add(i);
-    out[i] = { value: 'rest', isAuto: true, skipped: true };
-  }
-
   const autoSlots = [];
-  for (let i = todayIdx; i < 7; i++) {
-    if (fixed[i] == null && !recordedIdxs.has(i) && !skipped.has(i)) autoSlots.push(i);
-  }
+  for (let i = todayIdx; i < 7; i++) if (fixed[i] == null && !recordedIdxs.has(i)) autoSlots.push(i);
 
   const restPos = spreadIndices(autoSlots.length, restNeeded);
 
@@ -625,6 +603,35 @@ function resolveWorkoutPlan(rankedTypes, overrides, workoutTypes, recordedIdxs =
     }
   });
 
+  // ── Skips: advance the queue ──
+  //
+  // Skipping a proposal doesn't empty its day, it pulls the NEXT one forward:
+  // skip today's Legs and today proposes tomorrow's Cardio, with everything
+  // after it sliding a day earlier and the far end of the week opening up.
+  //
+  // Done here, as a re-lay of the finished sequence, rather than by teaching the
+  // allocator to skip: the allocator picks by category need, so dropping a type
+  // from its input would hand the day to whatever the goals wanted next, which
+  // is not the same as "the one you can already see on tomorrow". Shifting the
+  // resolved row is what makes the result match what the row showed a moment
+  // ago, which is the whole point of the gesture.
+  //
+  // Only auto days move. A pinned day is a decision and a recorded day already
+  // happened, so both stay where they are and the shift closes around them.
+  const skipsAt = opts.skipsAt instanceof Map ? opts.skipsAt : new Map();
+  if (skipsAt.size > 0 && autoSlots.length > 0) {
+    const seq = autoSlots.map(i => out[i]);
+    let cursor = 0;
+    for (const dayIdx of autoSlots) {
+      cursor += Math.max(0, Math.floor(Number(skipsAt.get(dayIdx)) || 0));
+      const take = seq[cursor];
+      // Past the end of the sequence there is nothing left to pull forward —
+      // the days the skips freed up at the end of the week are rest.
+      out[dayIdx] = take ? { ...take } : { value: 'rest', isAuto: true };
+      cursor += 1;
+    }
+  }
+
   // A second slot the user pinned themselves always stands, whether or not the
   // pairing above would have put anything there.
   for (const [k, v] of Object.entries(fixedSecond)) {
@@ -726,23 +733,41 @@ function loadTypeSkipDates() {
 }
 
 /**
- * Dates whose PROPOSED workout you skipped — ['2026-09-21', …].
+ * How many proposals you've skipped on each date — { '2026-09-21': 2, … }.
  *
  * Per DATE, not per weekday: weekWorkoutPlan is a recurring weekday template,
  * so recording a skip there would silently skip that weekday every week from
  * now on. A skip is a one-off about one day.
+ *
+ * A COUNT rather than a flag because skipping is repeatable: skip today's Legs
+ * and today proposes Cardio instead — skip that too and it should move on
+ * again, not sit there doing nothing on the second click.
  */
-function loadWorkoutSkipDays() {
-  try {
-    const r = JSON.parse(localStorage.getItem('sunday-workout-skip-days'));
-    if (Array.isArray(r)) return r.filter(d => typeof d === 'string');
-  } catch { /* ignore */ }
-  return [];
+function normalizeSkips(raw) {
+  const out = {};
+  // Shipped once as a plain array of dates, when a skip was a yes/no.
+  if (Array.isArray(raw)) {
+    for (const d of raw) if (typeof d === 'string') out[d] = 1;
+    return out;
+  }
+  if (!raw || typeof raw !== 'object') return out;
+  for (const [d, n] of Object.entries(raw)) {
+    const c = Math.floor(Number(n));
+    if (typeof d === 'string' && c > 0) out[d] = c;
+  }
+  return out;
+}
+
+function loadWorkoutSkips() {
+  try { return normalizeSkips(JSON.parse(localStorage.getItem('sunday-workout-skip-days'))); }
+  catch { return {}; }
 }
 
 /** Skips are only ever about days still to come; drop the ones that have passed. */
-function pruneSkipDays(list, todayStr) {
-  return [...new Set((Array.isArray(list) ? list : []).filter(d => typeof d === 'string' && d >= todayStr))].sort();
+function pruneSkips(skips, todayStr) {
+  const out = {};
+  for (const [d, n] of Object.entries(normalizeSkips(skips))) if (d >= todayStr) out[d] = n;
+  return out;
 }
 
 /** Paused workout types — { [name]: true }. See WorkoutPage's ⏸ Pause. */
@@ -847,7 +872,7 @@ export function WeekPlanPage({ recipes, getRecipe, user, weeklyPlan = [], weekly
   const [workoutGoals, setWorkoutGoals] = useState(loadWorkoutGoals);
   const [workoutTypes, setWorkoutTypes] = useState(loadWorkoutTypes);
   const [typeSkipDates, setTypeSkipDates] = useState(loadTypeSkipDates);
-  const [workoutSkipDays, setWorkoutSkipDays] = useState(loadWorkoutSkipDays);
+  const [workoutSkips, setWorkoutSkips] = useState(loadWorkoutSkips);
   const [typePaused, setTypePaused] = useState(loadTypePaused);
   const [nutritionGoals, setNutritionGoals] = useState(loadNutritionGoals);
   const [dailyLog, setDailyLog] = useState(loadDailyLog);
@@ -916,9 +941,10 @@ export function WeekPlanPage({ recipes, getRecipe, user, weeklyPlan = [], weekly
       try { localStorage.setItem('sunday-workout-type-skip-dates', JSON.stringify(remote)); } catch { /* ignore */ }
     }).catch(() => { /* keep local */ });
     loadField(user.uid, 'workoutPlanSkipDays').then(remote => {
-      if (cancelled || !Array.isArray(remote)) return;
-      setWorkoutSkipDays(remote.filter(d => typeof d === 'string'));
-      try { localStorage.setItem('sunday-workout-skip-days', JSON.stringify(remote)); } catch { /* ignore */ }
+      if (cancelled || remote == null) return;
+      const norm = normalizeSkips(remote);   // tolerates the older array shape
+      setWorkoutSkips(norm);
+      try { localStorage.setItem('sunday-workout-skip-days', JSON.stringify(norm)); } catch { /* ignore */ }
     }).catch(() => { /* keep local */ });
     loadField(user.uid, 'workoutTypePaused').then(remote => {
       if (cancelled || !remote || typeof remote !== 'object') return;
@@ -983,13 +1009,13 @@ export function WeekPlanPage({ recipes, getRecipe, user, weeklyPlan = [], weekly
   // Skipped DATES → the Sun..Sat indices the resolver plans in. Only this week's
   // are mapped: the resolution is always the current week's, so a skip saved for
   // a date outside it has nothing to say here.
-  const skippedWeekIdxs = useMemo(() => {
-    const out = new Set();
-    for (const d of workoutSkipDays) {
-      if (d >= days[0] && d <= days[6]) out.add(sundayIndexOf(d));
+  const skipsAtIdx = useMemo(() => {
+    const out = new Map();
+    for (const [d, n] of Object.entries(workoutSkips)) {
+      if (d >= days[0] && d <= days[6]) out.set(sundayIndexOf(d), n);
     }
     return out;
-  }, [workoutSkipDays, days]);
+  }, [workoutSkips, days]);
 
   const resolvedWorkoutPlan = useMemo(
     () => resolveWorkoutPlan(rankedTypes, weekWorkoutPlan, workoutTypes, recordedWeekIdxs, recordedWeekTypes, {
@@ -999,23 +1025,26 @@ export function WeekPlanPage({ recipes, getRecipe, user, weeklyPlan = [], weekly
       // The plan is always the CURRENT week's (recordedWeekIdxs is anchored to
       // today), so today's weekday is what splits done from still-to-come.
       todayIdx: sundayIndexOf(todayKey),
-      skippedIdxs: skippedWeekIdxs,
+      skipsAt: skipsAtIdx,
     }),
-    [rankedTypes, weekWorkoutPlan, workoutTypes, recordedWeekIdxs, recordedWeekTypes, workoutGoals, categoryOf, recordedWeekCatDays, todayKey, skippedWeekIdxs]
+    [rankedTypes, weekWorkoutPlan, workoutTypes, recordedWeekIdxs, recordedWeekTypes, workoutGoals, categoryOf, recordedWeekCatDays, todayKey, skipsAtIdx]
   );
 
-  // Skip the day's proposed workout, or put it back. Stored per date and pruned
-  // on write, the same way a sauna veto is.
-  const toggleSkipDay = useCallback((dateStr) => {
-    const has = workoutSkipDays.includes(dateStr);
-    const next = pruneSkipDays(
-      has ? workoutSkipDays.filter(d => d !== dateStr) : [...workoutSkipDays, dateStr],
-      todayKey,
-    );
-    setWorkoutSkipDays(next);
+  const skipsFor = useCallback((dateStr) => Number(workoutSkips[dateStr]) || 0, [workoutSkips]);
+
+  // Skip this day's proposal (pull the next one forward), or undo one skip.
+  // Stored per date and pruned on write, the same way a sauna veto is.
+  const bumpSkip = useCallback((dateStr, delta) => {
+    const cur = Number(workoutSkips[dateStr]) || 0;
+    const nextCount = Math.max(0, cur + delta);
+    const merged = { ...workoutSkips };
+    if (nextCount === 0) delete merged[dateStr];
+    else merged[dateStr] = nextCount;
+    const next = pruneSkips(merged, todayKey);
+    setWorkoutSkips(next);
     try { localStorage.setItem('sunday-workout-skip-days', JSON.stringify(next)); } catch { /* ignore */ }
     if (user?.uid) saveField(user.uid, 'workoutPlanSkipDays', next).catch(() => {});
-  }, [workoutSkipDays, todayKey, user?.uid]);
+  }, [workoutSkips, todayKey, user?.uid]);
 
   // ── Persist the resolved REST days (`plannedRestDates`) ──
   // The rest-day suggestion is computed here (staleness ranking + your per-day
@@ -1301,34 +1330,34 @@ export function WeekPlanPage({ recipes, getRecipe, user, weeklyPlan = [], weekly
             </select>
           </span>
         )}
-        {cell.isAuto && !cell.skipped && <span className={styles.workoutAuto}>auto</span>}
+        {cell.isAuto && <span className={styles.workoutAuto}>auto</span>}
         {/* Skip only offers itself on a PROPOSED workout still to come. A day you
             pinned is a decision — you change that with the dropdown — and a day
-            that's been and gone can't be slid into. */}
+            that's been and gone has nothing left to reshuffle. */}
         {!isRest && cell.isAuto && dateStr >= todayKey && (
           <button
             type="button"
             className={styles.workoutSkip}
-            onClick={() => toggleSkipDay(dateStr)}
-            title="Skip this one — the rest of the week's workouts each move a day later"
+            onClick={() => bumpSkip(dateStr, 1)}
+            title="Not this one — pull the next day's workout forward to here"
           >
             Skip
           </button>
         )}
-        {cell.skipped && (
+        {(skipsFor(dateStr) > 0) && (
           <button
             type="button"
             className={styles.workoutSkipped}
-            onClick={() => toggleSkipDay(dateStr)}
-            title="Put this day's workout back"
+            onClick={() => bumpSkip(dateStr, -1)}
+            title="Undo a skip — push the workouts back a day"
           >
-            skipped · undo
+            {skipsFor(dateStr) > 1 ? `skipped ×${skipsFor(dateStr)} · undo` : 'skipped · undo'}
           </button>
         )}
         {saunaChip}
       </div>
     );
-  }, [workoutsByDate, renderSaunaChip, resolvedWorkoutPlan, categoryOf, workoutTypes, setWorkoutCategory, onOpenWorkout, toggleSkipDay, todayKey]);
+  }, [workoutsByDate, renderSaunaChip, resolvedWorkoutPlan, categoryOf, workoutTypes, setWorkoutCategory, onOpenWorkout, bumpSkip, skipsFor, todayKey]);
 
   // Logged workouts come from their own subcollection, which the
   // `firestore-sync` refresh below never hears about — that event is for
