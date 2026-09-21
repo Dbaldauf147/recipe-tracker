@@ -125,6 +125,7 @@
 }
 .headName { flex: 1; min-width: 0; }
 .headSpice { flex: 0 0 auto; width: 8.5rem; text-align: right; }
+.headOils { flex: 0 0 auto; width: 9rem; text-align: right; }
 .headNotes { flex: 0 0 auto; width: 18rem; text-align: left; }
 .headNums { flex: 0 0 auto; width: 21rem; text-align: right; }
 .headKill { flex: 0 0 auto; width: 2rem; }
@@ -186,6 +187,21 @@
    With nothing tagged yet every row lands here, and a column of faint dashes
    reads as an empty column — as though the feature hadn't shipped. */
 .rowSpiceEmpty { color: var(--color-text-muted); opacity: 0.75; font-style: italic; }
+
+/* What it cooks in. A column like spices, half a rem wider because "olive oil
+   spray" is a longer answer than "paprika". */
+.rowOil,
+.rowOilEmpty {
+  flex: 0 0 auto;
+  width: 9rem;
+  font-size: 0.78rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: right;
+}
+.rowOil { color: var(--color-text-secondary); }
+.rowOilEmpty { color: var(--color-text-muted); opacity: 0.75; font-style: italic; }
 
 /* Notes on the low and high ends of the time range. A column like spices:
    fixed width, truncated, full text in the title. */
@@ -790,6 +806,10 @@
      the full list still in the title and the row detail. */
   .rowSpice, .rowSpiceEmpty { width: 3.8rem; font-size: 0.7rem; }
   .headSpice { width: 3.8rem; }
+  /* Oils go the way the notes went at 900px: off the table, still one tap away
+     in the row. Two narrow tag columns beside each other left the ingredient
+     name about four characters wide, and the name is how you find the row. */
+  .rowOil, .rowOilEmpty, .headOils { display: none; }
   .headNums, .rowNumsBtn { width: 10.5rem; }
   /* Four across doesn't fit a phone, so the sequence drops onto its own line
      under the temperature. `display: flex` (not contents) is what makes that
@@ -852,8 +872,16 @@
 .headLeg { width: 5.6rem; }
 .headAction { width: 6.6rem; }
 /* Cell padding eats into the fixed widths, so the time cells get wider (a
-   "18–23 min" ran over its line) and the notes column gives up the room. */
-.headNums, .rowNumsBtn { width: 23rem; }
+   "18–23 min" ran over its line) and the notes column gives up the room.
+   
+   24.5rem, not 23: the four cells inside are 391px of fixed widths (temp can't
+   shrink below "400°F"), and at 23rem/368px they overflowed by 23px. Because
+   the button is justify-content: flex-end, that overflow spilled LEFT — the
+   temperature drew on top of whatever column came before it, which used to be
+   spices and is now oils. Widening the column is the fix; letting the cells
+   shrink instead would ellipsis the numbers, and the numbers are the answer
+   this whole page exists to give. */
+.headNums, .rowNumsBtn { width: 24.5rem; }
 .headNotes, .rowNotes, .rowNotesEmpty { width: 16rem; }
 .legTime { width: 5.6rem; }
 
@@ -862,6 +890,8 @@
 .rowName,
 .rowSpice,
 .rowSpiceEmpty,
+.rowOil,
+.rowOilEmpty,
 .rowNotes,
 .rowNotesEmpty {
   padding: 0.75rem 0.5rem;
@@ -869,6 +899,8 @@
 }
 .rowSpice,
 .rowSpiceEmpty,
+.rowOil,
+.rowOilEmpty,
 .rowNotes,
 .rowNotesEmpty { border-left: 1px solid var(--color-border-light); }
 /* Notes sit at the far right now, as their own button (outside .rowMain), so
@@ -943,11 +975,11 @@
    (where the notes column is hidden). The phone keeps its own stacked layout. */
 .tableScroll { overflow-x: auto; }
 .tableHead,
-.list { min-width: 60rem; }
+.list { min-width: 70.5rem; }
 .rowName { min-width: 0; overflow-wrap: anywhere; }
 @media (max-width: 900px) {
   .tableHead,
-  .list { min-width: 44rem; }
+  .list { min-width: 53rem; }
 }
 @media (max-width: 520px) {
   .tableHead,
