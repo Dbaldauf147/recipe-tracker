@@ -25,6 +25,7 @@ import { LoginPage } from './components/LoginPage';
 import { OnboardingPage } from './components/OnboardingPage';
 import { AdminDashboard } from './components/AdminDashboard';
 import { SharedRecipePage } from './components/SharedRecipePage';
+import { AirFryerSharePage } from './components/AirFryerSharePage';
 import { GoalsPage } from './components/GoalsPage';
 import { SeasonalGuidePage } from './components/SeasonalGuidePage';
 import { AirFryerPage } from './components/AirFryerPage';
@@ -1497,9 +1498,26 @@ function App() {
     deletionPendingAt, cancelDeletion,
   } = useAuth();
 
-  const shareToken = new URLSearchParams(window.location.search).get('share');
+  const params = new URLSearchParams(window.location.search);
+
+  const shareToken = params.get('share');
   if (shareToken) {
     return <SharedRecipePage token={shareToken} user={user} />;
+  }
+
+  // The air fryer table on a public url. Returned BEFORE the auth gate below —
+  // ahead of `loading`, the login page and onboarding — because the whole point
+  // is a link that works for somebody who has never heard of Prep Day. A signed-in
+  // owner following their own link lands here too, and should: the link is how
+  // you check what everyone else is seeing.
+  //
+  // /air-fryer/<token> is the link we hand out; ?airfryer=<token> is the same
+  // page, kept because a url that survives being retyped is worth ten bytes.
+  const airFryerToken =
+    (window.location.pathname.match(/^\/air-fryer\/([A-Za-z0-9]{6,32})\/?$/) || [])[1]
+    || params.get('airfryer');
+  if (airFryerToken) {
+    return <AirFryerSharePage token={airFryerToken} />;
   }
 
   if (loading || (user && !dataReady)) {

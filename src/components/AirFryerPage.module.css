@@ -985,3 +985,115 @@
   .tableHead,
   .list { min-width: 0; }
 }
+
+/* ── the public link to this table ───────────────────────────────────────── */
+
+/* Sits between the title and "+ Add". Reads "Link on" once a link exists, so
+   whether the table is public is answerable at a glance rather than by opening
+   the panel. */
+.shareBtn,
+.shareBtnOn {
+  flex: 0 0 auto;
+  padding: 0.3rem 0.7rem;
+  font-family: inherit;
+  font-size: 0.82rem;
+  font-weight: 600;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.shareBtn {
+  color: var(--color-text-secondary);
+  background: var(--color-surface-alt);
+  border: 1px solid var(--color-border);
+}
+.shareBtn:hover { color: var(--color-accent); border-color: var(--color-accent-subtle); }
+.shareBtnOn {
+  color: var(--color-success);
+  background: var(--color-success-light);
+  border: 1px solid rgba(46, 125, 79, 0.28);
+}
+
+.sharePanel {
+  margin: 0 0 0.9rem;
+  padding: 0.85rem 0.95rem;
+  background: var(--color-accent-light);
+  border: 1px solid var(--color-accent-subtle);
+  border-radius: 12px;
+}
+.shareTitle {
+  font-size: 0.92rem;
+  font-weight: 700;
+  margin-bottom: 0.25rem;
+}
+.shareBlurb {
+  margin: 0 0 0.6rem;
+  font-size: 0.84rem;
+  line-height: 1.5;
+  color: var(--color-text-secondary);
+}
+
+.shareRow {
+  display: flex;
+  gap: 0.4rem;
+}
+.shareInput {
+  flex: 1;
+  min-width: 0;
+  padding: 0.5rem 0.6rem;
+  font-family: inherit;
+  font-size: 0.88rem;
+  color: var(--color-text);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+}
+.shareInput:focus { outline: none; border-color: var(--color-accent); }
+.shareCopy {
+  flex: 0 0 auto;
+  padding: 0.5rem 0.9rem;
+  font-family: inherit;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #fff;
+  background: var(--color-accent);
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.shareCopy:hover { background: var(--color-accent-hover); }
+
+.shareActions {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-top: 0.55rem;
+}
+.shareOpen {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--color-accent);
+  text-decoration: none;
+}
+.shareOpen:hover { text-decoration: underline; }
+/* Deliberately quiet: turning the link off breaks every copy of it that's
+   already out there, so it shouldn't sit next to Copy as an equal. */
+.shareOff {
+  margin-left: auto;
+  padding: 0;
+  background: none;
+  border: none;
+  font-family: inherit;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+.shareOff:hover { color: var(--color-danger); }
+.shareOff:disabled { opacity: 0.5; cursor: default; }
+
+.shareError {
+  margin-top: 0.5rem;
+  font-size: 0.82rem;
+  color: var(--color-danger);
+}
