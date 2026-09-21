@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { fetchNutritionForRecipe, NUTRIENTS } from '../utils/nutrition';
+import { recipeNutritionVectors } from '../utils/recipeServingNutrition';
 import { ingredientsDbSignature } from '../utils/ingredientsStore';
 import styles from './NutritionPanel.module.css';
 
@@ -20,17 +21,6 @@ function NutrientRow({ nutrient, total, perServing, showPerServing }) {
       </span>
     </div>
   );
-}
-
-function divideNutrients(totals, servings) {
-  const result = {};
-  for (const key in totals) {
-    const val = totals[key];
-    result[key] = typeof val === 'number'
-      ? Math.round(val / servings)
-      : val;
-  }
-  return result;
 }
 
 export function PlateChart({ protein, carbs, fat }) {
@@ -465,17 +455,23 @@ export function NutritionPanel({ recipeId, ingredients, servings = 1, portionLab
   useEffect(() => {
     if (!data || !onNutritionData) return;
     const safeServings = Number(servings) > 0 ? Number(servings) : 1;
-    const perServing = {};
-    for (const k of Object.keys(data.totals || {})) {
-      perServing[k] = data.totals[k] / safeServings;
-    }
+    // The SAME vectors the table below draws, via the shared helper — per-meal
+    // (topping) rows counted once per serving rather than divided across the
+    // batch. This used to be a flat `data.totals / servings`, which on a recipe
+    // whose rows are all toppings (a smoothie) saved a per-serving figure
+    // `servings` times too small: the panel read "3 fruit servings" while the
+    // recipe stored 0.75, and every consumer of the stored field — the mobile
+    // app, the meal-rating stars, Design a Meal, and every meal logged from it
+    // — inherited the smaller number.
+    const { totals, perServing } = recipeNutritionVectors(data.items, ingredients, safeServings);
     onNutritionData({
       ...data,
+      totals,
       perServing,
       fingerprint: ingredientFingerprint,
       servings: safeServings,
     });
-  }, [data, servings, ingredientFingerprint]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [data, servings, ingredientFingerprint, ingredients]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const goals = useMemo(() => {
     try {
@@ -518,40 +514,17 @@ export function NutritionPanel({ recipeId, ingredients, servings = 1, portionLab
     );
   }
 
-  const { items, totals: rawTotals } = data;
+  const { items } = data;
 
-  // Separate main vs per-meal (topping) ingredient nutrients
-  // Per-meal ingredients are applied per serving, not divided
-  const mainTotals = {};
-  const toppingTotals = {};
-  for (const n of NUTRIENTS) {
-    mainTotals[n.key] = 0;
-    toppingTotals[n.key] = 0;
-  }
   const filteredIngredients = (ingredients || []).filter(row => (row.ingredient || '').trim());
-  items.forEach((item, i) => {
-    const isTopping = filteredIngredients[i]?.topping;
-    for (const n of NUTRIENTS) {
-      if (isTopping) {
-        toppingTotals[n.key] += item.nutrients[n.key] || 0;
-      } else {
-        mainTotals[n.key] += item.nutrients[n.key] || 0;
-      }
-    }
-  });
-
-  // Total recipe = main ingredients + (topping × servings)
-  const totals = {};
-  for (const n of NUTRIENTS) {
-    totals[n.key] = Math.round((mainTotals[n.key] + toppingTotals[n.key] * servings) * 100) / 100;
-  }
-
-  // Per serving = (main / servings) + topping
+  // Main ingredients divide across the batch, per-meal (topping) rows don't —
+  // computed by the shared helper so the figures on screen and the ones saved
+  // to the recipe can no longer disagree.
+  const { totals, perServing: perServingExact } = recipeNutritionVectors(items, ingredients, servings);
+  // Whole numbers in the table, as before; the saved vector keeps its decimals,
+  // because a week's worth of 0.8 vegetable servings must not round to nothing.
   const perServing = {};
-  for (const n of NUTRIENTS) {
-    const val = (servings > 0 ? mainTotals[n.key] / servings : mainTotals[n.key]) + toppingTotals[n.key];
-    perServing[n.key] = Math.round(val);
-  }
+  for (const n of NUTRIENTS) perServing[n.key] = Math.round(perServingExact[n.key] || 0);
 
   return (
     <div className={styles.container}>

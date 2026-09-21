@@ -30,7 +30,8 @@ import { SeasonalGuidePage } from './components/SeasonalGuidePage';
 import { AirFryerPage } from './components/AirFryerPage';
 import { SourcesPage } from './components/SourcesPage';
 import { NutritionGoalsPage } from './components/NutritionGoalsPage';
-import { DailyTrackerPage } from './components/DailyTrackerPage';
+import { DailyTrackerPage, saveDailyLog } from './components/DailyTrackerPage';
+import { findStaleEntries, applyResync } from './utils/recipeServingNutrition';
 import { DesignMealPage } from './components/DesignMealPage';
 import { BarcodeScannerPage } from './components/BarcodeScannerPage';
 import { RecipeSetupPage } from './components/RecipeSetupPage';
@@ -263,6 +264,56 @@ function loadWeekWorkoutPlan() {
 function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal, onCloseGoalsModal, onCompleteGoals, deletionPendingAt, cancelDeletion }) {
   const { recipes, addRecipe, updateRecipe, deleteRecipe, getRecipe, importRecipes, refreshLinkedRecipes, deletedRecipes, restoreDeletedRecipe, purgeDeletedRecipe } =
     useRecipes();
+
+  // Recipes whose "your logged meals are out of date" offer has already been
+  // made this session. The nutrition panel re-persists whenever the numbers
+  // drift, and being asked the same question every time you opened a recipe
+  // would train you to dismiss it.
+  const resyncOffered = useRef(new Set());
+
+  /**
+   * Persist computed fields onto a recipe, and keep already-logged meals honest.
+   *
+   * A logged meal stores a snapshot of the recipe's nutrition from the day it
+   * was logged, which is right — editing a recipe next month shouldn't rewrite
+   * what you ate last month. But when the numbers move because the CALCULATION
+   * improved (a better ingredient match, an edit to your ingredients sheet),
+   * every tile that adds those meals up is quietly summing stale figures. So
+   * when the per-serving vector changes, this offers to bring the old meals in
+   * line rather than leaving the week's fruit and veg totals wrong with nothing
+   * on screen to say why.
+   */
+  const persistRecipeFields = useCallback((recipeId, updates) => {
+    updateRecipe(recipeId, updates);
+    if (!recipeId || !updates?.macrosPerServing) return;
+    if (resyncOffered.current.has(recipeId)) return;
+    const recipe = getRecipe(recipeId);
+    if (!recipe) return;
+    let log;
+    try { log = JSON.parse(localStorage.getItem('sunday-daily-log') || '{}'); } catch { return; }
+    const { stale, skipped } = findStaleEntries(log, recipe, updates.macrosPerServing);
+    if (stale.length === 0) return;
+    resyncOffered.current.add(recipeId);
+    const dates = [stale[0].date, stale[stale.length - 1].date];
+    const span = dates[0] === dates[1] ? dates[0] : `${dates[0]} to ${dates[1]}`;
+    const moved = (stale[0].headline || [])
+      .filter(h => Math.abs(h.to - h.from) > 0.05)
+      .map(h => `${h.key.replace('Servings', '')}: ${h.from} → ${h.to}`)
+      .join(', ');
+    const lines = [
+      `"${recipe.title}" nutrition has changed.`,
+      '',
+      `${stale.length} meal${stale.length === 1 ? '' : 's'} you already logged (${span}) still use${stale.length === 1 ? 's' : ''} the old numbers.`,
+      moved ? `Per serving — ${moved}` : '',
+      skipped.length > 0
+        ? `${skipped.length} hand-weighed meal${skipped.length === 1 ? '' : 's'} will be left alone.`
+        : '',
+      '',
+      'Update them to match the recipe?',
+    ].filter(Boolean);
+    if (!window.confirm(lines.join('\n'))) return;
+    saveDailyLog(applyResync(log, stale), user);
+  }, [updateRecipe, getRecipe, user]);
 
   // Unique meal tags across all recipes, for the tag autocomplete in
   // RecipeDetail. Case-insensitive de-dupe, keeping the first-seen casing.
@@ -1263,7 +1314,7 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
               onViewSources={() => navigateTo('sources')}
               onPersistFields={transientViewRecipe || !selectedId
                 ? undefined
-                : (updates) => updateRecipe(selectedId, updates)}
+                : (updates) => persistRecipeFields(selectedId, updates)}
             />
           </ErrorBoundary>
         ) : view === 'add' ? (
@@ -1337,7 +1388,7 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
                 onAddToWeek={() => handleAddToWeek(viewRecipeId)}
                 weeklyPlan={weeklyPlan}
                 user={user}
-                onPersistFields={(updates) => updateRecipe(viewRecipeId, updates)}
+                onPersistFields={(updates) => persistRecipeFields(viewRecipeId, updates)}
               />
             </div>
           </div>
