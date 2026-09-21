@@ -1,13 +1,15 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { loadField, loadHabitAutoStatus } from '../utils/firestoreSync';
-import { loadHabitLog, loadHabitLogAuto } from '../utils/habitLogYears';
+import { loadField, loadHabitAutoStatus, subscribeToUserFields } from '../utils/firestoreSync';
+import {
+  loadHabitLog, loadHabitLogAuto, subscribeToHabitLog, subscribeToHabitLogAuto,
+} from '../utils/habitLogYears';
 import { HABIT_FIELDS, seedHabits, makeHabitId } from '../data/habitsSeed';
 import { yesterdayDate, yesterdayDayKey, yesterdayUnloggedHabits, isBadHabit } from '../utils/habitOutstanding';
 import { normalizePtoRanges, ptoCellsToStamp, activePtoRange } from '../utils/habitPto';
 import { nextMarkInCycle } from '../utils/habitMarkCycle';
 import { badHabitStats, recentDayKeys, cleanLabel, dayKeyOf, dateOfDayKey } from '../utils/badHabits';
 import {
-  readCache as readHabitCache, cacheRemote, replayQueue,
+  readCache as readHabitCache, cacheRemote, replayQueue, reconcileMarks,
   queueFieldWrite, queueMark, queueMarks,
   flush as flushHabitQueue, startAutoFlush,
   subscribe as subscribeHabitSync, pendingCount, failedCount, isFlushing, lastSyncedAt, discardFailed,
@@ -1680,6 +1682,62 @@ export function HabitsPage({ onBack, user }) {
       }
     })();
     return () => { cancelled = true; };
+  }, [user?.uid]);
+
+  /**
+   * Live updates, so the page tracks the phone instead of freezing at whatever
+   * it read on mount.
+   *
+   * Before this the page loaded once and never looked again: ticking a habit on
+   * the phone changed nothing on an open tab until you reloaded it. The mobile
+   * app has had its own listeners for a while, which is why the website→phone
+   * direction already felt instant and phone→website did not.
+   *
+   * Three separate subscriptions because the data is in three places, and each
+   * has to survive the same hazard — a snapshot must never paint over an edit
+   * made here that the server hasn't caught up with:
+   *
+   *   marks    users/{uid}/habitLog|habitLogAuto/{YYYY}. Written with a
+   *            transaction, which produces no local pending-write event, so
+   *            Firestore's own read-your-writes doesn't cover them and
+   *            reconcileMarks has to force the just-written ones.
+   *   fields   habits / automations / next-up / PTO on the user doc. Plain
+   *            writes, so skipping hasPendingWrites is enough; queued edits are
+   *            still replayed on top.
+   *
+   * Nothing here touches `loading` — the load effect owns that, and a snapshot
+   * arriving first must not uncover an empty page.
+   */
+  useEffect(() => {
+    if (!user?.uid) return undefined;
+    const unsubLog = subscribeToHabitLog(user.uid, (remote) => {
+      setHabitLog(reconcileMarks(remote, 'manual'));
+    });
+    const unsubAuto = subscribeToHabitLogAuto(user.uid, (remote) => {
+      setHabitLogAuto(reconcileMarks(remote, 'auto'));
+    });
+    const unsubFields = subscribeToUserFields(
+      user.uid,
+      ['habits', 'habitAutomations', 'habitNextLog', 'habitPto'],
+      (fields) => {
+        // Replay the queue over the snapshot for the same reason the load
+        // effect does: unsynced edits outrank the server's older answer.
+        const merged = replayQueue({
+          habits: fields.habits,
+          automations: fields.habitAutomations,
+          habitNextLog: fields.habitNextLog,
+        });
+        // An empty habits array is how a partial or rules-blocked snapshot
+        // reads, and it's never a real answer — there is no "delete them all".
+        if (Array.isArray(merged.habits) && merged.habits.length > 0) setHabits(merged.habits);
+        if (Array.isArray(merged.automations)) setAutomations(merged.automations);
+        if (merged.habitNextLog && typeof merged.habitNextLog === 'object') {
+          setHabitNextLog(merged.habitNextLog);
+        }
+        if (Array.isArray(fields.habitPto)) setPtoRanges(normalizePtoRanges(fields.habitPto));
+      },
+    );
+    return () => { unsubLog(); unsubAuto(); unsubFields(); };
   }, [user?.uid]);
 
   // Habits that have earned the Automatically status and are waiting on your
