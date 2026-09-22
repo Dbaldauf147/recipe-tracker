@@ -800,3 +800,67 @@ test('nobody who logs no fibre gets a fibre chart', () => {
   // The protein hit rate still renders — that week's one meal missed the goal.
   assert.match(email.html, /Meals hitting the 48g protein goal/);
 });
+
+// ---- Users chart (owner only) ----------------------------------------------
+// The growth series itself is covered in adminGrowth.test.js; these pin down
+// the part that belongs to the email — that the section is OFF by default, and
+// that both series reach the page when it is on.
+
+test('the Users section only appears when growth data is passed in', () => {
+  const stats = summarizeWeek(emptyData(), WEEK);
+  const prior = summarizeWeek(emptyData(), previousWeek(WEEK));
+  const growth = [
+    { date: '2026-07-19', label: 'Jul 19', total: 8, active: 3 },
+    { date: '2026-07-26', label: 'Jul 26', total: 11, active: 2 },
+    { date: '2026-08-02', label: 'Aug 2', total: 14, active: 5 },
+  ];
+
+  // Everyone else's summary: no user numbers anywhere in it.
+  const plain = renderWeeklySummary({ stats, priorStats: prior });
+  assert.doesNotMatch(plain.html, /Total users/);
+  assert.doesNotMatch(plain.text, /Total users/);
+
+  const owner = renderWeeklySummary({ stats, priorStats: prior, adminGrowth: growth });
+  assert.match(owner.html, /Users over time/);
+  assert.match(owner.html, /Total users/);
+  assert.match(owner.html, /Active \(7d\)/);
+  // Both series are drawn, in the validated pair of hues.
+  assert.match(owner.html, /background:#c96442/);
+  assert.match(owner.html, /background:#2563eb/);
+  // Latest figures and the change across the span.
+  assert.match(owner.html, /14<\/span>|>14</);
+  assert.match(owner.text, /Total users: 14 \(\+6 since Jul 19\)/);
+  assert.match(owner.text, /Active \(7d\): 5 \(\+2 since Jul 19\)/);
+  assert.match(owner.text, /Aug 2 +14 total · 5 active/);
+  assert.doesNotMatch(owner.text, /NaN|undefined/);
+});
+
+test('one snapshot is not a trend, so no chart is drawn for it', () => {
+  const stats = summarizeWeek(emptyData(), WEEK);
+  const prior = summarizeWeek(emptyData(), previousWeek(WEEK));
+  const one = renderWeeklySummary({
+    stats, priorStats: prior,
+    adminGrowth: [{ date: '2026-08-02', label: 'Aug 2', total: 14, active: 5 }],
+  });
+  assert.doesNotMatch(one.html, /Users over time/);
+  // The headline rows still report what that single snapshot knows.
+  assert.match(one.html, /Total users/);
+  assert.doesNotMatch(one.html, /since Aug 2/);
+});
+
+test('a snapshot with no per-user rows draws the total line and skips active', () => {
+  const stats = summarizeWeek(emptyData(), WEEK);
+  const prior = summarizeWeek(emptyData(), previousWeek(WEEK));
+  const email = renderWeeklySummary({
+    stats, priorStats: prior,
+    adminGrowth: [
+      { date: '2026-07-26', label: 'Jul 26', total: 11, active: null },
+      { date: '2026-08-02', label: 'Aug 2', total: 14, active: null },
+    ],
+  });
+  assert.match(email.html, /Users over time/);
+  assert.match(email.text, /Total users: 14/);
+  // Unknown isn't zero: no "Active (7d): 0" headline invented for it.
+  assert.doesNotMatch(email.text, /Active \(7d\): 0/);
+  assert.match(email.text, /14 total · — active/);
+});

@@ -24,6 +24,8 @@ import {
   TREND_WEEKS,
 } from '../lib/weeklySummary.js';
 import { WINDOW_DAYS } from '../src/utils/exerciseProgress.js';
+import { summarizeUserGrowth } from '../lib/adminGrowth.js';
+import { OWNER_EMAIL } from '../src/utils/pageAccess.js';
 
 if (getApps().length === 0) {
   const serviceAccount = process.env.FIREBASE_SERVICE_ACCOUNT
@@ -125,6 +127,35 @@ async function loadUserWeekData(uid, userData, fromKey, toKey) {
   };
 }
 
+// How far back the growth chart reads. Weekly thinning starts once the
+// snapshots outgrow the chart, so this is ~3 months of history whichever grain
+// summarizeUserGrowth settles on.
+const GROWTH_SNAPSHOT_DAYS = 90;
+const GROWTH_POINTS = 12;
+
+/**
+ * The user-growth series for the owner's copy of the email — how many people
+ * use Prep Day, and how many of them were active, over time.
+ *
+ * Only the owner's send calls this: nobody else's summary should carry other
+ * people's numbers, and the read costs a collection query per send. Failure is
+ * not fatal — a snapshot read that errors drops the section rather than losing
+ * the whole weekly email over it.
+ */
+async function loadAdminGrowth() {
+  try {
+    const snap = await db.collection('adminSnapshots')
+      .orderBy('date', 'desc').limit(GROWTH_SNAPSHOT_DAYS).get();
+    const rows = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    const growth = summarizeUserGrowth(rows, { maxPoints: GROWTH_POINTS });
+    // One snapshot is a number, not a trend, and the section is a chart.
+    return growth.length >= 2 ? growth : null;
+  } catch (err) {
+    console.error('[send-weekly-summary] admin growth read failed', err);
+    return null;
+  }
+}
+
 /** Build (but don't send) the email for one user. Returns null on an empty week
  *  unless `force` — a manual "send me one now" should always produce something
  *  rather than silently doing nothing. */
@@ -152,12 +183,18 @@ async function buildEmail(uid, userData, todayKey, { force = false } = {}) {
   const stats = summarizeWeek(data, week, { withProgress: true, goalsConfig });
   if (!force && isEmptyWeek(stats)) return null;
   const priorStats = summarizeWeek(data, prior);
+  // Gated on the ACCOUNT, not the recipient list: the owner can add a second
+  // address to their own summary and it stays their mail, but someone else's
+  // summary must never carry the user numbers even if it lands in the same
+  // inbox.
+  const isOwner = String(userData.email || '').trim().toLowerCase() === OWNER_EMAIL;
   const email = renderWeeklySummary({
     stats,
     priorStats,
     goals: userData.nutritionGoals || null,
     bodyStats: userData.bodyStats || null,
     name: userData.displayName || '',
+    adminGrowth: isOwner ? await loadAdminGrowth() : null,
   });
   return { ...email, week };
 }
@@ -250,7 +287,9 @@ async function handleManual(req, res) {
     if (to.length === 0) return res.status(400).json({ error: 'No valid recipient email.' });
 
     const { dateKey } = eastern();
-    const email = await buildEmail(uid, data, dateKey, { force: true });
+    // The verified token email backfills a user doc that never stored one, so a
+    // "send me one now" from the owner still gets the owner's sections.
+    const email = await buildEmail(uid, { ...data, email: data.email || tokenEmail }, dateKey, { force: true });
     await sendMail({ to, subject: email.subject, text: email.text, html: email.html });
     return res.status(200).json({ ok: true, sentTo: to, week: email.week.label });
   } catch (err) {
