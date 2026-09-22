@@ -1638,8 +1638,17 @@ export function hydrateLocalStorage(userData, uid) {
 
   // Whoop: per-day rollup (calories/strain/recovery/sleep) written by the
   // server's /api/whoop/data fetch, plus the calorie-budget opt-in flag.
+  //
+  // MERGE, don't replace. This field is only a trailing 120-day slice of the
+  // full map in users/{uid}/data/whoopDaily — overwriting the cache with it
+  // would throw away every backfilled night the Progress charts had cached.
   if (userData.whoopDaily) {
-    localStorage.setItem('sunday-whoop-daily', JSON.stringify(userData.whoopDaily));
+    try {
+      const cached = JSON.parse(localStorage.getItem('sunday-whoop-daily') || '{}') || {};
+      localStorage.setItem('sunday-whoop-daily', JSON.stringify({ ...cached, ...userData.whoopDaily }));
+    } catch {
+      localStorage.setItem('sunday-whoop-daily', JSON.stringify(userData.whoopDaily));
+    }
   }
   if (userData.whoopAddCaloriesToBudget !== undefined) {
     localStorage.setItem('sunday-whoop-budget', JSON.stringify(!!userData.whoopAddCaloriesToBudget));

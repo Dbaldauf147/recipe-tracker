@@ -13,6 +13,8 @@ import { EXERCISE_TYPES, DEFAULT_EXERCISE_TYPE, effectiveExerciseType, normalize
 import {
   entryBestE1rmLb, offsiteMarker, makeBodyweightLookupStrict, isBodyweightExercise,
 } from '../utils/exerciseProgress';
+import { cachedWhoopDaily, mergeWhoopDailyCache } from '../utils/whoopDaily';
+import { loadWhoopHistory } from '../utils/whoopHistory';
 import { StretchRoutines } from './StretchRoutines';
 import { PrCelebration } from './PrCelebration';
 import { detectPersonalRecord, priorHistory } from '../utils/personalRecord';
@@ -1132,6 +1134,44 @@ function StepsTab({ user }) {
   );
 }
 
+// Whoop per-day metrics (sleep / recovery / strain / calories burned), for any
+// chart that wants them.
+//
+// The order matters. The cached map paints first, then the full history
+// document — every night ever fetched, including whatever the backfill pulled
+// in — then a short refresh from Whoop so today is current.
+//
+// Asking /api/whoop/data for a long window here would be pointless: it is a
+// rolling window that cannot reach further back than its `days`, so it can
+// only ever return nights near today. Reaching further back is what
+// users/{uid}/data/whoopDaily and api/whoop/backfill.js are for.
+function useWhoopDaily(user) {
+  const [whoopDaily, setWhoopDaily] = useState(cachedWhoopDaily);
+
+  useEffect(() => {
+    if (!user?.uid) return;
+    let cancelled = false;
+
+    (async () => {
+      const history = await loadWhoopHistory(user.uid);
+      if (cancelled) return;
+      if (Object.keys(history).length) setWhoopDaily(mergeWhoopDailyCache(history));
+
+      try {
+        const t = await user.getIdToken();
+        const res = await fetch(`/api/whoop/data?uid=${encodeURIComponent(user.uid)}&t=${encodeURIComponent(t)}&days=14`);
+        const json = await res.json().catch(() => ({}));
+        if (cancelled || !json?.connected || !json.daily) return;
+        setWhoopDaily(mergeWhoopDailyCache(json.daily));
+      } catch { /* ignore — charts fall back to the history doc and the cache */ }
+    })();
+
+    return () => { cancelled = true; };
+  }, [user?.uid]);
+
+  return whoopDaily;
+}
+
 // Reads daily sleep totals (in hours) that the mobile app pulled from
 // Apple Health and saved into the dailyLog subcollection. Read-only on
 // the web — the mobile tracker writes the snapshot whenever HealthKit
@@ -1175,29 +1215,7 @@ function SleepTab({ user }) {
   }, [user?.uid]);
 
   // Whoop nightly totals — used to fill in nights Apple Health didn't sync.
-  // Seed from cache, then refresh from the server (no-ops when not connected).
-  const [whoopDaily, setWhoopDaily] = useState(() => {
-    try { return JSON.parse(localStorage.getItem('sunday-whoop-daily') || '{}') || {}; }
-    catch { return {}; }
-  });
-  useEffect(() => {
-    if (!user?.uid) return;
-    let cancelled = false;
-    (async () => {
-      try {
-        const t = await user.getIdToken();
-        const res = await fetch(`/api/whoop/data?uid=${encodeURIComponent(user.uid)}&t=${encodeURIComponent(t)}&days=90`);
-        const json = await res.json().catch(() => ({}));
-        if (cancelled || !json?.connected || !json.daily) return;
-        setWhoopDaily(prev => {
-          const merged = { ...prev, ...json.daily };
-          try { localStorage.setItem('sunday-whoop-daily', JSON.stringify(merged)); } catch { /* ignore */ }
-          return merged;
-        });
-      } catch { /* ignore — falls back to Apple Health / cached data */ }
-    })();
-    return () => { cancelled = true; };
-  }, [user?.uid]);
+  const whoopDaily = useWhoopDaily(user);
 
   // Apple Health is authoritative; Whoop fills any night it's missing.
   const sleepHoursByDate = useMemo(() => {
@@ -1548,32 +1566,10 @@ function OverviewBarCharts({ user, workouts }) {
     catch { return null; }
   }, []);
 
-  // Whoop per-day metrics (recovery / strain / calories burned). Seed from the
-  // cached map, then refresh in the background from the server (which also
-  // re-persists to Firestore) so these charts populate without first visiting
-  // the Whoop page. Silently no-ops when Whoop isn't connected.
-  const [whoopDaily, setWhoopDaily] = useState(() => {
-    try { return JSON.parse(localStorage.getItem('sunday-whoop-daily') || '{}') || {}; }
-    catch { return {}; }
-  });
-  useEffect(() => {
-    if (!user?.uid) return;
-    let cancelled = false;
-    (async () => {
-      try {
-        const t = await user.getIdToken();
-        const res = await fetch(`/api/whoop/data?uid=${encodeURIComponent(user.uid)}&t=${encodeURIComponent(t)}&days=90`);
-        const json = await res.json().catch(() => ({}));
-        if (cancelled || !json?.connected || !json.daily) return;
-        setWhoopDaily(prev => {
-          const merged = { ...prev, ...json.daily };
-          try { localStorage.setItem('sunday-whoop-daily', JSON.stringify(merged)); } catch { /* ignore */ }
-          return merged;
-        });
-      } catch { /* ignore — charts fall back to cached data */ }
-    })();
-    return () => { cancelled = true; };
-  }, [user?.uid]);
+  // Whoop per-day metrics (recovery / strain / calories burned), so these
+  // charts populate without first visiting the Whoop page. Silently no-ops
+  // when Whoop isn't connected.
+  const whoopDaily = useWhoopDaily(user);
 
   // Workouts indexed by ISO date, counting one per day rather than per entry.
   const workoutDates = useMemo(() => {
