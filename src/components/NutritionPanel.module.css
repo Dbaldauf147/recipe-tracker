@@ -20,6 +20,23 @@
   font-size: 0.82rem;
 }
 
+/* Shown beside the heading while a recalculation runs. Inline and nowrap on
+   purpose: the panel must not change height, or the ingredient table below it
+   moves under the user's cursor. */
+.recalculating {
+  font-weight: 400;
+  font-size: 0.78rem;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+  margin-left: 0.4rem;
+  opacity: 0.85;
+}
+
+.stale {
+  composes: recalculating;
+  color: var(--color-danger);
+}
+
 .servingsToggle {
   display: flex;
   gap: 0;
