@@ -131,6 +131,9 @@ const GUARDED_FIELDS = new Set([
   'eatingOutVotes', 'eatingOutOrder', 'customGridWidgets', 'keyIngredients',
   'ingredientsDb', 'catLayout', 'hiddenCategories', 'friends',
   'weekMealPlan', 'weekWorkoutPlan',
+  // One row per week, appended forever and impossible to re-derive once the
+  // week has passed (see recipeStageHistory.js).
+  'recipeStageHistory',
 ]);
 // Fields where going from many → 0 in one write is always a bug (block it).
 // (weeklyPlan is intentionally NOT here — "clear week" legitimately empties it.)
@@ -955,11 +958,41 @@ export async function listFullBackups(uid) {
  * Firestore (main user doc) and localStorage so the UI picks it up on next
  * render. Returns the restored array.
  */
-export async function restoreFieldFromBackup(uid, backupId, field) {
-  const ref = doc(db, 'users', uid, 'backups', backupId);
-  const snap = await getDoc(ref);
+/**
+ * Pull one stored value out of a full snapshot, trying each of `keys` in turn.
+ *
+ * Handles all three backup layouts — v3 (a manifest plus chunk docs), v2
+ * (everything inline under `data`), and the legacy server-side doc — so
+ * callers that only want to READ a snapshot don't each reimplement the walk.
+ * Returns null when the backup doesn't hold any of the keys.
+ */
+export async function readBackupValue(uid, backupId, keys) {
+  const snap = await getDoc(doc(db, 'users', uid, 'backups', backupId));
   if (!snap.exists()) throw new Error('Backup not found');
   const data = snap.data();
+
+  // v3 manifest: scan chunk docs.
+  if (data.version === 3 && Array.isArray(data.chunkIds)) {
+    for (const chunkId of data.chunkIds) {
+      const chunkSnap = await getDoc(doc(db, 'users', uid, 'backups', chunkId));
+      if (!chunkSnap.exists()) continue;
+      const inner = chunkSnap.data().data || {};
+      for (const k of keys) {
+        if (inner[k] != null) return inner[k];
+      }
+    }
+    return null;
+  }
+
+  // v2 inline backup or legacy server-side doc.
+  const inner = data.data || data;
+  for (const k of keys) {
+    if (inner[k] != null) return inner[k];
+  }
+  return null;
+}
+
+export async function restoreFieldFromBackup(uid, backupId, field) {
   // Map our field name → both possible storage keys.
   const FIELD_KEYS = {
     planHistory: ['sunday-plan-history', 'planHistory'],
@@ -974,28 +1007,10 @@ export async function restoreFieldFromBackup(uid, backupId, field) {
     pantrySauces: ['sunday-pantry-sauces', 'pantrySauces'],
     pantrySnacks: ['sunday-pantry-snacks', 'pantrySnacks'],
     pantryFruit: ['sunday-pantry-fruit', 'pantryFruit'],
+    recipeStageHistory: ['sunday-recipe-stage-history', 'recipeStageHistory'],
   };
   const keys = FIELD_KEYS[field] || [field];
-  let value = null;
-
-  // v3 manifest: scan chunk docs
-  if (data.version === 3 && Array.isArray(data.chunkIds)) {
-    for (const chunkId of data.chunkIds) {
-      const chunkSnap = await getDoc(doc(db, 'users', uid, 'backups', chunkId));
-      if (!chunkSnap.exists()) continue;
-      const inner = chunkSnap.data().data || {};
-      for (const k of keys) {
-        if (inner[k] != null) { value = inner[k]; break; }
-      }
-      if (value != null) break;
-    }
-  } else {
-    // v2 inline backup or legacy server-side doc
-    const inner = data.data || data;
-    for (const k of keys) {
-      if (inner[k] != null) { value = inner[k]; break; }
-    }
-  }
+  const value = await readBackupValue(uid, backupId, keys);
 
   if (value == null) throw new Error(`Backup has no ${field}`);
   // Persist back. saveField writes to Firestore main doc; localStorage
@@ -1283,6 +1298,11 @@ export async function migrateToFirestore(uid) {
   try {
     const history = localStorage.getItem('sunday-plan-history');
     if (history) data.planHistory = JSON.parse(history);
+  } catch {}
+
+  try {
+    const stageHistory = localStorage.getItem('sunday-recipe-stage-history');
+    if (stageHistory) data.recipeStageHistory = JSON.parse(stageHistory);
   } catch {}
 
   try {
@@ -1601,6 +1621,7 @@ export function hydrateLocalStorage(userData, uid) {
 
   hydrateArrayWithDefense('sunday-weekly-plan', reconcileWeeklyPlan(userData.weeklyPlan), 'weeklyPlan');
   hydrateArrayWithDefense('sunday-plan-history', userData.planHistory, 'planHistory');
+  hydrateArrayWithDefense('sunday-recipe-stage-history', userData.recipeStageHistory, 'recipeStageHistory');
   hydrateArrayWithDefense('recipe-tracker-deleted', userData.deletedRecipes, 'deletedRecipes');
   hydrateArrayWithDefense('sunday-grocery-staples', userData.groceryStaples, 'groceryStaples');
   hydrateArrayWithDefense('sunday-pantry-spices', userData.pantrySpices, 'pantrySpices');
