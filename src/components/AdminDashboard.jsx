@@ -7,6 +7,7 @@ import { PENDING_RECIPE_FIXES } from '../utils/pendingRecipeFixes';
 import { auth } from '../firebase';
 import { anonymousReason, accountEvidence, unidentifiedAccounts } from '../utils/duplicateAccounts';
 import { previewMerge, mergeRecipes } from '../utils/mergeAccounts';
+import { UsersOverTimeChart } from './UsersOverTimeChart';
 import styles from './AdminDashboard.module.css';
 
 /**
@@ -374,6 +375,8 @@ function AdminHistory({ users }) {
           measure tomorrow against.
         </p>
       )}
+
+      {snaps != null && snaps.length > 0 && <UsersOverTimeChart snaps={snaps} />}
 
       {rows.length > 0 && (
         <div style={{ overflowX: 'auto' }}>
