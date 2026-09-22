@@ -5,6 +5,7 @@ import { ingredientMatchScore } from '../utils/ingredientMatch';
 import { classifyMealType } from '../utils/classifyMealType';
 import { parseIngredientLine } from '../utils/parseRecipeText';
 import { parsePastedSteps, splitClipboardRows } from '../utils/pastedSteps';
+import { pastedImageFile } from '../utils/clipboardImage';
 import styles from './RecipeForm.module.css';
 
 const emptyRow = { quantity: '', measurement: '', ingredient: '' };
@@ -261,19 +262,19 @@ export function RecipeForm({ recipe, onSave, onCancel, saveLabel, cancelLabel, h
   }
 
   function handleIngredientsPaste(e) {
-    const items = Array.from(e.clipboardData?.items || []);
-    const imageItem = items.find(it => it.type?.startsWith('image/'));
-    if (imageItem) {
-      const blob = imageItem.getAsFile();
-      if (blob) {
-        e.preventDefault();
-        setPasteText('');
-        setColumnMap({});
-        setHasHeader(false);
-        setShowPasteBox(true);
-        processImage(blob);
-        return;
-      }
+    // Image branch first, but only for a paste that is *just* a picture —
+    // a spreadsheet range carries a bitmap of the cells too, and reading that
+    // with the vision parser instead of using the tab-separated rows loses the
+    // columns the mapping panel below is built for.
+    const blob = pastedImageFile(e);
+    if (blob) {
+      e.preventDefault();
+      setPasteText('');
+      setColumnMap({});
+      setHasHeader(false);
+      setShowPasteBox(true);
+      processImage(blob);
+      return;
     }
     const text = e.clipboardData?.getData('text') || '';
     const isMultiRow = text.includes('\t') || text.split('\n').filter(l => l.trim()).length >= 2;
@@ -634,14 +635,13 @@ export function RecipeForm({ recipe, onSave, onCancel, saveLabel, cancelLabel, h
                   value={pasteText}
                   onChange={e => setPasteSource(e.target.value)}
                   onPaste={e => {
-                    const items = Array.from(e.clipboardData?.items || []);
-                    const imageItem = items.find(it => it.type?.startsWith('image/'));
-                    if (imageItem) {
-                      const blob = imageItem.getAsFile();
-                      if (blob) {
-                        e.preventDefault();
-                        processImage(blob);
-                      }
+                    // Same rule as the section handler: only a picture-only
+                    // paste goes to the vision parser. A spreadsheet's rows
+                    // fall through to the textarea and the column mapper.
+                    const blob = pastedImageFile(e);
+                    if (blob) {
+                      e.preventDefault();
+                      processImage(blob);
                     }
                   }}
                   placeholder={'Paste here:\n• Tab-separated rows from Excel/Sheets\n• One ingredient per line ("1 cup flour")\n• A screenshot (Cmd/Ctrl-V an image)'}

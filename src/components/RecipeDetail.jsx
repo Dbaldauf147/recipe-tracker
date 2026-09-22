@@ -19,6 +19,7 @@ import { detectCuisine, ALL_CUISINES, getShelfLife } from '../utils/detectCuisin
 import { getGHGEmissions, getGHGRating, computeRecipeGHG } from '../data/ghgEmissions';
 import { OWNER_EMAIL } from '../utils/pageAccess';
 import { parsePastedSteps, splitClipboardRows, isSpreadsheetHtml } from '../utils/pastedSteps';
+import { pastedImageFile } from '../utils/clipboardImage';
 import { RECIPE_STAGES } from '../utils/recipeStage';
 import { loadMealGoals, activeProfile } from '../utils/mealGoals';
 import { rateMeal, perServingForRecipe, readNutritionCache, ratingSummary } from '../utils/mealRating';
@@ -778,16 +779,16 @@ export function RecipeDetail({ recipe, allTags = [], onSave, onDelete, onBack, o
   }
 
   useEffect(() => {
+    // Anywhere-in-the-page listener so Ctrl-V right after a screenshot sets the
+    // meal image without clicking the dropzone first. pastedImageFile ignores a
+    // spreadsheet paste: Excel/Sheets attach a picture of the copied cells, and
+    // this used to grab it — pasting ingredients saved a shot of the sheet as
+    // the recipe's image.
     function handlePaste(e) {
-      const items = e.clipboardData?.items;
-      if (!items) return;
-      for (const item of items) {
-        if (item.type.startsWith('image/')) {
-          e.preventDefault();
-          handleImageFile(item.getAsFile());
-          return;
-        }
-      }
+      const file = pastedImageFile(e);
+      if (!file) return;
+      e.preventDefault();
+      handleImageFile(file);
     }
     document.addEventListener('paste', handlePaste);
     return () => document.removeEventListener('paste', handlePaste);
