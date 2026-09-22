@@ -3,6 +3,8 @@ import { doc, getDoc } from 'firebase/firestore';
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
 import { db } from '../firebase';
 import { saveField } from '../utils/firestoreSync';
+import { whoopHistorySummary, mergeWhoopDailyCache } from '../utils/whoopDaily';
+import { loadWhoopHistory, runWhoopBackfill } from '../utils/whoopHistory';
 import styles from './WhoopPage.module.css';
 
 function fmtDuration(min) {
@@ -10,6 +12,15 @@ function fmtDuration(min) {
   const h = Math.floor(min / 60);
   const m = Math.round(min % 60);
   return h > 0 ? `${h}h ${m}m` : `${m}m`;
+}
+
+// YYYY-MM-DD → "May 19, 2026". Parsed at noon so the local timezone can't
+// shift it onto the previous day.
+function fmtDate(iso) {
+  if (!iso) return '—';
+  const d = new Date(`${iso}T12:00:00`);
+  if (isNaN(d)) return iso;
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
 function recoveryColor(score) {
@@ -34,6 +45,17 @@ export function WhoopPage({ user, onClose }) {
   });
   const [busy, setBusy] = useState(false);
 
+  // How much history is actually stored, and the state of a backfill run.
+  const [history, setHistory] = useState(null);   // summary, or null until loaded
+  const [backfill, setBackfill] = useState(null); // { status, reachedBack? } | null
+  const [backfillError, setBackfillError] = useState('');
+
+  const refreshHistory = useCallback(async (uid) => {
+    const daily = await loadWhoopHistory(uid);
+    setHistory(whoopHistorySummary(daily));
+    mergeWhoopDailyCache(daily);
+  }, []);
+
   const loadData = useCallback(async () => {
     if (!user?.uid) return;
     setStatus('loading');
@@ -51,11 +73,14 @@ export function WhoopPage({ user, onClose }) {
       if (!json.connected) { setStatus('disconnected'); return; }
       setData(json);
       setStatus('connected');
+      // After the fetch, not before: it merges the last 21 days into the
+      // history doc on its way through.
+      await refreshHistory(user.uid);
     } catch (err) {
       setError(err?.message || 'Failed to load Whoop data');
       setStatus('error');
     }
-  }, [user]);
+  }, [user, refreshHistory]);
 
   useEffect(() => { loadData(); }, [loadData]);
 
@@ -78,6 +103,29 @@ export function WhoopPage({ user, onClose }) {
       /* ignore — re-check on next load */
     } finally {
       setBusy(false);
+    }
+  }
+
+  // Walk the whole account backwards. Takes a while on a long-standing Whoop
+  // account — several round trips of 240 days each — so it reports how far
+  // back it has reached rather than just spinning.
+  async function handleBackfill() {
+    if (!user?.uid || backfill?.status === 'running') return;
+    setBackfillError('');
+    setBackfill({ status: 'running' });
+    try {
+      const last = await runWhoopBackfill(user, (p) => {
+        setBackfill({
+          status: 'running',
+          reachedBack: p.nextBefore ? p.nextBefore.slice(0, 10) : p.earliest,
+          totalDays: p.totalDays,
+        });
+      });
+      await refreshHistory(user.uid);
+      setBackfill({ status: 'done', full: !!last?.full, totalDays: last?.totalDays });
+    } catch (err) {
+      setBackfillError(err?.message || 'Backfill failed');
+      setBackfill(null);
     }
   }
 
@@ -197,6 +245,46 @@ export function WhoopPage({ user, onClose }) {
               </ul>
             </div>
           )}
+
+          <div className={styles.historyCard}>
+            <div className={styles.cardLabel}>Stored history</div>
+            <p className={styles.historyRange}>
+              {history
+                ? history.days > 0
+                  ? `${history.nights} night${history.nights === 1 ? '' : 's'} of sleep · ${fmtDate(history.earliest)} → ${fmtDate(history.latest)}`
+                  : 'Nothing stored yet.'
+                : 'Checking…'}
+            </p>
+            <p className={styles.historyHelp}>
+              Prep Day only asks Whoop for the last few weeks each time it
+              refreshes, so the charts start from the day you connected rather
+              than the day you started wearing the band. This pulls the rest of
+              your account in — sleep, recovery, strain and calories, as far
+              back as Whoop has them.
+            </p>
+            <button
+              className={styles.historyBtn}
+              onClick={handleBackfill}
+              disabled={backfill?.status === 'running'}
+            >
+              {backfill?.status === 'running' ? 'Loading history…' : 'Load full history'}
+            </button>
+            {backfill?.status === 'running' && (
+              <p className={styles.historyStatus}>
+                {backfill.reachedBack
+                  ? `Reached ${fmtDate(backfill.reachedBack)}…`
+                  : 'Starting…'}
+              </p>
+            )}
+            {backfill?.status === 'done' && (
+              <p className={styles.historyStatus}>
+                {backfill.full
+                  ? 'Done — stopped at the storage limit, so the oldest nights were left out.'
+                  : 'Done — that’s everything Whoop has.'}
+              </p>
+            )}
+            {backfillError && <p className={styles.historyError}>{backfillError}</p>}
+          </div>
 
           <div className={styles.budgetCard}>
             <label className={styles.budgetToggle}>

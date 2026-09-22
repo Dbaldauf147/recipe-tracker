@@ -215,3 +215,57 @@
   opacity: 0.6;
   cursor: default;
 }
+
+/* History backfill — see api/whoop/backfill.js. */
+.historyCard {
+  background: var(--color-surface, #fff);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg, 12px);
+  padding: 1rem;
+  margin-bottom: 1rem;
+}
+
+.historyRange {
+  margin: 0.35rem 0 0;
+  font-size: 0.88rem;
+  color: var(--color-text);
+}
+
+.historyHelp {
+  margin: 0.5rem 0 0.85rem;
+  font-size: 0.82rem;
+  color: var(--color-text-muted);
+  line-height: 1.5;
+}
+
+.historyBtn {
+  background: var(--color-surface, #fff);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md, 8px);
+  padding: 8px 16px;
+  font: inherit;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.historyBtn:hover:not(:disabled) {
+  background: var(--color-surface-alt, #f9fafb);
+}
+
+.historyBtn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.historyStatus {
+  margin: 0.6rem 0 0;
+  font-size: 0.82rem;
+  color: var(--color-text-muted);
+}
+
+.historyError {
+  margin: 0.6rem 0 0;
+  font-size: 0.82rem;
+  color: #b91c1c;
+}
