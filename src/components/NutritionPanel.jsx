@@ -504,7 +504,14 @@ export function NutritionPanel({ recipeId, ingredients, servings = 1, portionLab
     return () => clearTimeout(debounceRef.current);
   }, [ingredientFingerprint]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  if (!data || loading) {
+  // Only the FIRST lookup gets a placeholder. Once there are numbers on screen
+  // we keep them there while a recalculation runs: this panel sits above the
+  // ingredient table in the recipe popup, so collapsing it to a one-line box
+  // used to yank everything below it several hundred pixels up the moment the
+  // 800ms debounce fired — i.e. the page jumped a beat after you deleted a
+  // row, and jumped back when the lookup returned. Stale macros for a second
+  // beat a moving target under the cursor.
+  if (!data) {
     return (
       <div className={styles.container}>
         <h3>Nutrition</h3>
@@ -529,7 +536,11 @@ export function NutritionPanel({ recipeId, ingredients, servings = 1, portionLab
   return (
     <div className={styles.container}>
       <div className={styles.nutritionHeader}>
-        <h3>Nutrition <span className={styles.estimate}>(estimate)</span></h3>
+        <h3>
+          Nutrition <span className={styles.estimate}>(estimate)</span>
+          {loading && <span className={styles.recalculating}>updating…</span>}
+          {!loading && error && <span className={styles.stale}>{error}</span>}
+        </h3>
         <MealScore totals={totals} servings={servings} />
       </div>
 
