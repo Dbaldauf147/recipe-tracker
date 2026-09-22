@@ -41,6 +41,7 @@ import ExerciseChart from './ExerciseChart';
 import ExerciseProgressTracker from './ExerciseProgressTracker';
 import styles from './WorkoutPage.module.css';
 import { workoutCalendarCategory, CAL_ICON } from '../utils/workoutCategory';
+import { pastedImageFile } from '../utils/clipboardImage';
 
 const CHART_METRICS = {
   avgReps: { label: 'Avg Reps', field: 'avgReps' },
@@ -3690,21 +3691,17 @@ export function WorkoutPage({ onBack, user }) {
   // Listen for clipboard image paste while on the Log tab so the user can
   // hit Cmd/Ctrl-V right after taking a screenshot without first clicking
   // into the dropzone.
+  //
+  // pastedImageFile ignores a spreadsheet paste: Excel/Sheets attach a picture
+  // of the copied cells next to the text, so a plain item scan would send a
+  // column of reps pasted into a set cell off to the screenshot parser.
   useEffect(() => {
     if (viewMode !== 'log') return;
     function onPaste(e) {
-      const items = e.clipboardData?.items;
-      if (!items) return;
-      for (const item of items) {
-        if (item.type?.startsWith('image/')) {
-          const blob = item.getAsFile();
-          if (blob) {
-            e.preventDefault();
-            handleLogImage(blob);
-            return;
-          }
-        }
-      }
+      const blob = pastedImageFile(e);
+      if (!blob) return;
+      e.preventDefault();
+      handleLogImage(blob);
     }
     window.addEventListener('paste', onPaste);
     return () => window.removeEventListener('paste', onPaste);
