@@ -5,6 +5,7 @@ import { saveField, loadField, getPendingRequests, getPendingSharedRecipes, load
 import { OWNER_EMAIL, PAGE_ACCESS_KEY, canViewPage, isPageToggleable, isPageVisible, pageLabel, readCachedPageAccess, cachePageAccess } from './utils/pageAccess';
 import { trackPageView } from './utils/trackPageView';
 import { todayKey } from './utils/localDate';
+import { recordStageSnapshot } from './utils/recipeStageHistory';
 import { BUILD_LABEL, forceAppUpdate } from './utils/forceUpdate';
 import { countOutstandingHabits } from './utils/habitOutstanding';
 import { loadHabitLog } from './utils/habitLogYears';
@@ -330,6 +331,23 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
       a.localeCompare(b, undefined, { sensitivity: 'base' }),
     );
   }, [recipes]);
+
+  /**
+   * Keep the weekly recipe-stage count up to date (Meal History → Stages).
+   *
+   * Recorded here rather than on the page that charts it: the whole point is a
+   * row per week, and a reading only taken when you happen to open Meal History
+   * would leave months of holes. The snapshot is a no-op unless the counts
+   * actually moved, so this costs nothing on an ordinary recipe edit.
+   *
+   * Owner-only, matching `devStage` itself — for anyone else every recipe is
+   * unstaged and the row would say nothing.
+   */
+  useEffect(() => {
+    if (!user?.uid || user.email?.toLowerCase() !== OWNER_EMAIL) return;
+    if (!recipes.length) return;
+    recordStageSnapshot(recipes, user.uid);
+  }, [recipes, user]);
 
   const [view, setView] = useState(() => {
     const hash = window.location.hash.replace('#', '');

@@ -4,6 +4,8 @@ import { saveField, listFullBackups, restoreFieldFromBackup } from '../utils/fir
 import { importSheetHistory } from '../utils/importHistory';
 import { NUTRIENTS } from '../utils/nutrition';
 import { dayTotals, dayHasContent, countedSupplements, activeEntries, formatNutrient, resolveSupplements } from '../utils/dailyTotals';
+import { RecipeStageHistory } from './RecipeStageHistory';
+import { OWNER_EMAIL } from '../utils/pageAccess';
 import styles from './HistoryPage.module.css';
 
 const HISTORY_KEY = 'sunday-plan-history';
@@ -321,9 +323,13 @@ function DailyNutritionHistory({ getRecipe }) {
 
 export function HistoryPage({ getRecipe, recipes, deletedRecipes = [], onRestoreDeleted, onPurgeDeleted, onClose }) {
   const [entries, setEntries] = useState(loadHistory);
-  // 'weeks' = saved weekly menus (what this page has always been),
-  // 'daily'  = per-day nutrients from the food log.
+  // 'weeks'  = saved weekly menus (what this page has always been),
+  // 'daily'  = per-day nutrients from the food log,
+  // 'stages' = the weekly count of recipes at each development stage.
   const [tab, setTab] = useState('weeks');
+  // `devStage` is owner-only (same gate as the chip that sets it and the pill
+  // on the cards), so a tab that only ever charts zeroes stays hidden.
+  const showStages = (auth.currentUser?.email || '').toLowerCase() === OWNER_EMAIL;
   const [editingDate, setEditingDate] = useState(null);
   const [editingCell, setEditingCell] = useState(null); // { timestamp, index }
   const [importStatus, setImportStatus] = useState(null); // null | 'done' | { imported, skipped, unmatched }
@@ -588,9 +594,21 @@ export function HistoryPage({ getRecipe, recipes, deletedRecipes = [], onRestore
         >
           Daily
         </button>
+        {showStages && (
+          <button
+            role="tab"
+            aria-selected={tab === 'stages'}
+            className={`${styles.subtab} ${tab === 'stages' ? styles.subtabActive : ''}`}
+            onClick={() => setTab('stages')}
+          >
+            Stages
+          </button>
+        )}
       </div>
 
-      {tab === 'daily' ? (
+      {tab === 'stages' && showStages ? (
+        <RecipeStageHistory recipes={recipes} />
+      ) : tab === 'daily' ? (
         <DailyNutritionHistory getRecipe={getRecipe} />
       ) : sorted.length === 0 ? (
         <p className={styles.empty}>

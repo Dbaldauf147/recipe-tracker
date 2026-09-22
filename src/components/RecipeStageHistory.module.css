@@ -1,0 +1,283 @@
+/* Meal History → Stages. Sits inside HistoryPage's container, so it styles
+   only its own pieces and inherits the page's width and padding. */
+
+.intro {
+  margin: 0 0 0.85rem;
+  font-size: 0.85rem;
+  color: var(--color-text-muted, #64748b);
+  line-height: 1.45;
+}
+
+.tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 0.6rem;
+  margin-bottom: 0.85rem;
+}
+
+.tile {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  padding: 0.6rem 0.75rem;
+  background: var(--color-surface-alt, #f8fafc);
+  border: 1px solid var(--color-border, #e5e7eb);
+  border-top: 3px solid var(--color-border, #e5e7eb);
+  border-radius: var(--radius-sm, 8px);
+}
+
+.tileLabel {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  /* Text keeps text colour: the swatch beside it carries the identity. */
+  color: var(--color-text-muted, #64748b);
+}
+
+.swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  flex: none;
+}
+
+.tileValue {
+  font-size: 1.5rem;
+  font-weight: 700;
+  line-height: 1.1;
+  color: var(--color-text, #1f2937);
+}
+
+.tileMeta {
+  font-size: 0.74rem;
+  color: var(--color-text-muted, #64748b);
+}
+
+.tileDelta {
+  margin-left: 0.4rem;
+  font-weight: 600;
+}
+
+.headline {
+  margin: 0 0 0.85rem;
+  font-size: 0.95rem;
+  color: var(--color-text, #1f2937);
+}
+
+.headline strong {
+  font-size: 1.15rem;
+}
+
+.headlineDelta {
+  color: var(--color-text-muted, #64748b);
+  font-size: 0.85rem;
+}
+
+/* ── Controls ── */
+
+.controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+  align-items: center;
+  margin-bottom: 0.5rem;
+}
+
+.toggleGroup {
+  display: inline-flex;
+  border: 1px solid var(--color-border, #e5e7eb);
+  border-radius: var(--radius-sm, 8px);
+  overflow: hidden;
+}
+
+.toggle {
+  background: none;
+  border: none;
+  border-right: 1px solid var(--color-border, #e5e7eb);
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--color-text-muted, #64748b);
+  padding: 0.35rem 0.7rem;
+  cursor: pointer;
+}
+
+.toggle:last-child { border-right: none; }
+.toggle:hover { color: var(--color-accent); }
+
+.toggleOn {
+  background: var(--color-accent);
+  color: #fff;
+}
+
+.toggleOn:hover { color: #fff; }
+
+/* ── Chart ── */
+
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 1rem;
+  list-style: none;
+  margin: 0 0 0.35rem;
+  padding: 0;
+  font-size: 0.78rem;
+  /* Labels stay in ink; the swatch beside each carries the identity. */
+  color: var(--color-text-muted, #475569);
+}
+
+.legendItem {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.chartWrap {
+  margin: 0 0 1rem;
+}
+
+.tooltip {
+  background: rgba(255, 255, 255, 0.97);
+  border: 1px solid var(--color-border, #e5e7eb);
+  border-radius: var(--radius-sm, 8px);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.08);
+  padding: 0.5rem 0.6rem;
+  font-size: 0.78rem;
+  color: var(--color-text, #1f2937);
+}
+
+.tooltipHead {
+  font-weight: 700;
+  margin-bottom: 0.3rem;
+}
+
+.tooltipRow {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.tooltipLabel { flex: 1 1 auto; }
+
+.tooltipValue {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  padding-left: 0.75rem;
+}
+
+.tooltipFoot {
+  margin-top: 0.3rem;
+  padding-top: 0.25rem;
+  border-top: 1px solid var(--color-border, #f1f5f9);
+  font-size: 0.72rem;
+  color: var(--color-text-muted, #64748b);
+}
+
+/* ── Table view of the same numbers ── */
+
+/* Six columns don't fit a phone; scrolling the table beats clipping the last
+   two counts off the edge where nothing says they're there. */
+.tableWrap {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+}
+
+.caption {
+  text-align: left;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--color-text-muted, #64748b);
+  padding-bottom: 0.35rem;
+}
+
+.table th,
+.table td {
+  padding: 0.35rem 0.5rem;
+  border-bottom: 1px solid var(--color-border, #f1f5f9);
+}
+
+.table thead th {
+  font-size: 0.74rem;
+  font-weight: 600;
+  color: var(--color-text-muted, #64748b);
+  text-align: left;
+  white-space: nowrap;
+}
+
+/* Narrow enough to shrink-wrap the numbers, so the week column takes the
+   slack instead of the count columns drifting apart. Beats `.num` alone for
+   the headers, which `.table thead th` would otherwise pull back to the left. */
+.table .num,
+.table thead th.num {
+  text-align: right;
+  width: 1%;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.weekCell {
+  font-weight: 600;
+  white-space: nowrap;
+  /* A `th` in a body row centres itself by default. */
+  text-align: left;
+}
+
+.fromBackup {
+  font-weight: 400;
+  font-size: 0.72rem;
+  color: var(--color-text-muted, #94a3b8);
+}
+
+/* ── Backfill ── */
+
+.backfill {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+  margin-top: 1.1rem;
+  padding-top: 0.85rem;
+  border-top: 1px solid var(--color-border, #e5e7eb);
+}
+
+.backfillBtn {
+  background: none;
+  border: 1px solid var(--color-border, #d1d5db);
+  border-radius: var(--radius-sm, 8px);
+  font: inherit;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--color-text-muted, #475569);
+  padding: 0.4rem 0.75rem;
+  cursor: pointer;
+}
+
+.backfillBtn:hover:not(:disabled) { color: var(--color-accent); border-color: var(--color-accent); }
+.backfillBtn:disabled { opacity: 0.6; cursor: default; }
+
+.backfillNote {
+  font-size: 0.78rem;
+  color: var(--color-text-muted, #64748b);
+  flex: 1 1 14rem;
+}
+
+.empty {
+  padding: 1.5rem 0.5rem;
+  text-align: center;
+  font-size: 0.88rem;
+  color: var(--color-text-muted, #64748b);
+}
+
+@media (max-width: 480px) {
+  .tiles { grid-template-columns: repeat(2, 1fr); }
+  .table { font-size: 0.76rem; }
+  .table th, .table td { padding: 0.3rem 0.3rem; }
+}
