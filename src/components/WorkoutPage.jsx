@@ -39,6 +39,7 @@ import { BodyHeatmap } from './BodyHeatmap';
 import { ExerciseDemo, ExerciseMuscles } from './ExerciseDemo';
 import ExerciseChart from './ExerciseChart';
 import ExerciseProgressTracker from './ExerciseProgressTracker';
+import RelativeStrength from './RelativeStrength';
 import styles from './WorkoutPage.module.css';
 import { workoutCalendarCategory, CAL_ICON } from '../utils/workoutCategory';
 import { pastedImageFile } from '../utils/clipboardImage';
@@ -2710,7 +2711,7 @@ export function WorkoutPage({ onBack, user }) {
     setDemoName(null);
     setDemoRowIdx(null);
   }
-  const [viewMode, setViewMode] = useState('log'); // 'log' | 'history' | 'charts' | 'body' | 'exercises' | 'steps' | 'sleep' | 'stats' (Overview)
+  const [viewMode, setViewMode] = useState('log'); // 'log' | 'history' | 'charts' | 'progress' | 'relative' | 'body' | 'exercises' | 'steps' | 'sleep' | 'stats' (Overview)
   // The exercise list behind every picker on this page. It is SHARED: one
   // Firestore document (sharedData/exerciseLibrary) that every account reads
   // and writes, so an exercise anyone adds is an exercise everyone can pick.
@@ -5055,13 +5056,14 @@ export function WorkoutPage({ onBack, user }) {
       </div>
 
       <div className={styles.tabs}>
-        {['log', 'calendar', 'history', 'charts', 'progress', 'stretch', 'body', 'exercises', 'steps', 'sleep', 'stats'].map(tab => (
+        {['log', 'calendar', 'history', 'charts', 'progress', 'relative', 'stretch', 'body', 'exercises', 'steps', 'sleep', 'stats'].map(tab => (
           <button key={tab} className={`${styles.tab} ${viewMode === tab ? styles.tabActive : ''}`} onClick={() => setViewMode(tab)}>
             {tab === 'log' ? 'Log Workout'
               : tab === 'history' ? 'History'
               : tab === 'calendar' ? 'Calendar'
               : tab === 'charts' ? 'Charts'
               : tab === 'progress' ? 'Progress'
+              : tab === 'relative' ? 'vs Bodyweight'
               : tab === 'stretch' ? 'Stretch'
               : tab === 'body' ? 'Body Map'
               : tab === 'exercises' ? 'Exercises'
@@ -6566,6 +6568,10 @@ export function WorkoutPage({ onBack, user }) {
 
       {viewMode === 'progress' && (
         <ExerciseProgressTracker workouts={workouts} weightUnit={weightUnit} exerciseLibrary={exerciseLibrary} user={user} />
+      )}
+
+      {viewMode === 'relative' && (
+        <RelativeStrength workouts={workouts} weightUnit={weightUnit} exerciseLibrary={exerciseLibrary} />
       )}
 
       {viewMode === 'stretch' && (
