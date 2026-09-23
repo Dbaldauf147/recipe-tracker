@@ -4,6 +4,7 @@ import {
   evaluateMeal, macroSplit, makeRow, totalsForRows, suggestFixes,
   niceQuantity, quantityStep, normalizeStore, profileFromDailyGoals,
   candidatesFromIngredientsDb, emptyProfile, profileHasGoals,
+  goalAttainment, radarData,
 } from './mealGoals.js';
 
 function row({ name, qty = 1, measurement = 'g', grams = 100, topping = false, ...nutrients }) {
@@ -423,4 +424,81 @@ test('a suggested amount is always something you could measure', () => {
     const offGrid = Math.abs(fix.toQty / step - Math.round(fix.toQty / step));
     assert.ok(offGrid < 1e-6, `${fix.name}: ${fix.toQty} ${fix.measurement} is not a multiple of ${step}`);
   }
+});
+
+// ── radar attainment ───────────────────────────────────────────────────────
+
+test('a goal that passes is a full 100, whatever kind it is', () => {
+  assert.equal(goalAttainment({ status: 'pass', actual: 30, min: 20, max: null }), 100);
+  assert.equal(goalAttainment({ status: 'pass', boolean: true, actual: 1 }), 100);
+});
+
+test('falling short plots as the fraction of the minimum reached', () => {
+  assert.equal(goalAttainment({ status: 'under', actual: 10, min: 20, max: null }), 50);
+  assert.equal(goalAttainment({ status: 'under', actual: 0, min: 20, max: null }), 0);
+});
+
+test('overshooting a ceiling also plots INWARD, not past the ring', () => {
+  // The whole point of the radar: double the sodium you allowed has to draw a
+  // SMALLER shape than hitting the target, not a bigger one. A plain
+  // actual/target would have plotted this at 200.
+  assert.equal(goalAttainment({ status: 'over', actual: 1600, min: null, max: 800 }), 50);
+  assert.equal(goalAttainment({ status: 'over', actual: 4000, min: null, max: 800 }), 20);
+});
+
+test('a missed yes/no goal is zero, not a fraction', () => {
+  assert.equal(goalAttainment({ status: 'under', boolean: true, actual: 0 }), 0);
+  assert.equal(goalAttainment({ status: 'over', boolean: true, actual: 2, max: 0 }), 0);
+});
+
+test('a goal with no data behind it is null, so it is dropped rather than dented to zero', () => {
+  assert.equal(goalAttainment({ status: 'unknown', actual: 0 }), null);
+  assert.equal(goalAttainment(null), null);
+});
+
+test('"at most none" that was broken is a total miss', () => {
+  assert.equal(goalAttainment({ status: 'over', actual: 5, min: null, max: 0 }), 0);
+});
+
+test('attainment never leaves 0–100', () => {
+  for (const r of [
+    { status: 'under', actual: 50, min: 20, max: null },
+    { status: 'over', actual: 1, min: null, max: 800 },
+    { status: 'under', actual: -5, min: 20, max: null },
+  ]) {
+    const v = goalAttainment(r);
+    assert.ok(v >= 0 && v <= 100, `${JSON.stringify(r)} → ${v}`);
+  }
+});
+
+test('radarData drops no-data goals and says how many it dropped', () => {
+  const { points, skipped } = radarData({
+    results: [
+      { id: 'a', kind: 'nutrient', label: 'Protein', status: 'pass', actual: 30, min: 20, max: null },
+      { id: 'b', kind: 'nutrient', label: 'Sodium', status: 'unknown', actual: 0 },
+    ],
+  });
+  assert.equal(points.length, 1);
+  assert.equal(points[0].axis, 'Protein');
+  assert.equal(skipped, 1);
+});
+
+test('two goals on the same nutrient get distinguishable axis labels', () => {
+  // Otherwise the radar shows "Protein" twice and neither tick says which is
+  // which.
+  const { points } = radarData({
+    results: [
+      { id: 'macro:protein', kind: 'macro', label: 'Protein', status: 'pass', actual: 30, min: 20, max: 40 },
+      { id: 'n1', kind: 'nutrient', label: 'Protein', status: 'pass', actual: 30, min: 20, max: null },
+      { id: 'n2', kind: 'nutrient', label: 'Protein', status: 'pass', actual: 30, min: null, max: 40 },
+    ],
+  });
+  const axes = points.map(p => p.axis);
+  assert.equal(new Set(axes).size, axes.length, `duplicate axis labels: ${axes.join(', ')}`);
+  assert.deepEqual(axes, ['Protein %', 'Protein', 'Protein (max)']);
+});
+
+test('radarData on a profile with no goals is empty, not a crash', () => {
+  assert.deepEqual(radarData(null), { points: [], skipped: 0 });
+  assert.deepEqual(radarData({ results: [] }), { points: [], skipped: 0 });
 });

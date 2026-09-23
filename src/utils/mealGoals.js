@@ -401,6 +401,79 @@ function gapFor(actual, min, max, status) {
 }
 
 /**
+ * How close one goal came to being met, as 0–100.
+ *
+ * The score bars plot each goal on its own scale, which is right for reading
+ * one number against one target. A radar has to put every goal on ONE shared
+ * axis, so each has to be restated as the same question: what fraction of this
+ * target did the meal reach? 100 means on target — so the outer ring is "every
+ * goal met" and the polygon's area is the meal at a glance.
+ *
+ * Both kinds of miss have to fall INWARD, or the shape stops meaning anything:
+ *   - under  → actual / min, so half the protein you wanted plots at 50
+ *   - over   → max / actual, so double the sodium you allowed also plots at 50
+ * The second is why this is not simply actual/target: overshooting a ceiling
+ * would otherwise plot further OUT than hitting it, drawing a bigger, better
+ * looking polygon for a worse meal.
+ *
+ * Returns null for a goal with no data behind it — a missing lookup is not a
+ * zero, and plotting it as one would dent the shape with something the meal
+ * never did wrong.
+ */
+export function goalAttainment(result) {
+  if (!result) return null;
+  if (result.status === 'unknown') return null;
+  // A yes/no goal has no scale between met and not met.
+  if (result.boolean) return result.status === 'pass' ? 100 : 0;
+  if (result.status === 'pass') return 100;
+
+  const actual = Number(result.actual) || 0;
+  if (result.status === 'under') {
+    const min = Number(result.min);
+    if (!Number.isFinite(min) || min <= 0) return 0;
+    return clampPct((actual / min) * 100);
+  }
+  // Over a ceiling of zero ("at most none") is a total miss; there is no
+  // fraction of nothing to have reached.
+  const max = Number(result.max);
+  if (!Number.isFinite(max) || max <= 0) return 0;
+  if (actual <= 0) return 100;
+  return clampPct((max / actual) * 100);
+}
+
+function clampPct(v) {
+  if (!Number.isFinite(v)) return 0;
+  return Math.max(0, Math.min(100, Math.round(v)));
+}
+
+/**
+ * One row per goal, shaped for the radar: a short label for the axis and the
+ * attainment to plot. Goals with no data are dropped rather than plotted at
+ * zero, and the caller is told how many went — an axis that quietly vanishes
+ * is worse than a chart that says it is incomplete.
+ */
+export function radarData(evaluation) {
+  const results = evaluation?.results || [];
+  const points = [];
+  const seen = new Map();
+  let skipped = 0;
+  for (const r of results) {
+    const score = goalAttainment(r);
+    if (score === null) { skipped += 1; continue; }
+    // Two goals can share a nutrient — "Protein" as a macro percentage and
+    // "Protein" in grams, or "at least 20g" alongside "at most 40g". Axes
+    // labelled the same twice are unreadable, so the second one onward says
+    // which bound it is.
+    const base = r.kind === 'macro' ? `${r.label} %` : r.label;
+    const count = (seen.get(base) || 0) + 1;
+    seen.set(base, count);
+    const axis = count === 1 ? base : `${base} (${boundWord(r)})`;
+    points.push({ id: r.id, label: r.label, axis, score, result: r });
+  }
+  return { points, skipped };
+}
+
+/**
  * Score a meal's per-serving nutrition against a goal profile.
  * Returns one result row per goal, plus the macro split for display.
  */
@@ -785,4 +858,10 @@ export function candidatesFromIngredientsDb(dbRows) {
     });
   }
   return out;
+}
+
+function boundWord(r) {
+  if (r.boolean) return r.op === 'has' ? 'include' : 'avoid';
+  if (r.min !== null && r.max !== null) return 'range';
+  return r.min !== null ? 'min' : 'max';
 }
