@@ -11,7 +11,11 @@ import {
   BOOLEAN_OPS, PRESENCE_KEYS,
   makeRow, totalsForRows, evaluateMeal, suggestFixes, candidatesFromIngredientsDb,
   formatAmount, formatQty, nutrientLabel, nutrientUnit,
+  radarData,
 } from '../utils/mealGoals';
+import {
+  axisAngle, polarPoint, polygonPoints, sectorPath, labelAnchor,
+} from '../utils/radarGeometry';
 import { rateRecipes, compareByRating, readNutritionCache } from '../utils/mealRating';
 import { StarRating } from './StarRating';
 import styles from './DesignMealPage.module.css';
@@ -96,6 +100,257 @@ function actualText(result) {
     : formatAmount(result.actual, result.key);
 }
 
+// ── the radar ──────────────────────────────────────────────────────────────
+// The score bars below read one goal at a time. The radar is the other
+// question — the SHAPE of the meal against every goal at once — which is what
+// you actually want when deciding whether to keep bending this recipe or pick
+// a different one. The outer ring is the target, so a full web is a meal that
+// meets everything and a dent points straight at what to fix.
+//
+// Hand-drawn SVG rather than a recharts <RadarChart>, because each goal owns
+// its own wedge and its own colour. A recharts Radar is one polygon with one
+// fill: it can say "this meal", never "this goal met, that one over".
+
+// Below three goals there is no shape to read: two axes draw a line and one
+// draws a spoke. The bars say it better, so the radar stands down.
+const RADAR_MIN_AXES = 3;
+
+// A fixed drawing space, scaled by the viewBox. Nothing here measures the
+// container, so the chart is correct at any width with no resize plumbing —
+// and the geometry stays testable. Wider than tall because the axis labels
+// live to the left and right of the circle.
+const VB_W = 520;
+const VB_H = 400;
+const CX = 260;
+const CY = 186;
+const R = 118;
+const LABEL_GAP = 22;
+
+// The rings the reader measures against. 100 is the target and is drawn
+// separately, heavier.
+const RINGS = [25, 50, 75];
+
+// Status colours, matching --color-success / --color-gold / --color-danger.
+// Literal hex: these become SVG presentation attributes, where var() does not
+// resolve. Colour is redundant here rather than load-bearing — a met goal also
+// REACHES the target ring and a missed one does not — so the red/green pair is
+// still readable with no colour vision at all.
+const WEDGE_FILL = {
+  pass: '#2E7D4F',
+  under: '#CA8A04',
+  over: '#c0392b',
+  unknown: '#7A8FA3',
+};
+const RADAR_OUTLINE = '#3B6B9C';
+const RADAR_GRID = '#CEDAE5';
+const RADAR_TARGET_RING = '#7A8FA3';
+const RADAR_SURFACE = '#FFFFFF';
+
+// The axis label says what the goal IS, so it has to carry the target as well
+// as the name. targetText's prose ("at least 40 g") is too long to ring a
+// circle with, so the operator becomes a symbol.
+function shortTargetText(result) {
+  const { kind, key, min, max, boolean, op } = result;
+  if (boolean) return op === 'has' ? 'include' : 'avoid';
+  const fmt = (v) => (kind === 'macro' ? `${v}%` : formatAmount(v, key));
+  if (min !== null && max !== null) return `${fmt(min)}–${fmt(max)}`;
+  if (min !== null) return `≥${fmt(min)}`;
+  return `≤${fmt(max)}`;
+}
+
+function GoalRadar({ evaluation }) {
+  const { points, skipped } = useMemo(() => radarData(evaluation), [evaluation]);
+  // Which wedge the pointer is on, and where to put the tooltip. Kept in
+  // client coordinates so it lands correctly however the viewBox is scaled.
+  const [hover, setHover] = useState(null);
+  const wrapRef = useRef(null);
+
+  const show = useCallback((point, e) => {
+    const box = wrapRef.current?.getBoundingClientRect();
+    if (!box) return;
+    setHover({ point, x: e.clientX - box.left, y: e.clientY - box.top });
+  }, []);
+
+  const count = points.length;
+  if (count < RADAR_MIN_AXES) return null;
+
+  const radii = points.map(p => (R * p.score) / 100);
+  const met = points.filter(p => p.result.status === 'pass').length;
+
+  return (
+    <div className={styles.radarWrap}>
+      <div className={styles.radarHead}>
+        <span className={styles.cardLabel}>Goal shape</span>
+        <span className={styles.radarMeta}>
+          {met}/{count} on target
+          {skipped > 0 && (
+            <span className={styles.radarSkipped}> · {skipped} with no data left off</span>
+          )}
+        </span>
+      </div>
+
+      <div className={styles.radarChart} ref={wrapRef} onMouseLeave={() => setHover(null)}>
+        <svg
+          viewBox={`0 0 ${VB_W} ${VB_H}`}
+          className={styles.radarSvg}
+          role="img"
+          aria-label={`Goal shape: ${met} of ${count} goals on target`}
+        >
+          {/* Grid first, so every mark sits on top of it. */}
+          <g>
+            {RINGS.map(pct => (
+              <polygon
+                key={pct}
+                points={polygonPoints(CX, CY, points.map(() => (R * pct) / 100))}
+                fill="none"
+                stroke={RADAR_GRID}
+                strokeWidth={1}
+              />
+            ))}
+            {points.map((p, i) => {
+              const end = polarPoint(CX, CY, R, axisAngle(i, count));
+              return (
+                <line
+                  key={p.id}
+                  x1={CX} y1={CY} x2={end.x} y2={end.y}
+                  stroke={RADAR_GRID}
+                  strokeWidth={1}
+                />
+              );
+            })}
+            {/* The target ring, heavier than the rest: it is the one line in
+                the chart that means something on its own. */}
+            <polygon
+              points={polygonPoints(CX, CY, points.map(() => R))}
+              fill="none"
+              stroke={RADAR_TARGET_RING}
+              strokeWidth={1.75}
+            />
+          </g>
+
+          {/* One wedge per goal, out to what that goal scored, coloured by
+              whether it was met. This is the whole reason the chart is drawn
+              by hand. */}
+          <g>
+            {points.map((p, i) => {
+              const d = sectorPath(CX, CY, radii[i], i, count);
+              if (!d) return null;
+              const on = hover?.point?.id === p.id;
+              return (
+                <path
+                  key={p.id}
+                  d={d}
+                  fill={WEDGE_FILL[p.result.status] || WEDGE_FILL.unknown}
+                  fillOpacity={on ? 0.78 : 0.55}
+                  // A hairline of surface between neighbours, so two wedges of
+                  // the same colour still read as two goals.
+                  stroke={RADAR_SURFACE}
+                  strokeWidth={1.5}
+                  className={styles.radarWedge}
+                  onMouseEnter={e => show(p, e)}
+                  onMouseMove={e => show(p, e)}
+                  onClick={e => show(p, e)}
+                >
+                  <title>
+                    {`${p.axis}: ${actualText(p.result)} of ${targetText(p.result)} — ${STATUS_LABEL[p.result.status]}`}
+                  </title>
+                </path>
+              );
+            })}
+          </g>
+
+          {/* The outline ties the wedges back into one shape — without it the
+              chart reads as a pie, not a radar. */}
+          <polygon
+            points={polygonPoints(CX, CY, radii)}
+            fill="none"
+            stroke={RADAR_OUTLINE}
+            strokeWidth={1.75}
+            strokeLinejoin="round"
+          />
+          {points.map((p, i) => {
+            const pt = polarPoint(CX, CY, radii[i], axisAngle(i, count));
+            return (
+              <circle
+                key={p.id}
+                cx={pt.x} cy={pt.y} r={3}
+                fill={WEDGE_FILL[p.result.status] || WEDGE_FILL.unknown}
+                stroke={RADAR_SURFACE}
+                strokeWidth={1.5}
+              />
+            );
+          })}
+
+          {/* Axis labels: the goal's name, and under it the target it is being
+              held to, so the chart is readable without the table below. */}
+          {points.map((p, i) => {
+            const { x, y, textAnchor } = labelAnchor(i, count, CX, CY, R, LABEL_GAP);
+            // A label below the circle grows downward, one above grows up —
+            // nudge each so the two lines straddle the axis rather than
+            // sitting on the ring.
+            const below = Math.sin((axisAngle(i, count) * Math.PI) / 180) > 0.2;
+            const yName = below ? y : y - 7;
+            return (
+              <g key={p.id}>
+                <text x={x} y={yName} textAnchor={textAnchor} className={styles.radarAxisName}>
+                  {p.axis.length > 16 ? `${p.axis.slice(0, 15)}…` : p.axis}
+                </text>
+                <text x={x} y={yName + 13} textAnchor={textAnchor} className={styles.radarAxisTarget}>
+                  {shortTargetText(p.result)}
+                </text>
+              </g>
+            );
+          })}
+        </svg>
+
+        {hover && (
+          <div
+            className={styles.radarTip}
+            style={{ left: hover.x, top: hover.y }}
+            // The pointer drives it; letting the tip take events of its own
+            // would make it flicker out from under itself.
+            aria-hidden="true"
+          >
+            <span className={styles.radarTipName}>{hover.point.axis}</span>
+            <span className={styles.radarTipLine}>
+              {actualText(hover.point.result)}{' '}
+              <span className={styles.radarTipMuted}>of {targetText(hover.point.result)}</span>
+            </span>
+            <span className={`${styles.radarTipStatus} ${statusClass(hover.point.result.status)}`}>
+              {STATUS_LABEL[hover.point.result.status]} · {hover.point.score}%
+            </span>
+          </div>
+        )}
+      </div>
+
+      {/* The colours are a status scale, so they get named rather than left to
+          be guessed at. */}
+      <div className={styles.radarKey}>
+        <span className={styles.radarKeyItem}>
+          <span className={styles.radarKeySwatch} style={{ background: WEDGE_FILL.pass }} />
+          met
+        </span>
+        <span className={styles.radarKeyItem}>
+          <span className={styles.radarKeySwatch} style={{ background: WEDGE_FILL.under }} />
+          under
+        </span>
+        <span className={styles.radarKeyItem}>
+          <span className={styles.radarKeySwatch} style={{ background: WEDGE_FILL.over }} />
+          over
+        </span>
+        <span className={styles.radarKeyItem}>
+          <span className={styles.radarKeyRing} />
+          target ring
+        </span>
+        <span className={styles.radarKeyNote}>
+          A wedge reaching the target ring is a goal met. Missing a floor or
+          blowing a ceiling both pull it inward.
+        </span>
+      </div>
+    </div>
+  );
+}
+
 function ScorePanel({ evaluation, servings, totals }) {
   const { results, macro } = evaluation;
   const cal = Math.round(Number(totals.calories) || 0);
@@ -114,8 +369,13 @@ function ScorePanel({ evaluation, servings, totals }) {
         <span className={styles.scorePer}>per serving · makes {servings}</span>
       </div>
       {results.length === 0 ? (
-        <p className={styles.emptyNote}>No goals set yet — add a macro range or a nutrient target above.</p>
+        <p className={styles.emptyNote}>No goals set yet — open Edit goals and add a macro range or a nutrient target.</p>
       ) : (
+        <>
+        {/* The shape first, then the numbers behind it. The grid below doubles
+            as the radar's table view — every axis is a row, with its real
+            amount and target in words. */}
+        <GoalRadar evaluation={evaluation} />
         <div className={styles.goalGrid}>
           {results.map(r => (
             <div key={r.id} className={styles.goalScoreRow}>
@@ -132,6 +392,7 @@ function ScorePanel({ evaluation, servings, totals }) {
             </div>
           ))}
         </div>
+        </>
       )}
     </div>
   );
@@ -224,9 +485,9 @@ function GoalsEditor({ store, setStore, profile, dailyGoals }) {
   if (!profile) return null;
 
   return (
-    <section className={styles.card}>
+    <div className={styles.goalsEditor}>
       <div className={styles.profileBar}>
-        <span className={styles.cardLabel}>Goals</span>
+        <span className={styles.cardLabel}>Goal set</span>
         {renaming ? (
           <input
             className={styles.profileNameInput}
@@ -397,7 +658,104 @@ function GoalsEditor({ store, setStore, profile, dailyGoals }) {
         ))}
         <button type="button" className={styles.addGoalBtn} onClick={addGoal}>+ Add a target</button>
       </div>
+    </div>
+  );
+}
+
+// ── the goals popup ────────────────────────────────────────────────
+
+// A compact read-only line-up of what the active goal set asks for, so the
+// page still says what it is scoring against once the editor moves behind a
+// button.
+function GoalsSummary({ profile, results, onEdit }) {
+  const chips = [];
+  for (const key of MACRO_KEYS) {
+    const range = profile?.macros?.[key];
+    if (!range) continue;
+    const { min, max } = range;
+    const text = min != null && max != null
+      ? `${min}–${max}%`
+      : min != null ? `≥${min}%` : `≤${max}%`;
+    chips.push({ id: `macro:${key}`, label: nutrientLabel(key), text });
+  }
+  for (const goal of profile?.nutrients || []) {
+    const match = results.find(r => r.id === `nut:${goal.id}`);
+    chips.push({
+      id: goal.id,
+      label: nutrientLabel(goal.key),
+      // targetText already words every operator, including the yes/no ones.
+      text: match ? targetText(match) : '',
+    });
+  }
+
+  return (
+    <section className={styles.card}>
+      <div className={styles.summaryBar}>
+        <div className={styles.summaryHead}>
+          <span className={styles.cardLabel}>Goals</span>
+          <span className={styles.summaryName}>{profile?.name || 'Goals'}</span>
+        </div>
+        <button type="button" className={styles.editGoalsBtn} onClick={onEdit}>
+          Edit goals
+        </button>
+      </div>
+      {chips.length === 0 ? (
+        <p className={styles.emptyNote}>
+          No goals in this set yet — open Edit goals to add a macro range or a nutrient target.
+        </p>
+      ) : (
+        <div className={styles.summaryChips}>
+          {chips.map(c => (
+            <span key={c.id} className={styles.summaryChip}>
+              <span className={styles.summaryChipLabel}>{c.label}</span>
+              {c.text && <span className={styles.summaryChipVal}>{c.text}</span>}
+            </span>
+          ))}
+        </div>
+      )}
     </section>
+  );
+}
+
+// Edits land in the store as they are typed and the store saves itself, so
+// this has no Save — closing it is the only action, and Escape and a click
+// outside do the same thing the button does.
+function GoalsModal({ onClose, children }) {
+  useEffect(() => {
+    function onKey(e) { if (e.key === 'Escape') onClose(); }
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  return (
+    <div className={styles.goalsOverlay} onClick={onClose}>
+      <div
+        className={styles.goalsModal}
+        role="dialog"
+        aria-modal="true"
+        aria-label="Meal goals"
+        onClick={e => e.stopPropagation()}
+      >
+        <div className={styles.goalsModalHead}>
+          <h2 className={styles.goalsModalTitle}>Meal goals</h2>
+          <button
+            type="button"
+            className={styles.goalsModalClose}
+            onClick={onClose}
+            aria-label="Close goals"
+          >
+            ×
+          </button>
+        </div>
+        <div className={styles.goalsModalBody}>{children}</div>
+        <div className={styles.goalsModalFoot}>
+          {/* Nothing to save — say so, or the missing Save button reads as a
+              lost edit. */}
+          <span className={styles.goalsModalNote}>Changes save as you type.</span>
+          <button type="button" className={styles.goalsDoneBtn} onClick={onClose}>Done</button>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -671,6 +1029,7 @@ export function DesignMealPage({ recipes, savedGoals, onBack, onSelect, onUpdate
   const [addDraft, setAddDraft] = useState({ ingredient: '', quantity: '', measurement: 'g' });
   const [addBusy, setAddBusy] = useState(false);
   const [saveNote, setSaveNote] = useState(null);
+  const [editingGoals, setEditingGoals] = useState(false);
   const requestRef = useRef(0);
   const storedJsonRef = useRef(null);
   const syncTimerRef = useRef(null);
@@ -911,7 +1270,17 @@ export function DesignMealPage({ recipes, savedGoals, onBack, onSelect, onUpdate
         <span className={styles.subtitle}>Set goals for a meal, then bend a recipe to fit them.</span>
       </div>
 
-      <GoalsEditor store={store} setStore={setStore} profile={profile} dailyGoals={savedGoals} />
+      <GoalsSummary
+        profile={profile}
+        results={evaluation.results}
+        onEdit={() => setEditingGoals(true)}
+      />
+
+      {editingGoals && (
+        <GoalsModal onClose={() => setEditingGoals(false)}>
+          <GoalsEditor store={store} setStore={setStore} profile={profile} dailyGoals={savedGoals} />
+        </GoalsModal>
+      )}
 
       {!meal ? (
         <MealPicker recipes={recipes} profile={profile} onPick={pickRecipe} onScratch={startScratch} />
@@ -947,7 +1316,7 @@ export function DesignMealPage({ recipes, savedGoals, onBack, onSelect, onUpdate
             {status === 'ready' && (
               <>
                 {noGoals ? (
-                  <p className={styles.emptyNote}>Set at least one goal above to score this meal.</p>
+                  <p className={styles.emptyNote}>Set at least one goal — open Edit goals — to score this meal.</p>
                 ) : (
                   <ScorePanel evaluation={evaluation} servings={servings} totals={totals} />
                 )}
