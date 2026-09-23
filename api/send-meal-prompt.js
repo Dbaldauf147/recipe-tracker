@@ -48,6 +48,25 @@ function eastern(now = new Date()) {
   };
 }
 
+/**
+ * The Eastern calendar day as a Date whose LOCAL fields read back as that day.
+ *
+ * Everything in habitOutstanding.js asks a Date for `getFullYear/getMonth/
+ * getDate/getDay` — i.e. the day in the runtime's own zone, which on Vercel is
+ * UTC. Left to `new Date()` the habit count therefore rolled over at 8pm
+ * Eastern: for four hours every evening it measured TOMORROW's habits against
+ * today's marks, so the badge jumped to a full count at 8pm, anything logged
+ * after that didn't bring it down, and at actual midnight nothing had changed —
+ * which is exactly when the icon most needed a new number.
+ *
+ * Building the Date from the ET parts fixes that wherever the server runs: the
+ * fields the helpers read are the ones the user's own calendar shows.
+ */
+function easternDate(dateKey) {
+  const [y, m, d] = String(dateKey).split('-').map(Number);
+  return new Date(y, m - 1, d, 12, 0, 0, 0);
+}
+
 function parseEmails(settings) {
   if (Array.isArray(settings?.emails) && settings.emails.length > 0) {
     return settings.emails.filter(e => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e));
@@ -282,6 +301,8 @@ export default async function handler(req, res) {
   }
 
   const { hour, dayOfWeek, dateKey } = eastern();
+  // The same day as a Date, for the habit helpers — see easternDate.
+  const etDate = easternDate(dateKey);
   const weekParity = weekParityOf(dateKey);
   const summary = { scanned: 0, foodSent: 0, weightSent: 0, foodPushed: 0, weightPushed: 0, habitPushed: 0, badgeSynced: 0, errors: [] };
 
@@ -358,7 +379,7 @@ export default async function handler(req, res) {
         if (!Array.isArray(data.habits) || data.habits.length === 0) return null;
         let count;
         try {
-          count = countOutstandingHabits(data.habits, await loadLog(), data.habitAutomations);
+          count = countOutstandingHabits(data.habits, await loadLog(), data.habitAutomations, etDate);
         } catch {
           return null; // a badge is never worth failing the send over
         }
@@ -533,10 +554,19 @@ export default async function handler(req, res) {
       // icon, so a steady count sends nothing at all and a typical day is a
       // handful of silent pushes rather than 24. A reminder push this hour has
       // already set the same number, so that path just records it.
+      //
+      // ONE EXCEPTION, at the first hour of the day: send regardless. `lastBadge`
+      // only tracks what the CRON last said, and the app sets the icon too —
+      // every foreground, every habit logged — so a count that matches
+      // `lastBadge` is no proof the icon agrees. Midnight is the moment that
+      // matters (yesterday's habits stop counting and today's start) and the one
+      // moment nobody is holding the phone to fix it, so the day opens by
+      // asserting the number rather than assuming it.
+      const rollover = hour === 0;
       if (pushTokens.length > 0) {
         try {
           const badge = await badgeFor();
-          if (Number.isFinite(badge) && badge !== s.lastBadge) {
+          if (Number.isFinite(badge) && (rollover || badge !== s.lastBadge)) {
             if (!pushedThisRun) {
               await pushBadgeOnly(docSnap.ref, pushTokens, badge);
               summary.badgeSynced++;
