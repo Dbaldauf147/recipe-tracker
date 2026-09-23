@@ -25,12 +25,22 @@ const VEGETABLE_KEYWORDS = [
   'bok choy', 'chard', 'watercress', 'endive', 'fennel',
   'spring mix', 'coleslaw', 'edamame', 'green pea',
   'cauliflower rice', 'spaghetti squash',
+  // Alliums and aromatics. They're used in small amounts, so they contribute
+  // fractions of a serving rather than whole ones — but they were counting as
+  // zero, which is wrong: a bunch of scallions in a bowl is real vegetable.
+  // 'onion', 'shallot' and 'leek' were already above; 'scallion' does NOT
+  // contain the substring 'onion', which is why it scored nothing.
+  'scallion', 'green onion', 'spring onion', 'chive', 'garlic', 'ginger',
 ];
 
 // Ingredient forms that are NOT real vegetable servings
 const VEG_EXCLUDE = [
   'powder', 'stock', 'broth', 'oil', 'extract', 'seasoning',
   'sauce', 'vinegar', 'dried', 'flakes', 'paste',
+  // Foods that merely carry an allium's name in them. Without these,
+  // 'garlic bread' and 'gingerbread' would both score as vegetables.
+  'garlic bread', 'garlic salt', 'garlic butter',
+  'gingerbread', 'ginger ale', 'ginger beer', 'ginger snap',
 ];
 
 export function isVegetable(ingredientName) {

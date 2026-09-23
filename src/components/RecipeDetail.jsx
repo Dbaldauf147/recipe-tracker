@@ -1909,10 +1909,21 @@ export function RecipeDetail({ recipe, allTags = [], onSave, onDelete, onBack, o
     <div className={styles.overlay} onClick={onBack}>
     <div className={styles.container} onClick={e => e.stopPropagation()}>
       <div className={styles.headerRow}>
-        <button className={styles.backBtn} onClick={onBack}>
-          &larr; Back to recipes
-        </button>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+        {/* The name sits where the back button used to: it's the first thing
+            you should read, and the overlay still closes on a click outside. */}
+        <div className={styles.headerTitle}>
+          {editing ? (
+            <input
+              className={`${styles.inlineInput} ${styles.titleInput}`}
+              type="text"
+              value={fields.title}
+              onChange={e => setField('title', e.target.value)}
+            />
+          ) : (
+            <h1 className={styles.titleDisplay}>{fields.title}</h1>
+          )}
+        </div>
+        <div className={styles.headerActions}>
           {user?.uid === ADMIN_UID && (
             <label style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', cursor: 'pointer', fontSize: '0.8rem', color: 'var(--color-text-muted)', whiteSpace: 'nowrap' }}>
               <input type="checkbox" checked={fields.starterRecipe} onChange={e => setField('starterRecipe', e.target.checked)} />
@@ -2031,16 +2042,6 @@ export function RecipeDetail({ recipe, allTags = [], onSave, onDelete, onBack, o
       <div className={styles.topRow}>
         <div className={styles.topRowLeft}>
           <div className={styles.titleRow}>
-            {editing ? (
-              <input
-                className={`${styles.inlineInput} ${styles.titleInput}`}
-                type="text"
-                value={fields.title}
-                onChange={e => setField('title', e.target.value)}
-              />
-            ) : (
-              <h1 className={styles.titleDisplay}>{fields.title}</h1>
-            )}
             {/* Sits with the other status chips: how this recipe scores
                 against the Design a Meal goals is a fact about the recipe, and
                 the score panel that explains it lives on that page. Absent

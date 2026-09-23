@@ -42,8 +42,29 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 1rem;
   margin-bottom: 1.25rem;
   padding-left: 1.5rem;
+}
+
+/* Holds the recipe name in the slot the back button used to occupy. min-width
+   lets a long name wrap instead of shoving the action buttons off the row. */
+.headerTitle {
+  flex: 1;
+  min-width: 0;
+}
+
+.headerTitle .titleInput {
+  width: 100%;
+  margin-bottom: 0;
+}
+
+.headerActions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
 .backBtn {
@@ -2623,7 +2644,7 @@
 }
 
 @media print {
-  .headerRow,
+  .headerActions,
   .headerPrintBtn,
   .headerShareBtn,
   .shareWrapper,
@@ -3243,6 +3264,12 @@
   letter-spacing: -0.03em;
 }
 
+/* The header row already ends in a hairline border, so the title's own rule
+   would be a second line a few pixels above it. */
+.headerTitle .titleDisplay::after {
+  display: none;
+}
+
 /* Short rule under the title — the one detail that makes the header read
    as a cookbook page rather than a form. */
 .titleDisplay::after {
@@ -3537,6 +3564,14 @@
   .headerRow {
     flex-wrap: wrap;
     gap: 0.6rem;
+  }
+  /* The name gets the first line to itself so the controls wrap beneath it
+     rather than squeezing it to a couple of characters. */
+  .headerTitle {
+    flex: 0 0 100%;
+  }
+  .headerActions {
+    justify-content: flex-start;
   }
   .section,
   .ingredientsCol {
