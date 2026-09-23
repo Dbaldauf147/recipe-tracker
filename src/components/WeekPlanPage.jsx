@@ -19,6 +19,7 @@ import { isStretchWorkout } from '../utils/stretchRoutine';
 import { subscribeWorkouts, writeWorkoutsMirror } from '../utils/workoutsSync';
 import { typesInRotation, normalizeTypePaused } from '../utils/workoutTypeRotation';
 import { MAIN_MEALS, mealStatsForDay, mealStatsForDays, mealsTrackedGoalOf } from '../utils/mealsTracked';
+import { produceForDay, produceAveragePerDay } from '../utils/produceServings';
 import styles from './WeekPlanPage.module.css';
 
 const SLOTS = [
@@ -53,12 +54,15 @@ const PAIRED_WITH = { cardio: 'yoga', yoga: 'cardio' };
 // old clients (which parse keys with Number()) simply ignore it.
 const SECOND_SLOT_RE = /^(\d)\.2$/;
 
-// Week-total produce tiles. Servings come from each logged entry's
-// `nutrition.vegServings` / `fruitServings` — the same numbers the Prepare
-// grid's per-day Veg/Fruit rows show.
+// Produce tiles, reported as an AVERAGE PER DAY rather than a week total.
+// Servings come from each logged entry's `nutrition.vegServings` /
+// `fruitServings` — the same numbers the Prepare grid's per-day Veg/Fruit rows
+// show — but the goal you actually hold yourself to is a daily one, and a
+// running total can only be compared against it by doing the division in your
+// head. "2.9/5 a day" answers it on Wednesday; "11.4/35" doesn't.
 const PRODUCE_TILES = [
-  { key: 'veg', icon: '🥦', label: 'Veg', noun: 'vegetable' },
-  { key: 'fruit', icon: '🍎', label: 'Fruit', noun: 'fruit' },
+  { key: 'veg', icon: '🥦', label: 'Veg/day', noun: 'vegetable' },
+  { key: 'fruit', icon: '🍎', label: 'Fruit/day', noun: 'fruit' },
 ];
 
 // Servings are fractional (half an avocado, ¾ cup of berries), so show a
@@ -75,7 +79,9 @@ function fmtServings(n) {
 // why the history goes all the way back instead of starting the day it shipped.
 
 // MAIN_MEALS now comes from utils/mealsTracked.js — see the note above.
-const PRODUCE_MEAL_SLOTS = ['breakfast', 'lunch', 'dinner', 'snack'];
+// The produce tallies live in utils/produceServings.js for the same reason: one
+// definition, importable by a test that can't load a component full of CSS
+// modules and Firebase.
 
 /** Days with each workout category; rest = workout-free days up to today. */
 function tallyWorkouts(days, workoutsByDate, todayKey) {
@@ -105,38 +111,6 @@ function countSaunaDays(days, saunaDates) {
 // those same functions — if this page and that rule computed the percentage
 // separately, the tile could show the goal met while the habit stayed unmarked,
 // with nothing on screen to explain the difference.
-
-/** Veg/fruit servings on ONE day. Skipped days and skipped slots contribute 0. */
-function produceForDay(day) {
-  if (!day || day.daySkipped) return { veg: 0, fruit: 0 };
-  const entries = Array.isArray(day.entries) ? day.entries : [];
-  const skipped = Array.isArray(day.skippedMeals) ? day.skippedMeals : [];
-  const active = skipped.length
-    ? entries.filter(e => {
-        const slot = e.type === 'custom' && !e.mealSlot ? 'snack' : (PRODUCE_MEAL_SLOTS.includes(e.mealSlot) ? e.mealSlot : 'snack');
-        return !skipped.includes(slot);
-      })
-    : entries;
-  let veg = 0;
-  let fruit = 0;
-  for (const e of active) {
-    veg += e.nutrition?.vegServings || 0;
-    fruit += e.nutrition?.fruitServings || 0;
-  }
-  return { veg, fruit };
-}
-
-function produceForDays(days, dailyLog) {
-  let veg = 0;
-  let fruit = 0;
-  for (const date of days) {
-    const p = produceForDay(dailyLog[date]);
-    veg += p.veg;
-    fruit += p.fruit;
-  }
-  // Round the total, not each day — matches what the tiles have always shown.
-  return { veg: Math.round(veg * 10) / 10, fruit: Math.round(fruit * 10) / 10 };
-}
 
 // How many weeks of history to show before the "Show more" button, and how many
 // each press adds. The whole log is already in memory, so this is about keeping
@@ -189,19 +163,18 @@ function GoalsHistory({
   const rows = useMemo(() => weeks.slice(0, limit).map(w => {
     const tally = tallyWorkouts(w.days, workoutsByDate, todayKey);
     const meals = mealStatsForDays(w.days, dailyLog);
-    const produce = produceForDays(w.days, dailyLog);
+    // Averages, matching the tiles. Every row but the current week divides by a
+    // full seven days, so the history reads the same as it always has — only
+    // scaled to a per-day figure and scored against the per-day goal.
+    const produce = produceAveragePerDay(w.days, dailyLog, todayKey);
     return {
       ...w,
       tally,
       saunas: countSaunaDays(w.days, saunaDates),
       meals,
       produce,
-      produceGoals: {
-        veg: produceGoalsPerDay.veg * w.days.length,
-        fruit: produceGoalsPerDay.fruit * w.days.length,
-      },
     };
-  }), [weeks, limit, workoutsByDate, saunaDates, dailyLog, todayKey, produceGoalsPerDay]);
+  }), [weeks, limit, workoutsByDate, saunaDates, dailyLog, todayKey]);
 
   if (!earliest) return null;
 
@@ -253,8 +226,8 @@ function GoalsHistory({
                 <th title="Sauna">🧖</th>
                 <th title="Meals tracked">🍽️</th>
                 <th title="Meals eaten out">🍔</th>
-                <th title="Veg servings">🥦</th>
-                <th title="Fruit servings">🍎</th>
+                <th title="Veg servings — average per day">🥦</th>
+                <th title="Fruit servings — average per day">🍎</th>
               </tr>
             </thead>
             <tbody>
@@ -281,8 +254,8 @@ function GoalsHistory({
                       <td>{cell(r.saunas, saunaGoal)}</td>
                       <td>{cell(r.meals.pct, mealsTrackedGoal, n => `${n}%`)}</td>
                       <td>{r.meals.ateOut}</td>
-                      <td>{cell(r.produce.veg, r.produceGoals.veg, fmtServings)}</td>
-                      <td>{cell(r.produce.fruit, r.produceGoals.fruit, fmtServings)}</td>
+                      <td>{cell(r.produce.veg, produceGoalsPerDay.veg, fmtServings)}</td>
+                      <td>{cell(r.produce.fruit, produceGoalsPerDay.fruit, fmtServings)}</td>
                     </tr>
                     {isOpen && r.days.map(date => {
                       const items = workoutsByDate.get(date) || [];
@@ -1779,18 +1752,21 @@ export function WeekPlanPage({ recipes, getRecipe, user, weeklyPlan = [], weekly
   // toward 100% as the week is filled in. Eating-out spans all 7 days too.
   const mealStats = useMemo(() => mealStatsForDays(days, dailyLog), [days, dailyLog]);
 
-  // This week's fruit & veg, summed from the same per-entry servings the
-  // Prepare grid's Veg/Fruit rows and the Fruit & Veg chart read
-  // (`nutrition.vegServings` / `fruitServings`). Days marked skipped contribute
-  // nothing, and entries in a skipped meal slot are left out — matching
-  // ServingsChart, so the week total equals the per-day rows added up.
-  const produceStats = useMemo(() => produceForDays(days, dailyLog), [days, dailyLog]);
+  // This week's fruit & veg per day, averaged over the days that have happened,
+  // from the same per-entry servings the Prepare grid's Veg/Fruit rows and the
+  // Fruit & Veg chart read (`nutrition.vegServings` / `fruitServings`). Days
+  // marked skipped contribute nothing, and entries in a skipped meal slot are
+  // left out — matching ServingsChart, so the week total this is divided from
+  // equals the per-day rows added up.
+  const produceStats = useMemo(
+    () => produceAveragePerDay(days, dailyLog, todayKey),
+    [days, dailyLog, todayKey],
+  );
 
-  // Weekly produce targets = the DAILY goals from Nutrition Goals × the 7 days
-  // shown, so there's one place to edit them and the tile agrees with the
-  // per-day Veg/Fruit rows. Defaults match NutritionGoalsPage (5 veg, 4 fruit).
-  // Kept as the per-DAY figures so the history can scale them to any week's
-  // length itself; the tile below multiplies by the 7 days on screen.
+  // The DAILY goals from Nutrition Goals, which is what the tiles now compare
+  // against directly — one place to edit them, and the tile reads in the same
+  // units as the per-day Veg/Fruit rows beside it. Defaults match the Daily
+  // Tracker's produce targets (5 veg, 2 fruit).
   const produceGoalsPerDay = useMemo(() => {
     const perDay = (v, fallback) => {
       const n = Number(v);
@@ -1798,13 +1774,9 @@ export function WeekPlanPage({ recipes, getRecipe, user, weeklyPlan = [], weekly
     };
     return {
       veg: perDay(nutritionGoals?.vegServings, 5),
-      fruit: perDay(nutritionGoals?.fruitServings, 4),
+      fruit: perDay(nutritionGoals?.fruitServings, 2),
     };
   }, [nutritionGoals]);
-  const produceGoals = useMemo(() => ({
-    veg: produceGoalsPerDay.veg * days.length,
-    fruit: produceGoalsPerDay.fruit * days.length,
-  }), [produceGoalsPerDay, days.length]);
 
   // Weekly meals-tracked target — reuses the same `dailyMealsTrackedPct` goal the
   // % of Meals Tracked chart edits (stored in sunday-nutrition-goals). Defaults
@@ -2210,20 +2182,24 @@ export function WeekPlanPage({ recipes, getRecipe, user, weeklyPlan = [], weekly
                     <span className={styles.wGoalCount}>{ateOut}</span>
                   </span>
                   {PRODUCE_TILES.map(t => {
-                    const total = produceStats[t.key];
-                    const goal = produceGoals[t.key];
-                    const met = goal > 0 && total >= goal;
+                    const avg = produceStats[t.key];
+                    const goal = produceGoalsPerDay[t.key];
+                    const met = goal > 0 && avg != null && avg >= goal;
+                    const { elapsed, total } = produceStats;
                     return (
                       <span
                         key={t.key}
-                        title={`${fmtServings(total)} ${t.noun} serving${total === 1 ? '' : 's'} logged this week`
-                          + ` (goal ${fmtServings(goal)} — ${fmtServings(goal / days.length)}/day × ${days.length} days).`
-                          + ' Edit the daily goal on the Nutrition Goals page.'}
+                        title={avg == null
+                          ? `This week hasn't started yet — no ${t.noun} average to report.`
+                          : `${fmtServings(avg)} ${t.noun} servings a day on average`
+                            + ` (goal ${fmtServings(goal)}/day).`
+                            + ` ${fmtServings(total[t.key])} logged over the ${elapsed} day${elapsed === 1 ? '' : 's'} of this week so far.`
+                            + ' Edit the daily goal on the Nutrition Goals page.'}
                         className={`${styles.wGoal}${met ? ` ${styles.wGoalMet}` : ''}`}
                       >
                         <span className={styles.wGoalIcon}>{t.icon}</span>
                         <span className={styles.wGoalLabel}>{t.label}</span>
-                        <span className={styles.wGoalCount}>{fmtServings(total)}/{fmtServings(goal)}</span>
+                        <span className={styles.wGoalCount}>{avg == null ? '—' : fmtServings(avg)}/{fmtServings(goal)}</span>
                         {met && <span className={styles.wGoalCheck}>✓</span>}
                       </span>
                     );
