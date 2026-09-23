@@ -19,6 +19,7 @@
 
 import { initializeApp, cert, getApps } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
+import { activeUsersIn } from '../lib/adminGrowth.js';
 
 if (getApps().length === 0) {
   const serviceAccount = process.env.FIREBASE_SERVICE_ACCOUNT
@@ -29,8 +30,11 @@ if (getApps().length === 0) {
 }
 
 const db = getFirestore();
-// ~13 months, so a year-over-year comparison always has something to compare to.
-const KEEP_DAYS = 400;
+// How long the heavy per-user rows are kept. Past this a day is COMPACTED, not
+// deleted: `users[]` goes, the headline `totals` stay, so the growth chart
+// keeps its whole span while the drill-down stays bounded. ~13 months, so a
+// year-over-year comparison still has per-user detail on both sides.
+const DETAIL_DAYS = 400;
 
 function dateKeyET(now = new Date()) {
   const fmt = new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit' });
@@ -75,13 +79,47 @@ export async function buildUserRow(uid, d) {
   };
 }
 
-async function prune() {
+/**
+ * Age out the per-user detail without losing the day.
+ *
+ * This used to delete the whole document, which quietly capped the growth
+ * chart at 400 days — and unlike everything else in this app, a deleted
+ * snapshot cannot be rebuilt from anything (see the header). So instead the
+ * `users[]` array is dropped and the row is left behind: `date`, `takenAt` and
+ * `totals` are ~150 bytes, against a few KB for the rows, and they are all the
+ * chart ever reads.
+ *
+ * `totals.activeUsers` is computed BEFORE the rows go, because afterwards
+ * nothing can recover it — that is the one figure the chart derives from
+ * `users[]` rather than reading off `totals`.
+ */
+async function compactOldDetail() {
   const col = db.collection('adminSnapshots');
   const snap = await col.get();
-  const ids = snap.docs.map(x => x.id).sort(); // YYYY-MM-DD sorts chronologically
-  for (let i = 0; i < ids.length - KEEP_DAYS; i++) {
-    await col.doc(ids[i]).delete();
+  const docs = snap.docs
+    .filter(d => Array.isArray(d.data()?.users))
+    .sort((a, b) => a.id.localeCompare(b.id)); // YYYY-MM-DD sorts chronologically
+
+  let compacted = 0;
+  for (let i = 0; i < docs.length - DETAIL_DAYS; i++) {
+    const data = docs[i].data() || {};
+    const totals = { ...(data.totals || {}) };
+    // Only when it actually computed. Writing null would be worse than leaving
+    // it out: the reader treats a stored number as authoritative, and
+    // Number(null) is 0, so a null here would read back as "nobody was active".
+    const active = activeUsersIn(data);
+    if (Number.isFinite(active)) totals.activeUsers = active;
+
+    await docs[i].ref.set({
+      date: data.date || docs[i].id,
+      takenAt: data.takenAt || `${data.date || docs[i].id}T23:59:59Z`,
+      source: data.source || 'cron',
+      compactedAt: new Date().toISOString(),
+      totals,
+    });
+    compacted += 1;
   }
+  return compacted;
 }
 
 export default async function handler(req, res) {
@@ -94,6 +132,7 @@ export default async function handler(req, res) {
   }
 
   const date = dateKeyET();
+  const takenAt = new Date().toISOString();
   try {
     const snap = await db.collection('users').get();
     const users = await Promise.all(snap.docs.map(u => buildUserRow(u.id, u.data() || {})));
@@ -108,16 +147,20 @@ export default async function handler(req, res) {
       webLogins: users.reduce((n, u) => n + u.loginCount, 0),
       appLogins: users.reduce((n, u) => n + u.mobileLoginCount, 0),
     };
+    // Stored, not derived on read, so the figure outlives the rows it came
+    // from once compactOldDetail() drops them.
+    const active = activeUsersIn({ users, takenAt, date });
+    if (Number.isFinite(active)) totals.activeUsers = active;
 
     if (req.query?.dryRun) {
       return res.status(200).json({ dryRun: true, date, totals, users: users.length });
     }
 
     await db.doc(`adminSnapshots/${date}`).set({
-      date, takenAt: new Date().toISOString(), source: 'cron', totals, users,
+      date, takenAt, source: 'cron', totals, users,
     });
-    await prune();
-    return res.status(200).json({ ok: true, date, totals, users: users.length });
+    const compacted = await compactOldDetail();
+    return res.status(200).json({ ok: true, date, totals, users: users.length, compacted });
   } catch (err) {
     console.error('[snapshot-admin-metrics] failed', err);
     return res.status(500).json({ error: String(err?.message || err) });

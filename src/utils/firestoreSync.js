@@ -1,6 +1,7 @@
 import { doc, getDoc, setDoc, addDoc, deleteDoc, updateDoc, deleteField, collection, query, where, getDocs, arrayUnion, arrayRemove, increment, onSnapshot, writeBatch, runTransaction } from 'firebase/firestore';
 import { db, auth } from '../firebase';
 import { writeWorkoutsMirror } from './workoutsMirror';
+import { activeUsersIn } from '../../lib/adminGrowth.js';
 
 // ── Data-safety layer (mirrors the mobile app) ──────────────────────────────
 // Every full-document overwrite of a big "blob" doc (dailyLog, recipes) goes
@@ -3042,13 +3043,18 @@ export async function loadAllUsers() {
  * These are recorded, not derived: login counters and recipe counts have no
  * per-day history anywhere, so a day that wasn't captured is simply missing.
  * See api/snapshot-admin-metrics.js.
+ *
+ * Returns EVERY snapshot. There used to be a `limitDays = 120` slice here,
+ * which cost nothing to remove because the query already read the whole
+ * collection and then threw most of it away — the growth chart was capped at
+ * four months by a filter applied after the download. Days past the cron's
+ * detail window have no `users[]`, so they cost ~150 bytes each.
  */
-export async function loadAdminSnapshots(limitDays = 120) {
+export async function loadAdminSnapshots() {
   const snap = await getDocs(collection(db, 'adminSnapshots'));
   return snap.docs
     .map(d => ({ id: d.id, ...d.data() }))
-    .sort((a, b) => String(b.date || b.id).localeCompare(String(a.date || a.id)))
-    .slice(0, limitDays);
+    .sort((a, b) => String(b.date || b.id).localeCompare(String(a.date || a.id)));
 }
 
 /**
@@ -3076,8 +3082,14 @@ export async function saveAdminSnapshot(date, users) {
     webLogins: rows.reduce((n, r) => n + r.loginCount, 0),
     appLogins: rows.reduce((n, r) => n + r.mobileLoginCount, 0),
   };
+  const takenAt = new Date().toISOString();
+  // Stored rather than derived on read, so it survives the day being compacted
+  // years from now — see compactOldDetail in api/snapshot-admin-metrics.js.
+  const active = activeUsersIn({ users: rows, takenAt, date });
+  if (Number.isFinite(active)) totals.activeUsers = active;
+
   await setDoc(doc(db, 'adminSnapshots', date), {
-    date, takenAt: new Date().toISOString(), source: 'manual', totals, users: rows,
+    date, takenAt, source: 'manual', totals, users: rows,
   });
   return totals;
 }

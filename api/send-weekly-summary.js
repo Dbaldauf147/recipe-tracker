@@ -147,9 +147,9 @@ async function loadAdminGrowth() {
     const snap = await db.collection('adminSnapshots')
       .orderBy('date', 'desc').limit(GROWTH_SNAPSHOT_DAYS).get();
     const rows = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-    const growth = summarizeUserGrowth(rows, { maxPoints: GROWTH_POINTS });
+    const { points } = summarizeUserGrowth(rows, { maxPoints: GROWTH_POINTS });
     // One snapshot is a number, not a trend, and the section is a chart.
-    return growth.length >= 2 ? growth : null;
+    return points.length >= 2 ? points : null;
   } catch (err) {
     console.error('[send-weekly-summary] admin growth read failed', err);
     return null;

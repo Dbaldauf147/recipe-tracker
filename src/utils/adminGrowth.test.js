@@ -63,7 +63,8 @@ test('a snapshot with no per-user rows is unknown, not zero', () => {
 
 test('every snapshot is its own point while they still fit', () => {
   const rows = ['2026-09-18', '2026-09-19', '2026-09-20'].map(d => snap(d, [user('a', `${d}T09:00:00Z`)]));
-  const g = summarizeUserGrowth(rows, { maxPoints: 12 });
+  const { points: g, grain } = summarizeUserGrowth(rows, { maxPoints: 12 });
+  assert.equal(grain, 'day');
   assert.equal(g.length, 3);
   assert.deepEqual(g.map(p => p.date), ['2026-09-18', '2026-09-19', '2026-09-20']);
   assert.equal(g[0].label, 'Sep 18');
@@ -77,7 +78,8 @@ test('past the cap it thins to the last snapshot of each week', () => {
     const date = `2026-09-${String(d).padStart(2, '0')}`;
     rows.push(snap(date, Array.from({ length: d }, (_, i) => user(`u${i}`, `${date}T09:00:00Z`))));
   }
-  const g = summarizeUserGrowth(rows, { maxPoints: 12 });
+  const { points: g, grain } = summarizeUserGrowth(rows, { maxPoints: 12 });
+  assert.equal(grain, 'week');
   // Sep 2026 starts on a Tuesday, so the Sunday-anchored weeks end Sep 5, 12,
   // 19, 26 — plus the partial week the run stops in (Sep 28).
   assert.deepEqual(g.map(p => p.date), ['2026-09-05', '2026-09-12', '2026-09-19', '2026-09-26', '2026-09-28']);
@@ -91,7 +93,7 @@ test('unsorted and malformed rows do not derail the series', () => {
     { date: 'not-a-date', users: [] },
     snap('2026-09-18', [user('a', '2026-09-18T09:00:00Z')]),
   ];
-  const g = summarizeUserGrowth(rows);
+  const { points: g } = summarizeUserGrowth(rows);
   assert.deepEqual(g.map(p => p.date), ['2026-09-18', '2026-09-20']);
 });
 
@@ -120,7 +122,90 @@ test('headline skips unknown readings rather than treating them as zero', () => 
 });
 
 test('an empty history produces nothing to draw', () => {
-  assert.deepEqual(summarizeUserGrowth([]), []);
-  assert.deepEqual(summarizeUserGrowth(null), []);
+  assert.deepEqual(summarizeUserGrowth([]).points, []);
+  assert.deepEqual(summarizeUserGrowth(null).points, []);
   assert.equal(growthHeadline([]).total, null);
+});
+
+// ── All-time span ─────────────────────────────────────────────────────────
+// The series used to end in `slice(-maxPoints)`, so a chart sold as the
+// history of the user base quietly became "the last 30 points" after about
+// seven months of daily snapshots. The grain may coarsen; the span may not.
+
+/** `n` daily snapshots ending on 2026-09-30, one user added per day. */
+function dailyRun(n) {
+  const rows = [];
+  const end = new Date('2026-09-30T00:00:00Z');
+  for (let i = n - 1; i >= 0; i--) {
+    const d = new Date(end);
+    d.setUTCDate(d.getUTCDate() - i);
+    const date = d.toISOString().slice(0, 10);
+    rows.push(snap(date, [user('a', `${date}T09:00:00Z`)], { users: n - i }));
+  }
+  return rows;
+}
+
+// A bucket is represented by its LAST snapshot, so the first point sits at the
+// end of the period the history starts in — not on its first day. What matters
+// is that the series still REACHES that period instead of starting near today.
+const month = d => d.slice(0, 7);
+
+test('two years of daily snapshots still reach back two years', () => {
+  const rows = dailyRun(730);
+  const { points, grain } = summarizeUserGrowth(rows, { maxPoints: 30 });
+  assert.equal(grain, 'month');
+  assert.ok(points.length <= 30, `got ${points.length} points`);
+  assert.equal(month(points[0].date), month(rows[0].date));
+  assert.equal(points[points.length - 1].date, rows[rows.length - 1].date);
+  // The old slice(-30) would have started 30 days back; this starts 2 years back.
+  assert.ok(points[0].date < '2024-11-01', `series starts at ${points[0].date}`);
+});
+
+test('months are chosen only once weeks no longer fit', () => {
+  // 20 weeks still fits in 30 points as weeks, so it must not coarsen further.
+  const rows = dailyRun(140);
+  const { grain, points } = summarizeUserGrowth(rows, { maxPoints: 30 });
+  assert.equal(grain, 'week');
+  // First point lands in the run's opening week, not later.
+  assert.ok(points[0].date >= rows[0].date && points[0].date < '2026-05-21',
+    `first point ${points[0].date}`);
+});
+
+test('a span too long even for months is thinned, never truncated', () => {
+  const rows = dailyRun(365 * 12); // 12 years
+  const { points, grain } = summarizeUserGrowth(rows, { maxPoints: 30 });
+  assert.equal(grain, 'sparse');
+  assert.ok(points.length <= 31, `got ${points.length} points`);
+  assert.equal(month(points[0].date), month(rows[0].date));
+  assert.equal(points[points.length - 1].date, rows[rows.length - 1].date);
+});
+
+// ── Compacted snapshots ───────────────────────────────────────────────────
+// Past the cron's detail window a day keeps its totals and loses its rows, so
+// the count it can no longer derive has to have been stored before they went.
+
+test('a compacted snapshot reports the active count stored on it', () => {
+  const compacted = { date: '2025-01-05', takenAt: '2025-01-05T11:45:00.000Z', totals: { users: 9, activeUsers: 4 } };
+  assert.equal(activeUsersIn(compacted), 4);
+  assert.equal(totalUsersIn(compacted), 9);
+});
+
+test('a stored count is trusted only for the window it was computed for', () => {
+  const compacted = { date: '2025-01-05', totals: { users: 9, activeUsers: 4 } };
+  // A different window can't be answered from a number computed for 7 days,
+  // and there are no rows left to recount.
+  assert.equal(activeUsersIn(compacted, 30), null);
+});
+
+test('stored zero is a real reading, and a missing one is still unknown', () => {
+  assert.equal(activeUsersIn({ date: '2025-01-05', totals: { users: 9, activeUsers: 0 } }), 0);
+  assert.equal(activeUsersIn({ date: '2025-01-05', totals: { users: 9 } }), null);
+  // A null that slipped into storage must not read back as "nobody active".
+  assert.equal(activeUsersIn({ date: '2025-01-05', totals: { users: 9, activeUsers: null } }), null);
+});
+
+test('live rows still win where both exist and disagree is impossible', () => {
+  // Same snapshot, rows intact: the stored figure is what the rows say.
+  const s = snap('2026-09-20', [user('a', '2026-09-19T10:00:00Z')], { users: 1, activeUsers: 1 });
+  assert.equal(activeUsersIn(s), 1);
 });

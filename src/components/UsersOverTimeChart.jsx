@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState } from 'react';
-import { summarizeUserGrowth } from '../../lib/adminGrowth.js';
+import { summarizeUserGrowth, shortDate, monthYear } from '../../lib/adminGrowth.js';
 
 // Same two hues the weekly summary email's growth chart uses, validated as a
 // pair for colour-vision deficiency against a light surface. Keep them in step
@@ -35,9 +35,21 @@ function niceTicks(max, count = 4) {
  * email, so the two can't drift apart on what "active" means. Exact figures for
  * every point are in the History table below, which is the table view of this
  * chart for anyone who can't read it as a picture.
+ *
+ * It spans the WHOLE history, always. What adapts is the grain — a point is a
+ * day, a week or a month depending on how much there is — which is why the
+ * heading says which, rather than leaving a monthly point to be misread as
+ * yesterday.
  */
+const GRAIN_LABEL = {
+  day: 'one point per day',
+  week: 'one point per week',
+  month: 'one point per month',
+  sparse: 'thinned to fit',
+};
+
 export function UsersOverTimeChart({ snaps }) {
-  const points = useMemo(() => summarizeUserGrowth(snaps, { maxPoints: 30 }), [snaps]);
+  const { points, grain } = useMemo(() => summarizeUserGrowth(snaps, { maxPoints: 30 }), [snaps]);
   const [hover, setHover] = useState(null); // index under the pointer
   const wrapRef = useRef(null);
 
@@ -85,13 +97,28 @@ export function UsersOverTimeChart({ snaps }) {
   }
 
   const hp = hover == null ? null : points[hover];
-  const summary = `Total users and active users for each of the last ${points.length} snapshots, `
-    + `${points[0].label} to ${points[last].label}.`;
+
+  // Years appear in the span the moment it crosses one. Without this an
+  // all-time chart introduces itself as "Sep 30 - Sep 22", which reads as a
+  // week rather than the two years it is.
+  const multiYear = points[0].date.slice(0, 4) !== points[last].date.slice(0, 4);
+  const edge = i => shortDate(points[i].date, { year: multiYear });
+  const spanLabel = `${edge(0)} – ${edge(last)}`;
+  // A monthly point lands on whichever day represented its bucket, so the
+  // day-of-month is an artefact; the month and year are the real information.
+  const coarse = grain === 'month' || grain === 'sparse';
+  const tickLabel = p => (coarse ? monthYear(p.date) : p.label);
+
+  const summary = `Total users and active users across ${points.length} points `
+    + `(${GRAIN_LABEL[grain]}), ${edge(0)} to ${edge(last)}.`;
 
   return (
     <div style={{ margin: '0 0 1rem' }}>
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 14, flexWrap: 'wrap', marginBottom: 6 }}>
         <strong style={{ fontSize: '0.82rem' }}>Users over time</strong>
+        <span style={{ fontSize: '0.72rem', color: 'var(--color-text-muted)', whiteSpace: 'nowrap' }}>
+          {spanLabel} · {GRAIN_LABEL[grain]}
+        </span>
         {SERIES.map(s => (
           <span key={s.key} style={{ fontSize: '0.74rem', color: 'var(--color-text-muted)', whiteSpace: 'nowrap' }}>
             <span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', background: s.color, marginRight: 5 }} />
@@ -165,7 +192,7 @@ export function UsersOverTimeChart({ snaps }) {
             const stride = Math.ceil(points.length / 8);
             if (i % stride !== 0 && i !== last) return null;
             return (
-              <text key={p.date} x={xOf(i)} y={H - 12} textAnchor="middle" fontSize="10" fill="var(--color-text-muted)">{p.label}</text>
+              <text key={p.date} x={xOf(i)} y={H - 12} textAnchor="middle" fontSize="10" fill="var(--color-text-muted)">{tickLabel(p)}</text>
             );
           })}
         </svg>
