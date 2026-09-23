@@ -10,12 +10,13 @@ const NOW = new Date(2026, 8, 3, 9, 0, 0);       // Thu 3 Sep 2026, local
 const TODAY = dayKey(NOW);
 const YESTERDAY = yesterdayDayKey(NOW);
 
-// `countOutstandingHabits` and `countHabitsNeedingLog` take no clock — they ask
-// `periodKey(cadence)` for TODAY at the moment they run. So any log a test
-// hands them has to be keyed by the real current day, not by NOW above, or the
-// mark simply isn't found and the habit reads as unlogged. (This bit: written
-// on 3 Sep, green all day, red the next morning.) Anything that DOES accept a
-// date keeps using NOW.
+// `countOutstandingHabits` and `countHabitsNeedingLog` DEFAULT to the real
+// clock — they ask `periodKey(cadence)` for TODAY at the moment they run. So
+// any log a test hands them without a date has to be keyed by the real current
+// day, not by NOW above, or the mark simply isn't found and the habit reads as
+// unlogged. (This bit: written on 3 Sep, green all day, red the next morning.)
+// Anything given an explicit date — including those two, now the cron passes
+// one — keeps using NOW.
 const TODAY_REAL = dayKey(new Date());
 
 const good = (over = {}) => ({ id: 'g1', name: 'Read', cadence: 'Daily', status: 'Most Days', ...over });
@@ -85,4 +86,35 @@ test('the good half of the tracker is untouched by the change', () => {
   assert.equal(countOutstandingHabits(habits, {}, []), 2);
   assert.equal(countOutstandingHabits(habits, { [TODAY_REAL]: { g1: 'done' } }, []), 1);
   assert.equal(countOutstandingHabits(habits, { [TODAY_REAL]: { g1: 'done', g2: 'missed' } }, []), 0);
+});
+
+// The cron runs on a UTC server and must count against the user's OWN calendar
+// day, not the runtime's. Before this, the day rolled over at 8pm Eastern: the
+// badge jumped to a full count mid-evening, anything logged after that didn't
+// bring it down (the mark landed on today's key while the count read tomorrow's),
+// and at real midnight nothing had changed so no new number was ever sent.
+test('countOutstandingHabits counts against the date it is given', () => {
+  const habits = [good()];
+  const log = { [dayKey(NOW)]: { g1: 'done' } };
+  assert.equal(countOutstandingHabits(habits, log, [], NOW), 0, 'marked on the day asked about');
+  const tomorrow = new Date(2026, 8, 4, 9, 0, 0);
+  assert.equal(countOutstandingHabits(habits, log, [], tomorrow), 1, "yesterday's mark does not carry over");
+});
+
+test('a date is honoured for weekday tracking and weekly pins too', () => {
+  // Weekdays only: due Thu 3 Sep, not Sat 5 Sep.
+  const weekdaysOnly = good({ trackDays: [1, 2, 3, 4, 5] });
+  assert.equal(countOutstandingHabits([weekdaysOnly], {}, [], NOW), 1);
+  assert.equal(countOutstandingHabits([weekdaysOnly], {}, [], new Date(2026, 8, 5)), 0);
+
+  // Pinned to Saturday: not due Thursday, due on the Saturday.
+  const pinned = good({ id: 'w1', cadence: 'Weekly', weekDays: ['saturday'] });
+  assert.equal(countOutstandingHabits([pinned], {}, [], NOW), 0);
+  assert.equal(countOutstandingHabits([pinned], {}, [], new Date(2026, 8, 5)), 1);
+});
+
+test('countHabitsNeedingLog still reads the real clock when given no date', () => {
+  const habits = [good()];
+  assert.equal(countHabitsNeedingLog(habits, {}, []).manual, 1);
+  assert.equal(countHabitsNeedingLog(habits, { [TODAY_REAL]: { g1: 'done' } }, []).manual, 0);
 });

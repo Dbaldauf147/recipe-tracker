@@ -199,8 +199,8 @@ export function autoTrackedIds(automations) {
  * @param {Array} [automations] the user's `habitAutomations` rules
  * @returns {number}
  */
-export function countOutstandingHabits(habits, habitLog, automations) {
-  return countHabitsNeedingLog(habits, habitLog, automations).manual;
+export function countOutstandingHabits(habits, habitLog, automations, date) {
+  return countHabitsNeedingLog(habits, habitLog, automations, date).manual;
 }
 
 /**
@@ -208,12 +208,22 @@ export function countOutstandingHabits(habits, habitLog, automations) {
  * automation rule will fill in that have no mark yet this period.
  * @returns {number}
  */
-export function countAutoPendingHabits(habits, habitLog, automations) {
-  return countHabitsNeedingLog(habits, habitLog, automations).auto;
+export function countAutoPendingHabits(habits, habitLog, automations, date) {
+  return countHabitsNeedingLog(habits, habitLog, automations, date).auto;
 }
 
-/** Shared walk behind both counts above. @returns {{manual:number, auto:number}} */
-export function countHabitsNeedingLog(habits, habitLog, automations) {
+/**
+ * Shared walk behind both counts above.
+ *
+ * `date` is "when is now", and defaults to it. In the browser that is always
+ * right — the user's clock IS the day their habits belong to. The cron is the
+ * caller that has to say: it runs on a server in UTC, so left to the default it
+ * rolled the day over at 8pm Eastern and spent every evening counting TOMORROW's
+ * habits against today's marks. Pass the user's own day.
+ *
+ * @returns {{manual:number, auto:number}}
+ */
+export function countHabitsNeedingLog(habits, habitLog, automations, date = new Date()) {
   if (!Array.isArray(habits)) return { manual: 0, auto: 0 };
   const log = habitLog && typeof habitLog === 'object' ? habitLog : {};
   const autoIds = autoTrackedIds(automations);
@@ -223,8 +233,8 @@ export function countHabitsNeedingLog(habits, habitLog, automations) {
     if (!h) continue;
     if (isBadHabit(h)) continue;                        // logged only when it happens
     if (EXCLUDED_STATUSES.has((h.status || '').trim())) continue;
-    if ((log[periodKey(h.cadence)] || {})[h.id] !== undefined) continue; // already logged
-    const due = cadenceCanon(h.cadence) === 'Weekly' ? weeklyDueYet(h) : tracksDate(h);
+    if ((log[periodKey(h.cadence, date)] || {})[h.id] !== undefined) continue; // already logged
+    const due = cadenceCanon(h.cadence) === 'Weekly' ? weeklyDueYet(h, date) : tracksDate(h, date);
     if (!due) continue;
     if (autoIds.has(h.id)) auto++;
     else manual++;
