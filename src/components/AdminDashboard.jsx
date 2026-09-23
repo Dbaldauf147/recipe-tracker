@@ -308,6 +308,9 @@ function AdminHistory({ users }) {
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
   const [openDate, setOpenDate] = useState(null);
+  // The chart is the point of this section; the day-by-day table under it is
+  // the backup for when you need an exact figure, so it starts folded away.
+  const [showTable, setShowTable] = useState(false);
 
   const load = useCallback(() => {
     loadAdminSnapshots()
@@ -362,7 +365,9 @@ function AdminHistory({ users }) {
       <p style={{ fontSize: '0.74rem', color: 'var(--color-text-muted)', lineHeight: 1.5, margin: '0.4rem 0 0.8rem' }}>
         Captured daily at 7:45am ET. These figures have no history of their own — a login
         counter only ever shows its current value — so this can only know about days a
-        snapshot ran, and it starts from the first one. Click a day for its per-user rows.
+        snapshot ran, and it starts from the first one. Every captured day is kept from
+        here on; after about thirteen months a day keeps its totals but drops its
+        per-user rows. Click a day for those rows while it still has them.
       </p>
 
       {err && (
@@ -379,7 +384,18 @@ function AdminHistory({ users }) {
       {snaps != null && snaps.length > 0 && <UsersOverTimeChart snaps={snaps} />}
 
       {rows.length > 0 && (
-        <div style={{ overflowX: 'auto' }}>
+        <button
+          type="button"
+          onClick={() => setShowTable(v => !v)}
+          aria-expanded={showTable}
+          style={{ border: 'none', background: 'none', padding: 0, font: 'inherit', fontSize: '0.78rem', fontWeight: 600, color: 'var(--color-text-muted)', cursor: 'pointer' }}
+        >
+          {showTable ? '▾' : '▸'} Day-by-day table ({rows.length})
+        </button>
+      )}
+
+      {rows.length > 0 && showTable && (
+        <div style={{ overflowX: 'auto', marginTop: '0.6rem' }}>
           <table className={styles.table} style={{ fontSize: '0.8rem' }}>
             <thead>
               <tr>
@@ -390,17 +406,23 @@ function AdminHistory({ users }) {
             <tbody>
               {rows.map(r => {
                 const isOpen = openDate === r.date;
+                // Days past the cron's detail window keep their totals but not
+                // their rows, so there is nothing to open.
+                const hasDetail = Array.isArray(r.users) && r.users.length > 0;
                 return (
                   <Fragment key={r.id || r.date}>
                     <tr>
                       <td>
                         <button
                           type="button"
-                          onClick={() => setOpenDate(isOpen ? null : r.date)}
-                          style={{ border: 'none', background: 'none', padding: 0, font: 'inherit', color: 'inherit', cursor: 'pointer', fontWeight: 600 }}
-                          title={r.source === 'manual' ? 'Taken by hand' : 'Taken by the daily cron'}
+                          onClick={() => hasDetail && setOpenDate(isOpen ? null : r.date)}
+                          disabled={!hasDetail}
+                          style={{ border: 'none', background: 'none', padding: 0, font: 'inherit', color: 'inherit', cursor: hasDetail ? 'pointer' : 'default', fontWeight: 600 }}
+                          title={hasDetail
+                            ? (r.source === 'manual' ? 'Taken by hand' : 'Taken by the daily cron')
+                            : 'Per-user rows for this day have aged out; the totals are kept'}
                         >
-                          {isOpen ? '▾' : '▸'} {r.date}{r.source === 'manual' ? ' ·' : ''}
+                          {hasDetail ? (isOpen ? '▾' : '▸') : '·'} {r.date}{r.source === 'manual' ? ' ·' : ''}
                         </button>
                       </td>
                       {TREND_METRICS.map(m => (
