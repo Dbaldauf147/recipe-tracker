@@ -263,10 +263,26 @@ test('an absent sauna goal means the Week Plan default, not "no goal"', () => {
   assert.equal(goalNamed(goalsFor({}, { ...GOALS_CONFIG, saunaGoal: 0 }), 'Sauna'), undefined);
 });
 
-test('produce goals scale the daily target across the week', () => {
+test('produce is reported per day, against the daily target itself', () => {
+  // The Week Plan tiles compare an average against the daily goal, so the email
+  // does too — 35 servings across the week was a number nobody holds themselves
+  // to. Over a complete week the verdict is the same either way.
   const g = goalsFor({});
-  assert.equal(goalNamed(g, 'Veg').target, 35);   // 5/day × 7
-  assert.equal(goalNamed(g, 'Fruit').target, 28); // 4/day × 7
+  assert.equal(goalNamed(g, 'Veg').target, 5);
+  assert.equal(goalNamed(g, 'Fruit').target, 4);
+  assert.equal(goalNamed(g, 'Veg').unit, ' servings/day');
+});
+
+test('the per-day average divides the week total by its seven days', () => {
+  // 14 veg and 7 fruit servings spread over two days = 2/day and 1/day.
+  const dailyLog = {
+    [WEEK.days[1]]: { entries: [{ mealSlot: 'lunch', nutrition: { vegServings: 9, fruitServings: 4 } }] },
+    [WEEK.days[3]]: { entries: [{ mealSlot: 'dinner', nutrition: { vegServings: 5, fruitServings: 3 } }] },
+  };
+  const g = goalsFor({ dailyLog });
+  assert.equal(goalNamed(g, 'Veg').actual, 2);
+  assert.equal(goalNamed(g, 'Fruit').actual, 1);
+  assert.equal(goalNamed(g, 'Veg').met, false);
 });
 
 test('met is inclusive, and overshooting still reads as met', () => {
