@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   buildCueSequence, routineDurationSec, normalizeRoutine, emptyRoutine, mmss, isStretchWorkout,
   DEFAULT_HOLD_SEC, DEFAULT_TRANSITION_SEC, DEFAULT_SWITCH_SEC, MAX_SEC,
+  stepTiming, clampReps, DEFAULT_REPS, DEFAULT_REST_SEC, MAX_REPS,
 } from './stretchRoutine.js';
 
 const R = (names, hold = 40, transition = 20) => ({
@@ -222,4 +223,121 @@ test('defaults are the ones the feature was specified with', () => {
   assert.equal(DEFAULT_TRANSITION_SEC, 20);
   // Shorter than a transition on purpose: swapping legs isn't moving to a pose.
   assert.equal(DEFAULT_SWITCH_SEC, 10);
+});
+
+// ── Reps ────────────────────────────────────────────────────────────────────
+// Holding the same pose several times with a breather between. The load-bearing
+// rule is that one rep is the default, so every routine written before reps
+// existed plays exactly as it did — the tests above are that guarantee, and
+// these are the new behaviour.
+
+const REPPED = (over = {}) => ({
+  id: 'r', name: 'Test', updatedAt: '', holdSec: 30, transitionSec: 20,
+  switchSec: 10, reps: 3, restSec: 15,
+  steps: [{ id: '1', name: 'Hamstring' }], ...over,
+});
+
+test('reps repeat the hold with a rest between, and never a trailing rest', () => {
+  const cues = buildCueSequence(REPPED());
+  assert.deepEqual(
+    cues.map(c => [c.kind, c.seconds]),
+    [['hold', 30], ['rest', 15], ['hold', 30], ['rest', 15], ['hold', 30]],
+  );
+  assert.equal(cues.at(-1).kind, 'hold', 'a routine never ends on a rest');
+});
+
+test('every hold says which rep it is, one-rep poses included', () => {
+  const cues = buildCueSequence(REPPED()).filter(c => c.kind === 'hold');
+  assert.deepEqual(cues.map(c => `${c.rep}/${c.reps}`), ['1/3', '2/3', '3/3']);
+  const single = buildCueSequence(REPPED({ reps: 1 })).filter(c => c.kind === 'hold');
+  assert.deepEqual(single.map(c => `${c.rep}/${c.reps}`), ['1/1']);
+});
+
+test('a both-sides pose does every rep of one side before switching', () => {
+  const cues = buildCueSequence(REPPED({
+    reps: 2, steps: [{ id: '1', name: 'Pigeon', bothSides: true }],
+  }));
+  assert.deepEqual(
+    cues.map(c => [c.kind, c.side]),
+    [['hold', 'left'], ['rest', 'left'], ['hold', 'left'],
+     ['switch', 'right'],
+     ['hold', 'right'], ['rest', 'right'], ['hold', 'right']],
+  );
+  // One pose, not two — the player's "1 / 1" counter must not split it.
+  assert.ok(cues.every(c => c.stepIndex === 0));
+  assert.ok(cues.every(c => c.stepName === 'Pigeon'));
+});
+
+test('a pose can pin its own reps and rest, or inherit either one', () => {
+  const cues = buildCueSequence(REPPED({
+    steps: [
+      { id: '1', name: 'Inherits' },                  // 3 × 30s, 15s rest
+      { id: '2', name: 'Pinned', reps: 2, restSec: 30 },
+      { id: '3', name: 'Half pinned', reps: 2 },      // own reps, routine's rest
+    ],
+  }));
+  const forStep = i => cues.filter(c => c.stepIndex === i && c.kind !== 'transition');
+  assert.deepEqual(forStep(0).map(c => [c.kind, c.seconds]),
+    [['hold', 30], ['rest', 15], ['hold', 30], ['rest', 15], ['hold', 30]]);
+  assert.deepEqual(forStep(1).map(c => [c.kind, c.seconds]),
+    [['hold', 30], ['rest', 30], ['hold', 30]]);
+  assert.deepEqual(forStep(2).map(c => [c.kind, c.seconds]),
+    [['hold', 30], ['rest', 15], ['hold', 30]]);
+});
+
+test('reps multiply the duration, and the rests come with them', () => {
+  // 3 holds of 30 + 2 rests of 15 = 120.
+  assert.equal(routineDurationSec(REPPED()), 30 * 3 + 15 * 2);
+  // Both sides: two of those blocks plus one switch.
+  assert.equal(
+    routineDurationSec(REPPED({ steps: [{ id: '1', name: 'Pigeon', bothSides: true }] })),
+    (30 * 3 + 15 * 2) * 2 + 10,
+  );
+});
+
+test('a pinned rep count survives normalization; a blank one stays absent', () => {
+  const r = normalizeRoutine(REPPED({
+    steps: [{ id: '1', name: 'Pinned', reps: 4, restSec: 25 }, { id: '2', name: 'Inherits' }],
+  }));
+  assert.equal(r.steps[0].reps, 4);
+  assert.equal(r.steps[0].restSec, 25);
+  // Absent, not 0 or null — a present key means "override" and would stop the
+  // pose following the routine's number.
+  assert.ok(!('reps' in r.steps[1]), 'an un-pinned pose carries no reps key');
+  assert.ok(!('restSec' in r.steps[1]), 'an un-pinned pose carries no restSec key');
+  assert.equal(r.reps, 3);
+  assert.equal(r.restSec, 15);
+});
+
+test('a routine saved before reps existed gets one rep, so it plays unchanged', () => {
+  const old = normalizeRoutine({
+    id: 'r', name: 'Old', holdSec: 40, transitionSec: 20,
+    steps: [{ id: '1', name: 'a' }, { id: '2', name: 'b' }],
+  });
+  assert.equal(old.reps, DEFAULT_REPS);
+  assert.equal(old.reps, 1);
+  assert.equal(old.restSec, DEFAULT_REST_SEC);
+  assert.deepEqual(buildCueSequence(old).map(c => c.kind), ['hold', 'transition', 'hold']);
+});
+
+test('rep counts are clamped, and junk falls back rather than emitting nothing', () => {
+  assert.equal(clampReps(0), 1);
+  assert.equal(clampReps(-4), 1);
+  assert.equal(clampReps('abc'), 1);
+  assert.equal(clampReps(999), MAX_REPS);
+  assert.equal(clampReps(2.4), 2);
+  // A step pinned to 0 falls back to the GLOBAL default (1), not the routine's
+  // 3 — the same trap holdSec has, and the reason the editors delete the key
+  // rather than storing an empty box. A pose can never play zero times.
+  const cues = buildCueSequence(REPPED({ steps: [{ id: '1', name: 'x', reps: 0 }] }));
+  assert.equal(cues.filter(c => c.kind === 'hold').length, 1);
+  // Which is why normalization turns a pinned 0 into a real number on the way in.
+  assert.equal(normalizeRoutine(REPPED({ steps: [{ id: '1', name: 'x', reps: 0 }] })).steps[0].reps, 1);
+});
+
+test('stepTiming reports what a pose will actually play at', () => {
+  const r = REPPED();
+  assert.deepEqual(stepTiming(r, { name: 'a' }), { reps: 3, restSec: 15, holdSec: 30 });
+  assert.deepEqual(stepTiming(r, { name: 'b', reps: 5, restSec: 20, holdSec: 45 }),
+    { reps: 5, restSec: 20, holdSec: 45 });
 });

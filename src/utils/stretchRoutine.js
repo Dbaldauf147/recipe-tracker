@@ -14,6 +14,16 @@ export const DEFAULT_TRANSITION_SEC = 20;
 export const DEFAULT_SWITCH_SEC = 10;
 export const MIN_SEC = 5;
 export const MAX_SEC = 600;
+// Reps: hold the same pose several times with a breather between. One rep is
+// a plain hold, which is what every routine written before reps existed is —
+// so the default has to be 1 or they'd all silently double.
+export const DEFAULT_REPS = 1;
+export const MIN_REPS = 1;
+export const MAX_REPS = 20;
+// The breather between two reps of the SAME pose. Shorter than a transition by
+// default (you aren't going anywhere) and longer than a side-switch (you are
+// actually recovering, not just swapping legs).
+export const DEFAULT_REST_SEC = 15;
 
 let _idCounter = 0;
 export function newId() {
@@ -25,6 +35,13 @@ export function clampSec(n, fallback) {
   const v = Math.round(Number(n));
   if (!isFinite(v) || v <= 0) return fallback;
   return Math.min(MAX_SEC, Math.max(MIN_SEC, v));
+}
+
+/** Same deal for a rep count, which has its own (much smaller) range. */
+export function clampReps(n, fallback = DEFAULT_REPS) {
+  const v = Math.round(Number(n));
+  if (!isFinite(v) || v <= 0) return fallback;
+  return Math.min(MAX_REPS, Math.max(MIN_REPS, v));
 }
 
 /** Coerce anything off the wire into a usable routine, or null if it's junk. */
@@ -46,6 +63,11 @@ export function normalizeRoutine(raw) {
         step.bothSides = true;
         if (s?.holdSecRight != null) step.holdSecRight = clampSec(s.holdSecRight, DEFAULT_HOLD_SEC);
       }
+      // How many times this pose is held, and the breather between those holds.
+      // Both absent unless pinned, same inherit-by-absence rule as holdSec —
+      // which is why the editors must DELETE the key rather than store ''.
+      if (s?.reps != null) step.reps = clampReps(s.reps, DEFAULT_REPS);
+      if (s?.restSec != null) step.restSec = clampSec(s.restSec, DEFAULT_REST_SEC);
       return step;
     })
     .filter(Boolean);
@@ -59,6 +81,11 @@ export function normalizeRoutine(raw) {
     // The gap between the two sides of a both-sides pose. Its own number
     // because switching legs is quicker than moving to a new pose.
     switchSec: clampSec(raw.switchSec, DEFAULT_SWITCH_SEC),
+    // Routine-wide rep count and rest, which any pose can pin its own version
+    // of. A routine saved before reps existed has neither, and both defaults
+    // (1 rep, so no rest is ever reached) leave it playing exactly as before.
+    reps: clampReps(raw.reps, DEFAULT_REPS),
+    restSec: clampSec(raw.restSec, DEFAULT_REST_SEC),
     // Which workout this routine files itself under when logged. '' → the
     // caller's fallback (Yoga), which is what every routine did before the
     // field existed. Carried through here rather than defaulted so a routine
@@ -103,6 +130,8 @@ export function emptyRoutine(name = '') {
     holdSec: DEFAULT_HOLD_SEC,
     transitionSec: DEFAULT_TRANSITION_SEC,
     switchSec: DEFAULT_SWITCH_SEC,
+    reps: DEFAULT_REPS,
+    restSec: DEFAULT_REST_SEC,
     workoutType: '',
     habitId: '',
     updatedAt: new Date().toISOString(),
@@ -127,6 +156,13 @@ export function sideLabel(side) {
  * the bare pose name on every cue — the side rides along in `side`, which keeps
  * both holds logging to a single exercise instead of "Pigeon (left)" and
  * "Pigeon (right)" landing as two unrelated entries in History.
+ *
+ * REPS repeat the hold with a `rest` cue between them. On a both-sides pose
+ * every rep of the first side is done before switching — you finish with a leg
+ * and then change legs, rather than getting up and down each rep — so the
+ * shape is hold·rest·hold … switch … hold·rest·hold. Each hold carries `rep`
+ * and `reps` so the player can say which one you're on; a one-rep pose still
+ * gets them (1 of 1), so nothing has to special-case their absence.
  */
 export function buildCueSequence(routine) {
   const out = [];
@@ -139,8 +175,18 @@ export function buildCueSequence(routine) {
         stepName: step.name, stepIndex: i, side: firstSide,
       });
     }
+    const reps = clampReps(step.reps ?? routine.reps, DEFAULT_REPS);
+    const restSec = clampSec(step.restSec ?? routine.restSec, DEFAULT_REST_SEC);
+    const holdsFor = (side, seconds) => {
+      for (let rep = 1; rep <= reps; rep++) {
+        if (rep > 1 && restSec > 0) {
+          out.push({ kind: 'rest', seconds: restSec, stepName: step.name, stepIndex: i, side, rep, reps });
+        }
+        out.push({ kind: 'hold', seconds, stepName: step.name, stepIndex: i, side, rep, reps });
+      }
+    };
     const leftSec = clampSec(step.holdSec ?? routine.holdSec, DEFAULT_HOLD_SEC);
-    out.push({ kind: 'hold', seconds: leftSec, stepName: step.name, stepIndex: i, side: firstSide });
+    holdsFor(firstSide, leftSec);
     if (!both) return;
     // Falls back to the left side's time, not the routine default: a pose you
     // pinned to 60s should give you 60s on both sides unless you say otherwise.
@@ -149,9 +195,18 @@ export function buildCueSequence(routine) {
     if (switchSec > 0) {
       out.push({ kind: 'switch', seconds: switchSec, stepName: step.name, stepIndex: i, side: 'right' });
     }
-    out.push({ kind: 'hold', seconds: rightSec, stepName: step.name, stepIndex: i, side: 'right' });
+    holdsFor('right', rightSec);
   });
   return out;
+}
+
+/** The reps and rest a pose actually plays at, after inheritance. */
+export function stepTiming(routine, step) {
+  return {
+    reps: clampReps(step?.reps ?? routine?.reps, DEFAULT_REPS),
+    restSec: clampSec(step?.restSec ?? routine?.restSec, DEFAULT_REST_SEC),
+    holdSec: clampSec(step?.holdSec ?? routine?.holdSec, DEFAULT_HOLD_SEC),
+  };
 }
 
 /** Total wall-clock length of a routine in seconds. */
