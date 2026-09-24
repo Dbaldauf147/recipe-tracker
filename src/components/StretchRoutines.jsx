@@ -4,6 +4,7 @@ import { RangeOfMotionGuide } from './RangeOfMotionGuide';
 import {
   buildCueSequence, routineDurationSec, normalizeRoutine, emptyRoutine, newId, mmss, sideLabel,
   DEFAULT_HOLD_SEC, DEFAULT_TRANSITION_SEC, DEFAULT_SWITCH_SEC, MIN_SEC, MAX_SEC,
+  DEFAULT_REPS, DEFAULT_REST_SEC, MIN_REPS, MAX_REPS, clampReps, stepTiming,
 } from '../utils/stretchRoutine';
 import {
   formatStretchDuration, clampGoalMin, STRETCH_GOAL_WINDOW_DAYS, MIN_GOAL_MIN, MAX_GOAL_MIN,
@@ -130,13 +131,22 @@ function Player({ routine, onClose, onLog }) {
     // Tone first, words second — the order you want when your eyes are shut.
     if (cue.kind === 'hold') {
       play('start');
-      const t = setTimeout(() => speak(side ? `${cue.stepName}, ${side} side` : cue.stepName), 320);
+      // On a repeated pose the rep number replaces the name after the first
+      // one: you already know what you're doing, what you can't see is how
+      // many are left. The first rep still names the pose.
+      const named = side ? `${cue.stepName}, ${side} side` : cue.stepName;
+      const words = cue.reps > 1
+        ? (cue.rep === 1 ? `${named}. Rep 1 of ${cue.reps}` : `Rep ${cue.rep} of ${cue.reps}`)
+        : named;
+      const t = setTimeout(() => speak(words), 320);
       return () => clearTimeout(t);
     }
     play('transition');
     const words = cue.kind === 'switch'
       ? `Switch sides. ${cue.stepName}, ${side} side`
-      : side ? `Next, ${cue.stepName}, ${side} side first` : `Next, ${cue.stepName}`;
+      : cue.kind === 'rest'
+        ? 'Rest'
+        : side ? `Next, ${cue.stepName}, ${side} side first` : `Next, ${cue.stepName}`;
     const t = setTimeout(() => speak(words), 420);
     return () => clearTimeout(t);
   }, [cueIdx, running, done, cues, play]);
@@ -260,14 +270,25 @@ function Player({ routine, onClose, onLog }) {
         ) : (
           <div className={styles.playerBody}>
             <div className={styles.phase}>
-              {isHold ? 'HOLD' : cue?.kind === 'switch' ? 'SWITCH SIDES' : 'TRANSITION'}
+              {isHold ? 'HOLD'
+                : cue?.kind === 'switch' ? 'SWITCH SIDES'
+                  : cue?.kind === 'rest' ? 'REST' : 'TRANSITION'}
               {/* The side sits in the phase line, not the pose name, so a glance
                   at the big word tells you which limb without reading further. */}
               {!!sideLabel(cue?.side) && (
                 <span className={styles.sideTag}>{sideLabel(cue?.side).toUpperCase()}</span>
               )}
+              {/* Which rep, on the same line, for the same reason. Only on a
+                  pose that actually repeats — "1/1" on every hold is noise. */}
+              {cue?.reps > 1 && (
+                <span className={styles.repTag}>REP {cue.rep}/{cue.reps}</span>
+              )}
             </div>
-            <div className={styles.poseName}>{isHold ? cue?.stepName : `Next: ${cue?.stepName}`}</div>
+            <div className={styles.poseName}>
+              {/* A rest belongs to the pose you're in the middle of, so it keeps
+                  the name — "Next:" would be a lie with two reps still to go. */}
+              {isHold || cue?.kind === 'rest' ? cue?.stepName : `Next: ${cue?.stepName}`}
+            </div>
             <div className={`${styles.clock} ${isHold ? '' : styles.clockTransition}`}>{mmss(remaining)}</div>
             <div className={styles.progressTrack}><div className={styles.progressFill} style={{ width: `${pct}%` }} /></div>
             <div className={styles.totalLeft}>{mmss(totalLeft)} left</div>
@@ -347,10 +368,12 @@ export function StretchRoutines({
     setAddQuery('');
   }, []);
 
-  // Per-pose hold override. An empty box means "use the routine default", so
-  // clearing it DELETES the key rather than storing '' — normalizeRoutine treats
-  // any non-null holdSec as an override and would clamp '' up to DEFAULT_HOLD_SEC.
-  // `key` is 'holdSec' (the left side, or the only one) or 'holdSecRight'.
+  // Per-pose override of any of the routine's numbers. An empty box means "use
+  // the routine default", so clearing it DELETES the key rather than storing ''
+  // — normalizeRoutine treats any non-null value as an override and would clamp
+  // '' up to the GLOBAL default instead of inheriting the routine's.
+  // `key` is 'holdSec' (the left side, or the only one), 'holdSecRight',
+  // 'reps' or 'restSec'.
   const setStepHold = useCallback((idx, raw, key = 'holdSec') => {
     setEditing(e => ({
       ...e,
@@ -370,6 +393,9 @@ export function StretchRoutines({
         if (i !== idx || s[key] == null) return s;
         const n = Number(s[key]);
         if (!isFinite(n) || n <= 0) return dropHold(s, key);
+        // Reps live on their own much smaller scale — clamping them with the
+        // seconds range would make "2 reps" illegal and silently become 5.
+        if (key === 'reps') return { ...s, reps: clampReps(n, DEFAULT_REPS) };
         return { ...s, [key]: Math.min(MAX_SEC, Math.max(MIN_SEC, Math.round(n))) };
       }),
     }));
@@ -420,6 +446,15 @@ export function StretchRoutines({
     return stretchOptions.filter(o => o.toLowerCase().includes(q)).slice(0, 8);
   }, [addQuery, stretchOptions]);
 
+  // Does anything in this routine actually repeat? Drives whether the rest and
+  // per-pose rep boxes are worth the space — with everything on one rep they
+  // are knobs that change nothing.
+  const anyReps = useMemo(() => {
+    if (!editing) return false;
+    if (clampReps(editing.reps, DEFAULT_REPS) > 1) return true;
+    return editing.steps.some(s => s.reps != null && clampReps(s.reps, DEFAULT_REPS) > 1);
+  }, [editing]);
+
   if (editing) {
     return (
       <div className={styles.wrap}>
@@ -449,12 +484,39 @@ export function StretchRoutines({
             /> <span className={styles.unit}>sec</span>
           </div>
           <div>
-            <label className={styles.label}>Transition</label>
+            <label className={styles.label}>Reps</label>
+            {/* How many times each pose is held. 1 is a plain hold, which is
+                what every routine was before reps existed. */}
+            <input
+              className={styles.numInput} type="number" min={MIN_REPS} max={MAX_REPS}
+              value={editing.reps ?? DEFAULT_REPS}
+              onChange={e => setEditing({ ...editing, reps: e.target.value })}
+              onBlur={e => setEditing(v => ({ ...v, reps: clampReps(e.target.value, DEFAULT_REPS) }))}
+              title="How many times to hold each pose. Any pose can set its own below."
+            /> <span className={styles.unit}>×</span>
+          </div>
+          {/* Only once something actually repeats — until then it's a box that
+              changes nothing, the same rule the switch-sides box follows. */}
+          {anyReps && (
+            <div>
+              <label className={styles.label}>Rest between</label>
+              <input
+                className={styles.numInput} type="number" min={MIN_SEC} max={MAX_SEC}
+                value={editing.restSec ?? DEFAULT_REST_SEC}
+                onChange={e => setEditing({ ...editing, restSec: e.target.value })}
+                onBlur={e => setEditing(v => ({ ...v, restSec: Math.min(MAX_SEC, Math.max(MIN_SEC, Number(e.target.value) || DEFAULT_REST_SEC)) }))}
+                title="The breather between two reps of the SAME pose — not the gap before the next one."
+              /> <span className={styles.unit}>sec</span>
+            </div>
+          )}
+          <div>
+            <label className={styles.label}>Until next pose</label>
             <input
               className={styles.numInput} type="number" min={MIN_SEC} max={MAX_SEC}
               value={editing.transitionSec}
               onChange={e => setEditing({ ...editing, transitionSec: e.target.value })}
               onBlur={e => setEditing(v => ({ ...v, transitionSec: Math.min(MAX_SEC, Math.max(MIN_SEC, Number(e.target.value) || DEFAULT_TRANSITION_SEC)) }))}
+              title="The gap after a pose is finished — all its reps — and the next one starts."
             /> <span className={styles.unit}>sec</span>
           </div>
           {/* Only shown once a pose actually has two sides — until then it's a
@@ -519,9 +581,11 @@ export function StretchRoutines({
           <div className={styles.empty}>No poses yet — add your first below.</div>
         ) : (
           <div className={styles.poseHint}>
-            Each pose holds for {editing.holdSec}s unless you give it its own time.
-            Hit <strong>L/R</strong> for a pose you do on both sides — it gets held twice,
-            with its own time for each side.
+            Each pose holds for {editing.holdSec}s
+            {anyReps && <>, {clampReps(editing.reps, DEFAULT_REPS)}× with {editing.restSec ?? DEFAULT_REST_SEC}s between reps</>}
+            {' '}unless you give it its own numbers.
+            Hit <strong>L/R</strong> for a pose you do on both sides — every rep of the
+            first side is done before you switch.
           </div>
         )}
         <ol className={styles.stepList}>
@@ -577,6 +641,40 @@ export function StretchRoutines({
                 </>
               )}
               {!s.bothSides && <span className={styles.stepUnit}>s</span>}
+              {/* Reps and the rest between them, same inherit-by-blank rule as
+                  the hold box. The rest box only appears once this pose
+                  actually repeats — a rest between one rep and nothing is a
+                  number that can never be reached. */}
+              <input
+                className={`${styles.stepHoldInput} ${styles.stepRepInput} ${s.reps != null ? styles.stepHoldSet : ''}`}
+                type="number"
+                min={MIN_REPS}
+                max={MAX_REPS}
+                value={s.reps ?? ''}
+                placeholder={String(clampReps(editing.reps, DEFAULT_REPS))}
+                onChange={e => setStepHold(i, e.target.value, 'reps')}
+                onBlur={() => clampStepHold(i, 'reps')}
+                aria-label={`Reps for ${s.name}`}
+                title={`How many times to hold ${s.name}. Blank uses the routine's ${clampReps(editing.reps, DEFAULT_REPS)}.`}
+              />
+              <span className={styles.stepUnit}>×</span>
+              {stepTiming(editing, s).reps > 1 && (
+                <>
+                  <input
+                    className={`${styles.stepHoldInput} ${s.restSec != null ? styles.stepHoldSet : ''}`}
+                    type="number"
+                    min={MIN_SEC}
+                    max={MAX_SEC}
+                    value={s.restSec ?? ''}
+                    placeholder={String(editing.restSec ?? DEFAULT_REST_SEC)}
+                    onChange={e => setStepHold(i, e.target.value, 'restSec')}
+                    onBlur={() => clampStepHold(i, 'restSec')}
+                    aria-label={`Rest between reps of ${s.name}`}
+                    title={`Breather between reps of ${s.name}. Blank uses the routine's ${editing.restSec ?? DEFAULT_REST_SEC}s.`}
+                  />
+                  <span className={styles.stepUnit}>s rest</span>
+                </>
+              )}
               <button className={styles.iconBtn} onClick={() => moveStep(i, -1)} disabled={i === 0} aria-label="Move up">↑</button>
               <button className={styles.iconBtn} onClick={() => moveStep(i, 1)} disabled={i === editing.steps.length - 1} aria-label="Move down">↓</button>
               <button className={styles.iconBtn} onClick={() => setEditing(e => ({ ...e, steps: e.steps.filter(x => x.id !== s.id) }))} aria-label="Remove">✕</button>
@@ -652,6 +750,14 @@ export function StretchRoutines({
                   if (pinned === 0) return `${r.holdSec}s hold`;
                   if (pinned === r.steps.length) return 'per-pose holds';
                   return `${r.holdSec}s hold · ${pinned} custom`;
+                })()}{(() => {
+                  // Silent at one rep, which is every routine written before
+                  // reps existed — a card reading "1×" would suggest the
+                  // setting means something there.
+                  const reps = clampReps(r.reps, DEFAULT_REPS);
+                  const pinned = r.steps.some(s => s.reps != null && clampReps(s.reps, DEFAULT_REPS) > 1);
+                  if (reps <= 1) return pinned ? ' · some reps' : '';
+                  return ` · ${reps}×`;
                 })()} / {r.transitionSec}s move
               </div>
               {/* Where it lands, visible without opening the routine — the

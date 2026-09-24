@@ -268,6 +268,9 @@
   background: color-mix(in srgb, var(--color-accent) 12%, transparent);
   font-weight: 600;
 }
+/* A rep count is one or two digits, never three — narrower than a seconds box
+   so the row still fits a pose name once both are on it. */
+.stepRepInput { width: 40px; }
 .stepUnit { font-size: 0.72rem; color: var(--color-text-muted); margin-left: -0.25rem; }
 
 /* "Do this one on both sides" — a toggle rather than a checkbox so it reads as
@@ -366,6 +369,16 @@
   background: var(--color-accent);
   color: #fff;
   letter-spacing: 0.1em;
+}
+/* Which rep you're on, beside the phase word. Outlined rather than filled so
+   it reads as secondary to the side tag next to it — the side tells you what to
+   do, the rep only tells you how much is left. */
+.repTag {
+  padding: 0.1rem 0.4rem;
+  border-radius: 999px;
+  border: 1px solid var(--color-accent);
+  color: var(--color-accent);
+  letter-spacing: 0.08em;
 }
 .poseName {
   font-size: 1.7rem;
