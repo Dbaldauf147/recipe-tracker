@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import styles from './StretchRoutines.module.css';
 import { RangeOfMotionGuide } from './RangeOfMotionGuide';
+import { RoutineMuscleMap } from './RoutineMuscleMap';
 import {
   buildCueSequence, routineDurationSec, normalizeRoutine, emptyRoutine, newId, mmss, sideLabel,
   DEFAULT_HOLD_SEC, DEFAULT_TRANSITION_SEC, DEFAULT_SWITCH_SEC, MIN_SEC, MAX_SEC,
@@ -327,6 +328,10 @@ function dropHold(step, key = 'holdSec') {
   return next;
 }
 
+// "Logs to" <select> value for a routine that writes no workout. UI-only —
+// what's stored is logWorkout: false, never this string.
+const NO_LOG = '__no_workout__';
+
 // ── Tab ───────────────────────────────────────────────────────────────────
 export function StretchRoutines({
   // `loading` = the stored routines haven't arrived yet. It gates the editor:
@@ -339,6 +344,8 @@ export function StretchRoutines({
   // through to the guide below the goal board.
   romMeasurements, romLoading = false, onRomSave, onRomClear,
   workoutTypes = [], habits = [], defaultWorkoutType = 'Yoga',
+  // name → body-map muscle ids, for the editor's "Muscles stretched" map.
+  poseMuscles = () => [],
 }) {
   const [editing, setEditing] = useState(null);
   const [playing, setPlaying] = useState(null);
@@ -432,6 +439,7 @@ export function StretchRoutines({
   const logsToType = useCallback((r) => {
     return (r?.workoutType || '').trim() || defaultWorkoutType;
   }, [defaultWorkoutType]);
+  const logsNothing = r => r?.logWorkout === false;
 
   // Name of a linked habit, or '' if it's unset or has since been deleted —
   // a stale link shouldn't render a blank chip.
@@ -546,9 +554,15 @@ export function StretchRoutines({
             <label className={styles.label}>Logs to</label>
             <select
               className={styles.select}
-              value={editing.workoutType || ''}
-              onChange={e => setEditing({ ...editing, workoutType: e.target.value })}
+              value={logsNothing(editing) ? NO_LOG : (editing.workoutType || '')}
+              // "Don't log" is its own flag rather than a magic workoutType, so
+              // the type underneath survives: switching back restores it, and
+              // an older app that doesn't know the flag still reads a real type.
+              onChange={e => setEditing(e.target.value === NO_LOG
+                ? { ...editing, logWorkout: false }
+                : { ...editing, logWorkout: true, workoutType: e.target.value })}
             >
+              <option value={NO_LOG}>Don’t log a workout</option>
               <option value="">{defaultWorkoutType} (default)</option>
               {/* A type the routine still names but that has been deleted from
                   the list. Without this the <select> renders blank and the
@@ -561,6 +575,12 @@ export function StretchRoutines({
               )}
               {workoutTypes.map(t => <option key={t} value={t}>{t}</option>)}
             </select>
+            {logsNothing(editing) && (
+              <span className={styles.poseHint}>
+                Nothing goes in your workout log, so this routine’s time won’t count
+                toward the goal board.
+              </span>
+            )}
           </div>
           <div className={styles.linkField}>
             <label className={styles.label}>Marks habit</label>
@@ -703,6 +723,9 @@ export function StretchRoutines({
             ))}
           </div>
         )}
+
+        {/* Live: redraws as poses are added, reordered or retimed. */}
+        <RoutineMuscleMap routine={editing} poseMuscles={poseMuscles} />
       </div>
     );
   }
@@ -763,7 +786,9 @@ export function StretchRoutines({
               {/* Where it lands, visible without opening the routine — the
                   whole point of asking is not having to guess afterwards. */}
               <div className={styles.cardLinks}>
-                <span className={styles.chip}>Logs to {logsToType(r)}</span>
+                {logsNothing(r)
+                  ? <span className={`${styles.chip} ${styles.chipMuted}`}>Doesn’t log</span>
+                  : <span className={styles.chip}>Logs to {logsToType(r)}</span>}
                 {habitName(r.habitId) && (
                   <span className={styles.chip}>Marks {habitName(r.habitId)}</span>
                 )}

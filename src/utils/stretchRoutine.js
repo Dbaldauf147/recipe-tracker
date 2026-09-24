@@ -91,6 +91,10 @@ export function normalizeRoutine(raw) {
     // field existed. Carried through here rather than defaulted so a routine
     // saved on the other app doesn't lose the choice on the next round-trip.
     workoutType: String(raw.workoutType || '').trim(),
+    // false → a finished run writes NO workout at all (the habit link still
+    // fires). Only an explicit false turns it off, so every routine saved
+    // before the switch existed keeps logging exactly as it did.
+    logWorkout: raw.logWorkout !== false,
     // Habit marked done on completion. '' → none. See onLogRoutine.
     habitId: String(raw.habitId || '').trim(),
     updatedAt: typeof raw.updatedAt === 'string' ? raw.updatedAt : new Date().toISOString(),
@@ -133,6 +137,7 @@ export function emptyRoutine(name = '') {
     reps: DEFAULT_REPS,
     restSec: DEFAULT_REST_SEC,
     workoutType: '',
+    logWorkout: true,
     habitId: '',
     updatedAt: new Date().toISOString(),
   };

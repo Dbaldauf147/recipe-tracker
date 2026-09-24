@@ -341,3 +341,14 @@ test('stepTiming reports what a pose will actually play at', () => {
   assert.deepEqual(stepTiming(r, { name: 'b', reps: 5, restSec: 20, holdSec: 45 }),
     { reps: 5, restSec: 20, holdSec: 45 });
 });
+
+test('logWorkout: only an explicit false turns logging off', () => {
+  const legacy = normalizeRoutine({ name: 'A', steps: [{ name: 'x' }] });
+  assert.equal(legacy.logWorkout, true, 'routines saved before the switch keep logging');
+  const off = normalizeRoutine({ name: 'A', steps: [{ name: 'x' }], logWorkout: false, workoutType: 'Stretch' });
+  assert.equal(off.logWorkout, false);
+  // The type underneath is kept, so switching logging back on restores it.
+  assert.equal(off.workoutType, 'Stretch');
+  assert.equal(normalizeRoutine(off).logWorkout, false, 'survives a round-trip');
+  assert.equal(emptyRoutine().logWorkout, true);
+});
