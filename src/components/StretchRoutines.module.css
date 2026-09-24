@@ -545,3 +545,42 @@
   font-variant-numeric: tabular-nums;
   color: var(--color-text-secondary);
 }
+
+/* Routine editor: front/back map of the muscles this routine stretches. */
+.muscleCard {
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  background: var(--color-surface);
+  padding: 0.75rem 0.9rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  max-width: 620px;
+  margin-top: 0.9rem;
+}
+.muscleHead { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
+.muscleBodies { display: flex; justify-content: center; gap: 1.5rem; }
+.muscleBodyCol {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25rem;
+  width: 150px;
+  max-width: 46%;
+}
+.muscleBodyLabel { font-size: 0.7rem; font-weight: 700; color: var(--color-text-muted); }
+.muscleChips { display: flex; flex-wrap: wrap; gap: 0.35rem; }
+.muscleChip {
+  font: inherit;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--color-text-secondary);
+  background: var(--color-surface-alt);
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  padding: 0.15rem 0.55rem;
+  cursor: pointer;
+}
+.muscleChipOn { border-color: var(--color-accent); color: var(--color-accent); }
+.muscleChipTime { font-variant-numeric: tabular-nums; color: var(--color-text-muted); font-weight: 500; }
+.chipMuted { opacity: 0.7; font-style: italic; }

@@ -37,7 +37,8 @@ import {
 } from '../utils/workoutTypeRotation';
 import { loadHabitLog, saveHabitLogCells } from '../utils/habitLogYears';
 import { periodKey } from '../utils/habitOutstanding';
-import { BodyHeatmap } from './BodyHeatmap';
+import { BodyHeatmap, nameToMuscles } from './BodyHeatmap';
+import { stretchPoseMuscleNames } from '../utils/stretchMuscles';
 import { ExerciseDemo, ExerciseMuscles } from './ExerciseDemo';
 import ExerciseChart from './ExerciseChart';
 import ExerciseProgressTracker from './ExerciseProgressTracker';
@@ -3017,6 +3018,22 @@ export function WorkoutPage({ onBack, user }) {
     return (custom?.muscleGroup || '').trim();
   }
 
+  // Body-map ids for one stretch pose, for the routine editor's front/back map.
+  // The library row's own Primary/Secondary columns win when filled; failing
+  // that stretchPoseMuscleNames reads the pose name, then its region.
+  function stretchPoseMuscles(name) {
+    const lower = String(name || '').trim().toLowerCase();
+    const row = lower
+      ? (exerciseLibrary || []).find(e => e?.exercise && e.exercise.trim().toLowerCase() === lower)
+      : null;
+    const { names } = stretchPoseMuscleNames(name, {
+      primary: row?.primaryMuscles,
+      secondary: row?.secondaryMuscles,
+      group: muscleGroupForExercise(name),
+    });
+    return names.flatMap(nameToMuscles);
+  }
+
   // Every Stretching-tagged exercise, across all muscle groups — the pool the
   // routine builder offers. Same source as the picker's Stretching branch.
   function stretchExerciseNames() {
@@ -3076,12 +3093,30 @@ export function WorkoutPage({ onBack, user }) {
     return `\n\n✓ Marked habit: ${habit.name}`;
   }
 
+  // markRoutineHabit's result line, or an apology if the write failed — a
+  // failed habit mark must never take the finished routine's log down with it.
+  async function markRoutineHabitLine(routine) {
+    try {
+      return await markRoutineHabit(routine);
+    } catch (err) {
+      console.error('[stretch] habit mark failed', err);
+      return '\n\nCouldn’t mark the linked habit — log it by hand on the Habits page.';
+    }
+  }
+
   // Log a finished routine as a workout on the selected date. Each pose becomes
   // an entry whose first set is its hold written as a duration ("40s") — a
   // shape parseSetValue already understands, so it feeds History, Charts and
   // the calendar sync with no special-casing.
   async function logStretchRoutine(routine, poseNames) {
     if (!poseNames || poseNames.length === 0) return;
+    // A routine set to "Don't log" writes no workout at all — a quick desk
+    // stretch doesn't have to count as a session. Its habit link still fires:
+    // the two are independent choices on the routine.
+    if (routine.logWorkout === false) {
+      return 'Not logged as a workout — this routine is set to “Don’t log”.'
+        + await markRoutineHabitLine(routine);
+    }
     // One SET per hold, not one summed cell: a both-sides pose reads "45s 30s"
     // in History, which is the left and the right, and the goal board still
     // counts the whole 75s because totalSeconds sums the sets either way.
@@ -3146,13 +3181,7 @@ export function WorkoutPage({ onBack, user }) {
     const next = [...workouts, workout].sort((a, b) => b.date.localeCompare(a.date));
     commitWorkouts(next);
 
-    let habitLine = '';
-    try {
-      habitLine = await markRoutineHabit(routine);
-    } catch (err) {
-      console.error('[stretch] habit mark failed', err);
-      habitLine = '\n\nCouldn’t mark the linked habit — log it by hand on the Habits page.';
-    }
+    const habitLine = await markRoutineHabitLine(routine);
     // Returned rather than alerted: the player logs automatically when the
     // routine ends, and an alert firing on its own at that moment would be an
     // interruption. The completion screen shows this instead.
@@ -6588,6 +6617,7 @@ export function WorkoutPage({ onBack, user }) {
           workoutTypes={workoutTypes}
           habits={habits}
           defaultWorkoutType={STRETCH_DEFAULT_WORKOUT_TYPE}
+          poseMuscles={stretchPoseMuscles}
         />
       )}
 
