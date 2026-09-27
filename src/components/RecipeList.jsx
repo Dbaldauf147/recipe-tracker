@@ -9,6 +9,7 @@ import { OWNER_EMAIL } from '../utils/pageAccess';
 import { loadUserData, saveField, loadAppDefaults, saveAppDefault, loadFriends, loadFriendRecipes, getPendingSharedRecipes, shareRecipe, getUsername, loadDailyLogFromFirestore } from '../utils/firestoreSync';
 import { copyMealImage, loadAdminMealImages, generateMealImage, getCachedMealImage, getMealImageSyncReport } from '../utils/generateMealImage';
 import { recipeStage } from '../utils/recipeStage';
+import { normalizeSuggestSkips, isSkipped, skipRecipe, SKIP_DAYS } from '../utils/suggestSkips';
 import { ALL_TAGS, TAG_CATEGORIES, recipeMatchesTags } from '../utils/ingredientTags';
 import { detectCuisine, getRecipeMinShelfDays } from '../utils/detectCuisine';
 import { loadMealGoals, activeProfile } from '../utils/mealGoals';
@@ -702,6 +703,8 @@ export function RecipeList({
         setSuggestWeights(clean);
         try { localStorage.setItem(SUGGEST_WEIGHTS_KEY, JSON.stringify(clean)); } catch { /* quota */ }
       }
+      // Skips are cross-device (the phone's long-press writes them too).
+      setSuggestSkips(normalizeSuggestSkips(data?.suggestSkips));
       if (data?.catLayout) {
         setCatLayout(data.catLayout);
         localStorage.setItem('sunday-cat-layout', JSON.stringify(data.catLayout));
@@ -718,6 +721,58 @@ export function RecipeList({
   const [historyTick, setHistoryTick] = useState(0);
   // The suggestion whose scoring is being shown ("why is this suggested?").
   const [whySuggested, setWhySuggested] = useState(null);
+  // Suggested Meals skipped for SKIP_DAYS, synced as `suggestSkips` with the
+  // mobile app. Loaded with the rest of the user doc above.
+  const [suggestSkips, setSuggestSkips] = useState({});
+  function skipSuggestion(recipeId) {
+    setSuggestSkips(prev => {
+      const next = skipRecipe(prev, recipeId);
+      if (user?.uid) saveField(user.uid, 'suggestSkips', next);
+      return next;
+    });
+  }
+  // Hold down (touch) or right-click on a suggested meal opens this menu:
+  // { item, x, y } in viewport coordinates.
+  const [suggestMenu, setSuggestMenu] = useState(null);
+  // `fired` marks that a hold just opened the menu, so the click the browser
+  // sends when that finger lifts (onto the name or the menu backdrop) is
+  // swallowed instead of opening the recipe or closing the menu. Any new
+  // pointerdown clears it — whatever click follows belongs to the new gesture.
+  const longPressRef = useRef({ timer: null, fired: false, pointerType: 'mouse' });
+  function suggestRowHandlers(item) {
+    const clear = () => { clearTimeout(longPressRef.current.timer); longPressRef.current.timer = null; };
+    return {
+      onContextMenu: (e) => {
+        e.preventDefault();
+        clear();
+        // A right-click is followed by no click; a touch hold (Android fires
+        // contextmenu for it) is.
+        longPressRef.current.fired = longPressRef.current.pointerType !== 'mouse';
+        setSuggestMenu({ item, x: e.clientX, y: e.clientY });
+      },
+      onPointerDown: (e) => {
+        longPressRef.current.fired = false;
+        longPressRef.current.pointerType = e.pointerType;
+        if (e.pointerType === 'mouse') return; // mouse gets the right-click
+        const { clientX: x, clientY: y } = e;
+        clear();
+        longPressRef.current.timer = setTimeout(() => {
+          longPressRef.current.fired = true;
+          setSuggestMenu({ item, x, y });
+        }, 500);
+      },
+      onPointerUp: clear,
+      onPointerLeave: clear,
+      onPointerCancel: clear,
+      onPointerMove: (e) => { if (e.pointerType !== 'mouse' && (Math.abs(e.movementX) > 4 || Math.abs(e.movementY) > 4)) clear(); },
+    };
+  }
+  // A click that ends a long press shouldn't also open the recipe.
+  function swallowLongPressClick() {
+    if (!longPressRef.current.fired) return false;
+    longPressRef.current.fired = false;
+    return true;
+  }
   // The column whose ORDER is being explained: 'breakfast' | 'lunch'. Held as
   // a key rather than a snapshot of rows, so re-weighting from inside the
   // panel re-ranks the list you are looking at.
@@ -1585,7 +1640,7 @@ export function RecipeList({
     if (checkedSources.size > 0) {
       filtered = filtered.filter(r => checkedSources.has(r.source || 'unknown'));
     }
-    const candidates = filtered.filter(r => !weekSet.has(r.id));
+    const candidates = filtered.filter(r => !weekSet.has(r.id) && !isSkipped(suggestSkips, r.id));
     if (candidates.length === 0) return { breakfasts: [], lunches: [] };
 
     // Sort history newest-first
@@ -1779,7 +1834,7 @@ export function RecipeList({
     const lunches = withRank(scored.filter(s => s.recipe.category === 'lunch-dinner')).slice(0, 10);
     return { breakfasts, lunches };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [recipes, weeklyPlan, showCommon, showRare, showToTry, showRetired, includeToTry, checkedTypes, checkedCategories, checkedCuisines, checkedTags, checkedSources, historyTick, suggestWeights]);
+  }, [recipes, weeklyPlan, showCommon, showRare, showToTry, showRetired, includeToTry, checkedTypes, checkedCategories, checkedCuisines, checkedTags, checkedSources, historyTick, suggestWeights, suggestSkips]);
 
   return (
     <>
@@ -2393,8 +2448,8 @@ export function RecipeList({
                         }
                         const { recipe, recipeDays, neglectedIngredients, seasonalMatches } = item;
                         return (
-                          <tr key={recipe.id} className={seasonalMatches.length > 0 ? styles.seasonalRow : ''} draggable onDragStart={e => e.dataTransfer.setData('text/plain', recipe.id)} style={{ cursor: 'grab' }}>
-                            <td><button className={styles.suggestName} onClick={() => onSelect(recipe.id)}>{recipe.title}</button></td>
+                          <tr key={recipe.id} className={`${seasonalMatches.length > 0 ? styles.seasonalRow : ''} ${styles.suggestHoldRow}`} draggable onDragStart={e => e.dataTransfer.setData('text/plain', recipe.id)} style={{ cursor: 'grab' }} {...suggestRowHandlers(item)} title="Right-click or hold for why it's suggested, or to skip it">
+                            <td><button className={styles.suggestName} onClick={() => { if (!swallowLongPressClick()) onSelect(recipe.id); }}>{recipe.title}</button></td>
                             <td className={styles.suggestDays}>{recipeDays === 9999 ? 'Never' : recipeDays}</td>
                             {suggestCols.overdue && (
                               <td
@@ -2480,8 +2535,8 @@ export function RecipeList({
                         }
                         const { recipe, recipeDays, neglectedIngredients, seasonalMatches } = item;
                         return (
-                          <tr key={recipe.id} className={seasonalMatches.length > 0 ? styles.seasonalRow : ''} draggable onDragStart={e => e.dataTransfer.setData('text/plain', recipe.id)} style={{ cursor: 'grab' }}>
-                            <td><button className={styles.suggestName} onClick={() => onSelect(recipe.id)}>{recipe.title}</button></td>
+                          <tr key={recipe.id} className={`${seasonalMatches.length > 0 ? styles.seasonalRow : ''} ${styles.suggestHoldRow}`} draggable onDragStart={e => e.dataTransfer.setData('text/plain', recipe.id)} style={{ cursor: 'grab' }} {...suggestRowHandlers(item)} title="Right-click or hold for why it's suggested, or to skip it">
+                            <td><button className={styles.suggestName} onClick={() => { if (!swallowLongPressClick()) onSelect(recipe.id); }}>{recipe.title}</button></td>
                             <td className={styles.suggestDays}>{recipeDays === 9999 ? 'Never' : recipeDays}</td>
                             {suggestCols.overdue && (
                               <td
@@ -2761,6 +2816,31 @@ export function RecipeList({
       {/* AI Recipe Preview Modal */}
 
       {whySuggested && <WhySuggestedPanel item={whySuggested} onClose={() => setWhySuggested(null)} />}
+
+      {suggestMenu && (
+        <div
+          className={styles.suggestMenuBackdrop}
+          onPointerDown={() => { longPressRef.current.fired = false; }}
+          onClick={() => { if (!swallowLongPressClick()) setSuggestMenu(null); }}
+          onContextMenu={e => { e.preventDefault(); setSuggestMenu(null); }} role="presentation">
+          <div
+            className={styles.suggestMenu}
+            style={{ left: Math.max(8, Math.min(suggestMenu.x, window.innerWidth - 228)), top: Math.max(8, Math.min(suggestMenu.y, window.innerHeight - 200)) }}
+            onClick={e => e.stopPropagation()}
+            // The lifting finger can land on the menu itself; don't let that
+            // count as picking an item.
+            onClickCapture={e => { if (swallowLongPressClick()) e.stopPropagation(); }}
+            role="menu"
+            aria-label={`${suggestMenu.item.recipe.title} options`}
+          >
+            <div className={styles.suggestMenuTitle}>{suggestMenu.item.recipe.title}</div>
+            <button role="menuitem" onClick={() => { setWhySuggested(suggestMenu.item); setSuggestMenu(null); }}>Why was this suggested?</button>
+            <button role="menuitem" onClick={() => { skipSuggestion(suggestMenu.item.recipe.id); setSuggestMenu(null); }}>Skip for {SKIP_DAYS} days</button>
+            <button role="menuitem" onClick={() => { handleAddToWeekWithPulse(suggestMenu.item.recipe.id); setSuggestMenu(null); }}>Add to this week</button>
+            <button role="menuitem" onClick={() => { onSelect(suggestMenu.item.recipe.id); setSuggestMenu(null); }}>View recipe</button>
+          </div>
+        </div>
+      )}
 
       {aiPreview && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }} onClick={() => setAiPreview(null)}>

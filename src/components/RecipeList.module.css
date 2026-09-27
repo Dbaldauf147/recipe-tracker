@@ -2878,3 +2878,54 @@
   color: var(--color-text-muted);
   max-width: 230px;
 }
+
+/* Suggested Meals: hold (touch) / right-click menu */
+.suggestHoldRow {
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.suggestMenuBackdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 250;
+}
+
+.suggestMenu {
+  position: fixed;
+  width: 220px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+  padding: 0.3rem;
+  display: flex;
+  flex-direction: column;
+}
+
+.suggestMenuTitle {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  padding: 0.35rem 0.6rem 0.3rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.suggestMenu button {
+  background: none;
+  border: none;
+  text-align: left;
+  padding: 0.5rem 0.6rem;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  color: var(--color-text);
+  cursor: pointer;
+}
+
+.suggestMenu button:hover,
+.suggestMenu button:focus-visible {
+  background: var(--color-surface-alt, rgba(0, 0, 0, 0.05));
+}
