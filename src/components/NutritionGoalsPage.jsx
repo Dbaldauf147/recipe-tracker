@@ -13,6 +13,9 @@ const FATTY_ACIDS = ['omega3', 'omega6'];
 const CUSTOM_GOALS = [
   { key: 'fruitServings', label: 'Fruit Servings', unit: 'servings', decimals: 0 },
   { key: 'vegServings', label: 'Vegetable Servings', unit: 'servings', decimals: 0 },
+  // Drawn as the goal line on the weekly email's "Avg protein per meal" chart
+  // (breakfast, lunch & dinner). Unset, that line falls back to daily protein ÷ 3.
+  { key: 'proteinPerMeal', label: 'Protein per Meal', unit: 'g', decimals: 0 },
 ];
 
 const PLATE_GOALS = [
@@ -383,6 +386,12 @@ export function NutritionGoalsPage({ onComplete, onBack, onSkip, initialSelected
 
   function toggle(key) {
     markDirty();
+    // No stored default: a per-meal goal starts from the daily protein goal
+    // split over three meals, then the user adjusts it. Kept out of
+    // DEFAULT_TARGETS and computeTargets so a recompute never overwrites it.
+    if (key === 'proteinPerMeal' && !(targets.proteinPerMeal > 0)) {
+      setTargets(prev => ({ ...prev, proteinPerMeal: Math.round((prev.protein || DEFAULT_TARGETS.protein) / 3) }));
+    }
     setSelected(prev => {
       const next = new Set(prev);
       if (next.has(key)) next.delete(key);
@@ -962,7 +971,7 @@ export function NutritionGoalsPage({ onComplete, onBack, onSkip, initialSelected
                       <input
                         type="number"
                         className={styles.nutrientInput}
-                        value={targets[g.key]}
+                        value={targets[g.key] ?? ''}
                         onChange={e => setTarget(g.key, parseFloat(e.target.value) || 0)}
                         min={0}
                         step={g.decimals > 0 ? Math.pow(10, -g.decimals) : 1}
