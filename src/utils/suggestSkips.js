@@ -47,3 +47,39 @@ export function pruneExpired(skips, now = new Date()) {
   for (const [id, until] of Object.entries(skips)) if (today < until) out[id] = until;
   return out;
 }
+
+/**
+ * Skip for one calendar month: back on the same day next month, or that
+ * month's last day when it's shorter (Jan 31 → Feb 28), rather than letting
+ * the Date constructor roll over into March.
+ */
+export function skipRecipeForMonth(skips, recipeId, now = new Date()) {
+  const y = now.getFullYear();
+  const m = now.getMonth() + 1;
+  const lastDay = new Date(y, m + 1, 0).getDate();
+  const until = new Date(y, m, Math.min(now.getDate(), lastDay));
+  return { ...pruneExpired(skips, now), [recipeId]: localDateKey(until) };
+}
+
+// ── Back of the line ────────────────────────────────────────────────────────
+// A second user-doc field, `suggestRequeues`: { [recipeId]: 'YYYY-MM-DD' } —
+// the day the meal was sent to the back. Scoring treats that day as the last
+// time the meal AND each of its key ingredients were eaten, so it drops to the
+// bottom straight away and climbs back up on its own, exactly like a meal you
+// just had. Nothing ever needs to expire it: once a real log date is later,
+// the later date simply wins. Same shape as suggestSkips, so the same
+// normalizer serves.
+
+export const normalizeSuggestRequeues = normalizeSuggestSkips;
+
+/** Send a meal to the back of the line as of today. */
+export function requeueRecipe(requeues, recipeId, now = new Date()) {
+  return { ...requeues, [recipeId]: localDateKey(now) };
+}
+
+/** The later of two YYYY-MM-DD dates, either of which may be missing. */
+export function laterDate(a, b) {
+  if (!a) return b || null;
+  if (!b) return a;
+  return a > b ? a : b;
+}
