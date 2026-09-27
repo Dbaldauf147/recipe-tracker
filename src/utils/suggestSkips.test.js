@@ -1,7 +1,10 @@
 // MIRRORED from PrepDay/src/utils/suggestSkips.test.ts — keep the two in step.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { normalizeSuggestSkips, isSkipped, skipRecipe, pruneExpired, localDateKey } from './suggestSkips.js';
+import {
+  normalizeSuggestSkips, isSkipped, skipRecipe, pruneExpired, localDateKey,
+  skipRecipeForMonth, requeueRecipe, laterDate, normalizeSuggestRequeues,
+} from './suggestSkips.js';
 
 const NOW = new Date(2026, 8, 27, 15, 0); // Sep 27 2026, local
 
@@ -33,4 +36,24 @@ test('skipping prunes expired entries', () => {
 
 test('localDateKey pads', () => {
   assert.equal(localDateKey(new Date(2026, 0, 5)), '2026-01-05');
+});
+
+test('a month skip lands on the same day next month', () => {
+  assert.deepEqual(skipRecipeForMonth({}, 'r', NOW), { r: '2026-10-27' });
+  assert.equal(isSkipped(skipRecipeForMonth({}, 'r', NOW), 'r', new Date(2026, 9, 26, 23, 0)), true);
+  assert.equal(isSkipped(skipRecipeForMonth({}, 'r', NOW), 'r', new Date(2026, 9, 27, 0, 1)), false);
+});
+
+test('a month skip clamps to a shorter month and crosses the year', () => {
+  assert.deepEqual(skipRecipeForMonth({}, 'r', new Date(2027, 0, 31)), { r: '2027-02-28' });
+  assert.deepEqual(skipRecipeForMonth({}, 'r', new Date(2026, 11, 15)), { r: '2027-01-15' });
+});
+
+test('back of the line records today, and the later date always wins', () => {
+  assert.deepEqual(requeueRecipe({ a: '2026-01-01' }, 'r', NOW), { a: '2026-01-01', r: '2026-09-27' });
+  assert.deepEqual(normalizeSuggestRequeues({ r: '2026-09-27', bad: 3 }), { r: '2026-09-27' });
+  assert.equal(laterDate(null, '2026-09-27'), '2026-09-27');
+  assert.equal(laterDate('2026-09-30', '2026-09-27'), '2026-09-30', 'eaten since → the real date');
+  assert.equal(laterDate('2026-01-01', '2026-09-27'), '2026-09-27');
+  assert.equal(laterDate(null, null), null);
 });

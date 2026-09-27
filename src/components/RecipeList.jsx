@@ -9,7 +9,10 @@ import { OWNER_EMAIL } from '../utils/pageAccess';
 import { loadUserData, saveField, loadAppDefaults, saveAppDefault, loadFriends, loadFriendRecipes, getPendingSharedRecipes, shareRecipe, getUsername, loadDailyLogFromFirestore } from '../utils/firestoreSync';
 import { copyMealImage, loadAdminMealImages, generateMealImage, getCachedMealImage, getMealImageSyncReport } from '../utils/generateMealImage';
 import { recipeStage } from '../utils/recipeStage';
-import { normalizeSuggestSkips, isSkipped, skipRecipe, SKIP_DAYS } from '../utils/suggestSkips';
+import {
+  normalizeSuggestSkips, isSkipped, skipRecipe, skipRecipeForMonth,
+  normalizeSuggestRequeues, requeueRecipe, laterDate,
+} from '../utils/suggestSkips';
 import { ALL_TAGS, TAG_CATEGORIES, recipeMatchesTags } from '../utils/ingredientTags';
 import { detectCuisine, getRecipeMinShelfDays } from '../utils/detectCuisine';
 import { loadMealGoals, activeProfile } from '../utils/mealGoals';
@@ -300,8 +303,12 @@ export function WhySuggestedPanel({ item, onClose }) {
   };
   const rows = [
     {
-      label: neverCooked ? 'Never cooked (as far as this page knows)' : `Not cooked in ${b.recipeDays} day${b.recipeDays === 1 ? '' : 's'}`,
-      detail: b.lastCooked ? `last logged ${formatLogDate(b.lastCooked)}` : 'no entry in your food log or weekly menus',
+      label: b.requeued
+        ? `Sent to the back of the line ${b.recipeDays <= 0 ? 'today' : `${b.recipeDays} day${b.recipeDays === 1 ? '' : 's'} ago`}`
+        : neverCooked ? 'Never cooked (as far as this page knows)' : `Not cooked in ${b.recipeDays} day${b.recipeDays === 1 ? '' : 's'}`,
+      detail: b.requeued
+        ? `counted as eaten ${formatLogDate(b.lastCooked)}, and so are its key ingredients`
+        : b.lastCooked ? `last logged ${formatLogDate(b.lastCooked)}` : 'no entry in your food log or weekly menus',
       points: b.stalenessPoints,
       note: weightNote('staleness', null),
     },
@@ -705,6 +712,7 @@ export function RecipeList({
       }
       // Skips are cross-device (the phone's long-press writes them too).
       setSuggestSkips(normalizeSuggestSkips(data?.suggestSkips));
+      setSuggestRequeues(normalizeSuggestRequeues(data?.suggestRequeues));
       if (data?.catLayout) {
         setCatLayout(data.catLayout);
         localStorage.setItem('sunday-cat-layout', JSON.stringify(data.catLayout));
@@ -721,13 +729,25 @@ export function RecipeList({
   const [historyTick, setHistoryTick] = useState(0);
   // The suggestion whose scoring is being shown ("why is this suggested?").
   const [whySuggested, setWhySuggested] = useState(null);
-  // Suggested Meals skipped for SKIP_DAYS, synced as `suggestSkips` with the
+  // Suggested Meals skipped for a week or a month, synced as `suggestSkips` with the
   // mobile app. Loaded with the rest of the user doc above.
   const [suggestSkips, setSuggestSkips] = useState({});
-  function skipSuggestion(recipeId) {
+  // `forMonth` → one calendar month instead of a week.
+  function skipSuggestion(recipeId, forMonth = false) {
     setSuggestSkips(prev => {
-      const next = skipRecipe(prev, recipeId);
+      const next = forMonth ? skipRecipeForMonth(prev, recipeId) : skipRecipe(prev, recipeId);
       if (user?.uid) saveField(user.uid, 'suggestSkips', next);
+      return next;
+    });
+  }
+  // "Back of the line": synced as `suggestRequeues`. Scoring counts the day
+  // it was sent back as the last time the meal (and its key ingredients) was
+  // eaten, so it drops to the bottom and climbs back like a meal just had.
+  const [suggestRequeues, setSuggestRequeues] = useState({});
+  function requeueSuggestion(recipeId) {
+    setSuggestRequeues(prev => {
+      const next = requeueRecipe(prev, recipeId);
+      if (user?.uid) saveField(user.uid, 'suggestRequeues', next);
       return next;
     });
   }
@@ -1758,7 +1778,12 @@ export function RecipeList({
 
 
     const scored = candidates.map(recipe => {
-      const lastCooked = lookupLastCooked(recipe);
+      // Sent to the back of the line? That day counts as the last time it was
+      // eaten — unless it really has been eaten since, which is later and wins.
+      const requeuedOn = suggestRequeues[recipe.id] || null;
+      const loggedLast = lookupLastCooked(recipe);
+      const lastCooked = laterDate(loggedLast, requeuedOn);
+      const requeued = !!requeuedOn && lastCooked === requeuedOn && loggedLast !== requeuedOn;
       const recipeDays = lastCooked ? daysSince(lastCooked) : 9999;
 
       // Sum days-since-last-eaten for each key ingredient this recipe has
@@ -1770,7 +1795,7 @@ export function RecipeList({
       for (const keyIng of userIngredients) {
         const normKey = normalize(keyIng);
         if (recipeHasIngredient(recipe, normKey)) {
-          const ingDate = ingredientDateMap[normKey];
+          const ingDate = laterDate(ingredientDateMap[normKey], requeuedOn);
           const ingDays = ingDate ? daysSince(ingDate) : 9999;
           ingredientScore += ingDays;
           const label = keyIng.replace(/_/g, ' ');
@@ -1801,7 +1826,8 @@ export function RecipeList({
 
       // Build reason text
       const parts = [];
-      if (recipeDays === 9999) parts.push('never cooked');
+      if (requeued) parts.push('sent to the back of the line');
+      else if (recipeDays === 9999) parts.push('never cooked');
       else if (recipeDays >= 7) parts.push(`not cooked in ${recipeDays} days`);
       if (neglectedIngredients.length > 0) {
         parts.push('has ' + neglectedIngredients.slice(0, 3).join(', '));
@@ -1813,7 +1839,7 @@ export function RecipeList({
         // The full arithmetic, kept so the panel can show the sum rather than
         // assert a conclusion.
         breakdown: {
-          lastCooked, recipeDays,
+          lastCooked, recipeDays, requeued,
           ingredientScore, ingredientDetails,
           macroScore, boostBonus, totalScore,
           // Raw = what the term is worth before weighting; the *Points/Bonus
@@ -1834,7 +1860,7 @@ export function RecipeList({
     const lunches = withRank(scored.filter(s => s.recipe.category === 'lunch-dinner')).slice(0, 10);
     return { breakfasts, lunches };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [recipes, weeklyPlan, showCommon, showRare, showToTry, showRetired, includeToTry, checkedTypes, checkedCategories, checkedCuisines, checkedTags, checkedSources, historyTick, suggestWeights, suggestSkips]);
+  }, [recipes, weeklyPlan, showCommon, showRare, showToTry, showRetired, includeToTry, checkedTypes, checkedCategories, checkedCuisines, checkedTags, checkedSources, historyTick, suggestWeights, suggestSkips, suggestRequeues]);
 
   return (
     <>
@@ -2825,7 +2851,7 @@ export function RecipeList({
           onContextMenu={e => { e.preventDefault(); setSuggestMenu(null); }} role="presentation">
           <div
             className={styles.suggestMenu}
-            style={{ left: Math.max(8, Math.min(suggestMenu.x, window.innerWidth - 228)), top: Math.max(8, Math.min(suggestMenu.y, window.innerHeight - 200)) }}
+            style={{ left: Math.max(8, Math.min(suggestMenu.x, window.innerWidth - 228)), top: Math.max(8, Math.min(suggestMenu.y, window.innerHeight - 280)) }}
             onClick={e => e.stopPropagation()}
             // The lifting finger can land on the menu itself; don't let that
             // count as picking an item.
@@ -2835,7 +2861,9 @@ export function RecipeList({
           >
             <div className={styles.suggestMenuTitle}>{suggestMenu.item.recipe.title}</div>
             <button role="menuitem" onClick={() => { setWhySuggested(suggestMenu.item); setSuggestMenu(null); }}>Why was this suggested?</button>
-            <button role="menuitem" onClick={() => { skipSuggestion(suggestMenu.item.recipe.id); setSuggestMenu(null); }}>Skip for {SKIP_DAYS} days</button>
+            <button role="menuitem" onClick={() => { skipSuggestion(suggestMenu.item.recipe.id); setSuggestMenu(null); }}>Skip for 1 week</button>
+            <button role="menuitem" onClick={() => { skipSuggestion(suggestMenu.item.recipe.id, true); setSuggestMenu(null); }}>Skip for 1 month</button>
+            <button role="menuitem" onClick={() => { requeueSuggestion(suggestMenu.item.recipe.id); setSuggestMenu(null); }}>Move to back of the line</button>
             <button role="menuitem" onClick={() => { handleAddToWeekWithPulse(suggestMenu.item.recipe.id); setSuggestMenu(null); }}>Add to this week</button>
             <button role="menuitem" onClick={() => { onSelect(suggestMenu.item.recipe.id); setSuggestMenu(null); }}>View recipe</button>
           </div>
