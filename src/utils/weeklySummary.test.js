@@ -933,3 +933,26 @@ test('the Recipes section draws one monthly chart per category, and only when gi
   assert.equal(renderRecipeStages(null), '');
   assert.equal(renderRecipeStages([{ month: '2026-10', counts: null }]), '');
 });
+
+test('lifts hidden or snoozed on the Progress tab stay out of "lifts to watch"', () => {
+  // Three flat lifts over the trailing window → all three read as stagnating.
+  const end = WEEK.days[6];
+  const dayKey = back => {
+    const [y, m, d] = end.split('-').map(Number);
+    return new Date(Date.UTC(y, m - 1, d - back)).toISOString().slice(0, 10);
+  };
+  const flat = name => [0, 7, 14, 21, 28, 35].map(b => ({
+    date: dayKey(b),
+    entries: [{ exercise: name, group: 'Legs', sets: ['10', '10', '10'], weight: '50' }],
+  }));
+  const workouts = [...flat('Toe raises'), ...flat('Leg press'), ...flat('Calf raise')];
+  const names = over => summarizeWeek(emptyData({ workouts, ...over }), WEEK, { withProgress: true })
+    .progress.stagnating.map(r => r.name).sort();
+
+  assert.deepEqual(names({}), ['Calf raise', 'Leg press', 'Toe raises']);
+  assert.deepEqual(names({
+    progressHiddenExercises: ['toe raises'],
+    // Snoozed past the week → hidden; a snooze that ran out before it → shown.
+    progressSnoozedExercises: { 'leg press': '2099-01-01', 'calf raise': '2026-01-01' },
+  }), ['Calf raise']);
+});
