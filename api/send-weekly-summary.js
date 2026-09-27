@@ -18,6 +18,7 @@ import { initializeApp, cert, getApps } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
 import { getAuth } from 'firebase-admin/auth';
 import { sendMail } from '../lib/mailer.js';
+import { CHART_WIDTH, CHART_SCALE } from '../lib/emailCharts.js';
 import { loadHabitLogAdmin } from './_data/habitLogYears.js';
 import {
   lastCompleteWeek, previousWeek, summarizeWeek, isEmptyWeek, renderWeeklySummary, shiftKey,
@@ -179,6 +180,27 @@ async function loadRecipeStages(uid, userData) {
   }
 }
 
+/**
+ * SVG → PNG for the email's line charts, via resvg (a native module). Loaded
+ * once and lazily; if it can't load on this platform the charts fall back to
+ * the table-cell dots rather than taking the email down with them.
+ */
+let rasterizerPromise = null;
+function loadRasterizer() {
+  if (!rasterizerPromise) {
+    rasterizerPromise = import('@resvg/resvg-js')
+      .then(({ Resvg }) => (svg) => new Resvg(svg, {
+        fitTo: { mode: 'width', value: CHART_WIDTH * CHART_SCALE },
+        background: '#ffffff',
+      }).render().asPng())
+      .catch(err => {
+        console.error('[send-weekly-summary] resvg unavailable — charts fall back to dots', err);
+        return null;
+      });
+  }
+  return rasterizerPromise;
+}
+
 /** Build (but don't send) the email for one user. Returns null on an empty week
  *  unless `force` — a manual "send me one now" should always produce something
  *  rather than silently doing nothing. */
@@ -212,6 +234,7 @@ async function buildEmail(uid, userData, todayKey, { force = false } = {}) {
   // inbox.
   const isOwner = String(userData.email || '').trim().toLowerCase() === OWNER_EMAIL;
   const email = renderWeeklySummary({
+    rasterize: await loadRasterizer(),
     stats,
     priorStats,
     goals: userData.nutritionGoals || null,
@@ -270,7 +293,7 @@ export default async function handler(req, res) {
       try {
         const email = await buildEmail(uid, data, dateKey);
         if (!email) { summary.skippedEmpty++; continue; }
-        await sendMail({ to, subject: email.subject, text: email.text, html: email.html });
+        await sendMail({ to, subject: email.subject, text: email.text, html: email.html, attachments: email.attachments });
         await docSnap.ref.update({ weeklySummarySentWeek: week.end });
         summary.sent++;
       } catch (err) {
@@ -314,7 +337,7 @@ async function handleManual(req, res) {
     // The verified token email backfills a user doc that never stored one, so a
     // "send me one now" from the owner still gets the owner's sections.
     const email = await buildEmail(uid, { ...data, email: data.email || tokenEmail }, dateKey, { force: true });
-    await sendMail({ to, subject: email.subject, text: email.text, html: email.html });
+    await sendMail({ to, subject: email.subject, text: email.text, html: email.html, attachments: email.attachments });
     return res.status(200).json({ ok: true, sentTo: to, week: email.week.label });
   } catch (err) {
     console.error('send-weekly-summary manual error:', err);
