@@ -181,6 +181,12 @@ function formatDate(iso) {
     + ' ' + d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
 }
 
+// Logged in (web or app) within the last day — highlighted green in the users table.
+const RECENT_LOGIN_MS = 24 * 60 * 60 * 1000;
+function isRecentIso(iso) {
+  return !!iso && Date.now() - new Date(iso).getTime() <= RECENT_LOGIN_MS;
+}
+
 function timeAgo(iso) {
   if (!iso) return '';
   const diff = Date.now() - new Date(iso).getTime();
@@ -217,11 +223,11 @@ const ADMIN_COLUMNS = [
   { key: 'loginCount', label: 'Web Logins', width: 110, defaultVisible: true, sortKey: 'loginCount',
     render: u => u.loginCount || 0 },
   { key: 'lastLogin', label: 'Last Web Login', width: 140, defaultVisible: true, sortKey: 'lastLogin',
-    render: u => <span title={formatDate(u.lastLogin)}>{u.lastLogin ? timeAgo(u.lastLogin) : '—'}</span> },
+    render: u => <span title={formatDate(u.lastLogin)} className={isRecentIso(u.lastLogin) ? styles.recentWhen : undefined}>{u.lastLogin ? timeAgo(u.lastLogin) : '—'}</span> },
   { key: 'mobileLoginCount', label: 'App Logins', width: 110, defaultVisible: true, sortKey: 'mobileLoginCount',
     render: u => u.mobileLoginCount || 0 },
   { key: 'mobileLastLogin', label: 'Last App Login', width: 140, defaultVisible: true, sortKey: 'mobileLastLogin',
-    render: u => <span title={formatDate(u.mobileLastLogin)}>{u.mobileLastLogin ? timeAgo(u.mobileLastLogin) : '—'}</span> },
+    render: u => <span title={formatDate(u.mobileLastLogin)} className={isRecentIso(u.mobileLastLogin) ? styles.recentWhen : undefined}>{u.mobileLastLogin ? timeAgo(u.mobileLastLogin) : '—'}</span> },
   // Sits after both login pairs so it reads as their sum. Bold, because it's
   // the number you actually compare users on — the split above is the detail.
   { key: 'totalLogins', label: 'Total Logins', width: 110, defaultVisible: true, sortKey: 'totalLogins',
@@ -999,7 +1005,10 @@ export function AdminDashboard({ onClose }) {
       ) : (
         <>
           <div className={styles.tableToolbar}>
-            <h3 className={styles.sourceHeading} style={{ margin: 0, marginRight: 'auto' }}>Users</h3>
+            <h3 className={styles.sourceHeading} style={{ margin: 0 }}>Users</h3>
+            <span style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', marginRight: 'auto' }}>
+              Green rows logged in (web or app) in the last 24 hours.
+            </span>
             <button className={styles.colBtn} onClick={() => setShowCols(v => !v)}>
               ⚙ Columns ({visibleColumns.length}/{columns.length})
             </button>
@@ -1047,7 +1056,7 @@ export function AdminDashboard({ onClose }) {
               </thead>
               <tbody>
                 {sorted.map(u => (
-                  <tr key={u.uid}>
+                  <tr key={u.uid} className={isRecentIso(lastActiveIso(u)) ? styles.recentRow : undefined}>
                     {visibleColumns.map(c => <td key={c.key}>{c.render(u)}</td>)}
                   </tr>
                 ))}

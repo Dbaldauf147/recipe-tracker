@@ -197,6 +197,20 @@
   background: var(--color-surface-alt, #f9fafb);
 }
 
+.table tbody tr.recentRow td {
+  background: rgba(22, 163, 74, 0.08);
+}
+.table tbody tr.recentRow td:first-child {
+  box-shadow: inset 3px 0 0 #16a34a;
+}
+.table tbody tr.recentRow:hover td {
+  background: rgba(22, 163, 74, 0.14);
+}
+.recentWhen {
+  color: #16a34a;
+  font-weight: 700;
+}
+
 .sourceSection {
   background: var(--color-surface);
   border: 1px solid var(--color-border);
