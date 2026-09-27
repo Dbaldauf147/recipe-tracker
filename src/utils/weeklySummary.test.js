@@ -570,7 +570,7 @@ test('protein per meal averages the main meals and leaves snacks out', () => {
   assert.equal(by[6].perMeal, null);
 
   const { html, text } = renderWeeklySummary({ stats: s, priorStats: s });
-  assert.match(html, /Protein per day · g/);
+  assert.doesNotMatch(html, /Protein per day/);
   assert.match(html, /Avg protein per meal · g/);
   assert.match(text, /Avg protein per meal/);
 });
@@ -612,10 +612,10 @@ test('ten weeks with nothing logged still return ten zero points', () => {
   assert.deepEqual(s.meals.ateOutHistory.map(x => x.ateOut), [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
 });
 
-test('the email draws both charts, with the goal line and the week labels', () => {
+test('the email draws the per-meal protein chart, with the goal line and the week labels', () => {
   const dailyLog = {
-    [WEEK.days[0]]: { entries: [{ mealSlot: 'dinner', nutrition: { protein: 160, calories: 900 } }] },
-    [WEEK.days[1]]: { entries: [{ mealSlot: 'dinner', nutrition: { protein: 40, calories: 500 }, eatingOut: true }] },
+    [WEEK.days[0]]: { entries: [{ mealSlot: 'dinner', nutrition: { protein: 60, calories: 900 } }] },
+    [WEEK.days[1]]: { entries: [{ mealSlot: 'dinner', nutrition: { protein: 20, calories: 500 }, eatingOut: true }] },
   };
   const data = emptyData({ dailyLog });
   const s = summarizeWeek(data, WEEK, { withProgress: true });
@@ -624,17 +624,20 @@ test('the email draws both charts, with the goal line and the week labels', () =
     priorStats: summarizeWeek(data, previousWeek(WEEK)),
     goals: { protein: 145 },
   });
-  assert.match(email.html, /Protein per day/);
-  assert.match(email.html, /145g daily goal/);
+  assert.doesNotMatch(email.html, /Protein per day/);
+  assert.doesNotMatch(email.html, /Meals hitting the/);
+  assert.match(email.html, /Avg protein per meal/);
+  assert.match(email.html, /dashed line is 48g \(your daily goal ÷ 3\)/);
   assert.match(email.html, /border-top:1px dashed/);      // the goal line itself
   assert.match(email.html, /Meals eaten out · last 10 weeks/);
   // Columns are labelled by week start, like the weight chart underneath.
   assert.match(email.html, /font-size:10px;color:#111827;white-space:nowrap;">Jul 26</);
-  assert.match(email.html, /#16a34a/);                    // the 160g day beat the goal
-  assert.match(email.html, /#dc2626/);                    // the 40g day fell well short
+  assert.match(email.html, /#16a34a/);                    // the 60g meal beat the goal
+  assert.match(email.html, /#dc2626/);                    // the 20g meal fell well short
   // Plain text carries the same numbers rather than a shrug.
-  assert.match(email.text, /Protein per day \(g\) — goal 145/);
-  assert.match(email.text, /Sun {2}█+░* {2}160 {2}✓/);
+  assert.doesNotMatch(email.text, /Protein per day/);
+  assert.match(email.text, /Avg protein per meal \(g, breakfast\/lunch\/dinner\) — goal 48/);
+  assert.match(email.text, /Sun {2}█+░* {2}60 {2}✓/);
   assert.match(email.text, /Wed {2}·+ {2}no data/);
   assert.match(email.text, /Meals eaten out, last 10 weeks/);
   // The text rows keep the full span even though the chart columns don't.
@@ -646,7 +649,7 @@ test('with no protein goal the chart drops the goal line rather than inventing o
   const data = emptyData({ dailyLog });
   const s = summarizeWeek(data, WEEK, { withProgress: true });
   const email = renderWeeklySummary({ stats: s, priorStats: summarizeWeek(data, previousWeek(WEEK)), goals: {} });
-  assert.match(email.html, /Protein per day/);
+  assert.match(email.html, /Avg protein per meal/);
   assert.doesNotMatch(email.html, /daily goal/);
   assert.doesNotMatch(email.html, /border-top:1px dashed/);
 });
@@ -656,7 +659,7 @@ test('a week with no nutrition at all draws no protein chart', () => {
   const data = emptyData({ dailyLog });
   const s = summarizeWeek(data, WEEK, { withProgress: true });
   const email = renderWeeklySummary({ stats: s, priorStats: summarizeWeek(data, previousWeek(WEEK)), goals: { protein: 145 } });
-  assert.doesNotMatch(email.html, /Protein per day/);
+  assert.doesNotMatch(email.html, /Avg protein per meal/);
   // The eating-out breakdown still renders — zero is a real answer there.
   assert.match(email.html, /Meals eaten out/);
 });
@@ -745,7 +748,7 @@ test('a week that priced nothing is null fibre, not a zero-fibre week', () => {
   assert.deepEqual(h.map(w => w.meals), Array(10).fill(0));
 });
 
-test('the email charts the protein hit rate and the fibre average over ten weeks', () => {
+test('the email charts the fibre average over ten weeks, and no protein hit rate', () => {
   const dailyLog = {
     // 3 priced meals: two clear the 48g per-meal goal (145/3), one doesn't.
     [WEEK.days[0]]: {
@@ -764,18 +767,16 @@ test('the email charts the protein hit rate and the fibre average over ten weeks
     goals: { protein: 145, fiber: 27 },
   });
 
-  assert.match(email.html, /Meals hitting the 48g protein goal · last 10 weeks/);
+  assert.doesNotMatch(email.html, /Meals hitting the/);
   assert.match(email.html, /Avg fibre per meal · g · last 10 weeks/);
   assert.match(email.html, /dashed line is 9g \(your daily goal ÷ 3\)/);
-  // 2 of 3 meals cleared the goal.
-  assert.match(email.html, />67%</);
+  assert.doesNotMatch(email.html, />67%</);
   // (12 + 6 + 3) / 3 = 7.0g — short of the 9g line, so the dot is amber.
   assert.match(email.html, />7\.0</);
   assert.match(email.html, /#d97706/);
 
-  // Plain text carries the same two trends.
-  assert.match(email.text, /Meals hitting the 48g protein goal, last 10 weeks \(%\)/);
-  assert.match(email.text, /Jul 26–Aug 1 {2}█+░* {2}67%/);
+  // Plain text carries the same trend.
+  assert.doesNotMatch(email.text, /Meals hitting the/);
   assert.match(email.text, /Avg fibre per meal, last 10 weeks \(g\) — goal 9/);
   assert.match(email.text, /Jul 26–Aug 1 {2}█+░* {2}7\.0/);
   // A week nobody logged is a dash, not a zero. (Labels are padded to the
@@ -800,6 +801,40 @@ test('with no protein goal the hit-rate chart is dropped rather than assumed', (
   assert.match(email.html, /Avg fibre per meal/);
 });
 
+test('a per-meal protein goal, when set, is the line the per-meal chart draws', () => {
+  const dailyLog = {
+    [WEEK.days[0]]: { entries: [
+      { mealSlot: 'breakfast', nutrition: { protein: 35 } },
+      { mealSlot: 'dinner', nutrition: { protein: 45 } },
+    ] },
+  };
+  const data = emptyData({ dailyLog });
+  const s = summarizeWeek(data, WEEK, { withProgress: true });
+  const email = renderWeeklySummary({
+    stats: s,
+    priorStats: summarizeWeek(data, previousWeek(WEEK)),
+    goals: { protein: 144, proteinPerMeal: 40 },
+  });
+  assert.match(email.html, /dashed line is your 40g per-meal goal/);
+  assert.doesNotMatch(email.html, /daily goal ÷ 3/);
+  assert.match(email.text, /Avg protein per meal \(g, breakfast\/lunch\/dinner\) — goal 40/);
+  // (35 + 45) / 2 = 40 meets the 40g goal.
+  assert.match(email.text, /Sun {2}█+░* {2}40 {2}✓/);
+});
+
+test('a per-meal protein goal works without a daily one', () => {
+  const dailyLog = { [WEEK.days[0]]: { entries: [{ mealSlot: 'lunch', nutrition: { protein: 30 } }] } };
+  const data = emptyData({ dailyLog });
+  const s = summarizeWeek(data, WEEK, { withProgress: true });
+  const email = renderWeeklySummary({
+    stats: s,
+    priorStats: summarizeWeek(data, previousWeek(WEEK)),
+    goals: { proteinPerMeal: 35 },
+  });
+  assert.match(email.html, /dashed line is your 35g per-meal goal/);
+  assert.match(email.html, /border-top:1px dashed/);
+});
+
 test('nobody who logs no fibre gets a fibre chart', () => {
   const dailyLog = {
     [WEEK.days[0]]: { entries: [{ mealSlot: 'dinner', nutrition: { protein: 60 } }] },
@@ -813,8 +848,8 @@ test('nobody who logs no fibre gets a fibre chart', () => {
   });
   assert.doesNotMatch(email.html, /Avg fibre per meal/);
   assert.doesNotMatch(email.text, /Avg fibre per meal/);
-  // The protein hit rate still renders — that week's one meal missed the goal.
-  assert.match(email.html, /Meals hitting the 48g protein goal/);
+  // The per-meal protein chart still renders on its own.
+  assert.match(email.html, /Avg protein per meal/);
 });
 
 // ---- Users chart (owner only) ----------------------------------------------
