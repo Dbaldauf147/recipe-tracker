@@ -125,6 +125,10 @@ async function loadUserWeekData(uid, userData, fromKey, toKey) {
     // Per-region stretch target the Workout page's goal board is set to, so
     // the email's board scores against the same bar. Clamped downstream.
     stretchGoalMin: userData.stretchGoalMin,
+    // Exercises hidden / snoozed on the Workout > Progress tab, so "Lifts to
+    // watch" leaves out the same ones the page does.
+    progressHiddenExercises: Array.isArray(userData.progressHiddenExercises) ? userData.progressHiddenExercises : [],
+    progressSnoozedExercises: userData.progressSnoozedExercises || {},
   };
 }
 
