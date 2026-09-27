@@ -61,16 +61,49 @@ export function weekStart(date = new Date()) {
  * left out rather than counted as your work in progress.
  */
 export function countStages(recipes = []) {
-  const counts = { total: 0, [UNSET_KEY]: 0 };
-  for (const key of STAGE_KEYS) counts[key] = 0;
+  const counts = emptyStageCounts();
   for (const recipe of recipes || []) {
     if (!recipe || recipe.source === 'shared-link') continue;
-    counts.total++;
-    const stage = String(recipe.devStage || '').trim();
-    if (STAGE_KEYS.includes(stage)) counts[stage]++;
-    else counts[UNSET_KEY]++;
+    tallyStage(counts, recipe);
   }
   return counts;
+}
+
+function emptyStageCounts() {
+  const counts = { total: 0, [UNSET_KEY]: 0 };
+  for (const key of STAGE_KEYS) counts[key] = 0;
+  return counts;
+}
+
+function tallyStage(counts, recipe) {
+  counts.total++;
+  const stage = String(recipe.devStage || '').trim();
+  if (STAGE_KEYS.includes(stage)) counts[stage]++;
+  else counts[UNSET_KEY]++;
+}
+
+/** The meal categories broken out for the weekly email, in its order. */
+export const COMMON_CATEGORIES = ['breakfast', 'lunch-dinner'];
+
+/**
+ * Stage counts for the COMMON recipes only, per meal category — the rotation
+ * you actually cook from, as opposed to rare / to-try / retired ones.
+ *
+ * `frequency` and `category` fall back the same way the recipe list does
+ * (no frequency = common, no category = lunch-dinner), so a recipe counts here
+ * exactly when the Recipes page would list it under that heading. Categories
+ * outside COMMON_CATEGORIES (snacks, desserts, drinks) aren't broken out.
+ */
+export function countCommonByCategory(recipes = []) {
+  const out = {};
+  for (const category of COMMON_CATEGORIES) out[category] = emptyStageCounts();
+  for (const recipe of recipes || []) {
+    if (!recipe || recipe.source === 'shared-link') continue;
+    if ((recipe.frequency || 'common') !== 'common') continue;
+    const bucket = out[recipe.category || 'lunch-dinner'];
+    if (bucket) tallyStage(bucket, recipe);
+  }
+  return out;
 }
 
 /** The counts as they'd be stored for `now`'s week. */
@@ -78,6 +111,7 @@ export function stageSnapshot(recipes, now = new Date()) {
   return {
     week: weekStart(now),
     ...countStages(recipes),
+    common: countCommonByCategory(recipes),
     recordedAt: now.toISOString(),
   };
 }
@@ -86,7 +120,10 @@ export function stageSnapshot(recipes, now = new Date()) {
 export function sameCounts(a, b) {
   if (!a || !b) return false;
   if (a.total !== b.total || a[UNSET_KEY] !== b[UNSET_KEY]) return false;
-  return STAGE_KEYS.every(key => a[key] === b[key]);
+  if (!STAGE_KEYS.every(key => a[key] === b[key])) return false;
+  // A row written before the per-category breakdown existed differs from one
+  // with it, so the current week picks the breakdown up on its next reading.
+  return JSON.stringify(a.common || null) === JSON.stringify(b.common || null);
 }
 
 /** Rows sorted oldest-first, one per week, newest write for a week winning. */
@@ -119,16 +156,29 @@ export function recordStageWeek(history, recipes, now = new Date()) {
  * a live one is the truth, so the live one always wins.
  */
 export function mergeMissingWeeks(history, rows) {
-  const have = new Set((Array.isArray(history) ? history : []).map(row => row?.week));
   let out = Array.isArray(history) ? history : [];
+  const byWeek = new Map(out.map(row => [row?.week, row]));
   let added = 0;
+  let filled = 0;
   for (const row of rows || []) {
-    if (!row?.week || have.has(row.week)) continue;
-    have.add(row.week);
+    if (!row?.week) continue;
+    const existing = byWeek.get(row.week);
+    if (existing) {
+      // A recorded week keeps its own counts, but one written before the
+      // per-category breakdown existed can take the breakdown from the backup.
+      if (!existing.common && row.common) {
+        const merged = { ...existing, common: row.common };
+        byWeek.set(row.week, merged);
+        out = upsertWeek(out, merged);
+        filled++;
+      }
+      continue;
+    }
+    byWeek.set(row.week, row);
     out = upsertWeek(out, row);
     added++;
   }
-  return { history: out, added };
+  return { history: out, added, filled };
 }
 
 /**
@@ -162,9 +212,46 @@ export function backfilledRow(week, recipes, backup) {
   return {
     week,
     ...countStages(recipes),
+    common: countCommonByCategory(recipes),
     recordedAt: backup?.timestamp || `${backup?.date || week}T00:00:00.000Z`,
     source: 'backup',
   };
+}
+
+/**
+ * One reading per calendar month of the common-recipe breakdown, oldest first,
+ * for the weekly email's monthly charts.
+ *
+ * A month's reading is the LAST row recorded in it that carries the breakdown
+ * (rows are dated by `recordedAt`, falling back to the week) — the state the
+ * month ended on. `live`, when given, replaces the current month's reading with
+ * the counts right now, so the last column is never stale just because the app
+ * wasn't opened this week.
+ *
+ * Covers up to `months` months ending with `now`'s month, trimmed of leading
+ * months with nothing recorded; a gap in the middle stays as a `null` reading
+ * rather than a zero — nothing recorded is not the same as no recipes.
+ * Returns `[{ month: 'YYYY-MM', counts: { breakfast, 'lunch-dinner' } | null }]`.
+ */
+export function monthlyCommonStages(history, { now = new Date(), months = 12, live = null } = {}) {
+  const lastByMonth = new Map();
+  for (const row of Array.isArray(history) ? history : []) {
+    if (!row?.common) continue;
+    const when = String(row.recordedAt || row.week || '');
+    const month = when.slice(0, 7);
+    if (!/^\d{4}-\d{2}$/.test(month)) continue;
+    const prev = lastByMonth.get(month);
+    if (!prev || when.localeCompare(prev.when) > 0) lastByMonth.set(month, { when, common: row.common });
+  }
+  const out = [];
+  for (let i = months - 1; i >= 0; i--) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    const month = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    const counts = i === 0 && live ? live : (lastByMonth.get(month)?.common || null);
+    out.push({ month, counts });
+  }
+  while (out.length && !out[0].counts) out.shift();
+  return out;
 }
 
 /** 'Sep 21' / 'Sep 21, 2025' — the week's Sunday, short enough for an axis. */

@@ -148,7 +148,9 @@ export function RecipeStageHistory({ recipes = [] }) {
     setBackfill({ busy: true, done: 0, total: 0, message: 'Looking for backups…' });
     try {
       const backups = await listFullBackups(uid);
-      const todo = backupsToBackfill(backups, series);
+      // A week recorded before the common-recipe breakdown existed still gets
+      // its backup read, so the breakdown can be filled in beside its counts.
+      const todo = backupsToBackfill(backups, series.filter(row => row?.common));
       if (todo.length === 0) {
         setBackfill({ busy: false, message: 'No earlier weeks to rebuild — every backed-up week is already recorded.' });
         return;
@@ -168,15 +170,18 @@ export function RecipeStageHistory({ recipes = [] }) {
           console.warn(`Backfill skipped ${backup.id}:`, err);
         }
       }
-      const { history: merged, added } = mergeMissingWeeks(loadStageHistory(), rows);
-      if (added > 0) {
+      const { history: merged, added, filled } = mergeMissingWeeks(loadStageHistory(), rows);
+      if (added > 0 || filled > 0) {
         saveStageHistory(merged, uid);
         setHistory(merged);
       }
       setBackfill({
         busy: false,
-        message: added > 0
-          ? `Rebuilt ${added} earlier week${added === 1 ? '' : 's'} from your backups.`
+        message: added > 0 || filled > 0
+          ? [
+            added > 0 && `Rebuilt ${added} earlier week${added === 1 ? '' : 's'} from your backups.`,
+            filled > 0 && `Added the breakfast / lunch & dinner breakdown to ${filled} recorded week${filled === 1 ? '' : 's'}.`,
+          ].filter(Boolean).join(' ')
           : 'Your backups didn’t hold a recipe snapshot for any missing week.',
       });
     } catch (err) {

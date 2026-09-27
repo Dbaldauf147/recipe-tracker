@@ -915,3 +915,21 @@ test('a snapshot with no per-user rows draws the total line and skips active', (
   assert.doesNotMatch(email.text, /Active \(7d\): 0/);
   assert.match(email.text, /14 total · — active/);
 });
+
+test('the Recipes section draws one monthly chart per category, and only when given', async () => {
+  const { renderRecipeStages } = await import('../../lib/weeklySummary.js');
+  const counts = (nailed, wip, other) => ({ total: nailed + wip + other, nailed, wip, new: other, unset: 0 });
+  const points = [
+    { month: '2026-08', counts: { breakfast: counts(2, 3, 1), 'lunch-dinner': counts(5, 4, 2) } },
+    { month: '2026-09', counts: null },
+    { month: '2026-10', counts: { breakfast: counts(3, 2, 1), 'lunch-dinner': counts(6, 4, 1) } },
+  ];
+  const html = renderRecipeStages(points);
+  assert.match(html, /Breakfast — common recipes by stage/);
+  assert.match(html, /Lunch &amp; dinner|Lunch & dinner/);
+  assert.match(html, /now 6: 3 nailed down, 2 in progress, 1 new \/ no stage/);
+  assert.match(html, /now 11: 6 nailed down, 4 in progress, 1 new \/ no stage/);
+  assert.match(html, />Aug</);
+  assert.equal(renderRecipeStages(null), '');
+  assert.equal(renderRecipeStages([{ month: '2026-10', counts: null }]), '');
+});

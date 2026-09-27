@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import {
   weekStart, countStages, stageSnapshot, sameCounts, upsertWeek,
   recordStageWeek, mergeMissingWeeks, formatWeekLabel, backupsToBackfill, backfilledRow,
+  countCommonByCategory, monthlyCommonStages,
 } from './recipeStageHistory.js';
 
 // A Wednesday, mid-afternoon local.
@@ -131,4 +132,52 @@ test('backfilledRow counts the snapshot and marks where it came from', () => {
   assert.equal(row.wip, 1);
   assert.equal(row.unset, 1);
   assert.equal(row.source, 'backup');
+});
+
+test('countCommonByCategory counts only common recipes, per category, with the list defaults', () => {
+  const c = countCommonByCategory([
+    { category: 'breakfast', devStage: 'nailed' },
+    { category: 'breakfast', frequency: 'common', devStage: 'wip' },
+    { category: 'breakfast', frequency: 'rare', devStage: 'nailed' },     // not common
+    { category: 'breakfast', frequency: 'toTry' },                        // not common
+    { devStage: 'nailed' },                                               // no category → lunch-dinner
+    { category: 'lunch-dinner', devStage: 'new' },
+    { category: 'snacks', devStage: 'nailed' },                           // not broken out
+    { category: 'breakfast', devStage: 'nailed', source: 'shared-link' }, // linked
+  ]);
+  assert.deepEqual(c.breakfast, { total: 2, unset: 0, new: 0, wip: 1, nailed: 1 });
+  assert.deepEqual(c['lunch-dinner'], { total: 2, unset: 0, new: 1, wip: 0, nailed: 1 });
+});
+
+test('a row without the breakdown differs, so this week picks it up', () => {
+  const withIt = stageSnapshot([{ devStage: 'new' }], WED);
+  const { common, ...without } = withIt;
+  assert.ok(common);
+  assert.equal(sameCounts(without, withIt), false);
+});
+
+test('mergeMissingWeeks fills the breakdown into a recorded week without touching its counts', () => {
+  const live = [{ week: '2026-09-20', total: 10, unset: 0, new: 1, wip: 2, nailed: 7 }];
+  const common = countCommonByCategory([{ category: 'breakfast', devStage: 'wip' }]);
+  const { history, added, filled } = mergeMissingWeeks(live, [
+    { week: '2026-09-20', total: 99, unset: 99, new: 0, wip: 0, nailed: 0, common },
+  ]);
+  assert.equal(added, 0);
+  assert.equal(filled, 1);
+  assert.equal(history[0].total, 10, 'counts stay the live ones');
+  assert.deepEqual(history[0].common, common);
+});
+
+test('monthlyCommonStages takes the last reading of each month, and live for this month', () => {
+  const at = (n) => countCommonByCategory(Array.from({ length: n }, () => ({ category: 'breakfast', devStage: 'nailed' })));
+  const history = [
+    { week: '2026-07-05', recordedAt: '2026-07-08T10:00:00.000Z', common: at(1) },
+    { week: '2026-07-26', recordedAt: '2026-07-30T10:00:00.000Z', common: at(2) }, // July ends here
+    { week: '2026-08-30', recordedAt: '2026-08-31T10:00:00.000Z' },               // no breakdown → ignored
+    { week: '2026-09-06', recordedAt: '2026-09-07T10:00:00.000Z', common: at(4) },
+  ];
+  const out = monthlyCommonStages(history, { now: new Date(2026, 9, 3), months: 12, live: at(5) });
+  assert.deepEqual(out.map(p => p.month), ['2026-07', '2026-08', '2026-09', '2026-10'], 'leading empty months trimmed');
+  assert.deepEqual(out.map(p => p.counts ? p.counts.breakfast.total : null), [2, null, 4, 5], 'a gap stays null, not 0');
+  assert.deepEqual(monthlyCommonStages([], { now: new Date(2026, 9, 3) }), []);
 });
