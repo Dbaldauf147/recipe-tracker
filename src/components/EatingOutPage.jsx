@@ -27,6 +27,9 @@ import styles from './EatingOutPage.module.css';
 
 const VISITED_COLOR = '#10b981';
 const WANT_COLOR = '#f59e0b';
+// "Hold off" — somewhere you've decided to leave alone for now. Grey, so it
+// recedes on the map next to the two live statuses.
+const HOLD_COLOR = '#9ca3af';
 const JOANNE_COLOR = '#ec4899';
 // Default starting view for the map — Williamsburg, Brooklyn at a
 // neighborhood-level zoom. Used regardless of geocoded points so the
@@ -91,6 +94,7 @@ function makeMarkerIcon(color) {
 
 const visitedIcon = makeMarkerIcon(VISITED_COLOR);
 const wantIcon = makeMarkerIcon(WANT_COLOR);
+const holdIcon = makeMarkerIcon(HOLD_COLOR);
 const joanneIcon = makeMarkerIcon(JOANNE_COLOR);
 
 // The ★ Next spot (isNextSpot) as a star rather than a dot: a different SHAPE,
@@ -114,6 +118,7 @@ const nextIcon = L.divIcon({
 function markerIconFor(r) {
   if (isNextSpot(r)) return nextIcon;
   if (r.takenJoanne) return joanneIcon;
+  if (r.status === 'hold-off') return holdIcon;
   return r.status === 'visited' ? visitedIcon : wantIcon;
 }
 
@@ -121,7 +126,17 @@ const FILTERS = [
   { key: 'all', label: 'All' },
   { key: 'want-to-try', label: 'Want to try' },
   { key: 'visited', label: 'Visited' },
+  { key: 'hold-off', label: 'Hold off' },
 ];
+
+const STATUS_KEYS = ['want-to-try', 'visited', 'hold-off'];
+// Anything unrecognised reads as Visited — the old two-way rule, kept so a
+// spot written before Hold off existed still labels the way it always did.
+export function statusLabel(status) {
+  if (status === 'want-to-try') return 'Want to try';
+  if (status === 'hold-off') return 'Hold off';
+  return 'Visited';
+}
 
 // NEXT SPOT — the one you've decided on next, pinned to the top of the
 // want-to-try list (`nextSpot: true` on the spot).
@@ -461,7 +476,7 @@ function saveTablePrefs(prefs) {
 function cellValueFor(r, key) {
   switch (key) {
     case 'name': return r.name || '';
-    case 'status': return r.status === 'visited' ? 'Visited' : 'Want to try';
+    case 'status': return statusLabel(r.status);
     case 'takenJoanne': return r.takenJoanne ? '✓' : '';
     case 'rating':
       if (r.rating != null) return '★'.repeat(r.rating) + '☆'.repeat(5 - r.rating);
@@ -1727,7 +1742,7 @@ function SpotDetailModal({ spot, user, onClose, onEdit }) {
   const meta = [
     (spot.cuisines || []).join(', '),
     (spot.locations || []).join(', '),
-    spot.status === 'want-to-try' ? 'Want to try' : 'Visited',
+    statusLabel(spot.status),
   ].filter(Boolean).join(' · ');
   return (
     <div className={styles.modalOverlay} onClick={onClose}>
@@ -2120,14 +2135,14 @@ function EditModal({ initial, onSave, onClose, onDelete, cuisineSuggestions, loc
 
           <label className={styles.fieldLabel}>Status</label>
           <div className={styles.statusRow}>
-            {['want-to-try', 'visited'].map(s => (
+            {STATUS_KEYS.map(s => (
               <button
                 key={s}
                 type="button"
                 className={`${styles.statusBtn} ${status === s ? styles.statusBtnActive : ''}`}
                 onClick={() => setStatus(s)}
               >
-                {s === 'want-to-try' ? 'Want to try' : 'Visited'}
+                {statusLabel(s)}
               </button>
             ))}
           </div>
@@ -2578,6 +2593,7 @@ function RestaurantCard({ r, ratingAgg, ratingHasOthers = false, distanceMiles, 
         )}
         {isNextSpot(r) && <span className={styles.nextBadge} title="Next spot — pinned to the top of Want to try">★ Next</span>}
         {r.status === 'want-to-try' && <span className={styles.wantBadge}>Want to try</span>}
+        {r.status === 'hold-off' && <span className={styles.holdBadge}>Hold off</span>}
         {isRetired && <span className={styles.retiredBadge}>Retired</span>}
         {!r._isMine && r._ownerUsername && (
           <span className={styles.ownerChip} title={`Shared by @${r._ownerUsername}`}>
@@ -2617,6 +2633,7 @@ function RestaurantCard({ r, ratingAgg, ratingHasOthers = false, distanceMiles, 
           <h3 className={styles.cardTitle}>{r.name}</h3>
           {isNextSpot(r) && <span className={styles.nextBadge} title="Next spot — pinned to the top of Want to try">★ Next</span>}
           {r.status === 'want-to-try' && <span className={styles.wantBadge}>Want to try</span>}
+        {r.status === 'hold-off' && <span className={styles.holdBadge}>Hold off</span>}
           {isRetired && <span className={styles.retiredBadge}>Retired</span>}
           {!r._isMine && r._ownerUsername && (
             <span className={styles.ownerChip} title={`Shared by @${r._ownerUsername}`}>
@@ -3293,6 +3310,11 @@ function CategorizePrompt({ queue, cuisineSuggestions, onSave, onClose }) {
             className={`${styles.fileBtn} ${v.status === 'want-to-try' ? styles.fileBtnOn : ''}`}
             onClick={() => set({ status: 'want-to-try' })}
           >Not yet</button>
+          <button
+            type="button"
+            className={`${styles.fileBtn} ${v.status === 'hold-off' ? styles.fileBtnOn : ''}`}
+            onClick={() => set({ status: 'hold-off' })}
+          >Hold off</button>
         </div>
 
         <div className={styles.fileLabel}>Taken Joanne?</div>
@@ -3481,6 +3503,9 @@ export function RestaurantMapView({ items, onSelect }) {
         </span>
         <span className={styles.mapLegendItem}>
           <span className={styles.mapLegendDot} style={{ background: WANT_COLOR }} /> Want to try
+        </span>
+        <span className={styles.mapLegendItem}>
+          <span className={styles.mapLegendDot} style={{ background: HOLD_COLOR }} /> Hold off
         </span>
         <span className={styles.mapLegendItem}>
           <svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true" style={{ display: 'block' }}>
@@ -4591,9 +4616,9 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
     // keeps its manual ▲▼ ranking order within the partition. Skipped when the
     // status filter already narrows to a single group (no-op then anyway).
     else {
-      list = [...list].sort((a, b) =>
-        (a.status === 'visited' ? 1 : 0) - (b.status === 'visited' ? 1 : 0),
-      );
+      // Hold off sinks below both: it's the list of places you're NOT going to.
+      const rank = r => (r.status === 'hold-off' ? 2 : r.status === 'visited' ? 1 : 0);
+      list = [...list].sort((a, b) => rank(a) - rank(b));
     }
     // The Next Spot pin outranks every ordering above it, including proximity:
     // it is an explicit "this is the one", so it should not slide down the page
@@ -4728,10 +4753,11 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
     const target = visible.find(r => r.id === restaurantId);
     if (!target) return;
     const ownerUid = target._ownerUid;
-    // Reorder within the item's own group — Want-to-try and Ranked (Visited)
-    // are shown as separate sections, so ▲▼ shouldn't swap across the divide.
-    const isWant = target.status === 'want-to-try';
-    const sameOwner = visible.filter(r => r._ownerUid === ownerUid && (r.status === 'want-to-try') === isWant);
+    // Reorder within the item's own group — Want-to-try, Ranked (Visited) and
+    // Hold off are shown as separate sections, so ▲▼ shouldn't swap across them.
+    const groupOf = r => (r.status === 'want-to-try' || r.status === 'hold-off' ? r.status : 'ranked');
+    const group = groupOf(target);
+    const sameOwner = visible.filter(r => r._ownerUid === ownerUid && groupOf(r) === group);
     const vi = sameOwner.findIndex(r => r.id === restaurantId);
     const vj = dir === 'up' ? vi - 1 : vi + 1;
     if (vi < 0 || vj < 0 || vj >= sameOwner.length) return;
@@ -5629,7 +5655,8 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
               // Want-to-try floats above, unnumbered; the numbered ranking below
               // is just the spots I've ranked (Visited).
               const wantGroup = visible.filter(r => r.status === 'want-to-try');
-              const rankedGroup = visible.filter(r => r.status !== 'want-to-try');
+              const rankedGroup = visible.filter(r => r.status !== 'want-to-try' && r.status !== 'hold-off');
+              const holdGroup = visible.filter(r => r.status === 'hold-off');
               const rankedSeqByOwner = {};
               for (const r of rankedGroup) (rankedSeqByOwner[r._ownerUid] = rankedSeqByOwner[r._ownerUid] || []).push(r.id);
               return (
@@ -5645,6 +5672,12 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
                     <>
                       {wantGroup.length > 0 && <div style={labelStyle}>Ranked</div>}
                       <div className={gridClass}>{rankedGroup.map((r, i) => renderCard(r, i + 1, rankedSeqByOwner[r._ownerUid] || []))}</div>
+                    </>
+                  )}
+                  {holdGroup.length > 0 && (
+                    <>
+                      <div style={labelStyle}>Hold off ({holdGroup.length})</div>
+                      <div className={gridClass}>{holdGroup.map(r => renderCard(r, null, []))}</div>
                     </>
                   )}
                 </>

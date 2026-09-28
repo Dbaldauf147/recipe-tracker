@@ -333,7 +333,7 @@ function buildRestaurantFromRow(cells, mapping, now) {
 
   const explicitId = (collected.id || [])[0];
   const explicitStatusRaw = ((collected.status || [])[0] || '').toLowerCase().trim();
-  const explicitStatus = (explicitStatusRaw === 'want-to-try' || explicitStatusRaw === 'visited')
+  const explicitStatus = (explicitStatusRaw === 'want-to-try' || explicitStatusRaw === 'visited' || explicitStatusRaw === 'hold-off')
     ? explicitStatusRaw
     : null;
   const status = explicitStatus || inferStatus({ ratingLabel, lastVisit, frequency });
