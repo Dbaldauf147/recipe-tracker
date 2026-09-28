@@ -8,6 +8,7 @@ import { auth } from '../firebase';
 import { anonymousReason, accountEvidence, unidentifiedAccounts } from '../utils/duplicateAccounts';
 import { previewMerge, mergeRecipes } from '../utils/mergeAccounts';
 import { UsersOverTimeChart } from './UsersOverTimeChart';
+import { MealLogReports } from './MealLogReports';
 import styles from './AdminDashboard.module.css';
 
 /**
@@ -1439,6 +1440,8 @@ export function AdminDashboard({ onClose }) {
           {setupDone && <span style={{ color: 'var(--color-success)', fontWeight: 600, fontSize: '0.88rem' }}>Saved! User can now sign up with that email.</span>}
         </div>
       </div>
+
+      <MealLogReports users={users} />
 
       {/* Copy Workout Library to Another User */}
       <div className={styles.sourceSection}>
