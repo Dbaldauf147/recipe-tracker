@@ -4314,6 +4314,13 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
   // Filtering to a location/bucket already narrows `visible`, so the pop-out
   // just ranks that — no separate scoping to keep in step.
   const [rankingPopout, setRankingPopout] = useState(null);
+  // A neighbourhood or bucket chip pops its ranking only from the plain list.
+  // On the map, table, Try Next or Rankings views the chip is there to FILTER
+  // what you're looking at — a modal over the map is the opposite of that, and
+  // the Rankings view already is the ranking. Clearing (null) always closes it.
+  const popRanking = (label) => {
+    setRankingPopout(label && viewMode === 'list' ? label : null);
+  };
   // List density: 'compact' shows just rank + name (more places per screen),
   // 'detailed' shows the full cards with photos/ratings. Persisted per browser.
   const [listDensity, setListDensity] = useState(() => {
@@ -5446,11 +5453,12 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
                     type="button"
                     className={`${styles.tagFilter} ${isActiveLoc(l.name) ? styles.tagFilterActive : ''}`}
                     onClick={() => {
-                      // Turning a group ON filters to it AND pops its ranking;
-                      // clicking the active chip again just clears the filter.
+                      // Turning a group ON filters to it (and, in the list view,
+                      // pops its ranking); clicking the active chip again just
+                      // clears the filter.
                       const on = !isActiveLoc(l.name);
                       setActiveLocation(on ? l.name : null);
-                      setRankingPopout(on ? l.name : null);
+                      popRanking(on ? l.name : null);
                     }}
                   >
                     📍 {l.name} ({l.count})
@@ -5469,7 +5477,7 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
                 onClick={() => {
                   const on = activeBucket !== b.key;
                   setActiveBucket(on ? b.key : null);
-                  setRankingPopout(on ? b.label : null);
+                  popRanking(on ? b.label : null);
                 }}
               >
                 {b.icon} {b.label}
