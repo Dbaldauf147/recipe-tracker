@@ -61,8 +61,34 @@ function habitTrackDays(h) {
   return Array.isArray(t) && t.length > 0 ? t : ALL_WEEKDAYS;
 }
 export function tracksDate(h, date = new Date()) {
-  if (cadenceCanon(h?.cadence) !== 'Daily') return true;
+  const canon = cadenceCanon(h?.cadence);
+  if (canon === 'Monthly') return monthlyDueIn(h, periodKey('Monthly', date));
+  if (canon !== 'Daily') return true;
   return habitTrackDays(h).includes(date.getDay());
+}
+
+// A MONTHLY habit can repeat every N months (`monthEvery`, 1 = every month)
+// counted from `monthAnchor` ('YYYY-MM'). Months in between are OFF — not due,
+// never owed, not a miss — the monthly analog of a Daily habit's trackDays.
+// ⚠️ MIRRORS PrepDay/src/utils/habitTracking.ts `habitMonthEvery` /
+// `monthlyDueIn` — keep the two identical.
+export function habitMonthEvery(h) {
+  if (cadenceCanon(h?.cadence) !== 'Monthly') return 1;
+  const n = Math.floor(Number(h?.monthEvery) || 1);
+  return n > 1 ? n : 1;
+}
+function monthIndex(key) {
+  const m = /^(\d{4})-(\d{2})$/.exec(key || '');
+  return m ? Number(m[1]) * 12 + Number(m[2]) - 1 : null;
+}
+/** Is `monthKey` ('YYYY-MM') one of this habit's due months? Always true for every-month. */
+export function monthlyDueIn(h, monthKey) {
+  const n = habitMonthEvery(h);
+  if (n <= 1) return true;
+  const a = monthIndex(h?.monthAnchor);
+  const k = monthIndex(monthKey);
+  if (a == null || k == null) return true;
+  return (((k - a) % n) + n) % n === 0;
 }
 
 // Weekly per-habit pinned day (`weekDays`): the habit isn't "due" until its
