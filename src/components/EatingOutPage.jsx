@@ -67,6 +67,19 @@ const GOOGLE_MAPS_URL_RE = /(?:\/\/|\.)(?:google\.[a-z.]+\/maps|maps\.google\.[a
  * thing that says which one you meant. Address search is for the rows with no
  * coordinates, and bare coordinates for the ones with no name worth searching.
  */
+/**
+ * A plain Google web search for the spot — its name plus where it is, so a
+ * common name ("Sweetgreen", "The Bar") lands on the right place. Used by the
+ * categorize prompt, where you're deciding what a place IS and want its menu,
+ * reviews and photos, not just a pin.
+ */
+function googleSearchUrl(r) {
+  const name = (r?.name || '').trim();
+  if (!name) return null;
+  const where = (r?.address || '').trim() || (r?.locations || []).find(Boolean) || '';
+  return `https://www.google.com/search?q=${encodeURIComponent([name, where].filter(Boolean).join(' '))}`;
+}
+
 function googleMapsUrl(r) {
   const own = (r?.url || '').trim();
   if (own && GOOGLE_MAPS_URL_RE.test(own)) return own;
@@ -3276,6 +3289,17 @@ function CategorizePrompt({ queue, cuisineSuggestions, onSave, onClose }) {
         <h3 className={styles.fileName}>{spot.name}</h3>
         {(spot.address || spot.description) && (
           <p className={styles.fileMeta}>{spot.address || spot.description}</p>
+        )}
+        {/* New tab, so the prompt — and your place in the queue — stays put. */}
+        {googleSearchUrl(spot) && (
+          <a
+            className={styles.fileSearchBtn}
+            href={googleSearchUrl(spot)}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            Search Google ↗
+          </a>
         )}
 
         <div className={styles.fileLabel}>Which bucket?</div>
