@@ -444,6 +444,16 @@
   text-overflow: ellipsis;
 }
 
+.holdBadge {
+  background: #F3F4F6;
+  color: #4B5563;
+  font-size: 0.7rem;
+  font-weight: 700;
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+  flex-shrink: 0;
+}
+
 .wantBadge {
   background: #FEF3C7;
   color: #92400E;
