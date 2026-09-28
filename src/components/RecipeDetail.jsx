@@ -12,6 +12,7 @@ import {
 } from '../utils/unitWeights';
 import { ingredientMatchScore } from '../utils/ingredientMatch';
 import { VOLUME_TO_ML, WEIGHT_TO_G, SIZE_GRAMS, getSizeGrams } from '../utils/units';
+import { volumeGrams } from '../utils/volumeGrams';
 import { classifyMealType } from '../utils/classifyMealType';
 import { uploadMealImage, deleteMealImage, getCachedMealImage, generateMealImage } from '../utils/generateMealImage';
 import { getIngredientTags, getTagInfo } from '../utils/ingredientTags';
@@ -1020,6 +1021,16 @@ export function RecipeDetail({ recipe, allTags = [], onSave, onDelete, onBack, o
     const dbGrams = getDbGrams(row.ingredient);
     const dbMeas = normalizeUnit(getDbMeasurement(row.ingredient) || '');
     if (dbGrams > 0 && dbMeas && dbMeas === m) return qty * dbGrams;
+    // A different VOLUME than the database's: tablespoons of something weighed
+    // per cup. Volumes convert exactly, so the one density answers both —
+    // first from the ingredient's own measurement, then from any taught unit
+    // that is itself a volume ("1 cup = 30 g" of spinach). See volumeGrams.js.
+    const viaDb = volumeGrams(qty, m, dbGrams, dbMeas);
+    if (viaDb != null) return viaDb;
+    for (const w of dbRow?.unitWeights || []) {
+      const viaUnit = volumeGrams(qty, m, w.grams, normalizeUnit(w.unit || ''));
+      if (viaUnit != null) return viaUnit;
+    }
     const sized = getSizeGrams(row.ingredient, m);
     if (sized > 0) return qty * sized;
     return null;
@@ -3302,7 +3313,6 @@ export function RecipeDetail({ recipe, allTags = [], onSave, onDelete, onBack, o
                                         type="text"
                                         value={name}
                                         disabled={!teachable}
-                                        placeholder="stick"
                                         aria-label="Unit name"
                                         onChange={e => teachUnit(row, i, { name: e.target.value })}
                                       />

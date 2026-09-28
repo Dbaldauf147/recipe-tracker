@@ -1483,9 +1483,14 @@
 .ingredientTable {
   width: 100%;
   border-collapse: collapse;
+  /* A grid: every cell ruled on all four sides, so a row's columns read
+     straight down like a spreadsheet. Drag-to-reorder is unaffected — the
+     rows are still the draggable <tr>s, with the ☰ handle cell on the left. */
+  border: 1px solid var(--color-border);
 }
 
 .ingredientTable th {
+  border: 1px solid var(--color-border);
   text-align: left;
   font-size: 0.68rem;
   font-weight: 700;
@@ -1500,12 +1505,8 @@
 
 .ingredientTable td {
   padding: 0.5rem 0.75rem;
-  border-bottom: 1px solid var(--color-border-light);
+  border: 1px solid var(--color-border);
   vertical-align: middle;
-}
-
-.ingredientTable tbody tr:last-child td {
-  border-bottom: none;
 }
 
 .ingredientTable tbody tr:hover {
