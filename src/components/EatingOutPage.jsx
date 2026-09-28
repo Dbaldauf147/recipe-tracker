@@ -16,6 +16,7 @@ import {
   IMPORT_FIELDS,
 } from '../utils/restaurantImport';
 import { downloadRestaurantsCsv } from '../utils/restaurantExport';
+import { spotCategories, withMergedCategories, mergeCategoryLists } from '../utils/spotCategories';
 import { locationsFromGeocode, mergeLocations } from '../utils/spotLocations';
 import { saveSpotForOwner, saveEatingOutOrder, subscribeSpotComments, addSpotComment, deleteSpotComment, subscribeSpotRatings, subscribeEatingOutRatings, setEatingOutRating, spotPhotoDocId, loadSpotImageAt, saveSpotImageAt, deleteSpotImageAt } from '../utils/firestoreSync';
 // Canvas resize helper shared with the exercise-photo uploader — same ≤800px
@@ -426,16 +427,16 @@ function syncDietTags(existing, health) {
 }
 
 // Whether a spot belongs to a bucket filter. 'unsorted' matches spots with no
-// buckets; otherwise the bucket must be assigned, OR a free-text Category must
-// contain the bucket's label (so a "coffee shops" category is still caught by
-// the Coffee filter even on a spot that was never bucketed).
+// buckets; otherwise the bucket must be assigned, OR one of the spot's
+// categories must contain the bucket's label (so a "coffee shops" category is
+// still caught by the Coffee filter even on a spot that was never bucketed).
 function restaurantMatchesBucket(r, bucketKey) {
   if (!bucketKey) return true;
   const buckets = bucketsOf(r);
   if (bucketKey === 'unsorted') return buckets.length === 0;
   if (buckets.includes(bucketKey)) return true;
   const term = bucketLabel(bucketKey).toLowerCase();
-  return term ? (r.categories || []).some(c => (c || '').toLowerCase().includes(term)) : false;
+  return term ? spotCategories(r).some(c => c.toLowerCase().includes(term)) : false;
 }
 
 // Table view: column registry, defaults, and per-user width/visibility prefs.
@@ -444,9 +445,11 @@ const TABLE_COLUMNS = [
   { key: 'status', label: 'Status', width: 110, visible: true },
   { key: 'takenJoanne', label: 'Joanne', width: 70, visible: true },
   { key: 'rating', label: 'Rating', width: 120, visible: true },
-  { key: 'cuisines', label: 'Cuisines', width: 180, visible: true },
+  // The spot's one category list (stored as `cuisines`). The separate
+  // 'categories' column went when the two lists merged; a saved pref for it is
+  // simply ignored (columns are built from this registry, not from the prefs).
+  { key: 'cuisines', label: 'Categories', width: 180, visible: true },
   { key: 'locations', label: 'Locations', width: 180, visible: true },
-  { key: 'categories', label: 'Categories', width: 180, visible: true },
   { key: 'address', label: 'Address', width: 260, visible: true },
   { key: 'mealType', label: 'Buckets', width: 140, visible: true },
   { key: 'frequency', label: 'Frequency', width: 100, visible: true },
@@ -478,9 +481,8 @@ function cellValueFor(r, key) {
     case 'rating':
       if (r.rating != null) return '★'.repeat(r.rating) + '☆'.repeat(5 - r.rating);
       return r.ratingLabel || '';
-    case 'cuisines': return (r.cuisines || []).join(', ');
+    case 'cuisines': return spotCategories(r).join(', ');
     case 'locations': return (r.locations || []).join(', ');
-    case 'categories': return (r.categories || []).join(', ');
     case 'address': return r.address || '';
     case 'mealType': return bucketsOf(r).map(bucketLabel).filter(Boolean).join(', ');
     case 'frequency': return r.frequency
@@ -1252,7 +1254,9 @@ const CUISINE_TOP_N = 3;
 
 /**
  * The same ranking, cut by cuisine — "best Thai", "best pizza" — so the answer
- * doesn't need one filter-and-look per cuisine.
+ * doesn't need one filter-and-look per cuisine. ("Cuisine" here is the spot's
+ * category list — the UI says "By category"; the old separate `categories`
+ * list is merged in at read time, see utils/spotCategories.js.)
  *
  * A spot with several cuisines is ranked under EACH of them, which is the point:
  * a place tagged Italian + Pizza is a candidate for both questions. Cuisines are
@@ -1779,15 +1783,16 @@ function SpotDetailModal({ spot, user, onClose, onEdit }) {
   );
 }
 
-function EditModal({ initial, onSave, onClose, onDelete, cuisineSuggestions, locationSuggestions, categorySuggestions = [], user }) {
+function EditModal({ initial, onSave, onClose, onDelete, cuisineSuggestions, locationSuggestions, user }) {
   const [name, setName] = useState(initial.name || '');
   const [url, setUrl] = useState(initial.url || '');
   const [imageUrl, setImageUrl] = useState(initial.imageUrl || '');
   const [description, setDescription] = useState(initial.description || '');
   const [notes, setNotes] = useState(initial.notes || '');
-  const [cuisines, setCuisines] = useState(initial.cuisines || []);
+  // The spot's one category list (stored as `cuisines`; any pre-merge
+  // `categories` are folded in — see utils/spotCategories.js).
+  const [cuisines, setCuisines] = useState(() => spotCategories(initial));
   const [locations, setLocations] = useState(initial.locations || []);
-  const [categories, setCategories] = useState(initial.categories || []);
   const [rating, setRating] = useState(initial.rating ?? null);
   const [ratingLabel, setRatingLabel] = useState(initial.ratingLabel || '');
   const [status, setStatus] = useState(initial.status || 'want-to-try');
@@ -1940,9 +1945,11 @@ function EditModal({ initial, onSave, onClose, onDelete, cuisineSuggestions, loc
       imageUrl: imageUrl.trim() || undefined,
       description: description.trim() || undefined,
       notes: notes.trim() || undefined,
-      cuisines,
+      // One category list. `categories` is the pre-merge field, cleared on
+      // every save so a category removed here can't come back from it.
+      cuisines: spotCategories({ cuisines }),
       locations,
-      categories,
+      categories: [],
       rating,
       ratingLabel: ratingLabel.trim() || undefined,
       status,
@@ -2050,12 +2057,12 @@ function EditModal({ initial, onSave, onClose, onDelete, cuisineSuggestions, loc
             </p>
           )}
 
-          <label className={styles.fieldLabel}>Cuisines / food types</label>
+          <label className={styles.fieldLabel}>Categories</label>
           <TagChips
             values={cuisines}
             onChange={setCuisines}
             suggestions={cuisineSuggestions}
-            placeholder="Type a cuisine and press Enter"
+            placeholder="Type a category and press Enter"
           />
 
           <label className={styles.fieldLabel}>Neighborhoods / cities</label>
@@ -2064,14 +2071,6 @@ function EditModal({ initial, onSave, onClose, onDelete, cuisineSuggestions, loc
             onChange={setLocations}
             suggestions={locationSuggestions}
             placeholder="Type a location and press Enter"
-          />
-
-          <label className={styles.fieldLabel}>Categories (for voting)</label>
-          <TagChips
-            values={categories}
-            onChange={setCategories}
-            suggestions={categorySuggestions}
-            placeholder="e.g., coffee shops, date spots — press Enter"
           />
 
           <label className={styles.fieldLabel}>Buckets</label>
@@ -2848,13 +2847,13 @@ function TryNextView({
     }
   };
   groups.forEach(g => pushGroup(g.key, g.label, lastHadLabel(g.lastHad), !g.lastHad, g.spots));
-  if (noCuisine.length > 0) pushGroup('__none__', 'No cuisine set', '—', false, noCuisine);
+  if (noCuisine.length > 0) pushGroup('__none__', 'No category set', '—', false, noCuisine);
 
   return (
     <div className={styles.rankingsView}>
       <p className={styles.tryNextIntro}>
-        Your want-to-try list by cuisine, the ones you have gone longest without
-        first. “Never tried” means no visited spot in that cuisine carries a date.
+        Your want-to-try list by category, the ones you have gone longest without
+        first. “Never tried” means no visited spot in that category carries a date.
       </p>
       {/* Bucket subtabs. These ARE the page's bucket filter, not a second one:
           a local copy would sit alongside the sidebar's bucket chips with no
@@ -2920,7 +2919,7 @@ function TryNextView({
         <p className={styles.rankingEmpty}>
           {activeBucket
             ? 'Nothing on the want-to-try list in this bucket. Pick another tab, or put a spot in this bucket from its popup.'
-            : 'Nothing on the want-to-try list yet. Add a place and set its status to “Want to try”, and it will show up here under its cuisine.'}
+            : 'Nothing on the want-to-try list yet. Add a place and set its status to “Want to try”, and it will show up here under its category.'}
         </p>
       ) : layout === 'table' ? (
         <div className={styles.tableScroll}>
@@ -2933,7 +2932,7 @@ function TryNextView({
             </colgroup>
             <thead>
               <tr>
-                <th style={{ padding: '0.5rem 0.7rem' }}>Cuisine</th>
+                <th style={{ padding: '0.5rem 0.7rem' }}>Category</th>
                 <th style={{ padding: '0.5rem 0.7rem' }}>Last had</th>
                 <th style={{ padding: '0.5rem 0.7rem' }}>Try next</th>
                 <th style={{ padding: '0.5rem 0.7rem' }}>Where</th>
@@ -3010,7 +3009,7 @@ function TryNextView({
         {noCuisine.length > 0 && (
           <section className={styles.rankingGroup}>
             <h3 className={styles.rankingGroupHead}>
-              <span className={styles.rankingGroupName}>No cuisine set</span>
+              <span className={styles.rankingGroupName}>No category set</span>
               <span className={styles.rankingGroupCount}>{noCuisine.length} to try</span>
             </h3>
             <ol className={styles.rankingList}>
@@ -3075,15 +3074,15 @@ function RestaurantRankings({
           className={`${styles.filterBtn} ${grouped ? styles.filterBtnActive : ''}`}
           onClick={() => onGroupedChange(true)}
         >
-          By cuisine
+          By category
         </button>
       </div>
 
       {grouped ? (
         byCuisine.groups.length === 0 ? (
           <p className={styles.rankingEmpty}>
-            No cuisine has a spot rated for {metricLabel} yet — open a place, give it a
-            cuisine, and fill in the Ratings table.
+            No category has a spot rated for {metricLabel} yet — open a place, give it a
+            category, and fill in the Ratings table.
           </p>
         ) : (
           <div className={styles.rankingGroups}>
@@ -3142,7 +3141,7 @@ function RestaurantRankings({
           {byCuisine.noCuisine.length > 0 && (
             <p className={styles.rankingUnrated}>
               {byCuisine.noCuisine.length} place{byCuisine.noCuisine.length === 1 ? '' : 's'} with
-              no cuisine set{' — '}
+              no category set{' — '}
               {byCuisine.noCuisine.slice(0, 6).map(r => r.name).join(', ')}
               {byCuisine.noCuisine.length > 6 ? '…' : ''}
             </p>
@@ -3219,7 +3218,7 @@ function CategorizePrompt({ queue, cuisineSuggestions, onSave, onClose }) {
   // What to SHOW: the spot as it stands, with this card's answers on top.
   const v = {
     buckets: bucketsOf(spot),
-    cuisines: spot.cuisines || [],
+    cuisines: spotCategories(spot),
     status: spot.status || '',
     takenJoanne: !!spot.takenJoanne,
     ...draft,
@@ -3237,7 +3236,12 @@ function CategorizePrompt({ queue, cuisineSuggestions, onSave, onClose }) {
         // mealType is kept in step with buckets everywhere else (CSV, mobile).
         patch.mealType = draft.buckets[0];
       }
-      if (draft.cuisines && draft.cuisines.length > 0) patch.cuisines = draft.cuisines;
+      // `categories` is the pre-merge list, already folded into v.cuisines;
+      // cleared so a category removed here can't come back from it.
+      if (draft.cuisines && draft.cuisines.length > 0) {
+        patch.cuisines = draft.cuisines;
+        patch.categories = [];
+      }
       if (draft.status) patch.status = draft.status;
       // Stored as true-or-absent, the shape the editor saves, so a "no" clears
       // the field rather than writing a falsy value the filters must know about.
@@ -3286,12 +3290,12 @@ function CategorizePrompt({ queue, cuisineSuggestions, onSave, onClose }) {
           })}
         </div>
 
-        <div className={styles.fileLabel} style={{ marginTop: '0.85rem' }}>Cuisine</div>
+        <div className={styles.fileLabel} style={{ marginTop: '0.85rem' }}>Category</div>
         <TagChips
           values={v.cuisines}
           onChange={next => set({ cuisines: next })}
           suggestions={cuisineSuggestions}
-          placeholder="Type a cuisine and press Enter"
+          placeholder="Type a category and press Enter"
         />
 
         <div className={styles.fileLabel} style={{ marginTop: '0.85rem' }}>Been there?</div>
@@ -3586,6 +3590,15 @@ function RestaurantTable({ items, allItems, onRowClick, myRestaurantIds, bulkUpd
     const value = tagValue.trim();
     if (!value) return;
     applyUpdate(r => {
+      // Categories: edit the merged list (old `categories` folded in) and clear
+      // the pre-merge field, so a removed category can't come back from it.
+      if (tagField === 'cuisines') {
+        const arr = spotCategories(r);
+        const has = arr.some(x => x.toLowerCase() === value.toLowerCase());
+        if (remove ? !has : has) return null;
+        const next = remove ? arr.filter(x => x.toLowerCase() !== value.toLowerCase()) : [...arr, value];
+        return { cuisines: next, categories: [] };
+      }
       const arr = r[tagField] || [];
       if (remove) return { [tagField]: arr.filter(x => x.toLowerCase() !== value.toLowerCase()) };
       if (arr.some(x => x.toLowerCase() === value.toLowerCase())) return null;
@@ -3754,7 +3767,7 @@ function RestaurantTable({ items, allItems, onRowClick, myRestaurantIds, bulkUpd
           <div className={styles.bulkGroup}>
             <span className={styles.bulkLabel}>Tag</span>
             <select className={styles.bulkSelect} value={tagField} onChange={e => setTagField(e.target.value)}>
-              <option value="cuisines">Cuisine</option>
+              <option value="cuisines">Category</option>
               <option value="locations">Location</option>
             </select>
             <input className={styles.bulkInput} list="bulk-tag-suggestions" value={tagValue}
@@ -3952,7 +3965,7 @@ function RestaurantTable({ items, allItems, onRowClick, myRestaurantIds, bulkUpd
   );
 }
 
-// One list (Cuisines or Categories) inside the ⚙ popup. This is the old
+// The Category list inside the ⚙ popup. This is the old
 // left-sidebar menu relocated here: every row filters the page on click (and
 // closes the popup), and each row carries a hover control to manage the master
 // list — remove a curated entry, or add an in-use-but-unlisted tag. Edits
@@ -4227,42 +4240,32 @@ function BucketSettingsModal({ buckets, counts, onSave, onClose }) {
   );
 }
 
-// The ⚙ popup: the single home for Cuisines & Categories. Filter the page from
-// here (click a row) and manage the master lists in the same place. Soft source
-// of truth — the lists seed the menu + edit-modal suggestions, but free-text
-// tags on an individual spot still work.
+// The ⚙ popup: the single home for Categories. Filter the page from here
+// (click a row) and manage the master list in the same place. Soft source of
+// truth — the list seeds the menu + edit-modal suggestions, but free-text tags
+// on an individual spot still work. There used to be a second, separate
+// "Categories (for voting)" list here; it was merged into this one on
+// 2026-09-28 (see utils/spotCategories.js). The props keep the `cuisine` names
+// because the storage field is still `cuisines`.
 function MasterListSettingsModal({
-  cuisines, categories, cuisineCounts, categoryCounts,
-  activeCuisine, activeCategory, onFilterCuisine, onFilterCategory,
-  onSetCuisines, onSetCategories, onClose,
+  cuisines, cuisineCounts, activeCuisine, onFilterCuisine, onSetCuisines, onClose,
 }) {
   return (
     <div className={styles.modalOverlay} onClick={onClose}>
       <div className={styles.modal} onClick={e => e.stopPropagation()}>
         <div className={styles.modalHeader}>
-          <h2 className={styles.modalTitle}>Cuisines & Categories</h2>
+          <h2 className={styles.modalTitle}>Categories</h2>
           <button type="button" className={styles.iconBtn} onClick={onClose}>✕</button>
         </div>
         <div className={styles.modalBody}>
           <MasterListSection
-            title="Cuisines"
-            help="Click one to filter the list. Hover a row to remove it, or ＋ an in-use tag to add it."
+            title="Categories"
+            help="Every ranking groups by these. Click one to filter the list. Hover a row to remove it, or ＋ an in-use category to add it."
             values={cuisines}
             counts={cuisineCounts}
             activeFilter={activeCuisine}
             onFilter={onFilterCuisine}
             onSetValues={onSetCuisines}
-            placeholder="Add a cuisine and press Enter"
-          />
-          <MasterListSection
-            title="Categories"
-            help="Voting buckets (e.g. Date night). Click one to filter; hover to remove or ＋ add."
-            itemPrefix="🏷 "
-            values={categories}
-            counts={categoryCounts}
-            activeFilter={activeCategory}
-            onFilter={onFilterCategory}
-            onSetValues={onSetCategories}
             placeholder="Add a category and press Enter"
           />
         </div>
@@ -4297,14 +4300,17 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
   }), [revealedRatings]);
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState('all');
-  const [activeCuisine, setActiveCuisine] = useState(null);
+  // The category filter. Categories are stored as `cuisines` — the separate
+  // "Categories (for voting)" list and its own filter were merged into this one
+  // on 2026-09-28 (see utils/spotCategories.js), so `initialCategory` (a deep
+  // link from elsewhere in the app) seeds it too.
+  const [activeCuisine, setActiveCuisine] = useState(initialCategory);
   // Default the neighborhood filter to Williamsburg (the app's home area — also
   // the map's default center). Case-insensitive match downstream, so the exact
   // stored casing doesn't matter; toggling the Williamsburg pill clears it.
   const [activeLocation, setActiveLocation] = useState('Williamsburg');
   const [activeBucket, setActiveBucket] = useState(null);
   const [activeHealth, setActiveHealth] = useState(null);
-  const [activeCategory, setActiveCategory] = useState(initialCategory);
   const [showRetired, setShowRetired] = useState(false);
   const [proximityQuery, setProximityQuery] = useState('');
   const [proximityCenter, setProximityCenter] = useState(null);
@@ -4323,7 +4329,9 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
   // My curated master vocabulary, loaded from my own user doc. `null` = never
   // saved (so the settings editor seeds itself from whatever tags are already
   // in use). These seed suggestions + the sidebar; they don't restrict what
-  // can be typed on a spot — see cuisineSuggestions / categorySuggestions.
+  // can be typed on a spot — see cuisineSuggestions. `masterCategories` is the
+  // pre-merge second list (eatingOutCategories), only read so it can be folded
+  // into the category list; the next save empties it.
   const [masterCuisines, setMasterCuisines] = useState(null);
   const [masterCategories, setMasterCategories] = useState(null);
   // Default to List view — it's where the ranking controls live, so voting is
@@ -4384,7 +4392,7 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
     const ownerUids = [user.uid, ...sharerUids.split('|').filter(Boolean)];
     // The list itself moved to users/{uid}/data/eatingOut, so each owner needs
     // two listeners: the subdoc for the spots, and the user doc for the things
-    // that stayed on it (username, master cuisine/category lists, buckets).
+    // that stayed on it (username, master category list, buckets).
     const listUnsubs = ownerUids.map(uid => subscribeRestaurants(uid, (rows) => {
       setOwnerData(prev => ({
         ...prev,
@@ -4445,14 +4453,16 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
   }, [user?.uid, sharerUids]);
 
   // Tag each restaurant with the owner so downstream logic (persist, badges,
-  // voting) knows where each row came from.
+  // voting) knows where each row came from. Also folds any pre-merge
+  // `categories` into `cuisines` (the one category list) so every filter,
+  // count, ranking, card and export below sees a single merged list.
   const restaurants = useMemo(() => {
     const out = [];
     for (const [ownerUid, entry] of Object.entries(ownerData)) {
       if (!entry || !Array.isArray(entry.restaurants)) continue;
       for (const r of entry.restaurants) {
         out.push({
-          ...r,
+          ...withMergedCategories(r),
           _ownerUid: ownerUid,
           _ownerUsername: entry.username,
           _isMine: ownerUid === user?.uid,
@@ -4466,22 +4476,16 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
   // in use, so the master list drives the vocabulary without ever hiding a tag
   // that's actually on a spot (soft source of truth).
   const cuisineSuggestions = useMemo(() => {
-    const set = new Set(masterCuisines || []);
+    const set = new Set(mergeCategoryLists(masterCuisines, masterCategories));
     for (const r of restaurants) for (const c of (r.cuisines || [])) set.add(c);
     return Array.from(set).sort((a, b) => a.localeCompare(b));
-  }, [restaurants, masterCuisines]);
+  }, [restaurants, masterCuisines, masterCategories]);
 
   const locationSuggestions = useMemo(() => {
     const set = new Set();
     for (const r of restaurants) for (const l of (r.locations || [])) set.add(l);
     return Array.from(set).sort();
   }, [restaurants]);
-
-  const categorySuggestions = useMemo(() => {
-    const set = new Set(masterCategories || []);
-    for (const r of restaurants) for (const c of (r.categories || [])) set.add(c);
-    return Array.from(set).sort((a, b) => a.localeCompare(b));
-  }, [restaurants, masterCategories]);
 
 
   const locationEntries = useMemo(() => {
@@ -4492,13 +4496,12 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
       if (activeCuisine && !(r.cuisines || []).some(c => c.toLowerCase() === activeCuisine.toLowerCase())) continue;
       if (activeBucket && !restaurantMatchesBucket(r, activeBucket)) continue;
       if (activeHealth && healthOf(r) !== activeHealth) continue;
-      if (activeCategory && !(r.categories || []).some(c => c.toLowerCase() === activeCategory.toLowerCase())) continue;
       for (const l of (r.locations || [])) {
         counts.set(l, (counts.get(l) || 0) + 1);
       }
     }
     return locationSuggestions.map(l => ({ name: l, count: counts.get(l) || 0 }));
-  }, [restaurants, locationSuggestions, filter, activeCuisine, activeBucket, activeHealth, activeCategory, showRetired]);
+  }, [restaurants, locationSuggestions, filter, activeCuisine, activeBucket, activeHealth, showRetired]);
 
   // Locations that exist on MY own list (lowercased) — only these can be
   // bulk-renamed, since renaming never touches a friend's shared list.
@@ -4542,16 +4545,15 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
     if (activeLocation && !(r.locations || []).some(l => l.toLowerCase() === activeLocation.toLowerCase())) return false;
     if (bucket && activeBucket && !restaurantMatchesBucket(r, activeBucket)) return false;
     if (activeHealth && healthOf(r) !== activeHealth) return false;
-    if (activeCategory && !(r.categories || []).some(c => c.toLowerCase() === activeCategory.toLowerCase())) return false;
     if (q) {
       const hay = [
         r.name, r.dish, r.address, r.notes, r.description, r.ratingLabel,
-        ...(r.cuisines || []), ...(r.locations || []), ...(r.categories || []),
+        ...(r.cuisines || []), ...(r.locations || []),
       ].filter(Boolean).join(' ').toLowerCase();
       if (!hay.includes(q)) return false;
     }
     return true;
-  }, [filter, activeCuisine, activeLocation, activeBucket, activeHealth, activeCategory, showRetired, search]);
+  }, [filter, activeCuisine, activeLocation, activeBucket, activeHealth, showRetired, search]);
 
   /**
    * How much of the list you have actually been to. Counts `hasBeenVisited`
@@ -4655,17 +4657,20 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
     }
   }, [user?.uid, ownerData]);
 
-  // Save the curated master lists (from the ⚙ Settings panel) to my own doc,
-  // optimistically so the sidebar/suggestions update immediately.
-  const persistMasterLists = useCallback(async (cuisines, categories) => {
+  // Save the curated master category list (from the ⚙ Categories panel) to my
+  // own doc, optimistically so the sidebar/suggestions update immediately. The
+  // list is stored as eatingOutCuisines; the pre-merge eatingOutCategories is
+  // written empty so it can't feed old entries back in.
+  const persistMasterLists = useCallback(async (list) => {
     if (!user?.uid) return;
+    const cuisines = mergeCategoryLists(list, []);
     setMasterCuisines(cuisines);
-    setMasterCategories(categories);
+    setMasterCategories([]);
     try {
-      await saveOwnerEatingOutLists(user.uid, { cuisines, categories });
+      await saveOwnerEatingOutLists(user.uid, { cuisines, categories: [] });
     } catch (err) {
       console.error('Failed to save Eating Out master lists:', err);
-      alert(`Couldn't save your cuisine/category lists — ${err?.message || 'try again'}`);
+      alert(`Couldn't save your category list — ${err?.message || 'try again'}`);
     }
   }, [user?.uid]);
 
@@ -4705,30 +4710,17 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
   const myCuisineCounts = useMemo(() => {
     const counts = new Map();
     for (const r of (ownerData[user?.uid]?.restaurants || [])) {
-      for (const c of (r.cuisines || [])) counts.set(c, (counts.get(c) || 0) + 1);
-    }
-    return counts;
-  }, [ownerData, user?.uid]);
-
-  const myCategoryCounts = useMemo(() => {
-    const counts = new Map();
-    for (const r of (ownerData[user?.uid]?.restaurants || [])) {
-      for (const c of (r.categories || [])) counts.set(c, (counts.get(c) || 0) + 1);
+      for (const c of spotCategories(r)) counts.set(c, (counts.get(c) || 0) + 1);
     }
     return counts;
   }, [ownerData, user?.uid]);
 
   // Usage across ALL visible spots (mine + friends'). These drive the counts +
   // the "in use, not listed" rows in the ⚙ popup, so filtering by a friend's
-  // cuisine is reachable even if I've never used it myself.
+  // category is reachable even if I've never used it myself.
   const allCuisineCounts = useMemo(() => {
     const counts = new Map();
     for (const r of restaurants) for (const c of (r.cuisines || [])) counts.set(c, (counts.get(c) || 0) + 1);
-    return counts;
-  }, [restaurants]);
-  const allCategoryCounts = useMemo(() => {
-    const counts = new Map();
-    for (const r of restaurants) for (const c of (r.categories || [])) counts.set(c, (counts.get(c) || 0) + 1);
     return counts;
   }, [restaurants]);
 
@@ -4739,12 +4731,12 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
     () => Array.from(myCuisineCounts.keys()).sort((a, b) => a.localeCompare(b)),
     [myCuisineCounts],
   );
-  const seededCategories = useMemo(
-    () => Array.from(myCategoryCounts.keys()).sort((a, b) => a.localeCompare(b)),
-    [myCategoryCounts],
+  // The pre-merge second master list (eatingOutCategories) is folded in until
+  // the next save empties it.
+  const effectiveMasterCuisines = useMemo(
+    () => mergeCategoryLists(masterCuisines ?? seededCuisines, masterCategories),
+    [masterCuisines, seededCuisines, masterCategories],
   );
-  const effectiveMasterCuisines = masterCuisines ?? seededCuisines;
-  const effectiveMasterCategories = masterCategories ?? seededCategories;
 
   // Rank = the item's 1-based position in the currently-visible (filtered) list,
   // which is itself in master order. So numbers auto-renumber when you filter.
@@ -4858,6 +4850,8 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
       if (r.id !== spot.id) return r;
       const merged = { ...r, ...patch };
       if (patch.health) merged.dietTags = syncDietTags(r.dietTags, patch.health);
+      // Categories changed → drop the pre-merge list so nothing comes back.
+      if (Array.isArray(patch.cuisines)) merged.categories = [];
       return merged;
     });
     persistOwner(ownerUid, next);
@@ -4991,7 +4985,10 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
       const patch = updater(r);
       if (!patch) return r;
       changed++;
-      return { ...r, ...patch, updatedAt: new Date().toISOString() };
+      // A category edit clears the pre-merge `categories` list, whichever
+      // updater made it, so a removed category can't reappear from it.
+      const clear = Array.isArray(patch.cuisines) ? { categories: [] } : null;
+      return { ...r, ...patch, ...clear, updatedAt: new Date().toISOString() };
     });
     if (changed) persistOwner(user.uid, next);
   }, [ownerData, user?.uid, persistOwner]);
@@ -5013,7 +5010,10 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
     const spots = Object.entries(patches)
       .map(([id, patch]) => {
         const current = myList.find(r => r.id === id);
-        return current ? { ...current, ...patch, updatedAt: now } : null;
+        if (!current) return null;
+        // Categories changed → the pre-merge list is cleared with them.
+        const clear = Array.isArray(patch.cuisines) ? { categories: [] } : null;
+        return { ...current, ...patch, ...clear, updatedAt: now };
       })
       .filter(Boolean);
     if (spots.length === 0) return;
@@ -5040,9 +5040,12 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
     persistOwner(user.uid, myList.filter(r => !idSet.has(r.id)));
   }, [ownerData, user?.uid, persistOwner]);
 
-  function handleBulkImport(rows, strategy) {
+  function handleBulkImport(incoming, strategy) {
     // Bulk operations only target MY own list — shared rows are excluded.
     if (!user?.uid) return;
+    // The importer already writes one category list; this also folds a stray
+    // pre-merge `categories` field on any row into `cuisines`.
+    const rows = incoming.map(r => (Array.isArray(r?.categories) ? withMergedCategories(r) : r));
     const myList = ownerData[user.uid]?.restaurants || [];
     let next;
     let summary;
@@ -5218,14 +5221,6 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
     );
   }, [user?.uid, ownerData, persistOwner]);
 
-  // Selecting a category jumps to List view, the only place the per-category
-  // vote controls (🥇🥈🥉 picks) render. Deselecting leaves the view as-is.
-  function selectCategory(name) {
-    const next = activeCategory === name ? null : name;
-    setActiveCategory(next);
-    if (next && viewMode !== 'list') setViewMode('list');
-  }
-
   return (
     <RatingRevealContext.Provider value={ratingReveal}>
     <div className={styles.page}>
@@ -5233,7 +5228,7 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
         <h1 className={styles.title}>Eating Out</h1>
         {/* How much of the list you've actually been to. Follows every filter
             except Want-to-try / Visited — see passesFilters — so filtering to a
-            cuisine or a neighbourhood re-asks the question of that slice. */}
+            category or a neighbourhood re-asks the question of that slice. */}
         {triedStats.pct != null && (
           <span
             className={styles.triedStat}
@@ -5287,9 +5282,9 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
           type="button"
           className={styles.secondaryBtn}
           onClick={() => setSettingsOpen(true)}
-          title="Filter and manage cuisines & categories"
+          title="Filter by and manage categories"
         >
-          ⚙ Cuisines / Categories
+          ⚙ Categories
         </button>
         <button type="button" className={styles.primaryBtn} onClick={() => setAdding(true)}>
           + Add restaurant
@@ -5297,7 +5292,7 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
       </div>
 
       <div className={styles.layout}>
-        {/* Cuisines & Categories menus moved into the ⚙ popup (header). The
+        {/* The Categories menu moved into the ⚙ popup (header). The
             active filter is surfaced as a removable chip in the toolbar below. */}
         <main className={styles.main}>
           {geocodingProgress && (
@@ -5323,7 +5318,7 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
               className={styles.searchInput}
               value={search}
               onChange={e => setSearch(e.target.value)}
-              placeholder="Search restaurants, cuisines, places, dishes…"
+              placeholder="Search restaurants, categories, places, dishes…"
             />
             <div className={styles.filterRow}>
               {FILTERS.map(f => (
@@ -5397,29 +5392,17 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
             )}
           </div>
 
-          {(activeCuisine || activeCategory) && (
+          {activeCuisine && (
             <div className={styles.activeFilters}>
               <span className={styles.activeFiltersLabel}>Filtered:</span>
-              {activeCuisine && (
-                <button
-                  type="button"
-                  className={styles.activeFilterChip}
-                  onClick={() => setActiveCuisine(null)}
-                  title="Clear cuisine filter"
-                >
-                  {activeCuisine} <span className={styles.activeFilterX}>✕</span>
-                </button>
-              )}
-              {activeCategory && (
-                <button
-                  type="button"
-                  className={styles.activeFilterChip}
-                  onClick={() => setActiveCategory(null)}
-                  title="Clear category filter"
-                >
-                  🏷 {activeCategory} <span className={styles.activeFilterX}>✕</span>
-                </button>
-              )}
+              <button
+                type="button"
+                className={styles.activeFilterChip}
+                onClick={() => setActiveCuisine(null)}
+                title="Clear category filter"
+              >
+                {activeCuisine} <span className={styles.activeFilterX}>✕</span>
+              </button>
               <button
                 type="button"
                 className={styles.activeFiltersManage}
@@ -5706,10 +5689,9 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
 
       {adding && (
         <EditModal
-          initial={{ status: 'want-to-try', cuisines: [], locations: [], categories: [], rating: null }}
+          initial={{ status: 'want-to-try', cuisines: [], locations: [], rating: null }}
           cuisineSuggestions={cuisineSuggestions}
           locationSuggestions={locationSuggestions}
-          categorySuggestions={categorySuggestions}
           onSave={handleSave}
           onClose={() => setAdding(false)}
         />
@@ -5737,7 +5719,6 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
           initial={editing}
           cuisineSuggestions={cuisineSuggestions}
           locationSuggestions={locationSuggestions}
-          categorySuggestions={categorySuggestions}
           onSave={handleSave}
           onClose={() => setEditing(null)}
           onDelete={() => handleDelete(editing)}
@@ -5783,18 +5764,13 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
       {settingsOpen && (
         <MasterListSettingsModal
           cuisines={effectiveMasterCuisines}
-          categories={effectiveMasterCategories}
           cuisineCounts={allCuisineCounts}
-          categoryCounts={allCategoryCounts}
           activeCuisine={activeCuisine}
-          activeCategory={activeCategory}
           // Filtering closes the popup so the results are visible immediately.
           onFilterCuisine={(name) => { setActiveCuisine(name); setSettingsOpen(false); }}
-          onFilterCategory={(name) => { selectCategory(name); setSettingsOpen(false); }}
-          // Managing auto-saves. Persist BOTH lists (using the effective value of
-          // the untouched one) so a first edit doesn't wipe the seeded other list.
-          onSetCuisines={(next) => persistMasterLists(next, effectiveMasterCategories)}
-          onSetCategories={(next) => persistMasterLists(effectiveMasterCuisines, next)}
+          // Managing auto-saves. The list edited is the effective (seeded +
+          // merged) one, so a first edit keeps everything already shown.
+          onSetCuisines={(next) => persistMasterLists(next)}
           onClose={() => setSettingsOpen(false)}
         />
       )}
