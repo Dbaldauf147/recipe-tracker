@@ -4162,20 +4162,28 @@ function RoutineSection({ cadenceName, list, habitLog, habitLogAuto, streaks, au
           const sel = selected.has(cellId(h.id, w.key));
           // A Daily habit limited to certain weekdays: dim + disable its off-days
           // (mirrors the old day-strip) so untracked days read as inactive.
-          // Same for a Monthly habit's in-between months when it repeats every N.
-          const off = (w.date && cadenceCanon(h.cadence) === 'Daily' && !tracksDate(h, w.date))
-            || (cadenceCanon(h.cadence) === 'Monthly' && !monthlyDueIn(h, w.key));
-          const disabled = off;
-          // Off-days show a derived Skip (⏭) — not stored, not clickable.
+          const dailyOff = !!(w.date && cadenceCanon(h.cadence) === 'Daily' && !tracksDate(h, w.date));
+          // A Monthly habit's in-between months (repeats every N) are off too,
+          // but stay CLICKABLE: a mark logged before N changed must remain
+          // correctable, and mobile lets you tap any month.
+          const monthOff = cadenceCanon(h.cadence) === 'Monthly' && !monthlyDueIn(h, w.key);
+          const off = dailyOff || monthOff;
+          const disabled = dailyOff;
+          // Off cells without a mark show a derived Skip (⏭) — not stored.
           const shown = mark || (off ? 'skipped' : undefined);
+          // Render dimmed/greyed only when showing the derived skip; a real mark
+          // in an off month renders normally.
+          const offLook = dailyOff || (monthOff && !mark);
           // Auto-tracked habits: explain on hover why this cell was / wasn't
           // auto-recorded, appended to the normal date/action tooltip.
-          const autoTip = off ? '' : autoStatusFor(h.id, w.key, mark);
+          const autoTip = offLook ? '' : autoStatusFor(h.id, w.key, mark);
+          const actionTip = muted ? `${w.fullLabel} — click to set this yourself`
+            : (bulkMode ? 'Click to select' : `${w.fullLabel} — click to cycle, hold for the menu`);
           // Automatic rows are muted but NOT read-only: the engine's guess is
           // yours to correct, and a mark you set here is never overwritten by it.
-          const baseTip = off ? (cadenceCanon(h.cadence) === 'Monthly' ? `Off month — due every ${habitMonthEvery(h)} months` : 'Off day — counts as a skip')
-            : muted ? `${w.fullLabel} — click to set this yourself`
-            : (bulkMode ? 'Click to select' : `${w.fullLabel} — click to cycle, hold for the menu`);
+          const baseTip = dailyOff ? 'Off day — counts as a skip'
+            : monthOff ? `Off month — due every ${habitMonthEvery(h)} months — ${actionTip}`
+            : actionTip;
           // Empty, tracked, and already arrived: this is the box to click. It
           // gets an amber ring rather than a mark — the cell is still blank, and
           // drawing anything mark-shaped in it would read as an answer you'd
@@ -4186,7 +4194,7 @@ function RoutineSection({ cadenceName, list, habitLog, habitLogAuto, streaks, au
             autoTip,
           ].filter(Boolean).join(' — ') || undefined;
           return (
-            <td key={w.key} title={disabled ? cellTitle : undefined} style={{ ...tdBase, padding: 2, borderLeft: `1px ${w.isNext ? 'dashed' : 'solid'} ${borderCol}`, textAlign: 'center', background: off ? '#f8fafc' : ((w.isCurrent && !mark) ? ACCENT + '08' : undefined) }}>
+            <td key={w.key} title={disabled ? cellTitle : undefined} style={{ ...tdBase, padding: 2, borderLeft: `1px ${w.isNext ? 'dashed' : 'solid'} ${borderCol}`, textAlign: 'center', background: offLook ? '#f8fafc' : ((w.isCurrent && !mark) ? ACCENT + '08' : undefined) }}>
               <HoldButton
                 disabled={disabled}
                 // Bulk mode keeps its old meaning — a click is a selection, and
@@ -4205,8 +4213,8 @@ function RoutineSection({ cadenceName, list, habitLog, habitLogAuto, streaks, au
                   border: sel ? `2px solid ${ACCENT}` : (shown ? `1px solid ${MARK_META[shown].color}66` : (waiting ? `1px dashed ${NEEDS_LOG_COLOR}` : '1px solid transparent')),
                   background: sel ? ACCENT + '22' : (shown ? MARK_META[shown].color + '22' : (waiting ? NEEDS_LOG_COLOR + '14' : 'transparent')),
                   color: shown ? MARK_META[shown].color : (waiting ? NEEDS_LOG_COLOR : '#d1d5db'), fontWeight: 800, fontSize: '0.9rem',
-                  // Derived off-day skips render dimmer than a mark you tapped.
-                  opacity: off ? 0.5 : (w.isNext && !mark && !sel ? 0.5 : 1),
+                  // Derived off-day/off-month skips render dimmer than a mark you tapped.
+                  opacity: offLook ? 0.5 : (w.isNext && !mark && !sel ? 0.5 : 1),
                 }}
               >
                 {shown ? MARK_META[shown].icon : (waiting ? '!' : '·')}
