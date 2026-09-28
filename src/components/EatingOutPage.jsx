@@ -92,8 +92,26 @@ const visitedIcon = makeMarkerIcon(VISITED_COLOR);
 const wantIcon = makeMarkerIcon(WANT_COLOR);
 const joanneIcon = makeMarkerIcon(JOANNE_COLOR);
 
-// Marker color priority: Joanne overrides visited/want-to-try when set.
+// The ★ Next spot (isNextSpot) as a star rather than a dot: a different SHAPE,
+// not just a different colour, so it reads among a map full of amber
+// want-to-try dots without anyone having to tell two ambers apart. Larger than
+// the dots and drawn on top of them (zIndexOffset on the Marker).
+const NEXT_STAR_SIZE = 30;
+const NEXT_STAR_PATH = 'M12 1.8l3.1 6.6 7.2.9-5.3 5 1.4 7.1L12 17.9l-6.4 3.5 1.4-7.1-5.3-5 7.2-.9z';
+const nextIcon = L.divIcon({
+  className: 'restaurant-marker restaurant-marker-next',
+  html: `<svg width="${NEXT_STAR_SIZE}" height="${NEXT_STAR_SIZE}" viewBox="0 0 24 24" `
+    + `style="display:block;overflow:visible;filter:drop-shadow(0 1px 2px rgba(0,0,0,0.45));">`
+    + `<path d="${NEXT_STAR_PATH}" fill="${WANT_COLOR}" stroke="#ffffff" stroke-width="1.6" stroke-linejoin="round"/></svg>`,
+  iconSize: [NEXT_STAR_SIZE, NEXT_STAR_SIZE],
+  iconAnchor: [NEXT_STAR_SIZE / 2, NEXT_STAR_SIZE / 2],
+  popupAnchor: [0, -NEXT_STAR_SIZE / 2],
+});
+
+// Marker priority: the ★ Next star first (it's the one decision on the map),
+// then Joanne over visited/want-to-try.
 function markerIconFor(r) {
+  if (isNextSpot(r)) return nextIcon;
   if (r.takenJoanne) return joanneIcon;
   return r.status === 'visited' ? visitedIcon : wantIcon;
 }
@@ -3353,7 +3371,7 @@ function isBeenTo(r) {
   return hasBeenVisited(r) || !!r?.takenJoanne;
 }
 
-function RestaurantMapView({ items, onSelect }) {
+export function RestaurantMapView({ items, onSelect }) {
   const [showVisited, setShowVisited] = useState(false);
   const shown = useMemo(
     () => (showVisited ? items : items.filter(r => !isBeenTo(r))),
@@ -3411,10 +3429,14 @@ function RestaurantMapView({ items, onSelect }) {
               key={r.id}
               position={[r.lat, r.lng]}
               icon={markerIconFor(r)}
+              zIndexOffset={isNextSpot(r) ? 1000 : 0}
             >
               <Popup>
                 <div className={styles.mapPopup}>
                   <strong>{r.name}</strong>
+                  {isNextSpot(r) && (
+                    <div className={styles.mapPopupMeta} style={{ fontWeight: 600 }}>★ Next spot</div>
+                  )}
                   {r.takenJoanne && (
                     <div className={styles.mapPopupMeta} style={{ color: JOANNE_COLOR, fontWeight: 600 }}>
                       Taken Joanne here
@@ -3455,6 +3477,12 @@ function RestaurantMapView({ items, onSelect }) {
         </span>
         <span className={styles.mapLegendItem}>
           <span className={styles.mapLegendDot} style={{ background: WANT_COLOR }} /> Want to try
+        </span>
+        <span className={styles.mapLegendItem}>
+          <svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true" style={{ display: 'block' }}>
+            <path d={NEXT_STAR_PATH} fill={WANT_COLOR} stroke="#ffffff" strokeWidth="1.6" strokeLinejoin="round" />
+          </svg>
+          Next spot
         </span>
         <span className={styles.mapLegendItem}>
           <span className={styles.mapLegendDot} style={{ background: JOANNE_COLOR }} /> Taken Joanne
