@@ -112,13 +112,21 @@ const nextIcon = L.divIcon({
   popupAnchor: [0, -NEXT_STAR_SIZE / 2],
 });
 
-// Marker priority: the ★ Next star first (it's the one decision on the map),
-// then Joanne over visited/want-to-try.
+// ONE map category per spot, in marker priority: the ★ Next star first (it's
+// the one decision on the map), then Joanne, then Hold off, then been-to
+// (status visited OR a lastVisit), else want-to-try. The legend toggles these
+// same categories, so what you switch off is exactly what you see disappear.
+// ⚠️ MIRRORED on mobile (PrepDay eating-out RestaurantMap) — keep the order identical.
+function mapCategoryOf(r) {
+  if (isNextSpot(r)) return 'next';
+  if (r?.takenJoanne) return 'joanne';
+  if (r?.status === 'hold-off') return 'hold';
+  if (hasBeenVisited(r)) return 'visited';
+  return 'want';
+}
+const MARKER_ICONS = { next: nextIcon, joanne: joanneIcon, hold: holdIcon, visited: visitedIcon, want: wantIcon };
 function markerIconFor(r) {
-  if (isNextSpot(r)) return nextIcon;
-  if (r.takenJoanne) return joanneIcon;
-  if (r.status === 'hold-off') return holdIcon;
-  return r.status === 'visited' ? visitedIcon : wantIcon;
+  return MARKER_ICONS[mapCategoryOf(r)];
 }
 
 const FILTERS = [
@@ -3379,27 +3387,69 @@ function RankingPopout({
   );
 }
 
-/**
- * The map answers "where could I go", so a place you've already been to is
- * noise on it — 196 of 345 pins here, enough to bury the 149 that are still
- * questions. Somewhere you took Joanne counts as been-to even if the status
- * never got set.
- *
- * Hidden, not dropped: the toggle brings them back, because "show me
- * everything I've eaten in this neighbourhood" is a real thing to want, just
- * not the default one.
- */
-function isBeenTo(r) {
-  return hasBeenVisited(r) || !!r?.takenJoanne;
+// The map answers "where could I go", so places you've already been (and
+// ones you took Joanne to) are hidden by default: they'd bury the spots that
+// are still questions. Each legend item toggles its category; the choice is
+// remembered per viewer in this browser, stored as the ARRAY of categories
+// switched OFF, so a category added later defaults on.
+const MAP_LEGEND_KEY = 'prepday-eatingout-map-legend';
+const MAP_CATEGORIES = ['want', 'next', 'visited', 'hold', 'joanne'];
+const MAP_LEGEND_DEFAULT_OFF = ['visited', 'joanne'];
+function legendFromOff(off) {
+  const out = {};
+  for (const k of MAP_CATEGORIES) out[k] = !off.includes(k);
+  return out;
 }
+function readMapLegend() {
+  try {
+    const raw = localStorage.getItem(MAP_LEGEND_KEY);
+    if (raw) {
+      const saved = JSON.parse(raw);
+      if (Array.isArray(saved)) return legendFromOff(saved.filter(k => typeof k === 'string'));
+    }
+  } catch { /* unreadable storage → defaults */ }
+  return legendFromOff(MAP_LEGEND_DEFAULT_OFF);
+}
+function writeMapLegend(on) {
+  try {
+    localStorage.setItem(MAP_LEGEND_KEY, JSON.stringify(MAP_CATEGORIES.filter(k => !on[k])));
+  } catch { /* private mode / blocked storage */ }
+}
+function MapLegendSwatch({ category }) {
+  if (category === 'next') {
+    return (
+      <svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true" style={{ display: 'block' }}>
+        <path d={NEXT_STAR_PATH} fill={WANT_COLOR} stroke="#ffffff" strokeWidth="1.6" strokeLinejoin="round" />
+      </svg>
+    );
+  }
+  const color = { visited: VISITED_COLOR, joanne: JOANNE_COLOR, hold: HOLD_COLOR }[category] || WANT_COLOR;
+  return <span className={styles.mapLegendDot} style={{ background: color }} aria-hidden="true" />;
+}
+const MAP_LEGEND_ITEMS = [
+  { key: 'want', label: 'Want to try' },
+  { key: 'next', label: 'Next spot' },
+  { key: 'visited', label: 'Visited' },
+  { key: 'hold', label: 'Hold off' },
+  { key: 'joanne', label: 'Taken Joanne' },
+];
 
 export function RestaurantMapView({ items, onSelect }) {
-  const [showVisited, setShowVisited] = useState(false);
+  const [legendOn, setLegendOn] = useState(readMapLegend);
+  const toggleCategory = key => setLegendOn(prev => {
+    const next = { ...prev, [key]: !prev[key] };
+    writeMapLegend(next);
+    return next;
+  });
+  const categoryCounts = useMemo(() => {
+    const c = { want: 0, next: 0, visited: 0, hold: 0, joanne: 0 };
+    for (const r of items) c[mapCategoryOf(r)]++;
+    return c;
+  }, [items]);
   const shown = useMemo(
-    () => (showVisited ? items : items.filter(r => !isBeenTo(r))),
-    [items, showVisited],
+    () => items.filter(r => legendOn[mapCategoryOf(r)]),
+    [items, legendOn],
   );
-  const hiddenCount = items.length - shown.length;
   const mapPoints = useMemo(() => {
     const out = [];
     for (const r of shown) {
@@ -3423,7 +3473,7 @@ export function RestaurantMapView({ items, onSelect }) {
     }
     return out;
   }, [shown]);
-  // Counts only the spots we MEANT to plot — otherwise the hidden been-to ones
+  // Counts only the spots we MEANT to plot — otherwise toggled-off categories
   // would be reported as "without an address", which they aren't.
   const missing = shown.length - mapPoints.length;
 
@@ -3493,36 +3543,25 @@ export function RestaurantMapView({ items, onSelect }) {
           ))}
         </MapContainer>
       </div>
-      <div className={styles.mapLegend}>
-        <span className={styles.mapLegendItem}>
-          <span className={styles.mapLegendDot} style={{ background: VISITED_COLOR }} /> Visited
-        </span>
-        <span className={styles.mapLegendItem}>
-          <span className={styles.mapLegendDot} style={{ background: WANT_COLOR }} /> Want to try
-        </span>
-        <span className={styles.mapLegendItem}>
-          <span className={styles.mapLegendDot} style={{ background: HOLD_COLOR }} /> Hold off
-        </span>
-        <span className={styles.mapLegendItem}>
-          <svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true" style={{ display: 'block' }}>
-            <path d={NEXT_STAR_PATH} fill={WANT_COLOR} stroke="#ffffff" strokeWidth="1.6" strokeLinejoin="round" />
-          </svg>
-          Next spot
-        </span>
-        <span className={styles.mapLegendItem}>
-          <span className={styles.mapLegendDot} style={{ background: JOANNE_COLOR }} /> Taken Joanne
-        </span>
-        <label className={styles.mapLegendToggle}>
-          <input
-            type="checkbox"
-            checked={showVisited}
-            onChange={e => setShowVisited(e.target.checked)}
-          />
-          Show places I&rsquo;ve been
-          {!showVisited && hiddenCount > 0 && (
-            <span className={styles.mapLegendCount}>{hiddenCount} hidden</span>
-          )}
-        </label>
+      <div className={styles.mapLegend} role="group" aria-label="Show or hide spots on the map">
+        {MAP_LEGEND_ITEMS.map(({ key, label }) => {
+          const on = !!legendOn[key];
+          return (
+            <button
+              key={key}
+              type="button"
+              aria-pressed={on}
+              data-category={key}
+              className={`${styles.mapLegendItem} ${on ? '' : styles.mapLegendItemOff}`}
+              title={on ? `Hide ${label} on the map` : `Show ${label} on the map`}
+              onClick={() => toggleCategory(key)}
+            >
+              <MapLegendSwatch category={key} />
+              <span className={styles.mapLegendLabel}>{label}</span>
+              <span className={styles.mapLegendCount}>{categoryCounts[key]}</span>
+            </button>
+          );
+        })}
       </div>
     </div>
   );

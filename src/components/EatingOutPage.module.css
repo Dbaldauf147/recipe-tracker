@@ -1890,15 +1890,6 @@
   color: var(--color-text-muted);
   padding: 0 0.25rem;
 }
-/* Pushed to the end of the legend row: it's a control, not a key. */
-.mapLegendToggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
-  margin-left: auto;
-  cursor: pointer;
-  user-select: none;
-}
 .mapLegendCount {
   background: var(--color-surface-alt);
   border-radius: 999px;
@@ -1909,6 +1900,26 @@
   display: inline-flex;
   align-items: center;
   gap: 0.4rem;
+  /* Legend items are toggle buttons: reset the button chrome. */
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: none;
+  padding: 0.15rem 0.25rem;
+  border-radius: 6px;
+  cursor: pointer;
+  user-select: none;
+}
+.mapLegendItem:focus-visible {
+  outline: 2px solid var(--color-accent, #2563eb);
+  outline-offset: 1px;
+}
+/* A category switched off: dimmed, label struck through. */
+.mapLegendItemOff {
+  opacity: 0.4;
+}
+.mapLegendItemOff .mapLegendLabel {
+  text-decoration: line-through;
 }
 .mapLegendDot {
   display: inline-block;
