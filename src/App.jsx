@@ -1327,6 +1327,7 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
               onDelete={handleDelete}
               onBack={() => { setTransientViewRecipe(null); goBack(); }}
               onAddToWeek={handleAddToWeek}
+              onRemoveFromWeek={handleRemoveFromWeek}
               weeklyPlan={weeklyPlan}
               user={user}
               ingredientsVersion={ingredientsVersion}
@@ -1405,6 +1406,7 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
                 onSave={(data) => { updateRecipe(viewRecipeId, data); }}
                 onDelete={() => { handleDelete(viewRecipeId); setViewRecipeId(null); }}
                 onAddToWeek={() => handleAddToWeek(viewRecipeId)}
+                onRemoveFromWeek={() => handleRemoveFromWeek(viewRecipeId)}
                 weeklyPlan={weeklyPlan}
                 user={user}
                 onPersistFields={(updates) => persistRecipeFields(viewRecipeId, updates)}

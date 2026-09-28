@@ -503,7 +503,7 @@ function initFields(recipe) {
   };
 }
 
-export function RecipeDetail({ recipe, allTags = [], onSave, onDelete, onBack, onAddToWeek, weeklyPlan, user, ingredientsVersion, onViewSources, onPersistFields, collapseIngredients = false }) {
+export function RecipeDetail({ recipe, allTags = [], onSave, onDelete, onBack, onAddToWeek, onRemoveFromWeek, weeklyPlan, user, ingredientsVersion, onViewSources, onPersistFields, collapseIngredients = false }) {
   const [aiData, setAiData] = useState(null);
   // Meal-tag autocomplete: typed text + whether the suggestion dropdown is open.
   const [tagInput, setTagInput] = useState('');
@@ -1837,10 +1837,10 @@ export function RecipeDetail({ recipe, allTags = [], onSave, onDelete, onBack, o
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [ingGearOpen]);
 
+  // Same button adds and removes: a second click takes it back off the week.
   function handleAddToWeekClick() {
-    if (!isInWeek && onAddToWeek) {
-      onAddToWeek(recipe.id);
-    }
+    if (isInWeek) onRemoveFromWeek?.(recipe.id);
+    else onAddToWeek?.(recipe.id);
   }
 
   async function handleShareClick() {
@@ -2005,7 +2005,8 @@ export function RecipeDetail({ recipe, allTags = [], onSave, onDelete, onBack, o
               <button
                 className={`${styles.headerShareBtn} ${isInWeek ? styles.boostBtnActive : ''}`}
                 onClick={handleAddToWeekClick}
-                disabled={isInWeek}
+                disabled={isInWeek && !onRemoveFromWeek}
+                title={isInWeek && onRemoveFromWeek ? "Remove from this week's meals" : undefined}
               >
                 {isInWeek ? '✓ Added' : '+ This Week'}
               </button>
