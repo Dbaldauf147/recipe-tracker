@@ -2,6 +2,12 @@
 // re-import via Bulk import round-trips cleanly: `id` first so duplicate
 // detection matches by ID instead of name, then user-editable fields, then
 // the geocoded/scraped data the user shouldn't have to recreate.
+//
+// `cuisines` is the spot's one category list (the UI says "Categories"); the
+// old separate `categories` field was merged into it on 2026-09-28, so it's
+// exported merged here and no longer has its own column.
+
+import { spotCategories } from './spotCategories.js';
 
 const COLUMNS = [
   { key: 'id', header: 'id', get: r => r.id || '' },
@@ -14,9 +20,8 @@ const COLUMNS = [
   // The health tag also rides along in dietTags below, which is what the
   // importer reads. This column is the readable one — the page's own field.
   { key: 'health', header: 'health', get: r => r.health || '' },
-  { key: 'cuisines', header: 'cuisines', get: r => (r.cuisines || []).join(', ') },
+  { key: 'cuisines', header: 'cuisines', get: r => spotCategories(r).join(', ') },
   { key: 'locations', header: 'locations', get: r => (r.locations || []).join(', ') },
-  { key: 'categories', header: 'categories', get: r => (r.categories || []).join(', ') },
   { key: 'dish', header: 'dish', get: r => r.dish || '' },
   { key: 'notes', header: 'notes', get: r => r.notes || '' },
   { key: 'address', header: 'address', get: r => r.address || '' },
