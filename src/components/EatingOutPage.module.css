@@ -1442,6 +1442,8 @@
   text-decoration: none;
 }
 .fileSearchBtn:hover { border-color: var(--color-accent); }
+/* The same pill under the Name field of the add/edit popup. */
+.editSearchBtn { align-self: flex-start; margin: 0.4rem 0 0.25rem; }
 .fileLabel {
   font-size: 0.72rem;
   font-weight: 700;
