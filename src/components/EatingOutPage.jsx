@@ -3065,6 +3065,137 @@ function TryNextView({
   );
 }
 
+// ── Joanne, by category ──────────────────────────────────────────────────────
+
+/**
+ * Every place you HAVEN'T taken Joanne, grouped by category. Read-only.
+ * ⚠️ MIRRORED on mobile (PrepDay eating-out) — keep these rules identical.
+ *
+ * Input is the page's filtered `visible` list, so status / location / bucket /
+ * search still narrow it. Every spot without `takenJoanne` is included — the
+ * "hold off on taking Joanne" ones (`joanneHoldOff`) too. Categories come from
+ * realCuisines (the Try Next helper: leaked bucket keys dropped), folded
+ * case-insensitively; the label is cuisineDisplayName of the first spelling
+ * seen in master order. A spot with several categories is listed under EACH.
+ * Spots with none go in a final "No category" group, never dropped.
+ * Groups: most spots first, then by label.
+ *
+ * Within a group: visited (hasBeenVisited), then want-to-try (★ Next first),
+ * then hold-off status — each block in master order — and any joanneHoldOff
+ * spot LAST regardless of status. `allItems` supplies master order (each
+ * owner's array order), since `items` may be sorted by distance.
+ */
+function joanneByCategory(items, allItems) {
+  // Keyed by owner + id, not object identity: Find nearby hands `items` over
+  // as copies (with `_distance`), which would all miss an identity lookup.
+  const spotKey = r => `${r._ownerUid}:${r.id}`;
+  const masterIdx = new Map();
+  (allItems || items).forEach((r, i) => { if (!masterIdx.has(spotKey(r))) masterIdx.set(spotKey(r), i); });
+  const idx = r => masterIdx.get(spotKey(r)) ?? Number.MAX_SAFE_INTEGER;
+  const statusRank = r => (hasBeenVisited(r) ? 0 : r.status === 'hold-off' ? 2 : 1);
+  const notTaken = items
+    .filter(r => !r?.takenJoanne)
+    .map((r, i) => ({ r, i }))
+    .sort((a, b) => idx(a.r) - idx(b.r) || a.i - b.i)
+    .map(x => x.r);
+
+  const byCat = new Map();
+  const noCategory = [];
+  for (const r of notTaken) {
+    const names = realCuisines(r);
+    if (names.length === 0) { noCategory.push(r); continue; }
+    for (const name of names) {
+      const key = name.toLowerCase();
+      if (!byCat.has(key)) byCat.set(key, { key, label: cuisineDisplayName(name), spots: [] });
+      const g = byCat.get(key);
+      // A spot tagged "Thai" and "thai" is still one row in the group.
+      if (!g.spots.includes(r)) g.spots.push(r);
+    }
+  }
+  // notTaken is already in master order and sort is stable, so each block
+  // keeps master order.
+  const order = list => list.slice().sort((a, b) => (
+    (a.joanneHoldOff ? 1 : 0) - (b.joanneHoldOff ? 1 : 0)
+    || statusRank(a) - statusRank(b)
+    || (isNextSpot(b) ? 1 : 0) - (isNextSpot(a) ? 1 : 0)
+  ));
+  const groups = [...byCat.values()]
+    .map(g => ({ ...g, spots: order(g.spots) }))
+    .sort((a, b) => b.spots.length - a.spots.length || a.label.localeCompare(b.label));
+  if (noCategory.length > 0) groups.push({ key: '__none__', label: 'No category', spots: order(noCategory) });
+  return { groups, total: notTaken.length };
+}
+
+function JoanneStatusPill({ status }) {
+  const label = statusLabel(status);
+  const cls = label === 'Want to try' ? styles.wantBadge : label === 'Hold off' ? styles.holdBadge : styles.visitedBadge;
+  return <span className={cls}>{label}</span>;
+}
+
+function JoanneByCategoryView({ items, allItems, onSelect }) {
+  const { groups, total } = useMemo(() => joanneByCategory(items, allItems), [items, allItems]);
+  // Keys of the COLLAPSED groups — everything starts expanded.
+  const [collapsed, setCollapsed] = useState(() => new Set());
+  const toggle = key => setCollapsed(prev => {
+    const next = new Set(prev);
+    if (next.has(key)) next.delete(key); else next.add(key);
+    return next;
+  });
+
+  return (
+    <div className={styles.rankingsView}>
+      <p className={styles.tryNextIntro}>
+        {total} place{total === 1 ? '' : 's'} you haven&rsquo;t taken Joanne
+      </p>
+      {total === 0 ? (
+        <p className={styles.rankingEmpty}>You&rsquo;ve taken Joanne to every place in this filter.</p>
+      ) : (
+        <div className={styles.rankingGroups}>
+          {groups.map(g => {
+            const open = !collapsed.has(g.key);
+            return (
+              <section key={g.key} className={styles.rankingGroup} data-group={g.label}>
+                <h3 className={styles.rankingGroupHead}>
+                  <button
+                    type="button"
+                    className={styles.joanneGroupToggle}
+                    aria-expanded={open}
+                    onClick={() => toggle(g.key)}
+                  >
+                    <span className={styles.joanneGroupCaret} aria-hidden="true">{open ? '▾' : '▸'}</span>
+                    <span className={styles.rankingGroupName}>{g.label}</span>
+                    <span className={styles.rankingGroupCount}>{g.spots.length}</span>
+                  </button>
+                </h3>
+                {open && (
+                  <ol className={styles.rankingList}>
+                    {g.spots.map(r => (
+                      <li key={`${r._ownerUid}:${r.id}`}>
+                        <button type="button" className={`${styles.rankingRow} ${styles.joanneRow}`} onClick={() => onSelect(r)}>
+                          <span className={styles.rankingName}>
+                            {r.name}
+                            {r._ownerUsername && <span className={styles.rankingOwner}> @{r._ownerUsername}</span>}
+                            {isNextSpot(r) && <span className={styles.tryNextPin}> ★ Next</span>}
+                          </span>
+                          <span className={styles.joanneTags}>
+                            <JoanneStatusPill status={r.status} />
+                            {r.joanneHoldOff && <span className={styles.joanneHoldTag}>Holding off</span>}
+                          </span>
+                          <span className={styles.rankingVotes}>{(r.locations || [])[0] || ''}</span>
+                        </button>
+                      </li>
+                    ))}
+                  </ol>
+                )}
+              </section>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function RestaurantRankings({
   items, ratingsBySpot, metric, onMetricChange, grouped, onGroupedChange, onSelect,
 }) {
@@ -5480,6 +5611,14 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
               >
                 Try Next
               </button>
+              <button
+                type="button"
+                className={`${styles.filterBtn} ${viewMode === 'joanne' ? styles.filterBtnActive : ''}`}
+                onClick={() => setViewMode('joanne')}
+                title="Every place you haven't taken Joanne, by category"
+              >
+                Joanne
+              </button>
             </div>
             {viewMode === 'list' && (
               <div className={styles.filterRow} style={{ marginLeft: 8 }}>
@@ -5660,6 +5799,8 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
               onBucketChange={setActiveBucket}
               bucketCounts={tryNextBucketCounts}
             />
+          ) : viewMode === 'joanne' ? (
+            <JoanneByCategoryView items={visible} allItems={restaurants} onSelect={openSpot} />
           ) : viewMode === 'rankings' ? (
             <RestaurantRankings
               items={visible}

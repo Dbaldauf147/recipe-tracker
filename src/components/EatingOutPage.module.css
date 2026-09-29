@@ -454,6 +454,16 @@
   flex-shrink: 0;
 }
 
+.visitedBadge {
+  background: #D1FAE5;
+  color: #065F46;
+  font-size: 0.7rem;
+  font-weight: 700;
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+  flex-shrink: 0;
+}
+
 .wantBadge {
   background: #FEF3C7;
   color: #92400E;
@@ -2403,4 +2413,46 @@
   font-size: 0.8rem;
   line-height: 1.35;
   color: var(--color-text-muted, #64748b);
+}
+
+/* ── Joanne, by category ── */
+.joanneGroupToggle {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: none;
+  text-align: left;
+  cursor: pointer;
+}
+.joanneGroupToggle .rankingGroupCount { margin-left: auto; }
+.joanneGroupCaret {
+  flex-shrink: 0;
+  width: 0.8rem;
+  font-size: 0.8rem;
+  color: var(--color-text-muted);
+}
+.rankingGroup .joanneRow {
+  grid-template-columns: minmax(0, 1fr) auto auto;
+}
+
+.joanneTags {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+/* "Hold off on taking Joanne" — grey and quiet, beside the status pill. */
+.joanneHoldTag {
+  font-size: 0.66rem;
+  font-weight: 600;
+  color: #6b7280;
+  border: 1px solid #d1d5db;
+  padding: 0.05rem 0.4rem;
+  border-radius: 999px;
+  white-space: nowrap;
 }
