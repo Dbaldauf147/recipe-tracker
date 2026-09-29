@@ -9,6 +9,9 @@ import { normalizePtoRanges, ptoCellsToStamp, activePtoRange } from '../utils/ha
 import { nextMarkInCycle } from '../utils/habitMarkCycle';
 import { badHabitStats, recentDayKeys, cleanLabel, dayKeyOf, dateOfDayKey } from '../utils/badHabits';
 import {
+  checklistItems, hasChecklist, tickedIds, checklistProgress, toggleItem, addItem, renameItem, removeItem, markActionAfter,
+} from '../utils/habitChecklist';
+import {
   readCache as readHabitCache, cacheRemote, replayQueue, reconcileMarks,
   queueFieldWrite, queueMark, queueMarks,
   flush as flushHabitQueue, startAutoFlush,
@@ -2560,6 +2563,11 @@ export function HabitsPage({ onBack, user }) {
           autoTracked={autoTrackedIds.has(openHabit.id)}
           onMakeAutomatic={id => { resolveAutoPromotes([id], true); closeHabitPopup(); }}
           onUpdate={updateHabit}
+          // The checklist ticks toward THIS period's mark — the same cell the
+          // Routines grid reads (periodKey of the habit's cadence).
+          checklistPeriod={periodKey(openHabit.cadence)}
+          currentMark={markOf(openHabit)}
+          onSetMark={mark => setMarkForKey(openHabit.id, periodKey(openHabit.cadence), mark)}
           onDelete={(id) => { deleteHabit(id); closeHabitPopup(); }}
           onClose={closeHabitPopup}
           autoSkipOn={isWorkoutAutoSkipOn(openHabit.id)}
@@ -4085,6 +4093,20 @@ function RoutineSection({ cadenceName, list, habitLog, habitLogAuto, streaks, au
                 style={{ flexShrink: 0, fontSize: '0.62rem', fontWeight: 700, color: ACCENT, background: ACCENT + '14', border: `1px solid ${ACCENT}33`, borderRadius: 5, padding: '1px 5px', lineHeight: 1.4, cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap' }}
               >🔁 Review</button>
             )}
+            {/* Checklist progress for the current period — opens the popup,
+                which is where the items are ticked. */}
+            {hasChecklist(h) && (() => {
+              const cp = checklistProgress(h, periodKey(h.cadence));
+              const full = cp.done === cp.total;
+              return (
+                <button
+                  type="button"
+                  onClick={() => onOpen?.(h.id)}
+                  title={`Checklist: ${cp.done} of ${cp.total} done ${periodHint(h.cadence).toLowerCase()} — click to open`}
+                  style={{ flexShrink: 0, fontSize: '0.62rem', fontWeight: 700, color: full ? '#16a34a' : 'var(--color-text-muted, #64748b)', background: full ? '#16a34a14' : 'var(--color-surface-alt, #f1f5f9)', border: `1px solid ${full ? '#16a34a55' : 'var(--color-border, #e2e8f0)'}`, borderRadius: 5, padding: '1px 5px', lineHeight: 1.4, cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap' }}
+                >☑ {cp.done}/{cp.total}</button>
+              );
+            })()}
             {habitWeekDayLabel(h) && (
               <span
                 title={`Scheduled for ${capWord(habitWeekDays(h)[0])}`}
@@ -6471,6 +6493,10 @@ function HabitsTable({ habits, onUpdate, onDelete, onOpen, onBulkUpdate, onBulkD
                       <button onClick={() => onOpen(h.id)} title="Open habit" style={nameBtn}>
                         <span>{h.name || <em style={{ color: '#aaa' }}>untitled</em>}</span>
                         {(h.cadence || '').trim() && <span style={cadenceTag}>{h.cadence}</span>}
+                        {hasChecklist(h) && (() => {
+                          const cp = checklistProgress(h, periodKey(h.cadence));
+                          return <span style={{ ...routineTag, marginLeft: 'auto' }} title="Checklist progress this period">☑ {cp.done}/{cp.total}</span>;
+                        })()}
                       </button>
                     ) : cellInput(h, f)}
                   </td>
@@ -6491,10 +6517,139 @@ function HabitsTable({ habits, onUpdate, onDelete, onOpen, onBulkUpdate, onBulkD
   );
 }
 
+// Checklist inside the habit popup (see utils/habitChecklist). Items live on
+// the habit (`checklist`); what's ticked lives in `checklistDone` for ONE period
+// key, so the list resets itself when the period rolls over. Ticking the last
+// item marks the period Did it; un-ticking takes a Did it back off. Every write
+// goes through onUpdate (the same per-habit, offline-queued path as the rest of
+// the popup) and onSetMark (setMarkForKey → queueMark).
+function HabitChecklistSection({ habit: h, period, currentMark, onUpdate, onSetMark }) {
+  const items = checklistItems(h);
+  const ticked = new Set(tickedIds(h, period));
+  const { done, total } = checklistProgress(h, period);
+  // Collapsed to one small button until the habit has items (or you ask for one).
+  const [opened, setOpen] = useState(false);
+  const open = opened || total > 0;
+  const [draft, setDraft] = useState('');
+  const addRef = useRef(null);
+  const periodWord = periodHint(h.cadence).toLowerCase(); // "this month" / "today"
+  const bad = isBadHabit(h);
+  const offMonth = cadenceCanon(h.cadence) === 'Monthly' && !monthlyDueIn(h, period);
+
+  const applyMark = (after, change) => {
+    const act = markActionAfter(after, period, currentMark, change);
+    if (act === 'done') onSetMark?.('done');
+    else if (act === 'clear') onSetMark?.(null);
+  };
+  const toggle = (id) => {
+    const wasTicked = ticked.has(id);
+    const checklistDone = toggleItem(h, id, period);
+    onUpdate(h.id, 'checklistDone', checklistDone);
+    applyMark({ ...h, checklistDone }, wasTicked ? 'untick' : 'tick');
+  };
+  const add = () => {
+    const next = addItem(h, draft);
+    if (next.length === items.length) return;
+    onUpdate(h.id, 'checklist', next);
+    setDraft('');
+    addRef.current?.focus();
+  };
+  const remove = (id) => {
+    const patch = removeItem(h, id, period);
+    onUpdate(h.id, patch);
+    applyMark({ ...h, ...patch }, 'remove');
+  };
+
+  if (!open) {
+    return (
+      <div style={{ marginBottom: '1rem' }}>
+        <button
+          type="button"
+          onClick={() => setOpen(true)}
+          style={{ border: '1px dashed var(--color-border, #cbd5e1)', background: 'none', borderRadius: 8, padding: '0.35rem 0.7rem', fontSize: '0.78rem', fontWeight: 600, color: 'var(--color-text-muted, #64748b)', cursor: 'pointer', fontFamily: 'inherit' }}
+        >☑ Add a checklist</button>
+      </div>
+    );
+  }
+
+  const complete = total > 0 && done === total;
+  return (
+    <div style={{ marginBottom: '1.1rem', border: '1px solid var(--color-border, #e2e8f0)', borderRadius: 10, padding: '0.6rem 0.7rem' }}>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: total > 0 ? 6 : 4 }}>
+        <span style={{ ...fieldLabel, flex: 1 }}>Checklist</span>
+        {total > 0 && (
+          <span data-testid="checklist-progress" style={{ fontSize: '0.76rem', fontWeight: 700, color: complete ? '#16a34a' : 'var(--color-text-muted, #64748b)' }}>
+            {done} of {total} done {periodWord}
+          </span>
+        )}
+      </div>
+      {total > 0 && (
+        <div style={{ height: 4, borderRadius: 999, background: 'var(--color-surface-alt, #f1f5f9)', overflow: 'hidden', marginBottom: 6 }}>
+          <div style={{ height: '100%', width: `${(done / total) * 100}%`, background: complete ? '#16a34a' : ACCENT, transition: 'width 0.2s' }} />
+        </div>
+      )}
+      <div style={{ display: 'flex', flexDirection: 'column' }}>
+        {items.map(it => {
+          const on = ticked.has(it.id);
+          return (
+            <div key={it.id} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '1px 0' }}>
+              <input
+                type="checkbox"
+                checked={on}
+                onChange={() => toggle(it.id)}
+                aria-label={it.text || 'Checklist item'}
+                style={{ margin: 0, width: 16, height: 16, flex: '0 0 auto', cursor: 'pointer' }}
+              />
+              {/* Edit in place; clearing the text and leaving removes the item. */}
+              <input
+                value={it.text}
+                onChange={e => onUpdate(h.id, 'checklist', renameItem(h, it.id, e.target.value))}
+                onBlur={e => { if (!e.target.value.trim()) remove(it.id); }}
+                onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur(); }}
+                style={{
+                  flex: 1, minWidth: 0, border: 'none', background: 'transparent', padding: '3px 2px', fontSize: '0.85rem', fontFamily: 'inherit',
+                  color: on ? 'var(--color-text-muted, #94a3b8)' : 'var(--color-text, #1e293b)', textDecoration: on ? 'line-through' : 'none',
+                }}
+              />
+              <button
+                type="button"
+                onClick={() => remove(it.id)}
+                title="Remove item"
+                aria-label={`Remove ${it.text}`}
+                style={{ flex: '0 0 auto', border: 'none', background: 'none', color: '#94a3b8', cursor: 'pointer', fontSize: '0.8rem', padding: '2px 4px', lineHeight: 1 }}
+              >✕</button>
+            </div>
+          );
+        })}
+      </div>
+      <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
+        <input
+          ref={addRef}
+          value={draft}
+          onChange={e => setDraft(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); add(); } }}
+          placeholder="Add an item…"
+          autoFocus={total === 0}
+          style={{ ...fieldInput, flex: 1 }}
+        />
+        <button type="button" onClick={add} disabled={!draft.trim()} style={{ ...primaryBtn, padding: '0.35rem 0.8rem', opacity: draft.trim() ? 1 : 0.5 }}>Add</button>
+      </div>
+      <div style={{ fontSize: '0.7rem', color: 'var(--color-text-muted, #64748b)', marginTop: 6, lineHeight: 1.4 }}>
+        {bad
+          ? 'Ticks reset each period. A bad habit is never marked automatically.'
+          : complete && (currentMark === 'done' || currentMark === 'exceeded')
+            ? `All done — logged for ${periodWord}.`
+            : `Tick everything and it's marked Did it for ${periodWord}. Ticks reset each ${periodNoun(h.cadence)}.`}
+        {offMonth && !bad && ' (This is an off month for this habit — finishing still logs it.)'}
+      </div>
+    </div>
+  );
+}
+
 // Full habit editor popup. Opened by clicking a habit's name on the Habits
 // tab. Every edit persists immediately via onUpdate (which saves to Firestore).
 // The headline control is the tracking-cadence selector.
-function HabitDetailModal({ habit, streak: streakProp, habitLog = {}, autoTracked = false, onMakeAutomatic, onUpdate, onDelete, onClose, autoSkipOn = false, onToggleAutoSkip, isNew = false, routineOptions = [] }) {
+function HabitDetailModal({ habit, streak: streakProp, habitLog = {}, autoTracked = false, onMakeAutomatic, onUpdate, checklistPeriod, currentMark, onSetMark, onDelete, onClose, autoSkipOn = false, onToggleAutoSkip, isNew = false, routineOptions = [] }) {
   const h = habit;
   const cadence = (h.cadence || '').trim();
   const streak = streakProp || EMPTY_STREAK;
@@ -6544,6 +6699,11 @@ function HabitDetailModal({ habit, streak: streakProp, habitLog = {}, autoTracke
             New habit — fill in what you know. Everything saves as you type; close without
             naming it and it’s discarded.
           </p>
+        )}
+
+        {/* Checklist first: opening a checklist habit is mostly to tick things off. */}
+        {checklistPeriod && (
+          <HabitChecklistSection key={h.id} habit={h} period={checklistPeriod} currentMark={currentMark} onUpdate={onUpdate} onSetMark={onSetMark} />
         )}
 
         {/* All-time record — completions + streaks, read straight from the log */}
