@@ -1778,15 +1778,19 @@ function EatingOutInline({ user, onAdd, onBack, onEstimate, recentSpotIds = [] }
    * is one array field, and pushing a whole client-side copy of 400+ spots to
    * flip one boolean is how you lose someone else's edit.
    */
-  async function setJoanne(taken) {
+  // answer: 'taken' | 'no' | 'hold' — hold is "hold off on taking Joanne",
+  // stored as its own true-or-absent joanneHoldOff field.
+  async function setJoanne(answer) {
     if (!selected || !user?.uid) return;
     const previous = selected;
     const next = { ...selected };
     // "Not yet" DELETES the key rather than storing false — same shape the
     // Eating Out page writes, so the two can't disagree about what absence
     // means.
-    if (taken) next.takenJoanne = true;
+    if (answer === 'taken') next.takenJoanne = true;
     else delete next.takenJoanne;
+    if (answer === 'hold') next.joanneHoldOff = true;
+    else delete next.joanneHoldOff;
     setSelected(next);
     setRestaurants(list => (list || []).map(r => (r.id === next.id ? next : r)));
     setJoanneAnsweredId(next.id);
@@ -1873,13 +1877,18 @@ function EatingOutInline({ user, onAdd, onBack, onEstimate, recentSpotIds = [] }
             <button
               type="button"
               className={`${styles.eatingOutJoanneBtn} ${selected.takenJoanne ? styles.eatingOutJoanneBtnOn : ''}`}
-              onClick={() => setJoanne(true)}
+              onClick={() => setJoanne('taken')}
             >Taken her</button>
             <button
               type="button"
-              className={`${styles.eatingOutJoanneBtn} ${(joanneAnsweredId === selected.id && !selected.takenJoanne) ? styles.eatingOutJoanneBtnOn : ''}`}
-              onClick={() => setJoanne(false)}
+              className={`${styles.eatingOutJoanneBtn} ${(joanneAnsweredId === selected.id && !selected.takenJoanne && !selected.joanneHoldOff) ? styles.eatingOutJoanneBtnOn : ''}`}
+              onClick={() => setJoanne('no')}
             >Not yet</button>
+            <button
+              type="button"
+              className={`${styles.eatingOutJoanneBtn} ${(!selected.takenJoanne && selected.joanneHoldOff) ? styles.eatingOutJoanneBtnOn : ''}`}
+              onClick={() => setJoanne('hold')}
+            >Hold off</button>
           </div>
           {joanneError && <p className={styles.aiEstimateHint}>{joanneError}</p>}
 

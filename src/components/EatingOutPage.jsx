@@ -498,7 +498,7 @@ function cellValueFor(r, key) {
   switch (key) {
     case 'name': return r.name || '';
     case 'status': return statusLabel(r.status);
-    case 'takenJoanne': return r.takenJoanne ? '✓' : '';
+    case 'takenJoanne': return r.takenJoanne ? '✓' : r.joanneHoldOff ? 'Hold off' : '';
     case 'rating':
       if (r.rating != null) return '★'.repeat(r.rating) + '☆'.repeat(5 - r.rating);
       return r.ratingLabel || '';
@@ -525,7 +525,8 @@ function compareValues(a, b, key) {
     return av - bv;
   }
   if (key === 'takenJoanne') {
-    return (a.takenJoanne ? 1 : 0) - (b.takenJoanne ? 1 : 0);
+    const j = r => (r.takenJoanne ? 2 : r.joanneHoldOff ? 1 : 0);
+    return j(a) - j(b);
   }
   if (key === 'lastVisit') {
     const ad = a.lastVisit ? new Date(a.lastVisit).getTime() : 0;
@@ -1819,6 +1820,10 @@ function EditModal({ initial, onSave, onClose, onDelete, cuisineSuggestions, loc
   const [status, setStatus] = useState(initial.status || 'want-to-try');
   const [nextSpot, setNextSpot] = useState(!!initial.nextSpot);
   const [takenJoanne, setTakenJoanne] = useState(!!initial.takenJoanne);
+  // "Holding off" on taking Joanne here — the third answer beside taken / not
+  // yet. Its own true-or-absent field (joanneHoldOff) rather than a new value
+  // of takenJoanne, which Rally and older builds read as a plain boolean.
+  const [joanneHoldOff, setJoanneHoldOff] = useState(!initial.takenJoanne && !!initial.joanneHoldOff);
   const [buckets, setBuckets] = useState(() => bucketsOf(initial));
   // Photo doc ids, in display order. The pictures are written as they're added;
   // this index rides along with the rest of the form and lands on save.
@@ -1994,6 +1999,7 @@ function EditModal({ initial, onSave, onClose, onDelete, cuisineSuggestions, loc
       lng: coords?.lng,
       lastVisit: lastVisit ? new Date(lastVisit + 'T12:00:00').toISOString() : undefined,
       takenJoanne: takenJoanne || undefined,
+      joanneHoldOff: (!takenJoanne && joanneHoldOff) || undefined,
       // Health is written to both the new field and the legacy array, so CSV
       // export and the importer keep agreeing with the picker.
       dietTags: syncDietTags(initial.dietTags, health),
@@ -2202,7 +2208,7 @@ function EditModal({ initial, onSave, onClose, onDelete, cuisineSuggestions, loc
             <input
               type="checkbox"
               checked={takenJoanne}
-              onChange={e => setTakenJoanne(e.target.checked)}
+              onChange={e => { setTakenJoanne(e.target.checked); if (e.target.checked) setJoanneHoldOff(false); }}
             />
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
               <span
@@ -2216,6 +2222,17 @@ function EditModal({ initial, onSave, onClose, onDelete, cuisineSuggestions, loc
               />
               Taken Joanne here
             </span>
+          </label>
+          <label
+            className={styles.fieldLabel}
+            style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', textTransform: 'none', letterSpacing: 0, fontSize: '0.9rem', color: 'var(--color-text)', fontWeight: 600 }}
+          >
+            <input
+              type="checkbox"
+              checked={joanneHoldOff}
+              onChange={e => { setJoanneHoldOff(e.target.checked); if (e.target.checked) setTakenJoanne(false); }}
+            />
+            Hold off on taking Joanne
           </label>
 
           {/* The single 5-star rating is gone from this form — the per-category
@@ -3242,6 +3259,7 @@ function CategorizePrompt({ queue, cuisineSuggestions, onSave, onClose }) {
     cuisines: spotCategories(spot),
     status: spot.status || '',
     takenJoanne: !!spot.takenJoanne,
+    joanneHoldOff: !spot.takenJoanne && !!spot.joanneHoldOff,
     ...draft,
   };
   const set = (patch) => setDraft(prev => ({ ...prev, ...patch }));
@@ -3266,7 +3284,10 @@ function CategorizePrompt({ queue, cuisineSuggestions, onSave, onClose }) {
       if (draft.status) patch.status = draft.status;
       // Stored as true-or-absent, the shape the editor saves, so a "no" clears
       // the field rather than writing a falsy value the filters must know about.
-      if (joanneAnswered) patch.takenJoanne = draft.takenJoanne || undefined;
+      if (joanneAnswered) {
+        patch.takenJoanne = draft.takenJoanne || undefined;
+        patch.joanneHoldOff = draft.joanneHoldOff || undefined;
+      }
       if (Object.keys(patch).length > 0) onSave({ [spot.id]: patch });
     }
     if (i + 1 >= total) onClose();
@@ -3354,13 +3375,18 @@ function CategorizePrompt({ queue, cuisineSuggestions, onSave, onClose }) {
           <button
             type="button"
             className={`${styles.fileBtn} ${v.takenJoanne ? styles.fileBtnOn : ''}`}
-            onClick={() => set({ takenJoanne: true })}
+            onClick={() => set({ takenJoanne: true, joanneHoldOff: false })}
           >Taken her</button>
           <button
             type="button"
-            className={`${styles.fileBtn} ${joanneAnswered && !v.takenJoanne ? styles.fileBtnOn : ''}`}
-            onClick={() => set({ takenJoanne: false })}
+            className={`${styles.fileBtn} ${joanneAnswered && !v.takenJoanne && !v.joanneHoldOff ? styles.fileBtnOn : ''}`}
+            onClick={() => set({ takenJoanne: false, joanneHoldOff: false })}
           >Not yet</button>
+          <button
+            type="button"
+            className={`${styles.fileBtn} ${!v.takenJoanne && v.joanneHoldOff ? styles.fileBtnOn : ''}`}
+            onClick={() => set({ takenJoanne: false, joanneHoldOff: true })}
+          >Hold off</button>
         </div>
 
         <div className={styles.fileNav}>
@@ -3541,6 +3567,9 @@ export function RestaurantMapView({ items, onSelect }) {
                     <div className={styles.mapPopupMeta} style={{ color: JOANNE_COLOR, fontWeight: 600 }}>
                       Taken Joanne here
                     </div>
+                  )}
+                  {!r.takenJoanne && r.joanneHoldOff && (
+                    <div className={styles.mapPopupMeta}>Holding off on Joanne</div>
                   )}
                   {r.address && <div className={styles.mapPopupMeta}>{r.address}</div>}
                   {r.cuisines?.length > 0 && (
