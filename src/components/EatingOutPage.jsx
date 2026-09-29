@@ -2063,6 +2063,21 @@ function EditModal({ initial, onSave, onClose, onDelete, cuisineSuggestions, loc
             onChange={e => setName(e.target.value)}
             placeholder="Restaurant name"
           />
+          {/* Built from what's typed in the form, not the saved spot, so it works
+              while adding a new place too. New tab, so the popup stays put. */}
+          {(() => {
+            const searchUrl = googleSearchUrl({ name, address, locations });
+            return searchUrl ? (
+              <a
+                className={`${styles.fileSearchBtn} ${styles.editSearchBtn}`}
+                href={searchUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                Search Google ↗
+              </a>
+            ) : null;
+          })()}
 
           <label className={styles.fieldLabel}>Address</label>
           <div className={styles.urlRow}>
