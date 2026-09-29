@@ -3260,6 +3260,7 @@ function CategorizePrompt({ queue, cuisineSuggestions, onSave, onClose }) {
     status: spot.status || '',
     takenJoanne: !!spot.takenJoanne,
     joanneHoldOff: !spot.takenJoanne && !!spot.joanneHoldOff,
+    frequency: spot.frequency || '',
     ...draft,
   };
   const set = (patch) => setDraft(prev => ({ ...prev, ...patch }));
@@ -3288,6 +3289,8 @@ function CategorizePrompt({ queue, cuisineSuggestions, onSave, onClose }) {
         patch.takenJoanne = draft.takenJoanne || undefined;
         patch.joanneHoldOff = draft.joanneHoldOff || undefined;
       }
+      // Tapping the lit frequency again clears it, so '' → absent.
+      if ('frequency' in draft) patch.frequency = draft.frequency || undefined;
       if (Object.keys(patch).length > 0) onSave({ [spot.id]: patch });
     }
     if (i + 1 >= total) onClose();
@@ -3387,6 +3390,18 @@ function CategorizePrompt({ queue, cuisineSuggestions, onSave, onClose }) {
             className={`${styles.fileBtn} ${!v.takenJoanne && v.joanneHoldOff ? styles.fileBtnOn : ''}`}
             onClick={() => set({ takenJoanne: false, joanneHoldOff: true })}
           >Hold off</button>
+        </div>
+
+        <div className={styles.fileLabel}>Frequency</div>
+        <div className={styles.fileRow}>
+          {FREQUENCIES.map(f => (
+            <button
+              key={f.key}
+              type="button"
+              className={`${styles.fileBtn} ${v.frequency === f.key ? styles.fileBtnOn : ''}`}
+              onClick={() => set({ frequency: v.frequency === f.key ? '' : f.key })}
+            >{f.label}</button>
+          ))}
         </div>
 
         <div className={styles.fileNav}>
