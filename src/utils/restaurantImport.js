@@ -24,7 +24,7 @@ export const IMPORT_FIELDS = [
   { key: 'description', label: 'Description (scraped from URL)' },
   { key: 'rating', label: 'Rating (text or stars)' },
   { key: 'notes', label: 'Notes' },
-  { key: 'diet', label: 'Diet tags (Healthy / Unhealthy / Workout)' },
+  { key: 'diet', label: 'Diet tags (Healthy / Workout)' },
   { key: 'meat', label: 'Diet preferences (Meat / Vegetarian / Pescatarian)' },
   { key: 'location', label: 'Neighborhood / city' },
   { key: 'lastVisit', label: 'Last visit date' },

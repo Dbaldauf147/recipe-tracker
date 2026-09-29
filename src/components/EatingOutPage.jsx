@@ -251,24 +251,21 @@ const FREQUENCIES = [
 
 // How a spot tends to leave you, stored as `health` on the record.
 //
-// Two options and a blank rather than a scale. The question this answers is the
-// one you ask choosing where to go — "is this the sensible one or the treat" —
-// and a middle rung would collect most of the list without telling you anything.
-// Unset is a real third state: it means you haven't decided, not "average".
+// One optional tag, not a question every spot has to answer (2026-09-29: the
+// "Unhealthy" option was dropped and health stopped counting toward filing).
+// Untagged just means untagged.
 const HEALTH_OPTIONS = [
   { key: 'healthy', label: 'Healthy', icon: '🥗' },
-  { key: 'unhealthy', label: 'Unhealthy', icon: '🍔' },
 ];
-const HEALTH_KEYS = new Set(HEALTH_OPTIONS.map(h => h.key));
 
 /**
  * A place you've been but never filed.
  *
- * Health and frequency are what the list is FOR — "somewhere sensible" and
- * "somewhere we go a lot" are the two questions you actually ask it — and a
- * visited spot missing either is invisible to every filter that matters. It
- * silently drops out of the answer rather than showing up wrong, which is the
- * kind of gap you never notice.
+ * Frequency is what the list is FOR — "somewhere we go a lot" is the question
+ * you actually ask it — and a visited spot without one is invisible to the
+ * regular/special views. Health is NOT required: "Healthy" is an optional tag
+ * you add to some places, and an untagged place is just untagged (there is no
+ * "Unhealthy" any more — see HEALTH_OPTIONS).
  *
  * Only visited spots: a want-to-try you've never been to has nothing to say
  * about how it leaves you or how often you'd go, so nagging about it would be
@@ -301,15 +298,15 @@ function FileSpotsModal({ queue, onApply, onClose }) {
   if (!spot) return null;
 
   const current = answers[spot.id] || { health: healthOf(spot), frequency: spot.frequency || '' };
-  const done = !!current.health && !!current.frequency;
+  const done = !!current.frequency;
 
   const answer = (patch) => {
     const next = { ...current, ...patch };
     setAnswers(a => ({ ...a, [spot.id]: next }));
     onApply(spot, patch);
-    // Auto-advance only once BOTH are answered, so tapping health doesn't yank
-    // the frequency buttons away before they can be used.
-    if (next.health && next.frequency && i < queue.length - 1) {
+    // Auto-advance on the frequency answer — the only required one. Tapping
+    // the optional Healthy tag never advances, so it can be set either way round.
+    if (patch.frequency && i < queue.length - 1) {
       setTimeout(() => setI(n => n + 1), 180);
     }
   };
@@ -332,19 +329,6 @@ function FileSpotsModal({ queue, onApply, onClose }) {
           </p>
         )}
 
-        <div className={styles.fileLabel}>How does it leave you?</div>
-        <div className={styles.fileRow}>
-          {HEALTH_OPTIONS.map(h => (
-            <button
-              key={h.key}
-              className={`${styles.fileBtn} ${current.health === h.key ? styles.fileBtnOn : ''}`}
-              onClick={() => answer({ health: h.key })}
-            >
-              <span className={styles.fileBtnIcon}>{h.icon}</span>{h.label}
-            </button>
-          ))}
-        </div>
-
         <div className={styles.fileLabel}>How often?</div>
         <div className={styles.fileRow}>
           {FREQUENCIES.map(f => (
@@ -354,6 +338,19 @@ function FileSpotsModal({ queue, onApply, onClose }) {
               onClick={() => answer({ frequency: f.key })}
             >
               {f.label}
+            </button>
+          ))}
+        </div>
+
+        <div className={styles.fileLabel}>Optional</div>
+        <div className={styles.fileRow}>
+          {HEALTH_OPTIONS.map(h => (
+            <button
+              key={h.key}
+              className={`${styles.fileBtn} ${current.health === h.key ? styles.fileBtnOn : ''}`}
+              onClick={() => answer({ health: current.health === h.key ? '' : h.key })}
+            >
+              <span className={styles.fileBtnIcon}>{h.icon}</span>{h.label}
             </button>
           ))}
         </div>
@@ -376,7 +373,7 @@ function unfiledNotice(unfiled, onFile) {
   return (
     <div className={styles.unfiledBanner}>
       <strong>
-        ⚠ {unfiled.length} visited {unfiled.length === 1 ? 'place has' : 'places have'} no health or frequency set
+        ⚠ {unfiled.length} visited {unfiled.length === 1 ? 'place has' : 'places have'} no frequency set
       </strong>
       {names.length > 0 && (
         <span className={styles.unfiledNames}>
@@ -384,11 +381,11 @@ function unfiledNotice(unfiled, onFile) {
         </span>
       )}
       <span className={styles.unfiledWhy}>
-        Filters and the healthy/regular views skip them until they're filed.
+        The regular/special views skip them until they're filed.
       </span>
       {onFile && (
         <button className={styles.unfiledBtn} onClick={() => onFile(unfiled)}>
-          File {unfiled.length === 1 ? 'it' : `them (${unfiled.length})`} — two taps each
+          File {unfiled.length === 1 ? 'it' : `them (${unfiled.length})`} — one tap each
         </button>
       )}
     </div>
@@ -398,7 +395,6 @@ function unfiledNotice(unfiled, onFile) {
 function missingCategories(r) {
   if (!hasBeenVisited(r)) return [];
   const gaps = [];
-  if (!healthOf(r)) gaps.push('health');
   if (!String(r?.frequency || '').trim()) gaps.push('frequency');
   return gaps;
 }
@@ -420,11 +416,14 @@ function missingCategories(r) {
  * array — otherwise a spot tagged both ways reads as healthy by luck of order.
  */
 function healthOf(r) {
+  // Only "healthy" is a tag now. A legacy "unhealthy" (field or dietTags)
+  // reads as untagged rather than being deleted from the record.
   const v = String(r?.health || '').trim().toLowerCase();
-  if (HEALTH_KEYS.has(v)) return v;
-  const tags = (Array.isArray(r?.dietTags) ? r.dietTags : [])
-    .map(t => String(t || '').trim().toLowerCase());
-  if (tags.some(t => t.includes('unhealthy'))) return 'unhealthy';
+  if (v === 'healthy') return 'healthy';
+  if (v) return '';
+  const tags = (Array.isArray(r?.dietTags) ? r.dietTags : []).map(t => String(t || '').toLowerCase());
+  // "unhealthy" contains "healthy", so a spot tagged unhealthy is not healthy.
+  if (tags.some(t => t.includes('unhealthy'))) return '';
   if (tags.some(t => t.includes('healthy'))) return 'healthy';
   return '';
 }
@@ -2137,10 +2136,10 @@ function EditModal({ initial, onSave, onClose, onDelete, cuisineSuggestions, loc
             ))}
           </div>
 
-          <label className={styles.fieldLabel}>Health</label>
+          <label className={styles.fieldLabel}>Healthy (optional)</label>
           <div className={styles.statusRow}>
-            {/* Same three-state shape as Frequency: "—" is a real answer
-                meaning you haven't decided, not a neutral middle. */}
+            {/* An optional tag, not a question every spot must answer: "—"
+                just means untagged. */}
             <button
               type="button"
               className={`${styles.statusBtn} ${!health ? styles.statusBtnActive : ''}`}
@@ -2744,7 +2743,7 @@ function RestaurantCard({ r, ratingAgg, ratingHasOthers = false, distanceMiles, 
             {/* Colour-coded rather than another neutral chip — the whole value
                 of the tag is being able to spot it without reading. */}
             {healthOf(r) && (
-              <span className={healthOf(r) === 'healthy' ? styles.healthChipGood : styles.healthChipBad}>
+              <span className={styles.healthChipGood}>
                 {healthOption(healthOf(r))?.icon} {healthOption(healthOf(r))?.label}
               </span>
             )}
@@ -4956,7 +4955,10 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
     const next = ownerList.map(r => {
       if (r.id !== spot.id) return r;
       const merged = { ...r, ...patch };
-      if (patch.health) merged.dietTags = syncDietTags(r.dietTags, patch.health);
+      if ('health' in patch) {
+        merged.health = patch.health || undefined;
+        merged.dietTags = syncDietTags(r.dietTags, patch.health);
+      }
       // Categories changed → drop the pre-merge list so nothing comes back.
       if (Array.isArray(patch.cuisines)) merged.categories = [];
       return merged;
