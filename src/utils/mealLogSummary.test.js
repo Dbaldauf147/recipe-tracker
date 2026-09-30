@@ -10,6 +10,29 @@ test('rangeDays is inclusive and rejects bad or oversized ranges', () => {
   assert.equal(rangeDays('2026-01-01', '2026-01-31').length, MAX_RANGE_DAYS);
 });
 
+test('the admin "Last 30 days" range is accepted; 32 days is not', () => {
+  // daysAgo(30)..daysAgo(1): 30 full days, here crossing a month end and DST.
+  const days = rangeDays('2026-10-15', '2026-11-13');
+  assert.equal(days.length, 30);
+  assert.equal(days[0], '2026-10-15');
+  assert.equal(days[29], '2026-11-13');
+  assert.equal(rangeDays('2026-10-01', '2026-10-31').length, 31);
+  assert.equal(rangeDays('2026-10-01', '2026-11-01'), null); // 32 days
+});
+
+test('a 30-day email renders every day, averages only days with nutrition', () => {
+  const days = rangeDays('2026-10-15', '2026-11-13');
+  const meal = { mealSlot: 'lunch', recipeName: 'Chili', nutrition: { calories: 600, protein: 40, carbs: 50, fat: 20 } };
+  const log = { '2026-10-15': { entries: [meal] }, '2026-11-13': { entries: [meal, { ...meal, mealSlot: 'dinner' }] } };
+  const summary = summarizeMealLog(log, days);
+  assert.equal(summary.days.length, 30);
+  assert.equal(summary.macroDays, 2);
+  assert.equal(summary.avg.calories, 900);
+  const { subject, text } = renderMealLogEmail({ name: 'Dan', start: days[0], end: days[29], summary });
+  assert.equal(subject, "Dan's meal log — Oct 15 – Nov 13, 2026");
+  assert.match(text, /Daily average \(2 days with nutrition\): 900 cal/);
+});
+
 test('meals are listed per day in slot order with a day total; unknown nutrition stays unknown', () => {
   const log = {
     '2026-09-21': {
