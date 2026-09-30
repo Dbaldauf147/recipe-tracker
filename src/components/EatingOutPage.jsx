@@ -17,6 +17,7 @@ import {
 } from '../utils/restaurantImport';
 import { downloadRestaurantsCsv } from '../utils/restaurantExport';
 import { spotCategories, withMergedCategories, mergeCategoryLists } from '../utils/spotCategories';
+import { categorizeCompletion, inCategorizePopulation, isCategorized } from '../utils/categorizeCompletion';
 import { locationsFromGeocode, mergeLocations } from '../utils/spotLocations';
 import { saveSpotForOwner, saveEatingOutOrder, subscribeSpotComments, addSpotComment, deleteSpotComment, subscribeSpotRatings, subscribeEatingOutRatings, setEatingOutRating, spotPhotoDocId, loadSpotImageAt, saveSpotImageAt, deleteSpotImageAt } from '../utils/firestoreSync';
 // Canvas resize helper shared with the exercise-photo uploader — same ≤800px
@@ -3352,16 +3353,13 @@ function RestaurantRankings({
 const CATEGORIZE_BATCH = 5;
 
 /** My own spots still missing a bucket or a cuisine, in list order. */
+// Only my own (there is no editing someone else's list, so a friend's spot
+// would ask a question with no answer) and not retired (hidden by default, so
+// asking would nag about places already decided against). The population and
+// the "filed" test live in utils/categorizeCompletion.js, shared with the
+// completion % the prompt shows.
 function needsCategorizing(restaurants) {
-  return (restaurants || []).filter(r => (
-    // Only my own: there is no editing someone else's list, so putting a
-    // friend's spot in this queue would ask a question with no answer.
-    r._isMine
-    // Retired spots are hidden from the list by default, so asking about them
-    // on every visit would be nagging about places already decided against.
-    && r.frequency !== 'retired'
-    && (bucketsOf(r).length === 0 || (r.cuisines || []).length === 0)
-  ));
+  return (restaurants || []).filter(r => inCategorizePopulation(r) && !isCategorized(r, bucketsOf));
 }
 
 /**
@@ -3381,13 +3379,35 @@ function needsCategorizing(restaurants) {
  * FileSpotsModal does it. A backlog gets filed in odd minutes, and losing a
  * sitting's answers to a closed tab is how it stops getting done at all.
  */
-function CategorizePrompt({ queue, cuisineSuggestions, onSave, onClose }) {
+/** "62% of your places filed (310 of 500)" — the whole list, not this batch. */
+function CompletionMeter({ completion }) {
+  if (!completion || !completion.total) return null;
+  const { done, total, pct } = completion;
+  return (
+    <div className={styles.categorizeCompletion}>
+      <div className={styles.categorizeCompletionBar}>
+        <div className={styles.categorizeCompletionFill} style={{ width: `${pct}%` }} />
+      </div>
+      <div className={styles.categorizeCompletionText}>
+        {pct}% of your places filed ({done} of {total})
+      </div>
+    </div>
+  );
+}
+
+function CategorizePrompt({ queue, cuisineSuggestions, onSave, onClose, completion }) {
   const [i, setI] = useState(0);
   // Only the keys actually touched on the CURRENT spot. Reset on advance, which
   // is what lets commit tell "said Not yet" apart from "never answered".
   const [draft, setDraft] = useState({});
-  // Five per visit, or the whole queue when it's shorter than that.
-  const total = Math.min(queue.length, CATEGORIZE_BATCH);
+  // "Keep going" lifts the five-per-visit cap for the rest of this sitting.
+  const [keepGoing, setKeepGoing] = useState(false);
+  // 'card' = asking about queue[i]; 'batchEnd' = five done, more waiting;
+  // 'allDone' = the queue ran out.
+  const [phase, setPhase] = useState('card');
+  // Five per visit (or the whole queue when it's shorter), or all of it once
+  // you've said Keep going.
+  const total = keepGoing ? queue.length : Math.min(queue.length, CATEGORIZE_BATCH);
   const spot = queue[i];
 
   useEffect(() => {
@@ -3395,6 +3415,42 @@ function CategorizePrompt({ queue, cuisineSuggestions, onSave, onClose }) {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
+
+  if (phase === 'batchEnd' || phase === 'allDone') {
+    const allDone = phase === 'allDone';
+    const pct = completion?.pct ?? null;
+    return (
+      <div className={styles.fileBackdrop} onClick={onClose}>
+        <div className={styles.fileCard} onClick={e => e.stopPropagation()} data-phase={phase}>
+          <h3 className={styles.fileName}>
+            {allDone
+              ? (pct === 100 ? 'All filed — 100%' : 'That’s everything in the queue')
+              : `That’s ${i} — nice.`}
+          </h3>
+          <p className={styles.fileMeta}>
+            {allDone
+              ? 'Nothing left to ask about this visit.'
+              : `${queue.length - i} more waiting.`}
+          </p>
+          <CompletionMeter completion={completion} />
+          <div className={styles.fileNav}>
+            {allDone ? (
+              <button type="button" className={styles.primaryBtn} style={{ marginLeft: 'auto' }} onClick={onClose}>Close</button>
+            ) : (
+              <>
+                <button type="button" className={styles.fileNavBtn} onClick={onClose}>Stop for now</button>
+                <button
+                  type="button"
+                  className={styles.primaryBtn}
+                  onClick={() => { setKeepGoing(true); setPhase('card'); }}
+                >Keep going</button>
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   if (!spot || i >= total) return null;
 
@@ -3438,8 +3494,13 @@ function CategorizePrompt({ queue, cuisineSuggestions, onSave, onClose }) {
       if ('frequency' in draft) patch.frequency = draft.frequency || undefined;
       if (Object.keys(patch).length > 0) onSave({ [spot.id]: patch });
     }
-    if (i + 1 >= total) onClose();
-    else { setI(i + 1); setDraft({}); }
+    const next = i + 1;
+    setI(next);
+    setDraft({});
+    // The queue ran out: say so rather than vanishing. Five done with more
+    // waiting (and no Keep going yet): offer to carry on.
+    if (next >= queue.length) setPhase('allDone');
+    else if (next >= total) setPhase('batchEnd');
   }
 
   const answeredSomething = Object.keys(draft).length > 0;
@@ -3454,6 +3515,7 @@ function CategorizePrompt({ queue, cuisineSuggestions, onSave, onClose }) {
         <div className={styles.fileBar}>
           <div className={styles.fileBarFill} style={{ width: `${((i + 1) / total) * 100}%` }} />
         </div>
+        <CompletionMeter completion={completion} />
 
         <h3 className={styles.fileName}>{spot.name}</h3>
         {(spot.address || spot.description) && (
@@ -3555,8 +3617,8 @@ function CategorizePrompt({ queue, cuisineSuggestions, onSave, onClose }) {
           </button>
           <button type="button" className={styles.primaryBtn} onClick={() => advance(true)}>
             {answeredSomething
-              ? (i + 1 >= total ? 'Save · done' : 'Save · next')
-              : (i + 1 >= total ? 'Done' : 'Next')}
+              ? (i + 1 >= queue.length ? 'Save · done' : 'Save · next')
+              : (i + 1 >= queue.length ? 'Done' : 'Next')}
           </button>
         </div>
       </div>
@@ -5082,6 +5144,11 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
   // has to mean without being a nuisance inside one sitting.
   const [categorizeQueue, setCategorizeQueue] = useState(null);
   const categorizeAskedRef = useRef(false);
+  // Live, unlike the queue: it ticks up as each answer lands in `restaurants`.
+  const categorizeCompletionStats = useMemo(
+    () => categorizeCompletion(restaurants, bucketsOf),
+    [restaurants],
+  );
   useEffect(() => {
     if (categorizeAskedRef.current || loading || !user?.uid) return;
     const pending = needsCategorizing(restaurants);
@@ -5976,6 +6043,7 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
           cuisineSuggestions={cuisineSuggestions}
           onSave={applyCategorize}
           onClose={() => setCategorizeQueue(null)}
+          completion={categorizeCompletionStats}
         />
       )}
 
