@@ -121,6 +121,8 @@ export function MealLogReports({ users }) {
           {rangeBtn('Yesterday', daysAgo(1), daysAgo(1))}
           {rangeBtn('Last 7 days', daysAgo(7), daysAgo(1))}
           {rangeBtn('Last week (Sun–Sat)', lw.start, lw.end)}
+          {/* 30 full days ending yesterday — inside the server's 31-day cap. */}
+          {rangeBtn('Last 30 days', daysAgo(30), daysAgo(1))}
         </div>
         <input className={styles.setupInput} type="text" placeholder="Send to (comma-separated emails)"
           value={emailsText} onChange={e => setEmailsText(e.target.value)} aria-label="Recipient emails" />
