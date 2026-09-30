@@ -190,6 +190,7 @@ export function ImportRecipePage({ onSave, onAddWithoutClose, onCancel, userReci
   const [restaurantQuery, setRestaurantQuery] = useState('');
   const [restaurantResults, setRestaurantResults] = useState([]);
   const [restaurantLoading, setRestaurantLoading] = useState(false);
+  const [restaurantSource, setRestaurantSource] = useState('');
   const [tableRows, setTableRows] = useState([
     { quantity: '', measurement: '', ingredient: '' },
     { quantity: '', measurement: '', ingredient: '' },
@@ -926,6 +927,7 @@ export function ImportRecipePage({ onSave, onAddWithoutClose, onCancel, userReci
         }
         const data = await res.json();
         setRestaurantResults(data.results || []);
+        setRestaurantSource(data.source || '');
         if ((data.results || []).length === 0) {
           setFetchError('No results found. Try a different search.');
         }
@@ -945,7 +947,10 @@ export function ImportRecipePage({ onSave, onAddWithoutClose, onCancel, userReci
     setFetching(true);
     setFetchError('');
     try {
-      const res = await fetch(`/api/restaurant-search?fdcId=${item.fdcId}&type=nutrients`);
+      const params = item.source === 'fatsecret'
+        ? `source=fatsecret&id=${encodeURIComponent(item.id)}`
+        : `fdcId=${item.fdcId}`;
+      const res = await fetch(`/api/restaurant-search?${params}&type=nutrients`);
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
         throw new Error(err.error || `Failed to load nutrition (${res.status})`);
@@ -1642,6 +1647,31 @@ export function ImportRecipePage({ onSave, onAddWithoutClose, onCancel, userReci
                 className={styles.menuGoBtn}
                 disabled={!aiPrompt.trim() || fetching}
                 onClick={() => { setImportMode('ai'); setPhase('paste'); handleAiGenerate(); }}
+              >
+                Go
+              </button>
+            </div>
+          </div>
+
+          {/* Restaurant */}
+          <div className={styles.menuItem}>
+            <div className={styles.menuItemTop}>
+              <span className={styles.menuItemLabel}>Restaurant</span>
+              <span className={styles.menuItemDesc}>Search fast food and chain menu items</span>
+            </div>
+            <div className={styles.menuItemInput}>
+              <input
+                className={styles.menuInlineInput}
+                type="text"
+                value={restaurantQuery}
+                onChange={e => setRestaurantQuery(e.target.value)}
+                placeholder="e.g. McDonald's Big Mac"
+                onKeyDown={e => { if (e.key === 'Enter' && restaurantQuery.trim()) { setImportMode('restaurant'); setPhase('paste'); } }}
+              />
+              <button
+                className={styles.menuGoBtn}
+                disabled={!restaurantQuery.trim()}
+                onClick={() => { setImportMode('restaurant'); setPhase('paste'); }}
               >
                 Go
               </button>
@@ -2483,7 +2513,7 @@ export function ImportRecipePage({ onSave, onAddWithoutClose, onCancel, userReci
               <div className={styles.restaurantResults}>
                 {restaurantResults.map(item => (
                   <button
-                    key={item.fdcId}
+                    key={`${item.source || 'usda'}-${item.id ?? item.fdcId}`}
                     className={styles.restaurantItem}
                     onClick={() => handleSelectRestaurantItem(item)}
                     disabled={fetching}
@@ -2506,6 +2536,18 @@ export function ImportRecipePage({ onSave, onAddWithoutClose, onCancel, userReci
                   </button>
                 ))}
               </div>
+            )}
+
+            {/* Attribution is a condition of the FatSecret free tier. */}
+            {restaurantSource === 'fatsecret' && restaurantResults.length > 0 && (
+              <a
+                className={styles.restaurantAttribution}
+                href="https://www.fatsecret.com"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                Powered by fatsecret
+              </a>
             )}
           </>
         )}

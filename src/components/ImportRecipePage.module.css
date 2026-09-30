@@ -676,6 +676,19 @@
   white-space: nowrap;
 }
 
+.restaurantAttribution {
+  display: block;
+  margin-top: 0.5rem;
+  font-size: 0.72rem;
+  color: var(--color-text-muted);
+  text-align: right;
+  text-decoration: none;
+}
+
+.restaurantAttribution:hover {
+  text-decoration: underline;
+}
+
 /* ── AI Generate ── */
 
 .aiOptions {
