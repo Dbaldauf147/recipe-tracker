@@ -19,7 +19,7 @@ import json, os, sys, urllib.request, urllib.error
 PROJECT = 'sunday-routine'
 DB = '/databases/(default)/documents'
 OWNER_EMAIL = 'baldaufdan@gmail.com'
-ADMIN_UID = 'LnPlQY9qAKQq8oZ2GbvvI5VSvB83'
+ADMIN_UID = 'JQVPhdFd9wMQqR1k27VlsJRObln1'
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 RULES = open(os.path.join(REPO_ROOT, 'firestore.rules'), encoding='utf-8').read()

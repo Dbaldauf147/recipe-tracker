@@ -58,7 +58,7 @@ service cloud.firestore {
     // The account that publishes the shared ingredient DB, the starter recipe
     // library and the grid defaults, each in its own doc under this uid.
     // Mirrors EXPO_PUBLIC_ADMIN_UID in the mobile app.
-    function adminUid() { return 'LnPlQY9qAKQq8oZ2GbvvI5VSvB83'; }
+    function adminUid() { return 'JQVPhdFd9wMQqR1k27VlsJRObln1'; }
 
     function signedIn() { return request.auth != null; }
     function isOwner(uid) { return signedIn() && request.auth.uid == uid; }
