@@ -2473,3 +2473,14 @@
   border-radius: 999px;
   white-space: nowrap;
 }
+
+/* Block sub-labels inside a Joanne group: "Try next" (accent) and "Been". */
+.joanneSubLabel {
+  margin: 0.15rem 0 0.25rem 0.1rem;
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+.joanneSubLabelTry { color: var(--color-accent); }
