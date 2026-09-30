@@ -1418,6 +1418,21 @@
   overflow: hidden;
 }
 .fileBarFill { height: 100%; background: var(--color-accent); transition: width 0.2s; }
+/* The categorize prompt's "N% of your places filed" — the whole list, not this batch. */
+.categorizeCompletion { margin: -0.45rem 0 0.9rem; }
+.categorizeCompletionBar {
+  height: 3px;
+  border-radius: 2px;
+  background: var(--color-border-light, #e5e7eb);
+  overflow: hidden;
+}
+.categorizeCompletionFill { height: 100%; background: #10b981; transition: width 0.3s; }
+.categorizeCompletionText {
+  margin-top: 0.25rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--color-text-muted);
+}
 .fileName {
   margin: 0 0 0.15rem;
   font-family: var(--font-family-serif, Georgia, serif);
