@@ -1,6 +1,15 @@
-// Vercel serverless function: searches USDA FoodData Central Branded database
-// for restaurant and fast food menu items.
+// Vercel serverless function: searches restaurant and fast food menu items.
 // Auto-routed at /api/restaurant-search
+//
+// FatSecret (lib/fatsecret.js) is the primary source — it carries real chain
+// menus (McDonald's, Chipotle, ...). USDA's Branded database is the fallback
+// when FatSecret isn't configured or errors, so the page never goes dark.
+//
+//   ?query=<text>                          → { results: [{ id, source, fdcId?, ... }], source }
+//   ?type=nutrients&source=fatsecret&id=N  → FatSecret item detail
+//   ?type=nutrients&fdcId=N                → USDA item detail
+
+import { fatSecretConfigured, searchFoods, getFood } from '../lib/fatsecret.js';
 
 const USDA_API_KEY = process.env.VITE_USDA_API_KEY || process.env.USDA_API_KEY || 'DEMO_KEY';
 const USDA_SEARCH_URL = 'https://api.nal.usda.gov/fdc/v1/foods/search';
@@ -37,18 +46,30 @@ function fmtVal(val) {
   return Math.round(val * 100) / 100;
 }
 
+// Menu data barely changes; caching successes at the edge also stretches the
+// FatSecret free tier's 5,000 calls/day. Errors are never cached, and a USDA
+// fallback served while FatSecret was failing only briefly, so it can recover.
+function ok(res, body, maxAge = 86400) {
+  res.setHeader('Cache-Control', `s-maxage=${maxAge}, stale-while-revalidate=${maxAge * 7}`);
+  return res.status(200).json(body);
+}
+
 export default async function handler(req, res) {
   if (req.method !== 'GET') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  const { query, type, fdcId } = req.query;
+  const { query, type, fdcId, id, source } = req.query;
 
-  if (!query && !fdcId) {
-    return res.status(400).json({ error: 'Missing query or fdcId parameter' });
+  if (!query && !fdcId && !id) {
+    return res.status(400).json({ error: 'Missing query, id or fdcId parameter' });
   }
 
   try {
+    if (type === 'nutrients' && source === 'fatsecret' && id) {
+      return ok(res, await getFood(id));
+    }
+
     if (type === 'nutrients' && fdcId) {
       // Get full nutrition for a specific food by FDC ID
       const url = `${USDA_FOOD_URL}/${fdcId}?api_key=${USDA_API_KEY}`;
@@ -71,7 +92,7 @@ export default async function handler(req, res) {
       const servingSize = food.servingSize || food.householdServingFullText || '';
       const servingUnit = food.servingSizeUnit || 'g';
 
-      return res.status(200).json({
+      return ok(res, {
         name: food.description,
         brandName: food.brandName || food.brandOwner || '',
         servingSize: servingSize ? `${servingSize}${servingUnit}` : '',
@@ -86,6 +107,17 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'Missing query parameter' });
     }
 
+    let fellBack = false;
+    if (fatSecretConfigured()) {
+      try {
+        const results = await searchFoods(searchQuery);
+        return ok(res, { results, source: 'fatsecret' });
+      } catch (err) {
+        console.error('[restaurant-search] FatSecret failed, falling back to USDA:', err.message);
+        fellBack = true;
+      }
+    }
+
     const url = `${USDA_SEARCH_URL}?api_key=${USDA_API_KEY}&query=${encodeURIComponent(searchQuery)}&dataType=Branded&pageSize=20&sortBy=dataType.keyword&sortOrder=desc`;
     const response = await fetch(url);
 
@@ -96,13 +128,15 @@ export default async function handler(req, res) {
     const data = await response.json();
 
     if (!data.foods || data.foods.length === 0) {
-      return res.status(200).json({ results: [] });
+      return ok(res, { results: [], source: 'usda' }, fellBack ? 300 : 86400);
     }
 
     const results = data.foods.map(food => {
       const calories = extractNutrient(food.foodNutrients || [], 1008);
       const protein = extractNutrient(food.foodNutrients || [], 1003);
       return {
+        id: String(food.fdcId),
+        source: 'usda',
         fdcId: food.fdcId,
         name: food.description,
         brandName: food.brandName || food.brandOwner || '',
@@ -114,7 +148,7 @@ export default async function handler(req, res) {
       };
     });
 
-    return res.status(200).json({ results });
+    return ok(res, { results, source: 'usda' }, fellBack ? 300 : 86400);
   } catch (err) {
     return res.status(500).json({ error: err.message });
   }
