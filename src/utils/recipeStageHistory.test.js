@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import {
   weekStart, countStages, stageSnapshot, sameCounts, upsertWeek,
   recordStageWeek, mergeMissingWeeks, formatWeekLabel, backupsToBackfill, backfilledRow,
-  countCommonByCategory, monthlyCommonStages,
+  countCommonByCategory, monthlyCommonStages, stageColors, categoryCounts, UNSET_COLOR,
 } from './recipeStageHistory.js';
 
 // A Wednesday, mid-afternoon local.
@@ -180,4 +180,23 @@ test('monthlyCommonStages takes the last reading of each month, and live for thi
   assert.deepEqual(out.map(p => p.month), ['2026-07', '2026-08', '2026-09', '2026-10'], 'leading empty months trimmed');
   assert.deepEqual(out.map(p => p.counts ? p.counts.breakfast.total : null), [2, null, 4, 5], 'a gap stays null, not 0');
   assert.deepEqual(monthlyCommonStages([], { now: new Date(2026, 9, 3) }), []);
+});
+
+test('stageColors keeps valid overrides and falls back for the rest', () => {
+  const c = stageColors({ wip: '#123ABC', nailed: 'green', unset: '#00ff00', bogus: '#ffffff' });
+  assert.equal(c.wip, '#123ABC');
+  assert.equal(c.nailed, '#2E7D4F', 'a non-hex value is ignored');
+  assert.equal(c.unset, '#00ff00');
+  assert.equal(c.new, '#2A5CAA');
+  assert.deepEqual(Object.keys(c).sort(), ['nailed', 'new', 'unset', 'wip']);
+  assert.equal(stageColors(null).unset, UNSET_COLOR);
+  assert.equal(stageColors('nope').new, '#2A5CAA');
+});
+
+test('categoryCounts reads one category out of a row, or null', () => {
+  const row = { week: '2026-09-20', common: { breakfast: { new: 1, wip: 2, nailed: 0, unset: 3, total: 6 } } };
+  assert.equal(categoryCounts(row, 'breakfast').total, 6);
+  assert.equal(categoryCounts(row, 'lunch-dinner'), null);
+  assert.equal(categoryCounts({ week: '2026-09-13' }, 'breakfast'), null, 'a pre-breakdown row has none');
+  assert.equal(categoryCounts(null, 'breakfast'), null);
 });
