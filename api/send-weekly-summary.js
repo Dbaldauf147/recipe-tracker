@@ -25,7 +25,7 @@ import {
   TREND_WEEKS,
 } from '../lib/weeklySummary.js';
 import { WINDOW_DAYS } from '../src/utils/exerciseProgress.js';
-import { summarizeUserGrowth } from '../lib/adminGrowth.js';
+import { summarizeUserGrowth, monthYear } from '../lib/adminGrowth.js';
 import { OWNER_EMAIL } from '../src/utils/pageAccess.js';
 import { countCommonByCategory, monthlyCommonStages } from '../src/utils/recipeStageHistory.js';
 
@@ -133,10 +133,10 @@ async function loadUserWeekData(uid, userData, fromKey, toKey) {
   };
 }
 
-// How far back the growth chart reads. Weekly thinning starts once the
-// snapshots outgrow the chart, so this is ~3 months of history whichever grain
-// summarizeUserGrowth settles on.
-const GROWTH_SNAPSHOT_DAYS = 90;
+// How far back the growth chart reads: ~10 months of daily snapshots. Once
+// they outgrow GROWTH_POINTS weekly, summarizeUserGrowth drops to one point per
+// month, so the chart stays a dozen columns wide at phone width.
+const GROWTH_SNAPSHOT_DAYS = 310;
 const GROWTH_POINTS = 12;
 
 /**
@@ -153,9 +153,15 @@ async function loadAdminGrowth() {
     const snap = await db.collection('adminSnapshots')
       .orderBy('date', 'desc').limit(GROWTH_SNAPSHOT_DAYS).get();
     const rows = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-    const { points } = summarizeUserGrowth(rows, { maxPoints: GROWTH_POINTS });
+    const { points, grain } = summarizeUserGrowth(rows, { maxPoints: GROWTH_POINTS });
     // One snapshot is a number, not a trend, and the section is a chart.
-    return points.length >= 2 ? points : null;
+    if (points.length < 2) return null;
+    // Thinned to a month a point, the day under each column is just whichever
+    // snapshot was last in that month — label the month instead, as the
+    // dashboard's UsersOverTimeChart does.
+    return grain === 'month' || grain === 'sparse'
+      ? points.map(p => ({ ...p, label: monthYear(p.date) }))
+      : points;
   } catch (err) {
     console.error('[send-weekly-summary] admin growth read failed', err);
     return null;
