@@ -23,6 +23,7 @@ import { loadHabitLogAdmin } from './_data/habitLogYears.js';
 import {
   lastCompleteWeek, previousWeek, summarizeWeek, isEmptyWeek, renderWeeklySummary, shiftKey,
   TREND_WEEKS,
+  trendMonthWeeks,
 } from '../lib/weeklySummary.js';
 import { WINDOW_DAYS } from '../src/utils/exerciseProgress.js';
 import { summarizeUserGrowth, monthYear } from '../lib/adminGrowth.js';
@@ -222,8 +223,11 @@ async function buildEmail(uid, userData, todayKey, { force = false } = {}) {
   // arrive whole and need no widening; workouts are the one range query.
   // Without this the older weeks come back with no sessions in them, which
   // reads as a run of missed workout goals rather than as missing data.
+  // The 10-month column reaches further still, so take the earliest of all.
   const trendStart = shiftKey(week.start, -7 * (TREND_WEEKS - 1));
-  const from = trendStart < prior.start ? trendStart : prior.start;
+  const monthWeeks = trendMonthWeeks(week);
+  const monthStart = monthWeeks.length ? monthWeeks[monthWeeks.length - 1].start : week.start;
+  const from = [trendStart, monthStart, prior.start].sort()[0];
   const data = await loadUserWeekData(uid, userData, from, shiftKey(week.end, 1));
   // The Week Plan's goal tiles, recomputed for the finished week. Every input
   // is a synced user-doc field; a goal configured only in localStorage on one
