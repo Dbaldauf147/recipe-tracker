@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   lastCompleteWeek, previousWeek, summarizeWeek, isEmptyWeek, renderWeeklySummary, TREND_WEEKS,
+  TREND_MONTHS, trendMonthWeeks, shiftMonthsKey,
 } from '../../lib/weeklySummary.js';
 import { DEFAULT_SAUNA_GOAL } from './saunaPlan.js';
 
@@ -426,8 +427,60 @@ test('the goals table carries the rolling met-rate column', () => {
   const { html, text } = renderWeeklySummary({ stats, priorStats: prior });
   assert.match(html, /10 wks/);
   assert.match(html, />50%<\/span><br><span[^>]*>2\/4</);  // Weights: met 2 of 4 logged weeks
-  assert.match(html, /Last column: weeks this goal was met out of the 4 logged weeks/);
+  assert.match(html, /Last two columns: weeks this goal was met out of the 4 logged weeks in the past 10 weeks/);
   assert.match(text, /10wk 50% \(2\/4\)/);
+  assert.doesNotMatch(html, /NaN|undefined/);
+  assert.doesNotMatch(text, /NaN|undefined/);
+});
+
+// ─────────────────────────────────────────── long-run met-rate (10 months)
+
+test('shiftMonthsKey moves whole months and clamps to the month end', () => {
+  assert.equal(shiftMonthsKey('2026-08-01', -10), '2025-10-01');
+  assert.equal(shiftMonthsKey('2026-03-31', -1), '2026-02-28');
+  assert.equal(shiftMonthsKey('2026-01-15', -2), '2025-11-15');
+});
+
+test('the 10-month window is the complete weeks starting inside it', () => {
+  // WEEK ends Sat Aug 1 2026, so the window opens Oct 2 2025. The first week
+  // starting on or after that is Sun Oct 5 2025: 43 weeks in all.
+  const weeks = trendMonthWeeks(WEEK);
+  assert.equal(TREND_MONTHS, 10);
+  assert.equal(weeks.length, 43);
+  assert.equal(weeks[0].start, WEEK.start);
+  assert.equal(weeks[weeks.length - 1].start, '2025-10-05');
+});
+
+test('the 10-month rate reaches past the 10-week one', () => {
+  // Weights met this week and 20 weeks ago, missed 30 weeks ago; the 10-week
+  // column only sees this week, the 10-month one sees all three.
+  const workouts = [...weightsWeek(0, 3), ...weightsWeek(20, 3), ...weightsWeek(30, 1)];
+  const g = goalsFor({ workouts });
+  assert.deepEqual(goalNamed(g, 'Weights').trend, { met: 1, weeks: 1, pct: 100 });
+  assert.deepEqual(goalNamed(g, 'Weights').trendMonths, { met: 2, weeks: 3, pct: 67 });
+  assert.equal(g.trendMonthsWeeks, 3);
+  assert.equal(g.trendMonthsSpan, TREND_MONTHS);
+  // A week outside the window (50 back) doesn't count at all.
+  const g2 = goalsFor({ workouts: [...workouts, ...weightsWeek(50, 3)] });
+  assert.deepEqual(goalNamed(g2, 'Weights').trendMonths, { met: 2, weeks: 3, pct: 67 });
+});
+
+test('a user with no history gets no 10-month rate rather than 0%', () => {
+  const g = goalsFor({});
+  assert.equal(g.trendMonthsWeeks, 0);
+  assert.equal(goalNamed(g, 'Weights').trendMonths, null);
+});
+
+test('the goals table carries the 10-month column on the far right', () => {
+  const workouts = [...weightsWeek(0, 3), ...weightsWeek(20, 3), ...weightsWeek(30, 1)];
+  const stats = summarizeWeek({ ...emptyData(), workouts }, WEEK, { goalsConfig: GOALS_CONFIG });
+  const prior = summarizeWeek(emptyData(), previousWeek(WEEK));
+  const { html, text } = renderWeeklySummary({ stats, priorStats: prior });
+  // Header order: … 10 wks, then 10 mos last.
+  assert.match(html, /10 wks<\/th><th[^>]*>10 mos<\/th><\/tr>/);
+  assert.match(html, />67%<\/span><br><span[^>]*>2\/3<\/span><\/td><\/tr>/); // Weights row ends with it
+  assert.match(html, /out of the 3 logged weeks in the past 10 months/);
+  assert.match(text, /10mo 67% \(2\/3\)/);
   assert.doesNotMatch(html, /NaN|undefined/);
   assert.doesNotMatch(text, /NaN|undefined/);
 });
