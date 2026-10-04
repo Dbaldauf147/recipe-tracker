@@ -19,6 +19,7 @@ import { downloadRestaurantsCsv } from '../utils/restaurantExport';
 import { spotCategories, withMergedCategories, mergeCategoryLists } from '../utils/spotCategories';
 import { categorizeCompletion, inCategorizePopulation, isCategorized } from '../utils/categorizeCompletion';
 import { locationsFromGeocode, mergeLocations } from '../utils/spotLocations';
+import { readMapColors, writeMapColors } from '../utils/mapColors';
 import { saveSpotForOwner, saveEatingOutOrder, subscribeSpotComments, addSpotComment, deleteSpotComment, subscribeSpotRatings, subscribeEatingOutRatings, setEatingOutRating, spotPhotoDocId, loadSpotImageAt, saveSpotImageAt, deleteSpotImageAt } from '../utils/firestoreSync';
 // Canvas resize helper shared with the exercise-photo uploader — same ≤800px
 // JPEG budget, so a spot photo can't push its doc near Firestore's 1 MB cap.
@@ -106,10 +107,6 @@ function makeMarkerIcon(color) {
   });
 }
 
-const visitedIcon = makeMarkerIcon(VISITED_COLOR);
-const wantIcon = makeMarkerIcon(WANT_COLOR);
-const holdIcon = makeMarkerIcon(HOLD_COLOR);
-const joanneIcon = makeMarkerIcon(JOANNE_COLOR);
 
 // The ★ Next spot (isNextSpot) as a star rather than a dot: a different SHAPE,
 // not just a different colour, so it reads among a map full of amber
@@ -117,15 +114,17 @@ const joanneIcon = makeMarkerIcon(JOANNE_COLOR);
 // the dots and drawn on top of them (zIndexOffset on the Marker).
 const NEXT_STAR_SIZE = 30;
 const NEXT_STAR_PATH = 'M12 1.8l3.1 6.6 7.2.9-5.3 5 1.4 7.1L12 17.9l-6.4 3.5 1.4-7.1-5.3-5 7.2-.9z';
-const nextIcon = L.divIcon({
-  className: 'restaurant-marker restaurant-marker-next',
-  html: `<svg width="${NEXT_STAR_SIZE}" height="${NEXT_STAR_SIZE}" viewBox="0 0 24 24" `
-    + `style="display:block;overflow:visible;filter:drop-shadow(0 1px 2px rgba(0,0,0,0.45));">`
-    + `<path d="${NEXT_STAR_PATH}" fill="${WANT_COLOR}" stroke="#ffffff" stroke-width="1.6" stroke-linejoin="round"/></svg>`,
-  iconSize: [NEXT_STAR_SIZE, NEXT_STAR_SIZE],
-  iconAnchor: [NEXT_STAR_SIZE / 2, NEXT_STAR_SIZE / 2],
-  popupAnchor: [0, -NEXT_STAR_SIZE / 2],
-});
+function makeNextIcon(color) {
+  return L.divIcon({
+    className: 'restaurant-marker restaurant-marker-next',
+    html: `<svg width="${NEXT_STAR_SIZE}" height="${NEXT_STAR_SIZE}" viewBox="0 0 24 24" `
+      + `style="display:block;overflow:visible;filter:drop-shadow(0 1px 2px rgba(0,0,0,0.45));">`
+      + `<path d="${NEXT_STAR_PATH}" fill="${color}" stroke="#ffffff" stroke-width="1.6" stroke-linejoin="round"/></svg>`,
+    iconSize: [NEXT_STAR_SIZE, NEXT_STAR_SIZE],
+    iconAnchor: [NEXT_STAR_SIZE / 2, NEXT_STAR_SIZE / 2],
+    popupAnchor: [0, -NEXT_STAR_SIZE / 2],
+  });
+}
 
 // ONE map category per spot, in marker priority: the ★ Next star first (it's
 // the one decision on the map), then Joanne, then Hold off, then been-to
@@ -139,9 +138,22 @@ function mapCategoryOf(r) {
   if (hasBeenVisited(r)) return 'visited';
   return 'want';
 }
-const MARKER_ICONS = { next: nextIcon, joanne: joanneIcon, hold: holdIcon, visited: visitedIcon, want: wantIcon };
-function markerIconFor(r) {
-  return MARKER_ICONS[mapCategoryOf(r)];
+// Map dot colours per category — the defaults; each viewer can recolour them
+// from the legend (utils/mapColors.js, remembered in this browser). The ★ Next
+// star defaults to the want-to-try amber: its SHAPE is what sets it apart.
+const DEFAULT_MAP_COLORS = {
+  want: WANT_COLOR, next: WANT_COLOR, visited: VISITED_COLOR, hold: HOLD_COLOR, joanne: JOANNE_COLOR,
+};
+// One Leaflet icon per category for a colour set. Built once per colour change
+// (useMemo in the map), not per marker.
+function markerIconsFor(colors) {
+  return {
+    next: makeNextIcon(colors.next),
+    joanne: makeMarkerIcon(colors.joanne),
+    hold: makeMarkerIcon(colors.hold),
+    visited: makeMarkerIcon(colors.visited),
+    want: makeMarkerIcon(colors.want),
+  };
 }
 
 const FILTERS = [
@@ -2911,7 +2923,10 @@ function TryNextView({
       {/* Bucket subtabs. These ARE the page's bucket filter, not a second one:
           a local copy would sit alongside the sidebar's bucket chips with no
           answer to which of the two wins. Switching a tab moves the same state,
-          so the chips, the Export count and this table never disagree. */}
+          so the chips, the Export count and this table never disagree.
+          Left out when no buckets are passed (the list under the map, which
+          already sits under the page's own bucket chips). */}
+      {buckets.length > 0 && (
       <div className={styles.tryNextTabs} role="tablist" aria-label="Filter by bucket">
         <button
           type="button"
@@ -2950,6 +2965,7 @@ function TryNextView({
           </button>
         )}
       </div>
+      )}
 
       <div className={styles.filterRow} style={{ alignSelf: 'flex-start' }}>
         <button
@@ -3724,16 +3740,18 @@ function writeMapLegend(on) {
     localStorage.setItem(MAP_LEGEND_KEY, JSON.stringify(MAP_CATEGORIES.filter(k => !on[k])));
   } catch { /* private mode / blocked storage */ }
 }
-function MapLegendSwatch({ category }) {
+function MapLegendSwatch({ category, color }) {
   if (category === 'next') {
     return (
       <svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true" style={{ display: 'block' }}>
-        <path d={NEXT_STAR_PATH} fill={WANT_COLOR} stroke="#ffffff" strokeWidth="1.6" strokeLinejoin="round" />
+        <path d={NEXT_STAR_PATH} fill={color} stroke="#ffffff" strokeWidth="1.6" strokeLinejoin="round" />
       </svg>
     );
   }
-  const color = { visited: VISITED_COLOR, joanne: JOANNE_COLOR, hold: HOLD_COLOR }[category] || WANT_COLOR;
   return <span className={styles.mapLegendDot} style={{ background: color }} aria-hidden="true" />;
+}
+function safeLocalStorage() {
+  try { return window.localStorage; } catch { return null; }
 }
 const MAP_LEGEND_ITEMS = [
   { key: 'want', label: 'Want to try' },
@@ -3743,8 +3761,21 @@ const MAP_LEGEND_ITEMS = [
   { key: 'joanne', label: 'Taken Joanne' },
 ];
 
-export function RestaurantMapView({ items, onSelect }) {
+export function RestaurantMapView({ items, allItems, onSelect }) {
   const [legendOn, setLegendOn] = useState(readMapLegend);
+  const [colors, setColors] = useState(() => readMapColors(DEFAULT_MAP_COLORS, safeLocalStorage()));
+  const [colorsOpen, setColorsOpen] = useState(false);
+  const icons = useMemo(() => markerIconsFor(colors), [colors]);
+  const setColor = (key, value) => setColors(prev => {
+    const next = { ...prev, [key]: value };
+    writeMapColors(DEFAULT_MAP_COLORS, next, safeLocalStorage());
+    return next;
+  });
+  const resetColors = () => {
+    writeMapColors(DEFAULT_MAP_COLORS, DEFAULT_MAP_COLORS, safeLocalStorage());
+    setColors({ ...DEFAULT_MAP_COLORS });
+  };
+  const colorsChanged = Object.keys(DEFAULT_MAP_COLORS).some(k => colors[k] !== DEFAULT_MAP_COLORS[k]);
   const toggleCategory = key => setLegendOn(prev => {
     const next = { ...prev, [key]: !prev[key] };
     writeMapLegend(next);
@@ -3809,7 +3840,7 @@ export function RestaurantMapView({ items, onSelect }) {
             <Marker
               key={r.id}
               position={[r.lat, r.lng]}
-              icon={markerIconFor(r)}
+              icon={icons[mapCategoryOf(r)]}
               zIndexOffset={isNextSpot(r) ? 1000 : 0}
             >
               <Popup>
@@ -3868,12 +3899,50 @@ export function RestaurantMapView({ items, onSelect }) {
               title={on ? `Hide ${label} on the map` : `Show ${label} on the map`}
               onClick={() => toggleCategory(key)}
             >
-              <MapLegendSwatch category={key} />
+              <MapLegendSwatch category={key} color={colors[key]} />
               <span className={styles.mapLegendLabel}>{label}</span>
               <span className={styles.mapLegendCount}>{categoryCounts[key]}</span>
             </button>
           );
         })}
+        <button
+          type="button"
+          className={`${styles.mapLegendItem} ${styles.mapColorsToggle}`}
+          aria-expanded={colorsOpen}
+          onClick={() => setColorsOpen(v => !v)}
+          title="Change the dot colours on this map"
+        >
+          🎨 {colorsOpen ? 'Done' : 'Colors'}
+        </button>
+      </div>
+      {colorsOpen && (
+        <div className={styles.mapColors} role="group" aria-label="Dot colours">
+          {MAP_LEGEND_ITEMS.map(({ key, label }) => (
+            <label key={key} className={styles.mapColorItem}>
+              <input
+                type="color"
+                value={colors[key]}
+                onChange={e => setColor(key, e.target.value)}
+                aria-label={`${label} colour`}
+              />
+              <span>{label}</span>
+            </label>
+          ))}
+          {colorsChanged && (
+            <button type="button" className={styles.mapColorReset} onClick={resetColors}>
+              Reset to defaults
+            </button>
+          )}
+          <span className={styles.mapColorNote}>Saved in this browser.</span>
+        </div>
+      )}
+
+      {/* The want-to-try list under the map, cut by category with the ★ Next
+          spot pinned first — the same list as the Try Next tab, over the same
+          filtered spots the map is plotting. */}
+      <div className={styles.mapTryNext}>
+        <h3 className={styles.mapTryNextHead}>Try next, by category</h3>
+        <TryNextView items={items} allItems={allItems || items} onSelect={onSelect} />
       </div>
     </div>
   );
@@ -5903,7 +5972,7 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
           {loading ? (
             <div className={styles.empty}>Loading…</div>
           ) : viewMode === 'map' ? (
-            <RestaurantMapView items={visible} onSelect={openSpot} />
+            <RestaurantMapView items={visible} allItems={restaurants} onSelect={openSpot} />
           ) : viewMode === 'try-next' ? (
             <TryNextView
               items={visible}
