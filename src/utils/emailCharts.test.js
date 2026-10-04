@@ -52,3 +52,34 @@ test('with a rasteriser the email embeds cid images and returns them as attachme
   assert.deepEqual(broken.attachments, []);
   assert.match(broken.html, /border-radius:50%/);
 });
+
+test('labels are drawn over their points as glyph outlines, never as <text>', () => {
+  const plain = lineChartSvg({ n: 3, hi: 10, series: [{ values: [1, null, 3], color: '#000' }] });
+  assert.doesNotMatch(plain, /<path/);
+  const svg = lineChartSvg({ n: 3, hi: 20, series: [{ values: [1, null, 13.5], color: '#000', labels: ['1', '9', '13.5'] }] });
+  assert.doesNotMatch(svg, /<text/, 'no font on the server to draw text with');
+  // Halo + fill per label; "1" is one glyph, "13.5" four, and the null point none.
+  assert.equal((svg.match(/<path/g) || []).length, 2 * (1 + 4));
+});
+
+test('the per-meal protein chart is a labelled line over the days, with no "this week" point', () => {
+  const week = lastCompleteWeek('2026-08-02');
+  const dailyLog = {
+    [week.days[0]]: { entries: [{ mealSlot: 'dinner', nutrition: { protein: 12 } }] },
+    [week.days[4]]: { entries: [{ mealSlot: 'lunch', nutrition: { protein: 17 } }] },
+  };
+  const data = { dailyLog, weightLog: [], workouts: [], habits: [], habitLog: {} };
+  const stats = summarizeWeek(data, week);
+  const svgs = [];
+  const email = renderWeeklySummary({
+    stats, priorStats: stats, goals: { protein: 144 },
+    rasterize: svg => { svgs.push(svg); return Buffer.from('png'); },
+  });
+  const protein = svgs[0];
+  assert.match(protein, /<polyline|<circle/);
+  assert.equal((protein.match(/<circle/g) || []).length, 2, 'one dot per day with a main meal');
+  assert.doesNotMatch(protein, /r="8"/, 'Saturday is not singled out');
+  assert.ok((protein.match(/<path/g) || []).length > 0, 'the averages are labelled');
+  assert.match(email.html, />Sun<\/td>/);
+  assert.match(email.html, />Thu<\/td>/);
+});
