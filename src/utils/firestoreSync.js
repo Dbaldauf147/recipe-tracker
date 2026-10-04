@@ -1382,6 +1382,11 @@ export async function migrateToFirestore(uid) {
   } catch {}
 
   try {
+    const stageColors = localStorage.getItem('sunday-recipe-stage-colors');
+    if (stageColors) data.recipeStageColors = JSON.parse(stageColors);
+  } catch {}
+
+  try {
     const bodyStats = localStorage.getItem('sunday-body-stats');
     if (bodyStats) data.bodyStats = JSON.parse(bodyStats);
   } catch {}
@@ -1652,6 +1657,10 @@ export function hydrateLocalStorage(userData, uid) {
 
   if (userData.mealChartColors) {
     localStorage.setItem('sunday-meal-chart-colors', JSON.stringify(userData.mealChartColors));
+  }
+
+  if (userData.recipeStageColors) {
+    localStorage.setItem('sunday-recipe-stage-colors', JSON.stringify(userData.recipeStageColors));
   }
 
   if (userData.bodyStats) {

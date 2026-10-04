@@ -138,6 +138,63 @@
   margin: 0 0 1rem;
 }
 
+/* ── Per-category charts ── */
+
+.category {
+  margin: 1.1rem 0 0;
+  padding-top: 0.9rem;
+  border-top: 1px solid var(--color-border, #e5e7eb);
+}
+
+.categoryTitle {
+  margin: 0 0 0.5rem;
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--color-text, #1f2937);
+}
+
+.chartNote {
+  margin: 0.25rem 0 0;
+  font-size: 0.76rem;
+  color: var(--color-text-muted, #64748b);
+}
+
+.colorRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem 0.85rem;
+  margin: 0 0 0.6rem;
+  font-size: 0.78rem;
+  color: var(--color-text-muted, #64748b);
+}
+
+.colorItem {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  cursor: pointer;
+}
+
+.colorInput {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+}
+
+.colorReset {
+  border: none;
+  background: none;
+  padding: 0;
+  font-size: 0.76rem;
+  color: var(--color-primary, #2563eb);
+  cursor: pointer;
+  text-decoration: underline;
+}
+
 .tooltip {
   background: rgba(255, 255, 255, 0.97);
   border: 1px solid var(--color-border, #e5e7eb);

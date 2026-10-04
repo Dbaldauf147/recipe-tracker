@@ -8,18 +8,23 @@
  * recipeStageHistory.js, recorded from App whenever the counts move) and this
  * tab is the readout: where things stand now, and the run of weeks behind it.
  *
- * Colours come from RECIPE_STAGES, the same list that paints the chip and the
- * card pill, so a bar can't end up a different colour from the recipe it counts.
- * Green and dark amber sit close together for deuteranopes (ΔE 7.4), so the
- * chart never leans on hue alone: the stack order is fixed (new at the bottom,
- * nailed down on top), every segment is separated by a 2px gap, the legend is
- * always shown, and the same numbers appear as a table underneath.
+ * The history is drawn twice — breakfast, then lunch & dinner — from the
+ * per-category breakdown each weekly row carries (`row.common`, COMMON recipes
+ * only, the same counts the weekly email charts). Recipes with no stage are a
+ * segment of their own at the bottom of the stack, so every recipe is counted.
+ *
+ * Colours default to RECIPE_STAGES (the chip and card-pill colours) and can be
+ * changed per stage; the choice syncs as `recipeStageColors` so the app draws
+ * the same bars. Because a picked colour can land close to another, the chart
+ * never leans on hue alone: the stack order is fixed (no stage at the bottom,
+ * nailed down on top), segments are separated by a 2px gap and carry their
+ * count, the legend is always shown, and the same numbers sit in a table.
  */
 
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer,
+  ResponsiveContainer, LabelList,
 } from 'recharts';
 import { auth } from '../firebase';
 import { listFullBackups, readBackupValue } from '../utils/firestoreSync';
@@ -27,14 +32,20 @@ import { RECIPE_STAGES } from '../utils/recipeStage';
 import {
   loadStageHistory, saveStageHistory, countStages, stageSnapshot, weekStart,
   formatWeekLabel, backupsToBackfill, backfilledRow, mergeMissingWeeks,
-  upsertWeek, UNSET_KEY,
+  upsertWeek, UNSET_KEY, stageColors, categoryCounts, loadStageColors, saveStageColors,
 } from '../utils/recipeStageHistory';
 import styles from './RecipeStageHistory.module.css';
 
-// Bottom-to-top in the stack, and left-to-right in the legend: the order a
-// recipe travels, so the shape of the chart reads as progress.
+// The three real stages, for the tiles.
 const SERIES = RECIPE_STAGES;
-const UNSET_COLOR = '#94a3b8';
+// Bottom-to-top in the stack, and left-to-right in the legend: the order a
+// recipe travels — unstaged first — so the shape of the chart reads as progress.
+const STACK = [{ key: UNSET_KEY, label: 'No stage' }, ...RECIPE_STAGES];
+// The two charts, in the order the Recipes page lists the categories.
+const CATEGORIES = [
+  { key: 'breakfast', label: 'Breakfast' },
+  { key: 'lunch-dinner', label: 'Lunch & dinner' },
+];
 const RANGES = [
   { key: 12, label: '12 weeks' },
   { key: 26, label: '26 weeks' },
@@ -58,38 +69,200 @@ const RECIPES_BACKUP_KEYS = ['recipe-tracker-recipes', 'recipes'];
  * disagrees with the stack, the tiles and the table. With three series that
  * look similar under deuteranopia, a stable order IS part of the encoding.
  */
-function StageTooltip({ active, payload, label }) {
+function StageTooltip({ active, payload, label, colors }) {
   if (!active || !payload?.length) return null;
   const row = payload[0]?.payload || {};
   return (
     <div className={styles.tooltip}>
       <div className={styles.tooltipHead}>Week of {label}</div>
-      {[...SERIES].reverse().map(stage => (
+      {[...STACK].reverse().map(stage => (
         <div key={stage.key} className={styles.tooltipRow}>
-          <span className={styles.swatch} style={{ background: stage.color }} aria-hidden="true" />
+          <span className={styles.swatch} style={{ background: colors[stage.key] }} aria-hidden="true" />
           <span className={styles.tooltipLabel}>{stage.label}</span>
           <span className={styles.tooltipValue}>{row[stage.key] || 0}</span>
         </div>
       ))}
       <div className={styles.tooltipFoot}>
-        {row[UNSET_KEY] || 0} unstaged · {row.total || 0} recipes
+        {row.total || 0} recipes
         {row.source === 'backup' ? ' · from backup' : ''}
       </div>
     </div>
   );
 }
 
-/** Stack order, left to right — the order a recipe travels. */
-function StageLegend() {
+/** Black or white, whichever reads better on `hex` — the bar colour is the owner's choice. */
+function labelInk(hex) {
+  const n = parseInt(String(hex).slice(1), 16);
+  if (!Number.isFinite(n)) return '#ffffff';
+  const lin = c => {
+    const s = c / 255;
+    return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+  };
+  const L = 0.2126 * lin((n >> 16) & 255) + 0.7152 * lin((n >> 8) & 255) + 0.0722 * lin(n & 255);
+  return L > 0.4 ? '#111827' : '#ffffff';
+}
+
+/**
+ * The count printed inside a segment. Skipped for zero, and for a segment too
+ * short to hold the digits — the tooltip and table still have that number.
+ */
+function SegmentLabel({ x, y, width, height, value, ink }) {
+  if (!value || height < 11 || width < 14) return null;
   return (
-    <ul className={styles.legend}>
-      {SERIES.map(stage => (
-        <li key={stage.key} className={styles.legendItem}>
-          <span className={styles.swatch} style={{ background: stage.color }} aria-hidden="true" />
+    <text
+      x={x + width / 2} y={y + height / 2} fill={ink} fontSize={10} fontWeight={600}
+      textAnchor="middle" dominantBaseline="central"
+    >
+      {value}
+    </text>
+  );
+}
+
+/** One category's weeks: the chart, then the same numbers as a table. */
+function CategoryStages({ category, rows, view, colors }) {
+  const data = rows
+    .map(row => {
+      const c = categoryCounts(row, category.key);
+      return c ? { ...c, week: row.week, source: row.source, label: formatWeekLabel(row.week) } : null;
+    })
+    .filter(Boolean);
+  const axis = {
+    x: <XAxis dataKey="label" tick={{ fontSize: 11, fill: '#9ca3af' }} axisLine={{ stroke: '#e5e7eb' }} tickLine={false} interval="preserveStartEnd" />,
+    y: <YAxis tick={{ fontSize: 11, fill: '#9ca3af' }} axisLine={false} tickLine={false} width={40} allowDecimals={false} />,
+  };
+  return (
+    <section className={styles.category}>
+      <h3 className={styles.categoryTitle}>{category.label}</h3>
+      {data.length === 0 ? (
+        <p className={styles.empty}>
+          No {category.label.toLowerCase()} breakdown recorded for these weeks yet. It starts with
+          this week&apos;s reading; &ldquo;Rebuild earlier weeks from backups&rdquo; can fill in older ones.
+        </p>
+      ) : (
+        <>
+          <div className={styles.chartWrap}>
+            <ResponsiveContainer width="100%" height={260}>
+              {view === 'bars' ? (
+                <BarChart data={data} margin={{ top: 8, right: 12, left: -12, bottom: 4 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" vertical={false} />
+                  {axis.x}
+                  {axis.y}
+                  <Tooltip content={<StageTooltip colors={colors} />} cursor={{ fill: 'rgba(148,163,184,0.15)' }} />
+                  {STACK.map((stage, i) => (
+                    <Bar
+                      key={stage.key}
+                      dataKey={stage.key}
+                      name={stage.label}
+                      stackId="stage"
+                      fill={colors[stage.key]}
+                      // A 2px surface-coloured edge is the gap between stacked
+                      // segments, so two similar colours never read as one bar.
+                      stroke="#ffffff"
+                      strokeWidth={2}
+                      radius={i === STACK.length - 1 ? [4, 4, 0, 0] : undefined}
+                      isAnimationActive={false}
+                    >
+                      <LabelList dataKey={stage.key} content={<SegmentLabel ink={labelInk(colors[stage.key])} />} />
+                      {/* The week's total over the stack, so it reads even when
+                          a thin segment is too short to carry its own count. */}
+                      {i === STACK.length - 1 && (
+                        <LabelList dataKey="total" position="top" fontSize={11} fontWeight={600} fill="#4b5563" />
+                      )}
+                    </Bar>
+                  ))}
+                </BarChart>
+              ) : (
+                <LineChart data={data} margin={{ top: 8, right: 12, left: -12, bottom: 4 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" vertical={false} />
+                  {axis.x}
+                  {axis.y}
+                  <Tooltip content={<StageTooltip colors={colors} />} cursor={{ fill: 'rgba(148,163,184,0.15)' }} />
+                  {STACK.map(stage => (
+                    <Line
+                      key={stage.key}
+                      type="monotone"
+                      dataKey={stage.key}
+                      name={stage.label}
+                      stroke={colors[stage.key]}
+                      strokeWidth={2}
+                      dot={data.length <= DOT_LIMIT ? { r: 3, fill: colors[stage.key], stroke: '#ffffff', strokeWidth: 2 } : false}
+                      activeDot={{ r: 5, stroke: '#ffffff', strokeWidth: 2 }}
+                      connectNulls
+                    />
+                  ))}
+                </LineChart>
+              )}
+            </ResponsiveContainer>
+          </div>
+
+          <div className={styles.tableWrap}>
+            <table className={styles.table}>
+              <caption className={styles.caption}>
+                {category.label}, most recent week first
+              </caption>
+              <thead>
+                <tr>
+                  <th scope="col">Week of</th>
+                  {SERIES.map(stage => (
+                    <th scope="col" key={stage.key} className={styles.num}>{stage.label}</th>
+                  ))}
+                  <th scope="col" className={styles.num}>No stage</th>
+                  <th scope="col" className={styles.num}>Total</th>
+                </tr>
+              </thead>
+              <tbody>
+                {[...data].reverse().slice(0, TABLE_WEEKS).map(row => (
+                  <tr key={row.week}>
+                    <th scope="row" className={styles.weekCell}>
+                      {formatWeekLabel(row.week, { year: true })}
+                      {row.source === 'backup' && (
+                        <span className={styles.fromBackup} title="Counted from that week's backup, not recorded live">
+                          {' '}from backup
+                        </span>
+                      )}
+                    </th>
+                    {SERIES.map(stage => (
+                      <td key={stage.key} className={styles.num}>{row[stage.key] || 0}</td>
+                    ))}
+                    <td className={styles.num}>{row[UNSET_KEY] || 0}</td>
+                    <td className={styles.num}>{row.total || 0}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+    </section>
+  );
+}
+
+/**
+ * One colour picker per stack segment, plus a reset for any that were changed.
+ * Doubles as the legend: each picker is the swatch, in stack order.
+ */
+function ColorPickers({ overrides, colors, onChange }) {
+  return (
+    <div className={styles.colorRow}>
+      <span>Bar colors (tap a swatch to change):</span>
+      {STACK.map(stage => (
+        <label key={stage.key} className={styles.colorItem}>
+          <input
+            type="color"
+            value={colors[stage.key]}
+            onChange={e => onChange({ ...overrides, [stage.key]: e.target.value })}
+            className={styles.colorInput}
+            aria-label={`${stage.label} bar color`}
+          />
           {stage.label}
-        </li>
+        </label>
       ))}
-    </ul>
+      {Object.keys(overrides).length > 0 && (
+        <button type="button" className={styles.colorReset} onClick={() => onChange({})}>
+          Reset colors
+        </button>
+      )}
+    </div>
   );
 }
 
@@ -98,12 +271,22 @@ export function RecipeStageHistory({ recipes = [] }) {
   const [view, setView] = useState('bars'); // 'bars' | 'lines'
   const [range, setRange] = useState(12);
   const [backfill, setBackfill] = useState(null); // null | { busy, done, total, message }
+  const [colorOverrides, setColorOverrides] = useState(loadStageColors);
+  const colors = useMemo(() => stageColors(colorOverrides), [colorOverrides]);
+
+  function changeColors(next) {
+    setColorOverrides(next);
+    saveStageColors(next, auth.currentUser?.uid);
+  }
 
   // App records the week whenever the counts move, and a save fires
   // `firestore-sync`; without this the tab would show whatever was cached when
   // Meal History opened.
   useEffect(() => {
-    const refresh = () => setHistory(loadStageHistory());
+    const refresh = () => {
+      setHistory(loadStageHistory());
+      setColorOverrides(loadStageColors());
+    };
     window.addEventListener('firestore-sync', refresh);
     window.addEventListener('storage', refresh);
     return () => {
@@ -125,10 +308,6 @@ export function RecipeStageHistory({ recipes = [] }) {
   const shown = useMemo(
     () => (range > 0 ? series.slice(-range) : series),
     [series, range]
-  );
-  const chartData = useMemo(
-    () => shown.map(row => ({ ...row, label: formatWeekLabel(row.week) })),
-    [shown]
   );
 
   // Movement since the previous recorded week — the point of the whole tab.
@@ -202,9 +381,9 @@ export function RecipeStageHistory({ recipes = [] }) {
           const before = previous ? previous[stage.key] || 0 : null;
           const delta = before == null ? null : now - before;
           return (
-            <div key={stage.key} className={styles.tile} style={{ borderTopColor: stage.color }}>
+            <div key={stage.key} className={styles.tile} style={{ borderTopColor: colors[stage.key] }}>
               <span className={styles.tileLabel}>
-                <span className={styles.swatch} style={{ background: stage.color }} aria-hidden="true" />
+                <span className={styles.swatch} style={{ background: colors[stage.key] }} aria-hidden="true" />
                 {stage.label}
               </span>
               <span className={styles.tileValue}>{now}</span>
@@ -219,9 +398,9 @@ export function RecipeStageHistory({ recipes = [] }) {
             </div>
           );
         })}
-        <div className={styles.tile} style={{ borderTopColor: UNSET_COLOR }}>
+        <div className={styles.tile} style={{ borderTopColor: colors[UNSET_KEY] }}>
           <span className={styles.tileLabel}>
-            <span className={styles.swatch} style={{ background: UNSET_COLOR }} aria-hidden="true" />
+            <span className={styles.swatch} style={{ background: colors[UNSET_KEY] }} aria-hidden="true" />
             No stage set
           </span>
           <span className={styles.tileValue}>{current[UNSET_KEY] || 0}</span>
@@ -238,7 +417,7 @@ export function RecipeStageHistory({ recipes = [] }) {
         )}
       </p>
 
-      {chartData.length === 0 ? (
+      {shown.length === 0 ? (
         <p className={styles.empty}>
           Nothing recorded yet. The first week lands as soon as your recipes load —
           reopen this tab in a moment.
@@ -276,92 +455,15 @@ export function RecipeStageHistory({ recipes = [] }) {
             </div>
           </div>
 
-          <StageLegend />
+          <ColorPickers overrides={colorOverrides} colors={colors} onChange={changeColors} />
+          <p className={styles.chartNote}>
+            The charts count your common recipes — the ones the Recipes page lists
+            under Common — split by meal.
+          </p>
 
-          <div className={styles.chartWrap}>
-            <ResponsiveContainer width="100%" height={280}>
-              {view === 'bars' ? (
-                <BarChart data={chartData} margin={{ top: 8, right: 12, left: -12, bottom: 4 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" vertical={false} />
-                  <XAxis dataKey="label" tick={{ fontSize: 11, fill: '#9ca3af' }} axisLine={{ stroke: '#e5e7eb' }} tickLine={false} interval="preserveStartEnd" />
-                  <YAxis tick={{ fontSize: 11, fill: '#9ca3af' }} axisLine={false} tickLine={false} width={40} allowDecimals={false} />
-                  <Tooltip content={<StageTooltip />} cursor={{ fill: 'rgba(148,163,184,0.15)' }} />
-                  {SERIES.map((stage, i) => (
-                    <Bar
-                      key={stage.key}
-                      dataKey={stage.key}
-                      name={stage.label}
-                      stackId="stage"
-                      fill={stage.color}
-                      // A 2px surface-coloured edge is the gap between stacked
-                      // segments: green and dark amber are close enough under
-                      // deuteranopia that a shared border would read as one bar.
-                      stroke="#ffffff"
-                      strokeWidth={2}
-                      radius={i === SERIES.length - 1 ? [4, 4, 0, 0] : undefined}
-                    />
-                  ))}
-                </BarChart>
-              ) : (
-                <LineChart data={chartData} margin={{ top: 8, right: 12, left: -12, bottom: 4 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" vertical={false} />
-                  <XAxis dataKey="label" tick={{ fontSize: 11, fill: '#9ca3af' }} axisLine={{ stroke: '#e5e7eb' }} tickLine={false} interval="preserveStartEnd" />
-                  <YAxis tick={{ fontSize: 11, fill: '#9ca3af' }} axisLine={false} tickLine={false} width={40} allowDecimals={false} />
-                  <Tooltip content={<StageTooltip />} cursor={{ fill: 'rgba(148,163,184,0.15)' }} />
-                  {SERIES.map(stage => (
-                    <Line
-                      key={stage.key}
-                      type="monotone"
-                      dataKey={stage.key}
-                      name={stage.label}
-                      stroke={stage.color}
-                      strokeWidth={2}
-                      dot={chartData.length <= DOT_LIMIT ? { r: 3, fill: stage.color, stroke: '#ffffff', strokeWidth: 2 } : false}
-                      activeDot={{ r: 5, stroke: '#ffffff', strokeWidth: 2 }}
-                      connectNulls
-                    />
-                  ))}
-                </LineChart>
-              )}
-            </ResponsiveContainer>
-          </div>
-
-          <div className={styles.tableWrap}>
-          <table className={styles.table}>
-            <caption className={styles.caption}>
-              The same numbers, most recent week first
-            </caption>
-            <thead>
-              <tr>
-                <th scope="col">Week of</th>
-                {SERIES.map(stage => (
-                  <th scope="col" key={stage.key} className={styles.num}>{stage.label}</th>
-                ))}
-                <th scope="col" className={styles.num}>No stage</th>
-                <th scope="col" className={styles.num}>Total</th>
-              </tr>
-            </thead>
-            <tbody>
-              {[...shown].reverse().slice(0, TABLE_WEEKS).map(row => (
-                <tr key={row.week}>
-                  <th scope="row" className={styles.weekCell}>
-                    {formatWeekLabel(row.week, { year: true })}
-                    {row.source === 'backup' && (
-                      <span className={styles.fromBackup} title="Counted from that week's backup, not recorded live">
-                        {' '}from backup
-                      </span>
-                    )}
-                  </th>
-                  {SERIES.map(stage => (
-                    <td key={stage.key} className={styles.num}>{row[stage.key] || 0}</td>
-                  ))}
-                  <td className={styles.num}>{row[UNSET_KEY] || 0}</td>
-                  <td className={styles.num}>{row.total || 0}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          </div>
+          {CATEGORIES.map(category => (
+            <CategoryStages key={category.key} category={category} rows={shown} view={view} colors={colors} />
+          ))}
         </>
       )}
 

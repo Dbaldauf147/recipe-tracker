@@ -254,6 +254,38 @@ export function monthlyCommonStages(history, { now = new Date(), months = 12, li
   return out;
 }
 
+// ── Chart colours ─────────────────────────────────────────────────────────
+
+/** localStorage key for the owner's bar colours. `sunday-` so backups keep it. */
+export const STAGE_COLORS_KEY = 'sunday-recipe-stage-colors';
+/** User-document field it mirrors to — the mobile app reads the same one. */
+export const STAGE_COLORS_FIELD = 'recipeStageColors';
+/** Default bar colour for recipes with no stage chosen. */
+export const UNSET_COLOR = '#94a3b8';
+
+const HEX_RE = /^#[0-9a-f]{6}$/i;
+
+/**
+ * The colour each stack segment is drawn in: the RECIPE_STAGES colour (or the
+ * grey for unset) unless the owner picked another. Anything that isn't a
+ * six-digit hex is ignored, so a malformed synced value can't blank a bar.
+ */
+export function stageColors(overrides = {}) {
+  const pick = (key, fallback) => {
+    const v = overrides && typeof overrides === 'object' ? overrides[key] : null;
+    return typeof v === 'string' && HEX_RE.test(v) ? v : fallback;
+  };
+  const out = { [UNSET_KEY]: pick(UNSET_KEY, UNSET_COLOR) };
+  for (const s of RECIPE_STAGES) out[s.key] = pick(s.key, s.color);
+  return out;
+}
+
+/** One meal category's counts from a history row, or null when it has none. */
+export function categoryCounts(row, category) {
+  const c = row?.common?.[category];
+  return c && typeof c === 'object' ? c : null;
+}
+
 /** 'Sep 21' / 'Sep 21, 2025' — the week's Sunday, short enough for an axis. */
 export function formatWeekLabel(week, { year = 'auto' } = {}) {
   const [y, m, d] = String(week || '').split('-').map(Number);
@@ -294,6 +326,28 @@ export function saveStageHistory(entries, uid) {
       .catch(err => console.error('stage history save failed:', err));
   }
   try { window.dispatchEvent(new Event('firestore-sync')); } catch { /* noop */ }
+}
+
+export function loadStageColors() {
+  try {
+    const raw = localStorage.getItem(STAGE_COLORS_KEY);
+    const parsed = raw ? JSON.parse(raw) : {};
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+/** Only the colours the owner changed are kept, so a default can move later. */
+export function saveStageColors(overrides, uid) {
+  try {
+    localStorage.setItem(STAGE_COLORS_KEY, JSON.stringify(overrides));
+  } catch { /* quota — the Firestore copy is still the real one */ }
+  if (uid) {
+    import('./firestoreSync.js')
+      .then(m => m.saveField(uid, STAGE_COLORS_FIELD, overrides))
+      .catch(err => console.error('stage colours save failed:', err));
+  }
 }
 
 /**
