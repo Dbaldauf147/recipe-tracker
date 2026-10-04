@@ -635,6 +635,14 @@ td.logPerCell.manuallyEdited {
   color: var(--color-accent);
 }
 
+.bodyWeightToggleBtn {
+  width: auto;
+  padding: 0 3px;
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
 .perSetBadge {
   display: inline-flex;
   align-items: center;

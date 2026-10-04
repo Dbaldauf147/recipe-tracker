@@ -19,6 +19,10 @@ import { StretchRoutines } from './StretchRoutines';
 import { PrCelebration } from './PrCelebration';
 import { detectPersonalRecord, priorHistory } from '../utils/personalRecord';
 import {
+  applyBodyweightToEntries, backfillBodyweightOnes, bodyweightLbForWeek, formatBodyweightLb,
+  BODYWEIGHT_BACKFILL_FIELD,
+} from '../utils/bodyweightLoad';
+import {
   normalizeRoutine, buildCueSequence, isStretchWorkout, STRETCH_WORKOUT_SOURCE,
 } from '../utils/stretchRoutine';
 import {
@@ -200,7 +204,9 @@ const LOG_COLUMN_DEFS = [
   { id: 's2', default: 62, min: 50 },
   { id: 's3', default: 62, min: 50 },
   { id: 's4', default: 62, min: 50 },
-  { id: 'weight', default: 80, min: 60 },
+  // Holds the weight input plus the ↕ per-set and BW body-weight toggles; min
+  // raised with the BW button so a narrower saved width migrates up (see s1).
+  { id: 'weight', default: 108, min: 100 },
   { id: 'per', default: 80, min: 64 },
   { id: 'total', default: 70, min: 50 },
   { id: 'remove', default: 32, min: 28 },
@@ -2614,6 +2620,9 @@ function WorkoutCalendarView({ workouts, user, typeCategories, stretchRoutineNam
 
 export function WorkoutPage({ onBack, user }) {
   const [workouts, setWorkouts] = useState(loadWorkouts);
+  // True once the live subscription has delivered the cloud copy — the
+  // one-time body-weight backfill below must not run on a stale local cache.
+  const [workoutsFromCloud, setWorkoutsFromCloud] = useState(false);
   const [selectedDate, setSelectedDate] = useState(todayStr());
 
   // Weigh-ins, for the strength-to-bodyweight chart metric. Seeded from
@@ -2668,6 +2677,7 @@ export function WorkoutPage({ onBack, user }) {
     // cause re-renders. The mirror write lives in subscribeWorkouts now, so
     // every page reading it gets the same fresh copy.
     setWorkouts(prev => (JSON.stringify(sorted) === JSON.stringify(prev) ? prev : sorted));
+    setWorkoutsFromCloud(true);
   }), [user?.uid]);
   const [gyms, setGymsState] = useState(loadGyms);
   const [gym, setGym] = useState(() => loadGyms()[0] || '');
@@ -2688,6 +2698,17 @@ export function WorkoutPage({ onBack, user }) {
   // Plan's weekly sauna goal.
   const [sauna, setSauna] = useState(false);
   const [entries, setEntries] = useState(() => blankEntries());
+  // "Use my body weight": rows flagged useBodyWeight carry the weigh-in for
+  // this session's week in `weight` (utils/bodyweightLoad.js). Re-pointed
+  // whenever a weigh-in lands or the date changes, so a refilled row always
+  // shows your most recent body weight rather than last session's.
+  const sessionBodyweightLb = useMemo(
+    () => bodyweightLbForWeek(weightLog, selectedDate),
+    [weightLog, selectedDate],
+  );
+  useEffect(() => {
+    setEntries(prev => applyBodyweightToEntries(prev, sessionBodyweightLb));
+  }, [entries, sessionBodyweightLb]);
   // Row index whose group/exercise picker modal is currently open.
   // null = closed. Set by + Add Exercise and by clicking an empty row.
   const [pickerIdx, setPickerIdx] = useState(null);
@@ -3972,6 +3993,26 @@ export function WorkoutPage({ onBack, user }) {
     }));
   }
 
+  function setEntryUseBodyWeight(entryIdx, on) {
+    if (on && !(sessionBodyweightLb > 0)) {
+      alert('Log a body weight first (Nutrition → Weight) — there is no weigh-in to use yet.');
+      return;
+    }
+    setEntries(prev => prev.map((e, i) => {
+      if (i !== entryIdx) return e;
+      const editedFields = { ...e.editedFields, weight: true };
+      if (on) {
+        const next = { ...e, useBodyWeight: true, useSetWeights: false, weight: formatBodyweightLb(sessionBodyweightLb), editedFields };
+        delete next.setWeights;
+        return next;
+      }
+      const next = { ...e, editedFields };
+      delete next.useBodyWeight;
+      delete next.bodyweightBackfill;
+      return next;
+    }));
+  }
+
   function setEntryUseSetWeights(entryIdx, on) {
     setEntries(prev => prev.map((e, i) => {
       if (i !== entryIdx) return e;
@@ -4054,7 +4095,7 @@ export function WorkoutPage({ onBack, user }) {
     const anyGreen = validEntries.some(hasGreen);
     const loggedEntries = anyGreen ? validEntries.filter(hasGreen) : validEntries;
 
-    const enriched = loggedEntries.map(enrichEntry);
+    const enriched = applyBodyweightToEntries(loggedEntries, sessionBodyweightLb).map(enrichEntry);
 
     // Preserve the existing workout id for this date so the per-day
     // Firestore writer updates that doc in place rather than treating it
@@ -4125,6 +4166,36 @@ export function WorkoutPage({ onBack, user }) {
     setWorkouts(next);
     saveWorkouts(next, user?.uid);
   }
+
+  // One-time history fix: the weight of 1 that stood in for "body weight"
+  // becomes the weigh-in for the week it was logged (bodyweightLoad.js).
+  // Runs once per account — the stamp lives on the user doc, shared with the
+  // mobile app, so whichever app gets there first does it. Waits for the cloud
+  // copy of the workouts, and for at least one weigh-in to fill from; with
+  // none it leaves the stamp unset and tries again next time.
+  const backfillStartedRef = useRef(false);
+  useEffect(() => {
+    const uid = user?.uid;
+    if (!uid || !workoutsFromCloud || backfillStartedRef.current) return;
+    if (!weightLog.some(e => Number(e?.weight) > 0)) return;
+    backfillStartedRef.current = true;
+    (async () => {
+      const done = await loadField(uid, BODYWEIGHT_BACKFILL_FIELD);
+      if (done) return;
+      const { changed, entries: count } = backfillBodyweightOnes(workouts, weightLog);
+      if (changed.length > 0) {
+        const byId = new Map(changed.map(w => [w.id || w.date, w]));
+        const next = workouts.map(w => byId.get(w.id || w.date) || w);
+        setWorkouts(next);
+        cacheWorkoutsLocally(next);
+        await saveField(uid, 'workoutLog', next);
+      }
+      await saveField(uid, BODYWEIGHT_BACKFILL_FIELD, { at: new Date().toISOString(), entries: count, workouts: changed.length });
+    })().catch(err => {
+      console.error('[bodyweight backfill] failed', err);
+      backfillStartedRef.current = false;
+    });
+  }, [user?.uid, workoutsFromCloud, workouts, weightLog]);
   // Stable per-workout key. Multiple workouts can share a date, so edits must
   // target the specific workout by its id (falling back to date for any legacy
   // row that predates ids) — matching by date alone would touch every workout
@@ -5483,6 +5554,16 @@ export function WorkoutPage({ onBack, user }) {
                             PER SET
                           </button>
                         ) : (
+                          entry.useBodyWeight ? (
+                            <button
+                              type="button"
+                              className={`${styles.logCell} ${styles.logWeightInput} ${styles.perSetBadge}`}
+                              onClick={() => setEntryUseBodyWeight(i, false)}
+                              title="Uses your most recent body weight. Click to type a weight instead."
+                            >
+                              BW {entry.weight ? lbToUnitNum(entry.weight, weightUnit) : '—'}
+                            </button>
+                          ) : (
                           <span className={styles.weightCellWrap}>
                             <WeightInput className={`${styles.logCell} ${styles.logWeightInput} ${editedCls('weight')}`} valueLb={entry.weight} unit={weightUnit} onCommitLb={v => updateEntry(i, 'weight', v)} placeholder="" />
                             <button
@@ -5491,7 +5572,14 @@ export function WorkoutPage({ onBack, user }) {
                               onClick={() => setEntryUseSetWeights(i, true)}
                               title="Use a different weight per set"
                             >↕</button>
+                            <button
+                              type="button"
+                              className={`${styles.perSetToggleBtn} ${styles.bodyWeightToggleBtn}`}
+                              onClick={() => setEntryUseBodyWeight(i, true)}
+                              title="Use my body weight — always your most recent weigh-in"
+                            >BW</button>
                           </span>
+                          )
                         )}
                       </td>
                       <td className={`${styles.logPerCell} ${editedCls('perArm')}`}>

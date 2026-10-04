@@ -462,10 +462,14 @@ function analyzeExercise(name, group, history, options) {
   for (const e of history) {
     if (!e.date || e.date < cutoff) continue;
     if (entryHasGreen(e)) greenDates.add(e.date);
-    const bw = isBw ? options.bodyweightAt(e.date) : null;
+    // An entry logged with "use my body weight" (or backfilled from the old
+    // placeholder 1) already HAS body weight as its weight — adding it again
+    // would count it twice.
+    const addBw = isBw && !e.useBodyWeight && !e.bodyweightBackfill;
+    const bw = addBw ? options.bodyweightAt(e.date) : null;
     const s = entrySample(e, {
-      bodyweightLb: isBw && bw > 0 ? bw : 0,
-      forceReps: isBw && !(bw > 0), // bodyweight movement, unknown bodyweight → reps
+      bodyweightLb: addBw && bw > 0 ? bw : 0,
+      forceReps: addBw && !(bw > 0), // bodyweight movement, unknown bodyweight → reps
     });
     const prev = byDate.get(e.date);
     byDate.set(e.date, prev ? {
