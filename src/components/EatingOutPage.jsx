@@ -164,6 +164,8 @@ const FILTERS = [
 ];
 
 const STATUS_KEYS = ['want-to-try', 'visited', 'hold-off'];
+// Neighborhoods listed in the filter panel before "Show all".
+const NEIGHBORHOODS_SHOWN = 8;
 // Anything unrecognised reads as Visited — the old two-way rule, kept so a
 // spot written before Hold off existed still labels the way it always did.
 export function statusLabel(status) {
@@ -4728,6 +4730,10 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
   const [activeBucket, setActiveBucket] = useState(null);
   const [activeHealth, setActiveHealth] = useState(null);
   const [showRetired, setShowRetired] = useState(false);
+  // Phones only: whether the filter panel is unfolded (it's always open on a
+  // wide screen — see .filterPanel).
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [showAllNeighborhoods, setShowAllNeighborhoods] = useState(false);
   const [proximityQuery, setProximityQuery] = useState('');
   const [proximityCenter, setProximityCenter] = useState(null);
   const [proximityResolving, setProximityResolving] = useState(false);
@@ -4904,20 +4910,6 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
   }, [restaurants]);
 
 
-  const locationEntries = useMemo(() => {
-    const counts = new Map();
-    for (const r of restaurants) {
-      if (!showRetired && r.frequency === 'retired') continue;
-      if (filter !== 'all' && r.status !== filter) continue;
-      if (activeCuisine && !(r.cuisines || []).some(c => c.toLowerCase() === activeCuisine.toLowerCase())) continue;
-      if (activeBucket && !restaurantMatchesBucket(r, activeBucket)) continue;
-      if (activeHealth && healthOf(r) !== activeHealth) continue;
-      for (const l of (r.locations || [])) {
-        counts.set(l, (counts.get(l) || 0) + 1);
-      }
-    }
-    return locationSuggestions.map(l => ({ name: l, count: counts.get(l) || 0 }));
-  }, [restaurants, locationSuggestions, filter, activeCuisine, activeBucket, activeHealth, showRetired]);
 
   // Locations that exist on MY own list (lowercased) — only these can be
   // bulk-renamed, since renaming never touches a friend's shared list.
@@ -4953,14 +4945,14 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
    * worth asking. Shared with `visible` so the two can't drift — the number in
    * the header always describes the list on the page.
    */
-  const passesFilters = useCallback((r, { status = true, bucket = true } = {}) => {
+  const passesFilters = useCallback((r, { status = true, bucket = true, location = true, health = true } = {}) => {
     const q = search.trim().toLowerCase();
     if (!showRetired && r.frequency === 'retired') return false;
     if (status && filter !== 'all' && r.status !== filter) return false;
     if (activeCuisine && !(r.cuisines || []).some(c => c.toLowerCase() === activeCuisine.toLowerCase())) return false;
-    if (activeLocation && !(r.locations || []).some(l => l.toLowerCase() === activeLocation.toLowerCase())) return false;
+    if (location && activeLocation && !(r.locations || []).some(l => l.toLowerCase() === activeLocation.toLowerCase())) return false;
     if (bucket && activeBucket && !restaurantMatchesBucket(r, activeBucket)) return false;
-    if (activeHealth && healthOf(r) !== activeHealth) return false;
+    if (health && activeHealth && healthOf(r) !== activeHealth) return false;
     if (q) {
       const hay = [
         r.name, r.dish, r.address, r.notes, r.description, r.ratingLabel,
@@ -5007,6 +4999,69 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
     }
     return counts;
   }, [restaurants, passesFilters]);
+
+  /**
+   * Counts for the filter sidebar. Each group is counted with ITS OWN filter
+   * off and every other one on, so an option shows what picking it would give
+   * you — counted through its own filter, every option but the picked one
+   * would read 0. The same rule tryNextBucketCounts follows for its tabs.
+   */
+  const facetCounts = useMemo(() => {
+    const status = { all: 0 };
+    const buckets = { unsorted: 0 };
+    const locations = new Map();
+    const health = {};
+    for (const r of restaurants) {
+      if (passesFilters(r, { status: false })) {
+        status.all++;
+        status[r.status] = (status[r.status] || 0) + 1;
+      }
+      if (passesFilters(r, { bucket: false })) {
+        for (const b of bucketConfig) {
+          if (restaurantMatchesBucket(r, b.key)) buckets[b.key] = (buckets[b.key] || 0) + 1;
+        }
+        if (restaurantMatchesBucket(r, 'unsorted')) buckets.unsorted++;
+      }
+      if (passesFilters(r, { location: false })) {
+        for (const l of (r.locations || [])) locations.set(l, (locations.get(l) || 0) + 1);
+      }
+      if (passesFilters(r, { health: false })) {
+        const h = healthOf(r);
+        if (h) health[h] = (health[h] || 0) + 1;
+      }
+    }
+    // bucketConfig is the list BUCKETS mirrors; reading it here (not BUCKETS)
+    // is what makes an added or removed bucket recount.
+    return { status, buckets, locations, health };
+  }, [restaurants, passesFilters, bucketConfig]);
+
+  // Neighborhoods for the filter panel: every one with a spot under the other
+  // filters, most-used first. The active one is kept even at 0 so it can
+  // always be clicked back off.
+  const neighborhoods = useMemo(() => {
+    const isActive = (name) => !!activeLocation && activeLocation.toLowerCase() === name.toLowerCase();
+    const list = [...facetCounts.locations].map(([name, count]) => ({ name, count }));
+    if (activeLocation && !list.some(l => isActive(l.name))) list.push({ name: activeLocation, count: 0 });
+    list.sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+    // The active one leads, so it's never hidden behind "Show all".
+    return [...list.filter(l => isActive(l.name)), ...list.filter(l => !isActive(l.name))];
+  }, [facetCounts, activeLocation]);
+
+  const activeFilterCount = (filter !== 'all' ? 1 : 0) + (activeLocation ? 1 : 0)
+    + (activeBucket ? 1 : 0) + (activeHealth ? 1 : 0) + (showRetired ? 1 : 0)
+    + (search.trim() ? 1 : 0) + (proximityCenter ? 1 : 0) + (activeCuisine ? 1 : 0);
+  const resetFilters = () => {
+    setFilter('all');
+    setSearch('');
+    setActiveLocation(null);
+    setActiveBucket(null);
+    setActiveHealth(null);
+    setShowRetired(false);
+    setActiveCuisine(null);
+    setProximityCenter(null);
+    setProximityQuery('');
+    popRanking(null);
+  };
 
   const visible = useMemo(() => {
     let list = restaurants.filter(r => passesFilters(r));
@@ -5715,7 +5770,209 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
         </button>
       </div>
 
+      {/* Phones: the filter panel folds away behind this, and opens right
+          under it rather than above a toolbar you'd have to scroll back to. */}
+      <button
+        type="button"
+        className={styles.filtersToggle}
+        aria-expanded={filtersOpen}
+        aria-controls="eating-out-filters"
+        onClick={() => setFiltersOpen(v => !v)}
+      >
+        {filtersOpen ? 'Hide filters' : 'Filters'}{activeFilterCount > 0 ? ` · ${activeFilterCount}` : ''}
+      </button>
       <div className={styles.layout}>
+        <aside
+          id="eating-out-filters"
+          className={`${styles.filterPanel} ${filtersOpen ? styles.filterPanelOpen : ''}`}
+          aria-label="Filters"
+        >
+          <div className={styles.filterPanelHead}>
+            <h2 className={styles.filterPanelTitle}>Filters</h2>
+            {activeFilterCount > 0 && (
+              <button type="button" className={styles.linkBtn} onClick={resetFilters}>
+                Reset
+              </button>
+            )}
+          </div>
+
+          <input
+            type="search"
+            className={styles.filterPanelInput}
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder="Search restaurants, categories, dishes…"
+            aria-label="Search restaurants"
+          />
+          <form className={styles.filterPanelNear} onSubmit={handleProximity}>
+            <input
+              type="text"
+              className={styles.filterPanelInput}
+              value={proximityQuery}
+              onChange={e => setProximityQuery(e.target.value)}
+              placeholder="Near a place or address…"
+              aria-label="Sort by distance from a place or address"
+            />
+            <button type="submit" className={styles.secondaryBtn} disabled={proximityResolving}>
+              {proximityResolving ? '…' : 'Go'}
+            </button>
+          </form>
+          {proximityCenter && (
+            <div className={styles.filterPanelNote}>
+              Sorted by distance.{' '}
+              <button
+                type="button"
+                className={styles.linkBtn}
+                onClick={() => { setProximityCenter(null); setProximityQuery(''); }}
+              >
+                Clear
+              </button>
+            </div>
+          )}
+          {proximityCenter && geocodedCount === 0 && (
+            <span className={styles.warn}>
+              None of your restaurants have addresses yet — bulk import didn't include addresses, and Lookup wasn't run.
+            </span>
+          )}
+
+          <fieldset className={styles.facet}>
+            <legend className={styles.facetTitle}>Status</legend>
+            {FILTERS.map(f => (
+              <label key={f.key} className={`${styles.facetRow} ${filter === f.key ? styles.facetRowActive : ''}`}>
+                <input
+                  type="radio"
+                  name="eating-out-status"
+                  className={styles.facetRadio}
+                  checked={filter === f.key}
+                  onChange={() => setFilter(f.key)}
+                />
+                <span className={styles.facetName}>{f.label}</span>
+                <span className={styles.facetCount}>
+                  {f.key === 'all' ? facetCounts.status.all : (facetCounts.status[f.key] || 0)}
+                </span>
+              </label>
+            ))}
+          </fieldset>
+
+          {/* One bucket and one neighborhood at a time, as before — Try Next's
+              tabs and the ranking pop-out both read a single active bucket.
+              Clicking the active row again clears it. */}
+          <div className={styles.facet} role="group" aria-labelledby="facet-bucket">
+            <div id="facet-bucket" className={styles.facetTitle}>Bucket</div>
+            {BUCKETS.map(b => {
+              const on = activeBucket === b.key;
+              return (
+                <button
+                  key={`b-${b.key}`}
+                  type="button"
+                  aria-pressed={on}
+                  className={`${styles.facetRow} ${on ? styles.facetRowActive : ''}`}
+                  onClick={() => {
+                    setActiveBucket(on ? null : b.key);
+                    popRanking(on ? null : b.label);
+                  }}
+                >
+                  <span className={styles.facetName}>{b.icon} {b.label}</span>
+                  <span className={styles.facetCount}>{facetCounts.buckets[b.key] || 0}</span>
+                </button>
+              );
+            })}
+            {(unsortedCount > 0 || activeBucket === 'unsorted') && (
+              <button
+                type="button"
+                aria-pressed={activeBucket === 'unsorted'}
+                className={`${styles.facetRow} ${activeBucket === 'unsorted' ? styles.facetRowActive : ''}`}
+                onClick={() => setActiveBucket(activeBucket === 'unsorted' ? null : 'unsorted')}
+                title="Spots not yet in a bucket — assign them below"
+              >
+                <span className={styles.facetName}>Unsorted</span>
+                <span className={styles.facetCount}>{facetCounts.buckets.unsorted}</span>
+              </button>
+            )}
+            <button
+              type="button"
+              className={`${styles.linkBtn} ${styles.facetMore}`}
+              onClick={() => setBucketsOpen(true)}
+              title="Add, rename, reorder or remove buckets"
+            >
+              Edit buckets
+            </button>
+          </div>
+
+          {neighborhoods.length > 0 && (
+            <div className={styles.facet} role="group" aria-labelledby="facet-neighborhood">
+              <div id="facet-neighborhood" className={styles.facetTitle}>Neighborhood</div>
+              {(showAllNeighborhoods ? neighborhoods : neighborhoods.slice(0, NEIGHBORHOODS_SHOWN)).map(l => {
+                const on = !!activeLocation && activeLocation.toLowerCase() === l.name.toLowerCase();
+                return (
+                  <button
+                    key={`loc-${l.name}`}
+                    type="button"
+                    aria-pressed={on}
+                    className={`${styles.facetRow} ${on ? styles.facetRowActive : ''}`}
+                    onClick={() => {
+                      // Turning a neighborhood ON filters to it (and, in the list
+                      // view, pops its ranking); the active one again clears it.
+                      setActiveLocation(on ? null : l.name);
+                      popRanking(on ? null : l.name);
+                    }}
+                  >
+                    <span className={styles.facetName}>{l.name}</span>
+                    <span className={styles.facetCount}>{l.count}</span>
+                  </button>
+                );
+              })}
+              {neighborhoods.length > NEIGHBORHOODS_SHOWN && (
+                <button
+                  type="button"
+                  className={`${styles.linkBtn} ${styles.facetMore}`}
+                  onClick={() => setShowAllNeighborhoods(v => !v)}
+                >
+                  {showAllNeighborhoods ? 'Show fewer' : `Show all ${neighborhoods.length}`}
+                </button>
+              )}
+            </div>
+          )}
+
+          {(HEALTH_OPTIONS.some(h => healthCounts[h.key] > 0) || retiredCount > 0) && (
+            <div className={styles.facet} role="group" aria-labelledby="facet-more">
+              <div id="facet-more" className={styles.facetTitle}>More</div>
+              {/* Only offered once something is actually tagged — until then the
+                  filter can only ever return nothing. */}
+              {HEALTH_OPTIONS.map(h => {
+                if (!(healthCounts[h.key] > 0) && activeHealth !== h.key) return null;
+                const on = activeHealth === h.key;
+                return (
+                  <button
+                    key={`h-${h.key}`}
+                    type="button"
+                    aria-pressed={on}
+                    className={`${styles.facetRow} ${on ? styles.facetRowActive : ''}`}
+                    onClick={() => setActiveHealth(on ? null : h.key)}
+                  >
+                    <span className={styles.facetName}>{h.icon} {h.label}</span>
+                    <span className={styles.facetCount}>{facetCounts.health[h.key] || 0}</span>
+                  </button>
+                );
+              })}
+              {retiredCount > 0 && (
+                <button
+                  type="button"
+                  aria-pressed={showRetired}
+                  className={`${styles.facetRow} ${showRetired ? styles.facetRowActive : ''}`}
+                  onClick={() => setShowRetired(v => !v)}
+                >
+                  <span className={styles.facetName}>Show retired</span>
+                  <span className={styles.facetCount}>{retiredCount}</span>
+                </button>
+              )}
+            </div>
+          )}
+          <button type="button" className={styles.filterPanelDone} onClick={() => setFiltersOpen(false)}>
+            Show {visible.length} spot{visible.length === 1 ? '' : 's'}
+          </button>
+        </aside>
+
         {/* The Categories menu moved into the ⚙ popup (header). The
             active filter is surfaced as a removable chip in the toolbar below. */}
         <main className={styles.main}>
@@ -5737,25 +5994,9 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
             </div>
           )}
           <div className={styles.toolbar}>
-            <input
-              type="search"
-              className={styles.searchInput}
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-              placeholder="Search restaurants, categories, places, dishes…"
-            />
-            <div className={styles.filterRow}>
-              {FILTERS.map(f => (
-                <button
-                  key={f.key}
-                  type="button"
-                  className={`${styles.filterBtn} ${filter === f.key ? styles.filterBtnActive : ''}`}
-                  onClick={() => setFilter(f.key)}
-                >
-                  {f.label}
-                </button>
-              ))}
-            </div>
+            <span className={styles.resultCount}>
+              {visible.length} spot{visible.length === 1 ? '' : 's'}
+            </span>
             <div className={styles.filterRow}>
               <button
                 type="button"
@@ -5844,130 +6085,6 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
               </button>
             </div>
           )}
-
-          <form className={styles.proximityRow} onSubmit={handleProximity}>
-            <input
-              type="text"
-              className={styles.searchInput}
-              value={proximityQuery}
-              onChange={e => setProximityQuery(e.target.value)}
-              placeholder="Near… (type a neighborhood or address and press Enter)"
-            />
-            <button type="submit" className={styles.secondaryBtn} disabled={proximityResolving}>
-              {proximityResolving ? 'Locating…' : 'Find nearby'}
-            </button>
-            {proximityCenter && (
-              <button
-                type="button"
-                className={styles.linkBtn}
-                onClick={() => { setProximityCenter(null); setProximityQuery(''); }}
-              >
-                Clear
-              </button>
-            )}
-            {proximityCenter && geocodedCount === 0 && (
-              <span className={styles.warn}>
-                None of your restaurants have addresses yet — bulk import didn't include addresses, and Lookup wasn't run.
-              </span>
-            )}
-          </form>
-
-          {/* Neighborhood filter pills — one per location in use, most-used
-              first, above the bucket row. Toggling the active one clears it. */}
-          {(() => {
-            const isActiveLoc = (name) =>
-              !!activeLocation && activeLocation.toLowerCase() === name.toLowerCase();
-            const neighborhoods = locationEntries.filter(l => l.count > 0);
-            // Keep the active neighborhood visible even if the current filters
-            // drop its count to 0, so it can always be toggled back off.
-            if (activeLocation && !neighborhoods.some(l => isActiveLoc(l.name))) {
-              const existing = locationEntries.find(l => isActiveLoc(l.name));
-              neighborhoods.push(existing || { name: activeLocation, count: 0 });
-            }
-            neighborhoods.sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
-            if (neighborhoods.length === 0) return null;
-            return (
-              <div className={styles.tagFilterRow}>
-                {neighborhoods.map(l => (
-                  <button
-                    key={`loc-${l.name}`}
-                    type="button"
-                    className={`${styles.tagFilter} ${isActiveLoc(l.name) ? styles.tagFilterActive : ''}`}
-                    onClick={() => {
-                      // Turning a group ON filters to it (and, in the list view,
-                      // pops its ranking); clicking the active chip again just
-                      // clears the filter.
-                      const on = !isActiveLoc(l.name);
-                      setActiveLocation(on ? l.name : null);
-                      popRanking(on ? l.name : null);
-                    }}
-                  >
-                    📍 {l.name} ({l.count})
-                  </button>
-                ))}
-              </div>
-            );
-          })()}
-
-          <div className={styles.tagFilterRow}>
-            {BUCKETS.map(b => (
-              <button
-                key={`b-${b.key}`}
-                type="button"
-                className={`${styles.tagFilter} ${activeBucket === b.key ? styles.tagFilterActive : ''}`}
-                onClick={() => {
-                  const on = activeBucket !== b.key;
-                  setActiveBucket(on ? b.key : null);
-                  popRanking(on ? b.label : null);
-                }}
-              >
-                {b.icon} {b.label}
-              </button>
-            ))}
-            {unsortedCount > 0 && (
-              <button
-                type="button"
-                className={`${styles.tagFilter} ${activeBucket === 'unsorted' ? styles.tagFilterActive : ''}`}
-                onClick={() => setActiveBucket(activeBucket === 'unsorted' ? null : 'unsorted')}
-                title="Spots not yet in a bucket — assign them below"
-              >
-                Unsorted ({unsortedCount})
-              </button>
-            )}
-            {/* Only offered once something is actually tagged — until then the
-                filter can only ever return nothing. */}
-            {HEALTH_OPTIONS.map(h => {
-              const count = healthCounts[h.key] || 0;
-              if (count === 0) return null;
-              return (
-                <button
-                  key={`h-${h.key}`}
-                  type="button"
-                  className={`${styles.tagFilter} ${activeHealth === h.key ? styles.tagFilterActive : ''}`}
-                  onClick={() => setActiveHealth(activeHealth === h.key ? null : h.key)}
-                >
-                  {h.icon} {h.label} ({count})
-                </button>
-              );
-            })}
-            {retiredCount > 0 && (
-              <button
-                type="button"
-                className={`${styles.tagFilter} ${showRetired ? styles.tagFilterActive : ''}`}
-                onClick={() => setShowRetired(v => !v)}
-              >
-                {showRetired ? `Hide retired (${retiredCount})` : `Show retired (${retiredCount})`}
-              </button>
-            )}
-            <button
-              type="button"
-              className={styles.tagFilter}
-              onClick={() => setBucketsOpen(true)}
-              title="Add, rename, reorder or remove buckets"
-            >
-              ✎ Edit buckets
-            </button>
-          </div>
 
           {loading ? (
             <div className={styles.empty}>Loading…</div>
