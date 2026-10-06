@@ -8,6 +8,7 @@ import {
   applyGramsData,
 } from '../utils/ingredientsStore.js';
 import { lookupBarcodeFullNutrition } from '../utils/openFoodFacts.js';
+import { sortNewestFirst, formatDateAdded } from '../utils/ingredientDates.js';
 import { locationToRegion, getSeasonalIngredients } from '../utils/seasonal.js';
 import { BarcodeScanner } from './BarcodeScanner.jsx';
 import { CompositeIngredientBuilder } from './CompositeIngredientBuilder.jsx';
@@ -167,6 +168,9 @@ export function IngredientsPage({ onClose, user }) {
     setRows(prev => {
       const empty = {};
       for (const f of INGREDIENT_FIELDS) empty[f.key] = '';
+      // Dated here, not only in the save: these rows live on in this state,
+      // and the next save is made from it.
+      empty.dateAdded = new Date().toISOString();
       const updated = [...prev, empty];
       saveIngredientsToFirestore(updated);
       return updated;
@@ -193,7 +197,7 @@ export function IngredientsPage({ onClose, user }) {
         const lower = originalName.trim().toLowerCase();
         updated = prev.map(r => ((r.ingredient || '').trim().toLowerCase() === lower ? row : r));
       } else {
-        updated = [...prev, row];
+        updated = [...prev, { ...row, dateAdded: row.dateAdded || new Date().toISOString() }];
       }
       saveIngredientsToFirestore(updated);
       return updated;
@@ -217,14 +221,16 @@ export function IngredientsPage({ onClose, user }) {
     setRows(prev => {
       const row = {};
       for (const f of INGREDIENT_FIELDS) row[f.key] = data[f.key] || '';
+      row.dateAdded = new Date().toISOString();
       const updated = [...prev, row];
       saveIngredientsToFirestore(updated);
       return updated;
     });
-    // Scroll to the new row after render
+    // Scroll to the new row after render — the top, now that the newest
+    // additions are listed first.
     setTimeout(() => {
       if (tableWrapRef.current) {
-        tableWrapRef.current.scrollTop = tableWrapRef.current.scrollHeight;
+        tableWrapRef.current.scrollTop = 0;
       }
     }, 100);
   }, []);
@@ -523,7 +529,8 @@ export function IngredientsPage({ onClose, user }) {
           ? aVal.localeCompare(bVal)
           : bVal.localeCompare(aVal);
       })
-    : filtered;
+    // No column picked: newest additions on top.
+    : sortNewestFirst(filtered);
 
   return (
     <div className={styles.container}>
@@ -614,6 +621,7 @@ export function IngredientsPage({ onClose, user }) {
                     </React.Fragment>
                   );
                 })}
+                <th style={{ width: 100, minWidth: 100 }} title="When it was added. Newest are listed first unless you sort by a column.">Added</th>
                 <th className={styles.actionTh} />
               </tr>
             </thead>
@@ -652,6 +660,9 @@ export function IngredientsPage({ onClose, user }) {
                       )}
                     </React.Fragment>
                   ))}
+                  <td style={{ width: 100, minWidth: 100 }}>
+                    <span className={styles.cellText}>{formatDateAdded(row.dateAdded)}</span>
+                  </td>
                   <td>
                     {Array.isArray(row.components) && row.components.length > 0 && (
                       <button
