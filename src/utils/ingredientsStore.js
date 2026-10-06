@@ -1,5 +1,6 @@
 import { loadIngredientsDb, saveIngredientsDb } from './firestoreSync';
 import { upsertUnitWeight } from './unitWeights';
+import { stampNewRows } from './ingredientDates';
 
 const STORAGE_KEY = 'sunday-ingredients-db';
 const ADMIN_UID = import.meta.env.VITE_ADMIN_UID;
@@ -250,7 +251,10 @@ export async function loadIngredientsFromFirestore() {
  * Save the ingredients database to localStorage immediately,
  * then persist to the admin's Firestore user doc.
  */
-export async function saveIngredientsToFirestore(data) {
+export async function saveIngredientsToFirestore(incoming) {
+  // Every save path ends here, so this is where new rows get their date added
+  // (and where a stale copy is stopped from wiping one).
+  const data = stampNewRows(loadIngredients(), incoming);
   saveIngredients(data);
   if (!ADMIN_UID) return;
   try {
