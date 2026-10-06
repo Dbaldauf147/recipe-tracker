@@ -1333,13 +1333,16 @@ function autoPromoteEta(h, habitLog, today = new Date()) {
     const base = new Date(today.getFullYear(), today.getMonth(), today.getDate() + d);
     const keys = habitWindowKeys(h.cadence, h.trackDays, AUTO_PROMOTE_DAYS, base);
     if (keys.length === 0) return null;
-    let done = 0;
+    // `completions` = tracked days you'd still have to do (today included when
+    // it isn't logged yet). `days` is calendar days, which over-counts for a
+    // habit with weekdays off.
+    let done = 0, completions = 0;
     for (const k of keys) {
       const mk = habitLog?.[k]?.[h.id];
-      if (k > todayKey || (k === todayKey && !mk)) done++;
+      if (k > todayKey || (k === todayKey && !mk)) { done++; completions++; }
       else if (mk === 'done' || mk === 'exceeded') done++;
     }
-    if ((done / keys.length) * 100 > AUTO_PROMOTE_PCT) return { date: base, days: d };
+    if ((done / keys.length) * 100 > AUTO_PROMOTE_PCT) return { date: base, days: d, completions };
   }
   return null;
 }
@@ -2191,6 +2194,8 @@ export function HabitsPage({ onBack, user }) {
   const badHabits = useMemo(() => habits.filter(h => isBadHabit(h)), [habits]);
 
   // get 0.
+  const currentAlerts = useMemo(() => currentTabAlerts(goodHabits, habitLog), [goodHabits, habitLog]);
+
   const tabBadges = useMemo(() => {
     const isActive = isLoggableHabit;
     const needsMark = (h) => {
@@ -2455,6 +2460,13 @@ export function HabitsPage({ onBack, user }) {
                   {badge}
                 </span>
               )}
+              {t.id === 'current' && currentAlerts.dot && (
+                <span
+                  title={currentAlerts.reasons.join(' · ')}
+                  aria-label={currentAlerts.reasons.join(' · ')}
+                  style={{ width: 8, height: 8, borderRadius: 999, background: '#dc2626', display: 'inline-block' }}
+                />
+              )}
             </button>
           );
         })}
@@ -2490,7 +2502,7 @@ export function HabitsPage({ onBack, user }) {
 
       {tab === 'kpi' && <KpiView habits={goodHabits} habitLog={habitLog} streaks={streaks} />}
       {tab === 'routines' && <RoutinesView habits={goodHabits} habitLog={habitLog} habitLogAuto={habitLogAuto} streaks={streaks} autoTrackedIds={autoTrackedIds} autoStatusFor={autoStatusFor} nextLogMap={habitNextLog} onSetNextLog={setNextLogDate} onUpdate={updateHabit} openMenu={(habitId, key, label) => setDayMenu({ habitId, key, label })} onCycleMark={setMarkForKey} onMove={setMoveHabitId} onReorder={reorderHabits} onSetRoutine={setHabitRoutine} onRenameRoutine={renameRoutine} onDeleteRoutine={setDeleteRoutineName} onBulkMark={setMarksForCells} onOpen={setOpenHabitId} onMakeAutomatic={id => resolveAutoPromotes([id], true)} />}
-      {tab === 'current' && <CurrentView habits={goodHabits} habitLog={habitLog} onUpdate={updateHabit} onCycleMark={setMarkForKey} onOpen={setOpenHabitId} />}
+      {tab === 'current' && <CurrentView habits={goodHabits} habitLog={habitLog} onUpdate={updateHabit} onCycleMark={setMarkForKey} onOpen={setOpenHabitId} onMakeAutomatic={id => resolveAutoPromotes([id], true)} />}
       {tab === 'automatic' && <AutomaticView habits={goodHabits} automations={automations} habitLog={habitLog} habitLogAuto={habitLogAuto} onChange={persistAutomations} />}
       {REVIEW_KINDS.some(k => k.id === tab) && (
         <MonthlyStatusReview
@@ -6150,23 +6162,86 @@ function BadHabitRow({ habit, habitLog, stripKeys, todayKey, onCycleMark, onOpen
  * statuses (FOCUS_STATUSES). Log this period, change the status, or open the
  * habit — everything else lives in its usual place.
  */
-function CurrentView({ habits, habitLog, onUpdate, onCycleMark, onOpen }) {
+/** A focus habit that has cleared the Automatically bar (Must Track never does). */
+function readyForAutomatic(h, habitLog) {
+  const p = autoPromoteProgress(h, habitLog);
+  return p.earned && !p.blockedByStatus;
+}
+
+/**
+ * What puts the red dot on the Current tab:
+ *   - nothing in "Working on now", or nothing in "Refreshing" — always have one
+ *     of each on the go;
+ *   - a habit on the tab that has earned the Automatically status and hasn't
+ *     been asked about yet. One you've already answered (kept tracking it, or
+ *     moved it back) still shows "Ready" on its row but doesn't re-raise the
+ *     dot, or it would nag forever about a decision you've made.
+ */
+function currentTabAlerts(habits, habitLog) {
+  const has = status => habits.some(h => (h.status || '').trim() === status);
+  const ready = habits.filter(h =>
+    FOCUS_STATUSES.some(f => f.status === (h.status || '').trim())
+    && readyForAutomatic(h, habitLog)
+    && !h.autoPromotedAt && !h.autoPromoteDeclinedAt);
+  const reasons = [];
+  if (!has(CURRENT_STATUS)) reasons.push('No habits in Working on now');
+  if (!has(REFRESHING_STATUS)) reasons.push('No habits in Refreshing');
+  if (ready.length) reasons.push(`${ready.length} ready for Automatic`);
+  return { dot: reasons.length > 0, reasons, readyIds: new Set(ready.map(h => h.id)) };
+}
+
+const redDot = { width: 8, height: 8, borderRadius: 999, background: '#dc2626', display: 'inline-block', flexShrink: 0 };
+
+/**
+ * "N days to Automatic" for one row — the same rule and rolling-window walk
+ * the Routines popup's "Progress to Automatically" uses (autoPromoteEta).
+ */
+function AutoCountdown({ habit, habitLog, alerting, onMakeAutomatic }) {
+  const muted = { fontSize: '0.76rem', color: '#94a3b8', whiteSpace: 'nowrap' };
+  if ((habit.status || '').trim() === MUST_TRACK_STATUS) {
+    return <span style={muted} title="Must Track habits are never made automatic">Always tracked</span>;
+  }
+  const p = autoPromoteProgress(habit, habitLog);
+  if (!p.daily) {
+    return <span style={muted} title="Only daily habits can earn the Automatically status">Daily habits only</span>;
+  }
+  if (readyForAutomatic(habit, habitLog)) {
+    return (
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap' }}>
+        {alerting && <span style={redDot} />}
+        <span style={{ fontSize: '0.78rem', fontWeight: 700, color: '#16a34a' }}>Ready for Automatic</span>
+        <button
+          type="button"
+          onClick={() => onMakeAutomatic(habit.id)}
+          style={{ border: '1px solid #16a34a', background: '#f0fdf4', color: '#166534', borderRadius: 999, padding: '0.2rem 0.6rem', cursor: 'pointer', fontSize: '0.74rem', fontWeight: 700 }}
+        >
+          Make automatic
+        </button>
+      </span>
+    );
+  }
+  const eta = autoPromoteEta(habit, habitLog);
+  if (!eta) return <span style={muted}>—</span>;
+  const n = eta.completions;
+  const when = eta.date.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
+  return (
+    <span
+      title={`Log it every tracked day and it qualifies on ${when}. Now ${Math.round(p.rate)}% of the last ${p.total} tracked days — needs more than ${AUTO_PROMOTE_PCT}%.`}
+      style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--color-text-secondary, #475569)', whiteSpace: 'nowrap' }}
+    >
+      <strong style={{ color: 'var(--color-text, #0f172a)' }}>{n}</strong> {n === 1 ? 'day' : 'days'} to Automatic
+    </span>
+  );
+}
+
+function CurrentView({ habits, habitLog, onUpdate, onCycleMark, onOpen, onMakeAutomatic }) {
   const groups = FOCUS_STATUSES.map(g => ({
     ...g,
     habits: habits
       .filter(h => (h.status || '').trim() === g.status)
       .sort((a, b) => (a.name || '').localeCompare(b.name || '')),
   }));
-  const total = groups.reduce((n, g) => n + g.habits.length, 0);
-
-  if (total === 0) {
-    return (
-      <div style={{ border: '1px dashed var(--color-border, #e2e8f0)', borderRadius: 12, padding: '1.5rem', textAlign: 'center', color: 'var(--color-text-muted, #64748b)', fontSize: '0.88rem', lineHeight: 1.6 }}>
-        Nothing marked as current yet.<br />
-        Set a habit’s status to <strong>Current</strong>, <strong>Refreshing</strong> or <strong>Must Track</strong> and it shows up here.
-      </div>
-    );
-  }
+  const alerts = currentTabAlerts(habits, habitLog);
 
   return (
     <div>
@@ -6179,7 +6254,14 @@ function CurrentView({ habits, habitLog, onUpdate, onCycleMark, onOpen }) {
           </div>
           <p style={{ margin: '0 0 0.55rem 18px', fontSize: '0.8rem', color: 'var(--color-text-muted, #64748b)' }}>{g.blurb}</p>
           {g.habits.length === 0 ? (
-            <div style={{ marginLeft: 18, fontSize: '0.8rem', color: '#94a3b8' }}>None right now.</div>
+            g.status === MUST_TRACK_STATUS ? (
+              <div style={{ marginLeft: 18, fontSize: '0.8rem', color: '#94a3b8' }}>None right now.</div>
+            ) : (
+              <div style={{ marginLeft: 18, display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.82rem', color: '#b91c1c' }}>
+                <span style={redDot} />
+                None right now — set a habit’s status to <strong>{g.status}</strong> to pick one.
+              </div>
+            )
           ) : (
             <div style={{ border: '1px solid var(--color-border, #e2e8f0)', borderRadius: 12, overflow: 'hidden', background: 'var(--color-surface, #fff)' }}>
               {g.habits.map((h, i) => {
@@ -6211,6 +6293,7 @@ function CurrentView({ habits, habitLog, onUpdate, onCycleMark, onOpen }) {
                         {cadenceCanon(h.cadence)}{routine ? ` · ${routine}` : ''}
                       </div>
                     </div>
+                    <AutoCountdown habit={h} habitLog={habitLog} alerting={alerts.readyIds.has(h.id)} onMakeAutomatic={onMakeAutomatic} />
                     <span
                       title={`Completion over the ${habitWindowLabel(h.cadence)}`}
                       style={{ fontSize: '0.82rem', fontWeight: 700, minWidth: 44, textAlign: 'right', color: kpi == null ? '#94a3b8' : 'var(--color-text, #0f172a)' }}
