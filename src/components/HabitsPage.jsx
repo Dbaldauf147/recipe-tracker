@@ -40,6 +40,7 @@ function syncRelTime(iso) {
 const SUB_TABS = [
   { id: 'kpi', label: 'KPI' },
   { id: 'routines', label: 'Routines' },
+  { id: 'current', label: 'Current' },
   { id: 'charts', label: 'Charts' },
   { id: 'automatic', label: 'Automatic' },
   { id: 'autoreview', label: 'Auto Review' },
@@ -77,7 +78,20 @@ function isLoggableHabit(h) {
 }
 
 const DAILY_ROUTINES = ['Morning', 'Lunch', 'Afternoon', 'After Work', 'Bedtime'];
-const STATUS_OPTIONS = ['Automatically', 'Most Days', 'Some Days', 'Rarely', 'On Hold', 'Not Started', 'Abandoned'];
+// "What I'm focused on" statuses, gathered on the Current tab. All three are
+// ordinary active habits everywhere else — in the routines, logged, counted.
+//   Current     a habit you are actively building right now
+//   Refreshing  one you had, let slip, and are re-establishing
+//   Must Track  never goes on autopilot, so it's never offered Automatically
+const CURRENT_STATUS = 'Current';
+const REFRESHING_STATUS = 'Refreshing';
+const MUST_TRACK_STATUS = 'Must Track';
+const FOCUS_STATUSES = [
+  { status: CURRENT_STATUS, title: 'Working on now', blurb: 'Habits you are actively building.' },
+  { status: REFRESHING_STATUS, title: 'Refreshing', blurb: 'Ones you had before and are getting back into.' },
+  { status: MUST_TRACK_STATUS, title: 'Must continually be tracked', blurb: 'These never go on autopilot — they stay on your list for good.' },
+];
+const STATUS_OPTIONS = [CURRENT_STATUS, REFRESHING_STATUS, MUST_TRACK_STATUS, 'Automatically', 'Most Days', 'Some Days', 'Rarely', 'On Hold', 'Not Started', 'Abandoned'];
 // Where a habit lands when you say it's no longer running on autopilot. "Most
 // Days" rather than blank: it stopped being automatic, it didn't stop existing.
 const DEMOTED_FROM_AUTOMATIC_STATUS = 'Most Days';
@@ -1225,7 +1239,7 @@ const AUTO_PROMOTE_DAYS = 60;
 const AUTO_PROMOTE_PCT = 90;
 // Statuses the rule leaves alone: already promoted, deliberately parked, or
 // never begun.
-const AUTO_PROMOTE_SKIP_STATUSES = ['Automatically', ON_HOLD_STATUS, 'Abandoned', 'Not Started', 'Havent Started'];
+const AUTO_PROMOTE_SKIP_STATUSES = ['Automatically', MUST_TRACK_STATUS, ON_HOLD_STATUS, 'Abandoned', 'Not Started', 'Havent Started'];
 
 /** Completion % over the promotion window, or null when nothing is logged. */
 function autoPromoteRate(h, habitLog) {
@@ -2476,6 +2490,7 @@ export function HabitsPage({ onBack, user }) {
 
       {tab === 'kpi' && <KpiView habits={goodHabits} habitLog={habitLog} streaks={streaks} />}
       {tab === 'routines' && <RoutinesView habits={goodHabits} habitLog={habitLog} habitLogAuto={habitLogAuto} streaks={streaks} autoTrackedIds={autoTrackedIds} autoStatusFor={autoStatusFor} nextLogMap={habitNextLog} onSetNextLog={setNextLogDate} onUpdate={updateHabit} openMenu={(habitId, key, label) => setDayMenu({ habitId, key, label })} onCycleMark={setMarkForKey} onMove={setMoveHabitId} onReorder={reorderHabits} onSetRoutine={setHabitRoutine} onRenameRoutine={renameRoutine} onDeleteRoutine={setDeleteRoutineName} onBulkMark={setMarksForCells} onOpen={setOpenHabitId} onMakeAutomatic={id => resolveAutoPromotes([id], true)} />}
+      {tab === 'current' && <CurrentView habits={goodHabits} habitLog={habitLog} onUpdate={updateHabit} onCycleMark={setMarkForKey} onOpen={setOpenHabitId} />}
       {tab === 'automatic' && <AutomaticView habits={goodHabits} automations={automations} habitLog={habitLog} habitLogAuto={habitLogAuto} onChange={persistAutomations} />}
       {REVIEW_KINDS.some(k => k.id === tab) && (
         <MonthlyStatusReview
@@ -6003,7 +6018,8 @@ function HistoryView({ habitLog, habits, onImport, openMenu, autoTrackedIds = ne
 
 function StatusChip({ status }) {
   const s = (status || '').trim();
-  const color = s === 'Automatically' ? '#16a34a'
+  const color = FOCUS_STATUSES.some(f => f.status === s) ? STATUS_COLOR[s]
+    : s === 'Automatically' ? '#16a34a'
     : s === 'Most Days' ? '#65a30d'
     : s === 'Some Days' ? '#ca8a04'
     : s === 'Rarely' ? '#ea580c'
@@ -6125,6 +6141,104 @@ function BadHabitRow({ habit, habitLog, stripKeys, todayKey, onCycleMark, onOpen
         <span><strong style={{ color: 'var(--color-text, #0f172a)' }}>{stats.last30}</strong> in 30 days</span>
         <span><strong style={{ color: 'var(--color-text, #0f172a)' }}>{stats.total}</strong> all time</span>
       </div>
+    </div>
+  );
+}
+
+/**
+ * Current tab: the habits you are focused on, grouped by the three focus
+ * statuses (FOCUS_STATUSES). Log this period, change the status, or open the
+ * habit — everything else lives in its usual place.
+ */
+function CurrentView({ habits, habitLog, onUpdate, onCycleMark, onOpen }) {
+  const groups = FOCUS_STATUSES.map(g => ({
+    ...g,
+    habits: habits
+      .filter(h => (h.status || '').trim() === g.status)
+      .sort((a, b) => (a.name || '').localeCompare(b.name || '')),
+  }));
+  const total = groups.reduce((n, g) => n + g.habits.length, 0);
+
+  if (total === 0) {
+    return (
+      <div style={{ border: '1px dashed var(--color-border, #e2e8f0)', borderRadius: 12, padding: '1.5rem', textAlign: 'center', color: 'var(--color-text-muted, #64748b)', fontSize: '0.88rem', lineHeight: 1.6 }}>
+        Nothing marked as current yet.<br />
+        Set a habit’s status to <strong>Current</strong>, <strong>Refreshing</strong> or <strong>Must Track</strong> and it shows up here.
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      {groups.map(g => (
+        <div key={g.status} style={{ marginBottom: '1.4rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: '0.15rem' }}>
+            <span style={{ width: 10, height: 10, borderRadius: 999, background: STATUS_COLOR[g.status] }} />
+            <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 700 }}>{g.title}</h3>
+            <span style={{ fontSize: '0.8rem', color: 'var(--color-text-muted, #64748b)' }}>{g.habits.length}</span>
+          </div>
+          <p style={{ margin: '0 0 0.55rem 18px', fontSize: '0.8rem', color: 'var(--color-text-muted, #64748b)' }}>{g.blurb}</p>
+          {g.habits.length === 0 ? (
+            <div style={{ marginLeft: 18, fontSize: '0.8rem', color: '#94a3b8' }}>None right now.</div>
+          ) : (
+            <div style={{ border: '1px solid var(--color-border, #e2e8f0)', borderRadius: 12, overflow: 'hidden', background: 'var(--color-surface, #fff)' }}>
+              {g.habits.map((h, i) => {
+                const key = periodKey(h.cadence);
+                const mark = (habitLog[key] || {})[h.id];
+                const isDone = mark === 'done' || mark === 'exceeded';
+                const kpi = habitKpi(h, habitLog);
+                const routine = (h.routine || '').trim();
+                const period = periodHint(h.cadence).toLowerCase();
+                return (
+                  <div
+                    key={h.id}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap',
+                      padding: '0.65rem 0.9rem',
+                      borderTop: i === 0 ? 'none' : '1px solid var(--color-border, #e2e8f0)',
+                    }}
+                  >
+                    <div style={{ flex: '1 1 220px', minWidth: 0 }}>
+                      <button
+                        type="button"
+                        onClick={() => onOpen(h.id)}
+                        title="Open this habit"
+                        style={{ border: 'none', background: 'none', padding: 0, cursor: 'pointer', font: 'inherit', fontWeight: 650, fontSize: '0.93rem', color: 'var(--color-text, #0f172a)', textAlign: 'left' }}
+                      >
+                        {h.name || 'Untitled'}
+                      </button>
+                      <div style={{ fontSize: '0.74rem', color: 'var(--color-text-muted, #64748b)', marginTop: 1 }}>
+                        {cadenceCanon(h.cadence)}{routine ? ` · ${routine}` : ''}
+                      </div>
+                    </div>
+                    <span
+                      title={`Completion over the ${habitWindowLabel(h.cadence)}`}
+                      style={{ fontSize: '0.82rem', fontWeight: 700, minWidth: 44, textAlign: 'right', color: kpi == null ? '#94a3b8' : 'var(--color-text, #0f172a)' }}
+                    >
+                      {kpi == null ? '—' : `${kpi}%`}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => onCycleMark(h.id, key, isDone ? null : 'done')}
+                      title={isDone ? 'Logged — click to clear' : `Mark ${period} as done`}
+                      style={{
+                        border: `1px solid ${isDone ? MARK_META.done.color : 'var(--color-border, #e2e8f0)'}`,
+                        background: isDone ? MARK_META.done.color : 'var(--color-surface, #fff)',
+                        color: isDone ? '#fff' : 'var(--color-text-muted, #64748b)',
+                        borderRadius: 999, padding: '0.3rem 0.8rem', cursor: 'pointer',
+                        fontSize: '0.78rem', fontWeight: 700, whiteSpace: 'nowrap',
+                      }}
+                    >
+                      {isDone ? `✓ Done ${period}` : mark ? (MARK_META[mark]?.label || mark) : `Did it ${period}`}
+                    </button>
+                    <StatusSelect value={h.status} onChange={v => onUpdate(h.id, { status: v })} />
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      ))}
     </div>
   );
 }
@@ -7008,6 +7122,9 @@ const COL_WIDTH = {
 // Row color-coding for the Habits table, by status — most-active (green) down
 // to retired (red). Legacy/unknown statuses get no tint.
 const STATUS_COLOR = {
+  'Current': '#2563eb',
+  'Refreshing': '#0891b2',
+  'Must Track': '#7c3aed',
   'Automatically': '#16a34a',
   'Most Days': '#65a30d',
   'Some Days': '#d97706',
