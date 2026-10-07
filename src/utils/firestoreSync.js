@@ -1116,6 +1116,21 @@ export function subscribeRestaurants(uid, onChange) {
 }
 
 /**
+ * Live visits logged from Wealth Architect: `{ [externalId]: visit }`.
+ * Owner-only (the rules' catch-all), so only ever call it with your own uid —
+ * what you spent at a spot isn't part of the list you share. See
+ * src/utils/spotVisits.js.
+ */
+export function subscribeSpotVisits(uid, onChange) {
+  if (!uid) return () => {};
+  return onSnapshot(
+    doc(db, 'users', uid, 'data', 'eatingOutVisits'),
+    (snap) => onChange((snap.exists() && snap.data()?.visits) || {}),
+    (err) => console.error('subscribeSpotVisits:', err),
+  );
+}
+
+/**
  * Write one spot into an eating-out list — your own, or a friend's list that
  * they've shared with you.
  *
