@@ -2,6 +2,7 @@ import { useState, useMemo, useRef } from 'react';
 import styles from './ExerciseLibrary.module.css';
 import { ExerciseDemo, ExerciseDemoThumb } from './ExerciseDemo';
 import { EXERCISE_TYPES, effectiveExerciseType, normalizeExerciseType } from '../utils/exerciseTypes';
+import { AddExerciseModal } from './AddExerciseModal';
 
 const HEADER_ALIASES = {
   exercise: ['workout', 'exercise', 'exercises', 'name'],
@@ -170,6 +171,16 @@ function blankExercise() {
     videos: [],
     addedAt: new Date().toISOString(),
   };
+}
+
+/** Muscle groups already in use, for the add form's suggestions. */
+function muscleGroupOptionsForAdd(library) {
+  const s = new Set();
+  for (const e of library || []) {
+    const g = effectiveMuscleGroup(e);
+    if (g) s.add(g);
+  }
+  return Array.from(s).sort();
 }
 
 function formatAddedDate(iso) {
@@ -408,11 +419,25 @@ export function ExerciseLibrary({ library, onChange, onRenameExercise, sharedErr
     // falls back to the untouched row value and the old name reappears.
     onRenameExercise(oldName, newName);
   }
+  // "+ Add exercise" asks for the fields in a form rather than dropping a
+  // blank row into the table to fill in cell by cell.
+  const [addOpen, setAddOpen] = useState(false);
   function addRow() {
-    onChange([blankExercise(), ...library]);
+    setAddOpen(true);
+  }
+  function saveNewExercise(row) {
+    onChange([{ ...blankExercise(), ...row }, ...library]);
     // Clear any active sort so the new row stays visible at the top.
     setSort({ col: '', dir: 'asc' });
   }
+  const addModal = addOpen ? (
+    <AddExerciseModal
+      muscleGroups={muscleGroupOptionsForAdd(library)}
+      existingNames={library.map(e => e?.exercise).filter(Boolean)}
+      onSave={saveNewExercise}
+      onClose={() => setAddOpen(false)}
+    />
+  ) : null;
   function removeRow(originalIdx) {
     const ex = library[originalIdx];
     const label = ex?.exercise?.trim() || 'this row';
@@ -588,6 +613,7 @@ export function ExerciseLibrary({ library, onChange, onRenameExercise, sharedErr
             <button className={styles.primaryBtn} onClick={addRow}>+ Add exercise</button>
             <button className={styles.secondaryBtn} onClick={() => setShowImport(true)}>Import Exercises</button>
           </div>
+          {addModal}
           <p className={styles.hint}>
             Paste a tab- or comma-separated list with columns like <code>Workout, Primary Muscles, Secondary Muscles, Group, Insta, Insta 2…, Knickname</code>.
           </p>
@@ -599,6 +625,7 @@ export function ExerciseLibrary({ library, onChange, onRenameExercise, sharedErr
   return (
     <div className={styles.section}>
       {sharedBanner}
+      {addModal}
       <div className={styles.toolbar}>
         <input
           className={styles.search}
