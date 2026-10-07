@@ -1,10 +1,11 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useRecipes } from './hooks/useRecipes';
 import { useAuth } from './contexts/AuthContext';
-import { saveField, loadField, getPendingRequests, getPendingSharedRecipes, loadFriends, loadFriendShoppingList, loadFriendEatingOut, getUsername, noteWeeklyPlanChange, loadAppDefaults, saveAppDefault } from './utils/firestoreSync';
+import { saveField, loadField, loadDailyLogFromFirestore, appendAutoWeekHistory, getPendingRequests, getPendingSharedRecipes, loadFriends, loadFriendShoppingList, loadFriendEatingOut, getUsername, noteWeeklyPlanChange, loadAppDefaults, saveAppDefault } from './utils/firestoreSync';
 import { OWNER_EMAIL, PAGE_ACCESS_KEY, canViewPage, isPageToggleable, isPageVisible, pageLabel, readCachedPageAccess, cachePageAccess } from './utils/pageAccess';
 import { trackPageView } from './utils/trackPageView';
 import { todayKey } from './utils/localDate';
+import { autoWeekEntries } from './utils/autoWeekHistory';
 import { recordStageSnapshot } from './utils/recipeStageHistory';
 import { BUILD_LABEL, forceAppUpdate } from './utils/forceUpdate';
 import { countOutstandingHabits } from './utils/habitOutstanding';
@@ -516,6 +517,31 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
       setView(postOnboarding);
     }
   }, []);
+
+  // Meal History fills itself in: each finished Sun–Sat week that has no entry
+  // gets one from the meals planned / logged that week (the Week Plan writes
+  // its placed meals into the daily log). Reads the live daily log and history
+  // rather than localStorage, and writes in a transaction, so it never builds
+  // a week from a half-synced log or overwrites history from another device.
+  // Once per session — a finished week doesn't change.
+  useEffect(() => {
+    if (!user?.uid) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const dailyLog = await loadDailyLogFromFirestore(user.uid);
+        if (cancelled || !dailyLog) return;
+        const next = await appendAutoWeekHistory(user.uid, (history, doneWeeks) =>
+          autoWeekEntries({ history, doneWeeks, dailyLog, todayKey: todayKey() }));
+        if (!cancelled && next) {
+          try { localStorage.setItem('sunday-plan-history', JSON.stringify(next)); } catch { /* quota — the snapshot listener re-hydrates it */ }
+        }
+      } catch (err) {
+        console.warn('Meal History auto-week:', err);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [user?.uid]);
 
   // Re-read localStorage when remote Firestore data is synced
   useEffect(() => {

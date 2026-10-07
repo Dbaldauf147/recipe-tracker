@@ -385,6 +385,36 @@ export async function loadHabitAutoStatus(uid) {
   }
 }
 
+/**
+ * Append Meal History entries for finished weeks, atomically.
+ *
+ * `buildEntries(history, doneWeeks)` gets the LIVE planHistory and the list of
+ * weeks already auto-processed (`planHistoryAutoWeeks`) and returns the
+ * entries to add. Run in a transaction so two tabs or devices can't both add
+ * the same week, and so a stale local copy of planHistory can never be
+ * written back over the real one — this only ever appends.
+ *
+ * Returns the new planHistory, or null when nothing was added.
+ */
+export async function appendAutoWeekHistory(uid, buildEntries) {
+  const ref = doc(db, 'users', uid);
+  return runTransaction(db, async tx => {
+    const snap = await tx.get(ref);
+    if (!snap.exists()) return null;
+    const data = snap.data() || {};
+    const history = Array.isArray(data.planHistory) ? data.planHistory : [];
+    const doneWeeks = Array.isArray(data.planHistoryAutoWeeks) ? data.planHistoryAutoWeeks : [];
+    const add = buildEntries(history, doneWeeks) || [];
+    if (add.length === 0) return null;
+    const next = [...history, ...add];
+    tx.update(ref, {
+      planHistory: next,
+      planHistoryAutoWeeks: [...doneWeeks, ...add.map(e => e.weekStart)],
+    });
+    return next;
+  });
+}
+
 // Read a single top-level field off the user doc. Returns undefined when the
 // doc or field is missing. Used for small synced prefs (e.g. weekly goals).
 export async function loadField(uid, field) {
