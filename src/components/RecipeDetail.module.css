@@ -3729,3 +3729,121 @@
   font-size: 0.72rem;
   color: var(--color-text-muted);
 }
+
+/* Cook Mode: tap an ingredient's name to fix it. */
+.cookModeIngName {
+  cursor: pointer;
+  text-decoration: underline dotted var(--color-text-muted);
+  text-underline-offset: 3px;
+}
+
+.cookModeIngName:hover,
+.cookModeIngName:focus-visible {
+  color: var(--color-accent);
+  outline: none;
+}
+
+.renameIngOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 300;
+  background: rgba(0, 0, 0, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+}
+
+.renameIngModal {
+  width: 100%;
+  max-width: 380px;
+  background: var(--color-surface);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lift);
+  padding: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.renameIngTitle {
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.renameIngInput {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0.5rem 0.65rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: inherit;
+}
+
+.renameIngInput:focus {
+  outline: none;
+  border-color: var(--color-accent);
+  box-shadow: var(--focus-ring);
+}
+
+.renameIngSubtitle {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.renameIngSuggestions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.renameIngSuggestion {
+  padding: 0.3rem 0.7rem;
+  border: 1px solid var(--color-accent);
+  border-radius: var(--radius-full);
+  background: var(--color-accent-subtle);
+  color: var(--color-accent);
+  font: inherit;
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+}
+
+.renameIngSuggestion:hover {
+  background: var(--color-accent-light);
+}
+
+.renameIngActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  margin-top: 0.25rem;
+}
+
+.renameIngCancel,
+.renameIngSave {
+  padding: 0.4rem 0.9rem;
+  border-radius: var(--radius-md);
+  font: inherit;
+  cursor: pointer;
+}
+
+.renameIngCancel {
+  border: 1px solid var(--color-border);
+  background: transparent;
+  color: var(--color-text-secondary);
+}
+
+.renameIngSave {
+  border: 1px solid var(--color-accent);
+  background: var(--color-accent);
+  color: #fff;
+}
+
+.renameIngSave:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
