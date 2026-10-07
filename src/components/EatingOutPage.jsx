@@ -5,7 +5,8 @@ import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { db } from '../firebase';
 import { findDuplicateSpots, duplicateReason } from '../utils/duplicateSpots';
-import { saveOwnerRestaurants, saveOwnerEatingOutLists, saveField, subscribeRestaurants } from '../utils/firestoreSync';
+import { saveOwnerRestaurants, saveOwnerEatingOutLists, saveField, subscribeRestaurants, subscribeSpotVisits } from '../utils/firestoreSync';
+import { visitStatsByPlace } from '../utils/spotVisits';
 import {
   splitTsv,
   detectHasHeader,
@@ -1774,7 +1775,34 @@ function SpotPhotoStrip({ ownerUid, spot, fallbackUrl }) {
 
 // Detail sheet for a spot a FRIEND added: their info, the shared ratings and
 // the comment thread — plus Edit, since a shared list is collaborative.
-function SpotDetailModal({ spot, user, onClose, onEdit }) {
+/* "3 visits · $142" — what Wealth Architect has logged against a spot. */
+function visitsSummary(stats) {
+  const money = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(stats.total);
+  return `${stats.count} ${stats.count === 1 ? 'visit' : 'visits'} · ${money}`;
+}
+
+/* The visits logged against a spot from card charges in Wealth Architect.
+   Shown only on your own spots: amounts live in a private document. */
+function SpotVisits({ stats }) {
+  if (!stats?.count) return null;
+  const money = n => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(n);
+  return (
+    <div style={{ fontSize: '0.85rem' }}>
+      <strong>Visits</strong>
+      <span style={{ color: 'var(--color-text-muted)' }}> · {visitsSummary(stats)} · from your card charges</span>
+      <ul style={{ margin: '0.35rem 0 0', paddingLeft: '1.1rem', maxHeight: 160, overflowY: 'auto' }}>
+        {stats.visits.map(v => (
+          <li key={v.externalId}>
+            {formatDate(`${v.date}T12:00:00`)} — {money(v.amount)}
+            {v.merchant && <span style={{ color: 'var(--color-text-muted)' }}> · {v.merchant}</span>}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function SpotDetailModal({ spot, user, onClose, onEdit, visitStats }) {
   const meta = [
     (spot.cuisines || []).join(', '),
     (spot.locations || []).join(', '),
@@ -1802,6 +1830,7 @@ function SpotDetailModal({ spot, user, onClose, onEdit }) {
           {spot.url && (
             <a href={spot.url} target="_blank" rel="noreferrer" style={{ fontSize: '0.85rem' }}>Open link ↗</a>
           )}
+          <SpotVisits stats={visitStats} />
           <SpotRatings key={`${spot._ownerUid}__${spot.id}`} ownerUid={spot._ownerUid} spotId={spot.id} spot={spot} user={user} />
           <SpotComments ownerUid={spot._ownerUid} spotId={spot.id} user={user} />
         </div>
@@ -2611,7 +2640,7 @@ function BulkImportModal({ onClose, onImport, existing }) {
   );
 }
 
-function RestaurantCard({ r, ratingAgg, ratingHasOthers = false, distanceMiles, rank, canMoveUp, canMoveDown, onMoveUp, onMoveDown, onClick, compact, drag }) {
+function RestaurantCard({ r, ratingAgg, ratingHasOthers = false, distanceMiles, rank, canMoveUp, canMoveDown, onMoveUp, onMoveDown, onClick, compact, drag, visitStats }) {
   // Same reveal state the spot's own ratings table reads, so the badge and the
   // popup never disagree. A spot only YOU have rated has nothing to hide, so
   // its average shows as it always did.
@@ -2795,7 +2824,10 @@ function RestaurantCard({ r, ratingAgg, ratingHasOthers = false, distanceMiles, 
           <div className={styles.cardDistance}>{distanceMiles.toFixed(1)} mi away</div>
         )}
         {r.lastVisit && (
-          <div className={styles.cardLastVisit}>Last visit: {formatDate(r.lastVisit)}</div>
+          <div className={styles.cardLastVisit}>
+            Last visit: {formatDate(r.lastVisit)}
+            {visitStats?.count > 0 && ` · ${visitsSummary(visitStats)}`}
+          </div>
         )}
         {/* Been here, never filed it. Says WHICH is missing — "needs
             attention" would leave you opening the spot to find out. */}
@@ -4739,6 +4771,12 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
   const [proximityResolving, setProximityResolving] = useState(false);
   const [editing, setEditing] = useState(null);
   const [viewing, setViewing] = useState(null); // friend's spot → rank + comment sheet
+  // Visits logged from Wealth Architect (api/wealth-sync.js). Your own only —
+  // a friend's spending isn't readable, and isn't shown on their shared spots.
+  const [spotVisits, setSpotVisits] = useState({});
+  useEffect(() => subscribeSpotVisits(user?.uid, setSpotVisits), [user?.uid]);
+  const visitStats = useMemo(() => visitStatsByPlace(spotVisits), [spotVisits]);
+  const myVisitStats = (r) => (r && r._ownerUid === user?.uid ? visitStats.get(r.id) : undefined);
   const [adding, setAdding] = useState(false);
   const [bulkOpen, setBulkOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -6192,6 +6230,7 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
                       onDragEnd: () => { setDragId(null); setDragOverId(null); },
                     } : null}
                     onClick={() => openSpot(r)}
+                    visitStats={myVisitStats(r)}
                   />
                 );
               };
@@ -6281,6 +6320,7 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
         <SpotDetailModal
           spot={viewing}
           user={user}
+          visitStats={myVisitStats(viewing)}
           onClose={() => setViewing(null)}
           onEdit={() => { setEditing(viewing); setViewing(null); }}
         />
