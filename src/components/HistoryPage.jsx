@@ -663,6 +663,14 @@ export function HistoryPage({ getRecipe, recipes, deletedRecipes = [], onRestore
                           {formatDate(entry.date)}
                         </button>
                       )}
+                      {entry.source === 'week-plan' && (
+                        <span
+                          className={styles.autoWeekTag}
+                          title="Added automatically from that week's planned and logged meals"
+                        >
+                          from Week Plan
+                        </span>
+                      )}
                     </td>
                     <td className={styles.mealsCell}>
                       {entry.recipeIds.map((id, i) => {

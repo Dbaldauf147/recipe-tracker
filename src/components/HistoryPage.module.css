@@ -134,6 +134,15 @@
   border-bottom-color: var(--color-accent);
 }
 
+/* A week Meal History filled in itself, from the Week Plan / meal log. */
+.autoWeekTag {
+  display: block;
+  margin-top: 0.15rem;
+  font-size: 0.7rem;
+  font-weight: 500;
+  color: var(--color-text-muted);
+}
+
 .dateInput {
   font-size: 0.88rem;
   font-family: inherit;
