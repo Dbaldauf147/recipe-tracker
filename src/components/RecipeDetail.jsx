@@ -11,6 +11,7 @@ import {
   UNIT_SIZES, composeUnit, splitUnit, findUnitWeight, defaultUnitWeight, pluralizeUnit,
 } from '../utils/unitWeights';
 import { ingredientMatchScore } from '../utils/ingredientMatch';
+import { suggestIngredientNames } from '../utils/ingredientNameSuggest';
 import { VOLUME_TO_ML, WEIGHT_TO_G, SIZE_GRAMS, getSizeGrams } from '../utils/units';
 import { volumeGrams } from '../utils/volumeGrams';
 import { classifyMealType } from '../utils/classifyMealType';
@@ -822,6 +823,8 @@ export function RecipeDetail({ recipe, allTags = [], onSave, onDelete, onBack, o
   const addMenuRef = useRef(null);
   const [convertPopup, setConvertPopup] = useState(null); // { rowIdx, options: [{ qty, unit, label }] }
   const convertPopupRef = useRef(null);
+  // Cook Mode: tap an ingredient's name to fix it — { idx, draft } or null.
+  const [renameIng, setRenameIng] = useState(null);
   // In-progress edits to the count/unit columns, keyed by row index. Cleared
   // once the ratio is taught so the columns go back to deriving from grams.
   const [unitDrafts, setUnitDrafts] = useState({});
@@ -1240,6 +1243,27 @@ export function RecipeDetail({ recipe, allTags = [], onSave, onDelete, onBack, o
         i === index ? { ...row, [field]: value } : row
       ),
     }));
+  }
+
+  // Cook Mode rename: the ingredient name opens a popup to fix it. Read-only
+  // for recipes linked from a friend, which never save.
+  function cookModeRenameProps(idx, chip = false) {
+    if (recipe?.source === 'shared-link' || idx == null) return {};
+    const open = () => setRenameIng({ idx, draft: fields.ingredients[idx]?.ingredient || '' });
+    return {
+      className: chip ? `${styles.cookModeMissingChip} ${styles.cookModeIngName}` : styles.cookModeIngName,
+      role: 'button',
+      tabIndex: 0,
+      title: 'Edit ingredient name',
+      onClick: open,
+      onKeyDown: e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); } },
+    };
+  }
+
+  function saveRenameIng(name) {
+    const next = (name ?? renameIng?.draft ?? '').trim();
+    if (renameIng && next) updateIngredient(renameIng.idx, 'ingredient', next);
+    setRenameIng(null);
   }
 
   function addRow() {
@@ -3966,7 +3990,7 @@ export function RecipeDetail({ recipe, allTags = [], onSave, onDelete, onBack, o
                             </td>
                             <td className={styles.cookModeIng}>
                               <div className={styles.cookModeIngRow}>
-                                <span>{assignedIngs[0].ingredient}</span>
+                                <span {...cookModeRenameProps(assignedIndices[0])}>{assignedIngs[0].ingredient}</span>
                                 {editing && <button className={styles.cookModeRemove} onClick={() => {
                                   setFields(prev => {
                                     const map = { ...prev.stepIngredients };
@@ -4063,7 +4087,7 @@ export function RecipeDetail({ recipe, allTags = [], onSave, onDelete, onBack, o
                           </td>
                           <td className={styles.cookModeIng}>
                             <div className={styles.cookModeIngRow}>
-                              <span>{ing.ingredient}</span>
+                              <span {...cookModeRenameProps(assignedIndices[ii + 1])}>{ing.ingredient}</span>
                               {editing && <button className={styles.cookModeRemove} onClick={() => {
                                 setFields(prev => {
                                   const map = { ...prev.stepIngredients };
@@ -4115,10 +4139,45 @@ export function RecipeDetail({ recipe, allTags = [], onSave, onDelete, onBack, o
                 <div className={styles.cookModeMissing}>
                   <span className={styles.cookModeMissingTitle}>Not in instructions</span>
                   {missing.map(ing => (
-                    <span key={ing.idx} className={styles.cookModeMissingChip}>
+                    <span key={ing.idx} className={styles.cookModeMissingChip} {...cookModeRenameProps(ing.idx, true)}>
                       {ing.quantity && `${ing.quantity} `}{ing.measurement && `${ing.measurement} `}{ing.ingredient}
                     </span>
                   ))}
+                </div>
+              );
+            })()}
+            {renameIng && (() => {
+              const original = fields.ingredients[renameIng.idx]?.ingredient || '';
+              const suggestions = suggestIngredientNames(original, dbNamesList);
+              return (
+                <div className={styles.renameIngOverlay} onMouseDown={e => { if (e.target === e.currentTarget) setRenameIng(null); }}>
+                  <div className={styles.renameIngModal} role="dialog" aria-label="Edit ingredient name">
+                    <div className={styles.renameIngTitle}>Edit ingredient name</div>
+                    <input
+                      className={styles.renameIngInput}
+                      autoFocus
+                      value={renameIng.draft}
+                      onChange={e => setRenameIng(r => ({ ...r, draft: e.target.value }))}
+                      onKeyDown={e => {
+                        if (e.key === 'Enter') saveRenameIng();
+                        if (e.key === 'Escape') setRenameIng(null);
+                      }}
+                    />
+                    {suggestions.length > 0 && (
+                      <>
+                        <div className={styles.renameIngSubtitle}>Suggested from your list</div>
+                        <div className={styles.renameIngSuggestions}>
+                          {suggestions.map(n => (
+                            <button key={n} type="button" className={styles.renameIngSuggestion} onClick={() => saveRenameIng(n)}>{n}</button>
+                          ))}
+                        </div>
+                      </>
+                    )}
+                    <div className={styles.renameIngActions}>
+                      <button type="button" className={styles.renameIngCancel} onClick={() => setRenameIng(null)}>Cancel</button>
+                      <button type="button" className={styles.renameIngSave} disabled={!renameIng.draft.trim()} onClick={() => saveRenameIng()}>Save</button>
+                    </div>
+                  </div>
                 </div>
               );
             })()}
