@@ -9,6 +9,7 @@ import { saveField, loadField, saveWorkoutDraft, clearWorkoutDraft, newWorkoutId
 import { exportWorkoutHistoryToCSV } from '../utils/exportData';
 import { parseSetValue, formatSeconds, computeSetStats } from '../utils/setValue';
 import { ExerciseLibrary, effectiveMuscleGroup, videoSourceLabel } from './ExerciseLibrary';
+import { AddExerciseModal } from './AddExerciseModal';
 import { EXERCISE_TYPES, DEFAULT_EXERCISE_TYPE, effectiveExerciseType, normalizeExerciseType, inferExerciseType } from '../utils/exerciseTypes';
 import {
   entryBestE1rmLb, offsiteMarker, makeBodyweightLookupStrict, isBodyweightExercise,
@@ -2096,18 +2097,16 @@ function OverviewBarCharts({ user, workouts }) {
 // Custom exercise picker for the Log Workout table. A native <select> can't
 // hold a button, which is why the in-row "+ Add new exercise" affordance has
 // to live in a portal-rendered popover anchored to the trigger.
-function ExerciseSelector({ value, options, disabled, muscleGroup, onChange, onAddNew, className }) {
+function ExerciseSelector({ value, options, disabled, muscleGroup, onChange, onAddNew, existingNames, className }) {
   const [open, setOpen] = useState(false);
-  const [adding, setAdding] = useState(false);
-  const [newName, setNewName] = useState('');
+  // The add form, opened from the menu's "+ Add new exercise".
+  const [addOpen, setAddOpen] = useState(false);
   const [pos, setPos] = useState({ top: 0, left: 0, width: 0 });
   const triggerRef = useRef(null);
   const menuRef = useRef(null);
 
   function close() {
     setOpen(false);
-    setAdding(false);
-    setNewName('');
   }
 
   useEffect(() => {
@@ -2136,12 +2135,6 @@ function ExerciseSelector({ value, options, disabled, muscleGroup, onChange, onA
     };
   }, [open]);
 
-  function commitNew() {
-    const name = newName.trim();
-    if (!name) return;
-    onAddNew(name);
-    close();
-  }
 
   const menu = (
     <div
@@ -2165,32 +2158,13 @@ function ExerciseSelector({ value, options, disabled, muscleGroup, onChange, onA
           ))
         )}
       </div>
-      {adding ? (
-        <div className={styles.exSelectAddRow}>
-          <input
-            type="text"
-            autoFocus
-            placeholder={`New ${muscleGroup || ''} exercise`.trim()}
-            value={newName}
-            onChange={e => setNewName(e.target.value)}
-            onKeyDown={e => {
-              if (e.key === 'Enter') { e.preventDefault(); commitNew(); }
-              else if (e.key === 'Escape') { e.preventDefault(); setAdding(false); setNewName(''); }
-            }}
-            className={styles.exSelectAddInput}
-          />
-          <button type="button" className={styles.exSelectAddConfirm} onClick={commitNew}>Add</button>
-          <button type="button" className={styles.exSelectAddCancel} onClick={() => { setAdding(false); setNewName(''); }}>Cancel</button>
-        </div>
-      ) : (
-        <button
-          type="button"
-          className={styles.exSelectAddNew}
-          disabled={!muscleGroup}
-          onClick={() => setAdding(true)}
-          title={!muscleGroup ? 'Pick a muscle group first' : `Add a new exercise to ${muscleGroup}`}
-        >+ Add new exercise</button>
-      )}
+      <button
+        type="button"
+        className={styles.exSelectAddNew}
+        disabled={!muscleGroup}
+        onClick={() => { close(); setAddOpen(true); }}
+        title={!muscleGroup ? 'Pick a muscle group first' : `Add a new exercise to ${muscleGroup}`}
+      >+ Add new exercise</button>
     </div>
   );
 
@@ -2207,6 +2181,15 @@ function ExerciseSelector({ value, options, disabled, muscleGroup, onChange, onA
         <span className={styles.exSelectCaret} aria-hidden="true">▾</span>
       </button>
       {open && createPortal(menu, document.body)}
+      {addOpen && (
+        <AddExerciseModal
+          initial={{ muscleGroup }}
+          lockMuscleGroup
+          existingNames={existingNames}
+          onSave={row => { onAddNew(row); }}
+          onClose={() => setAddOpen(false)}
+        />
+      )}
     </>
   );
 }
@@ -2219,14 +2202,15 @@ function ExerciseSelector({ value, options, disabled, muscleGroup, onChange, onA
 // the discipline itself isn't stored on the row, it lives on the exercise.
 function GroupExercisePicker({
   initialGroup, initialType, exercisesForGroup, groupsForType,
-  addExerciseToLibrary, onPick, onClose,
+  addExerciseToLibrary, existingNames, onPick, onClose,
 }) {
   // Reopening a row that already has an exercise resumes at step 3, exactly
   // like the old two-step picker did — the back buttons walk up from there.
   const [type, setType] = useState(initialGroup ? (initialType || DEFAULT_EXERCISE_TYPE) : '');
   const [group, setGroup] = useState(initialGroup || '');
+  // True while the add form is open over the picker — it also keeps the
+  // picker's Backspace shortcut from stepping back while you type in the form.
   const [adding, setAdding] = useState(false);
-  const [newName, setNewName] = useState('');
   const [query, setQuery] = useState('');
 
   useEffect(() => {
@@ -2251,11 +2235,9 @@ function GroupExercisePicker({
     onPick(group, name);
   }
 
-  function commitNew() {
-    const name = newName.trim();
-    if (!name) return;
-    if (addExerciseToLibrary(name, group, type)) {
-      onPick(group, name);
+  function saveNew(row) {
+    if (addExerciseToLibrary(row.exercise, group, type, row)) {
+      onPick(group, row.exercise);
     }
   }
 
@@ -2270,11 +2252,11 @@ function GroupExercisePicker({
       <div className={styles.pickerModal} onMouseDown={e => e.stopPropagation()}>
         <div className={styles.pickerHeader}>
           {group ? (
-            <button type="button" className={styles.pickerBack} onClick={() => { setGroup(''); setAdding(false); setNewName(''); setQuery(''); }}>
+            <button type="button" className={styles.pickerBack} onClick={() => { setGroup(''); setAdding(false); setQuery(''); }}>
               ← Groups
             </button>
           ) : type ? (
-            <button type="button" className={styles.pickerBack} onClick={() => { setType(''); setAdding(false); setNewName(''); setQuery(''); }}>
+            <button type="button" className={styles.pickerBack} onClick={() => { setType(''); setAdding(false); setQuery(''); }}>
               ← Back
             </button>
           ) : <span />}
@@ -2336,27 +2318,18 @@ function GroupExercisePicker({
                 ))
               )}
             </div>
-            {adding ? (
-              <div className={styles.pickerAddRow}>
-                <input
-                  type="text"
-                  autoFocus
-                  className={styles.pickerAddInput}
-                  placeholder={`New ${group} exercise`}
-                  value={newName}
-                  onChange={e => setNewName(e.target.value)}
-                  onKeyDown={e => {
-                    if (e.key === 'Enter') { e.preventDefault(); commitNew(); }
-                    else if (e.key === 'Escape') { e.preventDefault(); setAdding(false); setNewName(''); }
-                  }}
-                />
-                <button type="button" className={styles.pickerAddBtn} onClick={commitNew}>Add</button>
-                <button type="button" className={styles.pickerAddCancel} onClick={() => { setAdding(false); setNewName(''); }}>Cancel</button>
-              </div>
-            ) : (
-              <button type="button" className={styles.pickerAddNew} onClick={() => setAdding(true)}>
-                + Add new {group} {type.toLowerCase()} exercise
-              </button>
+            <button type="button" className={styles.pickerAddNew} onClick={() => setAdding(true)}>
+              + Add new {group} {type.toLowerCase()} exercise
+            </button>
+            {adding && (
+              <AddExerciseModal
+                initial={{ exercise: query, muscleGroup: group, exerciseType: type }}
+                lockMuscleGroup
+                lockType
+                existingNames={existingNames}
+                onSave={saveNew}
+                onClose={() => setAdding(false)}
+              />
             )}
           </>
         )}
@@ -2992,6 +2965,23 @@ export function WorkoutPage({ onBack, user }) {
   // groups the user's own exercises actually sit in. Libraries organised by
   // split (Push / Pull / Snack) aren't in MUSCLE_GROUPS, and without this those
   // exercises can't be reached from the log at all.
+  // Names the add form treats as already taken: every exercise you can SEE.
+  // Retired and hidden ones are left out on purpose — adding one of those
+  // again is how you get it back (addExerciseToLibrary revives it).
+  const visibleExerciseNames = useMemo(() => {
+    const hiddenLc = new Set((hiddenExercises || []).map(n => String(n).toLowerCase()));
+    const out = [];
+    for (const e of exerciseLibrary || []) {
+      const n = String(e?.exercise || '').trim();
+      if (n && !e.retired && !hiddenLc.has(n.toLowerCase())) out.push(n);
+    }
+    for (const c of customExercises || []) {
+      const n = String(c?.name || '').trim();
+      if (n && !hiddenLc.has(n.toLowerCase())) out.push(n);
+    }
+    return out;
+  }, [exerciseLibrary, customExercises, hiddenExercises]);
+
   const allMuscleGroups = useMemo(() => {
     const seen = new Set(MUSCLE_GROUPS.map(g => g.toLowerCase()));
     const extra = [];
@@ -3821,7 +3811,9 @@ export function WorkoutPage({ onBack, user }) {
   // shows up in that group's dropdown on the very next render. `exerciseType`
   // (Strength Training / Stretching) is stored too when the caller knows it,
   // so a stretch added from the Stretching branch of the picker stays there.
-  function addExerciseToLibrary(name, muscleGroup, exerciseType) {
+  // `details` is the add form's full row (muscles, videos, alternative…); the
+  // name, group and type arguments still win, as the caller's context.
+  function addExerciseToLibrary(name, muscleGroup, exerciseType, details = null) {
     const trimmed = String(name || '').trim();
     if (!trimmed) return false;
     const lower = trimmed.toLowerCase();
@@ -3849,21 +3841,22 @@ export function WorkoutPage({ onBack, user }) {
       alert(`"${dup.exercise}" already exists in your exercises.`);
       return false;
     }
-    const type = normalizeExerciseType(exerciseType);
+    const type = normalizeExerciseType(exerciseType || details?.exerciseType);
     const newEx = {
+      ...(details || {}),
       exercise: trimmed,
-      primaryMuscles: '',
-      secondaryMuscles: '',
+      primaryMuscles: details?.primaryMuscles || '',
+      secondaryMuscles: details?.secondaryMuscles || '',
       group: '',
-      muscleGroup: muscleGroup || '',
+      muscleGroup: muscleGroup || details?.muscleGroup || '',
       exerciseType: type,
       thisWeek: 0,
       lastWeek: 0,
-      alternative: '',
-      top: false,
-      nickname: '',
+      alternative: details?.alternative || '',
+      top: !!details?.top,
+      nickname: details?.nickname || '',
       retired: false,
-      videos: [],
+      videos: Array.isArray(details?.videos) ? details.videos : [],
       addedAt: new Date().toISOString(),
     };
     const next = [newEx, ...(exerciseLibrary || [])];
@@ -5473,9 +5466,10 @@ export function WorkoutPage({ onBack, user }) {
                               muscleGroup={entry.group}
                               className={editedCls('exercise')}
                               onChange={(name) => pickExercise(i, name)}
-                              onAddNew={(name) => {
-                                if (addExerciseToLibrary(name, entry.group)) {
-                                  pickExercise(i, name);
+                              existingNames={visibleExerciseNames}
+                              onAddNew={(row) => {
+                                if (addExerciseToLibrary(row.exercise, entry.group, row.exerciseType, row)) {
+                                  pickExercise(i, row.exercise);
                                 }
                               }}
                             />
@@ -5610,6 +5604,7 @@ export function WorkoutPage({ onBack, user }) {
               exercisesForGroup={exercisesForGroup}
               groupsForType={groupsForType}
               addExerciseToLibrary={addExerciseToLibrary}
+              existingNames={visibleExerciseNames}
               onPick={(group, exercise) => {
                 setEntries(prev => prev.map((e, i) => i === pickerIdx
                   ? enrichEntry({ ...e, group, exercise })
