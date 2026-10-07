@@ -492,6 +492,57 @@
   color: var(--color-text-muted);
 }
 
+/* Recently bought — chips above the full recipe list. */
+.recentBought {
+  margin-top: 0.7rem;
+}
+
+.recentBoughtLabel {
+  display: block;
+  margin: 0.2rem 0 0.4rem;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+.recentBoughtList {
+  list-style: none;
+  margin: 0 0 0.6rem;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.recentBoughtBtn {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.1rem;
+  max-width: 14rem;
+  padding: 0.4rem 0.7rem;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  background: var(--color-surface);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.recentBoughtBtn:hover {
+  border-color: var(--color-accent);
+}
+
+.recentBoughtBtn .recipeTitle {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* ── ingredient rows ────────────────────────────────────────────────────── */
 
 .rowsHead {

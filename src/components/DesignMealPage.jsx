@@ -18,6 +18,7 @@ import {
 } from '../utils/radarGeometry';
 import { rateRecipes, compareByRating, readNutritionCache } from '../utils/mealRating';
 import { StarRating } from './StarRating';
+import { loadPlanHistory, recentlyBoughtRecipes, formatBoughtDate } from '../utils/recentlyBought';
 import styles from './DesignMealPage.module.css';
 
 const UNIT_CHOICES = [
@@ -786,6 +787,14 @@ function MealPicker({ recipes, profile, onPick, onScratch }) {
     return [...list].sort((a, b) => compareByRating(ratings, a, b)).slice(0, 40);
   }, [withIngredients, query, ratings]);
 
+  // The meals you've actually been buying, from Meal History's shopping-list
+  // archive — usually the ones worth bending, and otherwise buried in a list
+  // ranked by goal fit.
+  const recentlyBought = useMemo(() => {
+    const usable = new Set(withIngredients.map(r => r.id));
+    return recentlyBoughtRecipes(loadPlanHistory(), withIngredients, { limit: 10, include: r => usable.has(r.id) });
+  }, [withIngredients]);
+
   return (
     <section className={styles.card}>
       <div className={styles.pickerHead}>
@@ -798,6 +807,29 @@ function MealPicker({ recipes, profile, onPick, onScratch }) {
         value={query}
         onChange={e => setQuery(e.target.value)}
       />
+      {!query.trim() && recentlyBought.length > 0 && (
+        <div className={styles.recentBought}>
+          <span className={styles.recentBoughtLabel}>Recently bought</span>
+          <ul className={styles.recentBoughtList}>
+            {recentlyBought.map(({ recipe, date, times }) => (
+              <li key={recipe.id}>
+                <button
+                  type="button"
+                  className={styles.recentBoughtBtn}
+                  onClick={() => onPick(recipe)}
+                  title={times > 1 ? `Bought ${times} times; last on ${formatBoughtDate(date)}` : `Bought ${formatBoughtDate(date)}`}
+                >
+                  <span className={styles.recipeTitle}>{recipe.title || 'Untitled'}</span>
+                  <span className={styles.recipeMeta}>
+                    {formatBoughtDate(date)}{times > 1 ? ` · ${times}×` : ''}
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
+          <span className={styles.recentBoughtLabel}>All recipes</span>
+        </div>
+      )}
       {matches.length === 0 ? (
         <p className={styles.emptyNote}>
           {withIngredients.length === 0
