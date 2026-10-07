@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import { NutritionPanel, PlateChart, MealScore } from './NutritionPanel';
 import { BarcodeScanner } from './BarcodeScanner';
 import { loadFriends, shareRecipe, getUsername, createShareLink, loadField } from '../utils/firestoreSync';
@@ -825,6 +826,8 @@ export function RecipeDetail({ recipe, allTags = [], onSave, onDelete, onBack, o
   const convertPopupRef = useRef(null);
   // Cook Mode: tap an ingredient's name to fix it — { idx, draft } or null.
   const [renameIng, setRenameIng] = useState(null);
+  const renameIngRef = useRef(null);
+  const renameIngAnchorRef = useRef(null);
   // In-progress edits to the count/unit columns, keyed by row index. Cleared
   // once the ratio is taught so the columns go back to deriving from grams.
   const [unitDrafts, setUnitDrafts] = useState({});
@@ -1245,19 +1248,77 @@ export function RecipeDetail({ recipe, allTags = [], onSave, onDelete, onBack, o
     }));
   }
 
-  // Cook Mode rename: the ingredient name opens a popup to fix it. Read-only
-  // for recipes linked from a friend, which never save.
-  function cookModeRenameProps(idx, chip = false) {
-    if (recipe?.source === 'shared-link' || idx == null) return {};
-    const open = () => setRenameIng({ idx, draft: fields.ingredients[idx]?.ingredient || '' });
+  // Cook Mode: clicking an ingredient's name opens a small popover just above
+  // it -- not a page overlay, which jumped the page to the top. The popover is
+  // portalled to <body> with position: fixed, because the step boxes clip their
+  // contents (overflow: hidden); it's re-placed against the name on scroll.
+  // Read-only for recipes linked from a friend, which never save.
+  function placeRenameIng(el) {
+    const rect = el.getBoundingClientRect();
+    const width = Math.min(320, window.innerWidth - 32);
+    const left = Math.max(16, Math.min(rect.left, window.innerWidth - width - 16));
+    // Flip below the name when there isn't room above it.
+    const below = rect.top < 300;
     return {
-      className: chip ? `${styles.cookModeMissingChip} ${styles.cookModeIngName}` : styles.cookModeIngName,
-      role: 'button',
-      tabIndex: 0,
-      title: 'Edit ingredient name',
-      onClick: open,
-      onKeyDown: e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); } },
+      left,
+      width,
+      top: below ? rect.bottom + 6 : rect.top - 6,
+      transform: below ? undefined : 'translateY(-100%)',
     };
+  }
+
+  function renameIngName(idx, label, chip = false) {
+    const readOnly = recipe?.source === 'shared-link' || idx == null;
+    if (readOnly) return <span className={chip ? styles.cookModeMissingChip : undefined}>{label}</span>;
+    const open = el => {
+      renameIngAnchorRef.current = el;
+      setRenameIng({ idx, draft: fields.ingredients[idx]?.ingredient || '', style: placeRenameIng(el) });
+    };
+    return (
+      <span
+        className={chip ? `${styles.cookModeMissingChip} ${styles.cookModeIngName}` : styles.cookModeIngName}
+        role="button"
+        tabIndex={0}
+        title="Edit ingredient name"
+        onClick={e => open(e.currentTarget)}
+        onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(e.currentTarget); } }}
+      >{label}</span>
+    );
+  }
+
+  function renameIngPopover() {
+    const original = fields.ingredients[renameIng.idx]?.ingredient || '';
+    const suggestions = suggestIngredientNames(original, dbNamesList);
+    return createPortal(
+      <div className={styles.renameIngPopover} style={renameIng.style} ref={renameIngRef} role="dialog" aria-label="Edit ingredient name">
+        <div className={styles.renameIngTitle}>Edit ingredient name</div>
+        <input
+          className={styles.renameIngInput}
+          ref={el => { if (el && !el.dataset.focused) { el.dataset.focused = '1'; el.focus({ preventScroll: true }); el.select(); } }}
+          value={renameIng.draft}
+          onChange={e => setRenameIng(r => ({ ...r, draft: e.target.value }))}
+          onKeyDown={e => {
+            if (e.key === 'Enter') saveRenameIng();
+            if (e.key === 'Escape') setRenameIng(null);
+          }}
+        />
+        {suggestions.length > 0 && (
+          <>
+            <div className={styles.renameIngSubtitle}>Suggested from your list</div>
+            <div className={styles.renameIngSuggestions}>
+              {suggestions.map(n => (
+                <button key={n} type="button" className={styles.renameIngSuggestion} onClick={() => saveRenameIng(n)}>{n}</button>
+              ))}
+            </div>
+          </>
+        )}
+        <div className={styles.renameIngActions}>
+          <button type="button" className={styles.renameIngCancel} onClick={() => setRenameIng(null)}>Cancel</button>
+          <button type="button" className={styles.renameIngSave} disabled={!renameIng.draft.trim()} onClick={() => saveRenameIng()}>Save</button>
+        </div>
+      </div>,
+      document.body,
+    );
   }
 
   function saveRenameIng(name) {
@@ -1823,6 +1884,33 @@ export function RecipeDetail({ recipe, allTags = [], onSave, onDelete, onBack, o
     return () => clearTimeout(timer);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fields]);
+
+  // Close the ingredient-name popover on outside click
+  useEffect(() => {
+    if (!renameIng) return;
+    function handleClickOutside(e) {
+      if (renameIngRef.current && !renameIngRef.current.contains(e.target)) setRenameIng(null);
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [renameIng]);
+
+  // Keep it pinned to the name while the recipe scrolls (its own scroll box).
+  const renameIngOpen = !!renameIng;
+  useEffect(() => {
+    if (!renameIngOpen) return;
+    function follow() {
+      const el = renameIngAnchorRef.current;
+      if (!el || !el.isConnected) { setRenameIng(null); return; }
+      setRenameIng(r => (r ? { ...r, style: placeRenameIng(el) } : r));
+    }
+    window.addEventListener('scroll', follow, true);
+    window.addEventListener('resize', follow);
+    return () => {
+      window.removeEventListener('scroll', follow, true);
+      window.removeEventListener('resize', follow);
+    };
+  }, [renameIngOpen]);
 
   // Close convert popup on outside click
   useEffect(() => {
@@ -3872,6 +3960,7 @@ export function RecipeDetail({ recipe, allTags = [], onSave, onDelete, onBack, o
           )}
         </div>
 
+        {renameIng && renameIngPopover()}
         {cookMode ? (
           <div className={styles.cookModeView}>
                 {(editing ? fields.steps : fields.steps.filter(s => s.trim())).map((step, si) => {
@@ -3990,7 +4079,7 @@ export function RecipeDetail({ recipe, allTags = [], onSave, onDelete, onBack, o
                             </td>
                             <td className={styles.cookModeIng}>
                               <div className={styles.cookModeIngRow}>
-                                <span {...cookModeRenameProps(assignedIndices[0])}>{assignedIngs[0].ingredient}</span>
+                                {renameIngName(assignedIndices[0], assignedIngs[0].ingredient)}
                                 {editing && <button className={styles.cookModeRemove} onClick={() => {
                                   setFields(prev => {
                                     const map = { ...prev.stepIngredients };
@@ -4087,7 +4176,7 @@ export function RecipeDetail({ recipe, allTags = [], onSave, onDelete, onBack, o
                           </td>
                           <td className={styles.cookModeIng}>
                             <div className={styles.cookModeIngRow}>
-                              <span {...cookModeRenameProps(assignedIndices[ii + 1])}>{ing.ingredient}</span>
+                              {renameIngName(assignedIndices[ii + 1], ing.ingredient)}
                               {editing && <button className={styles.cookModeRemove} onClick={() => {
                                 setFields(prev => {
                                   const map = { ...prev.stepIngredients };
@@ -4139,45 +4228,10 @@ export function RecipeDetail({ recipe, allTags = [], onSave, onDelete, onBack, o
                 <div className={styles.cookModeMissing}>
                   <span className={styles.cookModeMissingTitle}>Not in instructions</span>
                   {missing.map(ing => (
-                    <span key={ing.idx} className={styles.cookModeMissingChip} {...cookModeRenameProps(ing.idx, true)}>
-                      {ing.quantity && `${ing.quantity} `}{ing.measurement && `${ing.measurement} `}{ing.ingredient}
-                    </span>
+                    <React.Fragment key={ing.idx}>
+                      {renameIngName(ing.idx, <>{ing.quantity && `${ing.quantity} `}{ing.measurement && `${ing.measurement} `}{ing.ingredient}</>, true)}
+                    </React.Fragment>
                   ))}
-                </div>
-              );
-            })()}
-            {renameIng && (() => {
-              const original = fields.ingredients[renameIng.idx]?.ingredient || '';
-              const suggestions = suggestIngredientNames(original, dbNamesList);
-              return (
-                <div className={styles.renameIngOverlay} onMouseDown={e => { if (e.target === e.currentTarget) setRenameIng(null); }}>
-                  <div className={styles.renameIngModal} role="dialog" aria-label="Edit ingredient name">
-                    <div className={styles.renameIngTitle}>Edit ingredient name</div>
-                    <input
-                      className={styles.renameIngInput}
-                      autoFocus
-                      value={renameIng.draft}
-                      onChange={e => setRenameIng(r => ({ ...r, draft: e.target.value }))}
-                      onKeyDown={e => {
-                        if (e.key === 'Enter') saveRenameIng();
-                        if (e.key === 'Escape') setRenameIng(null);
-                      }}
-                    />
-                    {suggestions.length > 0 && (
-                      <>
-                        <div className={styles.renameIngSubtitle}>Suggested from your list</div>
-                        <div className={styles.renameIngSuggestions}>
-                          {suggestions.map(n => (
-                            <button key={n} type="button" className={styles.renameIngSuggestion} onClick={() => saveRenameIng(n)}>{n}</button>
-                          ))}
-                        </div>
-                      </>
-                    )}
-                    <div className={styles.renameIngActions}>
-                      <button type="button" className={styles.renameIngCancel} onClick={() => setRenameIng(null)}>Cancel</button>
-                      <button type="button" className={styles.renameIngSave} disabled={!renameIng.draft.trim()} onClick={() => saveRenameIng()}>Save</button>
-                    </div>
-                  </div>
                 </div>
               );
             })()}
