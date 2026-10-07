@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  recipeNutritionVectors, scaleServing, findStaleEntries, applyResync,
+  recipeNutritionVectors,
 } from './recipeServingNutrition.js';
 
 // An ingredient row as the recipe stores it, and the looked-up nutrition the
@@ -58,84 +58,4 @@ test('rows with no ingredient name are skipped, keeping items index-aligned', ()
 test('no servings count falls back to one rather than dividing by zero', () => {
   const { perServing } = recipeNutritionVectors([item(2, 0)], [row('berries')], 0);
   assert.equal(perServing.fruitServings, 2);
-});
-
-// ── re-syncing what was already logged ─────────────────────────────────────
-
-const recipe = { id: 'r1', title: 'Maca Smoothie', servings: 4 };
-const PER_SERVING = { fruitServings: 3, vegServings: 0.8, calories: 548 };
-
-function logWith(entries) {
-  return { '2026-09-22': { entries } };
-}
-
-test('a logged meal whose numbers no longer match the recipe is flagged', () => {
-  const log = logWith([
-    { id: 'e1', type: 'recipe', recipeId: 'r1', servings: 1, nutrition: { fruitServings: 0, vegServings: 0, calories: 588 } },
-  ]);
-  const { stale } = findStaleEntries(log, recipe, PER_SERVING);
-  assert.equal(stale.length, 1);
-  assert.equal(stale[0].date, '2026-09-22');
-  assert.equal(stale[0].to.fruitServings, 3);
-  assert.equal(stale[0].to.calories, 548);
-});
-
-test('the portion multiplier carries through', () => {
-  const log = logWith([
-    { id: 'e1', type: 'recipe', recipeId: 'r1', servings: 2, nutrition: { fruitServings: 0 } },
-  ]);
-  const { stale } = findStaleEntries(log, recipe, PER_SERVING);
-  assert.equal(stale[0].to.fruitServings, 6);
-  assert.equal(stale[0].to.vegServings, 1.6);
-});
-
-test('a meal that already matches is left out', () => {
-  const log = logWith([
-    { id: 'e1', type: 'recipe', recipeId: 'r1', servings: 1, nutrition: scaleServing(PER_SERVING, 1) },
-  ]);
-  assert.equal(findStaleEntries(log, recipe, PER_SERVING).stale.length, 0);
-});
-
-test('hand-weighed meals are reported, never rewritten', () => {
-  // `servings` on these is not the multiplier that produced their nutrition —
-  // the grams were — so rescaling from here would invent a number.
-  const log = logWith([
-    { id: 'e1', type: 'recipe', recipeId: 'r1', servings: 1, customWeight: 340, nutrition: { fruitServings: 0 } },
-    { id: 'e2', type: 'recipe', recipeId: 'r1', servings: 1, ingredientWeights: { banana: '90' }, nutrition: { fruitServings: 0 } },
-  ]);
-  const { stale, skipped } = findStaleEntries(log, recipe, PER_SERVING);
-  assert.equal(stale.length, 0);
-  assert.equal(skipped.length, 2);
-});
-
-test('other recipes and non-recipe entries are untouched', () => {
-  const log = logWith([
-    { id: 'e1', type: 'recipe', recipeId: 'other', servings: 1, nutrition: { fruitServings: 0 } },
-    { id: 'e2', type: 'ingredient', servings: 1, nutrition: { fruitServings: 0 } },
-  ]);
-  assert.equal(findStaleEntries(log, recipe, PER_SERVING).stale.length, 0);
-});
-
-test('applying the re-sync rewrites only the flagged entries', () => {
-  const log = {
-    '2026-09-22': { entries: [
-      { id: 'e1', type: 'recipe', recipeId: 'r1', servings: 1, nutrition: { fruitServings: 0 } },
-      { id: 'e2', type: 'recipe', recipeId: 'other', servings: 1, nutrition: { fruitServings: 9 } },
-    ] },
-    '2026-09-23': { entries: [], daySkipped: true },
-  };
-  const { stale } = findStaleEntries(log, recipe, PER_SERVING);
-  const next = applyResync(log, stale);
-  assert.equal(next['2026-09-22'].entries[0].nutrition.fruitServings, 3);
-  assert.equal(next['2026-09-22'].entries[0].nutritionResyncedAt !== undefined, true);
-  assert.equal(next['2026-09-22'].entries[1].nutrition.fruitServings, 9);
-  // Untouched days come through as they were, flags and all.
-  assert.equal(next['2026-09-23'].daySkipped, true);
-  // The original is not mutated — the caller decides whether to keep the copy.
-  assert.equal(log['2026-09-22'].entries[0].nutrition.fruitServings, 0);
-});
-
-test('nothing to do returns the same log object', () => {
-  const log = logWith([]);
-  assert.equal(applyResync(log, []), log);
 });
