@@ -1955,7 +1955,11 @@ export function HabitsPage({ onBack, user }) {
   useEffect(() => {
     if (loading || !user?.uid) return;
     const cells = ptoCellsToStamp(habits, habitLog, automations, ptoRanges);
-    if (cells.length > 0) setMarksForCells(cells, 'skipped');
+    // Mostly Skip; a habit set to "Log as Done on PTO days" gets Done.
+    for (const mark of ['skipped', 'done']) {
+      const group = cells.filter(c => c.mark === mark);
+      if (group.length > 0) setMarksForCells(group, mark);
+    }
     // setMarksForCells is stable enough for this — it only reads state through
     // the functional updater.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -7051,6 +7055,22 @@ function HabitDetailModal({ habit, streak: streakProp, habitLog = {}, autoTracke
             </div>
           </div>
         )}
+
+        {/* PTO behaviour. Normally a PTO day logs Skip; some habits are
+            COMPLETED by a day off ("Weekend habit early completion"). */}
+        <div style={{ marginBottom: '1.1rem' }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: '0.85rem', fontWeight: 600 }}>
+            <input
+              type="checkbox"
+              checked={h.ptoDone === true}
+              onChange={e => onUpdate(h.id, 'ptoDone', e.target.checked)}
+            />
+            Log as Done on PTO days
+          </label>
+          <div style={{ fontSize: '0.72rem', color: 'var(--color-text-muted)', marginTop: 6, lineHeight: 1.4 }}>
+            PTO normally marks habits Skip. With this on, every PTO day logs this one as Done instead.
+          </div>
+        </div>
 
         {/* Repeats every N months — only for Monthly habits. The count restarts
             from the last month you logged it (else this month), so changing it
