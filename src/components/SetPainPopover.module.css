@@ -1,0 +1,65 @@
+/* Portalled to <body>; SetPainPopover sets left/top/width from the ! button. */
+.popover {
+  position: fixed;
+  z-index: 400;
+  box-sizing: border-box;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg, 12px);
+  box-shadow: var(--shadow-lift, 0 8px 24px rgba(0, 0, 0, 0.18));
+  padding: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+  color: var(--color-text);
+}
+
+.title {
+  font-weight: 600;
+}
+
+.check {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  cursor: pointer;
+}
+
+.check input {
+  width: 16px;
+  height: 16px;
+  accent-color: #dc2626;
+  cursor: pointer;
+}
+
+.note {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0.4rem 0.55rem;
+  border: 1px solid #dc2626;
+  border-radius: var(--radius-md, 8px);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: inherit;
+}
+
+.note:focus {
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(220, 38, 38, 0.25);
+}
+
+.actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.done {
+  padding: 0.3rem 0.8rem;
+  border: 1px solid var(--color-accent);
+  border-radius: var(--radius-md, 8px);
+  background: var(--color-accent);
+  color: #fff;
+  font: inherit;
+  cursor: pointer;
+}

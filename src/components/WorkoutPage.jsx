@@ -18,6 +18,8 @@ import { cachedWhoopDaily, mergeWhoopDailyCache } from '../utils/whoopDaily';
 import { loadWhoopHistory } from '../utils/whoopHistory';
 import { StretchRoutines } from './StretchRoutines';
 import { PrCelebration } from './PrCelebration';
+import { SetPainPopover } from './SetPainPopover';
+import { setPainFor, withSetPain } from '../utils/setPain';
 import { detectPersonalRecord, priorHistory } from '../utils/personalRecord';
 import {
   applyBodyweightToEntries, backfillBodyweightOnes, bodyweightLbForWeek, formatBodyweightLb,
@@ -3938,6 +3940,44 @@ export function WorkoutPage({ onBack, user }) {
     }));
   }
 
+  // Per-set pain (utils/setPain.js), from the ! button's popover. `target` is
+  // { entryIdx } on the log table or { wkey, originalIdx } on History.
+  const [painPopover, setPainPopover] = useState(null);
+  function setSetPain(target, setIdx, pain) {
+    if (target.wkey == null) {
+      setEntries(prev => prev.map((e, i) => (i === target.entryIdx ? withSetPain(e, setIdx, pain) : e)));
+      return;
+    }
+    const next = workouts.map(w => {
+      if (workoutKey(w) !== target.wkey) return w;
+      const entries = w.entries.map((e, i) => (i === target.originalIdx ? enrichEntry(withSetPain(e, setIdx, pain)) : e));
+      return { ...w, entries };
+    });
+    commitWorkouts(next);
+  }
+  function setCellClass(done, pain) {
+    if (pain) return done ? styles.logSetCellDonePain : styles.logSetCellPain;
+    return done ? styles.logSetCellDone : styles.logSetCell;
+  }
+  function painButton(target, setIdx, pain, exercise) {
+    const open = painPopover && painPopover.setIdx === setIdx
+      && painPopover.target.entryIdx === target.entryIdx
+      && painPopover.target.wkey === target.wkey
+      && painPopover.target.originalIdx === target.originalIdx;
+    return (
+      <button
+        type="button"
+        className={`${styles.setPainBtn} ${pain ? styles.setPainBtnOn : ''}`}
+        onClick={ev => {
+          ev.stopPropagation();
+          setPainPopover(open ? null : { anchorEl: ev.currentTarget, target, setIdx, exercise });
+        }}
+        aria-label={`Pain on set ${setIdx + 1}`}
+        title={pain ? `Pain${pain.note ? `: ${pain.note}` : ''} — click to edit` : 'Felt pain on this set?'}
+      >!</button>
+    );
+  }
+
   // Click a set cell's checkmark to mark that set as completed — turns the
   // cell green so you can glance at the row and see what's left to do mid
   // workout. The flag persists with the workout when saved.
@@ -4108,7 +4148,7 @@ export function WorkoutPage({ onBack, user }) {
     // suggesting the skipped ones. Strip UI-only + green flags.
     if (anyGreen && loggedEntries.length < validEntries.length) {
       workout.suggestedEntries = validEntries.map(e => {
-        const { editedFields: _ef, setDone: _sd, ...rest } = e;
+        const { editedFields: _ef, setDone: _sd, setPain: _sp, ...rest } = e;
         return rest;
       });
     }
@@ -5494,10 +5534,11 @@ export function WorkoutPage({ onBack, user }) {
                       </td>
                       {entry.sets.map((s, si) => {
                         const done = !!(entry.setDone || [])[si];
+                        const pain = setPainFor(entry, si);
                         return (
                           <td
                             key={si}
-                            className={done ? styles.logSetCellDone : styles.logSetCell}
+                            className={setCellClass(done, pain)}
                             onClick={() => toggleSetDone(i, si)}
                             title={done ? 'Click to un-mark this set' : 'Click to mark this set complete'}
                           >
@@ -5523,6 +5564,7 @@ export function WorkoutPage({ onBack, user }) {
                                 aria-label={`Set ${si + 1} complete`}
                                 title={done ? 'Mark this set not done' : 'Mark this set complete'}
                               >✓</button>
+                              {painButton({ entryIdx: i }, si, pain, entry.exercise)}
                             </div>
                             {entry.useSetWeights && (
                               <WeightInput
@@ -6089,10 +6131,11 @@ export function WorkoutPage({ onBack, user }) {
                           {setVals.map((reps, si) => {
                             if (!historyColVisible(`s${si + 1}`)) return null;
                             const done = !!(e.setDone || [])[si];
+                            const pain = setPainFor(e, si);
                             return (
                               <td
                                 key={si}
-                                className={done ? styles.logSetCellDone : styles.logSetCell}
+                                className={setCellClass(done, pain)}
                                 onClick={() => toggleHistorySetDone(wk, originalIdx, si)}
                                 title={done ? 'Click to un-mark this set' : 'Click to mark this set complete'}
                               >
@@ -6114,6 +6157,7 @@ export function WorkoutPage({ onBack, user }) {
                                     aria-label={`Set ${si + 1} complete`}
                                     title={done ? 'Mark this set not done' : 'Mark this set complete'}
                                   >✓</button>
+                                  {painButton({ wkey: wk, originalIdx }, si, pain, e.exercise)}
                                 </div>
                                 {e.useSetWeights && (
                                   <WeightInput
@@ -7457,6 +7501,23 @@ export function WorkoutPage({ onBack, user }) {
 
       {/* Nothing to click, takes itself away — see PrCelebration. */}
       <PrCelebration record={prRecord} onDone={() => setPrRecord(null)} />
+      {painPopover && (() => {
+        const { target, setIdx } = painPopover;
+        const entry = target.wkey == null
+          ? entries[target.entryIdx]
+          : workouts.find(w => workoutKey(w) === target.wkey)?.entries?.[target.originalIdx];
+        if (!entry) return null;
+        return (
+          <SetPainPopover
+            key={`${target.wkey ?? 'log'}-${target.originalIdx ?? target.entryIdx}-${setIdx}`}
+            anchorEl={painPopover.anchorEl}
+            title={`${painPopover.exercise || 'Exercise'} — Set ${setIdx + 1}`}
+            pain={setPainFor(entry, setIdx)}
+            onChange={p => setSetPain(target, setIdx, p)}
+            onClose={() => setPainPopover(null)}
+          />
+        );
+      })()}
     </div>
   );
 }

@@ -560,6 +560,7 @@ td.logPerCell.manuallyEdited {
   color: #fff;
 }
 .logSetCell {
+  position: relative;
   cursor: pointer;
   transition: background-color 0.12s ease;
 }
@@ -567,6 +568,7 @@ td.logPerCell.manuallyEdited {
   background-color: rgba(22, 163, 74, 0.06);
 }
 .logSetCellDone {
+  position: relative;
   cursor: pointer;
   background-color: rgba(22, 163, 74, 0.18);
   transition: background-color 0.12s ease;
@@ -577,6 +579,74 @@ td.logPerCell.manuallyEdited {
 .logSetCellDone .logSetInput {
   color: #166534;
   font-weight: 700;
+}
+/* Done, but it hurt: reddish green with a red edge (utils/setPain.js). */
+.logSetCellDonePain {
+  position: relative;
+  cursor: pointer;
+  background-color: rgba(111, 106, 44, 0.32);
+  box-shadow: inset 0 0 0 2px #dc2626;
+  transition: background-color 0.12s ease;
+}
+.logSetCellDonePain:hover {
+  background-color: rgba(111, 106, 44, 0.42);
+}
+.logSetCellDonePain .logSetInput {
+  color: #4d3f0f;
+  font-weight: 700;
+}
+.logSetCellDonePain .setDoneBtnOn {
+  background: #6f6a2c;
+  border-color: #6f6a2c;
+}
+/* Hurt, not ticked done yet: just the red edge. */
+.logSetCellPain {
+  position: relative;
+  cursor: pointer;
+  box-shadow: inset 0 0 0 2px #dc2626;
+}
+.setPainBtn {
+  /* A corner badge, so it takes no width from the reps input. */
+  position: absolute;
+  top: 1px;
+  right: 1px;
+  width: 13px;
+  height: 13px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--color-border);
+  border-radius: 50%;
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+  font-size: 0.55rem;
+  font-weight: 800;
+  line-height: 1;
+  cursor: pointer;
+  /* Faint at rest (still findable on touch screens), clearer on hover. */
+  opacity: 0.35;
+  transition: opacity 0.12s ease;
+}
+.logSetCell:hover .setPainBtn,
+.logSetCellDone:hover .setPainBtn {
+  opacity: 0.8;
+}
+.setPainBtn:hover,
+.setPainBtn:focus-visible {
+  opacity: 1;
+  border-color: #dc2626;
+  color: #dc2626;
+}
+.setPainBtnOn {
+  opacity: 1;
+  background: #dc2626;
+  border-color: #dc2626;
+  color: #fff;
+}
+.setPainBtnOn:hover {
+  color: #fff;
+  background: #b91c1c;
 }
 .logSetInput::-webkit-outer-spin-button,
 .logSetInput::-webkit-inner-spin-button,
