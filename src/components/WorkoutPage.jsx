@@ -3956,8 +3956,8 @@ export function WorkoutPage({ onBack, user }) {
     commitWorkouts(next);
   }
   function setCellClass(done, pain) {
-    if (pain) return done ? styles.logSetCellDonePain : styles.logSetCellPain;
-    return done ? styles.logSetCellDone : styles.logSetCell;
+    const base = done ? styles.logSetCellDone : styles.logSetCell;
+    return pain ? `${base} ${styles.logSetCellPain}` : base;
   }
   function painButton(target, setIdx, pain, exercise) {
     const open = painPopover && painPopover.setIdx === setIdx
