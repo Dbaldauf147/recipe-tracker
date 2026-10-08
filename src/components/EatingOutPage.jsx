@@ -1782,7 +1782,8 @@ function visitsSummary(stats) {
 }
 
 /* The visits logged against a spot from card charges in Wealth Architect.
-   Shown only on your own spots: amounts live in a private document. */
+   Shown only on your own spots (the edit popup, under Last visit): amounts
+   live in a private document. */
 function SpotVisits({ stats }) {
   if (!stats?.count) return null;
   const money = n => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(n);
@@ -1848,7 +1849,7 @@ function SpotDetailModal({ spot, user, onClose, onEdit, visitStats }) {
   );
 }
 
-function EditModal({ initial, onSave, onClose, onDelete, cuisineSuggestions, locationSuggestions, user }) {
+function EditModal({ initial, onSave, onClose, onDelete, cuisineSuggestions, locationSuggestions, user, visitStats }) {
   const [name, setName] = useState(initial.name || '');
   const [url, setUrl] = useState(initial.url || '');
   const [imageUrl, setImageUrl] = useState(initial.imageUrl || '');
@@ -2330,6 +2331,8 @@ function EditModal({ initial, onSave, onClose, onDelete, cuisineSuggestions, loc
             value={lastVisit}
             onChange={e => setLastVisit(e.target.value)}
           />
+          {/* Every visit Wealth Architect matched from your card charges. */}
+          <SpotVisits stats={visitStats} />
 
           <label className={styles.fieldLabel}>Notes</label>
           <textarea
@@ -6314,6 +6317,7 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
           onClose={() => setEditing(null)}
           onDelete={() => handleDelete(editing)}
           user={user}
+          visitStats={myVisitStats(editing)}
         />
       )}
       {viewing && (
