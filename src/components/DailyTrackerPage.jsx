@@ -4,7 +4,8 @@ import { loadIngredients } from '../utils/ingredientsStore';
 import { dayTotals, convertSupplementAmount, resolveSupplements } from '../utils/dailyTotals';
 import { ingredientMatchScore } from '../utils/ingredientMatch';
 import { getSizeGrams } from '../utils/units';
-import { saveField, loadField, loadRestaurants, saveRestaurants, saveSpotForOwner, saveDailyLogToFirestore, loadDailyLogFromFirestore, loadFriends, getUsername, shareMeal } from '../utils/firestoreSync';
+import { saveField, loadField, loadRestaurants, saveRestaurants, saveSpotForOwner, saveDailyLogToFirestore, loadDailyLogFromFirestore, loadFriends, getUsername, shareMeal, subscribeSpotVisits } from '../utils/firestoreSync';
+import { fillMealGapsFromVisits } from '../utils/visitMealFill';
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, ReferenceLine, Legend, CartesianGrid, Area, ComposedChart } from 'recharts';
 import { RecipeDetail } from './RecipeDetail';
 import styles from './DailyTrackerPage.module.css';
@@ -5196,6 +5197,10 @@ export function DailyTrackerPage({ recipes, getRecipe, onClose, user, weeklyPlan
   const [quickPickRecipeId, setQuickPickRecipeId] = useState('');
   const [viewRecipeId, setViewRecipeId] = useState(null);
   const [dailyLog, setDailyLog] = useState(loadDailyLog);
+  // True once the Firestore copy of the log has been merged in. Anything that
+  // WRITES the whole log on its own (the visit fill below) waits for this, so
+  // it can never save a stale local copy over newer meals from another device.
+  const [remoteLogReady, setRemoteLogReady] = useState(false);
   const [cacheVersion, setCacheVersion] = useState(0);
   // Track Meals is log-only now; the Prepare view was moved to the Week Plan
   // page (rendered there via prepareOnly). viewMode stays 'log' here.
@@ -5267,7 +5272,8 @@ export function DailyTrackerPage({ recipes, getRecipe, onClose, user, weeklyPlan
   useEffect(() => {
     if (!user) return;
     loadDailyLogFromFirestore(user.uid).then(remote => {
-      if (!remote || Object.keys(remote).length === 0) return;
+      if (!remote || Object.keys(remote).length === 0) { setRemoteLogReady(true); return; }
+      setRemoteLogReady(true);
       setDailyLog(prev => {
         const FRESH_WINDOW_MS = 30_000;
         const now = Date.now();
@@ -5313,6 +5319,34 @@ export function DailyTrackerPage({ recipes, getRecipe, onClose, user, weeklyPlan
       });
     }).catch(() => {});
   }, [user]);
+
+  // ── Fill empty meal slots from Eating Out visits ─────────────────────────
+  // A card charge Wealth Architect matched to a spot means you ate there that
+  // day; if the matching slot (breakfast, or lunch/dinner, from the spot's
+  // buckets) is still empty, log the spot into it. Never overwrites, and each
+  // visit is used once — see utils/visitMealFill.js. Visits are owner-only, so
+  // for anyone else this is an empty map and does nothing.
+  const [visitsForFill, setVisitsForFill] = useState(null);
+  const [spotsForFill, setSpotsForFill] = useState(null);
+  useEffect(() => {
+    if (!user?.uid) return undefined;
+    return subscribeSpotVisits(user.uid, setVisitsForFill);
+  }, [user?.uid]);
+  useEffect(() => {
+    if (!user?.uid || !visitsForFill || Object.keys(visitsForFill).length === 0) return;
+    let cancelled = false;
+    loadRestaurants(user.uid)
+      .then(list => { if (!cancelled) setSpotsForFill(Array.isArray(list) ? list : []); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [user?.uid, visitsForFill]);
+  useEffect(() => {
+    if (!user || !remoteLogReady || !visitsForFill || !spotsForFill) return;
+    const res = fillMealGapsFromVisits(dailyLog, visitsForFill, spotsForFill);
+    if (!res.changed) return;
+    setDailyLog(res.log);
+    saveDailyLog(res.log, user);
+  }, [user, remoteLogReady, visitsForFill, spotsForFill, dailyLog]);
 
   // Re-load daily log when Firestore syncs data from another device
   // (firestore-sync event is for main user doc — dailyLog is no longer there, so skip overwriting)
