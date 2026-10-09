@@ -7,6 +7,7 @@ import { db } from '../firebase';
 import { findDuplicateSpots, duplicateReason } from '../utils/duplicateSpots';
 import { saveOwnerRestaurants, saveOwnerEatingOutLists, saveField, subscribeRestaurants, subscribeSpotVisits } from '../utils/firestoreSync';
 import { visitStatsByPlace } from '../utils/spotVisits';
+import { healthyByLongestSince } from '../utils/healthyPlaces';
 import {
   splitTsv,
   detectHasHeader,
@@ -3219,6 +3220,65 @@ function JoanneStatusPill({ spot }) {
   return <span className={want ? styles.wantBadge : styles.visitedBadge}>{want ? 'Want to try' : 'Visited'}</span>;
 }
 
+// Places tagged Healthy, the one you've gone longest without eating at first
+// (utils/healthyPlaces.js). Never-been and no-date spots trail in their own
+// groups — they have no "time since" to rank by.
+function HealthyPlacesView({ items, onSelect }) {
+  const { dated, undated, never, total } = useMemo(
+    () => healthyByLongestSince(items, r => healthOf(r) === 'healthy'),
+    [items],
+  );
+  const ago = d => (d === 0 ? 'today' : d === 1 ? '1 day ago' : d < 60 ? `${d} days ago` : `${Math.round(d / 30.4)} months ago`);
+  const row = ({ spot: r, days }) => (
+    <li key={`${r._ownerUid}:${r.id}`}>
+      <button type="button" className={`${styles.rankingRow} ${styles.healthyRow}`} onClick={() => onSelect(r)}>
+        <span className={styles.rankingName}>
+          {r.name}
+          {r._ownerUsername && <span className={styles.rankingOwner}> @{r._ownerUsername}</span>}
+          {isNextSpot(r) && <span className={styles.tryNextPin}> ★ Next</span>}
+        </span>
+        <span className={styles.rankingVotes}>{(r.locations || [])[0] || ''}</span>
+        <span className={styles.healthySince} title={r.lastVisit ? `Last visit ${formatDate(r.lastVisit)}` : undefined}>
+          {days != null ? (
+            <>
+              <strong>{ago(days)}</strong>
+              <span className={styles.healthySinceDate}>{formatDate(r.lastVisit)}</span>
+            </>
+          ) : r.status === 'visited' ? 'Been · no date' : 'Not been yet'}
+        </span>
+      </button>
+    </li>
+  );
+  const group = (label, list) => list.length > 0 && (
+    <section className={styles.rankingGroup}>
+      <h3 className={styles.rankingGroupHead}>
+        <span className={styles.rankingGroupName}>{label}</span>
+        <span className={styles.rankingGroupCount}>{list.length}</span>
+      </h3>
+      <ol className={styles.rankingList}>{list.map(row)}</ol>
+    </section>
+  );
+
+  return (
+    <div className={styles.rankingsView}>
+      <p className={styles.tryNextIntro}>
+        {total} healthy place{total === 1 ? '' : 's'} — the longest since you ate there first
+      </p>
+      {total === 0 ? (
+        <p className={styles.rankingEmpty}>
+          No places tagged Healthy in this filter. Tag a place 🥗 Healthy from its popup and it will show up here.
+        </p>
+      ) : (
+        <div className={styles.rankingGroups}>
+          {group('Been', dated)}
+          {group('Been, no date', undated)}
+          {group('Not been yet', never)}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function JoanneByCategoryView({ items, allItems, onSelect }) {
   const { groups, total } = useMemo(() => joanneByCategory(items, allItems), [items, allItems]);
   // Keys of the COLLAPSED groups — everything starts expanded.
@@ -6085,6 +6145,14 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
               >
                 Joanne
               </button>
+              <button
+                type="button"
+                className={`${styles.filterBtn} ${viewMode === 'healthy' ? styles.filterBtnActive : ''}`}
+                onClick={() => setViewMode('healthy')}
+                title="Places tagged Healthy, longest since you ate there first"
+              >
+                🥗 Healthy
+              </button>
             </div>
             {viewMode === 'list' && (
               <div className={styles.filterRow} style={{ marginLeft: 8 }}>
@@ -6143,6 +6211,8 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
             />
           ) : viewMode === 'joanne' ? (
             <JoanneByCategoryView items={visible} allItems={restaurants} onSelect={openSpot} />
+          ) : viewMode === 'healthy' ? (
+            <HealthyPlacesView items={visible} onSelect={openSpot} />
           ) : viewMode === 'rankings' ? (
             <RestaurantRankings
               items={visible}
