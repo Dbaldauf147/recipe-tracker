@@ -3,6 +3,8 @@ import { auth } from '../firebase';
 import { saveField } from '../utils/firestoreSync';
 import { loadIngredients } from '../utils/ingredientsStore';
 import { lookupEatenDate } from '../utils/eatenMatch';
+import { cleanMonths, formatMonths, inSeasonMonth } from '../utils/pantrySeasons';
+import { SeasonPopover } from './SeasonPopover';
 import styles from './GroceryStaples.module.css';
 
 function daysSince(iso) {
@@ -30,6 +32,9 @@ export function TrackedItemsList({ storageKey, firestoreField, hideHeader, title
   const [newMeas, setNewMeas] = useState('');
   const [newName, setNewName] = useState('');
   const [showSuggestions, setShowSuggestions] = useState(false);
+  // The season popup: { idx, anchorEl } — opened by clicking an item's name.
+  const [seasonFor, setSeasonFor] = useState(null);
+  const thisMonth = new Date().getMonth() + 1;
 
   const allIngredientNames = useMemo(() => {
     const db = loadIngredients() || [];
@@ -101,6 +106,18 @@ export function TrackedItemsList({ storageKey, firestoreField, hideHeader, title
 
   function removeItem(idx) {
     setItems(prev => prev.filter((_, i) => i !== idx));
+    setSeasonFor(null);
+  }
+
+  // Months this item belongs on the list; [] = all year (the key is dropped).
+  function setSeasonMonths(idx, months) {
+    setItems(prev => prev.map((it, i) => {
+      if (i !== idx) return it;
+      const next = { ...it };
+      if (months.length) next.seasonMonths = months;
+      else delete next.seasonMonths;
+      return next;
+    }));
   }
 
   return (
@@ -207,14 +224,33 @@ export function TrackedItemsList({ storageKey, firestoreField, hideHeader, title
                       ? `Marked purchased on ${item.lastPurchased.slice(0, 10)}`
                       : 'Never marked';
                   const sinceTitle = `${known} — click to reset to today`;
+                  const months = cleanMonths(item.seasonMonths);
+                  const offSeason = !inSeasonMonth(item, thisMonth);
                   return (
                     <tr
                       key={i}
-                      className={highlighted ? styles.highlightRow : ''}
+                      className={`${highlighted ? styles.highlightRow : ''} ${offSeason ? styles.offSeasonRow : ''}`}
+                      title={offSeason ? `Out of season — on the list ${formatMonths(months)}` : undefined}
                     >
                       <td><span className={styles.cellText}>{item.quantity}</span></td>
                       <td><span className={styles.cellText}>{item.measurement}</span></td>
-                      <td><span className={styles.cellText}>{item.ingredient}</span></td>
+                      <td>
+                        {/* Click the name to pick the months it's on your list. */}
+                        <button
+                          type="button"
+                          className={styles.seasonNameBtn}
+                          onClick={e => {
+                            const el = e.currentTarget;
+                            setSeasonFor(cur => (cur?.idx === i ? null : { idx: i, anchorEl: el }));
+                          }}
+                          title="Choose the months this is on your list"
+                        >
+                          {item.ingredient}
+                        </button>
+                        {months.length > 0 && (
+                          <span className={styles.seasonTag}>{formatMonths(months)}</span>
+                        )}
+                      </td>
                       {/* Only this cell resets the date. The whole row used to be
                           the button, so a stray click — reaching for the ×,
                           selecting the name — silently rewrote the item's history
@@ -240,6 +276,15 @@ export function TrackedItemsList({ storageKey, firestoreField, hideHeader, title
                 })}
             </tbody>
           </table>
+          {seasonFor && items[seasonFor.idx] && (
+            <SeasonPopover
+              key={seasonFor.idx}
+              anchorEl={seasonFor.anchorEl}
+              item={items[seasonFor.idx]}
+              onChange={months => setSeasonMonths(seasonFor.idx, months)}
+              onClose={() => setSeasonFor(null)}
+            />
+          )}
         </>
       )}
     </div>

@@ -9,6 +9,7 @@
 // The Air Fryer page asks exactly that question, to flag the food that's
 // actually coming into the house.
 import { eatenKey, lookupEatenDate } from './eatenMatch.js';
+import { inSeasonMonth } from './pantrySeasons.js';
 
 export function daysSinceDate(d) {
   if (!d) return null;
@@ -28,11 +29,15 @@ export function effectiveDate(item, eatenMap) {
 }
 
 // Pick the item from `list` with the highest Since (never-touched items win).
-export function findTopSince(list, eatenMap) {
+// Items you've scheduled for other months (`seasonMonths`, set from the
+// widget's popup — utils/pantrySeasons.js) sit this month out.
+export function findTopSince(list, eatenMap, now = new Date()) {
+  const month = now.getMonth() + 1;
   let best = null;
   let bestDays = -1;
   for (const item of (list || [])) {
     if (!(item?.ingredient || '').trim()) continue;
+    if (!inSeasonMonth(item, month)) continue;
     const d = effectiveDate(item, eatenMap);
     const days = d == null ? Number.POSITIVE_INFINITY : daysSinceDate(d);
     if (days > bestDays) { bestDays = days; best = item; }
