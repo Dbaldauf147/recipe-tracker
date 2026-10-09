@@ -290,6 +290,16 @@ export function WhyColumnPanel({ title, items, onClose, onSelectItem, weights, o
   );
 }
 
+// Same line as the suggestion card's "has …" reason (neglectedIngredients).
+const OVERDUE_DAYS = 14;
+
+function macroFitLabel(score) {
+  if (score >= 80) return '· great fit';
+  if (score >= 60) return '· good fit';
+  if (score >= 40) return '· fair fit';
+  return '· poor fit';
+}
+
 export function WhySuggestedPanel({ item, onClose }) {
   const b = item.breakdown;
   const neverCooked = b.recipeDays === 9999;
@@ -337,9 +347,17 @@ export function WhySuggestedPanel({ item, onClose }) {
   ];
   if (b.boostBonus > 0) rows.push({ label: 'Pinned by you', detail: 'manually boosted', points: b.boostBonus });
 
+  // Key ingredients this meal would bring back, longest gap first. "Overdue"
+  // uses the same 14-day line as the card's "has …" reason.
+  const ingredients = b.ingredientDetails || [];
+  const overdueCount = ingredients.filter(i => i.days >= OVERDUE_DAYS).length;
+  const macro = b.macroDetail;
+  const section = { margin: '1rem 0 0' };
+  const sectionTitle = { margin: '0 0 0.4rem', fontSize: '0.78rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--color-text-muted)' };
+
   return (
     <div
-      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }}
+      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 210, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }}
       onClick={onClose}
       role="presentation"
     >
@@ -359,7 +377,96 @@ export function WhySuggestedPanel({ item, onClose }) {
           <button onClick={onClose} aria-label="Close" style={{ background: 'none', border: 'none', fontSize: '1.4rem', cursor: 'pointer', color: 'var(--color-text-muted)', lineHeight: 1 }}>×</button>
         </div>
 
-        <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: '1rem', fontSize: '0.88rem' }}>
+        <section style={section} aria-label="Overdue ingredients">
+          <h3 style={sectionTitle}>
+            Overdue ingredients{ingredients.length > 0 && ` · ${overdueCount} of ${ingredients.length}`}
+          </h3>
+          {ingredients.length === 0 ? (
+            <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--color-text-muted)' }}>None of your key ingredients are in this meal.</p>
+          ) : (
+            <ul style={{ listStyle: 'none', margin: 0, padding: 0, fontSize: '0.86rem' }}>
+              {ingredients.map(i => {
+                const overdue = i.days >= OVERDUE_DAYS;
+                return (
+                  <li key={i.label} style={{ display: 'flex', alignItems: 'baseline', gap: '0.5rem', padding: '0.2rem 0' }}>
+                    <span style={{ flex: 1, minWidth: 0, color: 'var(--color-text)' }}>{i.label}</span>
+                    <span style={{ fontSize: '0.78rem', color: 'var(--color-text-muted)', whiteSpace: 'nowrap' }}>
+                      {i.days === 9999 ? 'never eaten' : `${i.days}d ago${i.lastEaten ? ` · ${formatLogDate(i.lastEaten)}` : ''}`}
+                    </span>
+                    <span style={{
+                      fontSize: '0.7rem', fontWeight: 700, padding: '0.05rem 0.45rem', borderRadius: 999, whiteSpace: 'nowrap',
+                      background: overdue ? '#fef3c7' : 'var(--color-surface-alt, #f3f4f6)',
+                      color: overdue ? '#92400e' : 'var(--color-text-muted)',
+                    }}>
+                      {overdue ? 'Overdue' : 'Recent'}
+                    </span>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </section>
+
+        <section style={section} aria-label="In season">
+          <h3 style={sectionTitle}>In season now</h3>
+          {item.seasonalMatches.length === 0 ? (
+            <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--color-text-muted)' }}>Nothing in this meal is in season right now.</p>
+          ) : (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem' }}>
+              {item.seasonalMatches.map(m => (
+                <span key={m} style={{ fontSize: '0.8rem', padding: '0.15rem 0.6rem', borderRadius: 999, background: '#dcfce7', color: '#166534', textTransform: 'capitalize' }}>{m}</span>
+              ))}
+            </div>
+          )}
+        </section>
+
+        <section style={section} aria-label="Macro fit">
+          <h3 style={sectionTitle}>
+            How it fits your macros{macro && ` · ${macro.score}/100 ${macroFitLabel(macro.score)}`}
+          </h3>
+          {!macro ? (
+            <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--color-text-muted)' }}>
+              No macro match yet — it needs nutrition goals set and this recipe's nutrition calculated (open the recipe once).
+            </p>
+          ) : (
+            <>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
+                <thead>
+                  <tr style={{ color: 'var(--color-text-muted)', fontSize: '0.74rem', textAlign: 'right' }}>
+                    <th style={{ textAlign: 'left', fontWeight: 600, padding: '0.15rem 0' }}>% of calories</th>
+                    <th style={{ fontWeight: 600, padding: '0.15rem 0.4rem' }}>This meal</th>
+                    <th style={{ fontWeight: 600, padding: '0.15rem 0.4rem' }}>Your goal</th>
+                    <th style={{ fontWeight: 600, padding: '0.15rem 0' }}>Off by</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {[['protein', 'Protein'], ['carbs', 'Carbs'], ['fat', 'Fat']].map(([k, label]) => {
+                    const diff = macro.meal[k] - macro.goal[k];
+                    const far = Math.abs(diff) >= 10;
+                    return (
+                      <tr key={k} style={{ borderTop: '1px solid var(--color-border, #e5e7eb)', textAlign: 'right' }}>
+                        <td style={{ textAlign: 'left', padding: '0.3rem 0' }}>{label}</td>
+                        <td style={{ padding: '0.3rem 0.4rem', fontWeight: 600 }}>{Math.round(macro.meal[k])}%</td>
+                        <td style={{ padding: '0.3rem 0.4rem', color: 'var(--color-text-muted)' }}>{Math.round(macro.goal[k])}%</td>
+                        <td style={{ padding: '0.3rem 0', color: far ? '#b45309' : 'var(--color-text-muted)', fontWeight: far ? 700 : 400 }}>
+                          {Math.round(diff) === 0 ? 'on target' : `${diff > 0 ? '+' : '−'}${Math.abs(Math.round(diff))}`}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+              {macro.caloriesPerServing != null && (
+                <p style={{ margin: '0.35rem 0 0', fontSize: '0.78rem', color: 'var(--color-text-muted)' }}>
+                  About {Math.round(macro.caloriesPerServing)} calories per serving.
+                </p>
+              )}
+            </>
+          )}
+        </section>
+
+        <h3 style={{ ...sectionTitle, margin: '1.25rem 0 0' }}>Score</h3>
+        <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: '0.25rem', fontSize: '0.88rem' }}>
           <tbody>
             {rows.map(r => (
               <tr key={r.label} style={{ borderBottom: '1px solid var(--color-border, #e5e7eb)' }}>
@@ -1537,20 +1644,22 @@ export function RecipeList({
     }
   }
 
-  // Macro match scores for all recipes
-  const macroMatchMap = useMemo(() => {
+  // Macro match scores for all recipes, plus the split behind each one
+  // (meal % vs goal % of calories) for the meal's "why" popup.
+  const { scores: macroMatchMap, details: macroMatchDetails } = useMemo(() => {
     const map = {};
+    const details = {};
     let goals = null;
     try {
       const raw = localStorage.getItem('sunday-nutrition-goals');
       goals = raw ? JSON.parse(raw) : null;
     } catch {}
-    if (!goals || !goals.calories || goals.calories <= 0) return map;
+    if (!goals || !goals.calories || goals.calories <= 0) return { scores: map, details };
     const pCal = (goals.protein || 0) * 4;
     const cCal = (goals.carbs || 0) * 4;
     const fCal = (goals.fat || 0) * 9;
     const total = pCal + cCal + fCal;
-    if (total <= 0) return map;
+    if (total <= 0) return { scores: map, details };
     const goalPcts = {
       protein: pCal / total * 100,
       carbs: cCal / total * 100,
@@ -1577,8 +1686,15 @@ export function RecipeList({
       ) / 3;
       const score = Math.max(0, Math.round(100 - deviation * (100 / 30)));
       map[recipe.id] = score;
+      const servings = Number(recipe.servings) > 0 ? Number(recipe.servings) : null;
+      details[recipe.id] = {
+        score,
+        meal: { protein: pPct, carbs: cPct, fat: fPct },
+        goal: goalPcts,
+        caloriesPerServing: servings ? cal / servings : null,
+      };
     }
-    return map;
+    return { scores: map, details };
   }, [recipes]);
 
   // Fetch AI meal suggestions (once, on first open)
@@ -1800,7 +1916,7 @@ export function RecipeList({
           ingredientScore += ingDays;
           const label = keyIng.replace(/_/g, ' ');
           ingredientDetails.push({ label, days: ingDays, lastEaten: ingDate || null });
-          if (ingDays >= 14) {
+          if (ingDays >= OVERDUE_DAYS) {
             neglectedIngredients.push(label);
           }
         }
@@ -1813,6 +1929,7 @@ export function RecipeList({
 
       // Macro match score
       const macroScore = macroMatchMap[recipe.id] || 0;
+      const macroDetail = macroMatchDetails[recipe.id] || null;
       const macroRaw = macroScore * 2;
 
       // Each term counts for what the weighting says — 0 when switched off.
@@ -1841,7 +1958,7 @@ export function RecipeList({
         breakdown: {
           lastCooked, recipeDays, requeued,
           ingredientScore, ingredientDetails,
-          macroScore, boostBonus, totalScore,
+          macroScore, macroDetail, boostBonus, totalScore,
           // Raw = what the term is worth before weighting; the *Points/Bonus
           // values are what actually went into the total.
           seasonalRaw, macroRaw,
@@ -2835,7 +2952,8 @@ export function RecipeList({
           onWeightsChange={updateSuggestWeights}
           onClose={() => setWhyColumn(null)}
           // Straight from the column to one meal's full arithmetic.
-          onSelectItem={(item) => { setWhyColumn(null); setWhySuggested(item); }}
+          // One meal's detail opens on top; closing it returns to the list.
+          onSelectItem={(item) => setWhySuggested(item)}
         />
       )}
 
