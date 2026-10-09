@@ -1,0 +1,140 @@
+/* Portalled to <body>; SeasonPopover sets left/top/width from the clicked name. */
+.popover {
+  position: fixed;
+  z-index: 400;
+  box-sizing: border-box;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg, 12px);
+  box-shadow: var(--shadow-lift, 0 8px 24px rgba(0, 0, 0, 0.18));
+  padding: 0.8rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  font-size: 0.85rem;
+  color: var(--color-text);
+}
+
+.title {
+  font-weight: 600;
+}
+
+.natural {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  padding: 0.5rem 0.6rem;
+  border-radius: var(--radius-md, 8px);
+  background: var(--color-surface-alt, rgba(0, 0, 0, 0.03));
+}
+
+.hint {
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+}
+
+.nowIn {
+  color: #15803d;
+  font-weight: 600;
+}
+
+.nowOut {
+  color: var(--color-text-muted);
+}
+
+.linkBtn {
+  align-self: flex-start;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--color-accent);
+  font: inherit;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.linkBtn:hover {
+  text-decoration: underline;
+}
+
+.label {
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text-muted);
+}
+
+.seasons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+}
+
+.chip,
+.chipOn {
+  padding: 0.25rem 0.6rem;
+  border-radius: 999px;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: inherit;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.chipOn {
+  border-color: var(--color-accent);
+  background: var(--color-accent);
+  color: #fff;
+}
+
+.months {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 0.25rem;
+}
+
+.month,
+.monthOn {
+  padding: 0.3rem 0;
+  border-radius: var(--radius-sm, 6px);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: inherit;
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+
+.monthOn {
+  border-color: var(--color-accent);
+  background: var(--color-accent);
+  color: #fff;
+}
+
+/* A month the food is naturally in season: a green underline. */
+.monthNatural {
+  box-shadow: inset 0 -3px 0 #22c55e;
+}
+
+.summary {
+  font-size: 0.78rem;
+  color: var(--color-text-muted);
+}
+
+.actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.done {
+  padding: 0.3rem 0.8rem;
+  border: 1px solid var(--color-accent);
+  border-radius: var(--radius-md, 8px);
+  background: var(--color-accent);
+  color: #fff;
+  font: inherit;
+  cursor: pointer;
+}
