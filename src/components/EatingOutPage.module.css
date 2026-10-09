@@ -2730,3 +2730,28 @@
     align-items: center;
   }
 }
+
+/* Healthy tab: name · location · how long since you ate there. */
+/* Scoped like `.rankingGroup .rankingRow`, which would otherwise win and put
+   the name in its narrow rank-number column. */
+.rankingGroup .healthyRow {
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+}
+.healthySince {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  min-width: 7.5rem;
+  font-size: 0.82rem;
+  color: var(--color-text-muted);
+  text-align: right;
+  white-space: nowrap;
+}
+.healthySince strong {
+  color: var(--color-text);
+  font-weight: 600;
+}
+.healthySinceDate {
+  font-size: 0.72rem;
+}
