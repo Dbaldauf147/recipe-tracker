@@ -19,6 +19,7 @@ import {
 } from '../utils/restaurantImport';
 import { downloadRestaurantsCsv } from '../utils/restaurantExport';
 import { spotCategories, withMergedCategories, mergeCategoryLists } from '../utils/spotCategories';
+import { categorizePatch } from '../utils/categorizePatch';
 import { categorizeCompletion, inCategorizePopulation, isCategorized } from '../utils/categorizeCompletion';
 import { locationsFromGeocode, mergeLocations } from '../utils/spotLocations';
 import { readMapColors, writeMapColors } from '../utils/mapColors';
@@ -3617,27 +3618,9 @@ function CategorizePrompt({ queue, cuisineSuggestions, onSave, onClose, completi
 
   function advance(save) {
     if (save) {
-      const patch = {};
-      if (draft.buckets && draft.buckets.length > 0) {
-        patch.buckets = draft.buckets;
-        // mealType is kept in step with buckets everywhere else (CSV, mobile).
-        patch.mealType = draft.buckets[0];
-      }
-      // `categories` is the pre-merge list, already folded into v.cuisines;
-      // cleared so a category removed here can't come back from it.
-      if (draft.cuisines && draft.cuisines.length > 0) {
-        patch.cuisines = draft.cuisines;
-        patch.categories = [];
-      }
-      if (draft.status) patch.status = draft.status;
-      // Stored as true-or-absent, the shape the editor saves, so a "no" clears
-      // the field rather than writing a falsy value the filters must know about.
-      if (joanneAnswered) {
-        patch.takenJoanne = draft.takenJoanne || undefined;
-        patch.joanneHoldOff = draft.joanneHoldOff || undefined;
-      }
-      // Tapping the lit frequency again clears it, so '' → absent.
-      if ('frequency' in draft) patch.frequency = draft.frequency || undefined;
+      // Saves what was touched on the card, including a list emptied to
+      // nothing — see utils/categorizePatch.js.
+      const patch = categorizePatch(draft);
       if (Object.keys(patch).length > 0) onSave({ [spot.id]: patch });
     }
     const next = i + 1;
