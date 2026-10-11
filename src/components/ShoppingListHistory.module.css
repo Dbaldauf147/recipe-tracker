@@ -1,0 +1,154 @@
+.wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.intro,
+.empty {
+  margin: 0 0 0.25rem;
+  font-size: 0.88rem;
+  color: var(--color-text-muted);
+  line-height: 1.5;
+}
+
+.week {
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  background: var(--color-surface);
+  overflow: hidden;
+}
+
+.weekHead {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.65rem 0.85rem;
+  border: none;
+  background: none;
+  font: inherit;
+  color: var(--color-text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.weekHead:hover {
+  background: var(--color-surface-alt, rgba(0, 0, 0, 0.03));
+}
+
+.caret {
+  width: 1rem;
+  color: var(--color-text-muted);
+}
+
+.weekDate {
+  font-weight: 600;
+}
+
+.lastBadge {
+  padding: 0.05rem 0.5rem;
+  border-radius: 999px;
+  background: var(--color-accent);
+  color: #fff;
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+
+.weekMeta {
+  margin-left: auto;
+  font-size: 0.82rem;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+
+.weekBody {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 0.25rem 0.85rem 0.85rem 2.35rem;
+}
+
+.group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.groupTitle {
+  margin: 0;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text-muted);
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.chip,
+.chipSkip {
+  padding: 0.15rem 0.6rem;
+  border-radius: 999px;
+  border: 1px solid var(--color-border);
+  font-size: 0.82rem;
+  color: var(--color-text);
+}
+
+.chipSkip {
+  border-color: #fcd34d;
+  background: #fffbeb;
+}
+
+.skipNote {
+  color: #92400e;
+  font-size: 0.74rem;
+}
+
+.meals {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--color-text);
+  line-height: 1.5;
+}
+
+.ingredients {
+  columns: 3 11rem;
+  column-gap: 1.25rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.84rem;
+  line-height: 1.6;
+  color: var(--color-text);
+}
+
+.count {
+  color: var(--color-text-muted);
+  font-size: 0.76rem;
+}
+
+.emptyWeek {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--color-text-muted);
+}
+
+.more {
+  align-self: flex-start;
+  padding: 0.35rem 0.8rem;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: var(--color-surface);
+  color: var(--color-accent);
+  font: inherit;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
