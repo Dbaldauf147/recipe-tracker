@@ -3,6 +3,7 @@ import { loadIngredients, saveIngredientsToFirestore, INGREDIENT_FIELDS, ingredi
 import { saveField, loadField } from '../utils/firestoreSync';
 import { SIZE_GRAMS, WEIGHT_TO_G } from '../utils/units.js';
 import { unitWeightGrams, defaultUnitWeight, pluralizeUnit, normalizeUnitName, isAlreadyPlural, UNIT_SIZES } from '../utils/unitWeights.js';
+import { suggestIngredientName } from '../utils/suggestIngredientName.js';
 import styles from './ShoppingList.module.css';
 
 // Human labels for every trackable ingredient field, keyed for O(1) lookup.
@@ -900,7 +901,7 @@ function saveCheckedItems(checkedSet, user) {
   }
 }
 
-export function ShoppingList({ weeklyRecipes, weeklyServings = {}, extraItems = [], onClearExtras, onAddCustomItem, pantryNames, dismissedNames, onDismissItem, user }) {
+export function ShoppingList({ weeklyRecipes, weeklyServings = {}, extraItems = [], onClearExtras, onAddCustomItem, pantryNames, dismissedNames, onDismissItem, onRenameIngredient, user }) {
   // Custom, reorderable categories + per-item assignment (synced on the user
   // doc). Seeds from the built-in store sections + any legacy per-ingredient
   // `grocerySection` overrides, so existing setups carry over.
@@ -1076,6 +1077,11 @@ export function ShoppingList({ weeklyRecipes, weeklyServings = {}, extraItems = 
   const [popupFields, setPopupFields] = useState(null);
   const [popupRecExisted, setPopupRecExisted] = useState(false);
   const [popupMeals, setPopupMeals] = useState([]);
+  // "Name in your meals": what the line is called in this week's recipes, and
+  // the section the popup opened with (so Save can tell a real change from a
+  // keyword-guessed default).
+  const [popupName, setPopupName] = useState('');
+  const [popupOrigCat, setPopupOrigCat] = useState('other');
 
   // Re-read links when another device (e.g. the mobile app) updates the
   // synced `shopLinks` field, which lands in localStorage on sync.
@@ -1103,6 +1109,8 @@ export function ShoppingList({ weeklyRecipes, weeklyServings = {}, extraItems = 
     const ingKey = ingredient.toLowerCase().trim();
     setItemPopup(ingredient);
     setPopupCat(currentCatId || 'other');
+    setPopupOrigCat(currentCatId || 'other');
+    setPopupName(ingredient);
     setPopupLink(customLinks[ingKey] || ingredientLinks[ingKey] || '');
     setPopupMeals(Array.isArray(meals) ? meals : []);
     // Seed the editable fields from the DB record, or a blank template (name
@@ -1116,9 +1124,41 @@ export function ShoppingList({ weeklyRecipes, weeklyServings = {}, extraItems = 
   }
   function saveItemPopup() {
     if (!itemPopup) return;
-    assignItemCategory(itemPopup, popupCat);
-    saveCustomLink(itemPopup.toLowerCase().trim(), (popupLink || '').trim());
+    const oldKey = itemPopup.toLowerCase().trim();
+    const newName = (popupName || '').trim();
+    const newKey = newName.toLowerCase();
     persistIngredientEdits();
+    if (onRenameIngredient && newName && newKey !== oldKey) {
+      onRenameIngredient(itemPopup, newName);
+      // The row is about to re-key to the new name, so its section pin and
+      // link move with it. If the new name is already a row of its own, keep
+      // that row's pin/link unless the user changed them here.
+      setItemSections(prev => {
+        const next = { ...prev };
+        const pin = popupCat !== popupOrigCat ? popupCat : (prev[newKey] ?? prev[oldKey]);
+        delete next[oldKey];
+        if (!pin || pin === 'other') delete next[newKey];
+        else next[newKey] = pin;
+        if (user?.uid) saveField(user.uid, 'groceryItemSections', next).catch(() => {});
+        return next;
+      });
+      const origLink = customLinks[oldKey] || ingredientLinks[oldKey] || '';
+      const link = (popupLink || '').trim();
+      setCustomLinks(prev => {
+        const next = { ...prev };
+        if (link !== origLink) next[newKey] = link;
+        else if (prev[oldKey] && !prev[newKey]) next[newKey] = prev[oldKey];
+        delete next[oldKey];
+        localStorage.setItem(SHOP_LINKS_KEY, JSON.stringify(next));
+        if (user) {
+          import('../utils/firestoreSync').then(m => m.saveField(user.uid, 'shopLinks', next)).catch(() => {});
+        }
+        return next;
+      });
+    } else {
+      assignItemCategory(itemPopup, popupCat);
+      saveCustomLink(oldKey, (popupLink || '').trim());
+    }
     setItemPopup(null);
   }
   // Upsert the popup's edited fields into the shared ingredient DB (same path
@@ -1586,6 +1626,37 @@ export function ShoppingList({ weeklyRecipes, weeklyServings = {}, extraItems = 
             }}
           >
             <h3 style={{ margin: '0 0 0.85rem', fontSize: '1.05rem', fontWeight: 700 }}>{itemPopup}</h3>
+
+            {onRenameIngredient && (() => {
+              const suggestion = suggestIngredientName(itemPopup, Object.values(ingredientRecords).map(r => r.ingredient));
+              const changed = popupName.trim() && popupName.trim().toLowerCase() !== itemPopup.toLowerCase().trim();
+              return (
+                <div style={{ margin: '0 0 0.85rem' }}>
+                  <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: '#555', marginBottom: '0.25rem' }}>Name in your meals</label>
+                  <input
+                    value={popupName}
+                    onChange={e => setPopupName(e.target.value)}
+                    onKeyDown={e => { if (e.key === 'Enter') saveItemPopup(); if (e.key === 'Escape') setItemPopup(null); }}
+                    style={{ width: '100%', padding: '0.5rem', borderRadius: 8, border: '1px solid #ccc', fontSize: '0.9rem', boxSizing: 'border-box' }}
+                  />
+                  {suggestion && suggestion.toLowerCase() !== popupName.trim().toLowerCase() && (
+                    <button
+                      type="button"
+                      onClick={() => setPopupName(suggestion)}
+                      title="Use this name"
+                      style={{ marginTop: '0.4rem', padding: '0.25rem 0.65rem', borderRadius: 999, border: '1px solid #c7d0f5', background: '#eef1ff', color: '#3b4b8a', fontSize: '0.78rem', fontWeight: 600, cursor: 'pointer' }}
+                    >
+                      Suggested: {suggestion}
+                    </button>
+                  )}
+                  {changed && (
+                    <p style={{ margin: '0.4rem 0 0', fontSize: '0.75rem', color: '#888', lineHeight: 1.4 }}>
+                      Save renames this ingredient in this week's meals.
+                    </p>
+                  )}
+                </div>
+              );
+            })()}
 
             {popupMeals.length > 0 && (
               <div style={{ margin: '0 0 0.85rem' }}>

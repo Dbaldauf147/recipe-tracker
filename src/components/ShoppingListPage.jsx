@@ -3,6 +3,7 @@ import { ShoppingList } from './ShoppingList';
 import { GroceryStaples } from './GroceryStaples';
 import { PantryList } from './PantryList';
 import { findTopSince, buildIngredientEatenMap } from '../utils/pantryAutoAdd';
+import { renameIngredientLines } from '../utils/suggestIngredientName.js';
 import { TrackedItemsList } from './TrackedItemsList';
 import { SavedShoppingLists } from './SavedShoppingLists';
 import { AgentCartPanel } from './AgentCartPanel';
@@ -97,7 +98,7 @@ function normalizeIngName(name) {
 
 
 
-export function ShoppingListPage({ weeklyRecipes, weeklyServings = {}, getRecipe, sharedFromFriends = [], onClose, onSaveToHistory, onViewRecipe }) {
+export function ShoppingListPage({ weeklyRecipes, weeklyServings = {}, getRecipe, sharedFromFriends = [], onClose, onSaveToHistory, onViewRecipe, onUpdateRecipe }) {
   const { user } = useAuth();
   const [extras, setExtras] = useState(loadExtras);
   const [dismissed, setDismissed] = useState(loadDismissed);
@@ -379,6 +380,18 @@ export function ShoppingListPage({ weeklyRecipes, weeklyServings = {}, getRecipe
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);
+
+  // Shopping list "Name in your meals": rename the line in THIS WEEK's own
+  // recipes only (friends' shared meals aren't ours to edit). Mirrors the
+  // mobile shopping list's long-press rename.
+  const handleRenameIngredient = useCallback((oldName, newName) => {
+    if (!onUpdateRecipe) return;
+    for (const recipe of weeklyRecipes) {
+      if (!recipe?.id || !getRecipe?.(recipe.id)) continue;
+      const next = renameIngredientLines(recipe.ingredients, oldName, newName);
+      if (next) onUpdateRecipe(recipe.id, { ingredients: next });
+    }
+  }, [weeklyRecipes, getRecipe, onUpdateRecipe]);
 
   const pantryNames = useMemo(() => {
     const names = new Set();
@@ -685,6 +698,7 @@ export function ShoppingListPage({ weeklyRecipes, weeklyServings = {}, getRecipe
               pantryNames={pantryNames}
               dismissedNames={dismissedNames}
               onDismissItem={handleDismissItem}
+              onRenameIngredient={onUpdateRecipe ? handleRenameIngredient : undefined}
               user={user}
             />
           </div>
