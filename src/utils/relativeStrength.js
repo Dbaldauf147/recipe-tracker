@@ -234,7 +234,7 @@ export function analyzeRelativeStrength(workouts, options = {}) {
       if (!byName[key].group && e.group) byName[key].group = e.group;
       // Location rides on the workout, not the entry — carried along so the
       // one-off filter below can see it.
-      byName[key].entries.push({ ...e, date: w.date, gym: w.gym });
+      byName[key].entries.push({ ...e, date: w.date, gym: w.gym, ...(w.deload ? { deload: true } : {}) });
     }
   }
 
@@ -263,8 +263,11 @@ export function analyzeRelativeStrength(workouts, options = {}) {
     // is left out of the headline number and the trend below. Deleting it would
     // leave you wondering whether the session was logged at all.
     const offsiteOf = offsiteMarker(entries);
+    // Deload days are treated like away ones: plotted, but kept out of the
+    // headline, the trend and the best (utils/deload).
+    const deloadDates = new Set(entries.filter(e => e.deload).map(e => e.date));
     const all = buildRatioSeries(entries, bodyweightAt)
-      .map(p => ({ ...p, offsite: !!offsiteOf(p.gym) }));
+      .map(p => ({ ...p, offsite: !!offsiteOf(p.gym) || deloadDates.has(p.date) }));
     if (all.length === 0) {
       // Either the lift is unloaded (no e1RM) or every session of it predates
       // the first weigh-in. Only the second is worth telling the user about.

@@ -44,7 +44,8 @@ function buildSeries(workouts, exercise, unit, homeGym) {
 
   const byDate = new Map();
   for (const w of (workouts || [])) {
-    const away = offsiteOf(w.gym);
+    // A deload session is drawn like an away one: greyed, out of the trend.
+    const away = w.deload ? 'Deload' : offsiteOf(w.gym);
     for (const e of (w.entries || [])) {
       if ((e.exercise || '').trim().toLowerCase() !== key) continue;
       const sets = Array.isArray(e.sets) ? e.sets : [];

@@ -790,6 +790,7 @@ export function analyzeProgress(workouts, groupByName, options = {}) {
 
   const byName = {};
   for (const w of (workouts || [])) {
+    if (w.deload) continue; // deload weeks never count (utils/deload)
     if (!countsForHomeGym(w, options.homeGym)) continue;
     for (const e of (w.entries || [])) {
       if (!e.exercise) continue;
