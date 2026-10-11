@@ -21,6 +21,8 @@ import { PrCelebration } from './PrCelebration';
 import { SetPainPopover } from './SetPainPopover';
 import { setPainFor, withSetPain } from '../utils/setPain';
 import { detectPersonalRecord, priorHistory } from '../utils/personalRecord';
+import { applyDeloadToEntry, isDeloadWeek, normalizeDeloadSettings, withoutDeload } from '../utils/deload';
+import { DeloadTab } from './DeloadTab';
 import {
   applyBodyweightToEntries, backfillBodyweightOnes, bodyweightLbForWeek, formatBodyweightLb,
   BODYWEIGHT_BACKFILL_FIELD,
@@ -81,6 +83,9 @@ const MUSCLE_GROUPS = ['Chest', 'Back', 'Legs', 'Shoulders', 'Biceps', 'Triceps'
 
 const DEFAULT_GYMS = ['Edge South Tower', 'Home', 'Other'];
 const GYMS_KEY = 'sunday-workout-gyms';
+// Deload settings: user-doc field shared with the phone + local paint cache.
+const DELOAD_FIELD = 'deloadSettings';
+const DELOAD_KEY = 'sunday-deload-settings';
 
 function loadGyms() {
   try {
@@ -2672,6 +2677,16 @@ export function WorkoutPage({ onBack, user }) {
   // 🧖 toggle; persisted on the Workout (Workout.sauna) and counted by the Week
   // Plan's weekly sauna goal.
   const [sauna, setSauna] = useState(false);
+
+  // ── Deload weeks (Deload tab) ──────────────────────────────────────────────
+  // `deloadSettings` on the user doc, shared with the phone; localStorage is
+  // only for instant paint. Re-read whenever the Deload tab opens.
+  const [deloadSettings, setDeloadSettings] = useState(() => {
+    try { return normalizeDeloadSettings(JSON.parse(localStorage.getItem(DELOAD_KEY) || 'null')); }
+    catch { return normalizeDeloadSettings(null); }
+  });
+  // "Log this one normally" for a single session inside a deload week.
+  const [deloadSkipped, setDeloadSkipped] = useState(false);
   const [entries, setEntries] = useState(() => blankEntries());
   // "Use my body weight": rows flagged useBodyWeight carry the weigh-in for
   // this session's week in `weight` (utils/bodyweightLoad.js). Re-pointed
@@ -2704,7 +2719,25 @@ export function WorkoutPage({ onBack, user }) {
     setDemoName(null);
     setDemoRowIdx(null);
   }
-  const [viewMode, setViewMode] = useState('log'); // 'log' | 'history' | 'charts' | 'progress' | 'relative' | 'body' | 'exercises' | 'steps' | 'sleep' | 'stats' (Overview)
+  const [viewMode, setViewMode] = useState('log'); // 'log' | 'history' | 'charts' | 'progress' | 'relative' | 'deload' | 'body' | 'exercises' | 'steps' | 'sleep' | 'stats' (Overview)
+  useEffect(() => {
+    if (!user?.uid) return;
+    let alive = true;
+    loadField(user.uid, DELOAD_FIELD).then(v => {
+      if (!alive || !v || typeof v !== 'object') return;
+      const next = normalizeDeloadSettings(v);
+      setDeloadSettings(next);
+      try { localStorage.setItem(DELOAD_KEY, JSON.stringify(next)); } catch { /* ignore */ }
+    }).catch(() => {});
+    return () => { alive = false; };
+  }, [user?.uid, viewMode === 'deload']);
+  const changeDeloadSettings = useCallback((next) => {
+    setDeloadSettings(next);
+    try { localStorage.setItem(DELOAD_KEY, JSON.stringify(next)); } catch { /* ignore */ }
+    if (user?.uid) saveField(user.uid, DELOAD_FIELD, next).catch(() => {});
+  }, [user?.uid]);
+  const deloadWeekOn = isDeloadWeek(deloadSettings, selectedDate);
+  const deloadActive = deloadWeekOn && !deloadSkipped;
   // The exercise list behind every picker on this page. It is SHARED: one
   // Firestore document (sharedData/exerciseLibrary) that every account reads
   // and writes, so an exercise anyone adds is an exercise everyone can pick.
@@ -3718,11 +3751,14 @@ export function WorkoutPage({ onBack, user }) {
       setGym(existing.gym || gyms[0] || '');
       setWorkoutType(existing.workoutType || '');
       setSauna(!!existing.sauna);
+      // A saved session logged normally inside a deload week stays normal.
+      setDeloadSkipped(!existing.deload);
       setEntries(padToMin(existing.entries.length > 0 ? existing.entries : []));
     } else {
       setEntries(blankEntries());
       setWorkoutType('');
       setSauna(false);
+      setDeloadSkipped(false);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedDate]);
@@ -3759,12 +3795,17 @@ export function WorkoutPage({ onBack, user }) {
     if (!exerciseName) return null;
     const key = exerciseName.trim().toLowerCase();
     const history = exerciseHistoryByName[key] || [];
+    // Latest NORMAL session (deload numbers never become the starting point),
+    // falling back to a deload one when that's all there is.
     let best = null;
+    let bestDeload = null;
     for (const h of history) {
       if (h.gym !== gymName) continue;
-      if (!best || (h.date || '').localeCompare(best.date || '') > 0) best = h;
+      if (h.deload) {
+        if (!bestDeload || (h.date || '').localeCompare(bestDeload.date || '') > 0) bestDeload = h;
+      } else if (!best || (h.date || '').localeCompare(best.date || '') > 0) best = h;
     }
-    return best;
+    return best || bestDeload;
   }
 
   // Refill an entry's value-fields (weight/sets/time/perArm/notes) from the
@@ -3773,7 +3814,9 @@ export function WorkoutPage({ onBack, user }) {
   // from editedFields so they don't show the manual-edit highlight.
   function applyLastFromLocation(entry, gymName) {
     const next = { ...entry };
-    const last = entry.exercise ? lastLogForExerciseAt(entry.exercise, gymName) : null;
+    const found = entry.exercise ? lastLogForExerciseAt(entry.exercise, gymName) : null;
+    // Deload week: lighter weight, fewer sets (utils/deload).
+    const last = found && deloadActive ? applyDeloadToEntry(found, deloadSettings) : found;
     if (last) {
       next.notes = last.notes != null ? String(last.notes) : '';
       next.weight = last.weight != null ? String(last.weight) : '';
@@ -4002,6 +4045,7 @@ export function WorkoutPage({ onBack, user }) {
   const celebratedPrRef = useRef({});
   const [prRecord, setPrRecord] = useState(null);
   function maybeCelebratePr(entry) {
+    if (deloadActive) return; // a deload set is light on purpose — never a PR
     const { isPr, e1rmLb, gainLb } = detectPersonalRecord(entry, priorHistory(workouts, selectedDate));
     if (!isPr) return;
     const key = String(entry.exercise || '').trim().toLowerCase();
@@ -4142,6 +4186,8 @@ export function WorkoutPage({ onBack, user }) {
       entries: enriched,
       savedAt: new Date().toISOString(),
       ...(sauna ? { sauna: true } : {}),
+      // Kept out of 1RM progress + PRs (utils/deload).
+      ...(deloadActive ? { deload: true } : {}),
     };
     // When un-completed exercises were dropped from the log, stash the full
     // ordered template (logged + skipped) so fillFromLast/lastByType keep
@@ -4831,8 +4877,24 @@ export function WorkoutPage({ onBack, user }) {
     return kept.concat(restored);
   }
 
+  /**
+   * lastSourceForType, skipping deload sessions so a refill starts from your
+   * normal numbers. Falls back when every session of the type was a deload.
+   */
+  function normalSourceForType(t) {
+    const here = (gym || '').trim().toLowerCase();
+    let atGym = null;
+    let any = null;
+    for (const w of withoutDeload(workouts)) {
+      if (w.workoutType !== t) continue;
+      if (!any || w.date > any.date) any = w;
+      if (here && (w.gym || '').trim().toLowerCase() === here && (!atGym || w.date > atGym.date)) atGym = w;
+    }
+    return atGym || any || lastSourceForType(t);
+  }
+
   function fillFromLast(t) {
-    const last = lastSourceForType(t);
+    const last = normalSourceForType(t);
     if (!last) return;
     // Prefer suggestedEntries (full logged+skipped template) so exercises the
     // user skipped last time — not logged to history — still get suggested.
@@ -4847,7 +4909,7 @@ export function WorkoutPage({ onBack, user }) {
       weight: e.weight != null ? String(e.weight) : '',
       notes: e.notes || '',
       time: e.time || '2:00',
-    }));
+    })).map(e => (deloadActive ? applyDeloadToEntry(e, deloadSettings) : e));
     while (fill.length < 4) fill[fill.length] = undefined; // no-op padding marker
     setEntries(padToMin(fill.filter(Boolean)));
   }
@@ -4889,7 +4951,7 @@ export function WorkoutPage({ onBack, user }) {
         if (!map[key]) map[key] = [];
         // Spread the entry first so `gym` from the workout (not the entry, which
         // doesn't normally carry one) is the source of truth for location.
-        map[key].push({ ...e, date: w.date, gym: w.gym });
+        map[key].push({ ...e, date: w.date, gym: w.gym, ...(w.deload ? { deload: true } : {}) });
       }
     }
     return map;
@@ -5071,7 +5133,8 @@ export function WorkoutPage({ onBack, user }) {
       .sort((a, b) => a.date.localeCompare(b.date))
       .map(h => ({
         date: h.date,
-        offsite: offsiteOf(h.gym) || undefined,
+        // Deload sessions are greyed + out of the trend, like away ones.
+        offsite: (h.deload ? 'Deload' : offsiteOf(h.gym)) || undefined,
         avgReps: Number(h.avgReps) || 0,
         totalReps: Number(h.totalReps) || 0,
         maxReps: Number(h.maxReps) || 0,
@@ -5185,7 +5248,7 @@ export function WorkoutPage({ onBack, user }) {
       </div>
 
       <div className={styles.tabs}>
-        {['log', 'calendar', 'history', 'charts', 'progress', 'relative', 'stretch', 'body', 'exercises', 'steps', 'sleep', 'stats'].map(tab => (
+        {['log', 'calendar', 'history', 'charts', 'progress', 'relative', 'deload', 'stretch', 'body', 'exercises', 'steps', 'sleep', 'stats'].map(tab => (
           <button key={tab} className={`${styles.tab} ${viewMode === tab ? styles.tabActive : ''}`} onClick={() => setViewMode(tab)}>
             {tab === 'log' ? 'Log Workout'
               : tab === 'history' ? 'History'
@@ -5193,6 +5256,7 @@ export function WorkoutPage({ onBack, user }) {
               : tab === 'charts' ? 'Charts'
               : tab === 'progress' ? 'Progress'
               : tab === 'relative' ? 'vs Bodyweight'
+              : tab === 'deload' ? (deloadWeekOn ? '🔻 Deload' : 'Deload')
               : tab === 'stretch' ? 'Stretch'
               : tab === 'body' ? 'Body Map'
               : tab === 'exercises' ? 'Exercises'
@@ -5205,6 +5269,18 @@ export function WorkoutPage({ onBack, user }) {
 
       {viewMode === 'log' && (
         <div className={styles.logSection}>
+          {deloadWeekOn && (
+            <div className={`${styles.deloadBanner} ${deloadSkipped ? styles.deloadBannerOff : ''}`}>
+              <span>
+                {deloadSkipped
+                  ? 'Deload week — this session is logged normally.'
+                  : `🔻 Deload week — weights at ${deloadSettings.weightPct}%, ${deloadSettings.setCutPct}% fewer sets. Not counted toward 1RM progress.`}
+              </span>
+              <button type="button" className={styles.deloadBannerBtn} onClick={() => setDeloadSkipped(v => !v)}>
+                {deloadSkipped ? 'Use deload' : 'Log normally'}
+              </button>
+            </div>
+          )}
           <div className={styles.dateRow}>
             <input type="date" className={styles.dateInput} value={selectedDate} onChange={e => { userPickedDateRef.current = true; setSelectedDate(e.target.value); }} />
             <select className={styles.gymSelect} value={gym} onChange={e => handleGymChange(e.target.value)}>
@@ -6399,7 +6475,7 @@ export function WorkoutPage({ onBack, user }) {
                 byDate[d] = { totalReps: 0, totalWeight: 0, maxReps: 0, maxWeight: 0, avgRepsSum: 0, avgRepsCount: 0, away: '', home: false };
               }
               const b = byDate[d];
-              const away = offsiteOf(h.gym);
+              const away = h.deload ? 'Deload' : offsiteOf(h.gym);
               if (away) { if (!b.away) b.away = away; } else b.home = true;
               const ar = Number(h.avgReps) || 0;
               b.totalReps += Number(h.totalReps) || 0;
@@ -6724,6 +6800,10 @@ export function WorkoutPage({ onBack, user }) {
 
       {viewMode === 'relative' && (
         <RelativeStrength workouts={workouts} weightUnit={weightUnit} exerciseLibrary={exerciseLibrary} />
+      )}
+
+      {viewMode === 'deload' && (
+        <DeloadTab settings={deloadSettings} onChange={changeDeloadSettings} weightUnit={weightUnit} />
       )}
 
       {viewMode === 'stretch' && (

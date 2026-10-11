@@ -75,9 +75,11 @@ export function previousBestE1rmLb(history, exerciseName) {
  * @param {string} dateKey 'YYYY-MM-DD'
  */
 export function priorHistory(workouts, dateKey) {
+  // Deload sessions are deliberately light — never part of the PR baseline.
   const d = String(dateKey || '');
-  if (!d) return workouts || [];
-  return (workouts || []).filter(w => String(w?.date || '') < d);
+  const normal = (workouts || []).filter(w => !w?.deload);
+  if (!d) return normal;
+  return normal.filter(w => String(w?.date || '') < d);
 }
 
 /**

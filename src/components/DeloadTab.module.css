@@ -1,0 +1,19 @@
+.wrap { display: flex; flex-direction: column; gap: 0.9rem; max-width: 560px; }
+.card { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 12px; padding: 1rem; }
+.cardDeload { border-color: #d97706; background: #fffbeb; }
+.rowBetween { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; flex-wrap: wrap; }
+.gap { margin-top: 0.9rem; }
+.title { display: block; font-size: 1.05rem; font-weight: 700; color: var(--color-text); }
+.label { font-size: 0.95rem; font-weight: 600; color: var(--color-text); }
+.status { font-size: 1.05rem; font-weight: 700; color: var(--color-text); margin-top: 0.25rem; }
+.muted { display: block; font-size: 0.82rem; color: var(--color-text-muted); margin-top: 0.15rem; }
+.toggle { width: 1.25rem; height: 1.25rem; cursor: pointer; flex-shrink: 0; }
+.btn { margin-top: 0.6rem; border: none; border-radius: 8px; padding: 0.45rem 0.8rem; background: var(--color-accent-light, #ebf2f9); color: var(--color-accent, #3b6b9c); font-weight: 700; font-family: inherit; cursor: pointer; }
+.link { margin-top: 0.5rem; padding: 0; border: none; background: none; color: var(--color-accent, #3b6b9c); font-weight: 600; font-family: inherit; cursor: pointer; }
+.stepper { display: flex; align-items: center; gap: 0.4rem; }
+.stepBtn { width: 2rem; height: 2rem; border-radius: 50%; border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-accent, #3b6b9c); font-size: 1.1rem; font-weight: 700; cursor: pointer; line-height: 1; }
+.stepBtn:disabled { opacity: 0.35; cursor: default; }
+.stepValue { min-width: 4.5rem; text-align: center; font-weight: 700; color: var(--color-text); }
+.stepValueWide { min-width: 7.5rem; text-align: center; font-size: 0.85rem; font-weight: 700; color: var(--color-text); }
+.list { margin: 0.4rem 0 0; padding-left: 1.2rem; color: var(--color-text); }
+.list li { margin-top: 0.2rem; }
