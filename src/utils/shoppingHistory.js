@@ -16,6 +16,7 @@
    The mobile app mirrors lastShoppingListExtras in its pantryAutoAdd.ts. */
 
 import { activeEntries } from './dailyTotals.js';
+import { openAutoIndex } from './shoppingListAutoSave.js';
 
 // The Sunday starting a Week Plan fill-in's week.
 function weekOf(e) {
@@ -55,8 +56,12 @@ function addDaysKey(key, days) {
 export function lastShoppingListExtras(history, today, days = 14) {
   if (!today || !/^\d{4}-\d{2}-\d{2}$/.test(today)) return [];
   const cutoff = addDaysKey(today, -(days - 1));
-  const lists = (Array.isArray(history) ? history : [])
-    .filter(e => isShoppingListEntry(e) && e.date >= cutoff && e.date <= today);
+  const all = Array.isArray(history) ? history : [];
+  // This week's auto-saved list is the one being shopped from, not "last
+  // week's" — counting it would swap this week's pick for another mid-week.
+  const open = all[openAutoIndex(all, today)];
+  const lists = all
+    .filter(e => e !== open && isShoppingListEntry(e) && e.date >= cutoff && e.date <= today);
   if (lists.length === 0) return [];
   const latest = lists.reduce((max, e) => (e.date > max ? e.date : max), '');
   const names = new Map();
@@ -94,6 +99,7 @@ export function shoppingListWeeks(history, getRecipe, options = {}) {
     if (recipeIds.length) rebuilt.push({ ...e, recipeIds });
   }
   const listDates = lists.map(l => l.date).sort();
+  const openEntry = today ? all[openAutoIndex(all, today)] : null;
   const out = [];
   for (const e of [...lists, ...rebuilt]) {
     const isRebuilt = e.source === 'week-plan';
@@ -132,6 +138,7 @@ export function shoppingListWeeks(history, getRecipe, options = {}) {
       ingredients: [...ingredients.values()].sort((a, b) => a.name.localeCompare(b.name)),
       extras,
       kind: isRebuilt ? 'rebuilt' : e.source === 'auto-list' ? 'auto' : 'reset',
+      current: !!openEntry && e === openEntry,
     });
   }
   return out.sort((a, b) => (b.date === a.date ? String(b.timestamp).localeCompare(String(a.timestamp)) : b.date.localeCompare(a.date)));
