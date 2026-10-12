@@ -156,7 +156,7 @@ export function linearRegression(points) {
 
 // Total external lb moved for set `i` of an entry (per-set weight if present,
 // ×2 when the logged weight is per-arm/leg).
-function setWeightLb(entry, i) {
+export function setWeightLb(entry, i) {
   let w;
   if (entry.useSetWeights && Array.isArray(entry.setWeights)) {
     w = parseFloat(entry.setWeights[i] || '');

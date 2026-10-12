@@ -52,6 +52,7 @@ import { ExerciseDemo, ExerciseMuscles } from './ExerciseDemo';
 import ExerciseChart from './ExerciseChart';
 import ExerciseProgressTracker from './ExerciseProgressTracker';
 import RelativeStrength from './RelativeStrength';
+import WeeklyOverload from './WeeklyOverload';
 import styles from './WorkoutPage.module.css';
 import { workoutCalendarCategory, CAL_ICON } from '../utils/workoutCategory';
 import { pastedImageFile } from '../utils/clipboardImage';
@@ -2719,7 +2720,7 @@ export function WorkoutPage({ onBack, user }) {
     setDemoName(null);
     setDemoRowIdx(null);
   }
-  const [viewMode, setViewMode] = useState('log'); // 'log' | 'history' | 'charts' | 'progress' | 'relative' | 'deload' | 'body' | 'exercises' | 'steps' | 'sleep' | 'stats' (Overview)
+  const [viewMode, setViewMode] = useState('log'); // 'log' | 'history' | 'charts' | 'progress' | 'weekly' | 'relative' | 'deload' | 'body' | 'exercises' | 'steps' | 'sleep' | 'stats' (Overview)
   const deloadTabOpen = viewMode === 'deload';
   useEffect(() => {
     if (!user?.uid) return;
@@ -5249,13 +5250,14 @@ export function WorkoutPage({ onBack, user }) {
       </div>
 
       <div className={styles.tabs}>
-        {['log', 'calendar', 'history', 'charts', 'progress', 'relative', 'deload', 'stretch', 'body', 'exercises', 'steps', 'sleep', 'stats'].map(tab => (
+        {['log', 'calendar', 'history', 'charts', 'progress', 'weekly', 'relative', 'deload', 'stretch', 'body', 'exercises', 'steps', 'sleep', 'stats'].map(tab => (
           <button key={tab} className={`${styles.tab} ${viewMode === tab ? styles.tabActive : ''}`} onClick={() => setViewMode(tab)}>
             {tab === 'log' ? 'Log Workout'
               : tab === 'history' ? 'History'
               : tab === 'calendar' ? 'Calendar'
               : tab === 'charts' ? 'Charts'
               : tab === 'progress' ? 'Progress'
+              : tab === 'weekly' ? 'Weekly Overload'
               : tab === 'relative' ? 'vs Bodyweight'
               : tab === 'deload' ? (deloadWeekOn ? '🔻 Deload' : 'Deload')
               : tab === 'stretch' ? 'Stretch'
@@ -6797,6 +6799,10 @@ export function WorkoutPage({ onBack, user }) {
 
       {viewMode === 'progress' && (
         <ExerciseProgressTracker workouts={workouts} weightUnit={weightUnit} exerciseLibrary={exerciseLibrary} user={user} />
+      )}
+
+      {viewMode === 'weekly' && (
+        <WeeklyOverload workouts={workouts} weightUnit={weightUnit} exerciseLibrary={exerciseLibrary} />
       )}
 
       {viewMode === 'relative' && (
