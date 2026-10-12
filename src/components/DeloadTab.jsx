@@ -1,9 +1,9 @@
 // Workout → Deload tab: train N weeks, then one lighter week. Settings live in
 // `deloadSettings` on the user doc (shared with the phone); the math is in
 // utils/deload.js. While a deload week is on, the Log tab prefills weights at
-// weightPct% of the latest normal session with setCutPct% fewer sets and
-// repCutPct% fewer reps per set (default: Dr. Andy Galpin's 5 weeks / 70% /
-// half the reps), and saves the workout with `deload: true` so 1RM progress and PRs skip it.
+// weightPct% of the latest normal session with `setCut` fewer sets and
+// (100 − repCutPct)% of the reps per set (default: Dr. Andy Galpin's 5 weeks /
+// 70% / 1 fewer set / 80% of the reps), and saves the workout with `deload: true` so 1RM progress and PRs skip it.
 // ⚠️ Mirrors PrepDay/src/components/DeloadView.tsx.
 import styles from './DeloadTab.module.css';
 import { displayWeight } from '../utils/exerciseProgress';
@@ -40,7 +40,7 @@ export function DeloadTab({ settings, onChange, weightUnit = 'lb' }) {
   const thisWeek = deloadWeekStart(new Date());
   const thisIsDeload = isDeloadWeek(settings, thisWeek);
   const upcoming = upcomingDeloadWeeks(settings, new Date(), 4);
-  const example = applyDeloadToEntry({ sets: ['8', '8', '8', '8', '8'], weight: '135' }, settings);
+  const example = applyDeloadToEntry({ sets: ['10', '10', '10', '10', '10'], weight: '135' }, settings);
   const exampleSets = example.sets.filter(x => x !== '');
   const recommended = defaultDeloadSettings();
 
@@ -56,11 +56,11 @@ export function DeloadTab({ settings, onChange, weightUnit = 'lb' }) {
             onChange={e => set({ enabled: e.target.checked })} />
         </label>
         <div className={styles.note}>
-          💡 Default follows Dr. Andy Galpin's recommendation: train 5 weeks, then deload for one week at 70% of your weight and half the reps.
+          💡 Default follows Dr. Andy Galpin's recommendation: train 5 weeks, then deload for one week at 70% of your weight, 1 fewer set and 80% of your usual reps.
           {settings.enabled && !isRecommendedDeload(settings) && (
             <button type="button" className={styles.link} onClick={() => set({
               trainWeeks: recommended.trainWeeks, weightPct: recommended.weightPct,
-              setCutPct: recommended.setCutPct, repCutPct: recommended.repCutPct,
+              setCut: recommended.setCut, repCutPct: recommended.repCutPct,
             })}>Use Dr. Galpin's settings</button>
           )}
         </div>
@@ -114,17 +114,19 @@ export function DeloadTab({ settings, onChange, weightUnit = 'lb' }) {
 
             <div className={`${styles.rowBetween} ${styles.gap}`}>
               <span className={styles.label}>Fewer sets</span>
-              <Stepper label="set reduction percent" value={settings.setCutPct} onChange={n => set({ setCutPct: n })}
-                step={10} min={0} max={90} suffix="%" />
+              <Stepper label="sets dropped" value={settings.setCut} onChange={n => set({ setCut: n })}
+                step={1} min={0} max={10} suffix={settings.setCut === 1 ? ' set' : ' sets'} />
             </div>
+            <div className={styles.muted}>per exercise (at least 1 set is always kept)</div>
 
             <div className={`${styles.rowBetween} ${styles.gap}`}>
-              <span className={styles.label}>Fewer reps</span>
-              <Stepper label="rep reduction percent" value={settings.repCutPct} onChange={n => set({ repCutPct: n })}
-                step={10} min={0} max={90} suffix="%" />
+              <span className={styles.label}>Reps</span>
+              <Stepper label="reps percent" value={100 - settings.repCutPct} onChange={n => set({ repCutPct: 100 - n })}
+                step={5} min={10} max={100} suffix="%" />
             </div>
+            <div className={styles.muted}>of your usual reps in each set</div>
             <div className={`${styles.muted} ${styles.gap}`}>
-              e.g. {displayWeight(135, weightUnit)} {weightUnit} × 5 sets of 8 → {displayWeight(example.weight, weightUnit)} {weightUnit} × {exampleSets.length} {exampleSets.length === 1 ? 'set' : 'sets'} of {exampleSets[0]}
+              e.g. {displayWeight(135, weightUnit)} {weightUnit} × 5 sets of 10 → {displayWeight(example.weight, weightUnit)} {weightUnit} × {exampleSets.length} {exampleSets.length === 1 ? 'set' : 'sets'} of {exampleSets[0]}
             </div>
           </div>
 
