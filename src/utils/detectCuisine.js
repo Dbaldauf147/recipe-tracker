@@ -519,6 +519,27 @@ export function getShelfLife(ingredientName) {
 }
 
 /**
+ * The raw shelf-life numbers (days) for an ingredient — the same match
+ * getShelfLife makes, without formatting. null when nothing matches.
+ */
+export function getShelfLifeDays(ingredientName) {
+  const query = (ingredientName || '').toLowerCase().trim();
+  if (!query) return null;
+  let match = null;
+  let bestLen = 0;
+  for (const key of Object.keys(SHELF_LIFE_DB)) {
+    if (key === query) { match = key; break; }
+    if ((query.includes(key) || key.includes(query)) && key.length > bestLen) {
+      bestLen = key.length;
+      match = key;
+    }
+  }
+  if (!match) return null;
+  const e = SHELF_LIFE_DB[match];
+  return { fridge: e.fridge ?? null, freezer: e.freezer ?? null, pantry: e.pantry ?? null };
+}
+
+/**
  * Return the minimum fridge shelf-life (in days) across all ingredients in a recipe.
  * Returns Infinity if no ingredient has known shelf-life data.
  */

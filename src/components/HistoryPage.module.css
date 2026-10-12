@@ -493,3 +493,82 @@
   letter-spacing: 0;
   color: var(--color-text-muted, #94a3b8);
 }
+
+/* ── Use-by list (per week: how long each ingredient lasts) ── */
+.useByBtn {
+  margin-left: 0.4rem;
+  background: none;
+  border: 1px solid var(--color-border);
+  color: var(--color-text-muted);
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 0.2rem 0.55rem;
+  border-radius: 999px;
+  cursor: pointer;
+  font-family: inherit;
+  vertical-align: middle;
+}
+.useByBtn:hover,
+.useByBtnOn {
+  color: var(--color-accent);
+  border-color: var(--color-accent);
+}
+.useByRow > td {
+  padding: 0 1rem 0.9rem;
+}
+.useByWrap {
+  background: var(--color-surface-alt, var(--color-bg));
+  border: 1px solid var(--color-border-light);
+  border-radius: var(--radius-md);
+  padding: 0.6rem 0.75rem;
+  overflow-x: auto;
+}
+.useByHint,
+.useByEmpty {
+  margin: 0 0 0.5rem;
+  font-size: 0.78rem;
+  color: var(--color-text-muted);
+}
+.table .useByTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+.table .useByTable thead th {
+  padding: 0.35rem 0.5rem;
+  font-size: 0.68rem;
+  border-bottom: 1px solid var(--color-border);
+}
+.table .useByTable td {
+  padding: 0.4rem 0.5rem;
+  vertical-align: top;
+}
+.table .useByTable tbody tr {
+  border-bottom: 1px solid var(--color-border-light);
+}
+.useByName {
+  font-weight: 600;
+  color: var(--color-text);
+}
+.useByMeta {
+  font-size: 0.72rem;
+  color: var(--color-text-muted);
+}
+.useByInput {
+  width: 4.5rem;
+  padding: 0.25rem 0.4rem;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  font-family: inherit;
+  font-size: 0.85rem;
+  color: var(--color-text);
+  background: var(--color-surface);
+}
+.useBySoon {
+  color: #b45309;
+  font-weight: 600;
+}
+.useByExpired {
+  color: var(--color-text-muted);
+  text-decoration: line-through;
+}
