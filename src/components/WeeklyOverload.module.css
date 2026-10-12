@@ -54,44 +54,6 @@
   cursor: pointer;
 }
 
-/* ── Summary tiles ── */
-.tiles {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
-  gap: 0.75rem;
-}
-.tile {
-  border: 1px solid var(--color-border, #e2e8f0);
-  border-radius: 12px;
-  background: var(--color-surface, #fff);
-  padding: 0.75rem 0.9rem;
-}
-.tileLabel {
-  font-size: 0.7rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
-  color: var(--color-text-muted, #94a3b8);
-}
-.tileValue {
-  font-size: 1.5rem;
-  font-weight: 800;
-  color: var(--color-text, #1e293b);
-  font-variant-numeric: tabular-nums;
-  line-height: 1.2;
-  margin-top: 0.15rem;
-}
-.tileUnit {
-  font-size: 0.9rem;
-  font-weight: 600;
-  color: var(--color-text-muted, #94a3b8);
-}
-.tileNote {
-  font-size: 0.75rem;
-  color: var(--color-text-muted, #94a3b8);
-  margin-top: 0.1rem;
-}
-
 /* ── Table ── */
 .tableWrap {
   overflow-x: auto;

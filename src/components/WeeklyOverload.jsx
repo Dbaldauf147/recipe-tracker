@@ -78,10 +78,6 @@ export default function WeeklyOverload({ workouts = [], weightUnit = 'lb', exerc
   const w = lb => displayWeight(lb, weightUnit);
   const unit = weightUnit === 'kg' ? 'kg' : 'lb';
 
-  const judgedLifts = liftRows.filter(l => ['hit', 'up', 'flat', 'down'].includes(l.v.status));
-  const judgedMuscles = muscleRows.filter(m => m.v.status === 'hit' || m.v.status === 'miss');
-  const trained = muscleRows.filter(m => m.v.cur > 0);
-
   if (data.muscles.length === 0 && data.lifts.length === 0) {
     return (
       <div className={styles.empty}>
@@ -124,29 +120,6 @@ export default function WeeklyOverload({ workouts = [], weightUnit = 'lb', exerc
       {evalWeek.deload && (
         <div className={styles.banner}>This was a deload week, so it isn&rsquo;t judged — lighter is the point. Pick another week, or the next week will be compared with the last normal one.</div>
       )}
-
-      <div className={styles.tiles}>
-        <div className={styles.tile}>
-          <div className={styles.tileLabel}>Weight +{WEIGHT_TARGET_PCT * 100}% / wk</div>
-          <div className={styles.tileValue}>{judgedLifts.filter(l => l.v.status === 'hit').length}<span className={styles.tileUnit}> / {judgedLifts.length}</span></div>
-          <div className={styles.tileNote}>lifts compared with a previous week</div>
-        </div>
-        <div className={styles.tile}>
-          <div className={styles.tileLabel}>Sets +{VOLUME_TARGET_PCT * 100}% / wk</div>
-          <div className={styles.tileValue}>{judgedMuscles.filter(m => m.v.status === 'hit').length}<span className={styles.tileUnit}> / {judgedMuscles.length}</span></div>
-          <div className={styles.tileNote}>muscle groups</div>
-        </div>
-        <div className={styles.tile}>
-          <div className={styles.tileLabel}>{MIN_WEEKLY_SETS}+ sets / muscle</div>
-          <div className={styles.tileValue}>{trained.filter(m => m.v.cur >= MIN_WEEKLY_SETS).length}<span className={styles.tileUnit}> / {trained.length}</span></div>
-          <div className={styles.tileNote}>muscle groups trained</div>
-        </div>
-        <div className={styles.tile}>
-          <div className={styles.tileLabel}>Advanced ({ADVANCED_MIN_SETS}–{ADVANCED_MAX_SETS})</div>
-          <div className={styles.tileValue}>{trained.filter(m => m.v.band === 'advanced').length}</div>
-          <div className={styles.tileNote}>muscle groups in the band</div>
-        </div>
-      </div>
 
       <section className={styles.section}>
         <h3 className={styles.sectionTitle}>Working sets per muscle group</h3>
