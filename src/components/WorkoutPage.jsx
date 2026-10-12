@@ -2720,6 +2720,7 @@ export function WorkoutPage({ onBack, user }) {
     setDemoRowIdx(null);
   }
   const [viewMode, setViewMode] = useState('log'); // 'log' | 'history' | 'charts' | 'progress' | 'relative' | 'deload' | 'body' | 'exercises' | 'steps' | 'sleep' | 'stats' (Overview)
+  const deloadTabOpen = viewMode === 'deload';
   useEffect(() => {
     if (!user?.uid) return;
     let alive = true;
@@ -2730,7 +2731,7 @@ export function WorkoutPage({ onBack, user }) {
       try { localStorage.setItem(DELOAD_KEY, JSON.stringify(next)); } catch { /* ignore */ }
     }).catch(() => {});
     return () => { alive = false; };
-  }, [user?.uid, viewMode === 'deload']);
+  }, [user?.uid, deloadTabOpen]); // re-read whenever the Deload tab opens
   const changeDeloadSettings = useCallback((next) => {
     setDeloadSettings(next);
     try { localStorage.setItem(DELOAD_KEY, JSON.stringify(next)); } catch { /* ignore */ }
