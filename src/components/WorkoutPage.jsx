@@ -5283,7 +5283,7 @@ export function WorkoutPage({ onBack, user }) {
               <span>
                 {deloadSkipped
                   ? 'Deload week — this session is logged normally.'
-                  : `🔻 Deload week — weights at ${deloadSettings.weightPct}%, ${deloadSettings.setCutPct}% fewer sets. Not counted toward 1RM progress.`}
+                  : `🔻 Deload week — weights at ${deloadSettings.weightPct}%, ${deloadSettings.setCutPct ? `${deloadSettings.setCutPct}% fewer sets, ` : ''}${deloadSettings.repCutPct ? `${deloadSettings.repCutPct}% fewer reps` : 'same reps'}. Not counted toward 1RM progress.`}
               </span>
               <button type="button" className={styles.deloadBannerBtn} onClick={() => setDeloadSkipped(v => !v)}>
                 {deloadSkipped ? 'Use deload' : 'Log normally'}

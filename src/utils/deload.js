@@ -1,9 +1,11 @@
 // ---- Deload weeks --------------------------------------------------------
 //
 // Train N weeks, then take one lighter week: suggested weights drop to a % of
-// the latest normal (non-deload) weights and the suggested set count is cut by
-// a %. A workout logged in that week is saved with `deload: true`, and that
-// flag — not the schedule — is what keeps it out of 1RM progress and PRs, so
+// the latest normal (non-deload) weights, and the suggested sets and reps are
+// each cut by a %. The default is Dr. Andy Galpin's recommendation: train 5
+// weeks, then deload at 70% of the weight and half the reps (same sets).
+// A workout logged in that week is saved with `deload: true`, and that flag —
+// not the schedule — is what keeps it out of 1RM progress and PRs, so
 // changing the schedule later never re-labels old sessions.
 //
 // Weeks are the app's Sunday→Saturday weeks. The schedule counts from
@@ -18,8 +20,9 @@
  * @property {boolean} enabled
  * @property {number} trainWeeks   normal training weeks between deloads
  * @property {string} anchor       'YYYY-MM-DD' Sunday starting the first training week of a cycle
- * @property {number} weightPct    deload weight as a % of the normal weight (e.g. 60)
+ * @property {number} weightPct    deload weight as a % of the normal weight (e.g. 70)
  * @property {number} setCutPct    % fewer sets during a deload (e.g. 40 → 5 sets become 3)
+ * @property {number} repCutPct    % fewer reps in each kept set (e.g. 50 → 8 reps become 4)
  * @property {Record<string, boolean>} [overrides] per-week override keyed by its Sunday: true = deload, false = normal
  */
 
@@ -58,7 +61,12 @@ function clampInt(v, lo, hi, dflt) {
 }
 
 export function defaultDeloadSettings(now = new Date()) {
-  return { enabled: false, trainWeeks: 4, anchor: deloadWeekStart(now), weightPct: 60, setCutPct: 40, overrides: {} };
+  return { enabled: false, trainWeeks: 5, anchor: deloadWeekStart(now), weightPct: 70, setCutPct: 0, repCutPct: 50, overrides: {} };
+}
+
+/** Dr. Andy Galpin's deload: every 6th week (after 5 training weeks), 70% of the weight, half the reps, same sets. */
+export function isRecommendedDeload(s) {
+  return s.trainWeeks === 5 && s.weightPct === 70 && s.setCutPct === 0 && s.repCutPct === 50;
 }
 
 /** Fill in / clamp whatever was stored (tolerates a missing or partial object). */
@@ -71,12 +79,23 @@ export function normalizeDeloadSettings(raw, now = new Date()) {
       if (parseKey(k) && typeof raw.overrides[k] === 'boolean') overrides[k] = raw.overrides[k];
     }
   }
+  // Saved before reps could be cut: the untouched old defaults (4 weeks, 60%,
+  // 40% fewer sets) move to the new recommended ones; anything customised
+  // keeps its numbers and gets no rep cut, so it still logs exactly as before.
+  if (raw.repCutPct == null) {
+    const was = (k, v) => raw[k] == null || Number(raw[k]) === v;
+    const oldDefaults = was('trainWeeks', 4) && was('weightPct', 60) && was('setCutPct', 40);
+    raw = oldDefaults
+      ? { ...raw, trainWeeks: d.trainWeeks, weightPct: d.weightPct, setCutPct: d.setCutPct, repCutPct: d.repCutPct }
+      : { ...raw, repCutPct: 0 };
+  }
   return {
     enabled: !!raw.enabled,
     trainWeeks: clampInt(raw.trainWeeks, 1, 52, d.trainWeeks),
     anchor: parseKey(raw.anchor) ? deloadWeekStart(raw.anchor) : d.anchor,
     weightPct: clampInt(raw.weightPct, 10, 100, d.weightPct),
     setCutPct: clampInt(raw.setCutPct, 0, 90, d.setCutPct),
+    repCutPct: clampInt(raw.repCutPct, 0, 90, d.repCutPct),
     overrides,
   };
 }
@@ -136,9 +155,22 @@ export function deloadSetCount(n, cutPct) {
 }
 
 /**
+ * A set's rep count cut by `cutPct`% (at least 1). Only plain rep counts are
+ * cut — timed sets ('30s', '1:30') and anything else come back as is.
+ */
+export function deloadReps(value, cutPct) {
+  const raw = value == null ? '' : String(value);
+  if (!cutPct || !/^\d+$/.test(raw.trim())) return raw;
+  const n = parseInt(raw, 10);
+  if (n <= 0) return raw;
+  return String(Math.max(1, Math.round(n * (1 - cutPct / 100))));
+}
+
+/**
  * A prefilled entry turned into its deload version: weight (and per-set
- * weights) scaled, and only the first k filled sets kept — the rest blanked so
- * the row keeps its slot count. Body-weight rows keep their weight.
+ * weights) scaled, only the first k filled sets kept — the rest blanked so
+ * the row keeps its slot count — and each kept set's reps cut. Body-weight
+ * rows keep their weight.
  */
 export function applyDeloadToEntry(e, s) {
   const sets = Array.isArray(e.sets) ? e.sets : [];
@@ -146,7 +178,7 @@ export function applyDeloadToEntry(e, s) {
   let keep = deloadSetCount(filled, s.setCutPct);
   const nextSets = sets.map(x => {
     if (String(x ?? '').trim() === '') return x;
-    if (keep > 0) { keep--; return x; }
+    if (keep > 0) { keep--; return deloadReps(x, s.repCutPct || 0); }
     return '';
   });
   const out = { ...e, sets: nextSets };
