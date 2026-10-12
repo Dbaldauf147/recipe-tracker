@@ -3072,8 +3072,10 @@ export async function revokeAirFryerShareLink(uid) {
  * to the air-fryer fields.
  */
 export async function loadSharedAirFryer(token) {
+  if (!token) return null;
   const res = await fetch(`/api/air-fryer-share?token=${encodeURIComponent(token)}`);
-  if (res.status === 404) return null;
+  // 400 = a malformed token: to the visitor that's the same dead link as 404.
+  if (res.status === 404 || res.status === 400) return null;
   if (!res.ok) throw new Error(`air-fryer-share ${res.status}`);
   return res.json();
 }
