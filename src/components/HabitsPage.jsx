@@ -4,7 +4,7 @@ import {
   loadHabitLog, loadHabitLogAuto, subscribeToHabitLog, subscribeToHabitLogAuto,
 } from '../utils/habitLogYears';
 import { HABIT_FIELDS, seedHabits, makeHabitId } from '../data/habitsSeed';
-import { yesterdayDate, yesterdayDayKey, yesterdayUnloggedHabits, isBadHabit, habitMonthEvery, monthlyDueIn } from '../utils/habitOutstanding';
+import { yesterdayDate, yesterdayDayKey, yesterdayUnloggedHabits, isBadHabit, habitMonthEvery, monthlyDueIn, habitPeriodKey, habitDueNow } from '../utils/habitOutstanding';
 import { normalizePtoRanges, ptoCellsToStamp, activePtoRange } from '../utils/habitPto';
 import { nextMarkInCycle } from '../utils/habitMarkCycle';
 import { badHabitStats, recentDayKeys, cleanLabel, dayKeyOf, dateOfDayKey } from '../utils/badHabits';
@@ -1048,8 +1048,16 @@ function habitPastDue(h, habitLog, nextLogMap, today = new Date()) {
     return { count: missed.length, label: `${missed.map(d => WEEKDAY_SHORT[d.getDay()]).join(', ')} left empty` };
   }
 
-  // Non-daily: only past due when THIS period's cell is still empty.
-  if ((log[periodKey(canon, today)] || {})[h.id] !== undefined) return null;
+  // Non-daily: only past due when THIS period's cell is still empty. For an
+  // every-N-months habit "this period" is its cycle (habitPeriodKey).
+  const cycleKey = habitPeriodKey(h, today);
+  if ((log[cycleKey] || {})[h.id] !== undefined) return null;
+  // An off month inside a blank cycle: the cycle's due month has closed with
+  // its cell empty — a miss, owed until it's logged.
+  if (canon === 'Monthly' && cycleKey !== periodKey('Monthly', today)) {
+    if (!monthlyDueIn(h, cycleKey)) return null; // before the anchor
+    return { count: 1, label: `${MONTH_ABBR[Number(cycleKey.slice(5, 7)) - 1]} left empty` };
+  }
   const rec = (nextLogMap && nextLogMap[canon]) || defaultRec(canon);
   if ((Number(rec.repeatEvery) || 1) > 1) return null; // every-N interval → skip
   if (canon === 'Monthly' && !tracksDate(h, today)) return null; // its own every-N-months off month
@@ -1868,7 +1876,7 @@ export function HabitsPage({ onBack, user }) {
   // The mark for a habit in its current cadence period (today / this week /
   // this month / this year).
   function markOf(h) {
-    const bucket = habitLog[periodKey(h.cadence)];
+    const bucket = habitLog[habitPeriodKey(h)];
     return bucket ? bucket[h.id] : undefined;
   }
 
@@ -1910,7 +1918,7 @@ export function HabitsPage({ onBack, user }) {
   // merged into the stored year, so a mark made elsewhere since this page
   // loaded isn't overwritten.
   function onMark(h, mark) {
-    const key = periodKey(h.cadence);
+    const key = habitPeriodKey(h);
     if (markOf(h) !== mark) claimCellsFromEngine([{ habitId: h.id, key }]); // setting, not toggling off
     setHabitLog(prev => {
       const bucket = { ...(prev[key] || {}) };
@@ -2204,8 +2212,9 @@ export function HabitsPage({ onBack, user }) {
     const isActive = isLoggableHabit;
     const needsMark = (h) => {
       // A daily habit that isn't tracked today (e.g. weekends off) isn't due.
-      if (!tracksDate(h)) return false;
-      const bucket = habitLog[periodKey(h.cadence)];
+      // An every-N-months habit also owes a blank cycle through its off months.
+      if (!(cadenceCanon(h.cadence) === 'Monthly' ? habitDueNow(h) : tracksDate(h))) return false;
+      const bucket = habitLog[habitPeriodKey(h)];
       return !(bucket && bucket[h.id]);
     };
     const currentMonth = periodKey('Monthly');
@@ -3233,8 +3242,10 @@ function RoutinesView({ habits, habitLog, habitLogAuto, streaks, autoTrackedIds 
     for (const [cadence, list] of groups) {
       for (const h of list) {
         if ((h.status || '').trim() === 'Automatically') continue;
-        if ((habitLog[periodKey(h.cadence)] || {})[h.id] !== undefined) continue; // logged
-        const due = cadenceCanon(h.cadence) === 'Weekly' ? weeklyDueYet(h) : tracksDate(h);
+        if ((habitLog[habitPeriodKey(h)] || {})[h.id] !== undefined) continue; // logged
+        const canon = cadenceCanon(h.cadence);
+        // An every-N-months habit also owes a blank cycle through its off months.
+        const due = canon === 'Weekly' ? weeklyDueYet(h) : canon === 'Monthly' ? habitDueNow(h) : tracksDate(h);
         if (!due) continue;
         if (autoTrackedIds.has(h.id)) auto[cadence]++;
         else manual[cadence]++;
@@ -3949,9 +3960,11 @@ function RoutineSection({ cadenceName, list, habitLog, habitLogAuto, streaks, au
   // (daily habits that are off today don't count as needing a mark).
   const uncompleted = activeList.filter(h => {
     if (isAuto(h)) return false; // established — not the user's to log
-    if ((habitLog[periodKey(h.cadence)] || {})[h.id] !== undefined) return false; // already logged
-    // A pinned Weekly habit isn't "due" until its day of the week arrives.
+    if ((habitLog[habitPeriodKey(h)] || {})[h.id] !== undefined) return false; // already logged
+    // A pinned Weekly habit isn't "due" until its day of the week arrives; an
+    // every-N-months habit still owes a blank cycle through its off months.
     if (cadenceCanon(h.cadence) === 'Weekly') return weeklyDueYet(h);
+    if (cadenceCanon(h.cadence) === 'Monthly') return habitDueNow(h);
     return tracksDate(h);
   }).length;
 
@@ -4127,7 +4140,7 @@ function RoutineSection({ cadenceName, list, habitLog, habitLogAuto, streaks, au
             {/* Checklist progress for the current period — opens the popup,
                 which is where the items are ticked. */}
             {hasChecklist(h) && (() => {
-              const cp = checklistProgress(h, periodKey(h.cadence));
+              const cp = checklistProgress(h, habitPeriodKey(h));
               const full = cp.done === cp.total;
               return (
                 <button
@@ -5248,7 +5261,7 @@ function AutomaticView({ habits, automations, habitLog = {}, habitLogAuto = {}, 
               // Live status: this rule's habit and its mark for the current
               // reporting cycle (today / this week / month / year, per cadence).
               const habit = habitById.get(r.habitId);
-              const curKey = habit ? periodKey(habit.cadence) : null;
+              const curKey = habit ? habitPeriodKey(habit) : null;
               const curMark = curKey ? (habitLog[curKey] || {})[habit.id] : undefined;
               const cycleLabel = habit ? periodHint(habit.cadence) : ''; // Today / This week / ...
               const notYetLabel = cycleLabel === 'Today' ? 'today' : cycleLabel.toLowerCase();
@@ -6269,7 +6282,7 @@ function CurrentView({ habits, habitLog, onUpdate, onCycleMark, onOpen, onMakeAu
           ) : (
             <div style={{ border: '1px solid var(--color-border, #e2e8f0)', borderRadius: 12, overflow: 'hidden', background: 'var(--color-surface, #fff)' }}>
               {g.habits.map((h, i) => {
-                const key = periodKey(h.cadence);
+                const key = habitPeriodKey(h);
                 const mark = (habitLog[key] || {})[h.id];
                 const isDone = mark === 'done' || mark === 'exceeded';
                 const kpi = habitKpi(h, habitLog);
@@ -6695,7 +6708,7 @@ function HabitsTable({ habits, onUpdate, onDelete, onOpen, onBulkUpdate, onBulkD
                         <span>{h.name || <em style={{ color: '#aaa' }}>untitled</em>}</span>
                         {(h.cadence || '').trim() && <span style={cadenceTag}>{h.cadence}</span>}
                         {hasChecklist(h) && (() => {
-                          const cp = checklistProgress(h, periodKey(h.cadence));
+                          const cp = checklistProgress(h, habitPeriodKey(h));
                           return <span style={{ ...routineTag, marginLeft: 'auto' }} title="Checklist progress this period">☑ {cp.done}/{cp.total}</span>;
                         })()}
                       </button>

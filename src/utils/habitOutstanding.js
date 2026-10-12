@@ -68,8 +68,9 @@ export function tracksDate(h, date = new Date()) {
 }
 
 // A MONTHLY habit can repeat every N months (`monthEvery`, 1 = every month)
-// counted from `monthAnchor` ('YYYY-MM'). Months in between are OFF — not due,
-// never owed, not a miss — the monthly analog of a Daily habit's trackDays.
+// counted from `monthAnchor` ('YYYY-MM'). Months in between are OFF — nothing
+// new comes due in them — but a cycle left blank stays owed through them (see
+// habitPeriodKey).
 // ⚠️ MIRRORS PrepDay/src/utils/habitTracking.ts `habitMonthEvery` /
 // `monthlyDueIn` — keep the two identical.
 export function habitMonthEvery(h) {
@@ -89,6 +90,42 @@ export function monthlyDueIn(h, monthKey) {
   const k = monthIndex(monthKey);
   if (a == null || k == null) return true;
   return (((k - a) % n) + n) % n === 0;
+}
+
+/**
+ * The habitLog key a habit is marked against right now. Same as periodKey for
+ * everything except an every-N-months habit, whose period is the whole N-month
+ * CYCLE, keyed by the cycle's due month: in October, a habit due every 2 months
+ * from September still owes September's mark — the off month doesn't wipe the
+ * slate. Logging it late fills September's cell; November starts a new cycle.
+ * Before the anchor, or with no anchor, this is just the current month.
+ *
+ * ⚠️ MIRRORS PrepDay/src/utils/habitTracking.ts `habitPeriodKey`.
+ */
+export function habitPeriodKey(h, date = new Date()) {
+  const cur = periodKey(h?.cadence, date);
+  const n = habitMonthEvery(h);
+  if (n <= 1) return cur;
+  const a = monthIndex(h?.monthAnchor);
+  const k = monthIndex(cur);
+  if (a == null || k == null || k < a) return cur;
+  const due = k - ((k - a) % n);
+  return `${Math.floor(due / 12)}-${pad2((due % 12) + 1)}`;
+}
+
+/**
+ * Is this habit's current period one it has to log? A Daily off-day, an
+ * unreached pinned Weekly day, and an every-N-months off month BEFORE the
+ * anchor are not; an off month inside an unlogged cycle is (it still owes the
+ * cycle — pair with habitPeriodKey for the "already logged" check).
+ * ⚠️ MIRRORS PrepDay/src/utils/habitTracking.ts `habitDueNow` (minus its
+ * bad-habit check, which callers here do themselves).
+ */
+export function habitDueNow(h, date = new Date()) {
+  const canon = cadenceCanon(h?.cadence);
+  if (canon === 'Weekly') return weeklyDueYet(h, date);
+  if (canon === 'Monthly') return monthlyDueIn(h, habitPeriodKey(h, date));
+  return tracksDate(h, date);
 }
 
 // Weekly per-habit pinned day (`weekDays`): the habit isn't "due" until its
@@ -259,9 +296,8 @@ export function countHabitsNeedingLog(habits, habitLog, automations, date = new 
     if (!h) continue;
     if (isBadHabit(h)) continue;                        // logged only when it happens
     if (EXCLUDED_STATUSES.has((h.status || '').trim())) continue;
-    if ((log[periodKey(h.cadence, date)] || {})[h.id] !== undefined) continue; // already logged
-    const due = cadenceCanon(h.cadence) === 'Weekly' ? weeklyDueYet(h, date) : tracksDate(h, date);
-    if (!due) continue;
+    if ((log[habitPeriodKey(h, date)] || {})[h.id] !== undefined) continue; // already logged
+    if (!habitDueNow(h, date)) continue;
     if (autoIds.has(h.id)) auto++;
     else manual++;
   }
