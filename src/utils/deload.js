@@ -1,9 +1,10 @@
 // ---- Deload weeks --------------------------------------------------------
 //
 // Train N weeks, then take one lighter week: suggested weights drop to a % of
-// the latest normal (non-deload) weights, and the suggested sets and reps are
-// each cut by a %. The default is Dr. Andy Galpin's recommendation: train 5
-// weeks, then deload at 70% of the weight and half the reps (same sets).
+// the latest normal (non-deload) weights, each exercise drops a set COUNT
+// (`setCut`, e.g. 1 fewer set), and the reps in each kept set are cut by a %.
+// The default is Dr. Andy Galpin's recommendation: train 5 weeks, then deload
+// at 70% of the weight, 1 fewer set and 80% of the reps.
 // A workout logged in that week is saved with `deload: true`, and that flag —
 // not the schedule — is what keeps it out of 1RM progress and PRs, so
 // changing the schedule later never re-labels old sessions.
@@ -21,8 +22,8 @@
  * @property {number} trainWeeks   normal training weeks between deloads
  * @property {string} anchor       'YYYY-MM-DD' Sunday starting the first training week of a cycle
  * @property {number} weightPct    deload weight as a % of the normal weight (e.g. 70)
- * @property {number} setCutPct    % fewer sets during a deload (e.g. 40 → 5 sets become 3)
- * @property {number} repCutPct    % fewer reps in each kept set (e.g. 50 → 8 reps become 4)
+ * @property {number} setCut       sets fewer per exercise during a deload (e.g. 1 → 5 sets become 4; at least 1 kept)
+ * @property {number} repCutPct    % fewer reps in each kept set (e.g. 20 → 10 reps become 8, i.e. 80% of usual)
  * @property {Record<string, boolean>} [overrides] per-week override keyed by its Sunday: true = deload, false = normal
  */
 
@@ -61,13 +62,17 @@ function clampInt(v, lo, hi, dflt) {
 }
 
 export function defaultDeloadSettings(now = new Date()) {
-  return { enabled: false, trainWeeks: 5, anchor: deloadWeekStart(now), weightPct: 70, setCutPct: 0, repCutPct: 50, overrides: {} };
+  return { enabled: false, trainWeeks: 5, anchor: deloadWeekStart(now), weightPct: 70, setCut: 1, repCutPct: 20, overrides: {} };
 }
 
-/** Dr. Andy Galpin's deload: every 6th week (after 5 training weeks), 70% of the weight, half the reps, same sets. */
+/** Dr. Andy Galpin's deload: every 6th week (after 5 training weeks), 70% of the weight, 1 fewer set, 80% of the reps. */
 export function isRecommendedDeload(s) {
-  return s.trainWeeks === 5 && s.weightPct === 70 && s.setCutPct === 0 && s.repCutPct === 50;
+  return s.trainWeeks === 5 && s.weightPct === 70 && s.setCut === 1 && s.repCutPct === 20;
 }
+
+// Sets used to be cut by a % (`setCutPct`). A customised % becomes the count
+// it took off a 5-set exercise — the example the page has always shown.
+const PCT_REFERENCE_SETS = 5;
 
 /** Fill in / clamp whatever was stored (tolerates a missing or partial object). */
 export function normalizeDeloadSettings(raw, now = new Date()) {
@@ -79,22 +84,32 @@ export function normalizeDeloadSettings(raw, now = new Date()) {
       if (parseKey(k) && typeof raw.overrides[k] === 'boolean') overrides[k] = raw.overrides[k];
     }
   }
+  const was = (k, v) => raw[k] == null || Number(raw[k]) === v;
   // Saved before reps could be cut: the untouched old defaults (4 weeks, 60%,
-  // 40% fewer sets) move to the new recommended ones; anything customised
-  // keeps its numbers and gets no rep cut, so it still logs exactly as before.
+  // 40% fewer sets) move to the recommended ones; anything customised keeps
+  // its numbers and gets no rep cut, so it still logs exactly as before.
   if (raw.repCutPct == null) {
-    const was = (k, v) => raw[k] == null || Number(raw[k]) === v;
     const oldDefaults = was('trainWeeks', 4) && was('weightPct', 60) && was('setCutPct', 40);
     raw = oldDefaults
-      ? { ...raw, trainWeeks: d.trainWeeks, weightPct: d.weightPct, setCutPct: d.setCutPct, repCutPct: d.repCutPct }
+      ? { ...raw, trainWeeks: d.trainWeeks, weightPct: d.weightPct, setCut: d.setCut, repCutPct: d.repCutPct }
       : { ...raw, repCutPct: 0 };
+  }
+  // Saved before sets were a count. The previous recommendation untouched
+  // (5 weeks, 70%, same sets, half the reps) moves to the current one;
+  // otherwise the % becomes a count and everything else is kept.
+  if (raw.setCut == null) {
+    const prevDefaults = was('trainWeeks', 5) && was('weightPct', 70) && was('setCutPct', 0) && was('repCutPct', 50);
+    const pct = Number(raw.setCutPct) || 0;
+    raw = prevDefaults
+      ? { ...raw, setCut: d.setCut, repCutPct: d.repCutPct }
+      : { ...raw, setCut: pct > 0 ? Math.max(1, Math.round((PCT_REFERENCE_SETS * pct) / 100)) : 0 };
   }
   return {
     enabled: !!raw.enabled,
     trainWeeks: clampInt(raw.trainWeeks, 1, 52, d.trainWeeks),
     anchor: parseKey(raw.anchor) ? deloadWeekStart(raw.anchor) : d.anchor,
     weightPct: clampInt(raw.weightPct, 10, 100, d.weightPct),
-    setCutPct: clampInt(raw.setCutPct, 0, 90, d.setCutPct),
+    setCut: clampInt(raw.setCut, 0, 10, d.setCut),
     repCutPct: clampInt(raw.repCutPct, 0, 90, d.repCutPct),
     overrides,
   };
@@ -148,10 +163,10 @@ export function deloadWeight(weight, pct) {
   return String(Math.max(5, Math.round((n * pct) / 100 / 5) * 5));
 }
 
-/** How many of `n` sets to keep after cutting `cutPct`% (at least 1 when n ≥ 1). */
-export function deloadSetCount(n, cutPct) {
+/** How many of `n` sets to keep after dropping `cut` of them (at least 1 when n ≥ 1). */
+export function deloadSetCount(n, cut) {
   if (n <= 0) return 0;
-  return Math.max(1, Math.round(n * (1 - cutPct / 100)));
+  return Math.max(1, n - Math.max(0, cut || 0));
 }
 
 /**
@@ -175,7 +190,7 @@ export function deloadReps(value, cutPct) {
 export function applyDeloadToEntry(e, s) {
   const sets = Array.isArray(e.sets) ? e.sets : [];
   const filled = sets.filter(x => String(x ?? '').trim() !== '').length;
-  let keep = deloadSetCount(filled, s.setCutPct);
+  let keep = deloadSetCount(filled, s.setCut);
   const nextSets = sets.map(x => {
     if (String(x ?? '').trim() === '') return x;
     if (keep > 0) { keep--; return deloadReps(x, s.repCutPct || 0); }
