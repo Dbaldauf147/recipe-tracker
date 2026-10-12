@@ -123,7 +123,17 @@ export function sameCounts(a, b) {
   if (!STAGE_KEYS.every(key => a[key] === b[key])) return false;
   // A row written before the per-category breakdown existed differs from one
   // with it, so the current week picks the breakdown up on its next reading.
-  return JSON.stringify(a.common || null) === JSON.stringify(b.common || null);
+  return sameDeep(a.common ?? null, b.common ?? null);
+}
+
+// Key-order-blind equality. Firestore hands maps back with their keys sorted,
+// so a JSON.stringify compare called a synced row "changed" every time — and
+// each "change" was a save, a sync, a re-render and another save, forever.
+function sameDeep(a, b) {
+  if (a === b) return true;
+  if (!a || !b || typeof a !== 'object' || typeof b !== 'object') return false;
+  const ka = Object.keys(a), kb = Object.keys(b);
+  return ka.length === kb.length && ka.every(k => Object.hasOwn(b, k) && sameDeep(a[k], b[k]));
 }
 
 /** Rows sorted oldest-first, one per week, newest write for a week winning. */

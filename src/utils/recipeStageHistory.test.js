@@ -87,6 +87,16 @@ test('recordStageWeek starts a new row once the week rolls over', () => {
   assert.equal(next.history[0].wip, 1, 'the finished week stays frozen');
 });
 
+test('sameCounts ignores key order (Firestore returns maps with sorted keys)', () => {
+  const a = stageSnapshot([{ devStage: 'wip', category: 'breakfast' }], WED);
+  const sortKeys = v => (v && typeof v === 'object' && !Array.isArray(v)
+    ? Object.fromEntries(Object.keys(v).sort().reverse().map(k => [k, sortKeys(v[k])]))
+    : v);
+  const synced = { ...sortKeys(a), recordedAt: 'later' };
+  assert.notEqual(JSON.stringify(synced.common), JSON.stringify(a.common));
+  assert.equal(sameCounts(a, synced), true);
+});
+
 test('sameCounts ignores recordedAt', () => {
   const a = stageSnapshot([{ devStage: 'new' }], WED);
   const b = stageSnapshot([{ devStage: 'new' }], new Date(2026, 8, 24));

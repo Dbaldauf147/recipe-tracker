@@ -1893,10 +1893,15 @@ export function subscribeToUserData(uid, onChange) {
   }
 
   const unsub1 = onSnapshot(userRef, (snap) => {
-    if (snap.exists() && !snap.metadata.hasPendingWrites) {
-      userData = snap.data();
-      emit();
-    }
+    if (!snap.exists()) return;
+    // Always keep the LOCAL view (server + this tab's pending writes), but only
+    // emit once it has settled. Firestore doesn't re-fire when our own write is
+    // acked unchanged, so caching only settled snapshots left userData stuck
+    // before this tab's own edits — and every recipes-doc emit below then
+    // re-hydrated that stale copy over localStorage, reverting e.g. a Snacks
+    // item's season months moments after they were picked.
+    userData = snap.data();
+    if (!snap.metadata.hasPendingWrites) emit();
   }, (err) => { console.error('Firestore user subscription error:', err); });
 
   const unsub2 = onSnapshot(recipesRef, (snap) => {
