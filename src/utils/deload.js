@@ -23,6 +23,10 @@
  * @property {Record<string, boolean>} [overrides] per-week override keyed by its Sunday: true = deload, false = normal
  */
 
+/** Deload's own colour (purple) — amber already means "away gym" in the charts. */
+export const DELOAD_BG = '#f3e8ff';
+export const DELOAD_BORDER = '#c084fc';
+
 const pad2 = (n) => String(n).padStart(2, '0');
 const DAY_MS = 86400000;
 

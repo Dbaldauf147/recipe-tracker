@@ -21,7 +21,7 @@ import { PrCelebration } from './PrCelebration';
 import { SetPainPopover } from './SetPainPopover';
 import { setPainFor, withSetPain } from '../utils/setPain';
 import { detectPersonalRecord, priorHistory } from '../utils/personalRecord';
-import { applyDeloadToEntry, isDeloadWeek, normalizeDeloadSettings, withoutDeload } from '../utils/deload';
+import { applyDeloadToEntry, DELOAD_BG, DELOAD_BORDER, isDeloadWeek, normalizeDeloadSettings, withoutDeload } from '../utils/deload';
 import { DeloadTab } from './DeloadTab';
 import {
   applyBodyweightToEntries, backfillBodyweightOnes, bodyweightLbForWeek, formatBodyweightLb,
@@ -2362,7 +2362,7 @@ const CAL_DEFAULT_GOALS = { weights: 3, cardio: 1, yoga: 1, rest: 2 };
 
 // Month-grid calendar of training days, split into weights / cardio / yoga, with
 // per-week goal progress and a REST DAY marker on days with no logged workout.
-function WorkoutCalendarView({ workouts, user, typeCategories, stretchRoutineNames }) {
+function WorkoutCalendarView({ workouts, user, typeCategories, stretchRoutineNames, deloadSettings }) {
   const now = new Date();
   const [monthStart, setMonthStart] = useState(() => new Date(now.getFullYear(), now.getMonth(), 1));
   // localStorage gives an instant value; Firestore (below) is the cross-device
@@ -2414,6 +2414,7 @@ function WorkoutCalendarView({ workouts, user, typeCategories, stretchRoutineNam
       if (!m[w.date].items.some(it => it._key === key)) {
         m[w.date].items.push({ _key: key, label, category: cat });
       }
+      if (w.deload) m[w.date].deload = true;
     }
     return m;
   }, [workouts, typeCategories, stretchRoutineNames]);
@@ -2534,16 +2535,19 @@ function WorkoutCalendarView({ workouts, user, typeCategories, stretchRoutineNam
                   const items = byDate[iso]?.items || [];
                   const isToday = iso === todayIso;
                   const rest = isRestDay(iso);
+                  // Deload days get their own tint: a session saved as a deload,
+                  // or (with nothing logged) a day inside a scheduled deload week.
+                  const deloadDay = !!byDate[iso]?.deload || (!items.length && isDeloadWeek(deloadSettings, iso));
                   return (
                     <div
                       key={di}
-                      title={items.length ? `${iso} — ${items.map(it => it.label || it.category).join(', ')}` : (rest ? `${iso} — rest day` : iso)}
+                      title={`${items.length ? `${iso} — ${items.map(it => it.label || it.category).join(', ')}` : (rest ? `${iso} — rest day` : iso)}${deloadDay ? ' (deload)' : ''}`}
                       style={{
                         position: 'relative',
                         minHeight: 74,
-                        border: `1px solid ${isToday ? 'var(--color-accent)' : 'var(--color-border)'}`,
+                        border: `1px solid ${isToday ? 'var(--color-accent)' : deloadDay ? DELOAD_BORDER : 'var(--color-border)'}`,
                         borderRadius: 8,
-                        background: inMonth ? 'var(--color-surface)' : 'var(--color-surface-alt)',
+                        background: deloadDay ? DELOAD_BG : inMonth ? 'var(--color-surface)' : 'var(--color-surface-alt)',
                         opacity: inMonth ? 1 : 0.5,
                       }}
                     >
@@ -4187,8 +4191,10 @@ export function WorkoutPage({ onBack, user }) {
       entries: enriched,
       savedAt: new Date().toISOString(),
       ...(sauna ? { sauna: true } : {}),
-      // Kept out of 1RM progress + PRs (utils/deload).
-      ...(deloadActive ? { deload: true } : {}),
+      // Kept out of 1RM progress + PRs (utils/deload). Outside a deload week
+      // (the schedule moved since), an edit keeps the session's saved flag so a
+      // light week never turns into the baseline the next prefill copies.
+      ...((deloadActive || (!deloadWeekOn && existingForDate?.deload)) ? { deload: true } : {}),
     };
     // When un-completed exercises were dropped from the log, stash the full
     // ordered template (logged + skipped) so fillFromLast/lastByType keep
@@ -5269,7 +5275,7 @@ export function WorkoutPage({ onBack, user }) {
       </div>
 
       {viewMode === 'log' && (
-        <div className={styles.logSection}>
+        <div className={`${styles.logSection} ${deloadActive ? styles.logSectionDeload : ''}`.trim()}>
           {deloadWeekOn && (
             <div className={`${styles.deloadBanner} ${deloadSkipped ? styles.deloadBannerOff : ''}`}>
               <span>
@@ -6110,7 +6116,7 @@ export function WorkoutPage({ onBack, user }) {
                       return (
                         <tr
                           key={`${wk}-${originalIdx}`}
-                          className={`${isFirstOfDay ? styles.historyRowDayStart : ''} ${isSelected ? styles.historyRowSelected : ''}`.trim() || undefined}
+                          className={`${isFirstOfDay ? styles.historyRowDayStart : ''} ${w.deload ? styles.historyRowDeload : ''} ${isSelected ? styles.historyRowSelected : ''}`.replace(/\s+/g, ' ').trim() || undefined}
                         >
                           {historyColVisible('select') && (
                             <td className={styles.logSelectCell}>
@@ -6332,7 +6338,7 @@ export function WorkoutPage({ onBack, user }) {
       )}
 
       {viewMode === 'calendar' && (
-        <WorkoutCalendarView workouts={workouts} user={user} typeCategories={workoutTypeCategories} stretchRoutineNames={stretchRoutineNames} />
+        <WorkoutCalendarView workouts={workouts} user={user} typeCategories={workoutTypeCategories} stretchRoutineNames={stretchRoutineNames} deloadSettings={deloadSettings} />
       )}
 
       {viewMode === 'charts' && (() => {
