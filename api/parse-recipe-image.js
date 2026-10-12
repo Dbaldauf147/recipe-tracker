@@ -3,42 +3,34 @@
 
 import heicConvert from 'heic-convert';
 
-export default async function handler(req, res) {
-  if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Method not allowed' });
-  }
+const MAX_IMAGES = 8;
 
-  const { image } = req.body || {};
-  if (!image) {
-    return res.status(400).json({ error: 'Missing image (base64) in request body' });
-  }
-
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) {
-    return res.status(500).json({ error: 'ANTHROPIC_API_KEY not configured' });
-  }
-
+// Decodes one base64 image (bare or data-URI), sniffs the real format from its
+// magic bytes and converts HEIC to JPEG. Returns { mediaType, base64Data }, or
+// { status, error, ... } for the caller to send back.
+async function decodeImage(image) {
   let mediaType = 'image/jpeg';
-  let base64Data = image;
-  const dataUriMatch = image.match(/^data:(image\/\w+);base64,/);
+  let base64Data = String(image);
+  const dataUriMatch = base64Data.match(/^data:(image\/\w+);base64,/);
   if (dataUriMatch) {
     mediaType = dataUriMatch[1];
-    base64Data = image.replace(/^data:image\/\w+;base64,/, '');
+    base64Data = base64Data.replace(/^data:image\/\w+;base64,/, '');
   }
   base64Data = base64Data.replace(/\s+/g, '');
 
   const invalidCharMatch = base64Data.match(/[^A-Za-z0-9+/=]/);
   if (invalidCharMatch) {
-    return res.status(400).json({
+    return {
+      status: 400,
       error: `Base64 contains invalid character "${invalidCharMatch[0]}" (code ${invalidCharMatch[0].charCodeAt(0)}) at position ${invalidCharMatch.index}`,
-    });
+    };
   }
 
   let decodedBuffer;
   try {
     decodedBuffer = Buffer.from(base64Data, 'base64');
   } catch (err) {
-    return res.status(400).json({ error: `Base64 decode failed: ${err.message}` });
+    return { status: 400, error: `Base64 decode failed: ${err.message}` };
   }
   const firstBytes = decodedBuffer.slice(0, 16).toString('hex');
   const lastBytes = decodedBuffer.slice(-8).toString('hex');
@@ -64,10 +56,10 @@ export default async function handler(req, res) {
       detectedFormat = 'jpeg';
       mediaType = 'image/jpeg';
     } catch (err) {
-      return res.status(500).json({ error: `HEIC decode failed: ${err.message}` });
+      return { status: 500, error: `HEIC decode failed: ${err.message}` };
     }
   } else {
-    return res.status(400).json({ error: `Unrecognized image format. First 16 bytes (hex): ${firstBytes}`, decodedLength: decodedBuffer.length });
+    return { status: 400, error: `Unrecognized image format. First 16 bytes (hex): ${firstBytes}`, decodedLength: decodedBuffer.length };
   }
 
   // JPEG sanity: must end with FFD9 (EOI marker). Truncated JPEGs cause Claude
@@ -75,11 +67,55 @@ export default async function handler(req, res) {
   if (detectedFormat === 'jpeg') {
     const tail = decodedBuffer.slice(-2).toString('hex');
     if (tail !== 'ffd9') {
-      return res.status(400).json({
+      return {
+        status: 400,
         error: `JPEG appears truncated — missing EOI marker. Last 8 bytes: ${lastBytes}, length: ${decodedBuffer.length}, base64 length: ${base64Data.length}`,
-      });
+      };
     }
   }
+
+  return { mediaType, base64Data };
+}
+
+export default async function handler(req, res) {
+  if (req.method !== 'POST') {
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
+
+  // `images` carries several photos of ONE recipe (a cookbook spread, a
+  // card's front and back). `image` is the original single-photo shape and is
+  // still sent by older app builds.
+  const body = req.body || {};
+  const rawImages = Array.isArray(body.images) ? body.images.filter(Boolean) : (body.image ? [body.image] : []);
+  if (rawImages.length === 0) {
+    return res.status(400).json({ error: 'Missing image (base64) in request body' });
+  }
+  if (rawImages.length > MAX_IMAGES) {
+    return res.status(400).json({ error: `Too many photos — send at most ${MAX_IMAGES} per recipe` });
+  }
+
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) {
+    return res.status(500).json({ error: 'ANTHROPIC_API_KEY not configured' });
+  }
+
+  const imageBlocks = [];
+  for (let i = 0; i < rawImages.length; i++) {
+    const decoded = await decodeImage(rawImages[i]);
+    if (decoded.error) {
+      const { status, error, ...rest } = decoded;
+      const label = rawImages.length > 1 ? `Photo ${i + 1}: ` : '';
+      return res.status(status).json({ ...rest, error: label + error });
+    }
+    imageBlocks.push({
+      type: 'image',
+      source: { type: 'base64', media_type: decoded.mediaType, data: decoded.base64Data },
+    });
+  }
+
+  const multiNote = imageBlocks.length > 1
+    ? `\n\nThere are ${imageBlocks.length} images. They are consecutive pages or parts of the SAME single recipe (e.g. ingredients on one page and steps on the next, or a card's front and back). Combine them into ONE recipe in page order, and do not repeat an ingredient or step just because it appears on more than one image.`
+    : '';
 
   const prompt = `You are reading a recipe from an image. The layout could be ANY of:
 - A standard recipe (Title, "Ingredients:" list, "Instructions:" steps)
@@ -112,7 +148,7 @@ Rules:
 - Strip trailing zeros from numeric quantities ("9.00" → "9", "1.50" → "1.5")
 - Skip section headers in ingredients (e.g. "For the sauce:") and skip column headers themselves
 - Use "" for missing strings, [] for missing ingredients
-- Never return an empty ingredients array if any ingredient text is visible in the image`;
+- Never return an empty ingredients array if any ingredient text is visible in the image${multiNote}`;
 
   try {
     const response = await fetch('https://api.anthropic.com/v1/messages', {
@@ -124,15 +160,12 @@ Rules:
       },
       body: JSON.stringify({
         model: 'claude-sonnet-4-6',
-        max_tokens: 2048,
+        max_tokens: imageBlocks.length > 1 ? 4096 : 2048,
         messages: [
           {
             role: 'user',
             content: [
-              {
-                type: 'image',
-                source: { type: 'base64', media_type: mediaType, data: base64Data },
-              },
+              ...imageBlocks,
               { type: 'text', text: prompt },
             ],
           },

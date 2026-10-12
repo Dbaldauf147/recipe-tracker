@@ -10,6 +10,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { OWNER_EMAIL } from '../utils/pageAccess';
 import { RecipeForm } from './RecipeForm';
 import styles from './ImportRecipePage.module.css';
+import { MAX_RECIPE_PHOTOS, imageFileToDataUrl, parseRecipePhotos } from '../utils/recipePhotos';
 
 const DISCOVER_CATEGORIES = [
   { key: 'breakfast', label: 'Breakfast' },
@@ -202,6 +203,9 @@ export function ImportRecipePage({ onSave, onAddWithoutClose, onCancel, userReci
   );
   const [bulkImageProcessing, setBulkImageProcessing] = useState(false);
   const [bulkImageError, setBulkImageError] = useState('');
+  // Photos queued for the NEXT screenshot read — all of them are pages of one
+  // recipe. Each is { id, file, url } where url is an object URL thumbnail.
+  const [bulkImageQueue, setBulkImageQueue] = useState([]);
   const bulkImageFileRef = useRef(null);
   const [recipeTitle, setRecipeTitle] = useState('');
   const [sourceUrl, setSourceUrl] = useState('');
@@ -586,30 +590,64 @@ export function ImportRecipePage({ onSave, onAddWithoutClose, onCancel, userReci
     setBulkSheetRows(Array.from({ length: 8 }, () => ({ title: '', ingredients: '', instructions: '', servings: '', category: '' })));
   }
 
-  async function handleBulkImage(blob) {
-    if (!blob) return;
+  function queueBulkImages(files) {
+    const images = Array.from(files || []).filter(f => f?.type?.startsWith('image/'));
+    if (images.length === 0) return;
+    setBulkImageError('');
+    setBulkImageQueue(prev => {
+      const room = Math.max(MAX_RECIPE_PHOTOS - prev.length, 0);
+      if (images.length > room) setBulkImageError(`Up to ${MAX_RECIPE_PHOTOS} photos per recipe — ${images.length - room} weren't added.`);
+      return [
+        ...prev,
+        ...images.slice(0, room).map(file => ({
+          id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+          file,
+          url: URL.createObjectURL(file),
+        })),
+      ];
+    });
+  }
+
+  function removeQueuedBulkImage(id) {
+    setBulkImageQueue(prev => {
+      const gone = prev.find(q => q.id === id);
+      if (gone) URL.revokeObjectURL(gone.url);
+      return prev.filter(q => q.id !== id);
+    });
+  }
+
+  function clearBulkImageQueue() {
+    setBulkImageQueue(prev => {
+      prev.forEach(q => URL.revokeObjectURL(q.url));
+      return [];
+    });
+  }
+
+  async function handleBulkImages() {
+    if (bulkImageQueue.length === 0 || bulkImageProcessing) return;
+    const count = bulkImageQueue.length;
     setBulkImageError('');
     setBulkImageProcessing(true);
     try {
-      const dataUrl = await new Promise((resolve, reject) => {
-        const r = new FileReader();
-        r.onload = () => resolve(r.result);
-        r.onerror = () => reject(r.error);
-        r.readAsDataURL(blob);
+      const dataUrls = [];
+      for (const q of bulkImageQueue) dataUrls.push(await imageFileToDataUrl(q.file));
+      const recipe = await parseRecipePhotos(dataUrls, async images => {
+        const res = await fetch('/api/parse-recipe-image', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ images }),
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          throw new Error(err.error || (res.status === 413 ? 'Those photos are too large to send together — try fewer at a time.' : `Server error ${res.status}`));
+        }
+        return res.json();
       });
-      const res = await fetch('/api/parse-recipe-image', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ image: dataUrl }),
-      });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err.error || `Server error ${res.status}`);
-      }
-      const recipe = await res.json();
       const ingredients = (recipe.ingredients || []).map(s => String(s).trim()).filter(Boolean);
       if (!recipe.title && ingredients.length === 0) {
-        throw new Error("Couldn't read a recipe from that image — try a clearer screenshot.");
+        throw new Error(count > 1
+          ? "Couldn't read a recipe from those photos — try clearer shots."
+          : "Couldn't read a recipe from that image — try a clearer screenshot.");
       }
       setBulkRecipes(prev => [...prev, {
         title: recipe.title || '',
@@ -618,10 +656,13 @@ export function ImportRecipePage({ onSave, onAddWithoutClose, onCancel, userReci
         frequency: importFrequency,
         servings: recipe.servings || '1',
         mealType: ingredients.length > 0 ? classifyMealType(ingredients) : '',
-        ingredients,
+        // The API returns lines ("2 cups ricotta"); recipes store structured
+        // rows, and the preview below renders quantity/measurement/ingredient.
+        ingredients: ingredients.map(line => parseIngredientLine(line)).filter(ing => ing.ingredient || ing.quantity),
         instructions: recipe.instructions || '',
-        sourceFile: 'Pasted screenshot',
+        sourceFile: count > 1 ? `${count} photos` : 'Pasted screenshot',
       }]);
+      clearBulkImageQueue();
     } catch (err) {
       setBulkImageError(err.message || 'Failed to read image');
     } finally {
@@ -629,10 +670,18 @@ export function ImportRecipePage({ onSave, onAddWithoutClose, onCancel, userReci
     }
   }
 
+  // Drops one recipe from the found list — the way out of a scan you don't
+  // want to keep. bulkAdded holds indices, so everything after it shifts down.
+  function handleBulkDiscard(index) {
+    setBulkRecipes(prev => prev.filter((_, i) => i !== index));
+    setBulkAdded(prev => new Set([...prev].filter(i => i !== index).map(i => (i > index ? i - 1 : i))));
+    setBulkPreview(prev => (prev === index ? null : prev != null && prev > index ? prev - 1 : prev));
+  }
+
   // Listen for clipboard image paste while the bulk Screenshot mode is
   // active. Works regardless of which element is focused so the user can
   // hit Cmd/Ctrl-V immediately after taking a screenshot without first
-  // clicking into the dropzone.
+  // clicking into the dropzone. Each paste adds one page to the queue.
   useEffect(() => {
     if (importMode !== 'bulk' || bulkPasteMode !== 'image') return;
     function onPaste(e) {
@@ -643,7 +692,7 @@ export function ImportRecipePage({ onSave, onAddWithoutClose, onCancel, userReci
           const blob = item.getAsFile();
           if (blob) {
             e.preventDefault();
-            handleBulkImage(blob);
+            queueBulkImages([blob]);
             return;
           }
         }
@@ -651,7 +700,6 @@ export function ImportRecipePage({ onSave, onAddWithoutClose, onCancel, userReci
     }
     window.addEventListener('paste', onPaste);
     return () => window.removeEventListener('paste', onPaste);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [importMode, bulkPasteMode]);
 
   function handleParse() {
@@ -1774,16 +1822,16 @@ export function ImportRecipePage({ onSave, onAddWithoutClose, onCancel, userReci
             {bulkPasteMode === 'image' && (
               <>
                 <p style={{ fontSize: '0.8rem', color: 'var(--color-text-secondary)', margin: '0 0 0.5rem', lineHeight: 1.5 }}>
-                  Take a screenshot of any recipe (cookbook page, website, sticky note, even a sheet) and paste it here with <strong>Cmd/Ctrl-V</strong>, drag & drop the image, or click to choose a file. We'll read the image with AI and add the recipe to the list below.
+                  Take a screenshot of any recipe (cookbook page, website, sticky note, even a sheet) and paste it here with <strong>Cmd/Ctrl-V</strong>, drag & drop the image, or click to choose a file. Recipe spread over several pages? Add a photo of each — they're read together as one recipe. We'll read them with AI and add the recipe to the list below.
                 </p>
                 <input
                   ref={bulkImageFileRef}
                   type="file"
                   accept="image/*"
+                  multiple
                   style={{ display: 'none' }}
                   onChange={e => {
-                    const file = e.target.files?.[0];
-                    if (file) handleBulkImage(file);
+                    queueBulkImages(e.target.files);
                     e.target.value = '';
                   }}
                 />
@@ -1805,23 +1853,53 @@ export function ImportRecipePage({ onSave, onAddWithoutClose, onCancel, userReci
                     e.preventDefault();
                     e.currentTarget.style.borderColor = '';
                     if (bulkImageProcessing) return;
-                    const file = e.dataTransfer.files?.[0];
-                    if (file?.type?.startsWith('image/')) handleBulkImage(file);
+                    queueBulkImages(e.dataTransfer.files);
                   }}
                 >
                   {bulkImageProcessing ? (
                     <>
                       <span style={{ fontSize: '1.2rem' }}>🧠</span>
-                      <span style={{ fontSize: '0.9rem', color: 'var(--color-text-secondary)', fontWeight: 500 }}>Reading recipe from image…</span>
+                      <span style={{ fontSize: '0.9rem', color: 'var(--color-text-secondary)', fontWeight: 500 }}>Reading recipe from {bulkImageQueue.length > 1 ? `${bulkImageQueue.length} photos` : 'image'}…</span>
                     </>
                   ) : (
                     <>
                       <span style={{ fontSize: '1.5rem' }}>📸</span>
-                      <span style={{ fontSize: '0.95rem', color: 'var(--color-text-secondary)', fontWeight: 600 }}>Paste an image (Cmd/Ctrl-V), drag & drop, or click to browse</span>
+                      <span style={{ fontSize: '0.95rem', color: 'var(--color-text-secondary)', fontWeight: 600 }}>{bulkImageQueue.length > 0 ? 'Add another page: paste, drag & drop, or click to browse' : 'Paste an image (Cmd/Ctrl-V), drag & drop, or click to browse'}</span>
                       <span style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>PNG, JPG, GIF, WebP</span>
                     </>
                   )}
                 </div>
+                {bulkImageQueue.length > 0 && (
+                  <div data-testid="bulk-image-queue" style={{ marginBottom: '0.75rem' }}>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '0.6rem' }}>
+                      {bulkImageQueue.map((q, i) => (
+                        <div key={q.id} style={{ position: 'relative', width: 84, height: 84, borderRadius: 8, overflow: 'hidden', border: '1px solid var(--color-border)', background: 'var(--color-surface-alt)' }}>
+                          <img src={q.url} alt={`Page ${i + 1}`} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                          <span style={{ position: 'absolute', left: 4, bottom: 4, fontSize: '0.68rem', fontWeight: 700, background: 'rgba(0,0,0,0.6)', color: '#fff', borderRadius: 4, padding: '1px 5px' }}>{i + 1}</span>
+                          {!bulkImageProcessing && (
+                            <button
+                              type="button"
+                              aria-label={`Remove page ${i + 1}`}
+                              onClick={() => removeQueuedBulkImage(q.id)}
+                              style={{ position: 'absolute', top: 3, right: 3, width: 22, height: 22, borderRadius: '50%', border: 'none', background: 'rgba(0,0,0,0.65)', color: '#fff', cursor: 'pointer', fontSize: '0.8rem', lineHeight: 1, padding: 0 }}
+                            >✕</button>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                    <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                      <button className={styles.menuGoBtn} onClick={handleBulkImages} disabled={bulkImageProcessing}>
+                        {bulkImageProcessing ? 'Reading…' : `Read recipe from ${bulkImageQueue.length} photo${bulkImageQueue.length !== 1 ? 's' : ''}`}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={clearBulkImageQueue}
+                        disabled={bulkImageProcessing}
+                        style={{ padding: '0.45rem 0.9rem', border: '1px solid var(--color-border)', borderRadius: 8, background: 'var(--color-surface)', color: 'var(--color-text-secondary)', cursor: 'pointer', fontFamily: 'inherit', fontSize: '0.85rem' }}
+                      >Clear</button>
+                    </div>
+                  </div>
+                )}
                 {bulkImageError && (
                   <div style={{ background: '#FEE2E2', color: '#991B1B', padding: '0.5rem 0.75rem', borderRadius: 6, marginBottom: '0.75rem', fontSize: '0.82rem' }}>
                     {bulkImageError}
@@ -2020,7 +2098,15 @@ export function ImportRecipePage({ onSave, onAddWithoutClose, onCancel, userReci
                       {bulkAdded.has(i) ? (
                         <span className={styles.sharedAddedLabel}>Added</span>
                       ) : (
-                        <button className={styles.sharedAcceptBtn} onClick={() => handleBulkAdd(i)}>+ Add</button>
+                        <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center' }}>
+                          <button className={styles.sharedAcceptBtn} onClick={() => handleBulkAdd(i)}>+ Add</button>
+                          <button
+                            type="button"
+                            title="Don't add this recipe"
+                            onClick={() => handleBulkDiscard(i)}
+                            style={{ padding: '0.3rem 0.65rem', border: '1px solid var(--color-border)', borderRadius: 6, background: 'var(--color-surface)', color: 'var(--color-text-secondary)', cursor: 'pointer', fontFamily: 'inherit', fontSize: '0.8rem' }}
+                          >✕ Discard</button>
+                        </div>
                       )}
                     </div>
                     {bulkPreview === i && (
