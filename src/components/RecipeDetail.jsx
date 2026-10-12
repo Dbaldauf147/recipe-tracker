@@ -27,6 +27,7 @@ import { RECIPE_STAGES } from '../utils/recipeStage';
 import { loadMealGoals, activeProfile } from '../utils/mealGoals';
 import { rateMeal, perServingForRecipe, readNutritionCache, ratingSummary } from '../utils/mealRating';
 import { StarRating } from './StarRating';
+import { RECIPE_SEASONS } from '../utils/recipeSeason';
 import styles from './RecipeDetail.module.css';
 
 const ADMIN_UID = import.meta.env.VITE_ADMIN_UID;
@@ -463,6 +464,7 @@ function initFields(recipe) {
     title: recipe.title || '',
     category: recipe.category || 'lunch-dinner',
     frequency: recipe.frequency || 'common',
+    seasonOnly: recipe.seasonOnly || '',
     cuisineLegacy: isPresetCuisine ? cuisineVal : (cuisineVal ? 'other' : ''),
     customCuisine: (!isPresetCuisine && cuisineVal) ? cuisineVal : '',
     mealType: presets.includes(type) ? type : 'custom',
@@ -1806,6 +1808,7 @@ export function RecipeDetail({ recipe, allTags = [], onSave, onDelete, onBack, o
       title: fields.title.trim(),
       category: fields.category,
       frequency: fields.frequency,
+      seasonOnly: fields.seasonOnly || '',
       cuisineLegacy: fields.cuisine === 'other' ? (fields.customCuisine.trim() || '') : fields.cuisine,
       mealType: (() => {
         const manual = fields.mealType === 'custom' ? fields.customMealType.trim() : fields.mealType;
@@ -2305,6 +2308,17 @@ export function RecipeDetail({ recipe, allTags = [], onSave, onDelete, onBack, o
                     <option value="toTry">To Try</option>
                     <option value="rare">Rare</option>
                     <option value="retired">Retired</option>
+                  </select>
+                </label>
+                <label className={styles.metaLabel} title="Only suggest this meal during one season">
+                  Seasonal only
+                  <select
+                    className={styles.inlineSelect}
+                    value={fields.seasonOnly}
+                    onChange={e => setField('seasonOnly', e.target.value)}
+                  >
+                    <option value="">Year-round</option>
+                    {RECIPE_SEASONS.map(s => <option key={s.key} value={s.key}>{s.label}</option>)}
                   </select>
                 </label>
                 <label className={styles.metaLabel}>
