@@ -2,13 +2,13 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import {
-  applyDeloadToEntry, deloadSetCount, deloadWeekStart, deloadWeight, isDeloadWeek,
-  normalizeDeloadSettings, upcomingDeloadWeeks, withWeekOverride, withoutDeload,
+  applyDeloadToEntry, defaultDeloadSettings, deloadReps, deloadSetCount, deloadWeekStart, deloadWeight, isDeloadWeek,
+  isRecommendedDeload, normalizeDeloadSettings, upcomingDeloadWeeks, withWeekOverride, withoutDeload,
 } from './deload.js';
 import { priorHistory } from './personalRecord.js';
 
 // Sunday 2026-10-04 starts the cycle: 4 training weeks, deload the week of Nov 1.
-const s = normalizeDeloadSettings({ enabled: true, trainWeeks: 4, anchor: '2026-10-04', weightPct: 60, setCutPct: 40 });
+const s = normalizeDeloadSettings({ enabled: true, trainWeeks: 4, anchor: '2026-10-04', weightPct: 60, setCutPct: 40, repCutPct: 0 });
 
 describe('deload schedule', () => {
   it('weeks are Sunday-started', () => {
@@ -47,6 +47,25 @@ describe('deload schedule', () => {
     assert.equal(n.setCutPct, 0);
     assert.equal(n.anchor, '2026-10-11'); // snapped to its Sunday
   });
+
+  it("defaults to Dr. Andy Galpin's deload: 5 weeks, 70%, half the reps, same sets", () => {
+    const d = defaultDeloadSettings();
+    assert.equal(d.trainWeeks, 5);
+    assert.equal(d.weightPct, 70);
+    assert.equal(d.setCutPct, 0);
+    assert.equal(d.repCutPct, 50);
+    assert.equal(isRecommendedDeload(d), true);
+    assert.equal(isRecommendedDeload({ ...d, weightPct: 60 }), false);
+  });
+
+  it('upgrades untouched old defaults, but keeps customised settings as they were', () => {
+    const old = normalizeDeloadSettings({ enabled: true, trainWeeks: 4, weightPct: 60, setCutPct: 40, anchor: '2026-10-04' });
+    assert.equal(isRecommendedDeload(old), true);
+    assert.equal(old.enabled, true);
+    assert.equal(old.anchor, '2026-10-04');
+    const custom = normalizeDeloadSettings({ enabled: true, trainWeeks: 3, weightPct: 50, setCutPct: 30 });
+    assert.deepEqual([custom.trainWeeks, custom.weightPct, custom.setCutPct, custom.repCutPct], [3, 50, 30, 0]);
+  });
 });
 
 describe('deload suggestions', () => {
@@ -75,6 +94,18 @@ describe('deload suggestions', () => {
     const bw = applyDeloadToEntry({ sets: ['12', '12'], weight: '180', useBodyWeight: true }, s);
     assert.equal(bw.weight, '180');
     assert.deepEqual(bw.sets, ['12', '']);
+  });
+
+  it('halves plain rep counts; timed sets are left alone', () => {
+    assert.equal(deloadReps('8', 50), '4');
+    assert.equal(deloadReps('5', 50), '3');
+    assert.equal(deloadReps('1', 50), '1');
+    assert.equal(deloadReps('30s', 50), '30s');
+    assert.equal(deloadReps('1:30', 50), '1:30');
+    assert.equal(deloadReps('8', 0), '8');
+    const d = applyDeloadToEntry({ sets: ['8', '8', '8', '8', '8'], weight: '135' }, defaultDeloadSettings());
+    assert.deepEqual(d.sets, ['4', '4', '4', '4', '4']);
+    assert.equal(d.weight, '95');
   });
 
   it('drops deload sessions from progress input', () => {
