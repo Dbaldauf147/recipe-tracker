@@ -21,6 +21,15 @@ function trackedSnackFruitKeys() {
   return keys;
 }
 
+function readDailyLog() {
+  try { return JSON.parse(localStorage.getItem('sunday-daily-log') || '{}') || {}; } catch { return {}; }
+}
+
+const KIND_BADGE = {
+  auto: { label: 'Auto-saved', title: 'Saved automatically — a meal from it was logged, or it sat on the list 3+ days' },
+  rebuilt: { label: 'From logged meals', title: 'No list was saved this week; these are the meals logged that week. Added items weren’t recorded.' },
+};
+
 function longDate(key) {
   const [y, m, d] = String(key).split('-').map(Number);
   if (!y || !m || !d) return key;
@@ -28,13 +37,18 @@ function longDate(key) {
 }
 
 /**
- * Meal History → Shopping Lists: every list saved by "Reset Shopping List",
+ * Meal History → Shopping Lists: every list saved by "Reset Shopping List" or
+ * auto-saved (utils/shoppingListAutoSave.js), plus weeks rebuilt from logged meals,
  * newest first, with all of its ingredients. The newest one (if it's from the
  * last two weeks) is what the Shopping List checks before auto-adding a snack
  * or fruit, so its added items are marked as skipped this week.
  */
 export function ShoppingListHistory({ entries, getRecipe }) {
-  const weeks = useMemo(() => shoppingListWeeks(entries, getRecipe), [entries, getRecipe]);
+  const weeks = useMemo(
+    () => shoppingListWeeks(entries, getRecipe, { dailyLog: readDailyLog(), today: todayKey() }),
+    [entries, getRecipe],
+  );
+  const lastIdx = weeks.findIndex(w => w.kind !== 'rebuilt');
   // Last list's snacks/fruit — what this week's auto-add leaves out.
   const skipped = useMemo(() => {
     const tracked = trackedSnackFruitKeys();
@@ -53,8 +67,8 @@ export function ShoppingListHistory({ entries, getRecipe }) {
   if (weeks.length === 0) {
     return (
       <p className={styles.empty}>
-        No saved shopping lists yet. Each time you press <strong>Reset Shopping List</strong>, that
-        week&rsquo;s list is saved here.
+        No saved shopping lists yet. A list is saved when you press <strong>Reset Shopping List</strong>,
+        or on its own once a meal from it is logged or it has been on the list for 3 days.
       </p>
     );
   }
@@ -62,12 +76,14 @@ export function ShoppingListHistory({ entries, getRecipe }) {
   return (
     <div className={styles.wrap}>
       <p className={styles.intro}>
-        Every list saved by <strong>Reset Shopping List</strong>. The weekly snack and fruit are picked
+        Every list saved by <strong>Reset Shopping List</strong> or automatically (a meal from it was logged,
+        or it sat on the list 3 days); weeks with no saved list are rebuilt from the meals you logged.
+        ✓ marks meals you logged while that list was current. The weekly snack and fruit are picked
         from items that were <em>not</em> on the most recent list, so neither repeats two weeks in a row.
       </p>
       {weeks.slice(0, limit).map((w, i) => {
         const isOpen = open.has(w.timestamp);
-        const isLast = i === 0 && lastShoppingListExtras(entries, todayKey()).length > 0;
+        const isLast = i === lastIdx && lastShoppingListExtras(entries, todayKey()).length > 0;
         const count = w.ingredients.length + w.extras.length;
         return (
           <section key={w.timestamp} className={styles.week}>
@@ -75,6 +91,7 @@ export function ShoppingListHistory({ entries, getRecipe }) {
               <span className={styles.caret} aria-hidden="true">{isOpen ? '▾' : '▸'}</span>
               <span className={styles.weekDate}>{longDate(w.date)}</span>
               {isLast && <span className={styles.lastBadge}>Last list</span>}
+              {KIND_BADGE[w.kind] && <span className={styles.kindBadge} title={KIND_BADGE[w.kind].title}>{KIND_BADGE[w.kind].label}</span>}
               <span className={styles.weekMeta}>
                 {w.recipes.length} meal{w.recipes.length === 1 ? '' : 's'} · {count} item{count === 1 ? '' : 's'}
               </span>
@@ -99,9 +116,15 @@ export function ShoppingListHistory({ entries, getRecipe }) {
                 {w.recipes.length > 0 && (
                   <div className={styles.group}>
                     <h4 className={styles.groupTitle}>Meals</h4>
-                    <p className={styles.meals}>
-                      {w.recipes.map(r => r.title || 'Deleted recipe').join(' · ')}
-                    </p>
+                    <ul className={styles.mealList}>
+                      {w.recipes.map(r => (
+                        <li key={r.id} className={r.logged ? styles.mealLogged : styles.mealNotLogged}
+                          title={r.logged ? `Logged on ${r.logged} day${r.logged === 1 ? '' : 's'}` : 'Not logged while this list was current'}>
+                          {r.logged ? '✓ ' : ''}{r.title || 'Deleted recipe'}
+                          {r.logged > 1 && <span className={styles.count}> ×{r.logged}</span>}
+                        </li>
+                      ))}
+                    </ul>
                   </div>
                 )}
                 {w.ingredients.length > 0 && (
