@@ -528,6 +528,8 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
       }));
       if (next) {
         try { localStorage.setItem('sunday-plan-history', JSON.stringify(next)); } catch { /* quota — the snapshot listener re-hydrates it */ }
+        // The Shopping List page's "Did you shop?" prompt listens for this.
+        window.dispatchEvent(new Event('shopping-list-autosaved'));
       }
     }).catch(err => console.warn('Shopping list auto-save:', err));
   }

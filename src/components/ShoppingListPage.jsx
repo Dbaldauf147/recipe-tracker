@@ -4,6 +4,7 @@ import { GroceryStaples } from './GroceryStaples';
 import { PantryList } from './PantryList';
 import { findTopSince, buildIngredientEatenMap } from '../utils/pantryAutoAdd';
 import { lastShoppingListExtras } from '../utils/shoppingHistory';
+import { openAutoIndex } from '../utils/shoppingListAutoSave';
 import { todayKey } from '../utils/localDate';
 import { renameIngredientLines } from '../utils/suggestIngredientName.js';
 import { TrackedItemsList } from './TrackedItemsList';
@@ -92,6 +93,24 @@ function readLastListExtras() {
   } catch {
     return [];
   }
+}
+
+const SHOP_PROMPT_DISMISSED_KEY = 'sunday-shop-prompt-dismissed';
+
+// This week's auto-saved list, if one is open (no Reset since it saved).
+function readOpenAutoList() {
+  try {
+    const history = JSON.parse(localStorage.getItem('sunday-plan-history') || '[]');
+    return history[openAutoIndex(history, todayKey())] || null;
+  } catch {
+    return null;
+  }
+}
+
+function shortDate(key) {
+  const [y, m, d] = String(key || '').split('-').map(Number);
+  if (!y || !m || !d) return key;
+  return new Date(y, m - 1, d).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
 }
 
 // Normalize ingredient names for fuzzy matching between snacks and daily-log
@@ -186,6 +205,33 @@ export function ShoppingListPage({ weeklyRecipes, weeklyServings = {}, getRecipe
       window.removeEventListener('storage', reload);
     };
   }, []);
+  // "Did you shop?" — the list auto-saved itself (a meal from it was logged,
+  // or it sat 3+ days; utils/shoppingListAutoSave.js) but Reset hasn't run,
+  // so the checkmarks, staples and snack/fruit dates are still last trip's.
+  // "Not yet" hides it for that list until the list grows.
+  const [openAutoList, setOpenAutoList] = useState(readOpenAutoList);
+  const [promptDismissed, setPromptDismissed] = useState(() => {
+    try { return localStorage.getItem(SHOP_PROMPT_DISMISSED_KEY) || ''; } catch { return ''; }
+  });
+  useEffect(() => {
+    const reload = () => setOpenAutoList(readOpenAutoList());
+    window.addEventListener('firestore-sync', reload);
+    window.addEventListener('shopping-list-autosaved', reload);
+    window.addEventListener('storage', reload);
+    return () => {
+      window.removeEventListener('firestore-sync', reload);
+      window.removeEventListener('shopping-list-autosaved', reload);
+      window.removeEventListener('storage', reload);
+    };
+  }, []);
+  const openAutoKey = openAutoList ? `${openAutoList.timestamp}|${(openAutoList.recipeIds || []).length}` : '';
+  const showShopPrompt = !!openAutoList && openAutoKey !== promptDismissed
+    && weeklyRecipes.some(r => (openAutoList.recipeIds || []).includes(r.id));
+  function dismissShopPrompt() {
+    setPromptDismissed(openAutoKey);
+    try { localStorage.setItem(SHOP_PROMPT_DISMISSED_KEY, openAutoKey); } catch { /* ignore */ }
+  }
+
   const topSnack = useMemo(() => findTopSince(snacksList, eatenMap, new Date(), lastListExtras), [snacksList, eatenMap, lastListExtras]);
   const topFruit = useMemo(() => findTopSince(fruitList, eatenMap, new Date(), lastListExtras), [fruitList, eatenMap, lastListExtras]);
 
@@ -530,6 +576,97 @@ export function ShoppingListPage({ weeklyRecipes, weeklyServings = {}, getRecipe
     return list;
   }, [extras, topSnack, topFruit]);
 
+  // Reset Shopping List: archive the list (Meal History), bump the snack/fruit
+  // lastPurchased dates, send staples back and clear the checkmarks. Also what
+  // the "Did you shop?" prompt runs.
+  function handleResetList() {
+    // Gather every ingredient name that's on the current shopping
+    // list so we can mark them as "just eaten" on each matching
+    // snack/fruit. Must happen BEFORE handleClearExtras wipes them.
+    const shoppingNames = new Set();
+    for (const r of combinedRecipes) {
+      for (const ing of (r.ingredients || [])) {
+        if (ing?.ingredient) shoppingNames.add(normalizeIngName(ing.ingredient));
+      }
+    }
+    for (const e of extrasWithAutoAdds) {
+      if (e?.ingredient) shoppingNames.add(normalizeIngName(e.ingredient));
+    }
+    try {
+      const staples = JSON.parse(localStorage.getItem('sunday-grocery-staples') || '[]');
+      for (const s of staples) {
+        if (s?.ingredient) shoppingNames.add(normalizeIngName(s.ingredient));
+      }
+    } catch { /* ignore */ }
+
+    const today = new Date().toISOString();
+    function bumpMatches(list) {
+      let changed = false;
+      const next = (list || []).map(item => {
+        const key = normalizeIngName(item.ingredient);
+        if (!key) return item;
+        let hit = shoppingNames.has(key);
+        if (!hit) {
+          for (const n of shoppingNames) {
+            if (n.length >= 4 && key.length >= 4 && (n.includes(key) || key.includes(n))) {
+              hit = true;
+              break;
+            }
+          }
+        }
+        if (!hit) return item;
+        changed = true;
+        return { ...item, lastPurchased: today };
+      });
+      return { next, changed };
+    }
+    // Re-read snacks/fruit from localStorage right before bumping.
+    // The parent's state is loaded once on mount and only refreshed
+    // via firestore-sync events; child edits in TrackedItemsList
+    // save to localStorage but don't dispatch one, so snacksList up
+    // here can be stale — which would silently overwrite the user's
+    // recent edits with the stale list when we save here.
+    let freshSnacks = snacksList;
+    let freshFruit = fruitList;
+    try {
+      const raw = localStorage.getItem('sunday-pantry-snacks');
+      if (raw) freshSnacks = JSON.parse(raw);
+    } catch { /* keep stale */ }
+    try {
+      const raw = localStorage.getItem('sunday-pantry-fruit');
+      if (raw) freshFruit = JSON.parse(raw);
+    } catch { /* keep stale */ }
+    const sBump = bumpMatches(freshSnacks);
+    if (sBump.changed) {
+      setSnacksList(sBump.next);
+      try { localStorage.setItem('sunday-pantry-snacks', JSON.stringify(sBump.next)); } catch {}
+      if (user) saveField(user.uid, 'pantrySnacks', sBump.next);
+    }
+    const fBump = bumpMatches(freshFruit);
+    if (fBump.changed) {
+      setFruitList(fBump.next);
+      try { localStorage.setItem('sunday-pantry-fruit', JSON.stringify(fBump.next)); } catch {}
+      if (user) saveField(user.uid, 'pantryFruit', fBump.next);
+    }
+
+    onSaveToHistory(
+      extrasWithAutoAdds.map(e => e?.ingredient).filter(Boolean),
+      extrasWithAutoAdds.filter(e => e?.source === 'auto-snack' || e?.source === 'auto-fruit').map(e => e.ingredient),
+    );
+    // Send grocery staples back to their boxes
+    handleClearExtras();
+    // Clear checked items for both the shopping list and grocery staples
+    localStorage.removeItem('sunday-shopping-checked');
+    localStorage.removeItem('sunday-staples-checked');
+    if (user) {
+      saveField(user.uid, 'shoppingChecked', []);
+      saveField(user.uid, 'staplesChecked', []);
+    }
+    window.dispatchEvent(new Event('firestore-sync'));
+    setSaved(true);
+    setTimeout(() => setSaved(false), 3000);
+  }
+
   return (
     <div className={styles.container}>
       <div className={styles.header}>
@@ -614,97 +751,29 @@ export function ShoppingListPage({ weeklyRecipes, weeklyServings = {}, getRecipe
         </div>
       )}
 
+      {showShopPrompt && onSaveToHistory && (
+        <div className={styles.shopPrompt} role="status">
+          <span className={styles.shopPromptIcon} aria-hidden="true">🛒</span>
+          <div className={styles.shopPromptText}>
+            <strong>Did you shop for this list?</strong>
+            <span>
+              It saved itself to Meal History on {shortDate(openAutoList.savedOn || openAutoList.date)}, because a
+              meal from it was logged or it&rsquo;s been on the list 3+ days. Mark it shopped to clear the
+              checkmarks, send staples back and update your snack &amp; fruit dates.
+            </span>
+          </div>
+          <div className={styles.shopPromptActions}>
+            <button type="button" className={styles.completedBtn} onClick={handleResetList}>Yes, mark shopped</button>
+            <button type="button" className={styles.shopPromptDismiss} onClick={dismissShopPrompt}>Not yet</button>
+          </div>
+        </div>
+      )}
+
       {weeklyRecipes.length > 0 && onSaveToHistory && (
         <div className={styles.completedRow}>
           <button
             className={styles.completedBtn}
-            onClick={() => {
-              // Gather every ingredient name that's on the current shopping
-              // list so we can mark them as "just eaten" on each matching
-              // snack/fruit. Must happen BEFORE handleClearExtras wipes them.
-              const shoppingNames = new Set();
-              for (const r of combinedRecipes) {
-                for (const ing of (r.ingredients || [])) {
-                  if (ing?.ingredient) shoppingNames.add(normalizeIngName(ing.ingredient));
-                }
-              }
-              for (const e of extrasWithAutoAdds) {
-                if (e?.ingredient) shoppingNames.add(normalizeIngName(e.ingredient));
-              }
-              try {
-                const staples = JSON.parse(localStorage.getItem('sunday-grocery-staples') || '[]');
-                for (const s of staples) {
-                  if (s?.ingredient) shoppingNames.add(normalizeIngName(s.ingredient));
-                }
-              } catch { /* ignore */ }
-
-              const today = new Date().toISOString();
-              function bumpMatches(list) {
-                let changed = false;
-                const next = (list || []).map(item => {
-                  const key = normalizeIngName(item.ingredient);
-                  if (!key) return item;
-                  let hit = shoppingNames.has(key);
-                  if (!hit) {
-                    for (const n of shoppingNames) {
-                      if (n.length >= 4 && key.length >= 4 && (n.includes(key) || key.includes(n))) {
-                        hit = true;
-                        break;
-                      }
-                    }
-                  }
-                  if (!hit) return item;
-                  changed = true;
-                  return { ...item, lastPurchased: today };
-                });
-                return { next, changed };
-              }
-              // Re-read snacks/fruit from localStorage right before bumping.
-              // The parent's state is loaded once on mount and only refreshed
-              // via firestore-sync events; child edits in TrackedItemsList
-              // save to localStorage but don't dispatch one, so snacksList up
-              // here can be stale — which would silently overwrite the user's
-              // recent edits with the stale list when we save here.
-              let freshSnacks = snacksList;
-              let freshFruit = fruitList;
-              try {
-                const raw = localStorage.getItem('sunday-pantry-snacks');
-                if (raw) freshSnacks = JSON.parse(raw);
-              } catch { /* keep stale */ }
-              try {
-                const raw = localStorage.getItem('sunday-pantry-fruit');
-                if (raw) freshFruit = JSON.parse(raw);
-              } catch { /* keep stale */ }
-              const sBump = bumpMatches(freshSnacks);
-              if (sBump.changed) {
-                setSnacksList(sBump.next);
-                try { localStorage.setItem('sunday-pantry-snacks', JSON.stringify(sBump.next)); } catch {}
-                if (user) saveField(user.uid, 'pantrySnacks', sBump.next);
-              }
-              const fBump = bumpMatches(freshFruit);
-              if (fBump.changed) {
-                setFruitList(fBump.next);
-                try { localStorage.setItem('sunday-pantry-fruit', JSON.stringify(fBump.next)); } catch {}
-                if (user) saveField(user.uid, 'pantryFruit', fBump.next);
-              }
-
-              onSaveToHistory(
-                extrasWithAutoAdds.map(e => e?.ingredient).filter(Boolean),
-                extrasWithAutoAdds.filter(e => e?.source === 'auto-snack' || e?.source === 'auto-fruit').map(e => e.ingredient),
-              );
-              // Send grocery staples back to their boxes
-              handleClearExtras();
-              // Clear checked items for both the shopping list and grocery staples
-              localStorage.removeItem('sunday-shopping-checked');
-              localStorage.removeItem('sunday-staples-checked');
-              if (user) {
-                saveField(user.uid, 'shoppingChecked', []);
-                saveField(user.uid, 'staplesChecked', []);
-              }
-              window.dispatchEvent(new Event('firestore-sync'));
-              setSaved(true);
-              setTimeout(() => setSaved(false), 3000);
-            }}
+            onClick={handleResetList}
           >
             Reset Shopping List
           </button>
