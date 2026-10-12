@@ -1,11 +1,12 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useRecipes } from './hooks/useRecipes';
 import { useAuth } from './contexts/AuthContext';
-import { saveField, loadField, loadDailyLogFromFirestore, appendAutoWeekHistory, getPendingRequests, getPendingSharedRecipes, loadFriends, loadFriendShoppingList, loadFriendEatingOut, getUsername, noteWeeklyPlanChange, loadAppDefaults, saveAppDefault } from './utils/firestoreSync';
+import { saveField, loadField, loadDailyLogFromFirestore, appendAutoWeekHistory, runShoppingListAutoSave, getPendingRequests, getPendingSharedRecipes, loadFriends, loadFriendShoppingList, loadFriendEatingOut, getUsername, noteWeeklyPlanChange, loadAppDefaults, saveAppDefault } from './utils/firestoreSync';
 import { OWNER_EMAIL, PAGE_ACCESS_KEY, canViewPage, isPageToggleable, isPageVisible, pageLabel, readCachedPageAccess, cachePageAccess } from './utils/pageAccess';
 import { trackPageView } from './utils/trackPageView';
 import { todayKey } from './utils/localDate';
 import { autoWeekEntries } from './utils/autoWeekHistory';
+import { autoSaveShoppingList, appendResetEntry } from './utils/shoppingListAutoSave';
 import { recordStageSnapshot } from './utils/recipeStageHistory';
 import { BUILD_LABEL, forceAppUpdate } from './utils/forceUpdate';
 import { countOutstandingHabits } from './utils/habitOutstanding';
@@ -504,6 +505,52 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
     return () => { cancelled = true; };
   }, [user?.uid]);
 
+  // Shopping lists save themselves (utils/shoppingListAutoSave.js): once a
+  // recipe on the list has been logged or has sat there 3 days, the list goes
+  // into Meal History without waiting for Reset Shopping List. Runs are
+  // chained so a save of the pre-removal list can't land after the next one.
+  const shoppingSaveChain = useRef(Promise.resolve());
+  const lastShoppingSaveAt = useRef(0);
+  function queueShoppingAutoSave(plan) {
+    if (!user?.uid) return;
+    const uid = user.uid;
+    lastShoppingSaveAt.current = Date.now();
+    shoppingSaveChain.current = shoppingSaveChain.current.then(async () => {
+      let dailyLog = {};
+      let extras = [];
+      try { dailyLog = JSON.parse(localStorage.getItem('sunday-daily-log') || '{}') || {}; } catch { /* empty */ }
+      try { extras = (JSON.parse(localStorage.getItem('sunday-shop-extras') || '[]') || []).map(e => e?.ingredient); } catch { /* empty */ }
+      const next = await runShoppingListAutoSave(uid, (history, since) => autoSaveShoppingList({
+        plan, since, history, dailyLog, extras, today: todayKey(), nowIso: new Date().toISOString(),
+      }));
+      if (next) {
+        try { localStorage.setItem('sunday-plan-history', JSON.stringify(next)); } catch { /* quota — the snapshot listener re-hydrates it */ }
+      }
+    }).catch(err => console.warn('Shopping list auto-save:', err));
+  }
+  const weeklyPlanRef = useRef(weeklyPlan);
+  weeklyPlanRef.current = weeklyPlan;
+  useEffect(() => {
+    if (!user?.uid) return;
+    const t = setTimeout(() => queueShoppingAutoSave(weeklyPlanRef.current), 2000);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.uid, weeklyPlan]);
+  // A meal just logged can be what marks the list as shopped. Synced data
+  // fires this often, so at most one check a minute from here.
+  useEffect(() => {
+    if (!user?.uid) return;
+    let t = null;
+    function onSync() {
+      if (Date.now() - lastShoppingSaveAt.current < 60000) return;
+      clearTimeout(t);
+      t = setTimeout(() => queueShoppingAutoSave(weeklyPlanRef.current), 3000);
+    }
+    window.addEventListener('firestore-sync', onSync);
+    return () => { clearTimeout(t); window.removeEventListener('firestore-sync', onSync); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.uid]);
+
   // Re-read localStorage when remote Firestore data is synced
   useEffect(() => {
     function handleSync() {
@@ -664,6 +711,9 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
   // the sync layer hold the change against a snapshot that was already in
   // flight when we wrote — without it, a removed meal reappears.
   function saveWeek(plan, prevPlan) {
+    // A recipe leaving the list may already count as shopped (logged, or on
+    // the list 3+ days) — save the list as it stood before it goes.
+    if (Array.isArray(prevPlan) && prevPlan.some(id => !plan.includes(id))) queueShoppingAutoSave(prevPlan);
     try { localStorage.setItem(WEEKLY_KEY, JSON.stringify(plan)); } catch {}
     noteWeeklyPlanChange(prevPlan, plan);
     if (user) saveField(user.uid, 'weeklyPlan', plan).catch(() => {});
@@ -921,7 +971,8 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
     if (extraNames.length > 0) entry.extras = [...new Set(extraNames)];
     try {
       const existing = JSON.parse(localStorage.getItem('sunday-plan-history') || '[]');
-      const next = [...existing, entry];
+      // Folds in this trip's auto-saved list, so one trip is one entry.
+      const next = appendResetEntry(existing, entry, entry.date);
       localStorage.setItem('sunday-plan-history', JSON.stringify(next));
       if (user) saveField(user.uid, 'planHistory', next);
     } catch {}

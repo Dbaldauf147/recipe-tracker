@@ -415,6 +415,28 @@ export async function appendAutoWeekHistory(uid, buildEntries) {
   });
 }
 
+// Shopping-list auto-save (utils/shoppingListAutoSave.js): read the live
+// planHistory + shoppingListSince and write both back in one transaction, so a
+// stale local copy can never overwrite history saved from another device.
+// `build(history, since)` → { history: next | null, since }.
+export async function runShoppingListAutoSave(uid, build) {
+  const ref = doc(db, 'users', uid);
+  return runTransaction(db, async tx => {
+    const snap = await tx.get(ref);
+    if (!snap.exists()) return null;
+    const data = snap.data() || {};
+    const history = Array.isArray(data.planHistory) ? data.planHistory : [];
+    const since = data.shoppingListSince && typeof data.shoppingListSince === 'object' ? data.shoppingListSince : {};
+    const out = build(history, since);
+    if (!out) return null;
+    const update = {};
+    if (out.history) update.planHistory = out.history;
+    if (JSON.stringify(out.since) !== JSON.stringify(since)) update.shoppingListSince = out.since;
+    if (Object.keys(update).length) tx.update(ref, update);
+    return out.history || null;
+  });
+}
+
 // Read a single top-level field off the user doc. Returns undefined when the
 // doc or field is missing. Used for small synced prefs (e.g. weekly goals).
 export async function loadField(uid, field) {

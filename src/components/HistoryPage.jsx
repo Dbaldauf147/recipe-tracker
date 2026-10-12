@@ -683,6 +683,14 @@ export function HistoryPage({ getRecipe, recipes, deletedRecipes = [], onRestore
                           from Week Plan
                         </span>
                       )}
+                      {entry.source === 'auto-list' && (
+                        <span
+                          className={styles.autoWeekTag}
+                          title="Shopping list saved automatically: a meal from it was logged, or it sat on the list 3+ days"
+                        >
+                          auto-saved list
+                        </span>
+                      )}
                     </td>
                     <td className={styles.mealsCell}>
                       {entry.recipeIds.map((id, i) => {
