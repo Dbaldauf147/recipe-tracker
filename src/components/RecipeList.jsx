@@ -4,6 +4,7 @@ import { loadStarterRecipes } from '../utils/starterRecipes';
 import { getUserKeyIngredients, normalize, recipeHasIngredient } from '../utils/keyIngredients';
 import { exportToCSV, importFromCSV, exportFullJSON } from '../utils/exportData';
 import { locationToRegion, getSeasonalIngredients, getRecipeSeasonalIngredients } from '../utils/seasonal';
+import { recipeInSeason } from '../utils/recipeSeason';
 import { useAuth } from '../contexts/AuthContext';
 import { OWNER_EMAIL } from '../utils/pageAccess';
 import { loadUserData, saveField, loadAppDefaults, saveAppDefault, loadFriends, loadFriendRecipes, getPendingSharedRecipes, shareRecipe, getUsername, loadDailyLogFromFirestore } from '../utils/firestoreSync';
@@ -1776,7 +1777,9 @@ export function RecipeList({
     if (checkedSources.size > 0) {
       filtered = filtered.filter(r => checkedSources.has(r.source || 'unknown'));
     }
-    const candidates = filtered.filter(r => !weekSet.has(r.id) && !isSkipped(suggestSkips, r.id));
+    // "Seasonal only" recipes sit out until their season comes round; then
+    // their days-since-eaten carries them straight up the list.
+    const candidates = filtered.filter(r => !weekSet.has(r.id) && !isSkipped(suggestSkips, r.id) && recipeInSeason(r));
     if (candidates.length === 0) return { breakfasts: [], lunches: [] };
 
     // Sort history newest-first
