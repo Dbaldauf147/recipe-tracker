@@ -7,6 +7,8 @@ import { dayTotals, dayHasContent, countedSupplements, activeEntries, formatNutr
 import { RecipeStageHistory } from './RecipeStageHistory';
 import { ShoppingListHistory } from './ShoppingListHistory';
 import { OWNER_EMAIL } from '../utils/pageAccess';
+import { loadIngredients, findIngredientIndex } from '../utils/ingredientsStore';
+import { buildUseByRows, withShelfOverride } from '../utils/historyShelfLife';
 import styles from './HistoryPage.module.css';
 
 const HISTORY_KEY = 'sunday-plan-history';
@@ -322,6 +324,100 @@ function DailyNutritionHistory({ getRecipe }) {
   );
 }
 
+function todayKeyLocal() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+function shortDate(key) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(key || '');
+  if (!m) return '';
+  return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]))
+    .toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+}
+
+const SOURCE_LABEL = { you: 'you', db: 'ingredient DB', guide: 'shelf-life guide' };
+
+/**
+ * One week's use-by list: every ingredient in that week's meals, how many days
+ * it should last (editable — saved on the history entry as `shelfLife`), and
+ * the date it expires counted from the week's prep date. See utils/historyShelfLife.
+ */
+function UseByPanel({ entry, getRecipe, onSetDays }) {
+  const today = todayKeyLocal();
+  const rows = useMemo(() => {
+    const db = loadIngredients() || [];
+    const lookup = name => {
+      const i = findIngredientIndex(db, name);
+      return i >= 0 ? db[i] : null;
+    };
+    return buildUseByRows(entry, getRecipe, lookup, today);
+  }, [entry, getRecipe, today]);
+
+  if (rows.length === 0) {
+    return <p className={styles.useByEmpty}>No ingredients found in this week&apos;s recipes.</p>;
+  }
+  return (
+    <div className={styles.useByWrap}>
+      <p className={styles.useByHint}>
+        Counted from {shortDate(entry.weekStart || entry.date)}. Change a number to log how long it lasts; clear it to go back to the default.
+      </p>
+      <table className={styles.useByTable}>
+        <thead>
+          <tr>
+            <th>Ingredient</th>
+            <th>Stored</th>
+            <th>Lasts (days)</th>
+            <th>Expires</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map(r => {
+            const status = r.left == null ? ''
+              : r.left < 0 ? 'Expired'
+              : r.left === 0 ? 'Today'
+              : r.left === 1 ? '1 day left'
+              : `${r.left} days left`;
+            const tone = r.left == null ? '' : r.left < 0 ? styles.useByExpired : r.left <= 1 ? styles.useBySoon : '';
+            return (
+              <tr key={r.key}>
+                <td>
+                  <div className={styles.useByName}>{r.name}</div>
+                  <div className={styles.useByMeta}>{r.recipes.join(', ')}</div>
+                </td>
+                <td className={styles.useByMeta}>{r.storage || '—'}</td>
+                <td>
+                  <input
+                    key={`${r.key}-${r.days}`}
+                    type="number"
+                    min="1"
+                    inputMode="numeric"
+                    className={styles.useByInput}
+                    defaultValue={r.days || ''}
+                    placeholder="days"
+                    aria-label={`Days ${r.name} lasts`}
+                    onBlur={e => onSetDays(r.key, e.target.value, r.defaultDays)}
+                    onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur(); }}
+                  />
+                  {r.source && <div className={styles.useByMeta}>{SOURCE_LABEL[r.source]}</div>}
+                </td>
+                <td>
+                  {r.expires ? (
+                    <>
+                      <div className={tone}>{shortDate(r.expires)}</div>
+                      <div className={styles.useByMeta}>{status}</div>
+                    </>
+                  ) : <span className={styles.useByMeta}>Unknown — add days</span>}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 export function HistoryPage({ getRecipe, recipes, deletedRecipes = [], onRestoreDeleted, onPurgeDeleted, onClose }) {
   const [entries, setEntries] = useState(loadHistory);
   // 'weeks'  = saved weekly menus (what this page has always been),
@@ -334,6 +430,7 @@ export function HistoryPage({ getRecipe, recipes, deletedRecipes = [], onRestore
   const showStages = (auth.currentUser?.email || '').toLowerCase() === OWNER_EMAIL;
   const [editingDate, setEditingDate] = useState(null);
   const [editingCell, setEditingCell] = useState(null); // { timestamp, index }
+  const [useByOpen, setUseByOpen] = useState(null); // timestamp of the week showing its use-by list
   const [importStatus, setImportStatus] = useState(null); // null | 'done' | { imported, skipped, unmatched }
   const [showRestore, setShowRestore] = useState(false);
   const [backups, setBackups] = useState(null);
@@ -422,6 +519,15 @@ export function HistoryPage({ getRecipe, recipes, deletedRecipes = [], onRestore
       if (e.timestamp !== timestamp) return e;
       const ids = e.recipeIds.filter((_, i) => i !== index);
       return { ...e, recipeIds: ids };
+    }));
+  }
+
+  function handleSetShelfDays(timestamp, key, value, defaultDays) {
+    persist(entries.map(e => {
+      if (e.timestamp !== timestamp) return e;
+      const shelfLife = withShelfOverride(e.shelfLife, key, value, defaultDays);
+      const { shelfLife: _old, ...rest } = e;
+      return Object.keys(shelfLife).length ? { ...rest, shelfLife } : rest;
     }));
   }
 
@@ -762,6 +868,15 @@ export function HistoryPage({ getRecipe, recipes, deletedRecipes = [], onRestore
                           +
                         </button>
                       )}
+                      <button
+                        type="button"
+                        className={`${styles.useByBtn} ${useByOpen === entry.timestamp ? styles.useByBtnOn : ''}`}
+                        onClick={() => setUseByOpen(o => (o === entry.timestamp ? null : entry.timestamp))}
+                        aria-expanded={useByOpen === entry.timestamp}
+                        title="How long this week's ingredients last before they expire"
+                      >
+                        Use-by {useByOpen === entry.timestamp ? '▴' : '▾'}
+                      </button>
                     </td>
                     <td className={styles.actionCell}>
                       <button
@@ -773,6 +888,17 @@ export function HistoryPage({ getRecipe, recipes, deletedRecipes = [], onRestore
                       </button>
                     </td>
                   </tr>
+                  {useByOpen === entry.timestamp && (
+                    <tr className={styles.useByRow}>
+                      <td colSpan={3}>
+                        <UseByPanel
+                          entry={entry}
+                          getRecipe={getRecipe}
+                          onSetDays={(key, value, dflt) => handleSetShelfDays(entry.timestamp, key, value, dflt)}
+                        />
+                      </td>
+                    </tr>
+                  )}
                   </React.Fragment>
                 );
               })}
