@@ -8,6 +8,7 @@ import {
 } from '../utils/firestoreSync';
 import { indexRecipesByGuide, indexExtrasByGuide, rankIngredientsForGuide, bestIngredientForGuide, mergeAirFryerGuide, cookLegs, recentShoppingLists } from '../utils/airFryerRecipes';
 import { findTopSince, buildIngredientEatenMap } from '../utils/pantryAutoAdd';
+import { lastShoppingListExtras } from '../utils/shoppingHistory';
 import { loadIngredients, ingredientRowByName } from '../utils/ingredientsStore';
 import { ingredientMatchScore } from '../utils/ingredientMatch';
 import { defaultUnitWeight } from '../utils/unitWeights';
@@ -634,12 +635,14 @@ export function AirFryerPage({ onClose, user, recipes = [], weeklyRecipeIds = []
     const list = [...(extras || [])];
     const eatenMap = buildIngredientEatenMap(getRecipeById);
     const has = (ing) => list.some(e => airFryerKey(e?.ingredient || '') === airFryerKey(ing || ''));
-    const topSnack = findTopSince(pantrySnacks, eatenMap);
-    const topFruit = findTopSince(pantryFruit, eatenMap);
+    // Same skip as the Shopping List: nothing from last week's list.
+    const skip = lastShoppingListExtras(planHistory, localDateKey());
+    const topSnack = findTopSince(pantrySnacks, eatenMap, new Date(), skip);
+    const topFruit = findTopSince(pantryFruit, eatenMap, new Date(), skip);
     if (topSnack?.ingredient && !has(topSnack.ingredient)) list.push({ ...topSnack, source: 'auto-snack' });
     if (topFruit?.ingredient && !has(topFruit.ingredient)) list.push({ ...topFruit, source: 'auto-fruit' });
     return list;
-  }, [extras, pantrySnacks, pantryFruit, getRecipeById]);
+  }, [extras, pantrySnacks, pantryFruit, getRecipeById, planHistory]);
   // Hand-added items from the saved trips.
   const pastListItems = useMemo(
     () => recentLists.extras.map(name => ({ ingredient: name, source: 'history' })),

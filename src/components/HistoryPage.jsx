@@ -5,6 +5,7 @@ import { importSheetHistory } from '../utils/importHistory';
 import { NUTRIENTS } from '../utils/nutrition';
 import { dayTotals, dayHasContent, countedSupplements, activeEntries, formatNutrient, resolveSupplements } from '../utils/dailyTotals';
 import { RecipeStageHistory } from './RecipeStageHistory';
+import { ShoppingListHistory } from './ShoppingListHistory';
 import { OWNER_EMAIL } from '../utils/pageAccess';
 import styles from './HistoryPage.module.css';
 
@@ -325,7 +326,8 @@ export function HistoryPage({ getRecipe, recipes, deletedRecipes = [], onRestore
   const [entries, setEntries] = useState(loadHistory);
   // 'weeks'  = saved weekly menus (what this page has always been),
   // 'daily'  = per-day nutrients from the food log,
-  // 'stages' = the weekly count of recipes at each development stage.
+  // 'stages' = the weekly count of recipes at each development stage,
+  // 'shopping' = every list saved by Reset Shopping List, ingredient by ingredient.
   const [tab, setTab] = useState('weeks');
   // `devStage` is owner-only (same gate as the chip that sets it and the pill
   // on the cards), so a tab that only ever charts zeroes stays hidden.
@@ -594,6 +596,14 @@ export function HistoryPage({ getRecipe, recipes, deletedRecipes = [], onRestore
         >
           Daily
         </button>
+        <button
+          role="tab"
+          aria-selected={tab === 'shopping'}
+          className={`${styles.subtab} ${tab === 'shopping' ? styles.subtabActive : ''}`}
+          onClick={() => setTab('shopping')}
+        >
+          Shopping Lists
+        </button>
         {showStages && (
           <button
             role="tab"
@@ -610,6 +620,8 @@ export function HistoryPage({ getRecipe, recipes, deletedRecipes = [], onRestore
         <RecipeStageHistory recipes={recipes} />
       ) : tab === 'daily' ? (
         <DailyNutritionHistory getRecipe={getRecipe} />
+      ) : tab === 'shopping' ? (
+        <ShoppingListHistory entries={entries} getRecipe={getRecipe} />
       ) : sorted.length === 0 ? (
         <p className={styles.empty}>
           No history yet — save a weekly menu to start tracking your meal history

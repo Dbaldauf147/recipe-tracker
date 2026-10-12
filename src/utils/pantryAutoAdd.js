@@ -30,14 +30,21 @@ export function effectiveDate(item, eatenMap) {
 
 // Pick the item from `list` with the highest Since (never-touched items win).
 // Items you've scheduled for other months (`seasonMonths`, set from the
-// widget's popup — utils/pantrySeasons.js) sit this month out.
-export function findTopSince(list, eatenMap, now = new Date()) {
+// widget's popup — utils/pantrySeasons.js) sit this month out, and so does
+// anything on LAST week's shopping list (`skipNames`, from
+// lastShoppingListExtras in utils/shoppingHistory.js) — so the same snack or
+// fruit is never added two weeks in a row. Matched by food words, like eaten
+// dates. With nothing else to pick there's no pick, rather than a repeat.
+export function findTopSince(list, eatenMap, now = new Date(), skipNames = []) {
   const month = now.getMonth() + 1;
+  const skip = new Map();
+  for (const n of skipNames || []) { const k = eatenKey(n); if (k) skip.set(k, '1'); }
   let best = null;
   let bestDays = -1;
   for (const item of (list || [])) {
     if (!(item?.ingredient || '').trim()) continue;
     if (!inSeasonMonth(item, month)) continue;
+    if (skip.size && lookupEatenDate(item.ingredient, skip)) continue;
     const d = effectiveDate(item, eatenMap);
     const days = d == null ? Number.POSITIVE_INFINITY : daysSinceDate(d);
     if (days > bestDays) { bestDays = days; best = item; }

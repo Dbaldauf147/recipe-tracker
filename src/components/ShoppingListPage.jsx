@@ -3,6 +3,8 @@ import { ShoppingList } from './ShoppingList';
 import { GroceryStaples } from './GroceryStaples';
 import { PantryList } from './PantryList';
 import { findTopSince, buildIngredientEatenMap } from '../utils/pantryAutoAdd';
+import { lastShoppingListExtras } from '../utils/shoppingHistory';
+import { todayKey } from '../utils/localDate';
 import { renameIngredientLines } from '../utils/suggestIngredientName.js';
 import { TrackedItemsList } from './TrackedItemsList';
 import { SavedShoppingLists } from './SavedShoppingLists';
@@ -83,6 +85,15 @@ const SOURCE_KEYS = {
   sauces: 'sunday-pantry-sauces',
 };
 
+// Added items on the most recent saved shopping list (utils/shoppingHistory.js).
+function readLastListExtras() {
+  try {
+    return lastShoppingListExtras(JSON.parse(localStorage.getItem('sunday-plan-history') || '[]'), todayKey());
+  } catch {
+    return [];
+  }
+}
+
 // Normalize ingredient names for fuzzy matching between snacks and daily-log
 // entries (strip "(s)", underscores/dashes, collapse whitespace, lowercase).
 function normalizeIngName(name) {
@@ -162,8 +173,21 @@ export function ShoppingListPage({ weeklyRecipes, weeklyServings = {}, getRecipe
     };
   }, []);
 
-  const topSnack = useMemo(() => findTopSince(snacksList, eatenMap), [snacksList, eatenMap]);
-  const topFruit = useMemo(() => findTopSince(fruitList, eatenMap), [fruitList, eatenMap]);
+  // What was on LAST week's list (Meal History's Shopping Lists), so the same
+  // snack or fruit is never auto-added two weeks running. Re-read on every
+  // sync: Reset Shopping List writes the archive and dispatches one.
+  const [lastListExtras, setLastListExtras] = useState(readLastListExtras);
+  useEffect(() => {
+    const reload = () => setLastListExtras(readLastListExtras());
+    window.addEventListener('firestore-sync', reload);
+    window.addEventListener('storage', reload);
+    return () => {
+      window.removeEventListener('firestore-sync', reload);
+      window.removeEventListener('storage', reload);
+    };
+  }, []);
+  const topSnack = useMemo(() => findTopSince(snacksList, eatenMap, new Date(), lastListExtras), [snacksList, eatenMap, lastListExtras]);
+  const topFruit = useMemo(() => findTopSince(fruitList, eatenMap, new Date(), lastListExtras), [fruitList, eatenMap, lastListExtras]);
 
   // Pull the daily log subcollection from Firestore on mount so this page
   // has fresh data even if the user hasn't visited Track Meals this session
