@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { autoSaveShoppingList, appendResetEntry } from './shoppingListAutoSave.js';
-import { shoppingListWeeks } from './shoppingHistory.js';
+import { shoppingListWeeks, lastShoppingListExtras } from './shoppingHistory.js';
 
 const NOW = '2026-10-14T12:00:00.000Z';
 const log = (recipeId, extra = {}) => ({ entries: [{ type: 'recipe', recipeId, mealSlot: 'lunch', ...extra }] });
@@ -122,4 +122,39 @@ test('a rebuilt week leaves off meals a nearby saved list already holds', () => 
   const weeks = shoppingListWeeks(history, id => ({ id, title: id, ingredients: [] }));
   const rebuilt = weeks.filter(w => w.kind === 'rebuilt');
   assert.deepEqual(rebuilt.map(w => [w.date, w.recipes.map(r => r.id)]), [['2026-10-04', ['a', 'b']], ['2026-09-27', ['d']]]); // a list AFTER the week doesn't cover it
+});
+
+test('auto snack/fruit picks save with the list, and are frozen after', () => {
+  const r = autoSaveShoppingList({
+    plan: ['a'], since: { a: '2026-10-11' }, history: [], extras: ['coffee'], autoPicks: ['trail mix', 'kiwi(s)'],
+    today: '2026-10-14', nowIso: NOW,
+  });
+  assert.deepEqual(r.history[0].extras, ['coffee', 'trail mix', 'kiwi(s)']);
+  assert.deepEqual(r.history[0].autoPicks, ['trail mix', 'kiwi(s)']);
+  // You ate the trail mix, so the pick drifts to almonds — not a second purchase.
+  const r2 = autoSaveShoppingList({
+    plan: ['a', 'b'], since: { a: '2026-10-11', b: '2026-10-11' }, history: r.history, extras: ['coffee'], autoPicks: ['almonds', 'kiwi(s)'],
+    today: '2026-10-15', nowIso: NOW,
+  });
+  assert.deepEqual(r2.history[0].recipeIds, ['a', 'b']);
+  assert.deepEqual(r2.history[0].extras, ['coffee', 'trail mix', 'kiwi(s)']);
+});
+
+test('Reset keeps the frozen picks, not a drifted one', () => {
+  const history = [{ date: '2026-10-11', recipeIds: ['a'], timestamp: 't', source: 'auto-list', extras: ['coffee', 'trail mix'], autoPicks: ['trail mix'] }];
+  const next = appendResetEntry(history, { date: '2026-10-14', recipeIds: ['a'], extras: ['coffee', 'almonds', 'nuts'], autoPicks: ['almonds'] }, '2026-10-14');
+  assert.deepEqual(next[0].extras, ['coffee', 'trail mix', 'nuts']);
+  assert.deepEqual(next[0].autoPicks, ['trail mix']);
+});
+
+test("this week's auto-saved list is not \"last week's\" for the no-repeat rule", () => {
+  const history = [
+    { date: '2026-10-04', recipeIds: ['z'], extras: ['apple(s)'], timestamp: 'r' },
+    { date: '2026-10-11', recipeIds: ['a'], extras: ['trail mix'], autoPicks: ['trail mix'], timestamp: 't', source: 'auto-list' },
+  ];
+  assert.deepEqual(lastShoppingListExtras(history, '2026-10-14'), ['apple(s)']);
+  // A week on, it's closed — and becomes last week's list.
+  assert.deepEqual(lastShoppingListExtras(history, '2026-10-18'), ['trail mix']);
+  const weeks = shoppingListWeeks(history, id => ({ id, title: id, ingredients: [] }), { today: '2026-10-14' });
+  assert.deepEqual(weeks.map(w => [w.date, w.current]), [['2026-10-11', true], ['2026-10-04', false]]);
 });

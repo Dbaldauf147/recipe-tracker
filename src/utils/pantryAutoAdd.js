@@ -52,6 +52,14 @@ export function findTopSince(list, eatenMap, now = new Date(), skipNames = []) {
   return best;
 }
 
+// This week's auto-added snack and fruit names (what the Shopping List shows),
+// for saving with the list. [] entries are dropped when there's no pick.
+export function weeklyAutoPicks({ snacks, fruit, eatenMap, now = new Date(), skipNames = [] }) {
+  return [findTopSince(snacks, eatenMap, now, skipNames), findTopSince(fruit, eatenMap, now, skipNames)]
+    .map(item => (item?.ingredient || '').trim())
+    .filter(Boolean);
+}
+
 // Build a map of normalized-ingredient-name → ISO date of the most recent
 // daily-log entry that included that ingredient. Used by the Snacks widget
 // to show "days since last eaten".

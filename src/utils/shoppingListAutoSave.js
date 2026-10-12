@@ -61,8 +61,13 @@ export function loggedDays(dailyLog, recipeId, from, to) {
   return out;
 }
 
-/** The auto-saved list still open on `today`: started within TRIP_DAYS, no Reset since. */
-function openAutoIndex(history, today) {
+/**
+ * Index of the auto-saved list still open on `today` (started within
+ * TRIP_DAYS, no Reset since) — this week's list, still being shopped from —
+ * or -1.
+ */
+export function openAutoIndex(history, today) {
+  if (!Array.isArray(history)) return -1;
   let idx = -1;
   history.forEach((e, i) => {
     if (e?.source !== 'auto-list' || e.date < addDays(today, -(TRIP_DAYS - 1))) return;
@@ -78,10 +83,15 @@ function openAutoIndex(history, today) {
  * One pass over the current list.
  *
  * { plan: recipeId[], since: {id: date}, history: planHistory, dailyLog,
- *   extras: string[], today: 'YYYY-MM-DD', nowIso }
+ *   extras: string[] (hand-added), autoPicks: string[] (the week's auto snack
+ *   + fruit), today: 'YYYY-MM-DD', nowIso }
+ *
+ * The auto picks are FROZEN on the first save: eating this week's snack makes
+ * another one the longest-since, and without the freeze every snack you eat
+ * would pull the next one onto the saved list.
  * → { since, history: next planHistory | null (unchanged), saved: recipeId[] }
  */
-export function autoSaveShoppingList({ plan = [], since = {}, history = [], dailyLog = {}, extras = [], today, nowIso }) {
+export function autoSaveShoppingList({ plan = [], since = {}, history = [], dailyLog = {}, extras = [], autoPicks = [], today, nowIso }) {
   const ids = [...new Set((plan || []).filter(Boolean))];
   const hist = Array.isArray(history) ? history : [];
 
@@ -99,22 +109,28 @@ export function autoSaveShoppingList({ plan = [], since = {}, history = [], dail
     loggedDays(dailyLog, id, nextSince[id], today).length > 0);
   if (shopped.length === 0) return { since: nextSince, history: null, saved: [] };
 
-  const extraNames = [...new Set((extras || []).map(n => String(n || '').trim()).filter(Boolean))];
+  const clean = list => [...new Set((list || []).map(n => String(n || '').trim()).filter(Boolean))];
+  const extraNames = clean(extras);
+  const pickNames = clean(autoPicks);
   const open = openAutoIndex(hist, today);
   let next;
   if (open >= 0) {
     const e = hist[open];
+    const addPicks = Array.isArray(e.autoPicks) ? [] : pickNames;
     next = hist.slice();
     next[open] = {
       ...e,
       recipeIds: [...new Set([...(e.recipeIds || []), ...uncovered])],
-      extras: [...new Set([...(e.extras || []), ...extraNames])],
+      extras: [...new Set([...(e.extras || []), ...extraNames, ...addPicks])],
+      ...(Array.isArray(e.autoPicks) || !pickNames.length ? {} : { autoPicks: pickNames }),
       savedOn: today,
     };
   } else {
     const start = uncovered.map(id => nextSince[id]).sort()[0];
     const entry = { date: start, recipeIds: uncovered, timestamp: nowIso, savedOn: today, source: 'auto-list' };
-    if (extraNames.length) entry.extras = extraNames;
+    const all = clean([...extraNames, ...pickNames]);
+    if (all.length) entry.extras = all;
+    if (pickNames.length) entry.autoPicks = pickNames;
     next = [...hist, entry];
   }
   return { since: nextSince, history: next, saved: uncovered };
@@ -134,7 +150,13 @@ export function appendResetEntry(history, entry, today) {
     ...entry,
     recipeIds: [...new Set([...(auto.recipeIds || []), ...(entry.recipeIds || [])])],
   };
-  const extras = [...new Set([...(auto.extras || []), ...(entry.extras || [])])];
+  // The auto-saved list already holds the week's snack/fruit, frozen when it
+  // was first saved; a pick that has drifted since (you ate the first one)
+  // isn't a second purchase.
+  const drifted = Array.isArray(auto.autoPicks) ? new Set((entry.autoPicks || []).map(n => String(n).toLowerCase())) : new Set();
+  const resetExtras = (entry.extras || []).filter(n => !drifted.has(String(n).toLowerCase()) || (auto.extras || []).includes(n));
+  const extras = [...new Set([...(auto.extras || []), ...resetExtras])];
   if (extras.length) merged.extras = extras;
+  if (Array.isArray(auto.autoPicks)) merged.autoPicks = auto.autoPicks;
   return [...hist.filter((_, i) => i !== open), merged];
 }

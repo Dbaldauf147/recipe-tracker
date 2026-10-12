@@ -7,6 +7,8 @@ import { trackPageView } from './utils/trackPageView';
 import { todayKey } from './utils/localDate';
 import { autoWeekEntries } from './utils/autoWeekHistory';
 import { autoSaveShoppingList, appendResetEntry } from './utils/shoppingListAutoSave';
+import { weeklyAutoPicks, buildIngredientEatenMap } from './utils/pantryAutoAdd';
+import { lastShoppingListExtras } from './utils/shoppingHistory';
 import { recordStageSnapshot } from './utils/recipeStageHistory';
 import { BUILD_LABEL, forceAppUpdate } from './utils/forceUpdate';
 import { countOutstandingHabits } from './utils/habitOutstanding';
@@ -520,13 +522,33 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
       let extras = [];
       try { dailyLog = JSON.parse(localStorage.getItem('sunday-daily-log') || '{}') || {}; } catch { /* empty */ }
       try { extras = (JSON.parse(localStorage.getItem('sunday-shop-extras') || '[]') || []).map(e => e?.ingredient); } catch { /* empty */ }
+      const autoPicks = currentAutoPicks(extras);
       const next = await runShoppingListAutoSave(uid, (history, since) => autoSaveShoppingList({
-        plan, since, history, dailyLog, extras, today: todayKey(), nowIso: new Date().toISOString(),
+        plan, since, history, dailyLog, extras, autoPicks, today: todayKey(), nowIso: new Date().toISOString(),
       }));
       if (next) {
         try { localStorage.setItem('sunday-plan-history', JSON.stringify(next)); } catch { /* quota — the snapshot listener re-hydrates it */ }
       }
     }).catch(err => console.warn('Shopping list auto-save:', err));
+  }
+  // The week's auto-added snack + fruit — the same pick the Shopping List
+  // shows (findTopSince over the pantry widgets), minus any already hand-added.
+  const getRecipeRef = useRef(getRecipe);
+  getRecipeRef.current = getRecipe;
+  function currentAutoPicks(handExtras) {
+    try {
+      const read = k => JSON.parse(localStorage.getItem(k) || '[]') || [];
+      const history = read('sunday-plan-history');
+      const have = new Set((handExtras || []).map(n => String(n || '').trim().toLowerCase()));
+      return weeklyAutoPicks({
+        snacks: read('sunday-pantry-snacks'),
+        fruit: read('sunday-pantry-fruit'),
+        eatenMap: buildIngredientEatenMap(getRecipeRef.current),
+        skipNames: lastShoppingListExtras(history, todayKey()),
+      }).filter(n => !have.has(n.toLowerCase()));
+    } catch {
+      return [];
+    }
   }
   const weeklyPlanRef = useRef(weeklyPlan);
   weeklyPlanRef.current = weeklyPlan;
@@ -960,7 +982,7 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
   // `extras` is the shopping list's hand-added items (names), passed by the
   // Shopping List page's reset so the archive keeps the whole list, not just
   // its recipes. The Air fryer page reads it back for "past 2 weeks".
-  function handleSaveToHistory(extras = []) {
+  function handleSaveToHistory(extras = [], autoPicks = []) {
     if (weeklyPlan.length === 0) return;
     const entry = {
       date: todayKey(), // local, not UTC — a week saved at night is today's
@@ -969,6 +991,8 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
     };
     const extraNames = (Array.isArray(extras) ? extras : []).map(n => String(n || '').trim()).filter(Boolean);
     if (extraNames.length > 0) entry.extras = [...new Set(extraNames)];
+    const pickNames = (Array.isArray(autoPicks) ? autoPicks : []).map(n => String(n || '').trim()).filter(Boolean);
+    if (pickNames.length > 0) entry.autoPicks = pickNames;
     try {
       const existing = JSON.parse(localStorage.getItem('sunday-plan-history') || '[]');
       // Folds in this trip's auto-saved list, so one trip is one entry.

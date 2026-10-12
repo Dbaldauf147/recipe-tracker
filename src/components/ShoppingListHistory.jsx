@@ -48,7 +48,7 @@ export function ShoppingListHistory({ entries, getRecipe }) {
     () => shoppingListWeeks(entries, getRecipe, { dailyLog: readDailyLog(), today: todayKey() }),
     [entries, getRecipe],
   );
-  const lastIdx = weeks.findIndex(w => w.kind !== 'rebuilt');
+  const lastIdx = weeks.findIndex(w => w.kind !== 'rebuilt' && !w.current);
   // Last list's snacks/fruit — what this week's auto-add leaves out.
   const skipped = useMemo(() => {
     const tracked = trackedSnackFruitKeys();
@@ -91,6 +91,7 @@ export function ShoppingListHistory({ entries, getRecipe }) {
               <span className={styles.caret} aria-hidden="true">{isOpen ? '▾' : '▸'}</span>
               <span className={styles.weekDate}>{longDate(w.date)}</span>
               {isLast && <span className={styles.lastBadge}>Last list</span>}
+              {w.current && <span className={styles.lastBadge} title="Still being shopped from — its snack and fruit don't count as last week's">This week</span>}
               {KIND_BADGE[w.kind] && <span className={styles.kindBadge} title={KIND_BADGE[w.kind].title}>{KIND_BADGE[w.kind].label}</span>}
               <span className={styles.weekMeta}>
                 {w.recipes.length} meal{w.recipes.length === 1 ? '' : 's'} · {count} item{count === 1 ? '' : 's'}
