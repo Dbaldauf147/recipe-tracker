@@ -21,6 +21,7 @@ import { PrCelebration } from './PrCelebration';
 import { SetPainPopover } from './SetPainPopover';
 import { setPainFor, withSetPain } from '../utils/setPain';
 import { detectPersonalRecord, priorHistory } from '../utils/personalRecord';
+import { galpinRateFor, withGalpinGoal, GALPIN_WEIGHT_PCT, GALPIN_VOLUME_PCT } from '../utils/galpinGoals';
 import { applyDeloadToEntry, DELOAD_BG, DELOAD_BORDER, isDeloadWeek, normalizeDeloadSettings, withoutDeload } from '../utils/deload';
 import { DeloadTab } from './DeloadTab';
 import {
@@ -3433,6 +3434,14 @@ export function WorkoutPage({ onBack, user }) {
   });
   const [chartLeftMetric, setChartLeftMetric] = useState('avgReps');
   const [chartRightMetric, setChartRightMetric] = useState('weight');
+  // Dr. Galpin's goals: dashed +3%/wk weight and +10%/wk volume lines over
+  // every chart. Remembered per browser.
+  const [galpinGoals, setGalpinGoals] = useState(() => {
+    try { return localStorage.getItem('sunday-chart-galpin-goals') === '1'; } catch { return false; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem('sunday-chart-galpin-goals', galpinGoals ? '1' : '0'); } catch { /* private mode */ }
+  }, [galpinGoals]);
   const [chartView, setChartView] = useState('custom'); // 'custom' or a group name like 'Push'
   // Charts page exercise search — add any logged exercise's chart by name.
   const [chartSearchInput, setChartSearchInput] = useState('');
@@ -6357,7 +6366,15 @@ export function WorkoutPage({ onBack, user }) {
           const data = precomputedData || buildChartData(exercise);
           if (data.length === 0) return <div className={styles.chartCardEmpty}>No sessions logged for {exercise}</div>;
           if (data.length < 2) return <div className={styles.chartCardEmpty}>Need 2+ sessions to chart {exercise}</div>;
-          const dataT = withTrend(data, rightMeta.field);
+          // Goal lines only for metrics a Galpin goal applies to (weight → +3%,
+          // total reps → +10%); the same metric on both axes gets one line.
+          const leftRate = galpinGoals ? galpinRateFor(leftMeta.field) : null;
+          const rightRate = galpinGoals && rightMeta.field !== leftMeta.field ? galpinRateFor(rightMeta.field) : null;
+          let dataT = withTrend(data, rightMeta.field);
+          if (leftRate != null) dataT = withGalpinGoal(dataT, leftMeta.field, leftRate, 'goalL');
+          if (rightRate != null) dataT = withGalpinGoal(dataT, rightMeta.field, rightRate, 'goalR');
+          const goalColor = rate => (rate === GALPIN_WEIGHT_PCT ? '#16a34a' : '#db2777');
+          const goalText = (meta, rate, v) => `Galpin goal (+${Math.round(rate * 100)}%/wk): ${meta.isWeight ? lbToUnitNum(v, weightUnit) : v}`;
           // The first→last summary reads the sessions the trend counts. An away
           // day is still plotted, but opening or closing on one would report a
           // swing the chart itself marks as not comparable.
@@ -6435,6 +6452,8 @@ export function WorkoutPage({ onBack, user }) {
                           <div style={{ fontWeight: 700, marginBottom: 2 }}>{formatDate(label)}</div>
                           <div style={{ color: '#dc2626' }}>{leftMeta.label}{leftMeta.isWeight ? ` (${weightUnit})` : ''}: {leftMeta.isWeight ? lbToUnitNum(d[leftMeta.field], weightUnit) : d[leftMeta.field]}</div>
                           <div style={{ color: '#3B6B9C' }}>{rightMeta.label}{rightMeta.isWeight ? ` (${weightUnit})` : ''}: {rightMeta.isWeight ? lbToUnitNum(d[rightMeta.field], weightUnit) : d[rightMeta.field]}</div>
+                          {leftRate != null && d.goalL != null && <div style={{ color: goalColor(leftRate) }}>{goalText(leftMeta, leftRate, d.goalL)}</div>}
+                          {rightRate != null && d.goalR != null && <div style={{ color: goalColor(rightRate) }}>{goalText(rightMeta, rightRate, d.goalR)}</div>}
                           {d.offsite && <div style={{ color: '#6b7280', fontWeight: 600, marginTop: 2 }}>At {d.offsite}, not in the trend</div>}
                         </div>
                       );
@@ -6442,6 +6461,8 @@ export function WorkoutPage({ onBack, user }) {
                     <Area yAxisId="left" type="stepAfter" dataKey={leftMeta.field} stroke="#dc2626" strokeWidth={2} fill="#fca5a5" fillOpacity={0.45} dot={awayDot} activeDot={{ r: 4 }} isAnimationActive={false} />
                     <Area yAxisId="right" type="stepAfter" dataKey={rightMeta.field} stroke="#3B6B9C" strokeWidth={2} fill="#bfdbfe" fillOpacity={0.45} dot={awayDot} activeDot={{ r: 4 }} isAnimationActive={false} />
                     <Line yAxisId="right" type="linear" dataKey="trend" stroke="#3B6B9C" strokeWidth={1.25} strokeOpacity={0.6} strokeDasharray="4 3" dot={false} activeDot={false} legendType="none" isAnimationActive={false} />
+                    {leftRate != null && <Line yAxisId="left" type="stepAfter" dataKey="goalL" stroke={goalColor(leftRate)} strokeWidth={2} strokeDasharray="7 4" dot={false} activeDot={false} connectNulls={false} legendType="none" isAnimationActive={false} />}
+                    {rightRate != null && <Line yAxisId="right" type="stepAfter" dataKey="goalR" stroke={goalColor(rightRate)} strokeWidth={2} strokeDasharray="7 4" dot={false} activeDot={false} connectNulls={false} legendType="none" isAnimationActive={false} />}
                   </ComposedChart>
                 </ResponsiveContainer>
               </div>
@@ -6748,6 +6769,23 @@ export function WorkoutPage({ onBack, user }) {
                 )}
               </>
             )}
+
+            {/* Dr. Galpin's goals: overlay the weekly targets on every chart. */}
+            <div className={styles.galpinRow}>
+              <button
+                type="button"
+                className={`${styles.chartViewBtn} ${galpinGoals ? styles.chartViewBtnActive : ''}`}
+                aria-pressed={galpinGoals}
+                onClick={() => setGalpinGoals(v => !v)}
+              >
+                {galpinGoals ? "Hide Dr. Galpin's goals" : "Show Dr. Galpin's goals"}
+              </button>
+              <span className={styles.galpinNote}>
+                Dashed goal lines: <span style={{ color: '#16a34a', fontWeight: 600 }}>weight +{GALPIN_WEIGHT_PCT * 100}% / week</span>
+                {' '}(Weight, Max Weight, Est. 1RM) and <span style={{ color: '#db2777', fontWeight: 600 }}>volume +{GALPIN_VOLUME_PCT * 100}% / week</span>
+                {' '}(Total Reps), each from your best in the last week you trained. Pick those metrics on an axis to see them.
+              </span>
+            </div>
           </div>
         );
       })()}
