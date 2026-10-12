@@ -31,6 +31,7 @@ import { OnboardingPage } from './components/OnboardingPage';
 import { AdminDashboard } from './components/AdminDashboard';
 import { SharedRecipePage } from './components/SharedRecipePage';
 import { AirFryerSharePage } from './components/AirFryerSharePage';
+import { airFryerShareRoute } from './utils/airFryerShareRoute';
 import { GoalsPage } from './components/GoalsPage';
 import { SeasonalGuidePage } from './components/SeasonalGuidePage';
 import { AirFryerPage } from './components/AirFryerPage';
@@ -1598,10 +1599,10 @@ function App() {
   //
   // /air-fryer/<token> is the link we hand out; ?airfryer=<token> is the same
   // page, kept because a url that survives being retyped is worth ten bytes.
-  const airFryerToken =
-    (window.location.pathname.match(/^\/air-fryer\/([A-Za-z0-9]{6,32})\/?$/) || [])[1]
-    || params.get('airfryer');
-  if (airFryerToken) {
+  // Matched loosely (see airFryerShareRoute): a pasted link with `**` or a
+  // full stop on the end used to fall through to the login page.
+  const airFryerToken = airFryerShareRoute(window.location.pathname, window.location.search);
+  if (airFryerToken !== null) {
     return <AirFryerSharePage token={airFryerToken} />;
   }
 
