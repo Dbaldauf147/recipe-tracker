@@ -20,6 +20,7 @@ import {
 import { downloadRestaurantsCsv } from '../utils/restaurantExport';
 import { spotCategories, withMergedCategories, mergeCategoryLists } from '../utils/spotCategories';
 import { categorizePatch } from '../utils/categorizePatch';
+import { frequencyExempt, frequencyOptionsFor, allowedFrequency } from '../utils/spotFrequency';
 import { categorizeCompletion, inCategorizePopulation, isCategorized } from '../utils/categorizeCompletion';
 import { locationsFromGeocode, mergeLocations } from '../utils/spotLocations';
 import { readMapColors, writeMapColors } from '../utils/mapColors';
@@ -413,7 +414,8 @@ function unfiledNotice(unfiled, onFile) {
 function missingCategories(r) {
   if (!hasBeenVisited(r)) return [];
   const gaps = [];
-  if (!String(r?.frequency || '').trim()) gaps.push('frequency');
+  // Drinking / Going Out places have no frequency to file — utils/spotFrequency.
+  if (!String(r?.frequency || '').trim() && !frequencyExempt(bucketsOf(r))) gaps.push('frequency');
   return gaps;
 }
 
@@ -2036,7 +2038,7 @@ function EditModal({ initial, onSave, onClose, onDelete, cuisineSuggestions, loc
       // doc id that is the spot id, which is exactly what spotPhotoIds falls
       // back to, so the field only appears once there's more than one.
       photos: photoIds.length > 1 ? photoIds : undefined,
-      frequency: frequency || undefined,
+      frequency: allowedFrequency(buckets, frequency),
       health: health || undefined,
       dish: dish.trim() || undefined,
       meals: meals.length ? meals : undefined,
@@ -2186,7 +2188,7 @@ function EditModal({ initial, onSave, onClose, onDelete, cuisineSuggestions, loc
             >
               —
             </button>
-            {FREQUENCIES.map(f => (
+            {frequencyOptionsFor(buckets, FREQUENCIES).map(f => (
               <button
                 key={f.key}
                 type="button"
@@ -3730,7 +3732,7 @@ function CategorizePrompt({ queue, cuisineSuggestions, onSave, onClose, completi
 
         <div className={styles.fileLabel}>Frequency</div>
         <div className={styles.fileRow}>
-          {FREQUENCIES.map(f => (
+          {frequencyOptionsFor(v.buckets, FREQUENCIES).map(f => (
             <button
               key={f.key}
               type="button"
@@ -5555,7 +5557,9 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
       // A category edit clears the pre-merge `categories` list, whichever
       // updater made it, so a removed category can't reappear from it.
       const clear = Array.isArray(patch.cuisines) ? { categories: [] } : null;
-      return { ...r, ...patch, ...clear, updatedAt: new Date().toISOString() };
+      const merged = { ...r, ...patch, ...clear, updatedAt: new Date().toISOString() };
+      // Moved into Drinking / Going Out only, or handed a Regular there: no frequency.
+      return { ...merged, frequency: allowedFrequency(bucketsOf(merged), merged.frequency) };
     });
     if (changed) persistOwner(user.uid, next);
   }, [ownerData, user?.uid, persistOwner]);
@@ -5580,7 +5584,8 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
         if (!current) return null;
         // Categories changed → the pre-merge list is cleared with them.
         const clear = Array.isArray(patch.cuisines) ? { categories: [] } : null;
-        return { ...current, ...patch, ...clear, updatedAt: now };
+        const merged = { ...current, ...patch, ...clear, updatedAt: now };
+        return { ...merged, frequency: allowedFrequency(bucketsOf(merged), merged.frequency) };
       })
       .filter(Boolean);
     if (spots.length === 0) return;
