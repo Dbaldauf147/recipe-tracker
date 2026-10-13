@@ -158,3 +158,46 @@ test("this week's auto-saved list is not \"last week's\" for the no-repeat rule"
   const weeks = shoppingListWeeks(history, id => ({ id, title: id, ingredients: [] }), { today: '2026-10-14' });
   assert.deepEqual(weeks.map(w => [w.date, w.current]), [['2026-10-11', true], ['2026-10-04', false]]);
 });
+
+test('meals already on a list from the last 10 days do not start another', () => {
+  // Reset on the 12th; the same two meals got a fresh on-the-list date on the 13th.
+  const history = [{ date: '2026-10-12', recipeIds: ['a', 'b', 'c'], timestamp: 't' }];
+  const r = autoSaveShoppingList({
+    plan: ['a', 'b'], since: { a: '2026-10-13', b: '2026-10-13' }, history,
+    dailyLog: { '2026-10-13': log('a') }, today: '2026-10-13', nowIso: NOW,
+  });
+  assert.equal(r.history, null);
+  // 10+ days later the same meal is a new shop.
+  const later = autoSaveShoppingList({
+    plan: ['a'], since: { a: '2026-10-22' }, history,
+    dailyLog: { '2026-10-22': log('a') }, today: '2026-10-22', nowIso: NOW,
+  });
+  assert.deepEqual(later.history[1].recipeIds, ['a']);
+  // One new meal alongside them is a real new list, repeats included.
+  const mixed = autoSaveShoppingList({
+    plan: ['a', 'z'], since: { a: '2026-10-13', z: '2026-10-13' }, history,
+    dailyLog: { '2026-10-13': log('z') }, today: '2026-10-13', nowIso: NOW,
+  });
+  assert.deepEqual(mixed.history[1].recipeIds, ['a', 'z']);
+});
+
+test('Shopping Lists tab: the same meals within 10 days are shown once', () => {
+  const history = [
+    { date: '2026-10-12', recipeIds: ['a', 'b', 'c', 'd'], extras: ['coffee', 'melon(s)'], timestamp: '2026-10-12T12:00:00Z' },
+    // The duplicate auto-save: nothing new but this week's picks.
+    { date: '2026-10-13', recipeIds: ['b', 'c'], extras: ['orange(s)'], autoPicks: ['orange(s)'], timestamp: '2026-10-13T11:00:00Z', source: 'auto-list', savedOn: '2026-10-13' },
+    // One new meal: a real list, shown whole.
+    { date: '2026-10-15', recipeIds: ['a', 'e'], timestamp: '2026-10-15T11:00:00Z' },
+    // Outside 10 days of the 12th's list (and the 15th's doesn't hold b).
+    { date: '2026-10-23', recipeIds: ['b'], timestamp: '2026-10-23T11:00:00Z' },
+  ];
+  const weeks = shoppingListWeeks(history, id => ({ id, title: id, ingredients: [] }), { today: '2026-10-24' });
+  assert.deepEqual(weeks.map(w => [w.date, w.recipes.map(r => r.id)]), [
+    ['2026-10-23', ['b']],
+    ['2026-10-15', ['a', 'e']],
+    ['2026-10-12', ['a', 'b', 'c', 'd']],
+  ]);
+  assert.deepEqual(weeks[2].extras, ['coffee', 'melon(s)', 'orange(s)']);
+  // Stored history is untouched.
+  assert.deepEqual(history[1].recipeIds, ['b', 'c']);
+});
