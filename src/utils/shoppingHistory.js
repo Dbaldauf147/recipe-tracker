@@ -16,7 +16,7 @@
    The mobile app mirrors lastShoppingListExtras in its pantryAutoAdd.ts. */
 
 import { activeEntries } from './dailyTotals.js';
-import { openAutoIndex } from './shoppingListAutoSave.js';
+import { openAutoIndex, DUPLICATE_DAYS } from './shoppingListAutoSave.js';
 
 // The Sunday starting a Week Plan fill-in's week.
 function weekOf(e) {
@@ -76,6 +76,34 @@ export function lastShoppingListExtras(history, today, days = 14) {
 }
 
 /**
+ * A list whose meals were ALL on a list saved in the DUPLICATE_DAYS (10) days
+ * before it is the same shop counted twice (leftovers still on the list get
+ * saved again after a Reset), so it's folded into the latest of those earlier
+ * lists: its added items join that one and it isn't a card of its own. A list
+ * with any new meal stands — a meal bought again a week later is a re-buy.
+ * Oldest first; copies, with `original` pointing at the stored entry.
+ */
+export function dedupeShoppingLists(lists) {
+  const sorted = (lists || []).slice().sort((a, b) =>
+    a.date === b.date ? String(a.timestamp || '').localeCompare(String(b.timestamp || '')) : a.date.localeCompare(b.date));
+  const kept = [];
+  for (const e of sorted) {
+    const from = addDaysKey(e.date, -(DUPLICATE_DAYS - 1));
+    const near = kept.filter(k => k.date >= from && k.date <= e.date);
+    const seen = new Set(near.flatMap(k => k.recipeIds || []));
+    const ids = e.recipeIds || [];
+    if (ids.length && near.length && ids.every(id => seen.has(id))) {
+      const into = near[near.length - 1];
+      const extras = [...new Set([...(into.extras || []), ...(e.extras || [])])];
+      if (extras.length) into.extras = extras;
+      continue;
+    }
+    kept.push({ ...e, original: e });
+  }
+  return kept;
+}
+
+/**
  * Every saved shopping list, newest first, with its ingredients spelled out:
  * the recipes' ingredients (merged, a count of how many recipes use each) and
  * the added items. Recipes are read as they are NOW — the archive keeps ids,
@@ -84,7 +112,7 @@ export function lastShoppingListExtras(history, today, days = 14) {
 export function shoppingListWeeks(history, getRecipe, options = {}) {
   const { dailyLog = null, today = null } = options;
   const all = Array.isArray(history) ? history : [];
-  const lists = all.filter(isShoppingListEntry);
+  const lists = dedupeShoppingLists(all.filter(isShoppingListEntry));
   // A Week Plan fill-in stands in for a week that has NO saved list — those
   // weeks were shopped too, the list just never got saved. Its meals are the
   // ones logged that week; its added items are unknown.
@@ -99,7 +127,8 @@ export function shoppingListWeeks(history, getRecipe, options = {}) {
     if (recipeIds.length) rebuilt.push({ ...e, recipeIds });
   }
   const listDates = lists.map(l => l.date).sort();
-  const openEntry = today ? all[openAutoIndex(all, today)] : null;
+  const openOriginal = today ? all[openAutoIndex(all, today)] : null;
+  const openEntry = lists.find(l => l.original === openOriginal) || null;
   const out = [];
   for (const e of [...lists, ...rebuilt]) {
     const isRebuilt = e.source === 'week-plan';

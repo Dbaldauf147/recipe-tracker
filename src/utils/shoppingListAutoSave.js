@@ -31,6 +31,7 @@ import { activeEntries } from './dailyTotals.js';
 export const SHOPPED_AFTER_DAYS = 3;
 export const TRIP_DAYS = 7;
 export const BACKDATE_DAYS = 7;
+export const DUPLICATE_DAYS = 10;
 
 const pad = n => String(n).padStart(2, '0');
 const keyOf = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
@@ -103,7 +104,10 @@ export function autoSaveShoppingList({ plan = [], since = {}, history = [], dail
   }
 
   const covered = id => hist.some(e => isList(e) && (e.recipeIds || []).includes(id) && savedOn(e) >= nextSince[id]);
-  const uncovered = ids.filter(id => !covered(id));
+  const recent = addDays(today, -(DUPLICATE_DAYS - 1));
+  const listedRecently = id => hist.some(e => isList(e) && (e.recipeIds || []).includes(id) && e.date >= recent && e.date <= today);
+  let uncovered = ids.filter(id => !covered(id));
+  if (uncovered.every(listedRecently)) uncovered = [];
   const shopped = uncovered.filter(id =>
     daysBetween(nextSince[id], today) >= SHOPPED_AFTER_DAYS ||
     loggedDays(dailyLog, id, nextSince[id], today).length > 0);
