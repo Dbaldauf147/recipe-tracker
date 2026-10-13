@@ -106,9 +106,6 @@
   font-weight: 500;
   margin-top: 0.1rem;
 }
-.up { color: var(--color-success, #16a34a); font-weight: 700; }
-.down { color: var(--color-danger, #dc2626); font-weight: 700; }
-.flat { color: #d97706; font-weight: 700; }
 
 .footnote {
   margin: 0;
@@ -128,23 +125,12 @@
 .empty p:last-child { margin-bottom: 0; }
 
 
-.liftName { font-weight: 700; color: var(--color-text, #1e293b); }
 .section { display: flex; flex-direction: column; gap: 0.5rem; }
 .sectionTitle {
   margin: 0;
   font-size: 0.95rem;
   font-weight: 800;
   color: var(--color-text, #1e293b);
-}
-.toggle {
-  display: flex;
-  align-items: center;
-  gap: 0.35rem;
-  align-self: flex-end;
-  font-size: 0.82rem;
-  color: var(--color-text, #334155);
-  cursor: pointer;
-  padding-bottom: 0.3rem;
 }
 .banner {
   padding: 0.6rem 0.9rem;
@@ -153,12 +139,6 @@
   color: var(--color-text, #334155);
   background: color-mix(in srgb, #94a3b8 14%, transparent);
   border: 1px solid color-mix(in srgb, #94a3b8 35%, transparent);
-}
-.warnNote {
-  margin: 0;
-  font-size: 0.78rem;
-  line-height: 1.5;
-  color: #b45309;
 }
 
 /* Week columns: the judged week gets a tint so the eye lands on it. */
