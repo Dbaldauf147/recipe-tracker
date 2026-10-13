@@ -6846,7 +6846,7 @@ export function WorkoutPage({ onBack, user }) {
       )}
 
       {viewMode === 'weekly' && (
-        <WeeklyOverload workouts={workouts} weightUnit={weightUnit} exerciseLibrary={exerciseLibrary} />
+        <WeeklyOverload workouts={workouts} exerciseLibrary={exerciseLibrary} />
       )}
 
       {viewMode === 'relative' && (

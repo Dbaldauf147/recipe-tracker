@@ -1,16 +1,12 @@
-// "Weekly" subtab of the Workout page: three week-over-week overload checks —
-// top weight +3% per lift, working sets +10% per muscle group, and ≥10 working
-// sets per muscle group (15–20 = advanced). Primary muscles only. Analysis
-// lives in utils/weeklyOverload.js.
-import React, { useEffect, useMemo, useState } from 'react';
+// "Weekly" subtab of the Workout page: working sets per muscle group, week
+// over week — +10% per week, and ≥10 working sets (15–20 = advanced). Primary
+// muscles only. Analysis lives in utils/weeklyOverload.js.
+import React, { useMemo, useState } from 'react';
 import styles from './WeeklyOverload.module.css';
 import {
-  analyzeWeeklyOverload, volumeVerdict, weightVerdict, averageWeeklyWeightPct,
-  WEIGHT_TARGET_PCT, VOLUME_TARGET_PCT, MIN_WEEKLY_SETS, ADVANCED_MIN_SETS, ADVANCED_MAX_SETS,
+  analyzeWeeklyOverload, volumeVerdict,
+  VOLUME_TARGET_PCT, MIN_WEEKLY_SETS, ADVANCED_MIN_SETS, ADVANCED_MAX_SETS,
 } from '../utils/weeklyOverload';
-import { displayWeight } from '../utils/exerciseProgress';
-
-const HOME_GYM_KEY = 'sunday-weekly-overload-home-gym-only';
 
 function fmtDate(key) {
   if (!key) return '—';
@@ -29,28 +25,18 @@ const BAND_LABEL = {
 const VOLUME_LABEL = {
   hit: `+${VOLUME_TARGET_PCT * 100}% ✓`, miss: 'Missed', new: 'First week', none: 'Not trained', deload: 'Deload',
 };
-const WEIGHT_LABEL = {
-  hit: `+${WEIGHT_TARGET_PCT * 100}% ✓`, up: 'Up, under 3%', flat: 'Same weight', down: 'Down', new: 'First time', deload: 'Deload',
-};
-const WEIGHT_ORDER = { hit: 0, up: 1, flat: 2, down: 3, new: 4, deload: 5 };
 
 function Chip({ tone, children, title }) {
   return <span className={`${styles.chip} ${styles[tone] || ''}`} title={title}>{children}</span>;
 }
 
 const VOLUME_TONE = { hit: 'good', miss: 'bad', new: 'info', none: 'muted', deload: 'muted' };
-const WEIGHT_TONE = { hit: 'good', up: 'warn', flat: 'muted', down: 'bad', new: 'info', deload: 'muted' };
 const BAND_TONE = { below: 'bad', min: 'good', advanced: 'adv', over: 'warn' };
 
-export default function WeeklyOverload({ workouts = [], weightUnit = 'lb', exerciseLibrary = [] }) {
-  const [homeGymOnly, setHomeGymOnly] = useState(() => {
-    try { return localStorage.getItem(HOME_GYM_KEY) !== 'false'; } catch { return true; }
-  });
-  useEffect(() => { try { localStorage.setItem(HOME_GYM_KEY, String(homeGymOnly)); } catch { /* ignore */ } }, [homeGymOnly]);
-
+export default function WeeklyOverload({ workouts = [], exerciseLibrary = [] }) {
   const data = useMemo(
-    () => analyzeWeeklyOverload(workouts, { exerciseLibrary, homeGymOnly }),
-    [workouts, exerciseLibrary, homeGymOnly],
+    () => analyzeWeeklyOverload(workouts, { exerciseLibrary }),
+    [workouts, exerciseLibrary],
   );
   const { weeks } = data;
 
@@ -68,17 +54,7 @@ export default function WeeklyOverload({ workouts = [], weightUnit = 'lb', exerc
     () => data.muscles.map(m => ({ ...m, v: volumeVerdict(m.sets, weeks, evalIndex) })),
     [data.muscles, weeks, evalIndex],
   );
-  const liftRows = useMemo(() => data.lifts
-    .map(l => ({ ...l, v: weightVerdict(l.topLb, weeks, evalIndex), avg: averageWeeklyWeightPct(l.topLb, weeks, evalIndex) }))
-    .filter(l => l.v.status !== 'none')
-    .sort((a, b) => WEIGHT_ORDER[a.v.status] - WEIGHT_ORDER[b.v.status] || a.name.localeCompare(b.name)),
-  [data.lifts, weeks, evalIndex]);
-  const skippedLifts = data.lifts.length - liftRows.length;
-
-  const w = lb => displayWeight(lb, weightUnit);
-  const unit = weightUnit === 'kg' ? 'kg' : 'lb';
-
-  if (data.muscles.length === 0 && data.lifts.length === 0) {
+  if (data.muscles.length === 0) {
     return (
       <div className={styles.empty}>
         <p><strong>No strength work logged in the last {weeks.length - 1} weeks.</strong></p>
@@ -108,12 +84,6 @@ export default function WeeklyOverload({ workouts = [], weightUnit = 'lb', exerc
               ))}
             </select>
           </label>
-          {data.homeGym && (
-            <label className={styles.toggle} title="Weight check only: sessions at other gyms are different equipment. Sets count everywhere.">
-              <input type="checkbox" checked={homeGymOnly} onChange={e => setHomeGymOnly(e.target.checked)} />
-              <span>{data.homeGym} only</span>
-            </label>
-          )}
         </div>
       </div>
 
@@ -174,60 +144,6 @@ export default function WeeklyOverload({ workouts = [], weightUnit = 'lb', exerc
           A working set is a filled set you ticked done (or every filled set if none on that exercise were ticked); stretches are left out.
           Bands: under {MIN_WEEKLY_SETS} · {MIN_WEEKLY_SETS}–{ADVANCED_MIN_SETS - 1} meets the minimum · {ADVANCED_MIN_SETS}–{ADVANCED_MAX_SETS} advanced · over {ADVANCED_MAX_SETS}.
           The comparison skips weeks the muscle wasn&rsquo;t trained and deload weeks.
-        </p>
-        {data.unmapped.length > 0 && (
-          <p className={styles.warnNote}>
-            Not counted — no primary muscle set: {data.unmapped.map(u => `${u.name} (${u.sets})`).join(', ')}.
-            Fill in the Primary column for these on the Exercises tab.
-          </p>
-        )}
-      </section>
-
-      <section className={styles.section}>
-        <h3 className={styles.sectionTitle}>Top working weight per lift</h3>
-        {liftRows.length === 0 ? (
-          <p className={styles.footnote}>No loaded lifts logged in the week of {fmtDate(evalWeek.start)}.</p>
-        ) : (
-          <div className={styles.tableWrap}>
-            <table className={styles.table}>
-              <thead>
-                <tr>
-                  <th>Lift</th>
-                  <th className={styles.num}>Before</th>
-                  <th className={styles.num}>This week</th>
-                  <th className={styles.num}>Per week</th>
-                  <th className={styles.num} title="Compounded weekly change from the first to the last week this lift appears in the window">{weeks.length - 1}-wk avg</th>
-                  <th>Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {liftRows.map(l => (
-                  <tr key={l.name}>
-                    <td>
-                      <div className={styles.liftName}>{l.name}</div>
-                      {l.muscles.length > 0 && <div className={styles.rowNote}>{l.muscles.join(', ')}</div>}
-                    </td>
-                    <td className={styles.num}>
-                      {l.v.prev ? <>{w(l.v.prev)} {unit}<div className={styles.rowNote}>{fmtDate(weeks[l.v.prevIndex].start)}{l.v.gap > 1 ? ` · ${l.v.gap} wks` : ''}</div></> : <span className={styles.dim}>—</span>}
-                    </td>
-                    <td className={styles.num}>{w(l.v.cur)} {unit}</td>
-                    <td className={styles.num}>
-                      {l.v.weeklyPct != null
-                        ? <span className={l.v.weeklyPct >= WEIGHT_TARGET_PCT - 1e-9 ? styles.up : l.v.weeklyPct < 0 ? styles.down : styles.flat}>{fmtPct(l.v.weeklyPct)}</span>
-                        : <span className={styles.dim}>—</span>}
-                    </td>
-                    <td className={styles.num}>{l.avg != null ? fmtPct(l.avg) : <span className={styles.dim}>—</span>}</td>
-                    <td><Chip tone={WEIGHT_TONE[l.v.status]}>{WEIGHT_LABEL[l.v.status]}</Chip></td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-        <p className={styles.footnote}>
-          Heaviest completed set each week (per-arm loads doubled). A lift last done several weeks ago needs {WEIGHT_TARGET_PCT * 100}% per week compounded over the gap.
-          Deload sessions{homeGymOnly && data.homeGym ? ` and sessions away from ${data.homeGym}` : ''} don&rsquo;t set the weight.
-          {skippedLifts > 0 ? ` ${skippedLifts} other lift${skippedLifts === 1 ? '' : 's'} weren’t done this week.` : ''}
         </p>
       </section>
     </div>
