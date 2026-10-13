@@ -5051,16 +5051,20 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
    * How much of the list you have actually been to. Counts `hasBeenVisited`
    * rather than `status === 'visited'`, so a spot carrying a visit date is
    * counted as tried whatever its status says — the date is the harder evidence.
+   * Joanne's share is the same list counted by `takenJoanne`.
    */
   const triedStats = useMemo(() => {
     let total = 0;
     let tried = 0;
+    let joanne = 0;
     for (const r of restaurants) {
       if (!passesFilters(r, { status: false })) continue;
       total++;
       if (hasBeenVisited(r)) tried++;
+      if (r.takenJoanne) joanne++;
     }
-    return { total, tried, pct: total ? Math.round((tried / total) * 100) : null };
+    const pctOf = n => (total ? Math.round((n / total) * 100) : null);
+    return { total, tried, pct: pctOf(tried), joanne, joannePct: pctOf(joanne) };
   }, [restaurants, passesFilters]);
 
   /**
@@ -5792,22 +5796,40 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
         {/* How much of the list you've actually been to. Follows every filter
             except Want-to-try / Visited — see passesFilters — so filtering to a
             category or a neighbourhood re-asks the question of that slice. */}
-        {triedStats.pct != null && (
+        {triedStats.pct != null && [
+          {
+            key: 'me',
+            label: 'you',
+            count: triedStats.tried,
+            pct: triedStats.pct,
+            how: 'places tried',
+            rule: 'A place counts as tried once it is marked Visited or carries a visit date.',
+          },
+          {
+            key: 'joanne',
+            label: 'Joanne',
+            count: triedStats.joanne,
+            pct: triedStats.joannePct,
+            how: 'places taken Joanne',
+            rule: 'Counts places ticked “Taken Joanne here”.',
+          },
+        ].map(s => (
           <span
+            key={s.key}
             className={styles.triedStat}
-            title={`${triedStats.tried} of ${triedStats.total} places tried${
+            title={`${s.count} of ${triedStats.total} ${s.how}${
               triedStats.total < restaurants.length ? ' (matching the current filters)' : ''
-            }. A place counts as tried once it is marked Visited or carries a visit date.`}
+            }. ${s.rule}`}
           >
-            <span className={styles.triedStatPct}>{triedStats.pct}%</span>
+            <span className={styles.triedStatPct}>{s.pct}%</span>
             <span className={styles.triedStatLabel}>
-              tried · {triedStats.tried}/{triedStats.total}
+              {s.label} · {s.count}/{triedStats.total}
             </span>
             <span className={styles.triedStatBar} aria-hidden="true">
-              <span className={styles.triedStatFill} style={{ width: `${triedStats.pct}%` }} />
+              <span className={styles.triedStatFill} style={{ width: `${s.pct}%` }} />
             </span>
           </span>
-        )}
+        ))}
         <button
           type="button"
           className={styles.secondaryBtn}
