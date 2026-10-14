@@ -4,6 +4,7 @@ import {
   loadHabitLog, loadHabitLogAuto, subscribeToHabitLog, subscribeToHabitLogAuto,
 } from '../utils/habitLogYears';
 import { HABIT_FIELDS, seedHabits, makeHabitId } from '../data/habitsSeed';
+import { CALENDAR_DAYS, calendarCounts, habitCalendar } from '../utils/habitCalendar';
 import { yesterdayDate, yesterdayDayKey, yesterdayUnloggedHabits, isBadHabit, habitMonthEvery, monthlyDueIn, habitPeriodKey, habitDueNow } from '../utils/habitOutstanding';
 import { normalizePtoRanges, ptoCellsToStamp, activePtoRange } from '../utils/habitPto';
 import { nextMarkInCycle } from '../utils/habitMarkCycle';
@@ -6863,6 +6864,75 @@ function HabitChecklistSection({ habit: h, period, currentMark, onUpdate, onSetM
 // Full habit editor popup. Opened by clicking a habit's name on the Habits
 // tab. Every edit persists immediately via onUpdate (which saves to Firestore).
 // The headline control is the tracking-cadence selector.
+/**
+ * "Last 60 days" at the foot of the habit popup: month grids, each day filled
+ * with its mark in the grid's colours. Weekly/Monthly habits fill every day of
+ * a period they logged (utils/habitCalendar). On a bad habit a "done" is a
+ * slip, so it reads red rather than green. Mirrors the phone's popup.
+ */
+function HabitCalendar({ habit, habitLog }) {
+  const bad = isBadHabit(habit);
+  const months = useMemo(() => habitCalendar(habit, habitLog), [habit, habitLog]);
+  const counts = calendarCounts(months);
+  const colorOf = (mark) => {
+    if (!mark) return null;
+    if (bad && (mark === 'done' || mark === 'exceeded')) return MARK_META.missed.color;
+    return MARK_META[mark]?.color || null;
+  };
+  const legend = bad
+    ? [{ label: 'Slipped', color: MARK_META.missed.color, n: (counts.done || 0) + (counts.exceeded || 0) }]
+    : MARK_ORDER.map(k => ({ label: MARK_META[k].short, color: MARK_META[k].color, n: counts[k] || 0 }));
+  const muted = 'var(--color-text-muted, #64748b)';
+  const border = 'var(--color-border, #e2e8f0)';
+
+  return (
+    <div style={{ marginTop: '1.1rem', paddingTop: '0.9rem', borderTop: `1px solid ${border}` }}>
+      <div style={{ ...fieldLabel, marginBottom: 6 }}>Last {CALENDAR_DAYS} days</div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: '0.9rem' }}>
+        {months.map(mo => (
+          <div key={mo.label}>
+            <div style={{ fontSize: '0.82rem', fontWeight: 700, marginBottom: 4 }}>{mo.label}</div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 3 }}>
+              {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((d, i) => (
+                <div key={i} style={{ textAlign: 'center', fontSize: '0.65rem', fontWeight: 600, color: muted }}>{d}</div>
+              ))}
+              {mo.weeks.flat().map((c, i) => {
+                if (!c) return <div key={i} />;
+                const fill = colorOf(c.mark);
+                const off = c.inWindow && !c.tracked && !fill;
+                return (
+                  <div
+                    key={i}
+                    title={c.inWindow ? `${c.key}${c.mark ? ` — ${bad && fill ? 'Slipped' : MARK_META[c.mark]?.label || c.mark}` : off ? ' — not tracked' : ''}` : undefined}
+                    style={{
+                      aspectRatio: '1', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      borderRadius: 5, fontSize: '0.68rem', fontWeight: c.inWindow ? 600 : 400,
+                      border: c.isToday ? '2px solid var(--color-text, #0f172a)' : `1px solid ${fill || (c.inWindow && !off ? border : 'transparent')}`,
+                      background: fill || (off ? 'var(--color-surface-alt, #f1f5f9)' : 'transparent'),
+                      color: fill ? '#fff' : c.inWindow ? 'var(--color-text, #0f172a)' : 'var(--color-border, #cbd5e1)',
+                    }}
+                  >
+                    {c.day}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+      </div>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginTop: 8, alignItems: 'center', fontSize: '0.75rem', color: muted }}>
+        {legend.map(l => (
+          <span key={l.label} style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+            <span style={{ width: 10, height: 10, borderRadius: 3, background: l.color }} />
+            {l.label} {l.n}
+          </span>
+        ))}
+        {bad && <span>Blank = clean day</span>}
+      </div>
+    </div>
+  );
+}
+
 function HabitDetailModal({ habit, streak: streakProp, habitLog = {}, autoTracked = false, onMakeAutomatic, onUpdate, checklistPeriod, currentMark, onSetMark, onDelete, onClose, autoSkipOn = false, onToggleAutoSkip, isNew = false, routineOptions = [] }) {
   const h = habit;
   const cadence = (h.cadence || '').trim();
@@ -7215,6 +7285,8 @@ function HabitDetailModal({ habit, streak: streakProp, habitLog = {}, autoTracke
         {field('craving', 'Craving', { textarea: true })}
         {field('response', 'Response', { textarea: true })}
         {field('reward', 'Reward', { textarea: true })}
+
+        <HabitCalendar habit={h} habitLog={habitLog} />
 
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '1.1rem' }}>
           <button
