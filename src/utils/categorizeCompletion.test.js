@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { categorizeCompletion, isCategorized, inCategorizePopulation } from './categorizeCompletion.js';
+import { categorizeCompletion, isCategorized, inCategorizePopulation, categorizeGaps } from './categorizeCompletion.js';
 
 const bucketsOf = r => (Array.isArray(r.buckets) ? r.buckets : (r.mealType ? [r.mealType] : []));
 const mine = (extra) => ({ _isMine: true, ...extra });
@@ -33,4 +33,22 @@ test('rounds down, so one left never reads 100%', () => {
 test('empty population is 100%', () => {
   assert.deepEqual(categorizeCompletion([], bucketsOf), { done: 0, total: 0, pct: 100 });
   assert.equal(inCategorizePopulation(null), false);
+});
+
+test('categorizeGaps flags each unanswered question', () => {
+  const gaps = categorizeGaps({ buckets: [], cuisines: [], status: '', frequency: '' });
+  assert.deepEqual([...gaps].sort(), ['buckets', 'cuisines', 'status']);
+});
+
+test('categorizeGaps: nothing flagged once everything is answered', () => {
+  const v = { buckets: ['lunch-dinner'], cuisines: ['Thai'], status: 'visited', frequency: 'regular' };
+  assert.equal(categorizeGaps(v).size, 0);
+});
+
+test('categorizeGaps: frequency only for places you have been, and not when exempt', () => {
+  const base = { buckets: ['lunch-dinner'], cuisines: ['Thai'], frequency: '' };
+  assert.equal(categorizeGaps({ ...base, status: 'want-to-try' }).has('frequency'), false);
+  assert.equal(categorizeGaps({ ...base, status: 'visited' }).has('frequency'), true);
+  assert.equal(categorizeGaps({ ...base, status: 'want-to-try' }, { visited: true }).has('frequency'), true);
+  assert.equal(categorizeGaps({ ...base, status: 'visited' }, { frequencyExempt: true }).has('frequency'), false);
 });

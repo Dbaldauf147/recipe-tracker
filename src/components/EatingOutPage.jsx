@@ -21,7 +21,7 @@ import { downloadRestaurantsCsv } from '../utils/restaurantExport';
 import { spotCategories, withMergedCategories, mergeCategoryLists } from '../utils/spotCategories';
 import { categorizePatch } from '../utils/categorizePatch';
 import { frequencyExempt, frequencyOptionsFor, allowedFrequency } from '../utils/spotFrequency';
-import { categorizeCompletion, inCategorizePopulation, isCategorized } from '../utils/categorizeCompletion';
+import { categorizeCompletion, inCategorizePopulation, isCategorized, categorizeGaps } from '../utils/categorizeCompletion';
 import { locationsFromGeocode, mergeLocations } from '../utils/spotLocations';
 import { readMapColors, writeMapColors } from '../utils/mapColors';
 import { saveSpotForOwner, saveEatingOutOrder, subscribeSpotComments, addSpotComment, deleteSpotComment, subscribeSpotRatings, subscribeEatingOutRatings, setEatingOutRating, spotPhotoDocId, loadSpotImageAt, saveSpotImageAt, deleteSpotImageAt } from '../utils/firestoreSync';
@@ -3617,6 +3617,20 @@ function CategorizePrompt({ queue, cuisineSuggestions, onSave, onClose, completi
   // "Not yet" on Joanne has to be distinguishable from never having answered,
   // and `false` is the same falsy value the field already holds by default.
   const joanneAnswered = 'takenJoanne' in draft;
+  // Unanswered questions get a red label, cleared as you answer them.
+  const gaps = categorizeGaps(v, {
+    visited: !!spot.lastVisit,
+    frequencyExempt: frequencyExempt(v.buckets),
+  });
+  const label = (key, text, style) => (
+    <div
+      className={`${styles.fileLabel} ${gaps.has(key) ? styles.fileLabelMissing : ''}`}
+      style={style}
+      data-missing={gaps.has(key) || undefined}
+    >
+      {text}{gaps.has(key) && <span className={styles.fileMissingTag}> · missing</span>}
+    </div>
+  );
 
   function advance(save) {
     if (save) {
@@ -3664,7 +3678,7 @@ function CategorizePrompt({ queue, cuisineSuggestions, onSave, onClose, completi
           </a>
         )}
 
-        <div className={styles.fileLabel}>Which bucket?</div>
+        {label('buckets', 'Which bucket?')}
         <div className={styles.categorizeChips}>
           {BUCKETS.map(b => {
             const on = v.buckets.includes(b.key);
@@ -3684,7 +3698,7 @@ function CategorizePrompt({ queue, cuisineSuggestions, onSave, onClose, completi
           })}
         </div>
 
-        <div className={styles.fileLabel} style={{ marginTop: '0.85rem' }}>Category</div>
+        {label('cuisines', 'Category', { marginTop: '0.85rem' })}
         <TagChips
           values={v.cuisines}
           onChange={next => set({ cuisines: next })}
@@ -3692,7 +3706,7 @@ function CategorizePrompt({ queue, cuisineSuggestions, onSave, onClose, completi
           placeholder="Type a category and press Enter"
         />
 
-        <div className={styles.fileLabel} style={{ marginTop: '0.85rem' }}>Been there?</div>
+        {label('status', 'Been there?', { marginTop: '0.85rem' })}
         <div className={styles.fileRow}>
           <button
             type="button"
@@ -3730,7 +3744,7 @@ function CategorizePrompt({ queue, cuisineSuggestions, onSave, onClose, completi
           >Hold off</button>
         </div>
 
-        <div className={styles.fileLabel}>Frequency</div>
+        {label('frequency', 'Frequency')}
         <div className={styles.fileRow}>
           {frequencyOptionsFor(v.buckets, FREQUENCIES).map(f => (
             <button

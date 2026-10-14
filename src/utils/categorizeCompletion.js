@@ -35,3 +35,26 @@ export function categorizeCompletion(restaurants, bucketsOf) {
   const pct = total === 0 ? 100 : Math.floor((done * 100) / total);
   return { done, total, pct };
 }
+
+/**
+ * Which questions on the categorize card are still unanswered, for the red
+ * "missing" flags. `v` is what the card shows (the spot with this card's
+ * answers on top), so a flag clears the moment you answer it.
+ *
+ * - buckets / cuisines: the two that make a spot "filed" (isCategorized).
+ * - status: Been / Not yet / Hold off has never been picked.
+ * - frequency: only for places you've been, and not for Drinking / Going Out
+ *   only spots — the same rule as missingCategories on the page.
+ *
+ * "Taken Joanne?" is never flagged: "Not yet" is stored as the field being
+ * absent, so it can't be told apart from never having answered.
+ */
+export function categorizeGaps(v, { visited = false, frequencyExempt = false } = {}) {
+  const gaps = new Set();
+  if (!(v.buckets || []).length) gaps.add('buckets');
+  if (!(v.cuisines || []).length) gaps.add('cuisines');
+  if (!v.status) gaps.add('status');
+  const beenThere = v.status === 'visited' || visited;
+  if (beenThere && !frequencyExempt && !String(v.frequency || '').trim()) gaps.add('frequency');
+  return gaps;
+}
