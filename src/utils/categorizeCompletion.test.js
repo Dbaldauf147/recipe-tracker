@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { categorizeCompletion, isCategorized, inCategorizePopulation, categorizeGaps } from './categorizeCompletion.js';
+import { categorizeCompletion, isCategorized, inCategorizePopulation, categorizeGaps, categoryExempt } from './categorizeCompletion.js';
 
 const bucketsOf = r => (Array.isArray(r.buckets) ? r.buckets : (r.mealType ? [r.mealType] : []));
 const mine = (extra) => ({ _isMine: true, ...extra });
@@ -16,7 +16,7 @@ test('counts only my non-retired spots', () => {
 });
 
 test('needs BOTH a bucket and a category', () => {
-  assert.equal(isCategorized(mine({ buckets: ['coffee'], cuisines: [] }), bucketsOf), false);
+  assert.equal(isCategorized(mine({ buckets: ['breakfast'], cuisines: [] }), bucketsOf), false);
   assert.equal(isCategorized(mine({ buckets: [], cuisines: ['Thai'] }), bucketsOf), false);
   assert.equal(isCategorized(mine({ mealType: 'coffee', cuisines: ['Cafe'] }), bucketsOf), true);
 });
@@ -51,4 +51,20 @@ test('categorizeGaps: frequency only for places you have been, and not when exem
   assert.equal(categorizeGaps({ ...base, status: 'visited' }).has('frequency'), true);
   assert.equal(categorizeGaps({ ...base, status: 'want-to-try' }, { visited: true }).has('frequency'), true);
   assert.equal(categorizeGaps({ ...base, status: 'visited' }, { frequencyExempt: true }).has('frequency'), false);
+});
+
+test('Coffee-only spots are filed without a category', () => {
+  assert.equal(isCategorized(mine({ buckets: ['coffee'], cuisines: [] }), bucketsOf), true);
+  assert.equal(isCategorized(mine({ buckets: ['coffee', 'breakfast'], cuisines: [] }), bucketsOf), false);
+  assert.equal(isCategorized(mine({ buckets: [], cuisines: [] }), bucketsOf), false);
+  assert.equal(categoryExempt([]), false);
+  assert.deepEqual(
+    categorizeCompletion([mine({ buckets: ['coffee'] }), mine({ buckets: ['breakfast'] })], bucketsOf),
+    { done: 1, total: 2, pct: 50 },
+  );
+});
+
+test('categorizeGaps: no category flag for Coffee-only spots', () => {
+  assert.equal(categorizeGaps({ buckets: ['coffee'], cuisines: [], status: 'want-to-try' }).has('cuisines'), false);
+  assert.equal(categorizeGaps({ buckets: ['coffee', 'breakfast'], cuisines: [], status: 'want-to-try' }).has('cuisines'), true);
 });
