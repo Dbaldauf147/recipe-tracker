@@ -20,6 +20,7 @@ import {
 import { downloadRestaurantsCsv } from '../utils/restaurantExport';
 import { spotCategories, withMergedCategories, mergeCategoryLists } from '../utils/spotCategories';
 import { categorizePatch } from '../utils/categorizePatch';
+import { categoriesForBuckets } from '../utils/bucketCategorySuggestions';
 import { frequencyExempt, frequencyOptionsFor, allowedFrequency } from '../utils/spotFrequency';
 import { categorizeCompletion, inCategorizePopulation, isCategorized, categorizeGaps } from '../utils/categorizeCompletion';
 import { locationsFromGeocode, mergeLocations } from '../utils/spotLocations';
@@ -675,6 +676,38 @@ function TagChips({ values, onChange, suggestions, placeholder }) {
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * "Suggested for ☕ Coffee:" — one-tap chips under a Category field, from the
+ * categories your other spots in the chosen bucket(s) use most. `suggest` is
+ * the page's (buckets, exclude, skipId) → [{ name, count }] lookup.
+ */
+function BucketCategorySuggestions({ buckets, values, onAdd, suggest, skipId }) {
+  const list = suggest ? suggest(buckets, values, skipId) : [];
+  if (!buckets || buckets.length === 0 || list.length === 0) return null;
+  const labels = buckets
+    .map(k => BUCKETS.find(b => b.key === k))
+    .filter(Boolean)
+    .map(b => `${b.icon} ${b.label}`);
+  return (
+    <div className={styles.bucketSuggest} data-testid="bucket-category-suggestions">
+      <span className={styles.bucketSuggestLabel}>Suggested for {labels.join(' + ')}:</span>
+      <div className={styles.suggestionRow}>
+        {list.map(s => (
+          <button
+            key={s.name}
+            type="button"
+            className={styles.suggestionChip}
+            title={`${s.count} ${s.count === 1 ? 'place' : 'places'} in this bucket`}
+            onClick={() => onAdd(s.name)}
+          >
+            + {s.name}
+          </button>
+        ))}
+      </div>
     </div>
   );
 }
@@ -1853,7 +1886,7 @@ function SpotDetailModal({ spot, user, onClose, onEdit, visitStats }) {
   );
 }
 
-function EditModal({ initial, onSave, onClose, onDelete, cuisineSuggestions, locationSuggestions, user, visitStats }) {
+function EditModal({ initial, onSave, onClose, onDelete, cuisineSuggestions, locationSuggestions, user, visitStats, suggestCategories }) {
   const [name, setName] = useState(initial.name || '');
   const [url, setUrl] = useState(initial.url || '');
   const [imageUrl, setImageUrl] = useState(initial.imageUrl || '');
@@ -2153,6 +2186,13 @@ function EditModal({ initial, onSave, onClose, onDelete, cuisineSuggestions, loc
             onChange={setCuisines}
             suggestions={cuisineSuggestions}
             placeholder="Type a category and press Enter"
+          />
+          <BucketCategorySuggestions
+            buckets={buckets}
+            values={cuisines}
+            onAdd={name => setCuisines(prev => [...prev, name])}
+            suggest={suggestCategories}
+            skipId={initial.id}
           />
 
           <label className={styles.fieldLabel}>Neighborhoods / cities</label>
@@ -3544,7 +3584,7 @@ function CompletionMeter({ completion }) {
   );
 }
 
-function CategorizePrompt({ queue, cuisineSuggestions, onSave, onClose, completion }) {
+function CategorizePrompt({ queue, cuisineSuggestions, onSave, onClose, completion, suggestCategories }) {
   const [i, setI] = useState(0);
   // Only the keys actually touched on the CURRENT spot. Reset on advance, which
   // is what lets commit tell "said Not yet" apart from "never answered".
@@ -3704,6 +3744,13 @@ function CategorizePrompt({ queue, cuisineSuggestions, onSave, onClose, completi
           onChange={next => set({ cuisines: next })}
           suggestions={cuisineSuggestions}
           placeholder="Type a category and press Enter"
+        />
+        <BucketCategorySuggestions
+          buckets={v.buckets}
+          values={v.cuisines}
+          onAdd={name => set({ cuisines: [...v.cuisines, name] })}
+          suggest={suggestCategories}
+          skipId={spot.id}
         />
 
         {label('status', 'Been there?', { marginTop: '0.85rem' })}
@@ -5002,6 +5049,14 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
     for (const r of restaurants) for (const c of (r.cuisines || [])) set.add(c);
     return Array.from(set).sort((a, b) => a.localeCompare(b));
   }, [restaurants, masterCuisines, masterCategories]);
+
+  // Category chips per bucket, for the Category fields (BucketCategorySuggestions).
+  const suggestCategories = useCallback(
+    (buckets, exclude, skipId) => categoriesForBuckets(restaurants, buckets, {
+      bucketsOf, categoriesOf: realCuisines, exclude, skipId,
+    }),
+    [restaurants],
+  );
 
   const locationSuggestions = useMemo(() => {
     const set = new Set();
@@ -6378,6 +6433,7 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
         <EditModal
           initial={{ status: 'want-to-try', cuisines: [], locations: [], rating: null }}
           cuisineSuggestions={cuisineSuggestions}
+          suggestCategories={suggestCategories}
           locationSuggestions={locationSuggestions}
           onSave={handleSave}
           onClose={() => setAdding(false)}
@@ -6396,6 +6452,7 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
         <CategorizePrompt
           queue={categorizeQueue}
           cuisineSuggestions={cuisineSuggestions}
+          suggestCategories={suggestCategories}
           onSave={applyCategorize}
           onClose={() => setCategorizeQueue(null)}
           completion={categorizeCompletionStats}
@@ -6406,6 +6463,7 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
         <EditModal
           initial={editing}
           cuisineSuggestions={cuisineSuggestions}
+          suggestCategories={suggestCategories}
           locationSuggestions={locationSuggestions}
           onSave={handleSave}
           onClose={() => setEditing(null)}
