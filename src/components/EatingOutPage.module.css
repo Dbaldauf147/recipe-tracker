@@ -1468,6 +1468,9 @@
   margin-bottom: 0.35rem;
 }
 .fileRow { display: flex; gap: 0.5rem; margin-bottom: 1rem; }
+/* A question on the categorize card that is still unanswered. */
+.fileLabelMissing { color: #dc2626; }
+.fileMissingTag { text-transform: none; letter-spacing: 0; font-weight: 600; }
 .fileBtn {
   flex: 1;
   padding: 0.65rem 0.4rem;
