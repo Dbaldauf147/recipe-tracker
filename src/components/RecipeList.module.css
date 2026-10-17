@@ -2929,3 +2929,37 @@
 .suggestMenu button:focus-visible {
   background: var(--color-surface-alt, rgba(0, 0, 0, 0.05));
 }
+
+/* Meals vs target as a bar: one block per meal, the target's worth outlined. */
+.targetBars {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  margin-top: 0.6rem;
+}
+
+.targetBarHead {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-size: 0.75rem;
+  margin-bottom: 0.2rem;
+  color: var(--color-text);
+}
+
+.targetBarNote {
+  font-size: 0.7rem;
+  font-weight: 600;
+}
+
+.targetBarTrack {
+  display: flex;
+  gap: 2px;
+  height: 12px;
+}
+
+.targetBarSeg {
+  flex: 1;
+  border-radius: 3px;
+  background: var(--color-border, #e5e7eb);
+}
