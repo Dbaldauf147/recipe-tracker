@@ -119,3 +119,19 @@ export function autoPromoteQualifiedDays(h, habitLog, from, to) {
 export function autoPromoteWindowKeys(h, habitLog, asOf) {
   return loggedWindow(h, habitLog, asOf).keys;
 }
+
+/**
+ * Has a past answer to the offer run out? Saying "keep tracking it" (or moving
+ * it back off Automatically) holds until the habit has a fresh 60 logged days
+ * that all come AFTER that answer — then it can be asked again. No answer on
+ * record counts as expired.
+ */
+export function autoPromoteAnswerExpired(h, habitLog, today = new Date()) {
+  const stamp = h.autoPromotedAt || h.autoPromoteDeclinedAt;
+  if (!stamp) return true;
+  const answered = new Date(stamp);
+  if (Number.isNaN(answered.getTime())) return false;
+  const keys = loggedWindow(h, habitLog, today).keys;
+  if (keys.length < AUTO_PROMOTE_DAYS) return false;
+  return keys[keys.length - 1] > dayKey(answered);
+}

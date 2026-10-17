@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { autoPromoteEta, autoPromoteNumbers as autoPromoteProgress } from './habitAutoPromote.js';
+import { autoPromoteEta, autoPromoteNumbers as autoPromoteProgress, autoPromoteAnswerExpired } from './habitAutoPromote.js';
 import { dayKey } from './habitOutstanding.js';
 
 const TODAY = new Date(2026, 9, 6); // Tue 6 Oct 2026
@@ -88,11 +88,21 @@ test('weekly habits are not watched', () => {
 });
 
 test('marks the day the habit crossed the line', async () => {
-  const { autoPromoteQualifiedDays } = await import('./habitAutoPromote.js');
+  const { autoPromoteQualifiedDays, autoPromoteAnswerExpired } = await import('./habitAutoPromote.js');
   // Days 1–60 ago all done: it first had 60 logged days (all done) as of yesterday.
   const l = log(60);
   const days = autoPromoteQualifiedDays(habit, l, new Date(2026, 8, 1), TODAY);
   assert.deepEqual([...days], [daysAgo(1)]);
   // A miss-heavy habit never qualifies.
   assert.equal(autoPromoteQualifiedDays(habit, log(60, 'missed'), new Date(2026, 8, 1), TODAY).size, 0);
+});
+
+test('a "keep tracking" answer holds until 60 fresh logged days come after it', () => {
+  const declined = { ...habit, autoPromoteDeclinedAt: new Date(2026, 8, 1, 12).toISOString() }; // 1 Sep
+  // 60 done days ending yesterday (7 Aug – 5 Oct): the oldest is before 1 Sep.
+  assert.equal(autoPromoteAnswerExpired(declined, log(60), TODAY), false);
+  // Declined 6 Aug: every one of those 60 days came after it.
+  const earlier = { ...habit, autoPromoteDeclinedAt: new Date(2026, 7, 6, 12).toISOString() };
+  assert.equal(autoPromoteAnswerExpired(earlier, log(60), TODAY), true);
+  assert.equal(autoPromoteAnswerExpired(habit, {}, TODAY), true);
 });
