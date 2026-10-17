@@ -142,3 +142,9 @@ test('the detail line names each goal and how it missed', () => {
   assert.match(detail, /✗ Fiber \(under\)/);
   assert.match(detail, /✓ Sodium/);
 });
+
+test('fit is how close it comes: the mean attainment across goals', () => {
+  assert.equal(rateMeal(fiveGoalProfile(), balanced).fit, 100);
+  // Fiber 2 of 8 → 25, sodium 1800 over a 700 cap → 39, three macros on target.
+  assert.equal(rateMeal(fiveGoalProfile(), { ...balanced, fiber: 2, sodium: 1800 }).fit, 73);
+});
