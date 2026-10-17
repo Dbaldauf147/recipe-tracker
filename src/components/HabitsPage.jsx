@@ -6849,10 +6849,10 @@ function HabitCalendar({ habit, habitLog }) {
                 return (
                   <div
                     key={i}
-                    title={c.inWindow ? `${c.key}${c.mark ? ` — ${bad && fill ? 'Slipped' : MARK_META[c.mark]?.label || c.mark}` : off ? ' — not tracked' : ''}${c.qualified ? ' — stuck: qualified for Automatically' : ''}` : undefined}
+                    title={c.inWindow ? `${c.key}${c.mark ? ` — ${bad && fill ? 'Slipped' : MARK_META[c.mark]?.label || c.mark}` : off ? ' — not tracked' : ''}${c.qualified ? ' — stuck: qualified for Automatically' : c.qualifyingRun ? ' — one of the 60 logged days that earned Automatically' : ''}` : undefined}
                     style={{
                       position: 'relative',
-                      ...(c.qualified ? { outline: `2px solid ${QUALIFIED_COLOR}`, outlineOffset: 1 } : null),
+                      ...(c.qualified || c.qualifyingRun ? { outline: `2px solid ${QUALIFIED_COLOR}`, outlineOffset: 1 } : null),
                       aspectRatio: '1', display: 'flex', alignItems: 'center', justifyContent: 'center',
                       borderRadius: 5, fontSize: '0.68rem', fontWeight: c.inWindow ? 600 : 400,
                       border: c.isToday ? '2px solid var(--color-text, #0f172a)' : `1px solid ${fill || (c.inWindow && !off ? border : 'transparent')}`,
@@ -6882,7 +6882,7 @@ function HabitCalendar({ habit, habitLog }) {
         {qualifiedCells.length > 0 && (
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, color: QUALIFIED_COLOR, fontWeight: 700 }}>
             <span style={{ width: 10, height: 10, borderRadius: 3, outline: `2px solid ${QUALIFIED_COLOR}`, outlineOffset: 0 }} />
-            ⚡ Stuck — qualified for Automatically {qualifiedCells.map(fmtQualified).join(', ')}
+            ⚡ Stuck — qualified for Automatically {qualifiedCells.map(fmtQualified).join(', ')} · ringed = the 60 logged days that earned it
           </span>
         )}
       </div>

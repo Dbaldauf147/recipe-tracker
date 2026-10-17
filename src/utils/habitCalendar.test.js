@@ -88,3 +88,17 @@ test('flags the day the habit qualified for Automatically', () => {
   // 70 straight days from 5 Aug: the 60th one, 3 Oct, is when it first had 60 logged.
   assert.deepEqual(cells(ms).filter(c => c.qualified).map(c => c.key), ['2026-10-03']);
 });
+
+test('rings all 60 logged days of the qualifying run', () => {
+  const log = {};
+  const k = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  // 60 straight days 1 Jun – 30 Jul, then skips, then today's month done again.
+  for (let i = 0; i < 60; i++) log[k(new Date(2026, 5, 1 + i))] = { h: 'done' };
+  for (let i = 1; i <= 10; i++) log[k(new Date(2026, 9, 14 - i))] = { h: 'done' };
+  const ms = habitCalendar({ id: 'h', name: 'x', cadence: 'Daily' }, log, today);
+  const run = cells(ms).filter(c => c.qualifyingRun).map(c => c.key).sort();
+  assert.equal(run.length, 60);
+  assert.equal(run[0], '2026-06-01');
+  assert.equal(run[59], '2026-07-30');
+  assert.deepEqual(cells(ms).filter(c => c.qualified).map(c => c.key), ['2026-07-30']);
+});
