@@ -12,8 +12,11 @@ import { copyMealImage, loadAdminMealImages, generateMealImage, getCachedMealIma
 import { recipeStage } from '../utils/recipeStage';
 import {
   normalizeSuggestSkips, isSkipped, skipRecipe, skipRecipeForMonth,
-  normalizeSuggestRequeues, requeueRecipe, laterDate,
+  normalizeSuggestRequeues, requeueRecipe, laterDate, localDateKey,
 } from '../utils/suggestSkips';
+import {
+  publishSuggestionSnapshot, suggestPaceFromLog, nextInSeasonKey, forecastSuggestion,
+} from '../utils/suggestForecast';
 import { ALL_TAGS, TAG_CATEGORIES, recipeMatchesTags } from '../utils/ingredientTags';
 import { detectCuisine, getRecipeMinShelfDays } from '../utils/detectCuisine';
 import { loadMealGoals, activeProfile } from '../utils/mealGoals';
@@ -1780,7 +1783,7 @@ export function RecipeList({
     // "Seasonal only" recipes sit out until their season comes round; then
     // their days-since-eaten carries them straight up the list.
     const candidates = filtered.filter(r => !weekSet.has(r.id) && !isSkipped(suggestSkips, r.id) && recipeInSeason(r));
-    if (candidates.length === 0) return { breakfasts: [], lunches: [] };
+    if (candidates.length === 0 && filtered.every(r => !weekSet.has(r.id))) return { breakfasts: [], lunches: [], forecastSnapshot: null };
 
     // Sort history newest-first
     const byRecent = [...history].sort(
@@ -1896,6 +1899,50 @@ export function RecipeList({
     } catch { boostedIds = new Set(); }
 
 
+    // The recipe pop-up's "next suggested" line replays this ranking forward
+    // (utils/suggestForecast.js), so it gets the same inputs, for every meal
+    // this list could offer — including the ones sitting out today (in this
+    // week's plan, skipped, out of season) so they can come back.
+    const todayKey = localDateKey(new Date());
+    const filteredIds = new Set(filtered.map(r => r.id));
+    const excluded = {};
+    for (const r of recipes) if (!filteredIds.has(r.id)) excluded[r.id] = 'filtered';
+    const ingredientKeys = userIngredients.map(k => normalize(k));
+    const forecastSnapshot = {
+      today: todayKey,
+      weights: {
+        staleness: weightFor(suggestWeights, 'staleness'),
+        ingredients: weightFor(suggestWeights, 'ingredients'),
+      },
+      ingredientDates: { ...ingredientDateMap },
+      pace: suggestPaceFromLog(dailyLog, recipeById, todayKey),
+      excluded,
+      candidates: filtered.map(recipe => {
+        const requeuedOn = suggestRequeues[recipe.id] || null;
+        let availableFrom = null;
+        let waiting;
+        if (isSkipped(suggestSkips, recipe.id)) { availableFrom = suggestSkips[recipe.id]; waiting = 'skip'; }
+        if (!recipeInSeason(recipe)) {
+          const back = nextInSeasonKey(todayKey, m => recipeInSeason(recipe, m));
+          if (back && (!availableFrom || back > availableFrom)) { availableFrom = back; waiting = 'season'; }
+        }
+        return {
+          id: recipe.id,
+          category: recipe.category,
+          lastCooked: laterDate(lookupLastCooked(recipe), requeuedOn),
+          ingredientFloor: requeuedOn,
+          ingredients: ingredientKeys.filter(k => recipeHasIngredient(recipe, k)),
+          fixedPoints:
+            getRecipeSeasonalIngredients(recipe, seasonalSet).length * 50 * weightFor(suggestWeights, 'seasonal')
+            + (macroMatchMap[recipe.id] || 0) * 2 * weightFor(suggestWeights, 'macro')
+            + (boostedIds.has(recipe.id) ? 100000 : 0),
+          availableFrom,
+          waiting,
+          planned: weekSet.has(recipe.id),
+        };
+      }),
+    };
+
     const scored = candidates.map(recipe => {
       // Sent to the back of the line? That day counts as the last time it was
       // eaten — unless it really has been eaten since, which is later and wins.
@@ -1978,9 +2025,22 @@ export function RecipeList({
     const withRank = (list) => list.map((s, i) => ({ ...s, rank: i + 1, outOf: list.length }));
     const breakfasts = withRank(scored.filter(s => s.recipe.category === 'breakfast')).slice(0, 10);
     const lunches = withRank(scored.filter(s => s.recipe.category === 'lunch-dinner')).slice(0, 10);
-    return { breakfasts, lunches };
+    // Dev-only check that the forecast's day 0 is this exact list.
+    if (import.meta.env?.DEV) {
+      for (const s of [...breakfasts, ...lunches]) {
+        const f = forecastSuggestion(forecastSnapshot, s.recipe.id);
+        if (f?.kind !== 'now' || f.rank !== s.rank) console.warn('[suggestForecast] day 0 disagrees with the list', s.recipe.title, s.rank, f);
+      }
+    }
+    return { breakfasts, lunches, forecastSnapshot };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [recipes, weeklyPlan, showCommon, showRare, showToTry, showRetired, includeToTry, checkedTypes, checkedCategories, checkedCuisines, checkedTags, checkedSources, historyTick, suggestWeights, suggestSkips, suggestRequeues]);
+
+  // Hand the ranking's inputs to the recipe pop-up's "next suggested" line.
+  // Left in place on unmount, so a pop-up opened from another page still has it.
+  useEffect(() => {
+    publishSuggestionSnapshot(suggestions.forecastSnapshot || null);
+  }, [suggestions]);
 
   return (
     <>
