@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useRef } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { RecipeCard } from './RecipeCard';
 import { loadStarterRecipes } from '../utils/starterRecipes';
 import { getUserKeyIngredients, normalize, recipeHasIngredient } from '../utils/keyIngredients';
@@ -125,7 +125,12 @@ function formatLogDate(dateStr) {
  * which is a different question — it needs the meals side by side with the
  * same four numbers, so the sort is something you can check rather than trust.
  */
-export function WhyColumnPanel({ title, items, onClose, onSelectItem, weights, onWeightsChange }) {
+// The column shows its top SUGGESTED_SHOWN; the "how it's ordered" panel lists
+// SUGGEST_PANEL_ROWS, so you can see what's next in line after them.
+const SUGGESTED_SHOWN = 10;
+const SUGGEST_PANEL_ROWS = 20;
+
+export function WhyColumnPanel({ title, items, onClose, onSelectItem, weights, onWeightsChange, shownCount = SUGGESTED_SHOWN }) {
   const top = items[0];
   const editable = typeof onWeightsChange === 'function';
   const setTerm = (key, patch) => onWeightsChange({ ...weights, [key]: { ...weights[key], ...patch } });
@@ -146,7 +151,9 @@ export function WhyColumnPanel({ title, items, onClose, onSelectItem, weights, o
           <div>
             <h2 style={{ margin: 0, fontSize: '1.15rem', fontWeight: 700, color: 'var(--color-text)' }}>How {title} is ordered</h2>
             <p style={{ margin: '0.2rem 0 0', fontSize: '0.85rem', color: 'var(--color-text-muted)' }}>
-              {items.length === 0 ? 'Nothing to rank yet.' : `${items.length} meal${items.length === 1 ? '' : 's'}, highest score first`}
+              {items.length === 0
+                ? 'Nothing to rank yet.'
+                : `${items.length} meal${items.length === 1 ? '' : 's'}, highest score first${items.length > shownCount ? ` — the top ${shownCount} are suggested` : ''}`}
             </p>
           </div>
           <button onClick={onClose} aria-label="Close" style={{ background: 'none', border: 'none', fontSize: '1.4rem', cursor: 'pointer', color: 'var(--color-text-muted)', lineHeight: 1 }}>×</button>
@@ -238,8 +245,17 @@ export function WhyColumnPanel({ title, items, onClose, onSelectItem, weights, o
               {items.map(item => {
                 const b = item.breakdown;
                 const never = b.recipeDays === 9999;
+                const nextInLine = item.rank > shownCount;
                 return (
-                  <tr key={item.recipe.id} style={{ borderTop: '1px solid var(--color-border, #e5e7eb)' }}>
+                  <React.Fragment key={item.recipe.id}>
+                  {item.rank === shownCount + 1 && (
+                    <tr data-testid="next-in-line-divider">
+                      <td colSpan={3 + SUGGEST_WEIGHT_TERMS.length} style={{ padding: '0.6rem 0 0.3rem', fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.03em', color: 'var(--color-text-muted)', borderTop: '2px solid var(--color-border, #e5e7eb)' }}>
+                        Next in line — not suggested yet
+                      </td>
+                    </tr>
+                  )}
+                  <tr style={{ borderTop: '1px solid var(--color-border, #e5e7eb)', opacity: nextInLine ? 0.75 : 1 }}>
                     <td style={{ padding: '0.4rem 0.4rem 0.4rem 0', color: 'var(--color-text-muted)' }}>{item.rank}</td>
                     <td style={{ padding: '0.4rem 0.4rem 0.4rem 0' }}>
                       <button
@@ -265,6 +281,7 @@ export function WhyColumnPanel({ title, items, onClose, onSelectItem, weights, o
                     </td>
                     <td style={{ padding: '0.4rem 0 0.4rem 0.4rem', textAlign: 'right', fontWeight: 700 }}>{Math.round(b.totalScore)}</td>
                   </tr>
+                  </React.Fragment>
                 );
               })}
             </tbody>
@@ -1783,7 +1800,7 @@ export function RecipeList({
     // "Seasonal only" recipes sit out until their season comes round; then
     // their days-since-eaten carries them straight up the list.
     const candidates = filtered.filter(r => !weekSet.has(r.id) && !isSkipped(suggestSkips, r.id) && recipeInSeason(r));
-    if (candidates.length === 0 && filtered.every(r => !weekSet.has(r.id))) return { breakfasts: [], lunches: [], forecastSnapshot: null };
+    if (candidates.length === 0 && filtered.every(r => !weekSet.has(r.id))) return { breakfasts: [], lunches: [], breakfastsRanked: [], lunchesRanked: [], forecastSnapshot: null };
 
     // Sort history newest-first
     const byRecent = [...history].sort(
@@ -2023,8 +2040,12 @@ export function RecipeList({
     // Rank + field size go on each item so the "why?" panel can say where a
     // meal placed and out of how many, without recomputing any of this.
     const withRank = (list) => list.map((s, i) => ({ ...s, rank: i + 1, outOf: list.length }));
-    const breakfasts = withRank(scored.filter(s => s.recipe.category === 'breakfast')).slice(0, 10);
-    const lunches = withRank(scored.filter(s => s.recipe.category === 'lunch-dinner')).slice(0, 10);
+    // The column shows the top SUGGESTED_SHOWN; the "how it's ordered" panel
+    // shows SUGGEST_PANEL_ROWS so you can see what's next in line.
+    const breakfastsRanked = withRank(scored.filter(s => s.recipe.category === 'breakfast')).slice(0, SUGGEST_PANEL_ROWS);
+    const lunchesRanked = withRank(scored.filter(s => s.recipe.category === 'lunch-dinner')).slice(0, SUGGEST_PANEL_ROWS);
+    const breakfasts = breakfastsRanked.slice(0, SUGGESTED_SHOWN);
+    const lunches = lunchesRanked.slice(0, SUGGESTED_SHOWN);
     // Dev-only check that the forecast's day 0 is this exact list.
     if (import.meta.env?.DEV) {
       for (const s of [...breakfasts, ...lunches]) {
@@ -2032,7 +2053,7 @@ export function RecipeList({
         if (f?.kind !== 'now' || f.rank !== s.rank) console.warn('[suggestForecast] day 0 disagrees with the list', s.recipe.title, s.rank, f);
       }
     }
-    return { breakfasts, lunches, forecastSnapshot };
+    return { breakfasts, lunches, breakfastsRanked, lunchesRanked, forecastSnapshot };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [recipes, weeklyPlan, showCommon, showRare, showToTry, showRetired, includeToTry, checkedTypes, checkedCategories, checkedCuisines, checkedTags, checkedSources, historyTick, suggestWeights, suggestSkips, suggestRequeues]);
 
@@ -3010,7 +3031,7 @@ export function RecipeList({
       {whyColumn && (
         <WhyColumnPanel
           title={whyColumn === 'breakfast' ? 'Breakfast' : 'Lunch & Dinner'}
-          items={whyColumn === 'breakfast' ? suggestions.breakfasts : suggestions.lunches}
+          items={whyColumn === 'breakfast' ? suggestions.breakfastsRanked : suggestions.lunchesRanked}
           weights={suggestWeights}
           onWeightsChange={updateSuggestWeights}
           onClose={() => setWhyColumn(null)}
