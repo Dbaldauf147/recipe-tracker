@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  forecastSuggestion, suggestPaceFromLog, addDaysKey, daysBetweenKeys, nextInSeasonKey, NEVER_DAYS,
+  forecastSuggestion, describeForecast, suggestPaceFromLog, addDaysKey, daysBetweenKeys, nextInSeasonKey, NEVER_DAYS,
 } from './suggestForecast.js';
 
 const TODAY = '2026-10-17';
@@ -67,7 +67,8 @@ test('skipped → waits for the skip to run out', () => {
 test("in this week's plan / filtered out / other categories", () => {
   assert.equal(forecastSuggestion(snap([cand('t', null, { planned: true })]), 't').kind, 'this-week');
   assert.equal(forecastSuggestion(snap([], { excluded: { t: 'filtered' } }), 't').kind, 'filtered');
-  assert.equal(forecastSuggestion(snap([cand('t', null, { category: 'snacks' })]), 't'), null);
+  assert.deepEqual(forecastSuggestion(snap([cand('t', null, { category: 'snacks' })]), 't'), { kind: 'no-column', category: 'snacks' });
+  assert.equal(forecastSuggestion(snap([cand('t', null, { category: undefined })]), 't'), null);
   assert.equal(forecastSuggestion(null, 't'), null);
 });
 
@@ -109,7 +110,7 @@ test('next in-season month start', () => {
 });
 
 test('describeForecast words', async () => {
-  const { describeForecast, friendlyDateKey } = await import('./suggestForecast.js');
+  const { friendlyDateKey } = await import('./suggestForecast.js');
   const s = snap([]);
   assert.equal(friendlyDateKey('2026-11-03', TODAY), 'Tue, Nov 3');
   assert.equal(friendlyDateKey('2027-01-05', TODAY), 'Tue, Jan 5, 2027');
@@ -121,4 +122,19 @@ test('describeForecast words', async () => {
   assert.match(skip.headline, /\(tomorrow\)$/);
   assert.match(skip.detail, /^Skipped until Sat, Oct 24\. Estimate, if you keep cooking about 1 suggested Breakfast meal a week\.$/);
   assert.equal(describeForecast(null, s), null);
+});
+
+test('why a meal will not show up', () => {
+  const say = (f) => describeForecast(f, snap([])).detail;
+  assert.match(say({ kind: 'filtered', category: null, reason: 'retired' }), /Retired/);
+  assert.match(say({ kind: 'filtered', category: null, reason: 'rare' }), /Rare/);
+  assert.match(say({ kind: 'filtered', category: null, reason: 'toTry' }), /To Try/);
+  assert.match(say({ kind: 'filtered', category: null, reason: 'filter:cuisine' }), /cuisine filter/);
+  assert.match(say({ kind: 'no-column', category: 'snacks' }), /Snacks/);
+  // Ranked too low: today's score against the last place shown.
+  const nevers = Array.from({ length: 11 }, (_, i) => cand(`n${i}`, null));
+  const r = forecastSuggestion(snap([cand('t', TODAY), ...nevers]), 't', { maxDays: 0 });
+  assert.equal(r.kind, 'not-soon');
+  assert.ok(r.scoreNow < r.cutoff);
+  assert.match(say(r), /scores/);
 });
