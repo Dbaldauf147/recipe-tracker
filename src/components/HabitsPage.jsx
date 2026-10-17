@@ -5,7 +5,7 @@ import {
 } from '../utils/habitLogYears';
 import { HABIT_FIELDS, seedHabits, makeHabitId } from '../data/habitsSeed';
 import { CALENDAR_DAYS, calendarCounts, habitCalendar } from '../utils/habitCalendar';
-import { AUTO_PROMOTE_DAYS, AUTO_PROMOTE_PCT, autoPromoteNumbers, autoPromoteEta } from '../utils/habitAutoPromote';
+import { AUTO_PROMOTE_DAYS, AUTO_PROMOTE_PCT, autoPromoteNumbers, autoPromoteEta, autoPromoteAnswerExpired } from '../utils/habitAutoPromote';
 import { yesterdayDate, yesterdayDayKey, yesterdayUnloggedHabits, isBadHabit, habitMonthEvery, monthlyDueIn, habitPeriodKey, habitDueNow } from '../utils/habitOutstanding';
 import { normalizePtoRanges, ptoCellsToStamp, activePtoRange } from '../utils/habitPto';
 import { nextMarkInCycle } from '../utils/habitMarkCycle';
@@ -1261,14 +1261,16 @@ function autoPromoteRate(h, habitLog) {
  * months might be exactly the one you still like ticking off. So this only
  * decides who gets asked — see the prompt in HabitsPage.
  *
- * Two fields remember that the question is settled, and both must block it, or
- * the rule spends every page load re-litigating a decision you already made:
+ * Two fields remember that the question was answered, so it isn't re-asked
+ * on every page load:
  *   autoPromotedAt       you said yes (moving it back later is a decision too)
  *   autoPromoteDeclinedAt you said keep tracking it
+ * An answer holds until the habit earns it again on a fresh 60 logged days
+ * that all come after it (autoPromoteAnswerExpired) — then it's asked again.
  */
 function habitReadyForAuto(h, habitLog) {
   if (cadenceCanon(h.cadence) !== 'Daily') return false;
-  if (h.autoPromotedAt || h.autoPromoteDeclinedAt) return false;
+  if ((h.autoPromotedAt || h.autoPromoteDeclinedAt) && !autoPromoteAnswerExpired(h, habitLog)) return false;
   if (AUTO_PROMOTE_SKIP_STATUSES.includes((h.status || '').trim())) return false;
   return autoPromoteNumbers(h, habitLog).earned;
 }
@@ -1287,7 +1289,9 @@ function autoPromoteProgress(h, habitLog) {
   return {
     ...p,
     blockedByStatus: AUTO_PROMOTE_SKIP_STATUSES.includes(status) ? status : null,
-    settled: h.autoPromotedAt ? 'promoted' : (h.autoPromoteDeclinedAt ? 'declined' : null),
+    // A stale answer (a fresh 60 logged days since) no longer counts as settled.
+    settled: autoPromoteAnswerExpired(h, habitLog) ? null
+      : h.autoPromotedAt ? 'promoted' : (h.autoPromoteDeclinedAt ? 'declined' : null),
     settledAt: h.autoPromotedAt || h.autoPromoteDeclinedAt || '',
   };
 }
@@ -3641,8 +3645,8 @@ function DeleteRoutineModal({ name, count, onUnsort, onDeleteHabits, onClose }) 
 // still missing, and the date it would cross the line if nothing slips.
 //
 // Read-only apart from one button: a habit that has already earned the status
-// but was asked-and-answered (autoPromoteDeclinedAt) will never be offered it
-// again, so without a way to say yes here the panel would be a dead end.
+// but was asked-and-answered (autoPromoteDeclinedAt) is not offered it again until a fresh 60 logged days earn it
+// — so without a way to say yes here the panel would be a dead end.
 /**
  * The body of that panel, on its own so the habit popup can show the same
  * answer without press-and-holding anything: "when does this get offered
@@ -3746,9 +3750,9 @@ function AutoPromoteBody({ habit, habitLog, autoTracked, compact = false }) {
                 <>
                   <strong>It's earned it.</strong>{' '}
                   {p.settled === 'declined' && settledOn
-                    ? <>You chose to keep tracking it on {fmtDay(settledOn)}, so it won't ask again — but you can move it now.</>
+                    ? <>You chose to keep tracking it on {fmtDay(settledOn)}, so it won't ask again until it earns it on 60 fresh logged days after that — but you can move it now.</>
                     : p.settled === 'promoted' && settledOn
-                      ? <>It was already made automatic once (on {fmtDay(settledOn)}) and moved back since, so it won't ask again — but you can move it now.</>
+                      ? <>It was already made automatic once (on {fmtDay(settledOn)}) and moved back since, so it won't ask again until it earns it on 60 fresh logged days after that — but you can move it now.</>
                       : <>You'll be asked next time this page loads.</>}
                 </>
               ))
@@ -6140,7 +6144,7 @@ function currentTabAlerts(habits, habitLog) {
   const ready = habits.filter(h =>
     FOCUS_STATUSES.some(f => f.status === (h.status || '').trim())
     && readyForAutomatic(h, habitLog)
-    && !h.autoPromotedAt && !h.autoPromoteDeclinedAt);
+    && !autoPromoteProgress(h, habitLog).settled);
   const reasons = [];
   if (!has(CURRENT_STATUS)) reasons.push('No habits in Working on now');
   if (!has(REFRESHING_STATUS)) reasons.push('No habits in Refreshing');
