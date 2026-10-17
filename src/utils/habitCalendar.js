@@ -13,6 +13,7 @@
 // Mirrored in PrepDay src/utils/habitCalendar.ts — change both together.
 
 import { dayKey, habitPeriodKey, tracksDate, isBadHabit } from './habitOutstanding.js';
+import { autoPromoteQualifiedDays } from './habitAutoPromote.js';
 
 export const CALENDAR_DAYS = 60;
 export const CALENDAR_LOOKBACK_DAYS = 365;
@@ -40,12 +41,14 @@ const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', '
 /**
  * Months the window touches, newest first, each as Sunday-first weeks of cells
  * (null pads), newest week first; weeks with no day in the window are dropped.
- * Cell: { key, day, mark, inWindow, tracked, isToday }.
+ * Cell: { key, day, mark, inWindow, tracked, isToday, qualified } — `qualified`
+ * is the day the habit crossed the Automatically bar (utils/habitAutoPromote).
  */
 export function habitCalendar(h, habitLog, today = new Date(), days = CALENDAR_DAYS) {
   const end = new Date(today.getFullYear(), today.getMonth(), today.getDate());
   const start = calendarStart(h, habitLog, end, days);
   const todayKey = dayKey(end);
+  const qualifiedOn = isBadHabit(h) ? new Set() : autoPromoteQualifiedDays(h, habitLog, start, end);
   const months = [];
   for (let y = start.getFullYear(), m = start.getMonth();
     y < end.getFullYear() || (y === end.getFullYear() && m <= end.getMonth());
@@ -62,6 +65,7 @@ export function habitCalendar(h, habitLog, today = new Date(), days = CALENDAR_D
         mark: inWindow ? (habitLog?.[habitPeriodKey(h, date)]?.[h.id] ?? null) : null,
         tracked: tracksDate(h, date),
         isToday: key === todayKey,
+        qualified: inWindow && qualifiedOn.has(key),
       });
     }
     while (cells.length % 7) cells.push(null);

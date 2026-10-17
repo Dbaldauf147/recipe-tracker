@@ -77,3 +77,14 @@ test('a bad habit keeps the plain 60 days', () => {
   const ms = habitCalendar({ id: 'h', name: 'x', cadence: 'Daily', habitType: 'bad' }, {}, today);
   assert.equal(cells(ms).filter(c => c.inWindow).length, 60);
 });
+
+test('flags the day the habit qualified for Automatically', () => {
+  const log = {};
+  for (let i = 1; i <= 70; i++) {
+    const d = new Date(2026, 9, 14 - i);
+    log[`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`] = { h: 'done' };
+  }
+  const ms = habitCalendar({ id: 'h', cadence: 'Daily' }, log, today);
+  // 70 straight days from 5 Aug: the 60th one, 3 Oct, is when it first had 60 logged.
+  assert.deepEqual(cells(ms).filter(c => c.qualified).map(c => c.key), ['2026-10-03']);
+});
