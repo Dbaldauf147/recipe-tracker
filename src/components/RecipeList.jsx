@@ -582,6 +582,52 @@ export function WhySuggestedPanel({ item, onClose }) {
 const SHOP_KEY = 'sunday-shopping-selection';
 const WEEKLY_GOALS_KEY = 'sunday-weekly-goals';
 
+// Colours for the meals-vs-target bar (mirrored on the phone's This Week's Meals).
+const TARGET_BAR = { under: '#f59e0b', met: '#22c55e', over: '#15803d' };
+// Past this many blocks the bar switches to one continuous fill.
+const TARGET_BAR_MAX_SEGMENTS = 28;
+
+/**
+ * Meals planned vs the weekly target, as a bar: one block per meal, the
+ * target's worth of blocks drawn, filled amber while short and green once
+ * met; meals beyond the target add darker blocks on the end.
+ */
+function MealTargetBar({ label, meals, target }) {
+  const goal = Math.max(0, Number(target) || 0);
+  const n = Math.max(0, Number(meals) || 0);
+  const met = goal > 0 && n >= goal;
+  const fill = met ? TARGET_BAR.met : TARGET_BAR.under;
+  const note = goal === 0 ? `${n} planned`
+    : n < goal ? `${goal - n} to go`
+      : n === goal ? 'Target met' : `Target met · +${n - goal}`;
+  const slots = Math.max(goal, n);
+  const blocks = slots > 0 && slots <= TARGET_BAR_MAX_SEGMENTS;
+  return (
+    <div role="img" aria-label={`${label}: ${n} of ${goal} meals planned`}>
+      <div className={styles.targetBarHead}>
+        <span><strong>{label}</strong> · {n} of {goal}</span>
+        <span className={styles.targetBarNote} style={{ color: met ? TARGET_BAR.over : 'var(--color-text-muted)' }}>{note}</span>
+      </div>
+      <div className={styles.targetBarTrack}>
+        {blocks
+          ? Array.from({ length: slots }, (_, i) => (
+            <span
+              key={i}
+              className={styles.targetBarSeg}
+              style={i < n ? { background: i >= goal ? TARGET_BAR.over : fill } : undefined}
+            />
+          ))
+          : (
+            <span className={styles.targetBarSeg} style={{ position: 'relative', overflow: 'hidden' }}>
+              <span style={{ position: 'absolute', inset: 0, width: `${slots ? Math.min(100, (Math.min(n, goal) / slots) * 100) : 0}%`, background: fill }} />
+              {n > goal && <span style={{ position: 'absolute', top: 0, bottom: 0, left: `${(goal / slots) * 100}%`, right: 0, background: TARGET_BAR.over }} />}
+            </span>
+          )}
+      </div>
+    </div>
+  );
+}
+
 function formatQty(n) {
   if (!n) return '';
   if (Number.isInteger(n)) return String(n);
@@ -2519,6 +2565,12 @@ export function RecipeList({
                     </tr>
                   </tbody>
                 </table>
+                {showTargets && (
+                  <div className={styles.targetBars}>
+                    <MealTargetBar label="Breakfast" meals={bServings} target={weeklyGoals.breakfast} />
+                    <MealTargetBar label="Lunch & Dinner" meals={ldServings} target={weeklyGoals.lunchDinner} />
+                  </div>
+                )}
                 <button
                   onClick={() => {
                     const next = !showTargets;
