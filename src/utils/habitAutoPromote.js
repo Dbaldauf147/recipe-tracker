@@ -35,16 +35,17 @@ function allowedDays(h) {
 function loggedWindow(h, habitLog, today) {
   const allowed = allowedDays(h);
   const flags = [];
+  const keys = [];
   let skipped = 0, blank = 0;
   for (let i = 0; i < AUTO_PROMOTE_LOOKBACK_DAYS && flags.length < AUTO_PROMOTE_DAYS; i++) {
     const d = new Date(today.getFullYear(), today.getMonth(), today.getDate() - i);
     if (!allowed.includes(d.getDay())) continue;
     const mk = habitLog?.[dayKey(d)]?.[h.id];
-    if (isLogged(mk)) flags.push(isDone(mk));
+    if (isLogged(mk)) { flags.push(isDone(mk)); keys.push(dayKey(d)); }
     else if (mk === 'skipped') skipped++;
     else if (i > 0) blank++; // an unlogged today isn't "passed over" yet
   }
-  return { flags, skipped, blank };
+  return { flags, keys, skipped, blank };
 }
 
 /** Fewest future "Did it" days that make the newest 60 logged days clear the bar. */
@@ -112,4 +113,9 @@ export function autoPromoteQualifiedDays(h, habitLog, from, to) {
     prev = now;
   }
   return out;
+}
+
+/** The 60 logged days the rule counts as of `asOf` (newest first) — on a qualified day, the run that earned it. */
+export function autoPromoteWindowKeys(h, habitLog, asOf) {
+  return loggedWindow(h, habitLog, asOf).keys;
 }

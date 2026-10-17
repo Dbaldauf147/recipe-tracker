@@ -13,7 +13,7 @@
 // Mirrored in PrepDay src/utils/habitCalendar.ts — change both together.
 
 import { dayKey, habitPeriodKey, tracksDate, isBadHabit } from './habitOutstanding.js';
-import { autoPromoteQualifiedDays } from './habitAutoPromote.js';
+import { autoPromoteQualifiedDays, autoPromoteWindowKeys } from './habitAutoPromote.js';
 
 export const CALENDAR_DAYS = 60;
 export const CALENDAR_LOOKBACK_DAYS = 365;
@@ -42,13 +42,26 @@ const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', '
  * Months the window touches, newest first, each as Sunday-first weeks of cells
  * (null pads), newest week first; weeks with no day in the window are dropped.
  * Cell: { key, day, mark, inWindow, tracked, isToday, qualified } — `qualified`
- * is the day the habit crossed the Automatically bar (utils/habitAutoPromote).
+ * is the day the habit crossed the Automatically bar (utils/habitAutoPromote);
+ * `qualifyingRun` marks each of the 60 logged days that earned it.
  */
 export function habitCalendar(h, habitLog, today = new Date(), days = CALENDAR_DAYS) {
   const end = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-  const start = calendarStart(h, habitLog, end, days);
+  let start = calendarStart(h, habitLog, end, days);
   const todayKey = dayKey(end);
   const qualifiedOn = isBadHabit(h) ? new Set() : autoPromoteQualifiedDays(h, habitLog, start, end);
+  // Every day of each qualifying run of 60 logged days — reaching the window
+  // back far enough to show the whole run, not just the day it tipped over.
+  const runDays = new Set();
+  for (const q of qualifiedOn) {
+    const [qy, qm, qd] = q.split('-').map(Number);
+    for (const k of autoPromoteWindowKeys(h, habitLog, new Date(qy, qm - 1, qd))) {
+      runDays.add(k);
+      const [y, m, d] = k.split('-').map(Number);
+      const kd = new Date(y, m - 1, d);
+      if (kd < start) start = kd;
+    }
+  }
   const months = [];
   for (let y = start.getFullYear(), m = start.getMonth();
     y < end.getFullYear() || (y === end.getFullYear() && m <= end.getMonth());
@@ -66,6 +79,7 @@ export function habitCalendar(h, habitLog, today = new Date(), days = CALENDAR_D
         tracked: tracksDate(h, date),
         isToday: key === todayKey,
         qualified: inWindow && qualifiedOn.has(key),
+        qualifyingRun: inWindow && runDays.has(key),
       });
     }
     while (cells.length % 7) cells.push(null);
