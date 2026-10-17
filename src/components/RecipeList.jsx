@@ -1941,7 +1941,20 @@ export function RecipeList({
     const todayKey = localDateKey(new Date());
     const filteredIds = new Set(filtered.map(r => r.id));
     const excluded = {};
-    for (const r of recipes) if (!filteredIds.has(r.id)) excluded[r.id] = 'filtered';
+    // Say WHICH thing leaves it out, so the recipe pop-up can tell you.
+    const excludedReason = (r) => {
+      const freq = r.frequency || 'common';
+      if (freq === 'retired' && !showRetired) return 'retired';
+      if (freq === 'rare' && !showRare) return 'rare';
+      if (freq === 'toTry' && !(showToTry || includeToTry)) return 'toTry';
+      if (checkedTypes.size > 0 && !checkedTypes.has(r.mealType || '')) return 'filter:meal type';
+      if (checkedCategories.size > 0 && !checkedCategories.has(r.category || 'lunch-dinner')) return 'filter:category';
+      if (checkedCuisines.size > 0 && !checkedCuisines.has(r.cuisine || '')) return 'filter:cuisine';
+      if (checkedTags.size > 0) return 'filter:tag';
+      if (checkedSources.size > 0 && !checkedSources.has(r.source || 'unknown')) return 'filter:source';
+      return 'filtered';
+    };
+    for (const r of recipes) if (!filteredIds.has(r.id)) excluded[r.id] = excludedReason(r);
     const ingredientKeys = userIngredients.map(k => normalize(k));
     const forecastSnapshot = {
       today: todayKey,
