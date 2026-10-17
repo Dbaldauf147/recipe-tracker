@@ -5,6 +5,7 @@ import {
 } from '../utils/habitLogYears';
 import { HABIT_FIELDS, seedHabits, makeHabitId } from '../data/habitsSeed';
 import { CALENDAR_DAYS, calendarCounts, habitCalendar } from '../utils/habitCalendar';
+import { AUTO_PROMOTE_DAYS, AUTO_PROMOTE_PCT, autoPromoteNumbers, autoPromoteEta } from '../utils/habitAutoPromote';
 import { yesterdayDate, yesterdayDayKey, yesterdayUnloggedHabits, isBadHabit, habitMonthEvery, monthlyDueIn, habitPeriodKey, habitDueNow } from '../utils/habitOutstanding';
 import { normalizePtoRanges, ptoCellsToStamp, activePtoRange } from '../utils/habitPto';
 import { nextMarkInCycle } from '../utils/habitMarkCycle';
@@ -1236,32 +1237,21 @@ function habitKpi(h, habitLog) {
 }
 
 // ── Auto-promotion to "Automatically" ────────────────────────────────────────
-// A daily habit you've kept up in more than 90% of the last 60 tracked days is
-// established: it moves to status 'Automatically', which is what that status
-// means — tracked for you, no longer something to log by hand.
-//
-// The denominator is EVERY tracked day in the window, not just the days with a
-// mark, so a habit that only started three weeks ago mathematically cannot
-// clear the bar. That's the whole guard against promoting on thin evidence —
-// >90% of 60 days is at least 54 days actually done.
-const AUTO_PROMOTE_DAYS = 60;
-const AUTO_PROMOTE_PCT = 90;
+// A daily habit you've kept up in more than 90% of its last 60 LOGGED days
+// (Did it, ★ or No — skips and unlogged days are passed over and the walk
+// looks further back) is established: it moves to status 'Automatically',
+// which is what that status means — tracked for you, no longer something to
+// log by hand. The arithmetic lives in utils/habitAutoPromote. A habit needs a
+// full 60 logged days before it can qualify — the guard against promoting on
+// thin evidence.
 // Statuses the rule leaves alone: already promoted, deliberately parked, or
 // never begun.
 const AUTO_PROMOTE_SKIP_STATUSES = ['Automatically', MUST_TRACK_STATUS, ON_HOLD_STATUS, 'Abandoned', 'Not Started', 'Havent Started'];
 
-/** Completion % over the promotion window, or null when nothing is logged. */
+/** Completion % over the last 60 logged days, or null when nothing is logged. */
 function autoPromoteRate(h, habitLog) {
-  const keys = habitWindowKeys(h.cadence, h.trackDays, AUTO_PROMOTE_DAYS);
-  if (keys.length === 0) return null;
-  let done = 0, logged = 0;
-  for (const k of keys) {
-    const mk = habitLog?.[k]?.[h.id];
-    if (mk) logged++;
-    if (mk === 'done' || mk === 'exceeded') done++;
-  }
-  if (logged === 0) return null; // nothing logged — the stored kpi isn't evidence
-  return (done / keys.length) * 100;
+  const p = autoPromoteNumbers(h, habitLog);
+  return p.total ? p.rate : null;
 }
 
 /**
@@ -1280,8 +1270,7 @@ function habitReadyForAuto(h, habitLog) {
   if (cadenceCanon(h.cadence) !== 'Daily') return false;
   if (h.autoPromotedAt || h.autoPromoteDeclinedAt) return false;
   if (AUTO_PROMOTE_SKIP_STATUSES.includes((h.status || '').trim())) return false;
-  const rate = autoPromoteRate(h, habitLog);
-  return rate != null && rate > AUTO_PROMOTE_PCT;
+  return autoPromoteNumbers(h, habitLog).earned;
 }
 
 /**
@@ -1289,71 +1278,18 @@ function habitReadyForAuto(h, habitLog) {
  * SHOWN before it decides — press and hold a habit name on the Routines page
  * and this is what fills the panel.
  *
- * Two things it deliberately does not borrow from the % column next to it:
- * a `skipped` day counts against you here (habitKpi excuses skips, and PTO
- * stamps a lot of them), and an unlogged day counts as a miss. The promotion
- * rule's denominator is every tracked day in the window; a panel that quietly
- * used the friendlier math would be explaining a number the rule never sees.
+ * Unlike the % column next to it, this counts only logged days: the last 60
+ * marked Did it, ★ or No, however far back that reaches.
  */
 function autoPromoteProgress(h, habitLog) {
-  const daily = cadenceCanon(h.cadence) === 'Daily';
-  const keys = daily ? habitWindowKeys(h.cadence, h.trackDays, AUTO_PROMOTE_DAYS) : [];
-  const total = keys.length;
-  let done = 0, skipped = 0, missed = 0, blank = 0;
-  for (const k of keys) {
-    const mk = habitLog?.[k]?.[h.id];
-    if (mk === 'done' || mk === 'exceeded') done++;
-    else if (mk === 'skipped') skipped++;
-    else if (mk) missed++;
-    else blank++;
-  }
-  // Fewest whole days that clear a strictly-greater-than bar: 55 of 60, not 54.
-  const needed = total ? Math.floor((total * AUTO_PROMOTE_PCT) / 100) + 1 : 0;
-  const rate = total ? (done / total) * 100 : 0;
+  const p = autoPromoteNumbers(h, habitLog);
   const status = (h.status || '').trim();
   return {
-    daily, total, done, skipped, missed, blank, needed, rate,
-    shortBy: Math.max(0, needed - done),
-    // `logged === 0` is the same "no evidence at all" case autoPromoteRate()
-    // returns null for — an empty window is not a habit that has earned this.
-    earned: total > 0 && (done + skipped + missed) > 0 && rate > AUTO_PROMOTE_PCT,
+    ...p,
     blockedByStatus: AUTO_PROMOTE_SKIP_STATUSES.includes(status) ? status : null,
     settled: h.autoPromotedAt ? 'promoted' : (h.autoPromoteDeclinedAt ? 'declined' : null),
     settledAt: h.autoPromotedAt || h.autoPromoteDeclinedAt || '',
   };
-}
-
-/**
- * The earliest date the rule could fire, if every day from today on is a
- * "Did it".
- *
- * Not `shortBy` more days: the window ROLLS, so old misses fall out of the back
- * of it while new days come in the front, and a habit 8 days short can be 3
- * days away or 30 depending on WHERE its misses sit. So this walks the window
- * forward a day at a time and asks the real question each time.
- *
- * Today counts as one of the days you'd be keeping up — unless you've already
- * answered for it, in which case that answer stands.
- */
-function autoPromoteEta(h, habitLog, today = new Date()) {
-  if (cadenceCanon(h.cadence) !== 'Daily') return null;
-  const todayKey = dayKey(today);
-  for (let d = 0; d <= AUTO_PROMOTE_DAYS * 2; d++) {
-    const base = new Date(today.getFullYear(), today.getMonth(), today.getDate() + d);
-    const keys = habitWindowKeys(h.cadence, h.trackDays, AUTO_PROMOTE_DAYS, base);
-    if (keys.length === 0) return null;
-    // `completions` = tracked days you'd still have to do (today included when
-    // it isn't logged yet). `days` is calendar days, which over-counts for a
-    // habit with weekdays off.
-    let done = 0, completions = 0;
-    for (const k of keys) {
-      const mk = habitLog?.[k]?.[h.id];
-      if (k > todayKey || (k === todayKey && !mk)) { done++; completions++; }
-      else if (mk === 'done' || mk === 'exceeded') done++;
-    }
-    if ((done / keys.length) * 100 > AUTO_PROMOTE_PCT) return { date: base, days: d, completions };
-  }
-  return null;
 }
 
 // Human-readable label for the rolling KPI window of a cadence (see
@@ -2388,7 +2324,7 @@ export function HabitsPage({ onBack, user }) {
               {autoPromotePrompts.length === 1 ? 'This habit has stuck' : 'These habits have stuck'}
             </h3>
             <p style={{ margin: '0 0 0.9rem', fontSize: '0.85rem', lineHeight: 1.5, color: 'var(--color-text-muted, #64748b)' }}>
-              Kept up more than {AUTO_PROMOTE_PCT}% of the last {AUTO_PROMOTE_DAYS} tracked days.
+              Kept up more than {AUTO_PROMOTE_PCT}% of the last {AUTO_PROMOTE_DAYS} logged days (skips and blanks passed over).
               Moving {autoPromotePrompts.length === 1 ? 'it' : 'them'} to <em>Automatically</em> takes
               {autoPromotePrompts.length === 1 ? ' it' : ' them'} off the routine lists and out of the
               needs-logging counts. Keep tracking instead and nothing changes.
@@ -3760,7 +3696,9 @@ function AutoPromoteBody({ habit, habitLog, autoTracked, compact = false }) {
               {Math.round(p.rate)}%
             </span>
             <span style={muted}>
-              {p.done} of {p.total} tracked days · needs {p.needed} (more than {AUTO_PROMOTE_PCT}%)
+              {p.total < AUTO_PROMOTE_DAYS
+                ? `${p.done} done of ${p.total} logged days so far · needs ${AUTO_PROMOTE_DAYS} logged, more than ${AUTO_PROMOTE_PCT}% done`
+                : `${p.done} of the last ${p.total} logged days · needs ${p.needed} (more than ${AUTO_PROMOTE_PCT}%)`}
             </span>
           </div>
 
@@ -3783,14 +3721,16 @@ function AutoPromoteBody({ habit, habitLog, autoTracked, compact = false }) {
             {chips.map(c => (
               <span
                 key={c.k}
-                title={`${MARK_META[c.k].label} — ${c.n} of the last ${p.total} tracked days`}
+                title={c.k === 'skipped'
+                  ? `Skipped days passed over on the way back — they don't count either way`
+                  : `${MARK_META[c.k].label} — ${c.n} of the last ${p.total} logged days`}
                 style={{ fontSize: '0.72rem', fontWeight: 700, borderRadius: 6, padding: '2px 7px', color: MARK_META[c.k].color, background: MARK_META[c.k].color + '18', border: `1px solid ${MARK_META[c.k].color}44` }}
               >{MARK_META[c.k].icon} {c.n} {c.label}</span>
             ))}
             <span
-              title={`Tracked days in the window with no mark at all — they count against this the same as a “No”`}
+              title={`Unlogged days passed over on the way back — they don't count either way`}
               style={{ fontSize: '0.72rem', fontWeight: 700, borderRadius: 6, padding: '2px 7px', color: '#94a3b8', background: '#f1f5f9', border: '1px solid #e2e8f0' }}
-            >· {p.blank} not logged</span>
+            >· {p.blank} not logged (passed over)</span>
           </div>
 
           {noEvidence
@@ -3814,7 +3754,7 @@ function AutoPromoteBody({ habit, habitLog, autoTracked, compact = false }) {
               ))
               : note('#f8fafc', '#e2e8f0', 'var(--color-text-muted, #64748b)', (
                 <>
-                  <strong>{p.shortBy} more {p.shortBy === 1 ? 'day' : 'days'}</strong> in the window would clear it.{' '}
+                  <strong>{p.shortBy} more {p.shortBy === 1 ? 'day' : 'days'}</strong> of doing it would clear it.{' '}
                   {eta
                     ? (eta.days === 0
                       ? <>Logging today gets it there.</>
@@ -3834,9 +3774,9 @@ function AutoPromoteBody({ habit, habitLog, autoTracked, compact = false }) {
       )}
 
       <p style={{ margin: '0.95rem 0 0', fontSize: '0.72rem', lineHeight: 1.5, color: '#94a3b8' }}>
-        A daily habit done on more than {AUTO_PROMOTE_PCT}% of its last {AUTO_PROMOTE_DAYS} tracked days is offered
-        the <em>Automatically</em> status, once. Skips and unlogged days both count against it here, which is why
-        this can read lower than the % column on the row.
+        A daily habit done on more than {AUTO_PROMOTE_PCT}% of its last {AUTO_PROMOTE_DAYS} logged days (Did it, ★ or
+        No) is offered the <em>Automatically</em> status, once. Skipped and unlogged days are passed over — it looks
+        further back instead.
       </p>
     </>
   );
@@ -6244,7 +6184,7 @@ function AutoCountdown({ habit, habitLog, alerting, onMakeAutomatic }) {
   const when = eta.date.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
   return (
     <span
-      title={`Log it every tracked day and it qualifies on ${when}. Now ${Math.round(p.rate)}% of the last ${p.total} tracked days — needs more than ${AUTO_PROMOTE_PCT}%.`}
+      title={`Log it every tracked day and it qualifies on ${when}. Now ${Math.round(p.rate)}% of the last ${p.total} logged days — needs more than ${AUTO_PROMOTE_PCT}%.`}
       style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--color-text-secondary, #475569)', whiteSpace: 'nowrap' }}
     >
       <strong style={{ color: 'var(--color-text, #0f172a)' }}>{n}</strong> {n === 1 ? 'day' : 'days'} to Automatic
@@ -6865,7 +6805,8 @@ function HabitChecklistSection({ habit: h, period, currentMark, onUpdate, onSetM
 // tab. Every edit persists immediately via onUpdate (which saves to Firestore).
 // The headline control is the tracking-cadence selector.
 /**
- * "Last 60 days" at the foot of the habit popup: month grids, each day filled
+ * "Last 60 logged days" at the foot of the habit popup (reaching back past
+ * skipped and unlogged days — see utils/habitCalendar): month grids, each day filled
  * with its mark in the grid's colours. Weekly/Monthly habits fill every day of
  * a period they logged (utils/habitCalendar). On a bad habit a "done" is a
  * slip, so it reads red rather than green. Mirrors the phone's popup.
@@ -6887,7 +6828,7 @@ function HabitCalendar({ habit, habitLog }) {
 
   return (
     <div style={{ marginTop: '1.1rem', paddingTop: '0.9rem', borderTop: `1px solid ${border}` }}>
-      <div style={{ ...fieldLabel, marginBottom: 6 }}>Last {CALENDAR_DAYS} days</div>
+      <div style={{ ...fieldLabel, marginBottom: 6 }}>{bad ? `Last ${CALENDAR_DAYS} days` : `Last ${CALENDAR_DAYS} logged days`}</div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: '0.9rem' }}>
         {months.map(mo => (
           <div key={mo.label}>
