@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useSyncExternalStore } from 'react';
 import { createPortal } from 'react-dom';
 import { NutritionPanel, PlateChart, MealScore } from './NutritionPanel';
 import { BarcodeScanner } from './BarcodeScanner';
@@ -28,6 +28,7 @@ import { loadMealGoals, activeProfile } from '../utils/mealGoals';
 import { rateMeal, perServingForRecipe, readNutritionCache, ratingSummary } from '../utils/mealRating';
 import { StarRating } from './StarRating';
 import { RECIPE_SEASONS } from '../utils/recipeSeason';
+import { getSuggestionSnapshot, subscribeSuggestionSnapshot, forecastSuggestion, describeForecast } from '../utils/suggestForecast';
 import styles from './RecipeDetail.module.css';
 
 const ADMIN_UID = import.meta.env.VITE_ADMIN_UID;
@@ -506,6 +507,23 @@ function initFields(recipe) {
     stepSections: recipe.stepSections || {},
     stepTitles: recipe.stepTitles || {},
   };
+}
+
+/**
+ * "Next in Suggested Meals: around Tue, Nov 3" — from the Recipes list's own
+ * ranking (utils/suggestForecast.js). Nothing shows until that list has run
+ * once this session, and nothing for categories Suggested Meals doesn't have.
+ */
+function NextSuggestedLine({ recipeId }) {
+  const snap = useSyncExternalStore(subscribeSuggestionSnapshot, getSuggestionSnapshot);
+  const text = useMemo(() => describeForecast(forecastSuggestion(snap, recipeId), snap), [snap, recipeId]);
+  if (!text) return null;
+  return (
+    <div className={styles.nextSuggested} data-testid="next-suggested">
+      <span className={styles.nextSuggestedHead}>📅 {text.headline}</span>
+      {text.detail && <span className={styles.nextSuggestedDetail}>{text.detail}</span>}
+    </div>
+  );
 }
 
 export function RecipeDetail({ recipe, allTags = [], onSave, onDelete, onBack, onAddToWeek, onRemoveFromWeek, weeklyPlan, user, ingredientsVersion, onViewSources, onPersistFields, collapseIngredients = false }) {
@@ -2385,6 +2403,7 @@ export function RecipeDetail({ recipe, allTags = [], onSave, onDelete, onBack, o
                   />
                 )}
               </div>
+              <NextSuggestedLine recipeId={recipe?.id} />
 
               <div className={styles.tagsRow}>
                 <span className={styles.tagsLabel}>Tags</span>
