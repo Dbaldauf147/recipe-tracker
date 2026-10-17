@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { RecipeCard } from './RecipeCard';
+import { explainScoreTerm } from '../utils/suggestScoreExplain';
 import { loadStarterRecipes } from '../utils/starterRecipes';
 import { getUserKeyIngredients, normalize, recipeHasIngredient } from '../utils/keyIngredients';
 import { exportToCSV, importFromCSV, exportFullJSON } from '../utils/exportData';
@@ -135,6 +136,30 @@ export function WhyColumnPanel({ title, items, onClose, onSelectItem, weights, o
   const editable = typeof onWeightsChange === 'function';
   const setTerm = (key, patch) => onWeightsChange({ ...weights, [key]: { ...weights[key], ...patch } });
   const allDefault = SUGGEST_WEIGHT_TERMS.every(t => weightFor(weights, t.key) === 1);
+  // Click a number → a row under it saying how that number was worked out.
+  const [openCell, setOpenCell] = useState(null); // { id, term }
+  const toggleCell = (id, term) => setOpenCell(prev => (prev && prev.id === id && prev.term === term ? null : { id, term }));
+  const scoreCell = (item, term, content, tdStyle) => {
+    const open = openCell && openCell.id === item.recipe.id && openCell.term === term;
+    return (
+      <td style={tdStyle}>
+        <button
+          type="button"
+          onClick={() => toggleCell(item.recipe.id, term)}
+          aria-expanded={!!open}
+          data-testid={`score-${term}`}
+          title="How was this worked out?"
+          style={{
+            background: open ? 'var(--color-surface-alt, #f3f4f6)' : 'none', border: 'none', padding: '0 0.15rem',
+            font: 'inherit', color: 'inherit', cursor: 'pointer', borderRadius: 4,
+            textDecoration: 'underline dotted', textUnderlineOffset: 3,
+          }}
+        >
+          {content}
+        </button>
+      </td>
+    );
+  };
   return (
     <div
       style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }}
@@ -266,21 +291,41 @@ export function WhyColumnPanel({ title, items, onClose, onSelectItem, weights, o
                         {item.recipe.title}
                       </button>
                     </td>
-                    {/* What each term actually contributed, after weighting. */}
-                    <td style={{ padding: '0.4rem', textAlign: 'right', color: weightFor(weights, 'staleness') === 0 ? 'var(--color-text-muted)' : never ? '#b45309' : 'inherit', fontWeight: never ? 700 : 400 }}>
-                      {weightFor(weights, 'staleness') === 0 ? '—' : never ? 'never' : Math.round(b.stalenessPoints)}
-                    </td>
-                    <td style={{ padding: '0.4rem', textAlign: 'right', color: weightFor(weights, 'ingredients') === 0 ? 'var(--color-text-muted)' : undefined }}>
-                      {weightFor(weights, 'ingredients') === 0 ? '—' : Math.round(b.ingredientPoints)}
-                    </td>
-                    <td style={{ padding: '0.4rem', textAlign: 'right', color: weightFor(weights, 'seasonal') === 0 ? 'var(--color-text-muted)' : undefined }}>
-                      {weightFor(weights, 'seasonal') === 0 ? '—' : Math.round(b.seasonalBonus)}
-                    </td>
-                    <td style={{ padding: '0.4rem', textAlign: 'right', color: weightFor(weights, 'macro') === 0 ? 'var(--color-text-muted)' : undefined }}>
-                      {weightFor(weights, 'macro') === 0 ? '—' : Math.round(b.macroBonus)}
-                    </td>
-                    <td style={{ padding: '0.4rem 0 0.4rem 0.4rem', textAlign: 'right', fontWeight: 700 }}>{Math.round(b.totalScore)}</td>
+                    {/* What each term actually contributed, after weighting.
+                        Each number opens how it was worked out. */}
+                    {scoreCell(item, 'staleness',
+                      weightFor(weights, 'staleness') === 0 ? '—' : never ? 'never' : Math.round(b.stalenessPoints),
+                      { padding: '0.4rem', textAlign: 'right', color: weightFor(weights, 'staleness') === 0 ? 'var(--color-text-muted)' : never ? '#b45309' : 'inherit', fontWeight: never ? 700 : 400 })}
+                    {scoreCell(item, 'ingredients',
+                      weightFor(weights, 'ingredients') === 0 ? '—' : Math.round(b.ingredientPoints),
+                      { padding: '0.4rem', textAlign: 'right', color: weightFor(weights, 'ingredients') === 0 ? 'var(--color-text-muted)' : undefined })}
+                    {scoreCell(item, 'seasonal',
+                      weightFor(weights, 'seasonal') === 0 ? '—' : Math.round(b.seasonalBonus),
+                      { padding: '0.4rem', textAlign: 'right', color: weightFor(weights, 'seasonal') === 0 ? 'var(--color-text-muted)' : undefined })}
+                    {scoreCell(item, 'macro',
+                      weightFor(weights, 'macro') === 0 ? '—' : Math.round(b.macroBonus),
+                      { padding: '0.4rem', textAlign: 'right', color: weightFor(weights, 'macro') === 0 ? 'var(--color-text-muted)' : undefined })}
+                    {scoreCell(item, 'total', Math.round(b.totalScore),
+                      { padding: '0.4rem 0 0.4rem 0.4rem', textAlign: 'right', fontWeight: 700 })}
                   </tr>
+                  {openCell && openCell.id === item.recipe.id && (() => {
+                    const e = explainScoreTerm(openCell.term, item, key => weightFor(weights, key));
+                    return (
+                      <tr data-testid="score-explain">
+                        <td />
+                        <td colSpan={2 + SUGGEST_WEIGHT_TERMS.length} style={{ padding: '0.1rem 0 0.6rem' }}>
+                          <div style={{ background: 'var(--color-surface-alt, #f3f4f6)', border: '1px solid var(--color-border, #e5e7eb)', borderRadius: 8, padding: '0.5rem 0.7rem', fontSize: '0.8rem', lineHeight: 1.5 }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.5rem' }}>
+                              <strong>{e.title} — {item.recipe.title}</strong>
+                              <button type="button" onClick={() => setOpenCell(null)} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-text-muted)', font: 'inherit' }}>×</button>
+                            </div>
+                            {e.lines.map((l, i) => <div key={i} style={{ color: 'var(--color-text)' }}>{l}</div>)}
+                            <div style={{ marginTop: '0.25rem', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{e.formula}</div>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })()}
                   </React.Fragment>
                 );
               })}
