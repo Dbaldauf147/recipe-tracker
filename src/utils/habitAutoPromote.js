@@ -94,3 +94,22 @@ export function autoPromoteEta(h, habitLog, today = new Date()) {
   }
   return null;
 }
+
+/**
+ * Day keys between `from` and `to` (inclusive) on which the habit crossed the
+ * line: the rule reads `earned` as of that day but not as of the day before.
+ * Lets the calendar mark the day a habit stuck.
+ */
+export function autoPromoteQualifiedDays(h, habitLog, from, to) {
+  const out = new Set();
+  if (cadenceCanon(h.cadence) !== 'Daily') return out;
+  const start = new Date(from.getFullYear(), from.getMonth(), from.getDate());
+  const end = new Date(to.getFullYear(), to.getMonth(), to.getDate());
+  let prev = autoPromoteNumbers(h, habitLog, new Date(start.getFullYear(), start.getMonth(), start.getDate() - 1)).earned;
+  for (let d = start; d <= end; d = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1)) {
+    const now = autoPromoteNumbers(h, habitLog, d).earned;
+    if (now && !prev) out.add(dayKey(d));
+    prev = now;
+  }
+  return out;
+}

@@ -86,3 +86,13 @@ test('weekly habits are not watched', () => {
   assert.equal(autoPromoteProgress({ ...habit, cadence: 'Weekly' }, {}, TODAY).daily, false);
   assert.equal(autoPromoteEta({ ...habit, cadence: 'Weekly' }, {}, TODAY), null);
 });
+
+test('marks the day the habit crossed the line', async () => {
+  const { autoPromoteQualifiedDays } = await import('./habitAutoPromote.js');
+  // Days 1–60 ago all done: it first had 60 logged days (all done) as of yesterday.
+  const l = log(60);
+  const days = autoPromoteQualifiedDays(habit, l, new Date(2026, 8, 1), TODAY);
+  assert.deepEqual([...days], [daysAgo(1)]);
+  // A miss-heavy habit never qualifies.
+  assert.equal(autoPromoteQualifiedDays(habit, log(60, 'missed'), new Date(2026, 8, 1), TODAY).size, 0);
+});

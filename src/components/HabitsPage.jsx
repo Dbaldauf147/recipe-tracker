@@ -6811,6 +6811,8 @@ function HabitChecklistSection({ habit: h, period, currentMark, onUpdate, onSetM
  * a period they logged (utils/habitCalendar). On a bad habit a "done" is a
  * slip, so it reads red rather than green. Mirrors the phone's popup.
  */
+const QUALIFIED_COLOR = '#7c3aed';
+
 function HabitCalendar({ habit, habitLog }) {
   const bad = isBadHabit(habit);
   const months = useMemo(() => habitCalendar(habit, habitLog), [habit, habitLog]);
@@ -6825,6 +6827,9 @@ function HabitCalendar({ habit, habitLog }) {
     : MARK_ORDER.map(k => ({ label: MARK_META[k].short, color: MARK_META[k].color, n: counts[k] || 0 }));
   const muted = 'var(--color-text-muted, #64748b)';
   const border = 'var(--color-border, #e2e8f0)';
+  // The day it crossed the Automatically bar — the day the habit stuck.
+  const qualifiedCells = months.flatMap(mo => mo.weeks.flat()).filter(c => c?.qualified);
+  const fmtQualified = c => new Date(`${c.key}T00:00:00`).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 
   return (
     <div style={{ marginTop: '1.1rem', paddingTop: '0.9rem', borderTop: `1px solid ${border}` }}>
@@ -6844,8 +6849,10 @@ function HabitCalendar({ habit, habitLog }) {
                 return (
                   <div
                     key={i}
-                    title={c.inWindow ? `${c.key}${c.mark ? ` — ${bad && fill ? 'Slipped' : MARK_META[c.mark]?.label || c.mark}` : off ? ' — not tracked' : ''}` : undefined}
+                    title={c.inWindow ? `${c.key}${c.mark ? ` — ${bad && fill ? 'Slipped' : MARK_META[c.mark]?.label || c.mark}` : off ? ' — not tracked' : ''}${c.qualified ? ' — stuck: qualified for Automatically' : ''}` : undefined}
                     style={{
+                      position: 'relative',
+                      ...(c.qualified ? { outline: `2px solid ${QUALIFIED_COLOR}`, outlineOffset: 1 } : null),
                       aspectRatio: '1', display: 'flex', alignItems: 'center', justifyContent: 'center',
                       borderRadius: 5, fontSize: '0.68rem', fontWeight: c.inWindow ? 600 : 400,
                       border: c.isToday ? '2px solid var(--color-text, #0f172a)' : `1px solid ${fill || (c.inWindow && !off ? border : 'transparent')}`,
@@ -6854,6 +6861,9 @@ function HabitCalendar({ habit, habitLog }) {
                     }}
                   >
                     {c.day}
+                    {c.qualified && (
+                      <span aria-hidden style={{ position: 'absolute', top: -7, right: -6, fontSize: '0.62rem', lineHeight: 1, background: QUALIFIED_COLOR, color: '#fff', borderRadius: 999, padding: '1px 2px' }}>⚡</span>
+                    )}
                   </div>
                 );
               })}
@@ -6869,6 +6879,12 @@ function HabitCalendar({ habit, habitLog }) {
           </span>
         ))}
         {bad && <span>Blank = clean day</span>}
+        {qualifiedCells.length > 0 && (
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, color: QUALIFIED_COLOR, fontWeight: 700 }}>
+            <span style={{ width: 10, height: 10, borderRadius: 3, outline: `2px solid ${QUALIFIED_COLOR}`, outlineOffset: 0 }} />
+            ⚡ Stuck — qualified for Automatically {qualifiedCells.map(fmtQualified).join(', ')}
+          </span>
+        )}
       </div>
     </div>
   );
