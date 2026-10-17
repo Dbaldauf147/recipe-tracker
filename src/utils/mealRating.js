@@ -15,7 +15,7 @@
 // Pure on purpose (no React, no localStorage reads inside the scoring path)
 // so `node --test` can cover it.
 
-import { evaluateMeal, activeProfile, profileHasGoals } from './mealGoals.js';
+import { evaluateMeal, activeProfile, profileHasGoals, goalAttainment } from './mealGoals.js';
 
 export const MAX_STARS = 5;
 
@@ -120,10 +120,16 @@ export function rateMeal(profile, perServing) {
   if (total === 0) return null;
   const met = evaluation.results.filter(r => r.status === 'pass').length;
   const score = met / total;
+  // How CLOSE it comes, not just how many it meets: the mean of each goal's
+  // attainment (0–100, the radar's scale), skipping goals with no data.
+  // Suggested Meals ranks on this, so a near miss beats a wild miss.
+  const reached = evaluation.results.map(goalAttainment).filter(v => v !== null);
+  const fit = reached.length ? Math.round(reached.reduce((a, v) => a + v, 0) / reached.length) : null;
   return {
     met,
     total,
     score,
+    fit,
     // Halves, so a profile that isn't five goals long still reads on the same
     // scale instead of rounding two-thirds of the way to a whole star.
     stars: Math.round(score * MAX_STARS * 2) / 2,

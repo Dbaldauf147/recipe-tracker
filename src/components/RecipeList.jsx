@@ -20,7 +20,7 @@ import {
 } from '../utils/suggestForecast';
 import { ALL_TAGS, TAG_CATEGORIES, recipeMatchesTags } from '../utils/ingredientTags';
 import { detectCuisine, getRecipeMinShelfDays } from '../utils/detectCuisine';
-import { loadMealGoals, activeProfile } from '../utils/mealGoals';
+import { loadMealGoals, activeProfile, goalAttainment } from '../utils/mealGoals';
 import { rateRecipes, compareByRating, readNutritionCache } from '../utils/mealRating';
 import { WidgetLayout } from './WidgetLayout';
 import GridLayoutLib, { WidthProvider } from 'react-grid-layout';
@@ -68,7 +68,7 @@ export const SUGGEST_WEIGHT_TERMS = [
   { key: 'staleness', label: 'Days since you last cooked it', hint: 'never cooked counts as 9999' },
   { key: 'ingredients', label: 'Key ingredients you have not eaten lately', hint: 'days since each, added up' },
   { key: 'seasonal', label: 'In season now', hint: '50 per in-season ingredient' },
-  { key: 'macro', label: 'Fits your macro goals', hint: 'macro match, doubled' },
+  { key: 'macro', label: 'Fits your meal goals', hint: 'Design a Meal goal fit, doubled' },
 ];
 
 export function normalizeSuggestWeights(raw) {
@@ -256,7 +256,7 @@ export function WhyColumnPanel({ title, items, onClose, onSelectItem, weights, o
                 <th style={{ padding: '0.35rem 0.4rem 0.35rem 0' }}>Meal</th>
                 {SUGGEST_WEIGHT_TERMS.map(term => {
                   const w = weightFor(weights, term.key);
-                  const short = { staleness: 'Days', ingredients: 'Ingr.', seasonal: 'Season', macro: 'Macro' }[term.key];
+                  const short = { staleness: 'Days', ingredients: 'Ingr.', seasonal: 'Season', macro: 'Goals' }[term.key];
                   return (
                     <th key={term.key} style={{ padding: '0.35rem 0.4rem', textAlign: 'right', color: w === 0 ? 'var(--color-text-muted)' : undefined }} title={`${term.label} — ${term.hint}`}>
                       {short}{w === 0 ? ' (off)' : w === 1 ? '' : ` ×${w}`}
@@ -341,7 +341,7 @@ export function WhyColumnPanel({ title, items, onClose, onSelectItem, weights, o
                 { what: `the ${b.recipeDays} days since you cooked it`, points: b.stalenessPoints },
                 { what: 'key ingredients you have not eaten lately', points: b.ingredientPoints },
                 { what: 'what is in season', points: b.seasonalBonus },
-                { what: 'how well it fits your macros', points: b.macroBonus },
+                { what: 'how well it fits your meal goals', points: b.macroBonus },
               ].sort((x, y) => y.points - x.points);
               if (b.recipeDays === 9999 && b.stalenessPoints > 0) {
                 return 'nothing here has a record of it being cooked, which scores 9999';
@@ -358,6 +358,20 @@ export function WhyColumnPanel({ title, items, onClose, onSelectItem, weights, o
 
 // Same line as the suggestion card's "has …" reason (neglectedIngredients).
 const OVERDUE_DAYS = 14;
+
+// "32", "1.2 g", "≥ 8 g" — one cell of the goal-fit table.
+function goalValue(r, v) {
+  if (r.boolean) return v > 0 ? 'yes' : 'no';
+  const n = Number(v) || 0;
+  const shown = Math.abs(n) >= 10 ? Math.round(n) : Math.round(n * 10) / 10;
+  return r.unit === '%' ? `${shown}%` : `${shown}${r.unit ? ` ${r.unit}` : ''}`;
+}
+function goalTarget(r) {
+  if (r.boolean) return r.op === 'hasNot' ? 'avoid' : 'include';
+  if (r.min != null && r.max != null) return `${goalValue(r, r.min)}–${goalValue(r, r.max)}`;
+  if (r.min != null) return `≥ ${goalValue(r, r.min)}`;
+  return `≤ ${goalValue(r, r.max)}`;
+}
 
 function macroFitLabel(score) {
   if (score >= 80) return '· great fit';
@@ -405,10 +419,10 @@ export function WhySuggestedPanel({ item, onClose }) {
       note: weightNote('seasonal', item.seasonalMatches.length > 0 ? '50 each' : null),
     },
     {
-      label: 'Fits your macro goals',
-      detail: b.macroScore > 0 ? `match score ${b.macroScore}` : 'no macro match',
+      label: 'Fits your meal goals',
+      detail: b.macroDetail ? `fit ${b.macroScore}/100 · ${b.macroDetail.met} of ${b.macroDetail.total} met` : 'not scored',
       points: b.macroBonus,
-      note: weightNote('macro', b.macroRaw > 0 ? 'match × 2' : null),
+      note: weightNote('macro', b.macroRaw > 0 ? 'fit × 2' : null),
     },
   ];
   if (b.boostBonus > 0) rows.push({ label: 'Pinned by you', detail: 'manually boosted', points: b.boostBonus });
@@ -486,47 +500,45 @@ export function WhySuggestedPanel({ item, onClose }) {
           )}
         </section>
 
-        <section style={section} aria-label="Macro fit">
+        <section style={section} aria-label="Meal goal fit">
           <h3 style={sectionTitle}>
-            How it fits your macros{macro && ` · ${macro.score}/100 ${macroFitLabel(macro.score)}`}
+            How it fits your meal goals{macro && ` · ${macro.fit}/100 ${macroFitLabel(macro.fit)}`}
           </h3>
           {!macro ? (
             <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--color-text-muted)' }}>
-              No macro match yet — it needs nutrition goals set and this recipe's nutrition calculated (open the recipe once).
+              Not scored yet — it needs goals set on Design a Meal and this recipe's nutrition calculated (open the recipe once).
             </p>
           ) : (
             <>
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
                 <thead>
                   <tr style={{ color: 'var(--color-text-muted)', fontSize: '0.74rem', textAlign: 'right' }}>
-                    <th style={{ textAlign: 'left', fontWeight: 600, padding: '0.15rem 0' }}>% of calories</th>
+                    <th style={{ textAlign: 'left', fontWeight: 600, padding: '0.15rem 0' }}>Goal</th>
                     <th style={{ fontWeight: 600, padding: '0.15rem 0.4rem' }}>This meal</th>
-                    <th style={{ fontWeight: 600, padding: '0.15rem 0.4rem' }}>Your goal</th>
-                    <th style={{ fontWeight: 600, padding: '0.15rem 0' }}>Off by</th>
+                    <th style={{ fontWeight: 600, padding: '0.15rem 0.4rem' }}>Target</th>
+                    <th style={{ fontWeight: 600, padding: '0.15rem 0' }}>Reached</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {[['protein', 'Protein'], ['carbs', 'Carbs'], ['fat', 'Fat']].map(([k, label]) => {
-                    const diff = macro.meal[k] - macro.goal[k];
-                    const far = Math.abs(diff) >= 10;
+                  {macro.results.map(r => {
+                    const reached = goalAttainment(r);
+                    const pass = r.status === 'pass';
                     return (
-                      <tr key={k} style={{ borderTop: '1px solid var(--color-border, #e5e7eb)', textAlign: 'right' }}>
-                        <td style={{ textAlign: 'left', padding: '0.3rem 0' }}>{label}</td>
-                        <td style={{ padding: '0.3rem 0.4rem', fontWeight: 600 }}>{Math.round(macro.meal[k])}%</td>
-                        <td style={{ padding: '0.3rem 0.4rem', color: 'var(--color-text-muted)' }}>{Math.round(macro.goal[k])}%</td>
-                        <td style={{ padding: '0.3rem 0', color: far ? '#b45309' : 'var(--color-text-muted)', fontWeight: far ? 700 : 400 }}>
-                          {Math.round(diff) === 0 ? 'on target' : `${diff > 0 ? '+' : '−'}${Math.abs(Math.round(diff))}`}
+                      <tr key={r.id} style={{ borderTop: '1px solid var(--color-border, #e5e7eb)', textAlign: 'right' }}>
+                        <td style={{ textAlign: 'left', padding: '0.3rem 0' }}>{r.kind === 'macro' ? `${r.label} %` : r.label}</td>
+                        <td style={{ padding: '0.3rem 0.4rem', fontWeight: 600 }}>{goalValue(r, r.actual)}</td>
+                        <td style={{ padding: '0.3rem 0.4rem', color: 'var(--color-text-muted)' }}>{goalTarget(r)}</td>
+                        <td style={{ padding: '0.3rem 0', color: pass ? '#16a34a' : '#b45309', fontWeight: 700 }}>
+                          {reached === null ? '—' : pass ? '✓' : `${reached}%`}
                         </td>
                       </tr>
                     );
                   })}
                 </tbody>
               </table>
-              {macro.caloriesPerServing != null && (
-                <p style={{ margin: '0.35rem 0 0', fontSize: '0.78rem', color: 'var(--color-text-muted)' }}>
-                  About {Math.round(macro.caloriesPerServing)} calories per serving.
-                </p>
-              )}
+              <p style={{ margin: '0.35rem 0 0', fontSize: '0.78rem', color: 'var(--color-text-muted)' }}>
+                {macro.met} of {macro.total} goals met. The fit is the average of how close it gets to each one.
+              </p>
             </>
           )}
         </section>
@@ -1710,58 +1722,19 @@ export function RecipeList({
     }
   }
 
-  // Macro match scores for all recipes, plus the split behind each one
-  // (meal % vs goal % of calories) for the meal's "why" popup.
+  // Goal-fit score per recipe (0–100): how close it comes to the active
+  // Design a Meal profile (mealRating's `fit`), plus the rating behind it for
+  // the meal's "why" popup. Replaced the old macro-% match on 2026-10-17.
   const { scores: macroMatchMap, details: macroMatchDetails } = useMemo(() => {
     const map = {};
     const details = {};
-    let goals = null;
-    try {
-      const raw = localStorage.getItem('sunday-nutrition-goals');
-      goals = raw ? JSON.parse(raw) : null;
-    } catch {}
-    if (!goals || !goals.calories || goals.calories <= 0) return { scores: map, details };
-    const pCal = (goals.protein || 0) * 4;
-    const cCal = (goals.carbs || 0) * 4;
-    const fCal = (goals.fat || 0) * 9;
-    const total = pCal + cCal + fCal;
-    if (total <= 0) return { scores: map, details };
-    const goalPcts = {
-      protein: pCal / total * 100,
-      carbs: cCal / total * 100,
-      fat: fCal / total * 100,
-    };
-    let cache = {};
-    try {
-      cache = JSON.parse(localStorage.getItem('sunday-nutrition-cache') || '{}');
-    } catch {}
-    for (const recipe of recipes) {
-      const cached = cache[recipe.id];
-      const nutData = cached?.data || cached;
-      if (!nutData || !nutData.totals) continue;
-      const t = nutData.totals;
-      const cal = t.calories;
-      if (!cal || cal <= 0) continue;
-      const pPct = ((t.protein || 0) * 4) / cal * 100;
-      const cPct = ((t.carbs || 0) * 4) / cal * 100;
-      const fPct = ((t.fat || 0) * 9) / cal * 100;
-      const deviation = (
-        Math.abs(pPct - goalPcts.protein) +
-        Math.abs(cPct - goalPcts.carbs) +
-        Math.abs(fPct - goalPcts.fat)
-      ) / 3;
-      const score = Math.max(0, Math.round(100 - deviation * (100 / 30)));
-      map[recipe.id] = score;
-      const servings = Number(recipe.servings) > 0 ? Number(recipe.servings) : null;
-      details[recipe.id] = {
-        score,
-        meal: { protein: pPct, carbs: cPct, fat: fPct },
-        goal: goalPcts,
-        caloriesPerServing: servings ? cal / servings : null,
-      };
+    for (const [id, rating] of Object.entries(goalRatings)) {
+      if (rating.fit == null) continue;
+      map[id] = rating.fit;
+      details[id] = rating;
     }
     return { scores: map, details };
-  }, [recipes]);
+  }, [goalRatings]);
 
   // Fetch AI meal suggestions (once, on first open)
   useEffect(() => {
@@ -2039,7 +2012,7 @@ export function RecipeList({
       const seasonalMatches = getRecipeSeasonalIngredients(recipe, seasonalSet);
       const seasonalRaw = seasonalMatches.length * 50;
 
-      // Macro match score
+      // Goal-fit score (Design a Meal)
       const macroScore = macroMatchMap[recipe.id] || 0;
       const macroDetail = macroMatchDetails[recipe.id] || null;
       const macroRaw = macroScore * 2;
