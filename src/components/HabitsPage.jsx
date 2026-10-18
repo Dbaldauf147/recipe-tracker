@@ -7304,6 +7304,11 @@ function HabitDetailModal({ habit, streak: streakProp, habitLog = {}, autoTracke
           <label style={fieldWrap}>
             <span style={fieldLabel}>Status</span>
             <StatusSelect value={h.status} onChange={v => onUpdate(h.id, 'status', v)} />
+            {(h.status || '').trim() === REFRESHING_STATUS && (h.refreshingSince || h.refreshStartedAt) && (
+              <span style={{ fontSize: '0.74rem', fontWeight: 600, color: STATUS_COLOR[REFRESHING_STATUS] }}>
+                Refreshing since {shortDateOfKey(h.refreshingSince || h.refreshStartedAt)}
+              </span>
+            )}
           </label>
           {/* Routine predicts from the routines you already have, so you pick
               "Morning" rather than typing a second one that differs by a space.

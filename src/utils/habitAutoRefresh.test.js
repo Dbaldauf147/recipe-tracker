@@ -69,6 +69,15 @@ test('unchanged statuses and new habits are left alone', () => {
   assert.equal(stampAutoStatusChanges(prev, same, '2026-10-18'), same);
 });
 
+test('moving into Refreshing stamps refreshingSince', () => {
+  const prev = [{ id: 'a', status: 'Most Days', refreshingSince: '2026-01-02' }];
+  const next = stampAutoStatusChanges(prev, [{ ...prev[0], status: 'Refreshing' }], '2026-10-18');
+  assert.equal(next[0].refreshingSince, '2026-10-18');
+  // Staying on Refreshing keeps the date it went in.
+  const again = stampAutoStatusChanges(next, [{ ...next[0], name: 'renamed' }], '2026-10-20');
+  assert.equal(again[0].refreshingSince, '2026-10-18');
+});
+
 test('a stale marker on a habit moved off Refreshing elsewhere is cleared', () => {
   const habits = [{ id: 'b', status: 'Most Days', refreshStartedAt: '2026-10-01' }];
   assert.equal(advanceAutoRefresh(habits, '2026-10-18')[0].refreshStartedAt, undefined);
