@@ -1304,6 +1304,7 @@ export function RecipeList({
     } catch { return { breakfast: 7, lunchDinner: 7 }; }
   });
   const [editingGoals, setEditingGoals] = useState(false);
+  const [weekGearOpen, setWeekGearOpen] = useState(false);
   const [showTargets, setShowTargets] = useState(() => {
     try { return localStorage.getItem('sunday-show-targets') === 'true'; } catch { return false; }
   });
@@ -2375,8 +2376,8 @@ export function RecipeList({
           <span className={`${styles.collapseArrow}${weekMenuOpen ? ` ${styles.collapseArrowOpen}` : ''}`}>&#9660;</span>
           <h3 className={styles.weekHeading}>This Week's Meals</h3>
         </button>
-        {weeklyRecipes.length > 0 && (
-          <div className={styles.weekActions}>
+        <div className={styles.weekActions}>
+          {weeklyRecipes.length > 0 && (<>
             <button className={styles.saveHistoryBtn} onClick={handleSaveClick}>
               Save to History
             </button>
@@ -2386,8 +2387,54 @@ export function RecipeList({
             <button className={styles.clearBtn} onClick={onClearWeek}>
               Clear all
             </button>
+          </>)}
+          {/* Weekly targets live here rather than as a column in the meals
+              table, so the table stays to what's planned. */}
+          <div className={styles.suggestGearWrap}>
+            <button
+              className={styles.suggestGearBtn}
+              onClick={() => setWeekGearOpen(p => !p)}
+              aria-label="Weekly target settings"
+              title="Weekly target settings"
+            >⚙</button>
+            {weekGearOpen && (
+              <div className={styles.suggestGearPopup}>
+                <label className={styles.suggestGearLabel}>
+                  <input
+                    type="checkbox"
+                    checked={showTargets}
+                    onChange={() => {
+                      const next = !showTargets;
+                      setShowTargets(next);
+                      localStorage.setItem('sunday-show-targets', String(next));
+                    }}
+                  />
+                  Show progress toward targets
+                </label>
+                <label className={styles.suggestGearLabel}>
+                  <input
+                    className={styles.goalInput}
+                    type="number"
+                    min="0"
+                    value={weeklyGoals.breakfast}
+                    onChange={e => updateWeeklyGoal('breakfast', e.target.value)}
+                  />
+                  Breakfast meals target
+                </label>
+                <label className={styles.suggestGearLabel}>
+                  <input
+                    className={styles.goalInput}
+                    type="number"
+                    min="0"
+                    value={weeklyGoals.lunchDinner}
+                    onChange={e => updateWeeklyGoal('lunchDinner', e.target.value)}
+                  />
+                  Lunch &amp; Dinner meals target
+                </label>
+              </div>
+            )}
           </div>
-        )}
+        </div>
       </div>
       <div
         id="weekly-menu"
@@ -2523,7 +2570,6 @@ export function RecipeList({
                       <th></th>
                       <th className={styles.mealsColHeader}>Recipes</th>
                       <th className={styles.mealsColHeader}>Meals</th>
-                      {showTargets && <th className={styles.mealsColHeader}>Target</th>}
                     </tr>
                   </thead>
                   <tbody>
@@ -2533,17 +2579,6 @@ export function RecipeList({
                       <td className={`${styles.servingCount} ${showTargets && bServings >= weeklyGoals.breakfast ? styles.servingMet : showTargets && bServings < weeklyGoals.breakfast ? styles.servingUnder : ''}`}>
                         {bServings}
                       </td>
-                      {showTargets && (
-                        <td>
-                          <input
-                            className={styles.goalInput}
-                            type="number"
-                            min="0"
-                            value={weeklyGoals.breakfast}
-                            onChange={e => updateWeeklyGoal('breakfast', e.target.value)}
-                          />
-                        </td>
-                      )}
                     </tr>
                     <tr>
                       <td className={styles.servingLabel}>Lunch & Dinner</td>
@@ -2551,17 +2586,6 @@ export function RecipeList({
                       <td className={`${styles.servingCount} ${showTargets && ldServings >= weeklyGoals.lunchDinner ? styles.servingMet : showTargets && ldServings < weeklyGoals.lunchDinner ? styles.servingUnder : ''}`}>
                         {ldServings}
                       </td>
-                      {showTargets && (
-                        <td>
-                          <input
-                            className={styles.goalInput}
-                            type="number"
-                            min="0"
-                            value={weeklyGoals.lunchDinner}
-                            onChange={e => updateWeeklyGoal('lunchDinner', e.target.value)}
-                          />
-                        </td>
-                      )}
                     </tr>
                   </tbody>
                 </table>
@@ -2571,16 +2595,6 @@ export function RecipeList({
                     <MealTargetBar label="Lunch & Dinner" meals={ldServings} target={weeklyGoals.lunchDinner} />
                   </div>
                 )}
-                <button
-                  onClick={() => {
-                    const next = !showTargets;
-                    setShowTargets(next);
-                    localStorage.setItem('sunday-show-targets', String(next));
-                  }}
-                  style={{ background: 'none', border: 'none', fontSize: '0.72rem', color: 'var(--color-text-muted)', cursor: 'pointer', fontFamily: 'inherit', padding: '0.2rem 0', marginTop: '0.25rem' }}
-                >
-                  {showTargets ? 'Hide targets' : 'Show targets'}
-                </button>
               </>);
             })()}
           </div>
