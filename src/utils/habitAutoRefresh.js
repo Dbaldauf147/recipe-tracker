@@ -99,6 +99,9 @@ export function advanceAutoRefresh(habits, todayKey) {
  * `next`:
  *   • moved INTO Automatically → autoSince = today, how = 'marked'
  *     (left alone if the same write already set autoSince itself);
+ *   • moved INTO Refreshing → refreshingSince = today (any route in: a status
+ *     menu or the rotation), for "Refreshing since …" in the habit popup.
+ *     The phone's habitAlertStore stamps the same field;
  *   • the rotation habit moved off Refreshing by hand → it's no longer the
  *     rotation's, so its marker goes and the next one can go out.
  * New habits (not in `prev`, e.g. an import) aren't stamped: the date they
@@ -114,6 +117,9 @@ export function stampAutoStatusChanges(prev, next, todayKey) {
     let patched = h;
     if (status(h) === AUTO_STATUS && (h.autoSince || '') === (was.autoSince || '')) {
       patched = { ...patched, autoSince: todayKey, autoSinceHow: 'marked' };
+    }
+    if (status(h) === REFRESH_STATUS && (h.refreshingSince || '') === (was.refreshingSince || '')) {
+      patched = { ...patched, refreshingSince: todayKey };
     }
     if (status(h) !== REFRESH_STATUS && (patched.refreshStartedAt || '').trim()) {
       patched = { ...patched };
