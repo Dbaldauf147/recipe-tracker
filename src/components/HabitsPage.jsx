@@ -9,6 +9,7 @@ import { AUTO_PROMOTE_DAYS, AUTO_PROMOTE_PCT, autoPromoteNumbers, autoPromoteEta
 import { yesterdayDate, yesterdayDayKey, yesterdayUnloggedHabits, isBadHabit, habitMonthEvery, monthlyDueIn, habitPeriodKey, habitDueNow } from '../utils/habitOutstanding';
 import { normalizePtoRanges, ptoCellsToStamp, activePtoRange } from '../utils/habitPto';
 import { nextMarkInCycle } from '../utils/habitMarkCycle';
+import { REFRESH_DAYS, advanceAutoRefresh, stampAutoStatusChanges, isRefreshRotation, refreshReturnKey, nextRefreshCandidate } from '../utils/habitAutoRefresh';
 import { badHabitStats, recentDayKeys, cleanLabel, dayKeyOf, dateOfDayKey } from '../utils/badHabits';
 import {
   checklistItems, hasChecklist, tickedIds, checklistProgress, toggleItem, addItem, renameItem, removeItem, markActionAfter,
@@ -1519,6 +1520,9 @@ export function HabitsPage({ onBack, user }) {
   // Empty/absent → the auto-computed next-log date is shown instead.
   const [habitNextLog, setHabitNextLog] = useState({});
   const [loading, setLoading] = useState(true);
+  // True once the SERVER's habits have arrived — the refresh rotation waits for
+  // it so it never moves habits around in a stale cache or the demo seed.
+  const [remoteHabitsReady, setRemoteHabitsReady] = useState(false);
   // ---- Offline sync state (drives the strip under the header) ----
   // Everything the page writes goes through habitOfflineStore's queue; this is
   // the only thing that says out loud whether it has actually landed.
@@ -1634,6 +1638,7 @@ export function HabitsPage({ onBack, user }) {
         const loadedLog = merged.habitLog;
         if (Array.isArray(merged.habits) && merged.habits.length > 0) {
           setHabits(merged.habits);
+          setRemoteHabitsReady(true);
           // Established daily habits are OFFERED the Automatically status here
           // rather than moved into it (see habitReadyForAuto). Checked on load,
           // against the data we just fetched, rather than in an effect watching
@@ -1753,9 +1758,25 @@ export function HabitsPage({ onBack, user }) {
   // These used to call saveField(...).catch(() => {}) directly, which meant an
   // edit made with no connection vanished without ever saying so.
   function persist(next) {
+    // Every status change gets its Auto Review dates stamped here, whichever
+    // control made it (status menus, the promotion prompt, the review's
+    // "Not any more").
+    next = stampAutoStatusChanges(habits, next, dayKey(new Date()));
     setHabits(next);
     if (user?.uid) queueFieldWrite(user.uid, 'habits', next);
   }
+
+  // The refresh rotation: keeps one Automatically habit out on the Current tab
+  // as Refreshing for REFRESH_DAYS, then sends it back and the next one out.
+  // advanceAutoRefresh returns the same array when there's nothing to do, so
+  // this settles after one write.
+  useEffect(() => {
+    if (!remoteHabitsReady || !user?.uid) return;
+    const next = advanceAutoRefresh(habits, dayKey(new Date()));
+    if (next !== habits) persist(next);
+    // persist only reads `habits`, which is already a dependency.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [remoteHabitsReady, user?.uid, habits]);
   function persistAutomations(next) {
     setAutomations(next);
     if (user?.uid) queueFieldWrite(user.uid, 'habitAutomations', next);
@@ -4944,6 +4965,32 @@ function ChartsView({ habits, habitLog }) {
 // Confirmation is stored per-habit as kind.confirmField = 'YYYY-MM'; when it no
 // longer matches the current month the box shows unchecked (needs a re-check),
 // so every box naturally resets at the start of each month.
+// 'YYYY-MM-DD' → "Oct 18" (or "Oct 18, 2025" in another year).
+function shortDateOfKey(key) {
+  const d = dateOfDayKey(key);
+  if (!d) return '';
+  const sameYear = d.getFullYear() === new Date().getFullYear();
+  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', ...(sameYear ? {} : { year: 'numeric' }) });
+}
+
+/** "Marked Oct 18" / "Refreshed Oct 18" on an Auto Review row. */
+function AutoSinceChip({ habit, nextUp }) {
+  const since = (habit.autoSince || '').trim();
+  const refreshed = habit.autoSinceHow === 'refreshed';
+  const label = !since ? 'Date not recorded' : `${refreshed ? 'Refreshed' : 'Marked'} ${shortDateOfKey(since)}`;
+  const title = !since
+    ? 'Went automatic before dates were tracked — first in line for a refresh'
+    : refreshed
+      ? `Came back from a ${REFRESH_DAYS}-day refresh on the Current tab on ${shortDateOfKey(since)}`
+      : `Marked automatic on ${shortDateOfKey(since)}`;
+  return (
+    <span style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
+      {nextUp && <span title="Goes to the Current tab when the habit out refreshing comes back" style={{ ...cadenceTag, color: STATUS_COLOR[REFRESHING_STATUS], background: STATUS_COLOR[REFRESHING_STATUS] + '14' }}>Next refresh</span>}
+      <span title={title} style={{ fontSize: '0.72rem', color: since ? 'var(--color-text-muted, #64748b)' : '#94a3b8', whiteSpace: 'nowrap' }}>{label}</span>
+    </span>
+  );
+}
+
 function MonthlyStatusReview({ kind, habits, onUpdate, onOpen }) {
   const currentMonth = periodKey('Monthly'); // 'YYYY-MM' in local time
   const monthLabel = new Date().toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
@@ -4975,6 +5022,10 @@ function MonthlyStatusReview({ kind, habits, onUpdate, onOpen }) {
   }, [habits, kind]);
 
   const bucketCount = groups.reduce((n, [, list]) => n + list.length, 0);
+  // The refresh rotation, shown on Auto Review only.
+  const isAuto = kind.id === 'autoreview';
+  const outRefreshing = isAuto ? habits.find(isRefreshRotation) : null;
+  const nextUpId = isAuto ? nextRefreshCandidate(habits, dayKey(new Date()))?.id : null;
   const pending = groups.reduce((n, [, list]) => n + list.filter(h => (h[kind.confirmField] || '') !== currentMonth).length, 0);
   const flaggedCount = groups.reduce((n, [, list]) => n + list.filter(h => (h[kind.revisitField] || '').trim()).length, 0);
 
@@ -5001,8 +5052,7 @@ function MonthlyStatusReview({ kind, habits, onUpdate, onOpen }) {
   // doesn't come back next month still looking checked off.
   function demote(h) {
     if (!window.confirm(kind.actionPrompt(h.name || 'This habit'))) return;
-    onUpdate(h.id, 'status', kind.actionStatus);
-    onUpdate(h.id, kind.confirmField, '');
+    onUpdate(h.id, { status: kind.actionStatus, [kind.confirmField]: '' });
   }
 
   return (
@@ -5025,6 +5075,16 @@ function MonthlyStatusReview({ kind, habits, onUpdate, onOpen }) {
           </span>
         )}
       </div>
+
+      {isAuto && (
+        <div style={{ fontSize: '0.82rem', color: 'var(--color-text-secondary, #475569)', margin: '-0.4rem 0 1rem', lineHeight: 1.45 }}>
+          <strong style={{ color: STATUS_COLOR[REFRESHING_STATUS] }}>Refresh rotation:</strong>{' '}
+          {outRefreshing
+            ? <>“{outRefreshing.name || 'Untitled'}” is on the Current tab until {shortDateOfKey(refreshReturnKey(outRefreshing))}.</>
+            : 'nothing out right now.'}
+          {' '}One automatic habit at a time goes back to Current (and your routines) for {REFRESH_DAYS} days — longest since it was marked or refreshed goes first.
+        </div>
+      )}
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: '1.4rem' }}>
         {groups.map(([routine, list]) => (
@@ -5051,6 +5111,7 @@ function MonthlyStatusReview({ kind, habits, onUpdate, onOpen }) {
                     </button>
                     {kind.showStatusSelect && (h.routine || '').trim() && <span style={routineTag} title="Routine">{(h.routine || '').trim()}</span>}
                     {(h.cadence || '').trim() && <span style={cadenceTag}>{h.cadence}</span>}
+                    {isAuto && <AutoSinceChip habit={h} nextUp={h.id === nextUpId} />}
                     {kind.showStatusSelect && (
                       <StatusSelect value={h.status} onChange={v => onUpdate(h.id, 'status', v)} />
                     )}
@@ -6196,6 +6257,22 @@ function AutoCountdown({ habit, habitLog, alerting, onMakeAutomatic }) {
   );
 }
 
+/** Under a rotation habit on the Current tab: when it goes back to Automatic. */
+function RefreshCountdown({ habit }) {
+  const back = refreshReturnKey(habit);
+  const backDate = dateOfDayKey(back);
+  const today = dateOfDayKey(dayKey(new Date()));
+  const left = backDate && today ? Math.max(0, Math.round((backDate - today) / 86400000)) : null;
+  return (
+    <div
+      title={`Pulled back from Auto Review on ${shortDateOfKey(habit.refreshStartedAt)} for a ${REFRESH_DAYS}-day refresh`}
+      style={{ fontSize: '0.74rem', color: STATUS_COLOR[REFRESHING_STATUS], fontWeight: 600, marginTop: 2 }}
+    >
+      🔁 Refreshing from Auto Review · back to Automatic {shortDateOfKey(back)}{left != null ? ` (${left} ${left === 1 ? 'day' : 'days'} left)` : ''}
+    </div>
+  );
+}
+
 function CurrentView({ habits, habitLog, onUpdate, onCycleMark, onOpen, onMakeAutomatic }) {
   const groups = FOCUS_STATUSES.map(g => ({
     ...g,
@@ -6254,6 +6331,7 @@ function CurrentView({ habits, habitLog, onUpdate, onCycleMark, onOpen, onMakeAu
                       <div style={{ fontSize: '0.74rem', color: 'var(--color-text-muted, #64748b)', marginTop: 1 }}>
                         {cadenceCanon(h.cadence)}{routine ? ` · ${routine}` : ''}
                       </div>
+                      {isRefreshRotation(h) && <RefreshCountdown habit={h} />}
                     </div>
                     <AutoCountdown habit={h} habitLog={habitLog} alerting={alerts.readyIds.has(h.id)} onMakeAutomatic={onMakeAutomatic} />
                     <span
