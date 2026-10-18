@@ -662,6 +662,17 @@
   flex-direction: column;
 }
 
+.weekGearPopup {
+  white-space: normal;
+  width: 300px;
+  max-width: calc(100vw - 2rem);
+}
+
+.weekGearPopup .weekServings {
+  width: auto;
+  margin-bottom: 0.25rem;
+}
+
 .mealsTable {
   width: 100%;
   border-collapse: collapse;
