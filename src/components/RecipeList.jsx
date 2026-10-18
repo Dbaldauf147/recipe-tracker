@@ -2388,17 +2388,60 @@ export function RecipeList({
               Clear all
             </button>
           </>)}
-          {/* Weekly targets live here rather than as a column in the meals
-              table, so the table stays to what's planned. */}
+          {/* The meal counts, targets and progress bars live behind this gear
+              rather than beside the meal cards, so the cards get the width. */}
           <div className={styles.suggestGearWrap}>
             <button
               className={styles.suggestGearBtn}
               onClick={() => setWeekGearOpen(p => !p)}
-              aria-label="Weekly target settings"
-              title="Weekly target settings"
+              aria-label="Meal counts and targets"
+              title="Meal counts and targets"
             >⚙</button>
             {weekGearOpen && (
-              <div className={styles.suggestGearPopup}>
+              <div className={`${styles.suggestGearPopup} ${styles.weekGearPopup}`}>
+                <div className={styles.weekServings}>
+                  {(() => {
+                    const bRecipes = filteredWeeklyRecipes.filter(r => r.category === 'breakfast');
+                    const ldRecipes = filteredWeeklyRecipes.filter(r => r.category === 'lunch-dinner');
+                    const bRecipeCount = bRecipes.length;
+                    const bServings = bRecipes.reduce((sum, r) => sum + getPlannedServings(r), 0);
+                    const ldRecipeCount = ldRecipes.length;
+                    const ldServings = ldRecipes.reduce((sum, r) => sum + getPlannedServings(r), 0);
+                    return (<>
+                      <table className={styles.mealsTable}>
+                        <thead>
+                          <tr>
+                            <th></th>
+                            <th className={styles.mealsColHeader}>Recipes</th>
+                            <th className={styles.mealsColHeader}>Meals</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          <tr>
+                            <td className={styles.servingLabel}>Breakfast</td>
+                            <td className={styles.servingCount}>{bRecipeCount}</td>
+                            <td className={`${styles.servingCount} ${showTargets && bServings >= weeklyGoals.breakfast ? styles.servingMet : showTargets && bServings < weeklyGoals.breakfast ? styles.servingUnder : ''}`}>
+                              {bServings}
+                            </td>
+                          </tr>
+                          <tr>
+                            <td className={styles.servingLabel}>Lunch & Dinner</td>
+                            <td className={styles.servingCount}>{ldRecipeCount}</td>
+                            <td className={`${styles.servingCount} ${showTargets && ldServings >= weeklyGoals.lunchDinner ? styles.servingMet : showTargets && ldServings < weeklyGoals.lunchDinner ? styles.servingUnder : ''}`}>
+                              {ldServings}
+                            </td>
+                          </tr>
+                        </tbody>
+                      </table>
+                      {showTargets && (
+                        <div className={styles.targetBars}>
+                          <MealTargetBar label="Breakfast" meals={bServings} target={weeklyGoals.breakfast} />
+                          <MealTargetBar label="Lunch & Dinner" meals={ldServings} target={weeklyGoals.lunchDinner} />
+                        </div>
+                      )}
+                    </>);
+                  })()}
+                </div>
                 <label className={styles.suggestGearLabel}>
                   <input
                     type="checkbox"
@@ -2554,49 +2597,6 @@ export function RecipeList({
                 )))}
               </div>
             )}
-          </div>
-          <div className={styles.weekServings}>
-            {(() => {
-              const bRecipes = filteredWeeklyRecipes.filter(r => r.category === 'breakfast');
-              const ldRecipes = filteredWeeklyRecipes.filter(r => r.category === 'lunch-dinner');
-              const bRecipeCount = bRecipes.length;
-              const bServings = bRecipes.reduce((sum, r) => sum + getPlannedServings(r), 0);
-              const ldRecipeCount = ldRecipes.length;
-              const ldServings = ldRecipes.reduce((sum, r) => sum + getPlannedServings(r), 0);
-              return (<>
-                <table className={styles.mealsTable}>
-                  <thead>
-                    <tr>
-                      <th></th>
-                      <th className={styles.mealsColHeader}>Recipes</th>
-                      <th className={styles.mealsColHeader}>Meals</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr>
-                      <td className={styles.servingLabel}>Breakfast</td>
-                      <td className={styles.servingCount}>{bRecipeCount}</td>
-                      <td className={`${styles.servingCount} ${showTargets && bServings >= weeklyGoals.breakfast ? styles.servingMet : showTargets && bServings < weeklyGoals.breakfast ? styles.servingUnder : ''}`}>
-                        {bServings}
-                      </td>
-                    </tr>
-                    <tr>
-                      <td className={styles.servingLabel}>Lunch & Dinner</td>
-                      <td className={styles.servingCount}>{ldRecipeCount}</td>
-                      <td className={`${styles.servingCount} ${showTargets && ldServings >= weeklyGoals.lunchDinner ? styles.servingMet : showTargets && ldServings < weeklyGoals.lunchDinner ? styles.servingUnder : ''}`}>
-                        {ldServings}
-                      </td>
-                    </tr>
-                  </tbody>
-                </table>
-                {showTargets && (
-                  <div className={styles.targetBars}>
-                    <MealTargetBar label="Breakfast" meals={bServings} target={weeklyGoals.breakfast} />
-                    <MealTargetBar label="Lunch & Dinner" meals={ldServings} target={weeklyGoals.lunchDinner} />
-                  </div>
-                )}
-              </>);
-            })()}
           </div>
         </div>
         )}
