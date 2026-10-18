@@ -12,6 +12,7 @@ import { lastShoppingListExtras } from './utils/shoppingHistory';
 import { recordStageSnapshot } from './utils/recipeStageHistory';
 import { BUILD_LABEL, forceAppUpdate } from './utils/forceUpdate';
 import { countOutstandingHabits } from './utils/habitOutstanding';
+import { recordHabitStatusSnapshot } from './utils/habitStatusHistory';
 import { loadHabitLog } from './utils/habitLogYears';
 import { LoadingScreen } from './components/LoadingScreen';
 import { RecipeList } from './components/RecipeList';
@@ -669,6 +670,10 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
           loadField(user.uid, 'habitAutomations'),
         ]);
         if (!cancelled) setHabitsOutstanding(countOutstandingHabits(habits, habitLog, automations));
+        // The weekly habits-by-status count (Habits → KPI). Taken here, on every
+        // visit, rather than only when the Habits page is open; a no-op unless
+        // this week's counts moved.
+        recordHabitStatusSnapshot(habits, user.uid).catch(err => console.warn('habit status history:', err));
       } catch {}
     }
     refreshHabits();

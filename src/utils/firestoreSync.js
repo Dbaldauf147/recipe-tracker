@@ -134,7 +134,7 @@ const GUARDED_FIELDS = new Set([
   'weekMealPlan', 'weekWorkoutPlan',
   // One row per week, appended forever and impossible to re-derive once the
   // week has passed (see recipeStageHistory.js).
-  'recipeStageHistory',
+  'recipeStageHistory', 'habitStatusHistory',
 ]);
 // Fields where going from many → 0 in one write is always a bug (block it).
 // (weeklyPlan is intentionally NOT here — "clear week" legitimately empties it.)
