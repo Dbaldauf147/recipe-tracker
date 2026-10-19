@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import {
   weekStart, countStages, stageSnapshot, sameCounts, upsertWeek,
   recordStageWeek, mergeMissingWeeks, formatWeekLabel, backupsToBackfill, backfilledRow,
-  countCommonByCategory, monthlyCommonStages, stageColors, categoryCounts, UNSET_COLOR,
+  countCommonByCategory, monthlyCommonStages, weeklyCommonStages, stageColors, categoryCounts, UNSET_COLOR,
 } from './recipeStageHistory.js';
 
 // A Wednesday, mid-afternoon local.
@@ -190,6 +190,20 @@ test('monthlyCommonStages takes the last reading of each month, and live for thi
   assert.deepEqual(out.map(p => p.month), ['2026-07', '2026-08', '2026-09', '2026-10'], 'leading empty months trimmed');
   assert.deepEqual(out.map(p => p.counts ? p.counts.breakfast.total : null), [2, null, 4, 5], 'a gap stays null, not 0');
   assert.deepEqual(monthlyCommonStages([], { now: new Date(2026, 9, 3) }), []);
+});
+
+test('weeklyCommonStages gives one column per week, live for this week', () => {
+  const at = (n) => countCommonByCategory(Array.from({ length: n }, () => ({ category: 'breakfast', devStage: 'nailed' })));
+  const history = [
+    { week: '2026-09-20', recordedAt: '2026-09-22T10:00:00.000Z' },              // no breakdown → ignored
+    { week: '2026-09-27', recordedAt: '2026-10-01T10:00:00.000Z', common: at(2) },
+    { week: '2026-10-11', recordedAt: '2026-10-15T10:00:00.000Z', common: at(4) },
+  ];
+  const out = weeklyCommonStages(history, { now: new Date(2026, 9, 19), weeks: 8, live: at(5) });
+  assert.deepEqual(out.map(p => p.week), ['2026-09-27', '2026-10-04', '2026-10-11', '2026-10-18'], 'leading empty weeks trimmed');
+  assert.deepEqual(out.map(p => p.counts ? p.counts.breakfast.total : null), [2, null, 4, 5], 'a gap stays null, not 0');
+  assert.equal(weeklyCommonStages(history, { now: new Date(2026, 9, 19), weeks: 2 }).length, 2);
+  assert.deepEqual(weeklyCommonStages([], { now: new Date(2026, 9, 19) }), []);
 });
 
 test('stageColors keeps valid overrides and falls back for the rest', () => {
