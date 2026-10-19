@@ -264,6 +264,38 @@ export function monthlyCommonStages(history, { now = new Date(), months = 12, li
   return out;
 }
 
+/**
+ * One reading per Sunday→Saturday week of the common-recipe breakdown, oldest
+ * first, for the weekly email's charts.
+ *
+ * A week's reading is its history row (the app keeps one per week, rewritten
+ * until the week rolls over). `live`, when given, replaces the current week's
+ * reading with the counts right now. Covers up to `weeks` weeks ending with
+ * `now`'s week, trimmed of leading weeks with nothing recorded; a gap in the
+ * middle stays `null` rather than a zero.
+ * Returns `[{ week: 'YYYY-MM-DD', counts: { breakfast, 'lunch-dinner' } | null }]`.
+ */
+export function weeklyCommonStages(history, { now = new Date(), weeks = 8, live = null } = {}) {
+  const byWeek = new Map();
+  for (const row of Array.isArray(history) ? history : []) {
+    if (!row?.common) continue;
+    const parsed = parseDayKey(String(row.week || ''));
+    if (!parsed) continue;
+    const week = weekStart(parsed);
+    const when = String(row.recordedAt || row.week);
+    const prev = byWeek.get(week);
+    if (!prev || when.localeCompare(prev.when) > 0) byWeek.set(week, { when, common: row.common });
+  }
+  const out = [];
+  for (let i = weeks - 1; i >= 0; i--) {
+    const week = weekStart(new Date(now.getFullYear(), now.getMonth(), now.getDate() - 7 * i));
+    const counts = i === 0 && live ? live : (byWeek.get(week)?.common || null);
+    out.push({ week, counts });
+  }
+  while (out.length && !out[0].counts) out.shift();
+  return out;
+}
+
 // ── Chart colours ─────────────────────────────────────────────────────────
 
 /** localStorage key for the owner's bar colours. `sunday-` so backups keep it. */

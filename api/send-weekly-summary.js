@@ -28,7 +28,7 @@ import {
 import { WINDOW_DAYS } from '../src/utils/exerciseProgress.js';
 import { summarizeUserGrowth, monthYear } from '../lib/adminGrowth.js';
 import { OWNER_EMAIL } from '../src/utils/pageAccess.js';
-import { countCommonByCategory, monthlyCommonStages } from '../src/utils/recipeStageHistory.js';
+import { countCommonByCategory, weeklyCommonStages } from '../src/utils/recipeStageHistory.js';
 
 if (getApps().length === 0) {
   const serviceAccount = process.env.FIREBASE_SERVICE_ACCOUNT
@@ -183,7 +183,7 @@ async function loadRecipeStages(uid, userData) {
     // An empty list is a missing read, not a deleted collection — don't draw a
     // zero for it; fall back to what the history recorded.
     const live = Array.isArray(recipes) && recipes.length > 0 ? countCommonByCategory(recipes) : null;
-    const points = monthlyCommonStages(userData.recipeStageHistory, { now: new Date(), live });
+    const points = weeklyCommonStages(userData.recipeStageHistory, { now: new Date(), live });
     return points.length > 0 ? points : null;
   } catch (err) {
     console.error('[send-weekly-summary] recipe stages read failed', err);
