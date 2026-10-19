@@ -683,6 +683,9 @@ test('the email draws the per-meal protein chart, with the goal line and the wee
   assert.match(email.html, /dashed line is 48g \(your daily goal ÷ 3\)/);
   assert.match(email.html, /border-top:1px dashed/);      // the goal line itself
   assert.match(email.html, /Meals eaten out · last 10 weeks/);
+  // Each chart in the section carries its own bold title, like Weight does.
+  assert.match(email.html, /<h3 style="[^"]*font-weight:700[^"]*">Protein per meal<\/h3>/);
+  assert.match(email.html, /<h3 style="[^"]*font-weight:700[^"]*">Meals eaten out<\/h3>/);
   // Columns are labelled by week start, like the weight chart underneath.
   assert.match(email.html, /font-size:10px;color:#111827;white-space:nowrap;">Jul 26</);
   assert.match(email.html, /#16a34a/);                    // the 60g meal beat the goal
@@ -822,6 +825,7 @@ test('the email charts the fibre average over ten weeks, and no protein hit rate
 
   assert.doesNotMatch(email.html, /Meals hitting the/);
   assert.match(email.html, /Avg fibre per meal · g · last 10 weeks/);
+  assert.match(email.html, /<h3 style="[^"]*font-weight:700[^"]*">Fibre per meal<\/h3>/);
   assert.match(email.html, /dashed line is 9g \(your daily goal ÷ 3\)/);
   assert.doesNotMatch(email.html, />67%</);
   // (12 + 6 + 3) / 3 = 7.0g — short of the 9g line, so the dot is amber.
@@ -1009,3 +1013,4 @@ test('lifts hidden or snoozed on the Progress tab stay out of "lifts to watch"',
     progressSnoozedExercises: { 'leg press': '2099-01-01', 'calf raise': '2026-01-01' },
   }), ['Calf raise']);
 });
+
