@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  ACTIVE_WINDOW_DAYS, activeUsersIn, totalUsersIn, summarizeUserGrowth, growthHeadline,
+  ACTIVE_WINDOW_DAYS, activeUsersIn, activeUserListIn, totalUsersIn, summarizeUserGrowth, growthHeadline,
 } from '../../lib/adminGrowth.js';
 
 // The user-growth series behind the admin dashboard's "Users over time" chart
@@ -208,4 +208,19 @@ test('live rows still win where both exist and disagree is impossible', () => {
   // Same snapshot, rows intact: the stored figure is what the rows say.
   const s = snap('2026-09-20', [user('a', '2026-09-19T10:00:00Z')], { users: 1, activeUsers: 1 });
   assert.equal(activeUsersIn(s), 1);
+});
+
+test('activeUserListIn names the same people activeUsersIn counts, newest first', () => {
+  const s = snap('2026-09-20', [
+    { ...user('a', '2026-09-14T10:00:00Z'), displayName: 'Ann' },
+    { ...user('b', '2026-09-01T10:00:00Z', '2026-09-19T10:00:00Z') },
+    { ...user('c', '2026-09-18T10:00:00Z', '2026-09-17T10:00:00Z'), displayName: 'Cy' },
+    user('d', '2026-09-01T10:00:00Z'),
+  ]);
+  const list = activeUserListIn(s);
+  assert.equal(list.length, activeUsersIn(s));
+  assert.deepEqual(list.map(u => [u.name, u.email, u.via]), [
+    ['', 'b@x.com', 'app'], ['Cy', 'c@x.com', 'web + app'], ['Ann', 'a@x.com', 'web'],
+  ]);
+  assert.equal(activeUserListIn({ date: '2026-09-20', totals: { users: 3, activeUsers: 2 } }), null);
 });
