@@ -943,6 +943,29 @@ test('the Users section only appears when growth data is passed in', () => {
   assert.doesNotMatch(owner.text, /NaN|undefined/);
 });
 
+test('the owner’s Users section lists who was active, with when and where', () => {
+  const stats = summarizeWeek(emptyData(), WEEK);
+  const growth = [
+    { date: '2026-07-26', label: 'Jul 26', total: 11, active: 2 },
+    { date: '2026-08-02', label: 'Aug 2', total: 14, active: 2 },
+  ];
+  const activeUsers = [
+    // 01:30 UTC on Aug 2 is still Aug 1 in New York.
+    { name: 'Ann <B>', email: 'ann@x.com', lastSeen: '2026-08-02T01:30:00Z', via: 'web + app' },
+    { name: '', email: 'bo@x.com', lastSeen: '2026-07-30T15:00:00Z', via: 'app' },
+  ];
+  const owner = renderWeeklySummary({ stats, priorStats: stats, adminGrowth: growth, adminActiveUsers: activeUsers });
+  assert.match(owner.html, /Active users \(7d\)/);
+  assert.match(owner.html, /Ann &lt;B&gt;/);
+  assert.match(owner.html, />Aug 1</);
+  assert.match(owner.html, /bo@x\.com/);
+  assert.ok(owner.html.indexOf('ann@x.com') < owner.html.indexOf('bo@x.com'));
+  assert.match(owner.text, /Ann <B> <ann@x\.com> — Aug 1 \(web \+ app\)/);
+  assert.match(owner.text, /bo@x\.com — Jul 30 \(app\)/);
+  // Without the list the section is unchanged.
+  assert.doesNotMatch(renderWeeklySummary({ stats, priorStats: stats, adminGrowth: growth }).html, /Active users \(7d\)/);
+});
+
 test('one snapshot is not a trend, so no chart is drawn for it', () => {
   const stats = summarizeWeek(emptyData(), WEEK);
   const prior = summarizeWeek(emptyData(), previousWeek(WEEK));

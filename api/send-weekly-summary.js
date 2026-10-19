@@ -26,7 +26,7 @@ import {
   trendMonthWeeks,
 } from '../lib/weeklySummary.js';
 import { WINDOW_DAYS } from '../src/utils/exerciseProgress.js';
-import { summarizeUserGrowth, monthYear } from '../lib/adminGrowth.js';
+import { summarizeUserGrowth, monthYear, activeUserListIn } from '../lib/adminGrowth.js';
 import { OWNER_EMAIL } from '../src/utils/pageAccess.js';
 import { countCommonByCategory, weeklyCommonStages } from '../src/utils/recipeStageHistory.js';
 
@@ -160,9 +160,13 @@ async function loadAdminGrowth() {
     // Thinned to a month a point, the day under each column is just whichever
     // snapshot was last in that month — label the month instead, as the
     // dashboard's UsersOverTimeChart does.
-    return grain === 'month' || grain === 'sparse'
+    const series = grain === 'month' || grain === 'sparse'
       ? points.map(p => ({ ...p, label: monthYear(p.date) }))
       : points;
+    // Who the "Active (7d)" number is: the newest snapshot that still has its
+    // per-user rows (rows are newest-first).
+    const latest = rows.find(r => Array.isArray(r.users));
+    return { series, activeUsers: latest ? activeUserListIn(latest) : null };
   } catch (err) {
     console.error('[send-weekly-summary] admin growth read failed', err);
     return null;
@@ -247,6 +251,7 @@ async function buildEmail(uid, userData, todayKey, { force = false } = {}) {
   // summary must never carry the user numbers even if it lands in the same
   // inbox.
   const isOwner = String(userData.email || '').trim().toLowerCase() === OWNER_EMAIL;
+  const growth = isOwner ? await loadAdminGrowth() : null;
   const email = renderWeeklySummary({
     rasterize: await loadRasterizer(),
     stats,
@@ -254,7 +259,8 @@ async function buildEmail(uid, userData, todayKey, { force = false } = {}) {
     goals: userData.nutritionGoals || null,
     bodyStats: userData.bodyStats || null,
     name: userData.displayName || '',
-    adminGrowth: isOwner ? await loadAdminGrowth() : null,
+    adminGrowth: growth?.series || null,
+    adminActiveUsers: growth?.activeUsers || null,
     recipeStages: isOwner ? await loadRecipeStages(uid, userData) : null,
   });
   return { ...email, week };
