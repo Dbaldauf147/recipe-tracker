@@ -6,10 +6,10 @@
  */
 import { canonStatus, statusHistoryColor } from '../utils/habitStatusHistory';
 
-export function HabitStatusList({ status, title, note, habits, currentById, loading, error, onOpen, onClear }) {
+export function HabitStatusList({ status, title, note, habits, currentById, loading, error, onOpen, onClear, colors }) {
   const list = [...(habits || [])].sort((a, b) => (a.name || '').localeCompare(b.name || ''));
   return (
-    <div style={{ margin: '0.6rem 0 0.4rem', border: '1px solid var(--color-border, #e2e8f0)', borderLeft: `4px solid ${statusHistoryColor(status)}`, borderRadius: 10, padding: '0.6rem 0.8rem', background: 'var(--color-surface, #fff)', maxWidth: 560 }}>
+    <div style={{ margin: '0.6rem 0 0.4rem', border: '1px solid var(--color-border, #e2e8f0)', borderLeft: `4px solid ${statusHistoryColor(status, colors)}`, borderRadius: 10, padding: '0.6rem 0.8rem', background: 'var(--color-surface, #fff)', maxWidth: 560 }}>
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
         <strong style={{ fontSize: '0.86rem' }}>{title}</strong>
         {!loading && !error && <span style={{ fontSize: '0.78rem', color: 'var(--color-text-muted, #64748b)' }}>{list.length} {list.length === 1 ? 'habit' : 'habits'}</span>}
@@ -52,7 +52,7 @@ export function HabitStatusList({ status, title, note, habits, currentById, load
                 )}
                 {meta && <span style={{ fontSize: '0.74rem', color: 'var(--color-text-muted, #64748b)' }}>{meta}</span>}
                 {moved && (
-                  <span style={{ fontSize: '0.72rem', color: statusHistoryColor(canonStatus(now.status)), fontWeight: 600 }}>
+                  <span style={{ fontSize: '0.72rem', color: statusHistoryColor(canonStatus(now.status), colors), fontWeight: 600 }}>
                     now {canonStatus(now.status)}
                   </span>
                 )}

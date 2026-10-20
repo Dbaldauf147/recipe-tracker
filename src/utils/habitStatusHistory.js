@@ -45,7 +45,49 @@ export const STATUS_HISTORY_COLORS = {
   'Abandoned': '#dc2626',
 };
 export const OTHER_STATUS_COLOR = '#cbd5e1';
-export const statusHistoryColor = s => STATUS_HISTORY_COLORS[s] || OTHER_STATUS_COLOR;
+export const statusHistoryColor = (s, overrides) => {
+  const o = overrides && typeof overrides === 'object' ? overrides[s] : null;
+  return typeof o === 'string' && HEX_RE.test(o) ? o : (STATUS_HISTORY_COLORS[s] || OTHER_STATUS_COLOR);
+};
+const HEX_RE = /^#[0-9a-f]{6}$/i;
+
+// ── Chart preferences (owner's choice of series + colours) ────────────────
+// `{ colors: { [status]: '#rrggbb' }, hidden: [status] }` on the user doc,
+// mirrored to localStorage so the chart draws with them before the field loads.
+// Only changed colours are kept, so a default can still move later.
+export const STATUS_CHART_PREFS_FIELD = 'habitStatusChartPrefs';
+export const STATUS_CHART_PREFS_KEY = 'sunday-habit-status-chart-prefs';
+
+/** Anything malformed is dropped, so a bad synced value can't blank the chart. */
+export function normalizeChartPrefs(raw) {
+  const src = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
+  const colors = {};
+  if (src.colors && typeof src.colors === 'object') {
+    for (const [k, v] of Object.entries(src.colors)) if (typeof v === 'string' && HEX_RE.test(v)) colors[k] = v;
+  }
+  const hidden = Array.isArray(src.hidden) ? [...new Set(src.hidden.filter(s => typeof s === 'string' && s))] : [];
+  return { colors, hidden };
+}
+
+export function loadChartPrefsLocal() {
+  try {
+    const raw = localStorage.getItem(STATUS_CHART_PREFS_KEY);
+    return normalizeChartPrefs(raw ? JSON.parse(raw) : null);
+  } catch {
+    return normalizeChartPrefs(null);
+  }
+}
+
+export function saveChartPrefs(prefs, uid) {
+  const clean = normalizeChartPrefs(prefs);
+  try { localStorage.setItem(STATUS_CHART_PREFS_KEY, JSON.stringify(clean)); } catch { /* quota */ }
+  if (uid) {
+    import('./firestoreSync.js')
+      .then(m => m.saveField(uid, STATUS_CHART_PREFS_FIELD, clean))
+      .catch(err => console.error('status chart prefs save failed:', err));
+  }
+  return clean;
+}
 
 const LEGACY = {
   'havent started': 'Not Started',

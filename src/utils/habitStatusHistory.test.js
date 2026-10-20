@@ -3,8 +3,22 @@ import assert from 'node:assert/strict';
 import {
   countHabitStatuses, orderedStatuses, weekStart, recordHabitStatusWeek, mergeMissingWeeks,
   backupsToBackfill, NO_STATUS,
-  habitsWithStatus, backupForWeek,
+  habitsWithStatus, backupForWeek, normalizeChartPrefs, statusHistoryColor,
 } from './habitStatusHistory.js';
+
+test('chart prefs keep valid colours and hidden statuses, drop the rest', () => {
+  const p = normalizeChartPrefs({ colors: { 'Most Days': '#123abc', Rarely: 'red' }, hidden: ['On Hold', 'On Hold', 3] });
+  assert.deepEqual(p.colors, { 'Most Days': '#123abc' });
+  assert.deepEqual(p.hidden, ['On Hold']);
+  assert.deepEqual(normalizeChartPrefs(null), { colors: {}, hidden: [] });
+  assert.deepEqual(normalizeChartPrefs([1]), { colors: {}, hidden: [] });
+});
+
+test('statusHistoryColor uses an override, else the default', () => {
+  assert.equal(statusHistoryColor('Most Days', { 'Most Days': '#000000' }), '#000000');
+  assert.equal(statusHistoryColor('Most Days', { 'Most Days': 'nope' }), '#65a30d');
+  assert.equal(statusHistoryColor('Most Days'), '#65a30d');
+});
 
 test('habitsWithStatus matches the counting rules (legacy names, blanks, no bad habits)', () => {
   const habits = [
