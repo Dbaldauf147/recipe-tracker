@@ -3,7 +3,28 @@ import assert from 'node:assert/strict';
 import {
   countHabitStatuses, orderedStatuses, weekStart, recordHabitStatusWeek, mergeMissingWeeks,
   backupsToBackfill, NO_STATUS,
+  habitsWithStatus, backupForWeek,
 } from './habitStatusHistory.js';
+
+test('habitsWithStatus matches the counting rules (legacy names, blanks, no bad habits)', () => {
+  const habits = [
+    { id: 'a', status: 'Most Days' },
+    { id: 'b', status: 'Tracked' },
+    { id: 'c', status: '' },
+    { id: 'd', status: 'Most Days', habitType: 'bad' },
+  ];
+  assert.deepEqual(habitsWithStatus(habits, 'Most Days').map(h => h.id), ['a', 'b']);
+  assert.deepEqual(habitsWithStatus(habits, 'No status').map(h => h.id), ['c']);
+});
+
+test('backupForWeek picks the newest backup inside that Sunday-Saturday week', () => {
+  const backups = [
+    { id: 'x', date: '2026-10-05' }, { id: 'y', date: '2026-10-10' }, { id: 'z', date: '2026-10-11' },
+  ];
+  assert.equal(backupForWeek(backups, '2026-10-04').id, 'y');
+  assert.equal(backupForWeek(backups, '2026-10-11').id, 'z');
+  assert.equal(backupForWeek(backups, '2026-09-27'), null);
+});
 
 const habits = [
   { id: 1, status: 'Automatically' }, { id: 2, status: ' Automatically ' }, { id: 3, status: 'Havent Started' },

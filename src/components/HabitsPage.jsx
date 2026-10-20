@@ -10,6 +10,8 @@ import { yesterdayDate, yesterdayDayKey, yesterdayUnloggedHabits, isBadHabit, ha
 import { normalizePtoRanges, ptoCellsToStamp, activePtoRange } from '../utils/habitPto';
 import { nextMarkInCycle } from '../utils/habitMarkCycle';
 import { HabitStatusHistory } from './HabitStatusHistory';
+import { HabitStatusList } from './HabitStatusList';
+import { canonStatus, habitsWithStatus } from '../utils/habitStatusHistory';
 import { REFRESH_DAYS, advanceAutoRefresh, stampAutoStatusChanges, isRefreshRotation, refreshReturnKey, nextRefreshCandidate } from '../utils/habitAutoRefresh';
 import { badHabitStats, recentDayKeys, cleanLabel, dayKeyOf, dateOfDayKey } from '../utils/badHabits';
 import {
@@ -2476,7 +2478,7 @@ export function HabitsPage({ onBack, user }) {
         </div>
       )}
 
-      {tab === 'kpi' && <KpiView habits={goodHabits} habitLog={habitLog} streaks={streaks} />}
+      {tab === 'kpi' && <KpiView habits={goodHabits} habitLog={habitLog} streaks={streaks} onOpen={setOpenHabitId} />}
       {tab === 'routines' && <RoutinesView habits={goodHabits} habitLog={habitLog} habitLogAuto={habitLogAuto} streaks={streaks} autoTrackedIds={autoTrackedIds} autoStatusFor={autoStatusFor} nextLogMap={habitNextLog} onSetNextLog={setNextLogDate} onUpdate={updateHabit} openMenu={(habitId, key, label) => setDayMenu({ habitId, key, label })} onCycleMark={setMarkForKey} onMove={setMoveHabitId} onReorder={reorderHabits} onSetRoutine={setHabitRoutine} onRenameRoutine={renameRoutine} onDeleteRoutine={setDeleteRoutineName} onBulkMark={setMarksForCells} onOpen={setOpenHabitId} onMakeAutomatic={id => resolveAutoPromotes([id], true)} />}
       {tab === 'current' && <CurrentView habits={goodHabits} habitLog={habitLog} onUpdate={updateHabit} onCycleMark={setMarkForKey} onOpen={setOpenHabitId} onMakeAutomatic={id => resolveAutoPromotes([id], true)} />}
       {tab === 'automatic' && <AutomaticView habits={goodHabits} automations={automations} habitLog={habitLog} habitLogAuto={habitLogAuto} onChange={persistAutomations} />}
@@ -2934,13 +2936,17 @@ function StreaksSection({ habits, streaks }) {
   );
 }
 
-function KpiView({ habits, habitLog, streaks }) {
+function KpiView({ habits, habitLog, streaks, onOpen }) {
+  // A clicked "By status" bar lists the habits behind it.
+  const [selStatus, setSelStatus] = useState(null);
+  const currentById = useMemo(() => new Map(habits.map(h => [h.id, h])), [habits]);
   const stats = useMemo(() => {
     const byStatus = {};
     const byType = { daily: 0, weekly: 0, monthly: 0, other: 0, unsorted: 0 };
     let pctSum = 0, pctCount = 0;
     for (const h of habits) {
-      const st = (h.status || '—').trim() || '—';
+      // Same buckets as the over-time chart, so a clicked bar lists exactly its count.
+      const st = canonStatus(h.status);
       byStatus[st] = (byStatus[st] || 0) + 1;
       byType[routineType(h.routine)]++;
       const p = habitKpi(h, habitLog);
@@ -3019,19 +3025,42 @@ function KpiView({ habits, habitLog, streaks }) {
       <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxWidth: 460 }}>
         {stats.byStatus.map(([st, n]) => {
           const pct = Math.round((n / stats.total) * 100);
+          const on = selStatus === st;
           return (
-            <div key={st} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <span style={{ width: 130, fontSize: '0.82rem', color: 'var(--color-text-secondary, #475569)' }}>{st}</span>
+            <button
+              key={st}
+              type="button"
+              onClick={() => setSelStatus(on ? null : st)}
+              title={on ? 'Click again to clear' : `Show the ${n} ${st} habit${n === 1 ? '' : 's'}`}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 10, border: 'none', background: on ? '#f1f5f9' : 'transparent',
+                borderRadius: 6, padding: '2px 4px', margin: '0 -4px', cursor: 'pointer', font: 'inherit', textAlign: 'left',
+                opacity: selStatus && !on ? 0.45 : 1,
+              }}
+            >
+              <span style={{ width: 130, fontSize: '0.82rem', color: 'var(--color-text-secondary, #475569)', fontWeight: on ? 700 : 400 }}>{st}</span>
               <div style={{ flex: 1, height: 10, background: '#eef2f6', borderRadius: 6, overflow: 'hidden' }}>
                 <div style={{ width: `${pct}%`, height: '100%', background: ACCENT }} />
               </div>
               <span style={{ width: 36, textAlign: 'right', fontSize: '0.8rem', fontWeight: 700 }}>{n}</span>
-            </div>
+            </button>
           );
         })}
       </div>
+      {selStatus ? (
+        <HabitStatusList
+          status={selStatus}
+          title={selStatus}
+          habits={habitsWithStatus(habits, selStatus)}
+          currentById={currentById}
+          onOpen={onOpen}
+          onClear={() => setSelStatus(null)}
+        />
+      ) : (
+        <div style={{ fontSize: '0.74rem', color: 'var(--color-text-muted)', marginTop: 4 }}>Click a status to see its habits.</div>
+      )}
 
-      <HabitStatusHistory habits={habits} />
+      <HabitStatusHistory habits={habits} onOpen={onOpen} />
 
       <StreaksSection habits={habits} streaks={streaks} />
 
