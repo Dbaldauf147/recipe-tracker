@@ -74,6 +74,16 @@ export function countHabitStatuses(habits = []) {
   return { total, counts };
 }
 
+/** The habits counted under `status` — same rules as countHabitStatuses. */
+export function habitsWithStatus(habits = [], status) {
+  return (habits || []).filter(h => h && h.habitType !== 'bad' && canonStatus(h.status) === status);
+}
+
+/** The newest full backup taken during `week` (a Sunday key), or null. */
+export function backupForWeek(backups, week) {
+  return backupsToBackfill(backups, []).find(w => w.week === week)?.backup || null;
+}
+
 /** Known statuses in STATUS_ORDER, then anything else A→Z, "No status" last. */
 export function orderedStatuses(keys) {
   const set = new Set(keys);

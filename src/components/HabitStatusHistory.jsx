@@ -8,13 +8,15 @@
  * which would disagree with the stack.
  */
 import { useEffect, useMemo, useState } from 'react';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LabelList } from 'recharts';
+import { BarChart, Bar, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LabelList } from 'recharts';
 import { auth } from '../firebase';
 import { loadField, listFullBackups, readBackupValue } from '../utils/firestoreSync';
 import {
   STATUS_HISTORY_FIELD, statusSnapshot, upsertWeek, orderedStatuses, statusHistoryColor,
   formatWeekLabel, backupsToBackfill, backfilledRow, mergeMissingWeeks, recordHabitStatusSnapshot,
+  habitsWithStatus, backupForWeek,
 } from '../utils/habitStatusHistory';
+import { HabitStatusList } from './HabitStatusList';
 
 const RANGES = [{ key: 12, label: '12 weeks' }, { key: 26, label: '26 weeks' }, { key: 0, label: 'All' }];
 
@@ -41,11 +43,35 @@ function StatusTooltip({ active, payload, statuses }) {
   );
 }
 
-export function HabitStatusHistory({ habits }) {
+export function HabitStatusHistory({ habits, onOpen }) {
   const uid = auth.currentUser?.uid;
   const [history, setHistory] = useState([]);
   const [range, setRange] = useState(12);
   const [backfill, setBackfill] = useState(null); // null | { busy, message }
+  // A clicked segment: { week, status, live }. Past weeks only stored counts, so
+  // the habits behind one are read from that week's newest backup.
+  const [sel, setSel] = useState(null);
+  const [selPast, setSelPast] = useState(null); // { key, loading, error, habits, date }
+  const currentById = useMemo(() => new Map(habits.map(h => [h.id, h])), [habits]);
+
+  useEffect(() => {
+    if (!sel || sel.live || !uid) { setSelPast(null); return; }
+    const key = sel.week;
+    let cancelled = false;
+    setSelPast(p => (p?.key === key && !p.error ? p : { key, loading: true }));
+    (async () => {
+      try {
+        const backup = backupForWeek(await listFullBackups(uid), key);
+        if (!backup) throw new Error('No backup was taken that week, so its habits can’t be listed.');
+        const snap = await readBackupValue(uid, backup.id, ['habits']);
+        if (!Array.isArray(snap)) throw new Error('That week’s backup has no habits in it.');
+        if (!cancelled) setSelPast({ key, habits: snap, date: backup.date });
+      } catch (err) {
+        if (!cancelled) setSelPast({ key, error: err?.message || String(err) });
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [sel?.week, sel?.live, uid]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!uid) return;
@@ -136,6 +162,10 @@ export function HabitStatusHistory({ habits }) {
       {data.length === 0 ? (
         <p style={{ color: 'var(--color-text-muted)', fontSize: '0.82rem' }}>No habits yet.</p>
       ) : (
+        <div className="habit-status-chart">
+        {/* Clicking a segment focuses the SVG, and the browser's focus ring
+            would otherwise box the whole chart. */}
+        <style>{'.habit-status-chart *:focus, .habit-status-chart *:focus-visible { outline: none; }'}</style>
         <ResponsiveContainer width="100%" height={280}>
           <BarChart data={data} margin={{ top: 16, right: 12, left: -12, bottom: 4 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" vertical={false} />
@@ -144,12 +174,38 @@ export function HabitStatusHistory({ habits }) {
             <Tooltip content={<StatusTooltip statuses={statuses} />} cursor={{ fill: 'rgba(148,163,184,0.15)' }} />
             {statuses.map((s, i) => (
               <Bar key={s} dataKey={s} stackId="status" fill={statusHistoryColor(s)} stroke="#ffffff" strokeWidth={1}
-                radius={i === statuses.length - 1 ? [4, 4, 0, 0] : undefined} isAnimationActive={false} maxBarSize={56}>
+                radius={i === statuses.length - 1 ? [4, 4, 0, 0] : undefined} isAnimationActive={false} maxBarSize={56}
+                cursor="pointer"
+                onClick={d => {
+                  const row = d?.payload || d;
+                  if (!row?.week) return;
+                  setSel(cur => (cur && cur.week === row.week && cur.status === s ? null : { week: row.week, status: s, live: !!row.live }));
+                }}>
+                {data.map(row => (
+                  <Cell key={row.week} fillOpacity={!sel || (sel.week === row.week && sel.status === s) ? 1 : 0.3} />
+                ))}
                 {i === statuses.length - 1 && <LabelList dataKey="total" position="top" fontSize={11} fontWeight={600} fill="#4b5563" />}
               </Bar>
             ))}
           </BarChart>
         </ResponsiveContainer>
+        </div>
+      )}
+      {data.length > 0 && !sel && (
+        <div style={{ fontSize: '0.74rem', color: 'var(--color-text-muted)' }}>Click a segment to see which habits it counts.</div>
+      )}
+      {sel && (
+        <HabitStatusList
+          status={sel.status}
+          title={`${sel.status} · week of ${formatWeekLabel(sel.week, { year: true })}${sel.live ? ' (this week)' : ''}`}
+          note={sel.live ? null : selPast?.date ? `As of the backup from ${formatWeekLabel(selPast.date, { year: true })}.` : null}
+          habits={sel.live ? habitsWithStatus(habits, sel.status) : habitsWithStatus(selPast?.habits || [], sel.status)}
+          currentById={currentById}
+          loading={!sel.live && (!selPast || selPast.loading)}
+          error={sel.live ? null : selPast?.error}
+          onOpen={onOpen}
+          onClear={() => setSel(null)}
+        />
       )}
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginTop: '0.4rem' }}>
         <button type="button" onClick={runBackfill} disabled={backfill?.busy} style={{ ...pill(false), padding: '4px 12px' }}>
