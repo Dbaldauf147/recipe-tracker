@@ -146,9 +146,12 @@ function loadDailyLog() {
   }
 }
 
-function slimLogForFirestore(log, maxDays) {
-  // Trim to recent N days and strip heavy fields to minimize doc size
-  const keys = Object.keys(log).sort().slice(-maxDays);
+function slimLogForFirestore(log) {
+  // Strip heavy fields to minimize doc size. No day trim here any more: it
+  // used to keep only the newest 150 date keys, which silently DELETED older
+  // meals from the server. Old days now move to the monthly archive, and
+  // saveDailyLogToFirestore leaves archived days out of the write.
+  const keys = Object.keys(log).sort();
   const slim = {};
   for (const k of keys) {
     const day = log[k];
@@ -176,10 +179,9 @@ export function saveDailyLog(log, user) {
   try { window.dispatchEvent(new Event('firestore-sync')); } catch {}
   if (user) {
     window.__dailyLogLocalEdit = true;
-    // Save to a SEPARATE document (not the main user doc) to avoid 1MB limit.
-    // 150 days of slimmed log (~4 KB/day) stays well under 1 MB while keeping
-    // a full season of history (and any imported/restored older days) in sync.
-    const slim = slimLogForFirestore(log, 150);
+    // Save to a SEPARATE document (not the main user doc) to avoid 1MB limit;
+    // days older than 60 live in the monthly archive (dailyLogArchive.js).
+    const slim = slimLogForFirestore(log);
     saveDailyLogToFirestore(user.uid, slim)
       .then(() => {
         setTimeout(() => { window.__dailyLogLocalEdit = false; }, 2000);

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { auth, db } from '../firebase';
 import { doc, getDoc } from 'firebase/firestore';
-import { computeStorageBreakdown, saveStorageEstimate } from '../utils/firestoreSync';
+import { computeStorageBreakdown, saveStorageEstimate, loadDailyLogArchive } from '../utils/firestoreSync';
 import styles from './StorageBanner.module.css';
 
 // Per-Firestore-doc warning thresholds. Each user-data doc is capped at 1 MB
@@ -47,6 +47,12 @@ export function StorageBanner({ user }) {
     // caches (e.g. sunday-nutrition-cache) against the per-doc limit, so a
     // stale saved estimate can be hundreds of KB too high.
     saveStorageEstimate(user.uid).catch(() => {});
+    // The daily-log figure leaves out archived days once the archive is known;
+    // recompute (and re-save) when it arrives.
+    loadDailyLogArchive(user.uid).then(() => {
+      setBreakdown(computeStorageBreakdown());
+      saveStorageEstimate(user.uid).catch(() => {});
+    }).catch(() => {});
     (async () => {
       try {
         const snap = await getDoc(doc(db, 'users', user.uid));

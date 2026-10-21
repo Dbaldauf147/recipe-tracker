@@ -5,7 +5,7 @@ import { createPortal, flushSync } from 'react-dom';
 import { ComposedChart, Area, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, BarChart, Bar, ReferenceLine } from 'recharts';
 import { doc, collection, onSnapshot } from 'firebase/firestore';
 import { db } from '../firebase';
-import { saveField, loadField, saveWorkoutDraft, clearWorkoutDraft, newWorkoutId } from '../utils/firestoreSync';
+import { saveField, loadField, saveWorkoutDraft, clearWorkoutDraft, newWorkoutId, withDailyLogArchive } from '../utils/firestoreSync';
 import { exportWorkoutHistoryToCSV } from '../utils/exportData';
 import { parseSetValue, formatSeconds, computeSetStats } from '../utils/setValue';
 import { ExerciseLibrary, effectiveMuscleGroup, videoSourceLabel } from './ExerciseLibrary';
@@ -1003,8 +1003,9 @@ function StepsTab({ user }) {
     const ref = doc(db, 'users', user.uid, 'data', 'dailyLog');
     const unsub = onSnapshot(
       ref,
-      snap => {
-        const log = (snap.exists() && snap.data().log) || {};
+      async snap => {
+        // Days older than 60 are in the monthly archive; the long ranges need them.
+        const log = await withDailyLogArchive(user.uid, (snap.exists() && snap.data().log) || {});
         const map = {};
         for (const [date, day] of Object.entries(log)) {
           const s = (day || {}).steps;
@@ -1211,8 +1212,8 @@ function SleepTab({ user }) {
     const ref = doc(db, 'users', user.uid, 'data', 'dailyLog');
     const unsub = onSnapshot(
       ref,
-      snap => {
-        const log = (snap.exists() && snap.data().log) || {};
+      async snap => {
+        const log = await withDailyLogArchive(user.uid, (snap.exists() && snap.data().log) || {});
         const sleepMap = {};
         const breakdownMap = {};
         for (const [date, day] of Object.entries(log)) {
