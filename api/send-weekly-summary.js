@@ -20,6 +20,7 @@ import { getAuth } from 'firebase-admin/auth';
 import { sendMail } from '../lib/mailer.js';
 import { CHART_WIDTH, CHART_SCALE } from '../lib/emailCharts.js';
 import { loadHabitLogAdmin } from './_data/habitLogYears.js';
+import { loadDailyLogAdmin } from './_data/dailyLogArchive.js';
 import {
   lastCompleteWeek, previousWeek, summarizeWeek, isEmptyWeek, renderWeeklySummary, shiftKey,
   TREND_WEEKS,
@@ -104,7 +105,9 @@ async function loadUserWeekData(uid, userData, fromKey, toKey) {
   // takes whichever of the two reaches back further.
   const workoutsFrom = shiftKey(toKey, -(WINDOW_DAYS + 7));
   const [logSnap, workoutSnap, habitLog] = await Promise.all([
-    db.doc(`users/${uid}/data/dailyLog`).get().catch(() => null),
+    // Live doc + monthly archive: the trend charts reach back further than
+    // the live doc's 60 days.
+    loadDailyLogAdmin(db, uid).catch(() => null),
     db.collection(`users/${uid}/workouts`)
       .where('date', '>=', workoutsFrom < fromKey ? workoutsFrom : fromKey)
       .where('date', '<=', toKey)
@@ -112,7 +115,7 @@ async function loadUserWeekData(uid, userData, fromKey, toKey) {
     loadHabitLogAdmin(db, uid, userData).catch(() => ({})),
   ]);
   return {
-    dailyLog: logSnap?.exists ? (logSnap.data().log || {}) : {},
+    dailyLog: logSnap || {},
     weightLog: Array.isArray(userData.weightLog) ? userData.weightLog : [],
     workouts: workoutSnap ? workoutSnap.docs.map(d => d.data()) : [],
     habits: Array.isArray(userData.habits) ? userData.habits : [],

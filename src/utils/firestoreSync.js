@@ -2,6 +2,7 @@ import { doc, getDoc, setDoc, addDoc, deleteDoc, updateDoc, deleteField, collect
 import { db, auth } from '../firebase';
 import { writeWorkoutsMirror } from './workoutsMirror';
 import { activeUsersIn } from '../../lib/adminGrowth.js';
+import { ARCHIVE_COLLECTION, isMonthKey, parseArchiveDoc, flattenArchive, mergeArchiveUnder, omitArchivedDays } from './dailyLogArchive.js';
 
 // ── Data-safety layer (mirrors the mobile app) ──────────────────────────────
 // Every full-document overwrite of a big "blob" doc (dailyLog, recipes) goes
@@ -198,14 +199,57 @@ export function noteDailyLogCount(log) {
   if (n > 0) seenDailyLogCount = n;
 }
 
+// ── Monthly archive (see dailyLogArchive.js) ────────────────────────────────
+// Days older than 60 days live in users/{uid}/dailyLogArchive/{YYYY-MM}, filed
+// there by the daily backup cron. Archive months only change once a day, so
+// one read serves every load in a ten-minute window.
+const ARCHIVE_TTL_MS = 10 * 60 * 1000;
+let archiveCache = null; // { uid, at, promise → flat day map }
+// Last archive that actually loaded, for synchronous readers (the storage banner).
+let lastArchive = null;
+
+/** Every archived day, flat. Rejects if the archive can't be read. */
+export function loadDailyLogArchive(uid, { fresh = false } = {}) {
+  const now = Date.now();
+  if (!fresh && archiveCache && archiveCache.uid === uid && now - archiveCache.at < ARCHIVE_TTL_MS) {
+    return archiveCache.promise;
+  }
+  const promise = getDocs(collection(db, 'users', uid, ARCHIVE_COLLECTION)).then(snaps => {
+    const byMonth = {};
+    snaps.forEach(d => { if (isMonthKey(d.id)) byMonth[d.id] = parseArchiveDoc(d.data()); });
+    const flat = flattenArchive(byMonth);
+    lastArchive = flat;
+    return flat;
+  });
+  archiveCache = { uid, at: now, promise };
+  promise.catch(() => { if (archiveCache?.promise === promise) archiveCache = null; });
+  return promise;
+}
+
+/** Live log with the archive underneath — what every chart and list shows. */
+export async function withDailyLogArchive(uid, live) {
+  try { return mergeArchiveUnder(await loadDailyLogArchive(uid), live); }
+  catch { return live; }
+}
+
 export async function saveDailyLogToFirestore(uid, log) {
   try {
     const ref = doc(db, 'users', uid, 'data', 'dailyLog');
+    // Callers hand over the full history (live ∪ archive). Leave out every day
+    // the archive already holds unchanged, or each save would drag the whole
+    // history back into the live doc. No archive readable → write it all, as
+    // before; the next sweep files it again.
+    let archive = null;
+    try { archive = await loadDailyLogArchive(uid); } catch { /* write everything */ }
+    const value = omitArchivedDays(log, archive);
     await safeOverwriteDoc({
-      uid, type: 'dailyLog', ref, field: 'log', value: log,
+      uid, type: 'dailyLog', ref, field: 'log', value,
       count: countDailyLogEntries,
       extract: (data) => data?.log || {},
-      allowEmpty: countDailyLogEntries(log) === 0 && seenDailyLogCount > 0,
+      // Empty because every meal is archived is not the empty-stale-copy case
+      // the guard exists for.
+      allowEmpty: countDailyLogEntries(value) === 0
+        && (countDailyLogEntries(log) > 0 || seenDailyLogCount > 0),
     });
     noteDailyLogCount(log);
   } catch (err) {
@@ -220,9 +264,12 @@ export async function saveDailyLogToFirestore(uid, log) {
 export async function loadDailyLogFromFirestore(uid) {
   try {
     const ref = doc(db, 'users', uid, 'data', 'dailyLog');
-    const snap = await getDoc(ref);
+    const [snap, archive] = await Promise.all([getDoc(ref), loadDailyLogArchive(uid)]);
     if (snap.exists()) {
-      const log = snap.data().log || {};
+      // Older days are in the monthly archive. An unreadable archive fails the
+      // whole load (→ {} below, which callers already treat as "couldn't
+      // load") instead of returning a log that looks like history vanished.
+      const log = mergeArchiveUnder(archive, snap.data().log || {});
       // This tab has now SEEN the real log, which is what lets a later
       // delete-everything write be recognised as deliberate.
       noteDailyLogCount(log);
@@ -854,8 +901,13 @@ export function computeStorageBreakdown() {
     // Local-only recompute caches never reach any Firestore doc — counting
     // them here falsely inflates the per-document usage warning.
     if (isLocalOnlyCache(key)) continue;
-    const raw = localStorage.getItem(key) || '';
+    let raw = localStorage.getItem(key) || '';
     const docName = KEY_TO_DOC[key] || 'user';
+    // The browser keeps the whole meal history, but archived days don't live
+    // in the dailyLog doc any more — count only what a save would send there.
+    if (docName === 'dailyLog' && lastArchive && Object.keys(lastArchive).length > 0) {
+      try { raw = JSON.stringify(omitArchivedDays(JSON.parse(raw), lastArchive)); } catch { /* count it all */ }
+    }
     docs[docName] += raw.length;
   }
   const total = Object.values(docs).reduce((a, b) => a + b, 0);

@@ -4,11 +4,20 @@
 // data (habits + habitLog) to users/{uid}/backups/{type}_{YYYY-MM-DD}, keeping
 // the newest KEEP per type. Runs server-side so it survives any client bug.
 // Skips empty docs so a transient empty state never replaces a good backup.
+//
+// Then, right after that day's dailyLog backup, it moves days older than 60
+// days out of the live dailyLog doc into users/{uid}/dailyLogArchive/{YYYY-MM}
+// (see src/utils/dailyLogArchive.js) and copies each month it touched to
+// backups/dailyLogArchive_{YYYY-MM}. Those month copies are one per month,
+// overwritten, never pruned — the dated dailyLog backups only cover the live
+// window once days have been archived.
 // Auth: CRON_SECRET.
 
 import { initializeApp, cert, getApps } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
 import { loadHabitLogAdmin } from './_data/habitLogYears.js';
+import { sweepDailyLogArchiveAdmin } from './_data/dailyLogArchive.js';
+import { ARCHIVE_COLLECTION } from '../src/utils/dailyLogArchive.js';
 
 if (getApps().length === 0) {
   const serviceAccount = process.env.FIREBASE_SERVICE_ACCOUNT
@@ -64,7 +73,8 @@ export default async function handler(req, res) {
   const date = dateKeyET();
   const summary = {
     date, users: 0, dailyLogBackups: 0, recipesBackups: 0, habitsBackups: 0,
-    habitLogBackups: 0, restaurantsBackups: 0, ingredientsBackups: 0, errors: [],
+    habitLogBackups: 0, restaurantsBackups: 0, ingredientsBackups: 0,
+    archivedDays: 0, archiveMonths: 0, errors: [],
   };
 
   try {
@@ -106,6 +116,27 @@ export default async function handler(req, res) {
           });
           summary.dailyLogBackups++;
           await prune(uid, 'dailyLog');
+        }
+
+        // Archive only once today's backup exists (or there was nothing to
+        // back up), and never let it take the remaining backups down with it.
+        if (log && Object.keys(log).length > 0) {
+          try {
+            const sweep = await sweepDailyLogArchiveAdmin(db, uid, date);
+            summary.archivedDays += sweep.movedDays;
+            for (const month of sweep.months) {
+              const a = await db.doc(`users/${uid}/${ARCHIVE_COLLECTION}/${month}`).get();
+              if (!a.exists) continue;
+              await db.doc(`users/${uid}/backups/dailyLogArchive_${month}`).set({
+                type: 'dailyLogArchive', month, date, count: a.data().entries || 0,
+                data: a.data().log, savedAt: new Date().toISOString(),
+              });
+              summary.archiveMonths++;
+            }
+            for (const e of sweep.errors) summary.errors.push({ uid, err: `archive ${e}` });
+          } catch (err) {
+            summary.errors.push({ uid, err: `archive: ${err.message}` });
+          }
         }
 
         const rc = await db.doc(`users/${uid}/data/recipes`).get();
