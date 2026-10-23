@@ -281,12 +281,14 @@ const REVIEW_KINDS = [
     completedField: 'notStartedReviewCompletedMonth',
     reviewName: /not[\s-]?started|have?n.?t[\s-]?started/,
     heading: 'Monthly not-started check-in',
-    instructions: 'Once a month, go through each one: tick the box if it’s still something for later, or “Start it” to move it into your routines. The boxes reset at the start of every month.',
+    instructions: 'Once a month, go through each one: tick the box if it’s still something for later, or “Start it” to make it a Current habit you’re working on now. The boxes reset at the start of every month.',
     confirmTitle: 'Confirm it’s still for later',
     confirmVerb: 'to confirm',
     actionLabel: 'Start it',
-    actionStatus: DEMOTED_FROM_AUTOMATIC_STATUS,
-    actionPrompt: name => `Start “${name}” now?\n\nIt moves to “${DEMOTED_FROM_AUTOMATIC_STATUS}” and shows up in your routines to log.`,
+    // Starting a habit means working on it now — the Current tab's "Working on
+    // now" group — not dropping it into the routines as Most Days.
+    actionStatus: CURRENT_STATUS,
+    actionPrompt: name => `Start “${name}” now?\n\nIt moves to “${CURRENT_STATUS}” — on the Current tab and in your routines to log.`,
     empty: 'Nothing waiting to start. Set a habit’s status to “Not Started” and it will show up here for a monthly check-in.',
     showStatusSelect: true,
   },
@@ -2206,7 +2208,12 @@ export function HabitsPage({ onBack, user }) {
         if (k.matches(h) && (h[k.confirmField] || '') !== currentMonth) reviewPending[k.id]++;
       }
     }
-    return { routines, daily, auto, ...reviewPending };
+    // One more on the Not Started tab when the #1 habit up next has no cadence
+    // or no routine — it can't be started properly as it stands.
+    const next = startQueue(goodHabits, compareByRoutine)[0];
+    const nextSetup = next ? missingSetup(next) : null;
+    const notstartedSetup = nextSetup && (nextSetup.cadence || nextSetup.routine) ? 1 : 0;
+    return { routines, daily, auto, ...reviewPending, notstartedSetup };
   }, [goodHabits, habitLog, autoTrackedIds]);
 
   // Daily habits that were due YESTERDAY and never got a mark. A different kind
@@ -2418,7 +2425,7 @@ export function HabitsPage({ onBack, user }) {
       {/* Sub-tabs */}
       <div style={{ display: 'flex', gap: 4, borderBottom: '1px solid var(--color-border, #e2e8f0)', marginBottom: '1rem' }}>
         {SUB_TABS.map(t => {
-          const badge = tabBadges[t.id] || 0;
+          const badge = (tabBadges[t.id] || 0) + (t.id === 'notstarted' ? tabBadges.notstartedSetup : 0);
           return (
             <button
               key={t.id}
