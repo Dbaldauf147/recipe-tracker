@@ -13,7 +13,7 @@ import { HabitStatusHistory } from './HabitStatusHistory';
 import { HabitStatusList } from './HabitStatusList';
 import { canonStatus, habitsWithStatus } from '../utils/habitStatusHistory';
 import { REFRESH_DAYS, advanceAutoRefresh, stampAutoStatusChanges, isRefreshRotation, refreshReturnKey, nextRefreshCandidate } from '../utils/habitAutoRefresh';
-import { startQueue, moveInQueue, missingSetup } from '../utils/habitStartQueue';
+import { startQueue, dropInQueue, missingSetup } from '../utils/habitStartQueue';
 import { badHabitStats, recentDayKeys, cleanLabel, dayKeyOf, dateOfDayKey } from '../utils/badHabits';
 import {
   checklistItems, hasChecklist, tickedIds, checklistProgress, toggleItem, addItem, renameItem, removeItem, markActionAfter,
@@ -5049,6 +5049,10 @@ function MonthlyStatusReview({ kind, habits, onUpdate, onReorderStart, onOpen })
   // Not Started is one numbered "up next" queue instead of routine groups —
   // #1 is the habit to pick up next (see habitStartQueue.js).
   const isQueue = kind.id === 'notstarted';
+  // Drag-to-reorder: the row being dragged, and the row it's hovering over
+  // (drawn with a line above it, where it will land).
+  const [dragId, setDragId] = useState(null);
+  const [overId, setOverId] = useState(null);
   const queue = useMemo(() => (isQueue ? startQueue(habits, compareByRoutine) : []), [habits, isQueue]);
   const unsetCount = queue.filter(h => { const m = missingSetup(h); return m.cadence || m.routine; }).length;
 
@@ -5132,7 +5136,7 @@ function MonthlyStatusReview({ kind, habits, onUpdate, onReorderStart, onOpen })
       )}
       {isQueue && (
         <div style={{ fontSize: '0.82rem', color: 'var(--color-text-secondary, #475569)', margin: '-0.4rem 0 1rem', lineHeight: 1.45 }}>
-          <strong>Up next:</strong> #1 is the next habit to start. The one starred “Work on this next” stays at #1; use ↑ ↓ to order the rest.
+          <strong>Up next:</strong> #1 is the next habit to start. The one starred “Work on this next” stays at #1; drag the others to reorder them.
         </div>
       )}
       {isAuto && (
@@ -5153,22 +5157,35 @@ function MonthlyStatusReview({ kind, habits, onUpdate, onReorderStart, onOpen })
               {list.map((h, idx) => {
                 const confirmed = (h[kind.confirmField] || '') === currentMonth;
                 const missing = isQueue ? missingSetup(h) : null;
-                const upIds = isQueue ? moveInQueue(queue, h.id, -1) : null;
-                const downIds = isQueue ? moveInQueue(queue, h.id, 1) : null;
+                const canDrag = isQueue && !h.nextUp;
+                const dropLine = isQueue && dragId && overId === h.id && dragId !== h.id;
                 const flaggedMonth = (h[kind.revisitField] || '').trim();
                 const flagged = !!flaggedMonth;
                 // Flagged wins the border: an old flag is the thing you came
                 // back for, and it outlives this month's green tick.
                 const borderColor = flagged ? '#fdba74' : confirmed ? '#bbf7d0' : 'var(--color-border, #e2e8f0)';
                 return (
-                  <div key={h.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '0.5rem 0.7rem', background: 'var(--color-surface, #fff)', border: `1px solid ${borderColor}`, borderRadius: 8 }}>
+                  <div
+                    key={h.id}
+                    draggable={canDrag}
+                    onDragStart={canDrag ? (e) => { setDragId(h.id); e.dataTransfer.effectAllowed = 'move'; } : undefined}
+                    onDragEnd={isQueue ? () => { setDragId(null); setOverId(null); } : undefined}
+                    onDragOver={isQueue ? (e) => { if (dragId) { e.preventDefault(); if (overId !== h.id) setOverId(h.id); } } : undefined}
+                    onDrop={isQueue ? (e) => {
+                      e.preventDefault();
+                      const ids = dragId ? dropInQueue(queue, dragId, h.id) : null;
+                      setDragId(null); setOverId(null);
+                      if (ids) onReorderStart?.(ids);
+                    } : undefined}
+                    title={canDrag ? 'Drag to reorder' : undefined}
+                    style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '0.5rem 0.7rem', background: 'var(--color-surface, #fff)', border: `1px solid ${borderColor}`, borderRadius: 8, cursor: canDrag ? 'grab' : undefined, opacity: dragId === h.id ? 0.45 : 1, boxShadow: dropLine ? `0 -3px 0 0 ${ACCENT}` : undefined }}
+                  >
                     {isQueue && (
-                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2, flexShrink: 0 }}>
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+                        <span aria-hidden style={{ color: canDrag ? '#94a3b8' : 'transparent', fontSize: '0.95rem', lineHeight: 1, userSelect: 'none' }}>⠿</span>
                         <span title={h.nextUp ? 'Starred: work on this next' : `#${idx + 1} in line`} style={{ minWidth: 26, height: 22, borderRadius: 999, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.74rem', fontWeight: 800, color: idx === 0 ? '#fff' : ACCENT, background: idx === 0 ? (h.nextUp ? '#d97706' : ACCENT) : ACCENT + '14' }}>
                           {h.nextUp ? '★1' : idx + 1}
                         </span>
-                        <button type="button" aria-label="Move up" title="Move up" disabled={!upIds} onClick={() => upIds && onReorderStart?.(upIds)} style={queueArrowBtn(!upIds)}>↑</button>
-                        <button type="button" aria-label="Move down" title="Move down" disabled={!downIds} onClick={() => downIds && onReorderStart?.(downIds)} style={queueArrowBtn(!downIds)}>↓</button>
                       </span>
                     )}
                     <input type="checkbox" checked={confirmed} onChange={() => toggle(h)} title={kind.confirmTitle} style={{ width: 17, height: 17, cursor: 'pointer', accentColor: ACCENT, flexShrink: 0 }} />
@@ -7460,7 +7477,6 @@ const cadenceTag = { fontSize: '0.62rem', fontWeight: 700, textTransform: 'upper
 // Subtle label showing a habit's named routine (the Routines tab now groups by
 // cadence, so the routine name is shown per-row instead of as a section header).
 const setupWarnTag = { fontSize: '0.62rem', fontWeight: 700, color: '#b45309', background: '#fef3c7', border: '1px solid #fde68a', borderRadius: 999, padding: '1px 7px', whiteSpace: 'nowrap' };
-const queueArrowBtn = disabled => ({ border: '1px solid var(--color-border, #e2e8f0)', background: 'none', borderRadius: 6, width: 22, height: 22, padding: 0, fontSize: '0.75rem', lineHeight: 1, color: disabled ? '#cbd5e1' : 'var(--color-text-muted, #64748b)', cursor: disabled ? 'default' : 'pointer', fontFamily: 'inherit' });
 const routineTag = { fontSize: '0.62rem', fontWeight: 600, color: 'var(--color-text-muted, #64748b)', background: 'var(--color-surface-alt, #f1f5f9)', border: '1px solid var(--color-border, #e2e8f0)', borderRadius: 999, padding: '1px 7px', whiteSpace: 'nowrap' };
 const fieldWrap = { display: 'flex', flexDirection: 'column', gap: 3, marginBottom: '0.6rem' };
 const fieldLabel = { fontSize: '0.7rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.4, color: 'var(--color-text-muted, #64748b)' };
