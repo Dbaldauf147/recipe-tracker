@@ -13,6 +13,7 @@ import { HabitStatusHistory } from './HabitStatusHistory';
 import { HabitStatusList } from './HabitStatusList';
 import { canonStatus, habitsWithStatus } from '../utils/habitStatusHistory';
 import { REFRESH_DAYS, advanceAutoRefresh, stampAutoStatusChanges, isRefreshRotation, refreshReturnKey, nextRefreshCandidate } from '../utils/habitAutoRefresh';
+import { startQueue, moveInQueue, missingSetup } from '../utils/habitStartQueue';
 import { badHabitStats, recentDayKeys, cleanLabel, dayKeyOf, dateOfDayKey } from '../utils/badHabits';
 import {
   checklistItems, hasChecklist, tickedIds, checklistProgress, toggleItem, addItem, renameItem, removeItem, markActionAfter,
@@ -2003,6 +2004,12 @@ export function HabitsPage({ onBack, user }) {
     const pos = new Map(orderedIds.map((id, i) => [id, String(i)]));
     persist(habits.map(h => (pos.has(h.id) ? { ...h, order: pos.get(h.id) } : h)));
   }
+  // The Not Started tab's "up next" queue after a ↑/↓: every habit in it gets
+  // its place (0,1,2…) as `startOrder`, in one persist.
+  function reorderStartQueue(orderedIds) {
+    const pos = new Map(orderedIds.map((id, i) => [id, i]));
+    persist(habits.map(h => (pos.has(h.id) ? { ...h, startOrder: pos.get(h.id) } : h)));
+  }
   // Move a habit to another routine ('' = No routine). Clears its order so it
   // lands at the bottom of the destination group until dragged.
   function setHabitRoutine(id, routine) {
@@ -2487,6 +2494,7 @@ export function HabitsPage({ onBack, user }) {
           kind={REVIEW_KINDS.find(k => k.id === tab)}
           habits={goodHabits}
           onUpdate={updateHabit}
+          onReorderStart={reorderStartQueue}
           onOpen={setOpenHabitId}
         />
       )}
@@ -2540,6 +2548,7 @@ export function HabitsPage({ onBack, user }) {
                   kind={k}
                   habits={habits}
                   onUpdate={updateHabit}
+                  onReorderStart={reorderStartQueue}
                   onOpen={id => { setOpenHabitId(id); setDetailForId(id); }}
                 />
               ))}
@@ -5023,7 +5032,7 @@ function AutoSinceChip({ habit, nextUp }) {
   );
 }
 
-function MonthlyStatusReview({ kind, habits, onUpdate, onOpen }) {
+function MonthlyStatusReview({ kind, habits, onUpdate, onReorderStart, onOpen }) {
   const currentMonth = periodKey('Monthly'); // 'YYYY-MM' in local time
   const monthLabel = new Date().toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
 
@@ -5037,8 +5046,15 @@ function MonthlyStatusReview({ kind, habits, onUpdate, onOpen }) {
     return d.toLocaleDateString(undefined, { month: 'short', ...(sameYear ? {} : { year: 'numeric' }) });
   }
 
+  // Not Started is one numbered "up next" queue instead of routine groups —
+  // #1 is the habit to pick up next (see habitStartQueue.js).
+  const isQueue = kind.id === 'notstarted';
+  const queue = useMemo(() => (isQueue ? startQueue(habits, compareByRoutine) : []), [habits, isQueue]);
+  const unsetCount = queue.filter(h => { const m = missingSetup(h); return m.cadence || m.routine; }).length;
+
   // This kind's habits grouped by routine, routines in the canonical order.
   const groups = useMemo(() => {
+    if (isQueue) return queue.length ? [['Up next', queue]] : [];
     const inBucket = habits.filter(h => kind.matches(h));
     const map = new Map();
     for (const h of inBucket) {
@@ -5051,7 +5067,7 @@ function MonthlyStatusReview({ kind, habits, onUpdate, onOpen }) {
       const ra = routineRank(a[0]), rb = routineRank(b[0]);
       return ra.typeOrder - rb.typeOrder || ra.dailyIdx - rb.dailyIdx || ra.num - rb.num || a[0].localeCompare(b[0]);
     });
-  }, [habits, kind]);
+  }, [habits, kind, isQueue, queue]);
 
   const bucketCount = groups.reduce((n, [, list]) => n + list.length, 0);
   // The refresh rotation, shown on Auto Review only.
@@ -5108,6 +5124,17 @@ function MonthlyStatusReview({ kind, habits, onUpdate, onOpen }) {
         )}
       </div>
 
+      {isQueue && unsetCount > 0 && (
+        <div role="alert" style={{ background: '#fef3c7', border: '1px solid #fde68a', borderRadius: 10, padding: '0.6rem 0.9rem', margin: '-0.4rem 0 1rem', fontSize: '0.84rem', color: '#92400e', lineHeight: 1.45 }}>
+          <strong>⚠ {unsetCount} habit{unsetCount === 1 ? '' : 's'} missing a cadence or routine.</strong>{' '}
+          Without both, a habit won’t land in the right place in your routines once you start it. Click a name to set them.
+        </div>
+      )}
+      {isQueue && (
+        <div style={{ fontSize: '0.82rem', color: 'var(--color-text-secondary, #475569)', margin: '-0.4rem 0 1rem', lineHeight: 1.45 }}>
+          <strong>Up next:</strong> #1 is the next habit to start. The one starred “Work on this next” stays at #1; use ↑ ↓ to order the rest.
+        </div>
+      )}
       {isAuto && (
         <div style={{ fontSize: '0.82rem', color: 'var(--color-text-secondary, #475569)', margin: '-0.4rem 0 1rem', lineHeight: 1.45 }}>
           <strong style={{ color: STATUS_COLOR[REFRESHING_STATUS] }}>Refresh rotation:</strong>{' '}
@@ -5123,8 +5150,11 @@ function MonthlyStatusReview({ kind, habits, onUpdate, onOpen }) {
           <div key={routine}>
             <h4 style={{ fontSize: '0.78rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: '#94a3b8', margin: '0 0 0.4rem' }}>{routine}</h4>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              {list.map(h => {
+              {list.map((h, idx) => {
                 const confirmed = (h[kind.confirmField] || '') === currentMonth;
+                const missing = isQueue ? missingSetup(h) : null;
+                const upIds = isQueue ? moveInQueue(queue, h.id, -1) : null;
+                const downIds = isQueue ? moveInQueue(queue, h.id, 1) : null;
                 const flaggedMonth = (h[kind.revisitField] || '').trim();
                 const flagged = !!flaggedMonth;
                 // Flagged wins the border: an old flag is the thing you came
@@ -5132,6 +5162,15 @@ function MonthlyStatusReview({ kind, habits, onUpdate, onOpen }) {
                 const borderColor = flagged ? '#fdba74' : confirmed ? '#bbf7d0' : 'var(--color-border, #e2e8f0)';
                 return (
                   <div key={h.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '0.5rem 0.7rem', background: 'var(--color-surface, #fff)', border: `1px solid ${borderColor}`, borderRadius: 8 }}>
+                    {isQueue && (
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2, flexShrink: 0 }}>
+                        <span title={h.nextUp ? 'Starred: work on this next' : `#${idx + 1} in line`} style={{ minWidth: 26, height: 22, borderRadius: 999, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.74rem', fontWeight: 800, color: idx === 0 ? '#fff' : ACCENT, background: idx === 0 ? (h.nextUp ? '#d97706' : ACCENT) : ACCENT + '14' }}>
+                          {h.nextUp ? '★1' : idx + 1}
+                        </span>
+                        <button type="button" aria-label="Move up" title="Move up" disabled={!upIds} onClick={() => upIds && onReorderStart?.(upIds)} style={queueArrowBtn(!upIds)}>↑</button>
+                        <button type="button" aria-label="Move down" title="Move down" disabled={!downIds} onClick={() => downIds && onReorderStart?.(downIds)} style={queueArrowBtn(!downIds)}>↓</button>
+                      </span>
+                    )}
                     <input type="checkbox" checked={confirmed} onChange={() => toggle(h)} title={kind.confirmTitle} style={{ width: 17, height: 17, cursor: 'pointer', accentColor: ACCENT, flexShrink: 0 }} />
                     <button
                       type="button"
@@ -5143,6 +5182,8 @@ function MonthlyStatusReview({ kind, habits, onUpdate, onOpen }) {
                     </button>
                     {kind.showStatusSelect && (h.routine || '').trim() && <span style={routineTag} title="Routine">{(h.routine || '').trim()}</span>}
                     {(h.cadence || '').trim() && <span style={cadenceTag}>{h.cadence}</span>}
+                    {missing?.cadence && <span style={setupWarnTag} title="Set a tracking cadence (Daily / Weekly / …) in the habit popup">⚠ No cadence</span>}
+                    {missing?.routine && <span style={setupWarnTag} title="Pick a routine in the habit popup">⚠ No routine</span>}
                     {isAuto && <AutoSinceChip habit={h} nextUp={h.id === nextUpId} />}
                     {kind.showStatusSelect && (
                       <StatusSelect value={h.status} onChange={v => onUpdate(h.id, 'status', v)} />
@@ -7418,6 +7459,8 @@ const nameBtn = { width: '100%', textAlign: 'left', display: 'flex', alignItems:
 const cadenceTag = { fontSize: '0.62rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.3, color: ACCENT, background: ACCENT + '14', borderRadius: 999, padding: '1px 6px', whiteSpace: 'nowrap' };
 // Subtle label showing a habit's named routine (the Routines tab now groups by
 // cadence, so the routine name is shown per-row instead of as a section header).
+const setupWarnTag = { fontSize: '0.62rem', fontWeight: 700, color: '#b45309', background: '#fef3c7', border: '1px solid #fde68a', borderRadius: 999, padding: '1px 7px', whiteSpace: 'nowrap' };
+const queueArrowBtn = disabled => ({ border: '1px solid var(--color-border, #e2e8f0)', background: 'none', borderRadius: 6, width: 22, height: 22, padding: 0, fontSize: '0.75rem', lineHeight: 1, color: disabled ? '#cbd5e1' : 'var(--color-text-muted, #64748b)', cursor: disabled ? 'default' : 'pointer', fontFamily: 'inherit' });
 const routineTag = { fontSize: '0.62rem', fontWeight: 600, color: 'var(--color-text-muted, #64748b)', background: 'var(--color-surface-alt, #f1f5f9)', border: '1px solid var(--color-border, #e2e8f0)', borderRadius: 999, padding: '1px 7px', whiteSpace: 'nowrap' };
 const fieldWrap = { display: 'flex', flexDirection: 'column', gap: 3, marginBottom: '0.6rem' };
 const fieldLabel = { fontSize: '0.7rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.4, color: 'var(--color-text-muted, #64748b)' };
