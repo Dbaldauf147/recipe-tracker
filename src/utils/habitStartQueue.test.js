@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { startQueue, moveInQueue, missingSetup } from './habitStartQueue.js';
+import { startQueue, dropInQueue, pinStarred, missingSetup } from './habitStartQueue.js';
 
 const ns = (id, extra = {}) => ({ id, name: id, status: 'Not Started', ...extra });
 
@@ -15,18 +15,20 @@ test('starred first, then placed by startOrder, then fallback order', () => {
   assert.deepEqual(startQueue(habits, byName).map(h => h.id), ['d', 'c', 'b', 'e', 'a']);
 });
 
-test('moveInQueue swaps neighbours and refuses the edges', () => {
-  const q = startQueue([ns('a'), ns('b'), ns('c')]);
-  assert.deepEqual(moveInQueue(q, 'b', -1), ['b', 'a', 'c']);
-  assert.deepEqual(moveInQueue(q, 'b', 1), ['a', 'c', 'b']);
-  assert.equal(moveInQueue(q, 'a', -1), null);
-  assert.equal(moveInQueue(q, 'c', 1), null);
+test('dropInQueue moves a habit to where it was dropped', () => {
+  const q = startQueue([ns('a'), ns('b'), ns('c'), ns('d')]);
+  assert.deepEqual(dropInQueue(q, 'd', 'a'), ['d', 'a', 'b', 'c']);
+  assert.deepEqual(dropInQueue(q, 'a', 'c'), ['b', 'c', 'a', 'd']);
+  assert.equal(dropInQueue(q, 'b', 'b'), null);
 });
 
 test('the starred habit stays pinned at #1', () => {
-  const q = startQueue([ns('a'), ns('b', { nextUp: true })]);
-  assert.equal(moveInQueue(q, 'a', -1), null);
-  assert.equal(moveInQueue(q, 'b', 1), null);
+  const q = startQueue([ns('a'), ns('b'), ns('s', { nextUp: true })]);
+  assert.equal(dropInQueue(q, 's', 'b'), null);
+  assert.deepEqual(dropInQueue(q, 'b', 's'), ['s', 'b', 'a']);
+  assert.equal(dropInQueue(q, 'a', 's'), null); // already right below it
+  assert.deepEqual(pinStarred(q, ['b', 'a', 's']), ['s', 'b', 'a']);
+  assert.equal(pinStarred(q, ['a', 's', 'b']), null);
 });
 
 test('missingSetup flags blank cadence and blank or "-" routine', () => {
