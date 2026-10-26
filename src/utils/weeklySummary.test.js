@@ -952,6 +952,7 @@ test('the owner’s Users section lists who was active, with when and where', ()
   const activeUsers = [
     // 01:30 UTC on Aug 2 is still Aug 1 in New York.
     { name: 'Ann <B>', email: 'ann@x.com', lastSeen: '2026-08-02T01:30:00Z', via: 'web + app' },
+    { name: 'Owner', email: 'BaldaufDan@gmail.com', lastSeen: '2026-08-01T12:00:00Z', via: 'web + app' },
     { name: '', email: 'bo@x.com', lastSeen: '2026-07-30T15:00:00Z', via: 'app' },
   ];
   const owner = renderWeeklySummary({ stats, priorStats: stats, adminGrowth: growth, adminActiveUsers: activeUsers });
@@ -960,8 +961,14 @@ test('the owner’s Users section lists who was active, with when and where', ()
   assert.match(owner.html, />Aug 1</);
   assert.match(owner.html, /bo@x\.com/);
   assert.ok(owner.html.indexOf('ann@x.com') < owner.html.indexOf('bo@x.com'));
-  assert.match(owner.text, /Ann <B> <ann@x\.com> — Aug 1 \(web \+ app\)/);
-  assert.match(owner.text, /bo@x\.com — Jul 30 \(app\)/);
+  // Column headers, and a rank per row that skips the owner's own account.
+  assert.match(owner.html, /<th[^>]*>#<\/th><th[^>]*>Name<\/th><th[^>]*>Email<\/th><th[^>]*>Last seen<\/th><th[^>]*>Via<\/th>/);
+  assert.doesNotMatch(owner.html, /BaldaufDan@gmail\.com|>Owner</);
+  assert.match(owner.html, />1<\/td><td[^>]*>Ann &lt;B&gt;/);
+  assert.match(owner.html, />2<\/td><td[^>]*>bo@x\.com/);
+  assert.match(owner.text, /1\. Ann <B> <ann@x\.com> — Aug 1 \(web \+ app\)/);
+  assert.match(owner.text, /2\. bo@x\.com — Jul 30 \(app\)/);
+  assert.doesNotMatch(owner.text, /BaldaufDan/);
   // Without the list the section is unchanged.
   assert.doesNotMatch(renderWeeklySummary({ stats, priorStats: stats, adminGrowth: growth }).html, /Active users \(7d\)/);
 });
