@@ -157,7 +157,9 @@ async function loadAdminGrowth() {
     const snap = await db.collection('adminSnapshots')
       .orderBy('date', 'desc').limit(GROWTH_SNAPSHOT_DAYS).get();
     const rows = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-    const { points, grain } = summarizeUserGrowth(rows, { maxPoints: GROWTH_POINTS });
+    // The owner reads this email, so their own account is left out of the
+    // "Active (7d)" count and its chart line (and of the list below it).
+    const { points, grain } = summarizeUserGrowth(rows, { maxPoints: GROWTH_POINTS, excludeEmails: [OWNER_EMAIL] });
     // One snapshot is a number, not a trend, and the section is a chart.
     if (points.length < 2) return null;
     // Thinned to a month a point, the day under each column is just whichever
