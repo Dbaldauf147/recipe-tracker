@@ -2693,8 +2693,13 @@ export function WorkoutPage({ onBack, user }) {
     try { return normalizeDeloadSettings(JSON.parse(localStorage.getItem(DELOAD_KEY) || 'null')); }
     catch { return normalizeDeloadSettings(null); }
   });
-  // "Log this one normally" for a single session inside a deload week.
-  const [deloadSkipped, setDeloadSkipped] = useState(false);
+  // The Log tab's deload button: true = this session is a deload, false = it
+  // isn't, null = whatever the deload round says for its type. Reset per date;
+  // a saved session reopens with the choice it was saved with.
+  const [deloadChoice, setDeloadChoice] = useState(null);
+  // The rows as they were before the button turned them into deload numbers,
+  // so turning it back off restores exactly what was there.
+  const preDeloadEntriesRef = useRef(null);
   const [entries, setEntries] = useState(() => blankEntries());
   // "Use my body weight": rows flagged useBodyWeight carry the weigh-in for
   // this session's week in `weight` (utils/bodyweightLoad.js). Re-pointed
@@ -2840,7 +2845,7 @@ export function WorkoutPage({ onBack, user }) {
   const deloadRoundOnDate = deloadRound(deloadSettings, workouts, selectedDate, { excludeId: deloadEditingId });
   const deloadRoundToday = deloadRound(deloadSettings, workouts, new Date());
   const deloadWeekOn = deloadDueForType(workoutType);
-  const deloadActive = deloadWeekOn && !deloadSkipped;
+  const deloadActive = deloadChoice ?? deloadWeekOn;
   // Habits, for the "marks habit" link on a routine. Read-only here — the
   // Habits page owns editing them; this page only ever writes a habitLog cell.
   // Parked and never-started habits are left out of the picker: linking a
@@ -3776,14 +3781,16 @@ export function WorkoutPage({ onBack, user }) {
       setGym(existing.gym || gyms[0] || '');
       setWorkoutType(existing.workoutType || '');
       setSauna(!!existing.sauna);
-      // A saved session logged normally inside a deload week stays normal.
-      setDeloadSkipped(!existing.deload);
+      // A saved session reopens as what it was saved as.
+      setDeloadChoice(!!existing.deload);
+      preDeloadEntriesRef.current = null;
       setEntries(padToMin(existing.entries.length > 0 ? existing.entries : []));
     } else {
       setEntries(blankEntries());
       setWorkoutType('');
       setSauna(false);
-      setDeloadSkipped(false);
+      setDeloadChoice(null);
+      preDeloadEntriesRef.current = null;
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedDate]);
@@ -4211,10 +4218,10 @@ export function WorkoutPage({ onBack, user }) {
       entries: enriched,
       savedAt: new Date().toISOString(),
       ...(sauna ? { sauna: true } : {}),
-      // Kept out of 1RM progress + PRs (utils/deload). Outside a deload week
-      // (the schedule moved since), an edit keeps the session's saved flag so a
-      // light week never turns into the baseline the next prefill copies.
-      ...((deloadActive || (!deloadWeekOn && existingForDate?.deload)) ? { deload: true } : {}),
+      // Kept out of 1RM progress + PRs (utils/deload), and ticks its type off
+      // the deload round. A reopened session starts from its saved flag, so an
+      // edit keeps it unless the deload button is turned off.
+      ...(deloadActive ? { deload: true } : {}),
     };
     // When un-completed exercises were dropped from the log, stash the full
     // ordered template (logged + skipped) so fillFromLast/lastByType keep
@@ -4920,7 +4927,7 @@ export function WorkoutPage({ onBack, user }) {
     return atGym || any || lastSourceForType(t);
   }
 
-  function fillFromLast(t) {
+  function fillFromLast(t, deloadOn = deloadChoice ?? deloadDueForType(t)) {
     const last = normalSourceForType(t);
     if (!last) return;
     // Prefer suggestedEntries (full logged+skipped template) so exercises the
@@ -4936,14 +4943,32 @@ export function WorkoutPage({ onBack, user }) {
       weight: e.weight != null ? String(e.weight) : '',
       notes: e.notes || '',
       time: e.time || '2:00',
-    })).map(e => ((deloadDueForType(t) && !deloadSkipped) ? applyDeloadToEntry(e, deloadSettings) : e));
+    })).map(e => (deloadOn ? applyDeloadToEntry(e, deloadSettings) : e));
     while (fill.length < 4) fill[fill.length] = undefined; // no-op padding marker
     setEntries(padToMin(fill.filter(Boolean)));
+  }
+
+  // The Log tab's deload button. On: the rows on screen become their deload
+  // version. Off: back to what they were — or, when the deload numbers came
+  // from the prefill, a fresh fill from the last normal session.
+  function toggleDeload() {
+    const on = !deloadActive;
+    setDeloadChoice(on);
+    if (on) {
+      preDeloadEntriesRef.current = entries;
+      setEntries(entries.map(e => (e.exercise ? applyDeloadToEntry(e, deloadSettings) : e)));
+      return;
+    }
+    const before = preDeloadEntriesRef.current;
+    preDeloadEntriesRef.current = null;
+    if (before) setEntries(before);
+    else if (workoutType && lastSourceForType(workoutType)) fillFromLast(workoutType, false);
   }
 
   function handleTypeClick(t) {
     if (workoutType === t) return;
     setWorkoutType(t);
+    preDeloadEntriesRef.current = null;
     // The table reflects the selected type: refill from that type's
     // last workout, or clear to a blank slate if it's never been done.
     if (lastSourceForType(t)) {
@@ -5297,23 +5322,28 @@ export function WorkoutPage({ onBack, user }) {
 
       {viewMode === 'log' && (
         <div className={`${styles.logSection} ${deloadActive ? styles.logSectionDeload : ''}`.trim()}>
-          {deloadWeekOn && (
-            <div className={`${styles.deloadBanner} ${deloadSkipped ? styles.deloadBannerOff : ''}`}>
+          {/* Deload: on when the round says so for this type, or by the button. */}
+          {deloadActive ? (
+            <div className={styles.deloadBanner}>
               <span>
-                {deloadSkipped
-                  ? `Deload round — this ${workoutType} session is logged normally.`
-                  : `🔻 ${workoutType} deload — weights at ${deloadSettings.weightPct}%, ${deloadSettings.setCut ? `${deloadSettings.setCut} fewer set${deloadSettings.setCut === 1 ? '' : 's'}, ` : ''}${deloadSettings.repCutPct ? `${100 - deloadSettings.repCutPct}% of usual reps` : 'same reps'}. Not counted toward 1RM progress.`}
+                {`🔻 ${workoutType ? `${workoutType} deload` : 'Deload workout'} — weights at ${deloadSettings.weightPct}%, ${deloadSettings.setCut ? `${deloadSettings.setCut} fewer set${deloadSettings.setCut === 1 ? '' : 's'}, ` : ''}${deloadSettings.repCutPct ? `${100 - deloadSettings.repCutPct}% of usual reps` : 'same reps'}. Not counted toward 1RM progress.`}
               </span>
-              <button type="button" className={styles.deloadBannerBtn} onClick={() => setDeloadSkipped(v => !v)}>
-                {deloadSkipped ? 'Use deload' : 'Log normally'}
+              <button type="button" className={styles.deloadBannerBtn} onClick={toggleDeload}>
+                {deloadWeekOn ? 'Log normally' : 'Undo deload'}
               </button>
             </div>
-          )}
-          {!deloadWeekOn && deloadRoundOnDate.phase === 'round' && (
+          ) : (
             <div className={`${styles.deloadBanner} ${styles.deloadBannerOff}`}>
               <span>
-                🔻 Deload round — still to do: {deloadRoundOnDate.pending.join(', ')}. Pick one of those and it’s logged as a deload.
+                {deloadWeekOn
+                  ? `Deload round — this ${workoutType} session is logged normally.`
+                  : deloadRoundOnDate.phase === 'round'
+                    ? `🔻 Deload round — still to do: ${deloadRoundOnDate.pending.join(', ')}. Pick one of those and it’s logged as a deload.`
+                    : `Lighter day? Make this a deload — weights at ${deloadSettings.weightPct}%, ${deloadSettings.setCut ? `${deloadSettings.setCut} fewer set${deloadSettings.setCut === 1 ? '' : 's'}, ` : ''}${deloadSettings.repCutPct ? `${100 - deloadSettings.repCutPct}% of usual reps` : 'same reps'}.`}
               </span>
+              <button type="button" className={styles.deloadBannerBtn} onClick={toggleDeload}>
+                {deloadWeekOn ? 'Use deload' : '🔻 Make this a deload'}
+              </button>
             </div>
           )}
           <div className={styles.dateRow}>
