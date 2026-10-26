@@ -1,42 +1,82 @@
-// Deload weeks. ⚠️ Mirrors PrepDay/src/utils/deload.test.ts.
+// Deload rounds. ⚠️ Mirrors PrepDay/src/utils/deload.test.ts.
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import {
-  applyDeloadToEntry, defaultDeloadSettings, deloadReps, deloadSetCount, deloadWeekStart, deloadWeight, isDeloadWeek,
-  isRecommendedDeload, normalizeDeloadSettings, upcomingDeloadWeeks, withWeekOverride, withoutDeload,
+  applyDeloadToEntry, defaultDeloadSettings, deloadDueFor, deloadReps, deloadRound, deloadSetCount, deloadWeekStart,
+  deloadWeight, isRecommendedDeload, normalizeDeloadSettings, skipRoundTypes, startRoundOn, unskipRoundType, withoutDeload,
 } from './deload.js';
 import { priorHistory } from './personalRecord.js';
 
-// Sunday 2026-10-04 starts the cycle: 4 training weeks, deload the week of Nov 1.
+// Block 1 starts Sunday 2026-10-04: 4 training weeks, the round starts Nov 1.
 const s = normalizeDeloadSettings({ enabled: true, trainWeeks: 4, anchor: '2026-10-04', weightPct: 60, setCut: 2, repCutPct: 0 });
+const W = (id, date, workoutType, deload = true) => ({ id, date, workoutType, ...(deload ? { deload: true } : {}) });
 
-describe('deload schedule', () => {
+describe('deload rounds', () => {
   it('weeks are Sunday-started', () => {
     assert.equal(deloadWeekStart('2026-10-11'), '2026-10-11'); // a Sunday
     assert.equal(deloadWeekStart('2026-10-17'), '2026-10-11'); // its Saturday
     assert.equal(deloadWeekStart(new Date(2026, 9, 14)), '2026-10-11');
   });
 
-  it('trains N weeks, then deloads one, then repeats', () => {
-    for (const d of ['2026-10-04', '2026-10-15', '2026-10-25', '2026-10-31']) assert.equal(isDeloadWeek(s, d), false, d);
-    assert.equal(isDeloadWeek(s, '2026-11-01'), true);
-    assert.equal(isDeloadWeek(s, '2026-11-07'), true);
-    assert.equal(isDeloadWeek(s, '2026-11-08'), false);
-    assert.equal(isDeloadWeek(s, '2026-12-06'), true); // next cycle: 5 weeks later
-    assert.equal(isDeloadWeek(s, '2026-09-27'), false); // before the anchor
+  it('trains N weeks, then every type is due once', () => {
+    const t = deloadRound(s, [], '2026-10-31');
+    assert.equal(t.phase, 'training');
+    assert.equal(t.roundStart, '2026-11-01');
+    assert.equal(t.week, 4);
+    const r = deloadRound(s, [], '2026-11-01');
+    assert.equal(r.phase, 'round');
+    assert.deepEqual(r.pending, ['Push', 'Pull', 'Legs', 'Full Body']);
+    assert.equal(deloadDueFor(s, [], 'push', '2026-11-03'), true); // any case
+    assert.equal(deloadDueFor(s, [], 'Cardio', '2026-11-03'), false); // not a deload type
+    assert.equal(deloadDueFor(s, [], 'Push', '2026-10-20'), false); // still training
   });
 
-  it('is never on when disabled, and lists upcoming weeks', () => {
-    assert.equal(isDeloadWeek({ ...s, enabled: false }, '2026-11-01'), false);
-    assert.deepEqual(upcomingDeloadWeeks(s, new Date(2026, 9, 11), 2), ['2026-11-01', '2026-12-06']);
+  it('a type is done once its deload is logged, and the round waits for the rest', () => {
+    const log = [W('a', '2026-11-02', 'Push'), W('b', '2026-11-04', 'Legs'), W('c', '2026-11-05', 'Pull', false)];
+    const r = deloadRound(s, log, '2026-11-09');
+    assert.deepEqual(r.done.map(d => d.type), ['Push', 'Legs']);
+    assert.deepEqual(r.pending, ['Pull', 'Full Body']); // a normal Pull doesn't count
+    assert.equal(deloadDueFor(s, log, 'Push', '2026-11-09'), false);
+    assert.equal(deloadDueFor(s, log, 'Pull', '2026-11-20'), true); // however long it takes
+    // A past date reads as it was then.
+    assert.deepEqual(deloadRound(s, log, '2026-11-03').pending, ['Pull', 'Legs', 'Full Body']);
   });
 
-  it('a week override beats the schedule, and clears when it matches it', () => {
-    const on = withWeekOverride(s, '2026-10-11', true);
-    assert.equal(isDeloadWeek(on, '2026-10-13'), true);
-    const skip = withWeekOverride(s, '2026-11-01', false);
-    assert.equal(isDeloadWeek(skip, '2026-11-03'), false);
-    assert.deepEqual(withWeekOverride(skip, '2026-11-01', true).overrides, {});
+  it('the next block starts the day after the last deload', () => {
+    const log = [W('a', '2026-11-02', 'Push'), W('b', '2026-11-04', 'Legs'), W('c', '2026-11-06', 'Pull'), W('d', '2026-11-10', 'Full Body')];
+    const t = deloadRound(s, log, '2026-11-11');
+    assert.equal(t.phase, 'training');
+    assert.equal(t.blockStart, '2026-11-11');
+    assert.equal(t.roundStart, '2026-12-09');
+    assert.equal(deloadRound(s, log, '2026-12-09').phase, 'round');
+  });
+
+  it('editing a deload session does not count it as already done', () => {
+    const log = [W('a', '2026-11-02', 'Push')];
+    assert.equal(deloadDueFor(s, log, 'Push', '2026-11-02'), false);
+    assert.equal(deloadDueFor(s, log, 'Push', '2026-11-02', { excludeId: 'a' }), true);
+  });
+
+  it('a skipped type stops blocking the round', () => {
+    const log = [W('a', '2026-11-02', 'Push'), W('b', '2026-11-03', 'Pull'), W('c', '2026-11-04', 'Legs')];
+    const skip = skipRoundTypes(s, '2026-11-01', ['Full Body'], '2026-11-05');
+    const t = deloadRound(skip, log, '2026-11-06');
+    assert.equal(t.phase, 'training');
+    assert.equal(t.blockStart, '2026-11-06');
+    assert.equal(deloadRound(unskipRoundType(skip, '2026-11-01', 'full body'), log, '2026-11-06').phase, 'round');
+  });
+
+  it('can start a round today, and is off when disabled', () => {
+    const now = startRoundOn(s, '2026-10-15');
+    assert.equal(deloadRound(now, [], '2026-10-15').roundStart, '2026-10-15');
+    assert.equal(deloadRound(now, [], '2026-10-14').phase, 'training');
+    assert.equal(deloadRound({ ...s, enabled: false }, [], '2026-11-02').phase, 'off');
+  });
+
+  it('only the chosen types are asked for', () => {
+    const two = { ...s, types: ['Push', 'Legs'] };
+    const log = [W('a', '2026-11-02', 'Push'), W('b', '2026-11-03', 'Legs')];
+    assert.equal(deloadRound(two, log, '2026-11-04').phase, 'training');
   });
 
   it('normalizes junk', () => {
@@ -45,7 +85,11 @@ describe('deload schedule', () => {
     assert.equal(n.trainWeeks, 1);
     assert.equal(n.weightPct, 100);
     assert.equal(n.setCut, 0);
-    assert.equal(n.anchor, '2026-10-11'); // snapped to its Sunday
+    assert.equal(n.anchor, '2026-10-14'); // any day can start a block now
+    assert.deepEqual(n.types, ['Push', 'Pull', 'Legs', 'Full Body']);
+    assert.deepEqual(normalizeDeloadSettings({ types: ['Push', ' push ', '', 'Legs'] }).types, ['Push', 'Legs']);
+    assert.deepEqual(normalizeDeloadSettings({ roundSkips: { '2026-11-01': { Pull: '2026-11-03', Bad: 'x' }, nope: {} } }).roundSkips,
+      { '2026-11-01': { Pull: '2026-11-03' } });
   });
 
   it("defaults to Dr. Andy Galpin's deload: 5 weeks, 70%, 1 fewer set, 80% of the reps", () => {
