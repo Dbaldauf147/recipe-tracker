@@ -3,7 +3,7 @@ import { loadIngredients, saveIngredientsToFirestore, INGREDIENT_FIELDS, ingredi
 import { saveField, loadField } from '../utils/firestoreSync';
 import { SIZE_GRAMS, WEIGHT_TO_G } from '../utils/units.js';
 import { unitWeightGrams, defaultUnitWeight, pluralizeUnit, normalizeUnitName, isAlreadyPlural, UNIT_SIZES } from '../utils/unitWeights.js';
-import { suggestIngredientName } from '../utils/suggestIngredientName.js';
+import { suggestIngredientNames } from '../utils/suggestIngredientName.js';
 import styles from './ShoppingList.module.css';
 
 // Human labels for every trackable ingredient field, keyed for O(1) lookup.
@@ -1628,7 +1628,10 @@ export function ShoppingList({ weeklyRecipes, weeklyServings = {}, extraItems = 
             <h3 style={{ margin: '0 0 0.85rem', fontSize: '1.05rem', fontWeight: 700 }}>{itemPopup}</h3>
 
             {onRenameIngredient && (() => {
-              const suggestion = suggestIngredientName(itemPopup, Object.values(ingredientRecords).map(r => r.ingredient));
+              // Same KIND of ingredient only — "rice" offers brown / jasmine /
+              // white rice, not rice vinegar (see suggestIngredientNames).
+              const suggestions = suggestIngredientNames(itemPopup, Object.values(ingredientRecords).map(r => r.ingredient))
+                .filter(x => x.toLowerCase() !== popupName.trim().toLowerCase());
               const changed = popupName.trim() && popupName.trim().toLowerCase() !== itemPopup.toLowerCase().trim();
               return (
                 <div style={{ margin: '0 0 0.85rem' }}>
@@ -1639,15 +1642,21 @@ export function ShoppingList({ weeklyRecipes, weeklyServings = {}, extraItems = 
                     onKeyDown={e => { if (e.key === 'Enter') saveItemPopup(); if (e.key === 'Escape') setItemPopup(null); }}
                     style={{ width: '100%', padding: '0.5rem', borderRadius: 8, border: '1px solid #ccc', fontSize: '0.9rem', boxSizing: 'border-box' }}
                   />
-                  {suggestion && suggestion.toLowerCase() !== popupName.trim().toLowerCase() && (
-                    <button
-                      type="button"
-                      onClick={() => setPopupName(suggestion)}
-                      title="Use this name"
-                      style={{ marginTop: '0.4rem', padding: '0.25rem 0.65rem', borderRadius: 999, border: '1px solid #c7d0f5', background: '#eef1ff', color: '#3b4b8a', fontSize: '0.78rem', fontWeight: 600, cursor: 'pointer' }}
-                    >
-                      Suggested: {suggestion}
-                    </button>
+                  {suggestions.length > 0 && (
+                    <div style={{ marginTop: '0.4rem', display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '0.3rem' }}>
+                      <span style={{ fontSize: '0.75rem', color: '#888', fontWeight: 600 }}>Suggested:</span>
+                      {suggestions.map(sug => (
+                        <button
+                          key={sug}
+                          type="button"
+                          onClick={() => setPopupName(sug)}
+                          title="Use this name"
+                          style={{ padding: '0.25rem 0.65rem', borderRadius: 999, border: '1px solid #c7d0f5', background: '#eef1ff', color: '#3b4b8a', fontSize: '0.78rem', fontWeight: 600, cursor: 'pointer' }}
+                        >
+                          {sug}
+                        </button>
+                      ))}
+                    </div>
                   )}
                   {changed && (
                     <p style={{ margin: '0.4rem 0 0', fontSize: '0.75rem', color: '#888', lineHeight: 1.4 }}>
