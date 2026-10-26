@@ -97,6 +97,51 @@ export function cleanIngredientName(raw) {
 }
 
 /**
+ * WHAT the food is — the noun the rest of the name describes. "Brown rice",
+ * "Rice, white, cooked" and "Basmati rice (dry)" are all rice; "Rice vinegar"
+ * is vinegar and "Rice noodles" are noodles. English puts that noun last,
+ * except in DB-style names where it leads before the comma.
+ */
+export function headNoun(name) {
+  const seg = (name || '').toLowerCase().replace(/\([^)]*\)|\[[^\]]*\]/g, ' ').split(/,| [-–—] /)[0];
+  const ws = words(seg).filter(w => !PREP_WORDS.has(w));
+  return ws[ws.length - 1] || '';
+}
+
+/**
+ * Names from `dbNames` worth offering for `name`, best first, at most `limit`.
+ * Only the SAME KIND of ingredient is offered: "rice" brings up brown, jasmine
+ * and white rice, never rice vinegar or rice noodles, however alike they
+ * spell. With no DB name of that kind it falls back to the cleaned-up line.
+ * `name` itself is never in the list.
+ */
+export function suggestIngredientNames(name, dbNames, limit = 8) {
+  const current = (name || '').trim();
+  if (!current) return [];
+  const lower = current.toLowerCase();
+  const cleaned = cleanIngredientName(current);
+  const head = headNoun(cleaned || current);
+
+  const best = new Map(); // lowercased name → { name, score }
+  for (const n of dbNames) {
+    const trimmed = (n || '').trim();
+    const key = trimmed.toLowerCase();
+    if (!trimmed || key === lower || !head || !samePlural(headNoun(trimmed), head)) continue;
+    // Closest to the cleaned line first ("jasmine rice" → "Jasmine rice" before
+    // "Brown rice"); every one of them is the right kind of food.
+    const score = Math.min(matchScore(trimmed, cleaned || current), matchScore(trimmed, current));
+    const prev = best.get(key);
+    if (!prev || score < prev.score) best.set(key, { name: trimmed, score });
+  }
+  const out = [...best.values()]
+    .sort((a, b) => a.score - b.score || a.name.length - b.name.length || a.name.localeCompare(b.name))
+    .slice(0, limit)
+    .map(x => x.name);
+  if (out.length === 0 && cleaned && cleaned.toLowerCase() !== lower) out.push(cleaned);
+  return out;
+}
+
+/**
  * Suggested name for `name`, or null when it already reads right (it is a DB
  * name, or there is nothing better to offer).
  */
@@ -105,22 +150,7 @@ export function suggestIngredientName(name, dbNames) {
   if (!current) return null;
   const lower = current.toLowerCase();
   if (dbNames.some(n => (n || '').toLowerCase().trim() === lower)) return null;
-
-  const cleaned = cleanIngredientName(current);
-  let best = null;
-  for (const queryName of new Set([cleaned, current].filter(Boolean))) {
-    for (const n of dbNames) {
-      if (!n) continue;
-      const score = matchScore(n, queryName);
-      // Up to "every word, any order" — past that it is a guess, not a match.
-      if (score > 3.5) continue;
-      if (!best || score < best.score || (score === best.score && n.length < best.name.length)) {
-        best = { name: n.trim(), score };
-      }
-    }
-  }
-  const pick = best?.name || cleaned;
-  return pick && pick.toLowerCase() !== lower ? pick : null;
+  return suggestIngredientNames(current, dbNames, 1)[0] || null;
 }
 
 /**

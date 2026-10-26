@@ -3,7 +3,7 @@
 
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { cleanIngredientName, suggestIngredientName, renameIngredientLines } from './suggestIngredientName.js';
+import { cleanIngredientName, suggestIngredientName, suggestIngredientNames, headNoun, renameIngredientLines } from './suggestIngredientName.js';
 
 const DB = ['Bananas', 'Yellow onion', 'Onion', 'Garlic', 'Red bell pepper', 'Brown rice', 'Rice, white, cooked'];
 
@@ -41,4 +41,32 @@ test('renameIngredientLines rewrites only matching lines, keeping the rest of ea
   assert.deepEqual(out[0], { ingredient: 'Bananas', quantity: '2', measurement: '' });
   assert.equal(out[1], ings[1]);
   assert.equal(renameIngredientLines(ings, 'kale', 'Kale'), null);
+});
+
+test('headNoun is what the food IS, not its first word', () => {
+  assert.equal(headNoun('Brown rice'), 'rice');
+  assert.equal(headNoun('Rice, white, cooked'), 'rice');
+  assert.equal(headNoun('Basmati rice (dry)'), 'rice');
+  assert.equal(headNoun('Rice vinegar'), 'vinegar');
+  assert.equal(headNoun('Rice noodles'), 'noodles');
+});
+
+const PANTRY = ['Rice vinegar', 'Rice noodles', 'Brown rice', 'Jasmine rice', 'Rice, white, cooked', 'Wild rice', 'Basmati rice (dry)', 'Rice cakes', 'Vinegar'];
+
+test('rice suggests kinds of rice, never rice vinegar or rice noodles', () => {
+  const out = suggestIngredientNames('rice', PANTRY);
+  assert.deepEqual(new Set(out), new Set(['Brown rice', 'Jasmine rice', 'Rice, white, cooked', 'Wild rice', 'Basmati rice (dry)']));
+  assert.equal(out[0], 'Rice, white, cooked'); // the DB's plain "rice" row first
+  assert.equal(suggestIngredientName('rice', PANTRY), 'Rice, white, cooked');
+});
+
+test('the closest kind comes first, and the name itself is left out', () => {
+  assert.equal(suggestIngredientNames('1 cup jasmine rice, rinsed', PANTRY)[0], 'Jasmine rice');
+  assert.ok(!suggestIngredientNames('Brown rice', PANTRY).includes('Brown rice'));
+  assert.ok(suggestIngredientNames('Brown rice', PANTRY).includes('Wild rice'));
+});
+
+test('no DB name of the same kind falls back to the cleaned line', () => {
+  assert.deepEqual(suggestIngredientNames('2 cups arborio rice', ['Rice vinegar']), ['Arborio rice']);
+  assert.deepEqual(suggestIngredientNames('Saffron', PANTRY), []);
 });
