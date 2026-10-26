@@ -1,17 +1,24 @@
-// ---- Deload weeks --------------------------------------------------------
+// ---- Deload rounds -------------------------------------------------------
 //
-// Train N weeks, then take one lighter week: suggested weights drop to a % of
-// the latest normal (non-deload) weights, each exercise drops a set COUNT
+// Train N weeks, then a DELOAD ROUND: the next session of each deload type
+// (Push, Pull, Legs, Full Body by default) is a lighter one — weights drop to a
+// % of the latest normal (non-deload) weights, each exercise drops a set COUNT
 // (`setCut`, e.g. 1 fewer set), and the reps in each kept set are cut by a %.
-// The default is Dr. Andy Galpin's recommendation: train 5 weeks, then deload
-// at 70% of the weight, 1 fewer set and 80% of the reps.
-// A workout logged in that week is saved with `deload: true`, and that flag —
-// not the schedule — is what keeps it out of 1RM progress and PRs, so
-// changing the schedule later never re-labels old sessions.
+// The round lasts as long as it takes to do one of each; the day after the
+// last one, the next N-week training block starts. It used to be a fixed
+// calendar week, which missed any type you didn't happen to do that week.
 //
-// Weeks are the app's Sunday→Saturday weeks. The schedule counts from
-// `anchor`, the Sunday of the first TRAINING week of a cycle: with
-// trainWeeks = 4, weeks 0-3 are normal and week 4 is the deload, then repeat.
+// The default numbers are Dr. Andy Galpin's: train 5 weeks, then deload at 70%
+// of the weight, 1 fewer set and 80% of the reps.
+//
+// A deload session is saved with `deload: true`. That flag is both what keeps
+// it out of 1RM progress and PRs AND what ticks its type off the round — the
+// round is worked out from the log every time, never stored, so editing or
+// deleting a session puts the round back exactly where the log says.
+//
+// `anchor` is the 'YYYY-MM-DD' day the current chain of training blocks
+// started. Block 1 runs anchor … anchor + 7·trainWeeks − 1; its round starts
+// the day after. Later blocks follow from each round's last deload.
 //
 // Stored on the user doc as `deloadSettings`, shared with the mobile app.
 // ⚠️ MIRRORS PrepDay/src/utils/deload.ts — keep the two identical.
@@ -19,20 +26,25 @@
 /**
  * @typedef {object} DeloadSettings
  * @property {boolean} enabled
- * @property {number} trainWeeks   normal training weeks between deloads
- * @property {string} anchor       'YYYY-MM-DD' Sunday starting the first training week of a cycle
+ * @property {number} trainWeeks   normal training weeks before each deload round
+ * @property {string} anchor       'YYYY-MM-DD' first day of the first training block
  * @property {number} weightPct    deload weight as a % of the normal weight (e.g. 70)
  * @property {number} setCut       sets fewer per exercise during a deload (e.g. 1 → 5 sets become 4; at least 1 kept)
  * @property {number} repCutPct    % fewer reps in each kept set (e.g. 20 → 10 reps become 8, i.e. 80% of usual)
- * @property {Record<string, boolean>} [overrides] per-week override keyed by its Sunday: true = deload, false = normal
+ * @property {string[]} types      workout types that each need one deload session per round
+ * @property {Record<string, Record<string, string>>} [roundSkips]
+ *   per round (keyed by its start day): type → day it was skipped, for a type
+ *   you won't get to this round
  */
 
 /** Deload's own colour (purple) — amber already means "away gym" in the charts. */
 export const DELOAD_BG = '#f3e8ff';
 export const DELOAD_BORDER = '#c084fc';
 
+/** The workout types a round asks for unless you pick others. */
+export const DEFAULT_DELOAD_TYPES = ['Push', 'Pull', 'Legs', 'Full Body'];
+
 const pad2 = (n) => String(n).padStart(2, '0');
-const DAY_MS = 86400000;
 
 function keyOf(d) {
   return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
@@ -40,6 +52,14 @@ function keyOf(d) {
 function parseKey(k) {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(k || '');
   return m ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])) : null;
+}
+/** 'YYYY-MM-DD' `days` after `key` (calendar days, DST-safe). */
+export function addDays(key, days) {
+  const d = parseKey(key);
+  return d ? keyOf(new Date(d.getFullYear(), d.getMonth(), d.getDate() + days)) : '';
+}
+function toKey(date) {
+  return typeof date === 'string' ? date.slice(0, 10) : keyOf(date);
 }
 
 /** The 'YYYY-MM-DD' Sunday starting the week that contains `date`. */
@@ -49,23 +69,21 @@ export function deloadWeekStart(date = new Date()) {
   return keyOf(new Date(d.getFullYear(), d.getMonth(), d.getDate() - d.getDay()));
 }
 
-/** Whole weeks from Sunday `a` to Sunday `b` (DST-safe via rounding). */
-function weeksBetween(a, b) {
-  const da = parseKey(a), db = parseKey(b);
-  if (!da || !db) return null;
-  return Math.round((db.getTime() - da.getTime()) / (7 * DAY_MS));
-}
-
 function clampInt(v, lo, hi, dflt) {
   const n = Math.round(Number(v));
   return Number.isFinite(n) ? Math.min(hi, Math.max(lo, n)) : dflt;
 }
 
+const typeKey = (t) => String(t || '').trim().toLowerCase();
+
 export function defaultDeloadSettings(now = new Date()) {
-  return { enabled: false, trainWeeks: 5, anchor: deloadWeekStart(now), weightPct: 70, setCut: 1, repCutPct: 20, overrides: {} };
+  return {
+    enabled: false, trainWeeks: 5, anchor: deloadWeekStart(now), weightPct: 70, setCut: 1, repCutPct: 20,
+    types: [...DEFAULT_DELOAD_TYPES], roundSkips: {},
+  };
 }
 
-/** Dr. Andy Galpin's deload: every 6th week (after 5 training weeks), 70% of the weight, 1 fewer set, 80% of the reps. */
+/** Dr. Andy Galpin's deload: after 5 training weeks, 70% of the weight, 1 fewer set, 80% of the reps. */
 export function isRecommendedDeload(s) {
   return s.trainWeeks === 5 && s.weightPct === 70 && s.setCut === 1 && s.repCutPct === 20;
 }
@@ -78,12 +96,6 @@ const PCT_REFERENCE_SETS = 5;
 export function normalizeDeloadSettings(raw, now = new Date()) {
   const d = defaultDeloadSettings(now);
   if (!raw || typeof raw !== 'object') return d;
-  const overrides = {};
-  if (raw.overrides && typeof raw.overrides === 'object') {
-    for (const k of Object.keys(raw.overrides)) {
-      if (parseKey(k) && typeof raw.overrides[k] === 'boolean') overrides[k] = raw.overrides[k];
-    }
-  }
   const was = (k, v) => raw[k] == null || Number(raw[k]) === v;
   // Saved before reps could be cut: the untouched old defaults (4 weeks, 60%,
   // 40% fewer sets) move to the recommended ones; anything customised keeps
@@ -104,51 +116,116 @@ export function normalizeDeloadSettings(raw, now = new Date()) {
       ? { ...raw, setCut: d.setCut, repCutPct: d.repCutPct }
       : { ...raw, setCut: pct > 0 ? Math.max(1, Math.round((PCT_REFERENCE_SETS * pct) / 100)) : 0 };
   }
+  // Types: saved before rounds existed → the defaults. An empty list is kept
+  // (it's a choice), duplicates by case are dropped.
+  let types = d.types;
+  if (Array.isArray(raw.types)) {
+    const seen = new Set();
+    types = [];
+    for (const t of raw.types) {
+      const name = String(t || '').trim();
+      if (name && !seen.has(typeKey(name))) { seen.add(typeKey(name)); types.push(name); }
+    }
+  }
+  const roundSkips = {};
+  if (raw.roundSkips && typeof raw.roundSkips === 'object') {
+    for (const r of Object.keys(raw.roundSkips)) {
+      const v = raw.roundSkips[r];
+      if (!parseKey(r) || !v || typeof v !== 'object') continue;
+      const clean = {};
+      for (const t of Object.keys(v)) if (parseKey(v[t])) clean[t] = v[t];
+      if (Object.keys(clean).length) roundSkips[r] = clean;
+    }
+  }
   return {
     enabled: !!raw.enabled,
     trainWeeks: clampInt(raw.trainWeeks, 1, 52, d.trainWeeks),
-    anchor: parseKey(raw.anchor) ? deloadWeekStart(raw.anchor) : d.anchor,
+    // Was always a Sunday under the old weekly schedule, which still works:
+    // block 1's round then starts on the Sunday the deload week used to.
+    anchor: parseKey(raw.anchor) ? raw.anchor : d.anchor,
     weightPct: clampInt(raw.weightPct, 10, 100, d.weightPct),
     setCut: clampInt(raw.setCut, 0, 10, d.setCut),
     repCutPct: clampInt(raw.repCutPct, 0, 90, d.repCutPct),
-    overrides,
+    types,
+    roundSkips,
   };
 }
 
-/** What the schedule alone says about the week containing `date` (no override). */
-export function scheduledDeload(s, date = new Date()) {
-  const w = weeksBetween(s.anchor, deloadWeekStart(date));
-  if (w == null || w < 0) return false;
-  return w % (s.trainWeeks + 1) === s.trainWeeks;
-}
-
-/** Is the week containing `date` a deload week? Off entirely when disabled. */
-export function isDeloadWeek(s, date = new Date()) {
-  if (!s || !s.enabled) return false;
-  const wk = deloadWeekStart(date);
-  const o = s.overrides?.[wk];
-  if (typeof o === 'boolean') return o;
-  return scheduledDeload(s, wk);
-}
-
-/** The next `count` deload weeks' Sundays, starting with the week containing `from`. */
-export function upcomingDeloadWeeks(s, from = new Date(), count = 3) {
-  const out = [];
-  if (!s.enabled) return out;
-  const start = parseKey(deloadWeekStart(from));
-  for (let i = 0; i < 260 && out.length < count; i++) {
-    const wk = keyOf(new Date(start.getFullYear(), start.getMonth(), start.getDate() + 7 * i));
-    if (isDeloadWeek(s, wk)) out.push(wk);
+/**
+ * Where the deload cycle stands on `date`, worked out from the log.
+ *
+ *   { phase: 'off' }                                   disabled
+ *   { phase: 'training', blockStart, roundStart, week } training; the round
+ *                                                      starts on roundStart
+ *   { phase: 'round', blockStart, roundStart, done, skipped, pending }
+ *       done:    [{ type, date }] deload sessions logged this round
+ *       skipped: [type]           skipped for this round
+ *       pending: [type]           still to do — their next session is a deload
+ *
+ * Only sessions on or before `date` count, so a past date reads the way it
+ * did then. `opts.excludeId` leaves one session out (the one being edited, so
+ * re-saving a deload session doesn't see itself as already done).
+ */
+export function deloadRound(s, workouts, date = new Date(), opts = {}) {
+  if (!s || !s.enabled || !parseKey(s.anchor)) return { phase: 'off' };
+  const day = toKey(date);
+  const types = s.types || [];
+  const logged = (workouts || []).filter(w => w && w.deload && w.date && w.date <= day && (!opts.excludeId || w.id !== opts.excludeId));
+  let blockStart = s.anchor;
+  for (let guard = 0; guard < 500; guard++) {
+    const roundStart = addDays(blockStart, 7 * s.trainWeeks);
+    if (day < roundStart) {
+      const sinceStart = Math.round((parseKey(day) - parseKey(blockStart)) / 86400000);
+      return { phase: 'training', blockStart, roundStart, week: Math.max(1, Math.floor(sinceStart / 7) + 1) };
+    }
+    const skips = (s.roundSkips || {})[roundStart] || {};
+    const done = [];
+    const skipped = [];
+    const pending = [];
+    let last = roundStart;
+    for (const t of types) {
+      const hit = logged
+        .filter(w => w.date >= roundStart && typeKey(w.workoutType) === typeKey(t))
+        .sort((a, b) => a.date.localeCompare(b.date))[0];
+      const skipDay = Object.keys(skips).find(k => typeKey(k) === typeKey(t));
+      if (hit) { done.push({ type: t, date: hit.date }); if (hit.date > last) last = hit.date; }
+      else if (skipDay && skips[skipDay] <= day) { skipped.push(t); if (skips[skipDay] > last) last = skips[skipDay]; }
+      else pending.push(t);
+    }
+    if (pending.length) return { phase: 'round', blockStart, roundStart, done, skipped, pending };
+    // Round finished on `last`: the next block starts the day after.
+    blockStart = addDays(last, 1);
   }
-  return out;
+  return { phase: 'off' };
 }
 
-/** Set (or clear, when it matches the schedule) the override for one week. */
-export function withWeekOverride(s, weekSunday, deload) {
-  const overrides = { ...(s.overrides || {}) };
-  if (scheduledDeload(s, weekSunday) === deload) delete overrides[weekSunday];
-  else overrides[weekSunday] = deload;
-  return { ...s, overrides };
+/** Is a `type` session on `date` a deload one? (opts as deloadRound) */
+export function deloadDueFor(s, workouts, type, date = new Date(), opts = {}) {
+  if (!type) return false;
+  const r = deloadRound(s, workouts, date, opts);
+  return r.phase === 'round' && r.pending.some(t => typeKey(t) === typeKey(type));
+}
+
+/** Settings that start a deload round on `date` (block 1 ends the day before). */
+export function startRoundOn(s, date = new Date()) {
+  return { ...s, anchor: addDays(toKey(date), -7 * s.trainWeeks) };
+}
+
+/** Settings with `types` skipped for the round starting `roundStart`, as of `date`. */
+export function skipRoundTypes(s, roundStart, types, date = new Date()) {
+  const day = toKey(date);
+  const cur = { ...((s.roundSkips || {})[roundStart] || {}) };
+  for (const t of types) cur[t] = day;
+  return { ...s, roundSkips: { ...(s.roundSkips || {}), [roundStart]: cur } };
+}
+
+/** Settings with one skip taken back. */
+export function unskipRoundType(s, roundStart, type) {
+  const cur = { ...((s.roundSkips || {})[roundStart] || {}) };
+  for (const k of Object.keys(cur)) if (typeKey(k) === typeKey(type)) delete cur[k];
+  const roundSkips = { ...(s.roundSkips || {}) };
+  if (Object.keys(cur).length) roundSkips[roundStart] = cur; else delete roundSkips[roundStart];
+  return { ...s, roundSkips };
 }
 
 /**

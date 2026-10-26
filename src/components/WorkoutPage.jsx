@@ -22,7 +22,7 @@ import { SetPainPopover } from './SetPainPopover';
 import { setPainFor, withSetPain } from '../utils/setPain';
 import { detectPersonalRecord, priorHistory } from '../utils/personalRecord';
 import { galpinRateFor, withGalpinGoal, GALPIN_WEIGHT_PCT, GALPIN_VOLUME_PCT } from '../utils/galpinGoals';
-import { applyDeloadToEntry, DELOAD_BG, DELOAD_BORDER, isDeloadWeek, normalizeDeloadSettings, withoutDeload } from '../utils/deload';
+import { applyDeloadToEntry, DELOAD_BG, DELOAD_BORDER, deloadDueFor, deloadRound, normalizeDeloadSettings, withoutDeload } from '../utils/deload';
 import { DeloadTab } from './DeloadTab';
 import {
   applyBodyweightToEntries, backfillBodyweightOnes, bodyweightLbForWeek, formatBodyweightLb,
@@ -2365,7 +2365,7 @@ const CAL_DEFAULT_GOALS = { weights: 3, cardio: 1, yoga: 1, rest: 2 };
 
 // Month-grid calendar of training days, split into weights / cardio / yoga, with
 // per-week goal progress and a REST DAY marker on days with no logged workout.
-function WorkoutCalendarView({ workouts, user, typeCategories, stretchRoutineNames, deloadSettings }) {
+function WorkoutCalendarView({ workouts, user, typeCategories, stretchRoutineNames }) {
   const now = new Date();
   const [monthStart, setMonthStart] = useState(() => new Date(now.getFullYear(), now.getMonth(), 1));
   // localStorage gives an instant value; Firestore (below) is the cross-device
@@ -2540,7 +2540,8 @@ function WorkoutCalendarView({ workouts, user, typeCategories, stretchRoutineNam
                   const rest = isRestDay(iso);
                   // Deload days get their own tint: a session saved as a deload,
                   // or (with nothing logged) a day inside a scheduled deload week.
-                  const deloadDay = !!byDate[iso]?.deload || (!items.length && isDeloadWeek(deloadSettings, iso));
+                  // Deload sessions only — a round has no fixed days to tint.
+                  const deloadDay = !!byDate[iso]?.deload;
                   return (
                     <div
                       key={di}
@@ -2744,8 +2745,6 @@ export function WorkoutPage({ onBack, user }) {
     try { localStorage.setItem(DELOAD_KEY, JSON.stringify(next)); } catch { /* ignore */ }
     if (user?.uid) saveField(user.uid, DELOAD_FIELD, next).catch(() => {});
   }, [user?.uid]);
-  const deloadWeekOn = isDeloadWeek(deloadSettings, selectedDate);
-  const deloadActive = deloadWeekOn && !deloadSkipped;
   // The exercise list behind every picker on this page. It is SHARED: one
   // Firestore document (sharedData/exerciseLibrary) that every account reads
   // and writes, so an exercise anyone adds is an exercise everyone can pick.
@@ -2832,6 +2831,16 @@ export function WorkoutPage({ onBack, user }) {
     (w) => isStretchWorkout(w, stretchRoutineNames),
     [stretchRoutineNames],
   );
+  // A deload ROUND (utils/deload): after the training block, the next session
+  // of each deload type is a deload. Whether THIS session is one depends on
+  // its type; the session being edited is left out, so re-saving a deload
+  // doesn't see itself as that type's deload already done.
+  const deloadEditingId = workouts.find(w => w.date === selectedDate && !isStretchLog(w))?.id;
+  const deloadDueForType = (t) => deloadDueFor(deloadSettings, workouts, t, selectedDate, { excludeId: deloadEditingId });
+  const deloadRoundOnDate = deloadRound(deloadSettings, workouts, selectedDate, { excludeId: deloadEditingId });
+  const deloadRoundToday = deloadRound(deloadSettings, workouts, new Date());
+  const deloadWeekOn = deloadDueForType(workoutType);
+  const deloadActive = deloadWeekOn && !deloadSkipped;
   // Habits, for the "marks habit" link on a routine. Read-only here — the
   // Habits page owns editing them; this page only ever writes a habitLog cell.
   // Parked and never-started habits are left out of the picker: linking a
@@ -4927,7 +4936,7 @@ export function WorkoutPage({ onBack, user }) {
       weight: e.weight != null ? String(e.weight) : '',
       notes: e.notes || '',
       time: e.time || '2:00',
-    })).map(e => (deloadActive ? applyDeloadToEntry(e, deloadSettings) : e));
+    })).map(e => ((deloadDueForType(t) && !deloadSkipped) ? applyDeloadToEntry(e, deloadSettings) : e));
     while (fill.length < 4) fill[fill.length] = undefined; // no-op padding marker
     setEntries(padToMin(fill.filter(Boolean)));
   }
@@ -5275,7 +5284,7 @@ export function WorkoutPage({ onBack, user }) {
               : tab === 'progress' ? 'Progress'
               : tab === 'weekly' ? 'Weekly Overload'
               : tab === 'relative' ? 'vs Bodyweight'
-              : tab === 'deload' ? (deloadWeekOn ? '🔻 Deload' : 'Deload')
+              : tab === 'deload' ? (deloadRoundToday.phase === 'round' ? '🔻 Deload' : 'Deload')
               : tab === 'stretch' ? 'Stretch'
               : tab === 'body' ? 'Body Map'
               : tab === 'exercises' ? 'Exercises'
@@ -5292,12 +5301,19 @@ export function WorkoutPage({ onBack, user }) {
             <div className={`${styles.deloadBanner} ${deloadSkipped ? styles.deloadBannerOff : ''}`}>
               <span>
                 {deloadSkipped
-                  ? 'Deload week — this session is logged normally.'
-                  : `🔻 Deload week — weights at ${deloadSettings.weightPct}%, ${deloadSettings.setCut ? `${deloadSettings.setCut} fewer set${deloadSettings.setCut === 1 ? '' : 's'}, ` : ''}${deloadSettings.repCutPct ? `${100 - deloadSettings.repCutPct}% of usual reps` : 'same reps'}. Not counted toward 1RM progress.`}
+                  ? `Deload round — this ${workoutType} session is logged normally.`
+                  : `🔻 ${workoutType} deload — weights at ${deloadSettings.weightPct}%, ${deloadSettings.setCut ? `${deloadSettings.setCut} fewer set${deloadSettings.setCut === 1 ? '' : 's'}, ` : ''}${deloadSettings.repCutPct ? `${100 - deloadSettings.repCutPct}% of usual reps` : 'same reps'}. Not counted toward 1RM progress.`}
               </span>
               <button type="button" className={styles.deloadBannerBtn} onClick={() => setDeloadSkipped(v => !v)}>
                 {deloadSkipped ? 'Use deload' : 'Log normally'}
               </button>
+            </div>
+          )}
+          {!deloadWeekOn && deloadRoundOnDate.phase === 'round' && (
+            <div className={`${styles.deloadBanner} ${styles.deloadBannerOff}`}>
+              <span>
+                🔻 Deload round — still to do: {deloadRoundOnDate.pending.join(', ')}. Pick one of those and it’s logged as a deload.
+              </span>
             </div>
           )}
           <div className={styles.dateRow}>
@@ -6350,7 +6366,7 @@ export function WorkoutPage({ onBack, user }) {
       )}
 
       {viewMode === 'calendar' && (
-        <WorkoutCalendarView workouts={workouts} user={user} typeCategories={workoutTypeCategories} stretchRoutineNames={stretchRoutineNames} deloadSettings={deloadSettings} />
+        <WorkoutCalendarView workouts={workouts} user={user} typeCategories={workoutTypeCategories} stretchRoutineNames={stretchRoutineNames} />
       )}
 
       {viewMode === 'charts' && (() => {
@@ -6855,7 +6871,7 @@ export function WorkoutPage({ onBack, user }) {
       )}
 
       {viewMode === 'deload' && (
-        <DeloadTab settings={deloadSettings} onChange={changeDeloadSettings} weightUnit={weightUnit} />
+        <DeloadTab settings={deloadSettings} onChange={changeDeloadSettings} weightUnit={weightUnit} workouts={workouts} workoutTypes={workoutTypes} />
       )}
 
       {viewMode === 'stretch' && (
