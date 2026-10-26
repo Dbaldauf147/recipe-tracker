@@ -224,3 +224,19 @@ test('activeUserListIn names the same people activeUsersIn counts, newest first'
   ]);
   assert.equal(activeUserListIn({ date: '2026-09-20', totals: { users: 3, activeUsers: 2 } }), null);
 });
+
+test('an excluded account drops out of the active count, even over a stored total', () => {
+  const s = snap('2026-09-20', [
+    user('a', '2026-09-19T10:00:00Z'),
+    user('Owner', '2026-09-19T12:00:00Z'),
+  ], { users: 2, activeUsers: 2 });
+  assert.equal(activeUsersIn(s), 2);
+  assert.equal(activeUsersIn(s, ACTIVE_WINDOW_DAYS, { excludeEmails: ['owner@X.com'] }), 1);
+  // A compacted snapshot has no rows to drop anyone from: the stored figure stands.
+  const compacted = { date: '2025-01-05', totals: { users: 9, activeUsers: 4 } };
+  assert.equal(activeUsersIn(compacted, ACTIVE_WINDOW_DAYS, { excludeEmails: ['owner@x.com'] }), 4);
+  // And the series the email draws carries the exclusion through.
+  const { points } = summarizeUserGrowth([s, snap('2026-09-27', [user('Owner', '2026-09-26T12:00:00Z')])], { excludeEmails: ['owner@x.com'] });
+  assert.deepEqual(points.map(p => p.active), [1, 0]);
+  assert.deepEqual(points.map(p => p.total), [2, 1]);
+});
