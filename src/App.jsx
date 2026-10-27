@@ -1314,6 +1314,7 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
           <ImportRecipePage
             onSave={handleAdd}
             onCancel={goBack}
+            onGoToRecipes={() => navigateTo('list')}
           />
         ) : view === 'shopping' ? (
           <ShoppingListPage
@@ -1456,6 +1457,7 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
               onSave={(data) => { addRecipe(data); setShowImportModal(false); }}
               onAddWithoutClose={(data) => { addRecipe(data); }}
               onCancel={() => setShowImportModal(false)}
+              onGoToRecipes={() => { setShowImportModal(false); if (view !== 'list') navigateTo('list'); }}
               userRecipes={recipes}
             />
           </div>
@@ -1559,6 +1561,7 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
                 onSave={(data) => { addRecipe(data); setModalView(null); }}
                 onAddWithoutClose={(data) => { addRecipe(data); }}
                 onCancel={() => setModalView(null)}
+                onGoToRecipes={() => { setModalView(null); if (view !== 'list') navigateTo('list'); }}
                 userRecipes={recipes}
               />
             ) : null}
