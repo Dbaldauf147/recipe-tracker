@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import { parseRecipeText, parseIngredientLine } from '../utils/parseRecipeText';
 import { fetchRecipeFromUrl, fetchAllRecipesFromUrl } from '../utils/fetchRecipeFromUrl';
 import { fetchInstagramCaption } from '../utils/fetchInstagramCaption';
@@ -142,7 +143,7 @@ const RECIPE_SOURCE_OPTIONS = [
   { key: 'none', icon: '🆕', label: "Don't have any yet", desc: "We'll help you discover or create recipes" },
 ];
 
-export function ImportRecipePage({ onSave, onAddWithoutClose, onCancel, userRecipes, isOnboarding = false }) {
+export function ImportRecipePage({ onSave, onAddWithoutClose, onCancel, onGoToRecipes, userRecipes, isOnboarding = false }) {
   const { user } = useAuth();
   // What frequency a freshly IMPORTED recipe lands on. An import is something
   // you haven't cooked yet, so "To Try" describes it better than "Regular" —
@@ -180,6 +181,14 @@ export function ImportRecipePage({ onSave, onAddWithoutClose, onCancel, userReci
   }, [user]);
   const [bulkRecipes, setBulkRecipes] = useState([]);
   const [bulkPreview, setBulkPreview] = useState(null); // index of recipe to preview
+
+  // "Go to My Recipes" used to just set location.hash to #list, which never
+  // closed the import modal and did nothing at all when already on #list.
+  // The host decides how to get there; without one, closing is the best we have.
+  function goToMyRecipes() {
+    if (onGoToRecipes) onGoToRecipes();
+    else if (onCancel) onCancel();
+  }
   const [urlRecipes, setUrlRecipes] = useState([]); // multiple recipes from a single URL
   const [urlRecipePreview, setUrlRecipePreview] = useState(null);
   const [bulkProcessing, setBulkProcessing] = useState(false);
@@ -356,12 +365,18 @@ export function ImportRecipePage({ onSave, onAddWithoutClose, onCancel, userReci
     e.target.value = '';
   }
 
+  // A screenshot or doc without a readable title used to save with an empty
+  // one — blank in the list and unfindable by search. Save what the list shows.
+  function bulkTitle(recipe) {
+    return (recipe.title || '').trim() || 'Untitled Recipe';
+  }
+
   function handleBulkAdd(index) {
     const recipe = bulkRecipes[index];
     if (!recipe) return;
     const save = onAddWithoutClose || onSave;
     save({
-      title: recipe.title,
+      title: bulkTitle(recipe),
       category: recipe.category,
       frequency: recipe.frequency,
       servings: recipe.servings,
@@ -378,7 +393,7 @@ export function ImportRecipePage({ onSave, onAddWithoutClose, onCancel, userReci
     bulkRecipes.forEach((recipe, i) => {
       if (bulkAdded.has(i)) return;
       save({
-        title: recipe.title,
+        title: bulkTitle(recipe),
         category: recipe.category,
         frequency: recipe.frequency,
         servings: recipe.servings,
@@ -2086,9 +2101,9 @@ export function ImportRecipePage({ onSave, onAddWithoutClose, onCancel, userReci
                       <div className={styles.sharedInfo}>
                         <button
                           className={styles.bulkPreviewName}
-                          onClick={() => setBulkPreview(bulkPreview === i ? null : i)}
+                          onClick={() => setBulkPreview(i)}
                         >
-                          {recipe.title || 'Untitled Recipe'}
+                          {bulkTitle(recipe)}
                         </button>
                         <span className={styles.sharedMeta}>
                           {recipe.ingredients.length} ingredient{recipe.ingredients.length !== 1 ? 's' : ''}
@@ -2109,34 +2124,6 @@ export function ImportRecipePage({ onSave, onAddWithoutClose, onCancel, userReci
                         </div>
                       )}
                     </div>
-                    {bulkPreview === i && (
-                      <div className={styles.bulkPreviewCard}>
-                        <h4 className={styles.bulkPreviewTitle}>{recipe.title || 'Untitled'}</h4>
-                        {recipe.ingredients.length > 0 && (
-                          <>
-                            <h5 className={styles.bulkPreviewSection}>Ingredients</h5>
-                            <ul className={styles.bulkPreviewList}>
-                              {recipe.ingredients.map((ing, j) => (
-                                <li key={j}>
-                                  {ing.quantity && `${ing.quantity} `}{ing.measurement && `${ing.measurement} `}{ing.ingredient}
-                                  {ing.notes && <span className={styles.bulkPreviewNote}> — {ing.notes}</span>}
-                                </li>
-                              ))}
-                            </ul>
-                          </>
-                        )}
-                        {recipe.instructions && (
-                          <>
-                            <h5 className={styles.bulkPreviewSection}>Instructions</h5>
-                            <ol className={styles.bulkPreviewSteps}>
-                              {recipe.instructions.split('\n').filter(s => s.trim()).map((step, j) => (
-                                <li key={j}>{step}</li>
-                              ))}
-                            </ol>
-                          </>
-                        )}
-                      </div>
-                    )}
                   </div>
                 ))}
               </>
@@ -2174,7 +2161,7 @@ export function ImportRecipePage({ onSave, onAddWithoutClose, onCancel, userReci
                       </>
                     );
                   })()}
-                  <button onClick={() => { window.location.hash = '#list'; }} style={{ padding: '0.6rem 2rem', border: 'none', borderRadius: '8px', background: 'var(--color-accent)', color: '#fff', fontSize: '0.95rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', marginTop: '0.5rem' }}>Go to My Recipes</button>
+                  <button onClick={goToMyRecipes} style={{ padding: '0.6rem 2rem', border: 'none', borderRadius: '8px', background: 'var(--color-accent)', color: '#fff', fontSize: '0.95rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', marginTop: '0.5rem' }}>Go to My Recipes</button>
                 </div>
               </div>
             )}
@@ -2842,6 +2829,53 @@ export function ImportRecipePage({ onSave, onAddWithoutClose, onCancel, userReci
       )}
     </div>
 
+    {/* Found-recipe popup. Portaled to <body> because the import modal's
+        content box is transformed, which would trap a fixed overlay inside it. */}
+    {bulkPreview !== null && bulkRecipes[bulkPreview] && createPortal((() => {
+      const recipe = bulkRecipes[bulkPreview];
+      return (
+        <div className={styles.overlay} style={{ zIndex: 1100 }} onClick={() => setBulkPreview(null)}>
+          <div className={styles.multiRecipeModal} onClick={e => e.stopPropagation()}>
+            <div className={styles.multiRecipeHeader}>
+              <h3 className={styles.multiRecipeTitle}>{bulkTitle(recipe)}</h3>
+              <button className={styles.multiRecipeClose} onClick={() => setBulkPreview(null)}>&times;</button>
+            </div>
+            <div style={{ overflowY: 'auto', padding: '0.75rem 1.25rem 1.25rem' }}>
+            {recipe.sourceFile && <p className={styles.sharedMeta}>{recipe.sourceFile}</p>}
+            {recipe.ingredients.length > 0 && (
+              <>
+                <h5 className={styles.bulkPreviewSection}>Ingredients</h5>
+                <ul className={styles.bulkPreviewList}>
+                  {recipe.ingredients.map((ing, j) => (
+                    <li key={j}>
+                      {ing.quantity && `${ing.quantity} `}{ing.measurement && `${ing.measurement} `}{ing.ingredient}
+                      {ing.notes && <span className={styles.bulkPreviewNote}> — {ing.notes}</span>}
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
+            {recipe.instructions && (
+              <>
+                <h5 className={styles.bulkPreviewSection}>Instructions</h5>
+                <ol className={styles.bulkPreviewSteps}>
+                  {recipe.instructions.split('\n').filter(t => t.trim()).map((step, j) => (
+                    <li key={j}>{step}</li>
+                  ))}
+                </ol>
+              </>
+            )}
+            {!bulkAdded.has(bulkPreview) && (
+              <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '1rem' }}>
+                <button className={styles.sharedAcceptBtn} onClick={() => { handleBulkAdd(bulkPreview); setBulkPreview(null); }}>+ Add</button>
+              </div>
+            )}
+            </div>
+          </div>
+        </div>
+      );
+    })(), document.body)}
+
     {/* Multi-import pinwheel modal — rendered at top level outside all containers */}
     {showMultiModal && (
       <div key={`multi-modal-${multiAdded.length}`} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 250, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '1rem', overflowY: 'auto' }}>
@@ -2985,7 +3019,7 @@ export function ImportRecipePage({ onSave, onAddWithoutClose, onCancel, userReci
                     </>
                   );
                 })()}
-                <button onClick={() => { setMultiResults([]); window.location.hash = '#list'; }} style={{ padding: '0.6rem 2rem', border: 'none', borderRadius: '8px', background: 'var(--color-accent)', color: '#fff', fontSize: '1rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>Go to My Recipes</button>
+                <button onClick={() => { setMultiResults([]); goToMyRecipes(); }} style={{ padding: '0.6rem 2rem', border: 'none', borderRadius: '8px', background: 'var(--color-accent)', color: '#fff', fontSize: '1rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>Go to My Recipes</button>
               </div>
             </div>
           )}
