@@ -6392,6 +6392,47 @@ function RefreshCountdown({ habit }) {
   );
 }
 
+// Working on now, split by routine. Building more than one habit in the same
+// routine at once is how both of them stall, so a routine holding two or more
+// gets a warning above its habits.
+function currentRoutineGroups(habits) {
+  const map = new Map();
+  for (const h of habits) {
+    const key = (h.routine || '').trim();
+    if (!map.has(key)) map.set(key, []);
+    map.get(key).push(h);
+  }
+  return [...map.entries()].sort((a, b) => {
+    if (!a[0] !== !b[0]) return a[0] ? -1 : 1;   // "No routine" last
+    const ra = routineRank(a[0]), rb = routineRank(b[0]);
+    return ra.typeOrder - rb.typeOrder || ra.dailyIdx - rb.dailyIdx || ra.num - rb.num || a[0].localeCompare(b[0]);
+  });
+}
+
+function CurrentByRoutine({ habits, renderList }) {
+  const groups = currentRoutineGroups(habits);
+  return (
+    <div style={{ marginLeft: 18 }}>
+      {groups.map(([routine, list]) => (
+        <div key={routine || '-'} style={{ marginBottom: '0.75rem' }}>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, margin: '0 0 0.3rem' }}>
+            <span style={{ fontSize: '0.78rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--color-text-secondary, #475569)' }}>
+              {routine || 'No routine'}
+            </span>
+            <span style={{ fontSize: '0.75rem', color: 'var(--color-text-muted, #64748b)' }}>{list.length}</span>
+          </div>
+          {list.length >= 2 && (
+            <div role="alert" style={{ display: 'flex', alignItems: 'center', gap: 6, margin: '0 0 0.35rem', padding: '0.4rem 0.65rem', borderRadius: 8, background: '#fef3c7', border: '1px solid #fcd34d', color: '#92400e', fontSize: '0.8rem', fontWeight: 600 }}>
+              ⚠ {list.length} habits in {routine || 'No routine'} — work on one per routine at a time.
+            </div>
+          )}
+          {renderList(list)}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function CurrentView({ habits, habitLog, onUpdate, onCycleMark, onOpen, onMakeAutomatic }) {
   const groups = FOCUS_STATUSES.map(g => ({
     ...g,
@@ -6409,6 +6450,68 @@ function CurrentView({ habits, habitLog, onUpdate, onCycleMark, onOpen, onMakeAu
     if (next.has(status)) next.delete(status); else next.add(status);
     return next;
   });
+
+  // One bordered card of rows. Working on now draws one per routine; the
+  // other two groups draw a single card.
+  const renderList = (list) => (
+    <div style={{ border: '1px solid var(--color-border, #e2e8f0)', borderRadius: 12, overflow: 'hidden', background: 'var(--color-surface, #fff)' }}>
+      {list.map((h, i) => {
+        const key = habitPeriodKey(h);
+        const mark = (habitLog[key] || {})[h.id];
+        const isDone = mark === 'done' || mark === 'exceeded';
+        const kpi = habitKpi(h, habitLog);
+        const routine = (h.routine || '').trim();
+        const period = periodHint(h.cadence).toLowerCase();
+        return (
+          <div
+            key={h.id}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap',
+              padding: '0.65rem 0.9rem',
+              borderTop: i === 0 ? 'none' : '1px solid var(--color-border, #e2e8f0)',
+            }}
+          >
+            <div style={{ flex: '1 1 220px', minWidth: 0 }}>
+              <button
+                type="button"
+                onClick={() => onOpen(h.id)}
+                title="Open this habit"
+                style={{ border: 'none', background: 'none', padding: 0, cursor: 'pointer', font: 'inherit', fontWeight: 650, fontSize: '0.93rem', color: 'var(--color-text, #0f172a)', textAlign: 'left' }}
+              >
+                {h.name || 'Untitled'}
+              </button>
+              <div style={{ fontSize: '0.74rem', color: 'var(--color-text-muted, #64748b)', marginTop: 1 }}>
+                {cadenceCanon(h.cadence)}{routine ? ` · ${routine}` : ''}
+              </div>
+              {isRefreshRotation(h) && <RefreshCountdown habit={h} />}
+            </div>
+            <AutoCountdown habit={h} habitLog={habitLog} alerting={alerts.readyIds.has(h.id)} onMakeAutomatic={onMakeAutomatic} />
+            <span
+              title={`Completion over the ${habitWindowLabel(h.cadence)}`}
+              style={{ fontSize: '0.82rem', fontWeight: 700, minWidth: 44, textAlign: 'right', color: kpi == null ? '#94a3b8' : 'var(--color-text, #0f172a)' }}
+            >
+              {kpi == null ? '—' : `${kpi}%`}
+            </span>
+            <button
+              type="button"
+              onClick={() => onCycleMark(h.id, key, isDone ? null : 'done')}
+              title={isDone ? 'Logged — click to clear' : `Mark ${period} as done`}
+              style={{
+                border: `1px solid ${isDone ? MARK_META.done.color : 'var(--color-border, #e2e8f0)'}`,
+                background: isDone ? MARK_META.done.color : 'var(--color-surface, #fff)',
+                color: isDone ? '#fff' : 'var(--color-text-muted, #64748b)',
+                borderRadius: 999, padding: '0.3rem 0.8rem', cursor: 'pointer',
+                fontSize: '0.78rem', fontWeight: 700, whiteSpace: 'nowrap',
+              }}
+            >
+              {isDone ? `✓ Done ${period}` : mark ? (MARK_META[mark]?.label || mark) : `Did it ${period}`}
+            </button>
+            <StatusSelect value={h.status} onChange={v => onUpdate(h.id, { status: v })} />
+          </div>
+        );
+      })}
+    </div>
+  );
 
   return (
     <div>
@@ -6437,64 +6540,10 @@ function CurrentView({ habits, habitLog, onUpdate, onCycleMark, onOpen, onMakeAu
                 None right now — set a habit’s status to <strong>{g.status}</strong> to pick one.
               </div>
             )
+          ) : g.status === CURRENT_STATUS ? (
+            <CurrentByRoutine habits={g.habits} renderList={renderList} />
           ) : (
-            <div style={{ border: '1px solid var(--color-border, #e2e8f0)', borderRadius: 12, overflow: 'hidden', background: 'var(--color-surface, #fff)' }}>
-              {g.habits.map((h, i) => {
-                const key = habitPeriodKey(h);
-                const mark = (habitLog[key] || {})[h.id];
-                const isDone = mark === 'done' || mark === 'exceeded';
-                const kpi = habitKpi(h, habitLog);
-                const routine = (h.routine || '').trim();
-                const period = periodHint(h.cadence).toLowerCase();
-                return (
-                  <div
-                    key={h.id}
-                    style={{
-                      display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap',
-                      padding: '0.65rem 0.9rem',
-                      borderTop: i === 0 ? 'none' : '1px solid var(--color-border, #e2e8f0)',
-                    }}
-                  >
-                    <div style={{ flex: '1 1 220px', minWidth: 0 }}>
-                      <button
-                        type="button"
-                        onClick={() => onOpen(h.id)}
-                        title="Open this habit"
-                        style={{ border: 'none', background: 'none', padding: 0, cursor: 'pointer', font: 'inherit', fontWeight: 650, fontSize: '0.93rem', color: 'var(--color-text, #0f172a)', textAlign: 'left' }}
-                      >
-                        {h.name || 'Untitled'}
-                      </button>
-                      <div style={{ fontSize: '0.74rem', color: 'var(--color-text-muted, #64748b)', marginTop: 1 }}>
-                        {cadenceCanon(h.cadence)}{routine ? ` · ${routine}` : ''}
-                      </div>
-                      {isRefreshRotation(h) && <RefreshCountdown habit={h} />}
-                    </div>
-                    <AutoCountdown habit={h} habitLog={habitLog} alerting={alerts.readyIds.has(h.id)} onMakeAutomatic={onMakeAutomatic} />
-                    <span
-                      title={`Completion over the ${habitWindowLabel(h.cadence)}`}
-                      style={{ fontSize: '0.82rem', fontWeight: 700, minWidth: 44, textAlign: 'right', color: kpi == null ? '#94a3b8' : 'var(--color-text, #0f172a)' }}
-                    >
-                      {kpi == null ? '—' : `${kpi}%`}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => onCycleMark(h.id, key, isDone ? null : 'done')}
-                      title={isDone ? 'Logged — click to clear' : `Mark ${period} as done`}
-                      style={{
-                        border: `1px solid ${isDone ? MARK_META.done.color : 'var(--color-border, #e2e8f0)'}`,
-                        background: isDone ? MARK_META.done.color : 'var(--color-surface, #fff)',
-                        color: isDone ? '#fff' : 'var(--color-text-muted, #64748b)',
-                        borderRadius: 999, padding: '0.3rem 0.8rem', cursor: 'pointer',
-                        fontSize: '0.78rem', fontWeight: 700, whiteSpace: 'nowrap',
-                      }}
-                    >
-                      {isDone ? `✓ Done ${period}` : mark ? (MARK_META[mark]?.label || mark) : `Did it ${period}`}
-                    </button>
-                    <StatusSelect value={h.status} onChange={v => onUpdate(h.id, { status: v })} />
-                  </div>
-                );
-              })}
-            </div>
+            renderList(g.habits)
           )}
         </div>
         );
