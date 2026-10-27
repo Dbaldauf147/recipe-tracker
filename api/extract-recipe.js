@@ -8,6 +8,7 @@
  */
 
 import * as cheerio from 'cheerio';
+import { blockedMessage } from '../lib/fetchErrors.js';
 
 // ── Fraction normalization (same as web app) ──
 
@@ -560,7 +561,7 @@ export default async function handler(req, res) {
       return await processHtml(res, html, url);
     }
 
-    return res.status(502).json({ error: `Upstream returned ${status || 'unreachable'}` });
+    return res.status(502).json({ error: blockedMessage(status) });
   } catch (err) {
     return res.status(502).json({ error: err.message });
   }

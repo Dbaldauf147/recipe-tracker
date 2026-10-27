@@ -2,6 +2,8 @@
 // Auto-routed at /api/fetch-url?url=...
 // Also handles Pinterest extraction: /api/fetch-url?url=...&pinterest=true
 
+import { blockedMessage } from '../lib/fetchErrors.js';
+
 function extractPinterestSourceUrl(html) {
   let sourceUrl = null;
 
@@ -74,7 +76,7 @@ export default async function handler(req, res) {
     });
 
     if (!response.ok) {
-      return res.status(502).json({ error: `Upstream returned ${response.status}` });
+      return res.status(502).json({ error: blockedMessage(response.status) });
     }
 
     const html = await response.text();
