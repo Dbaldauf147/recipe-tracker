@@ -6400,18 +6400,35 @@ function CurrentView({ habits, habitLog, onUpdate, onCycleMark, onOpen, onMakeAu
       .sort((a, b) => (a.name || '').localeCompare(b.name || '')),
   }));
   const alerts = currentTabAlerts(habits, habitLog);
+  // Groups folded down to their header. Must Track starts folded — those never
+  // change, so they'd only push the habits you're working on down the page.
+  // Mirrors PrepDay's CurrentView.
+  const [collapsed, setCollapsed] = useState(() => new Set([MUST_TRACK_STATUS]));
+  const toggleGroup = status => setCollapsed(prev => {
+    const next = new Set(prev);
+    if (next.has(status)) next.delete(status); else next.add(status);
+    return next;
+  });
 
   return (
     <div>
-      {groups.map(g => (
+      {groups.map(g => {
+        const folded = collapsed.has(g.status);
+        return (
         <div key={g.status} style={{ marginBottom: '1.4rem' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: '0.15rem' }}>
+          <button
+            type="button"
+            onClick={() => toggleGroup(g.status)}
+            aria-expanded={!folded}
+            style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: '0.15rem', padding: 0, border: 'none', background: 'none', cursor: 'pointer', color: 'inherit', font: 'inherit', textAlign: 'left' }}
+          >
+            <span style={{ width: 10, fontSize: '0.8rem', color: 'var(--color-text-muted, #64748b)' }}>{folded ? '▸' : '▾'}</span>
             <span style={{ width: 10, height: 10, borderRadius: 999, background: STATUS_COLOR[g.status] }} />
             <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 700 }}>{g.title}</h3>
             <span style={{ fontSize: '0.8rem', color: 'var(--color-text-muted, #64748b)' }}>{g.habits.length}</span>
-          </div>
-          <p style={{ margin: '0 0 0.55rem 18px', fontSize: '0.8rem', color: 'var(--color-text-muted, #64748b)' }}>{g.blurb}</p>
-          {g.habits.length === 0 ? (
+          </button>
+          {!folded && <p style={{ margin: '0 0 0.55rem 36px', fontSize: '0.8rem', color: 'var(--color-text-muted, #64748b)' }}>{g.blurb}</p>}
+          {folded ? null : g.habits.length === 0 ? (
             g.status === MUST_TRACK_STATUS ? (
               <div style={{ marginLeft: 18, fontSize: '0.8rem', color: '#94a3b8' }}>None right now.</div>
             ) : (
@@ -6480,7 +6497,8 @@ function CurrentView({ habits, habitLog, onUpdate, onCycleMark, onOpen, onMakeAu
             </div>
           )}
         </div>
-      ))}
+        );
+      })}
     </div>
   );
 }
