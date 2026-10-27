@@ -15,6 +15,7 @@ import { canonStatus, habitsWithStatus } from '../utils/habitStatusHistory';
 import { REFRESH_DAYS, advanceAutoRefresh, stampAutoStatusChanges, isRefreshRotation, refreshReturnKey, nextRefreshCandidate } from '../utils/habitAutoRefresh';
 import { startQueue, dropInQueue, missingSetup } from '../utils/habitStartQueue';
 import { badHabitStats, recentDayKeys, cleanLabel, dayKeyOf, dateOfDayKey } from '../utils/badHabits';
+import { BadHabitDetail } from './BadHabitDetail';
 import {
   checklistItems, hasChecklist, tickedIds, checklistProgress, toggleItem, addItem, renameItem, removeItem, markActionAfter,
 } from '../utils/habitChecklist';
@@ -2513,6 +2514,7 @@ export function HabitsPage({ onBack, user }) {
           habitLog={habitLog}
           onCycleMark={setMarkForKey}
           onOpen={setOpenHabitId}
+          onUpdate={updateHabit}
           onAdd={() => addHabit({ habitType: 'bad', cadence: 'Daily', status: 'Some Days' })}
         />
       )}
@@ -6192,7 +6194,7 @@ const BAD_MARK = 'done';        // the value stored — "the habit occurred"
 const BAD_COLOR = '#dc2626';
 const STRIP_DAYS = 14;
 
-function BadHabitRow({ habit, habitLog, stripKeys, todayKey, onCycleMark, onOpen }) {
+function BadHabitRow({ habit, habitLog, stripKeys, todayKey, onCycleMark, onOpen, onUpdate, expanded, onToggle }) {
   const stats = useMemo(
     () => badHabitStats(habit.id, habitLog, dateOfDayKey(todayKey) || new Date()),
     [habit.id, habitLog, todayKey],
@@ -6206,11 +6208,21 @@ function BadHabitRow({ habit, habitLog, stripKeys, todayKey, onCycleMark, onOpen
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: '0.7rem' }}>
         <button
           type="button"
-          onClick={() => onOpen(habit.id)}
-          title="Open this habit"
-          style={{ border: 'none', background: 'none', padding: 0, cursor: 'pointer', font: 'inherit', fontWeight: 700, fontSize: '0.98rem', color: 'var(--color-text, #0f172a)' }}
+          onClick={onToggle}
+          aria-expanded={expanded}
+          title={expanded ? 'Hide the trend' : 'Pick a time range and see the trend'}
+          style={{ border: 'none', background: 'none', padding: 0, cursor: 'pointer', font: 'inherit', fontWeight: 700, fontSize: '0.98rem', color: 'var(--color-text, #0f172a)', display: 'inline-flex', alignItems: 'center', gap: 6 }}
         >
+          <span style={{ fontSize: '0.7rem', color: 'var(--color-text-muted, #94a3b8)', display: 'inline-block', transform: expanded ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s' }}>▶</span>
           {habit.name || 'Untitled'}
+        </button>
+        <button
+          type="button"
+          onClick={() => onOpen(habit.id)}
+          title="Edit this habit"
+          style={{ border: 'none', background: 'none', padding: 0, cursor: 'pointer', fontSize: '0.74rem', color: 'var(--color-text-muted, #64748b)', textDecoration: 'underline' }}
+        >
+          Edit
         </button>
         <span style={{
           fontSize: '0.72rem', fontWeight: 700, padding: '0.12rem 0.5rem', borderRadius: 999,
@@ -6273,6 +6285,16 @@ function BadHabitRow({ habit, habitLog, stripKeys, todayKey, onCycleMark, onOpen
         <span><strong style={{ color: 'var(--color-text, #0f172a)' }}>{stats.last30}</strong> in 30 days</span>
         <span><strong style={{ color: 'var(--color-text, #0f172a)' }}>{stats.total}</strong> all time</span>
       </div>
+
+      {expanded && (
+        <BadHabitDetail
+          habit={habit}
+          habitLog={habitLog}
+          todayKey={todayKey}
+          onCycleMark={onCycleMark}
+          onSaveRange={badRange => onUpdate(habit.id, { badRange })}
+        />
+      )}
     </div>
   );
 }
@@ -6463,9 +6485,20 @@ function CurrentView({ habits, habitLog, onUpdate, onCycleMark, onOpen, onMakeAu
   );
 }
 
-function BadHabitsView({ habits, habitLog, onCycleMark, onOpen, onAdd }) {
+function BadHabitsView({ habits, habitLog, onCycleMark, onOpen, onUpdate, onAdd }) {
   // Recomputed only when the calendar day turns over, not on every render.
   const todayKey = dayKeyOf(new Date());
+  // Which rows are open — per browser, so the panel you were looking at is
+  // still open next visit. The time range itself is saved on the habit.
+  const [openIds, setOpenIds] = useState(() => {
+    try { return new Set(JSON.parse(localStorage.getItem('sunday-bad-habits-open') || '[]')); } catch { return new Set(); }
+  });
+  const toggleOpen = (id) => setOpenIds(prev => {
+    const next = new Set(prev);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    try { localStorage.setItem('sunday-bad-habits-open', JSON.stringify([...next])); } catch { /* per-browser nicety only */ }
+    return next;
+  });
   const stripKeys = useMemo(() => recentDayKeys(STRIP_DAYS, dateOfDayKey(todayKey) || new Date()), [todayKey]);
 
   return (
@@ -6474,7 +6507,8 @@ function BadHabitsView({ habits, habitLog, onCycleMark, onOpen, onAdd }) {
         <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--color-text-muted, #64748b)', maxWidth: 620, lineHeight: 1.5 }}>
           Habits you are trying <em>not</em> to do. These are logged only when they happen —
           they never appear in a routine, never count toward the red badge, and never
-          trigger a reminder. An empty day is the good outcome.
+          trigger a reminder. An empty day is the good outcome. Click one to pick a
+          time range and see its trend.
         </p>
         <button type="button" onClick={onAdd} style={{ ...primaryBtn, marginLeft: 'auto' }}>+ Add bad habit</button>
       </div>
@@ -6494,6 +6528,9 @@ function BadHabitsView({ habits, habitLog, onCycleMark, onOpen, onAdd }) {
             todayKey={todayKey}
             onCycleMark={onCycleMark}
             onOpen={onOpen}
+            onUpdate={onUpdate}
+            expanded={openIds.has(h.id)}
+            onToggle={() => toggleOpen(h.id)}
           />
         ))
       )}

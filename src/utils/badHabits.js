@@ -127,3 +127,149 @@ export function cleanLabel(stats) {
   if (stats.daysClean === 1) return '1 day clean';
   return `${stats.daysClean} days clean`;
 }
+
+// ── Chosen time window + trend ───────────────────────────────────────────────
+//
+// Clicking a bad habit opens a detail panel whose window you pick as "last N
+// days / weeks / months / years" (or all time). The choice is saved on the
+// habit itself as `badRange: { n, unit }`, so the phone shows the same window.
+//
+// ⚠️ MIRRORED in the mobile app's src/utils/badHabitTrend.ts — keep the bucket
+// rules and labels identical so both charts draw the same bars.
+
+export const BAD_RANGE_UNITS = ['days', 'weeks', 'months', 'years', 'all'];
+export const DEFAULT_BAD_RANGE = { n: 3, unit: 'months' };
+export const BAD_RANGE_PRESETS = [
+  { n: 2, unit: 'weeks', label: '2W' },
+  { n: 1, unit: 'months', label: '1M' },
+  { n: 3, unit: 'months', label: '3M' },
+  { n: 6, unit: 'months', label: '6M' },
+  { n: 1, unit: 'years', label: '1Y' },
+  { n: 1, unit: 'all', label: 'All' },
+];
+// The day grid in the detail panel shows every day only up to this span —
+// past it, a year of 34px cells is a wall, and the chart says it better.
+export const BAD_GRID_MAX_DAYS = 92;
+
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+/** A saved range made safe: whole n in 1–999 and a known unit, else the default. */
+export function normalizeBadRange(r) {
+  if (!BAD_RANGE_UNITS.includes(r?.unit)) return { ...DEFAULT_BAD_RANGE };
+  if (r.unit === 'all') return { n: 1, unit: 'all' };
+  const n = Math.round(Number(r.n));
+  return { n: Number.isFinite(n) && n >= 1 ? Math.min(999, n) : 1, unit: r.unit };
+}
+
+/** "Last 3 months" / "Last day" / "All time" */
+export function badRangeLabel(r) {
+  const { n, unit } = normalizeBadRange(r);
+  if (unit === 'all') return 'All time';
+  const single = unit.slice(0, -1);
+  return n === 1 ? `Last ${single}` : `Last ${n} ${unit}`;
+}
+
+/**
+ * First day (local midnight) of the window, today included in it.
+ * "Last 1 month" on 27 Oct starts 28 Sep; "last 2 weeks" is 14 days.
+ * `all` starts at the first slip ever (or today if there is none).
+ */
+export function badRangeStart(r, today = new Date(), firstKey = null) {
+  const { n, unit } = normalizeBadRange(r);
+  const y = today.getFullYear(), m = today.getMonth(), d = today.getDate();
+  if (unit === 'days') return new Date(y, m, d - (n - 1));
+  if (unit === 'weeks') return new Date(y, m, d - (7 * n - 1));
+  if (unit === 'months') return new Date(y, m - n, d + 1);
+  if (unit === 'years') return new Date(y - n, m, d + 1);
+  const first = dateOfDayKey(firstKey);
+  return first && first < today ? first : new Date(y, m, d);
+}
+
+/** Bar size for a span: daily up to a month, weekly up to ~6 months, then monthly, then yearly. */
+export function trendBucketUnit(spanDays) {
+  if (spanDays <= 31) return 'day';
+  if (spanDays <= 183) return 'week';
+  if (spanDays <= 366 * 3) return 'month';
+  return 'year';
+}
+
+function bucketStartOf(date, unit) {
+  const y = date.getFullYear(), m = date.getMonth(), d = date.getDate();
+  if (unit === 'day') return new Date(y, m, d);
+  if (unit === 'week') return new Date(y, m, d - date.getDay()); // Sunday
+  if (unit === 'month') return new Date(y, m, 1);
+  return new Date(y, 0, 1);
+}
+
+function nextBucket(date, unit) {
+  const y = date.getFullYear(), m = date.getMonth(), d = date.getDate();
+  if (unit === 'day') return new Date(y, m, d + 1);
+  if (unit === 'week') return new Date(y, m, d + 7);
+  if (unit === 'month') return new Date(y, m + 1, 1);
+  return new Date(y + 1, 0, 1);
+}
+
+function bucketLabel(date, unit) {
+  if (unit === 'year') return String(date.getFullYear());
+  if (unit === 'month') return `${MONTHS[date.getMonth()]} '${String(date.getFullYear()).slice(2)}`;
+  return `${MONTHS[date.getMonth()]} ${date.getDate()}`;
+}
+
+/**
+ * Everything the detail panel draws for one habit over the chosen window.
+ *
+ * Buckets are calendar-aligned (Sunday weeks, calendar months/years) so a bar
+ * means the same thing whichever window you picked; the first and last bucket
+ * are clipped to the window, and each carries `days` — how many of its days
+ * fall inside — so a part-week isn't mistaken for a good week.
+ *
+ * @returns {{ range, startKey, endKey, spanDays, unit, total, cleanDays,
+ *   longestClean, perWeek, buckets: {key,label,days,count}[] }}
+ */
+export function badHabitTrend(habitId, habitLog, range, today = new Date()) {
+  const r = normalizeBadRange(range);
+  const all = occurrenceDays(habitId, habitLog);
+  const end = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  const start = badRangeStart(r, end, all[0] || null);
+  const startKey = dayKeyOf(start);
+  const endKey = dayKeyOf(end);
+  const spanDays = daysBetween(startKey, endKey) + 1;
+  const inRange = all.filter(k => k >= startKey && k <= endKey);
+  const unit = trendBucketUnit(spanDays);
+
+  const buckets = [];
+  for (let b = bucketStartOf(start, unit); b <= end; b = nextBucket(b, unit)) {
+    const from = b < start ? start : b;
+    const nb = nextBucket(b, unit);
+    const to = new Date(nb.getFullYear(), nb.getMonth(), nb.getDate() - 1);
+    const until = to > end ? end : to;
+    const fromKey = dayKeyOf(from), untilKey = dayKeyOf(until);
+    buckets.push({
+      key: dayKeyOf(b),
+      label: bucketLabel(b, unit),
+      days: daysBetween(fromKey, untilKey) + 1,
+      count: inRange.filter(k => k >= fromKey && k <= untilKey).length,
+    });
+  }
+
+  // Longest run of slip-free days inside the window (edges count as runs).
+  let longestClean = 0;
+  let prev = dayKeyOf(new Date(start.getFullYear(), start.getMonth(), start.getDate() - 1));
+  for (const k of [...inRange, dayKeyOf(new Date(end.getFullYear(), end.getMonth(), end.getDate() + 1))]) {
+    longestClean = Math.max(longestClean, daysBetween(prev, k) - 1);
+    prev = k;
+  }
+
+  return {
+    range: r,
+    startKey,
+    endKey,
+    spanDays,
+    unit,
+    total: inRange.length,
+    cleanDays: spanDays - inRange.length,
+    longestClean,
+    perWeek: spanDays ? Math.round((inRange.length / spanDays) * 7 * 10) / 10 : 0,
+    buckets,
+  };
+}
