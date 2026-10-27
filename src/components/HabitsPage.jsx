@@ -13,7 +13,7 @@ import { HabitStatusHistory } from './HabitStatusHistory';
 import { HabitStatusList } from './HabitStatusList';
 import { canonStatus, habitsWithStatus } from '../utils/habitStatusHistory';
 import { REFRESH_DAYS, advanceAutoRefresh, stampAutoStatusChanges, isRefreshRotation, refreshReturnKey, nextRefreshCandidate } from '../utils/habitAutoRefresh';
-import { startQueue, dropInQueue, missingSetup } from '../utils/habitStartQueue';
+import { startQueue, dropInQueue, missingSetup, moveToNext } from '../utils/habitStartQueue';
 import { badHabitStats, recentDayKeys, cleanLabel, dayKeyOf, dateOfDayKey } from '../utils/badHabits';
 import { BadHabitDetail } from './BadHabitDetail';
 import {
@@ -2013,6 +2013,19 @@ export function HabitsPage({ onBack, user }) {
     const pos = new Map(orderedIds.map((id, i) => [id, i]));
     persist(habits.map(h => (pos.has(h.id) ? { ...h, startOrder: pos.get(h.id) } : h)));
   }
+  // "Make next" on the Not Started tab: the star ("Work on this next", same
+  // `nextUp` field the phone popup sets) moves to this habit so it's #1, and the
+  // queue is renumbered so the old #1 lands at #2 — all in one persist.
+  function makeNextHabit(orderedIds) {
+    const [nextId] = orderedIds;
+    const pos = new Map(orderedIds.map((id, i) => [id, i]));
+    persist(habits.map(h => {
+      if (!pos.has(h.id) && !h.nextUp) return h;
+      const { nextUp: _drop, ...rest } = h;
+      const row = pos.has(h.id) ? { ...rest, startOrder: pos.get(h.id) } : rest;
+      return h.id === nextId ? { ...row, nextUp: true } : row;
+    }));
+  }
   // Move a habit to another routine ('' = No routine). Clears its order so it
   // lands at the bottom of the destination group until dragged.
   function setHabitRoutine(id, routine) {
@@ -2503,6 +2516,7 @@ export function HabitsPage({ onBack, user }) {
           habits={goodHabits}
           onUpdate={updateHabit}
           onReorderStart={reorderStartQueue}
+          onMakeNext={makeNextHabit}
           onOpen={setOpenHabitId}
         />
       )}
@@ -2558,6 +2572,7 @@ export function HabitsPage({ onBack, user }) {
                   habits={habits}
                   onUpdate={updateHabit}
                   onReorderStart={reorderStartQueue}
+                  onMakeNext={makeNextHabit}
                   onOpen={id => { setOpenHabitId(id); setDetailForId(id); }}
                 />
               ))}
@@ -5041,7 +5056,7 @@ function AutoSinceChip({ habit, nextUp }) {
   );
 }
 
-function MonthlyStatusReview({ kind, habits, onUpdate, onReorderStart, onOpen }) {
+function MonthlyStatusReview({ kind, habits, onUpdate, onReorderStart, onMakeNext, onOpen }) {
   const currentMonth = periodKey('Monthly'); // 'YYYY-MM' in local time
   const monthLabel = new Date().toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
 
@@ -5145,7 +5160,7 @@ function MonthlyStatusReview({ kind, habits, onUpdate, onReorderStart, onOpen })
       )}
       {isQueue && (
         <div style={{ fontSize: '0.82rem', color: 'var(--color-text-secondary, #475569)', margin: '-0.4rem 0 1rem', lineHeight: 1.45 }}>
-          <strong>Up next:</strong> #1 is the next habit to start. The one starred “Work on this next” stays at #1; drag the others to reorder them.
+          <strong>Up next:</strong> #1 is the next habit to start. Click “↑ Make next” to move a habit to #1, or drag the others to reorder them.
         </div>
       )}
       {isAuto && (
@@ -5167,6 +5182,9 @@ function MonthlyStatusReview({ kind, habits, onUpdate, onReorderStart, onOpen })
                 const confirmed = (h[kind.confirmField] || '') === currentMonth;
                 const missing = isQueue ? missingSetup(h) : null;
                 const canDrag = isQueue && !h.nextUp;
+                // #1 in the queue is the next habit to start — drawn as a card
+                // of its own so it stands out from the rest of the line.
+                const isNext = isQueue && idx === 0;
                 const dropLine = isQueue && dragId && overId === h.id && dragId !== h.id;
                 const flaggedMonth = (h[kind.revisitField] || '').trim();
                 const flagged = !!flaggedMonth;
@@ -5187,8 +5205,13 @@ function MonthlyStatusReview({ kind, habits, onUpdate, onReorderStart, onOpen })
                       if (ids) onReorderStart?.(ids);
                     } : undefined}
                     title={canDrag ? 'Drag to reorder' : undefined}
-                    style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '0.5rem 0.7rem', background: 'var(--color-surface, #fff)', border: `1px solid ${borderColor}`, borderRadius: 8, cursor: canDrag ? 'grab' : undefined, opacity: dragId === h.id ? 0.45 : 1, boxShadow: dropLine ? `0 -3px 0 0 ${ACCENT}` : undefined }}
+                    style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: isNext ? 'wrap' : undefined, padding: isNext ? '0.8rem 0.9rem' : '0.5rem 0.7rem', background: isNext ? '#fffbeb' : 'var(--color-surface, #fff)', border: isNext ? `2px solid ${flagged ? '#fdba74' : '#f59e0b'}` : `1px solid ${borderColor}`, borderRadius: isNext ? 12 : 8, cursor: canDrag ? 'grab' : undefined, opacity: dragId === h.id ? 0.45 : 1, boxShadow: dropLine ? `0 -3px 0 0 ${ACCENT}` : isNext ? '0 2px 8px rgba(245, 158, 11, 0.18)' : undefined, marginBottom: isNext && list.length > 1 ? 8 : undefined }}
                   >
+                    {isNext && (
+                      <span style={{ flexBasis: '100%', fontSize: '0.68rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.06em', color: '#b45309' }}>
+                        ★ Next habit to start
+                      </span>
+                    )}
                     {isQueue && (
                       <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
                         <span aria-hidden style={{ color: canDrag ? '#94a3b8' : 'transparent', fontSize: '0.95rem', lineHeight: 1, userSelect: 'none' }}>⠿</span>
@@ -5202,7 +5225,7 @@ function MonthlyStatusReview({ kind, habits, onUpdate, onReorderStart, onOpen })
                       type="button"
                       onClick={() => onOpen(h.id)}
                       title="Edit habit"
-                      style={{ flex: 1, textAlign: 'left', border: 'none', background: 'none', padding: 0, cursor: 'pointer', fontSize: '0.88rem', fontWeight: 600, color: 'inherit', fontFamily: 'inherit' }}
+                      style={{ flex: 1, textAlign: 'left', border: 'none', background: 'none', padding: 0, cursor: 'pointer', fontSize: isNext ? '1.02rem' : '0.88rem', fontWeight: isNext ? 800 : 600, color: isNext ? '#78350f' : 'inherit', fontFamily: 'inherit' }}
                     >
                       {h.name || <em style={{ color: '#aaa' }}>untitled</em>}
                     </button>
@@ -5213,6 +5236,14 @@ function MonthlyStatusReview({ kind, habits, onUpdate, onReorderStart, onOpen })
                     {isAuto && <AutoSinceChip habit={h} nextUp={h.id === nextUpId} />}
                     {kind.showStatusSelect && (
                       <StatusSelect value={h.status} onChange={v => onUpdate(h.id, 'status', v)} />
+                    )}
+                    {isQueue && !isNext && (
+                      <button
+                        type="button"
+                        onClick={() => { const ids = moveToNext(queue, h.id); if (ids) onMakeNext?.(ids); }}
+                        title="Make this the next habit to start (moves it to #1)"
+                        style={{ border: '1px solid #fcd34d', background: '#fffbeb', borderRadius: 999, padding: '2px 9px', fontSize: '0.7rem', fontWeight: 700, color: '#b45309', cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap' }}
+                      >↑ Make next</button>
                     )}
                     <button
                       type="button"

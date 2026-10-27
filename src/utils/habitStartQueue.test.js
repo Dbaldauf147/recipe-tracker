@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { startQueue, dropInQueue, pinStarred, missingSetup } from './habitStartQueue.js';
+import { startQueue, dropInQueue, pinStarred, missingSetup, moveToNext } from './habitStartQueue.js';
 
 const ns = (id, extra = {}) => ({ id, name: id, status: 'Not Started', ...extra });
 
@@ -35,4 +35,11 @@ test('missingSetup flags blank cadence and blank or "-" routine', () => {
   assert.deepEqual(missingSetup(ns('a')), { cadence: true, routine: true });
   assert.deepEqual(missingSetup(ns('a', { cadence: 'Daily', routine: '-' })), { cadence: false, routine: true });
   assert.deepEqual(missingSetup(ns('a', { cadence: 'Weekly', routine: 'Morning' })), { cadence: false, routine: false });
+});
+
+test('moveToNext puts a habit at #1 and bumps the old #1 to #2', () => {
+  const q = startQueue([ns('a'), ns('b'), ns('s', { nextUp: true })]);
+  assert.deepEqual(moveToNext(q, 'b'), ['b', 's', 'a']);
+  assert.equal(moveToNext(q, 's'), null);
+  assert.equal(moveToNext(q, 'zzz'), null);
 });

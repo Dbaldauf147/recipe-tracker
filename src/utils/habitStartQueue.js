@@ -66,3 +66,16 @@ export function missingSetup(h) {
     routine: !routine || routine === '-',
   };
 }
+
+/**
+ * The queue's ids with `id` moved to #1 — the "Make next" button. The caller
+ * also moves the star (`nextUp`) to it, so it stays #1; whatever was #1
+ * before slides to #2. Returns null when it's already #1 or not in the queue.
+ */
+export function moveToNext(queue, id) {
+  const ids = queue.map(h => h.id);
+  const from = ids.indexOf(id);
+  if (from <= 0) return null;
+  ids.splice(from, 1);
+  return [id, ...ids];
+}
