@@ -62,7 +62,10 @@ function isIngredientInSeason(name, seasonalSet) {
   return false;
 }
 
-export function IngredientsPage({ onClose, user }) {
+// `addFor` — opened from a recipe's "Scan it in" (an ingredient that matched
+// the wrong food): the add menu starts open and whatever you add is named
+// `addFor`, so the recipe's next lookup finds it. `onAddForDone` clears it.
+export function IngredientsPage({ onClose, user, addFor = null, onAddForDone }) {
   const isAdmin = user?.uid === ADMIN_UID;
 
   // Compute seasonal ingredients set
@@ -83,7 +86,7 @@ export function IngredientsPage({ onClose, user }) {
   const [sortKey, setSortKey] = useState(null);
   const [sortAsc, setSortAsc] = useState(true);
   const [colWidths, setColWidths] = useState(loadColWidths);
-  const [showAddMenu, setShowAddMenu] = useState(false);
+  const [showAddMenu, setShowAddMenu] = useState(!!addFor);
   const [showBarcodeScanner, setShowBarcodeScanner] = useState(false);
   const [showPhotoUpload, setShowPhotoUpload] = useState(false);
   const [showUSDASearch, setShowUSDASearch] = useState(false);
@@ -235,6 +238,14 @@ export function IngredientsPage({ onClose, user }) {
     }, 100);
   }, []);
 
+  // In `addFor` mode every route in lands on the review form under the
+  // recipe's name, so you see what will be saved before it is.
+  const withAddFor = useCallback(data => (addFor ? { ...data, ingredient: addFor } : data), [addFor]);
+  function addAndFinish(data) {
+    addFilledRow(data);
+    if (addFor) onAddForDone?.();
+  }
+
   // --- Barcode flow ---
   const handleBarcodeScan = useCallback(async (barcode) => {
     setShowBarcodeScanner(false);
@@ -243,7 +254,8 @@ export function IngredientsPage({ onClose, user }) {
     try {
       const result = await lookupBarcodeFullNutrition(barcode);
       if (result) {
-        addFilledRow(result);
+        if (addFor) setReviewData(withAddFor(result));
+        else addFilledRow(result);
       } else {
         setModalError(`Product not found for barcode: ${barcode}`);
       }
@@ -251,7 +263,7 @@ export function IngredientsPage({ onClose, user }) {
       setModalError('Failed to look up barcode. Check your connection.');
     }
     setModalLoading(false);
-  }, [addFilledRow]);
+  }, [addFilledRow, addFor, withAddFor]);
 
   // --- Photo flow ---
   function handlePhotoSelect(e) {
@@ -353,7 +365,8 @@ export function IngredientsPage({ onClose, user }) {
       row.fiberPerCal = fmtVal(fib / cal);
     }
 
-    addFilledRow(row);
+    if (addFor) setReviewData(withAddFor(row));
+    else addFilledRow(row);
     setShowUSDASearch(false);
     setUsdaQuery('');
     setUsdaResults([]);
@@ -541,6 +554,16 @@ export function IngredientsPage({ onClose, user }) {
         <h2 className={styles.title}>Ingredients Database</h2>
         <span className={styles.count}>{sorted.length} ingredients</span>
       </div>
+
+      {addFor && (
+        <div className={styles.addForBanner} role="status">
+          <span>
+            Adding <strong>“{addFor}”</strong> from your recipe. Scan the barcode or photo the nutrition label below.
+            It’s saved as “{addFor}” so the recipe matches it next time.
+          </span>
+          <button type="button" className={styles.addForCancel} onClick={() => onAddForDone?.()}>Cancel</button>
+        </div>
+      )}
 
       <div className={styles.toolbar}>
         <input
@@ -804,7 +827,8 @@ export function IngredientsPage({ onClose, user }) {
       {/* Manual entry modal */}
       {showManualAdd && (
         <ManualAddModal
-          onAdd={(data) => { addFilledRow(data); setShowManualAdd(false); }}
+          initialValues={addFor ? { ingredient: addFor } : undefined}
+          onAdd={(data) => { addAndFinish(data); setShowManualAdd(false); }}
           onClose={() => setShowManualAdd(false)}
         />
       )}
@@ -813,8 +837,8 @@ export function IngredientsPage({ onClose, user }) {
       {reviewData && (
         <ManualAddModal
           title="Review Ingredient"
-          initialValues={reviewData}
-          onAdd={(data) => { addFilledRow(data); setReviewData(null); }}
+          initialValues={withAddFor(reviewData)}
+          onAdd={(data) => { addAndFinish(data); setReviewData(null); }}
           onClose={() => setReviewData(null)}
         />
       )}

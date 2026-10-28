@@ -2,6 +2,7 @@ import { computeFermentedServings, computeOmega3Servings } from './mealQualities
 import { loadIngredients } from './ingredientsStore.js';
 import { getSizeGrams } from './units.js';
 import { parseQuantity } from './parseQuantity.js';
+import { findMatch } from './sheetMatch.js';
 
 // Gram equivalents for common measurements (used to convert between units)
 const UNIT_TO_GRAMS = {
@@ -174,39 +175,6 @@ function normalizeMeasurement(m) {
     .replace(/_.*$/, '')         // can_5 oz -> can
     .replace(/s$/, '')           // cups -> cup
     .trim();
-}
-
-// Try to find the best matching row for an ingredient name.
-function findMatch(rows, ingredientName) {
-  const search = ingredientName.trim().toLowerCase();
-
-  // 1. Exact match
-  const exact = rows.find(r => r.name.toLowerCase() === search);
-  if (exact) return exact;
-
-  // 2. Sheet name starts with search or search starts with sheet name
-  const partial = rows.find(r => {
-    const rn = r.name.toLowerCase();
-    return rn.startsWith(search) || search.startsWith(rn);
-  });
-  if (partial) return partial;
-
-  // 3. Search words all appear in sheet name or vice versa
-  const searchWords = search.split(/[\s_-]+/);
-  const wordMatch = rows.find(r => {
-    const rn = r.name.toLowerCase();
-    return searchWords.every(w => rn.includes(w));
-  });
-  if (wordMatch) return wordMatch;
-
-  // 4. Any sheet name is contained in the search or vice versa
-  const contains = rows.find(r => {
-    const rn = r.name.toLowerCase();
-    return rn.includes(search) || search.includes(rn);
-  });
-  if (contains) return contains;
-
-  return null;
 }
 
 // Check if the recipe measurement is compatible with the sheet measurement.
