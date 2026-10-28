@@ -9,6 +9,7 @@
 
 import * as cheerio from 'cheerio';
 import { blockedMessage } from '../lib/fetchErrors.js';
+import { fetchPageHtml } from '../lib/fetchPage.js';
 
 // ── Fraction normalization (same as web app) ──
 
@@ -372,14 +373,9 @@ ${text ? `Social media caption:\n${text.slice(0, 2000)}` : ''}`;
   return null;
 }
 
-// Browser-like headers. The old "PrepDayMealPlanner/1.0" UA was an obvious
-// bot signature that many recipe sites (Cloudflare, etc.) answer with a 403,
-// so present as a real Chrome browser instead.
-const BROWSER_HEADERS = {
-  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-  'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-  'Accept-Language': 'en-US,en;q=0.9',
-};
+// Page fetches go through lib/fetchPage.js: browser headers first (the old
+// "PrepDayMealPlanner/1.0"-only UA got 403'd by many recipe sites), then a
+// plain User-Agent for the Cloudflare sites that 403 a fake Chrome instead.
 
 // Some sites stay behind anti-bot protection that 403s any server-side fetch
 // regardless of headers. r.jina.ai renders the page server-side; asking for
@@ -540,16 +536,11 @@ export default async function handler(req, res) {
       }
     }
 
-    // Regular URLs: fetch the page HTML with browser-like headers.
-    let html = '';
-    let status = 0;
-    try {
-      const response = await fetch(url, { headers: BROWSER_HEADERS, redirect: 'follow' });
-      status = response.status;
-      if (response.ok) html = await response.text();
-    } catch {
-      // network error — fall through to the reader proxy below
-    }
+    // Regular URLs: fetch the page HTML — browser headers first, then a plain
+    // User-Agent if that hits a bot wall (see lib/fetchPage.js).
+    const page = await fetchPageHtml(url);
+    let html = page.html;
+    const status = page.status;
 
     // Blocked (e.g. 403 anti-bot) or unreachable: retry through the reader
     // proxy, which renders the page and returns HTML with JSON-LD intact.
