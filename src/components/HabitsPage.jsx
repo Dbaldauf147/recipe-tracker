@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { loadField, loadHabitAutoStatus, subscribeToUserFields } from '../utils/firestoreSync';
 import {
   loadHabitLog, loadHabitLogAuto, subscribeToHabitLog, subscribeToHabitLogAuto,
@@ -13,7 +13,7 @@ import { HabitStatusHistory } from './HabitStatusHistory';
 import { HabitStatusList } from './HabitStatusList';
 import { canonStatus, habitsWithStatus } from '../utils/habitStatusHistory';
 import { REFRESH_DAYS, advanceAutoRefresh, stampAutoStatusChanges, isRefreshRotation, refreshReturnKey, nextRefreshCandidate } from '../utils/habitAutoRefresh';
-import { startQueue, dropInQueue, missingSetup, moveToNext } from '../utils/habitStartQueue';
+import { startQueue, dropInQueue, missingSetup, moveToNext, isWave2, wave2Seam } from '../utils/habitStartQueue';
 import { badHabitStats, recentDayKeys, cleanLabel, dayKeyOf, dateOfDayKey } from '../utils/badHabits';
 import { BadHabitDetail } from './BadHabitDetail';
 import {
@@ -2015,15 +2015,30 @@ export function HabitsPage({ onBack, user }) {
   }
   // "Make next" on the Not Started tab: the star ("Work on this next", same
   // `nextUp` field the phone popup sets) moves to this habit so it's #1, and the
-  // queue is renumbered so the old #1 lands at #2 — all in one persist.
+  // queue is renumbered so the old #1 lands at #2 — at the top of Wave 2, the
+  // habits coming after next — all in one persist.
   function makeNextHabit(orderedIds) {
     const [nextId] = orderedIds;
     const pos = new Map(orderedIds.map((id, i) => [id, i]));
     persist(habits.map(h => {
       if (!pos.has(h.id) && !h.nextUp) return h;
-      const { nextUp: _drop, ...rest } = h;
+      const { nextUp: _drop, wave2: _wave, ...rest } = h;
       const row = pos.has(h.id) ? { ...rest, startOrder: pos.get(h.id) } : rest;
-      return h.id === nextId ? { ...row, nextUp: true } : row;
+      if (h.id === nextId) return { ...row, nextUp: true };
+      return (h.nextUp && pos.has(h.id)) || h.wave2 ? { ...row, wave2: true } : row;
+    }));
+  }
+  // "+ Wave 2" / "− Wave 2" on the Not Started tab: flips the habit's `wave2`
+  // and renumbers the queue from `orderedIds` (wave2Seam), in one persist.
+  function setHabitWave2(id, on, orderedIds) {
+    const pos = new Map(orderedIds.map((x, i) => [x, i]));
+    persist(habits.map(h => {
+      if (!pos.has(h.id)) return h;
+      const row = { ...h, startOrder: pos.get(h.id) };
+      if (h.id !== id) return row;
+      if (on) return { ...row, wave2: true };
+      const { wave2: _drop, ...rest } = row;
+      return rest;
     }));
   }
   // Move a habit to another routine ('' = No routine). Clears its order so it
@@ -2517,6 +2532,7 @@ export function HabitsPage({ onBack, user }) {
           onUpdate={updateHabit}
           onReorderStart={reorderStartQueue}
           onMakeNext={makeNextHabit}
+          onSetWave2={setHabitWave2}
           onOpen={setOpenHabitId}
         />
       )}
@@ -2573,6 +2589,7 @@ export function HabitsPage({ onBack, user }) {
                   onUpdate={updateHabit}
                   onReorderStart={reorderStartQueue}
                   onMakeNext={makeNextHabit}
+                  onSetWave2={setHabitWave2}
                   onOpen={id => { setOpenHabitId(id); setDetailForId(id); }}
                 />
               ))}
@@ -5056,7 +5073,7 @@ function AutoSinceChip({ habit, nextUp }) {
   );
 }
 
-function MonthlyStatusReview({ kind, habits, onUpdate, onReorderStart, onMakeNext, onOpen }) {
+function MonthlyStatusReview({ kind, habits, onUpdate, onReorderStart, onMakeNext, onSetWave2, onOpen }) {
   const currentMonth = periodKey('Monthly'); // 'YYYY-MM' in local time
   const monthLabel = new Date().toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
 
@@ -5079,6 +5096,8 @@ function MonthlyStatusReview({ kind, habits, onUpdate, onReorderStart, onMakeNex
   const [overId, setOverId] = useState(null);
   const queue = useMemo(() => (isQueue ? startQueue(habits, compareByRoutine) : []), [habits, isQueue]);
   const unsetCount = queue.filter(h => { const m = missingSetup(h); return m.cadence || m.routine; }).length;
+  // Section labels only once there's a Wave 2 — otherwise the plain numbered list.
+  const hasWave2 = queue.slice(1).some(isWave2);
 
   // This kind's habits grouped by routine, routines in the canonical order.
   const groups = useMemo(() => {
@@ -5160,7 +5179,7 @@ function MonthlyStatusReview({ kind, habits, onUpdate, onReorderStart, onMakeNex
       )}
       {isQueue && (
         <div style={{ fontSize: '0.82rem', color: 'var(--color-text-secondary, #475569)', margin: '-0.4rem 0 1rem', lineHeight: 1.45 }}>
-          <strong>Up next:</strong> #1 is the next habit to start. Click “↑ Make next” to move a habit to #1, or drag the others to reorder them.
+          <strong>Up next:</strong> #1 is the next habit to start. Click “↑ Make next” to move a habit to #1, “+ Wave 2” to line it up right after that, or drag the others to reorder them.
         </div>
       )}
       {isAuto && (
@@ -5186,14 +5205,27 @@ function MonthlyStatusReview({ kind, habits, onUpdate, onReorderStart, onMakeNex
                 // of its own so it stands out from the rest of the line.
                 const isNext = isQueue && idx === 0;
                 const dropLine = isQueue && dragId && overId === h.id && dragId !== h.id;
+                // Wave 2: the habits lined up after the next one. A label opens
+                // Wave 2 and another opens "Later" where it ends.
+                const inWave2 = isQueue && !isNext && isWave2(h);
+                const prev = idx > 0 ? list[idx - 1] : null;
+                const waveLabel = !isQueue || !hasWave2 || isNext ? null
+                  : inWave2 && (idx === 1 || !isWave2(prev)) ? 'Wave 2 — after next'
+                  : !inWave2 && (idx === 1 || isWave2(prev)) ? 'Later'
+                  : null;
                 const flaggedMonth = (h[kind.revisitField] || '').trim();
                 const flagged = !!flaggedMonth;
                 // Flagged wins the border: an old flag is the thing you came
                 // back for, and it outlives this month's green tick.
                 const borderColor = flagged ? '#fdba74' : confirmed ? '#bbf7d0' : 'var(--color-border, #e2e8f0)';
                 return (
+                  <Fragment key={h.id}>
+                  {waveLabel && (
+                    <div style={{ fontSize: '0.7rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.05em', color: waveLabel === 'Later' ? '#94a3b8' : '#7c3aed', margin: '6px 0 0 2px' }}>
+                      {waveLabel}
+                    </div>
+                  )}
                   <div
-                    key={h.id}
                     draggable={canDrag}
                     onDragStart={canDrag ? (e) => { setDragId(h.id); e.dataTransfer.effectAllowed = 'move'; } : undefined}
                     onDragEnd={isQueue ? () => { setDragId(null); setOverId(null); } : undefined}
@@ -5245,6 +5277,14 @@ function MonthlyStatusReview({ kind, habits, onUpdate, onReorderStart, onMakeNex
                         style={{ border: '1px solid #fcd34d', background: '#fffbeb', borderRadius: 999, padding: '2px 9px', fontSize: '0.7rem', fontWeight: 700, color: '#b45309', cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap' }}
                       >↑ Make next</button>
                     )}
+                    {isQueue && !isNext && (
+                      <button
+                        type="button"
+                        onClick={() => { const ids = wave2Seam(queue, h.id); if (ids) onSetWave2?.(h.id, !inWave2, ids); }}
+                        title={inWave2 ? 'Take it out of Wave 2 (back to Later)' : 'Add to Wave 2 — the habits to start after the next one'}
+                        style={{ border: `1px solid ${inWave2 ? '#c4b5fd' : 'var(--color-border, #e2e8f0)'}`, background: inWave2 ? '#f5f3ff' : 'none', borderRadius: 999, padding: '2px 9px', fontSize: '0.7rem', fontWeight: 700, color: inWave2 ? '#6d28d9' : 'var(--color-text-muted, #64748b)', cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap' }}
+                      >{inWave2 ? '− Wave 2' : '+ Wave 2'}</button>
+                    )}
                     <button
                       type="button"
                       onClick={() => toggleRevisit(h)}
@@ -5265,6 +5305,7 @@ function MonthlyStatusReview({ kind, habits, onUpdate, onReorderStart, onMakeNex
                       ? <span style={{ fontSize: '0.72rem', fontWeight: 600, color: '#16a34a', whiteSpace: 'nowrap' }}>Confirmed</span>
                       : <span style={{ fontSize: '0.72rem', fontWeight: 600, color: '#b45309', whiteSpace: 'nowrap' }}>Needs check</span>}
                   </div>
+                  </Fragment>
                 );
               })}
             </div>

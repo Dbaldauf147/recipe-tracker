@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { startQueue, dropInQueue, pinStarred, missingSetup, moveToNext } from './habitStartQueue.js';
+import { startQueue, dropInQueue, pinStarred, missingSetup, moveToNext, isWave2, wave2Seam } from './habitStartQueue.js';
 
 const ns = (id, extra = {}) => ({ id, name: id, status: 'Not Started', ...extra });
 
@@ -42,4 +42,27 @@ test('moveToNext puts a habit at #1 and bumps the old #1 to #2', () => {
   assert.deepEqual(moveToNext(q, 'b'), ['b', 's', 'a']);
   assert.equal(moveToNext(q, 's'), null);
   assert.equal(moveToNext(q, 'zzz'), null);
+});
+
+// Wave 2 — ⚠️ same cases as PrepDay's suite.
+const waveHabits = () => [ns('a'), ns('w1', { wave2: true, startOrder: 5 }), ns('b'), ns('w2', { wave2: true, startOrder: 2 }), ns('s', { nextUp: true, wave2: true })];
+
+test('Wave 2 queues Next, then Wave 2, then Later — each by startOrder', () => {
+  assert.deepEqual(startQueue(waveHabits()).map(h => h.id), ['s', 'w2', 'w1', 'a', 'b']);
+  assert.equal(isWave2(ns('s', { nextUp: true, wave2: true })), false);
+});
+
+test('Wave 2: a drag reorders within a group; a drop across groups snaps back', () => {
+  const q = startQueue(waveHabits());
+  assert.deepEqual(dropInQueue(q, 'w1', 'w2'), ['s', 'w1', 'w2', 'a', 'b']);
+  assert.equal(dropInQueue(q, 'a', 'w2'), null);
+  assert.deepEqual(pinStarred(q, ['b', 'a', 'w1', 's', 'w2']), ['s', 'w1', 'w2', 'b', 'a']);
+});
+
+test('wave2Seam puts a habit at the end of Wave 2 / top of Later', () => {
+  const q = startQueue(waveHabits());
+  assert.deepEqual(wave2Seam(q, 'b'), ['s', 'w2', 'w1', 'b', 'a']);
+  assert.deepEqual(wave2Seam(q, 'w2'), ['s', 'w1', 'w2', 'a', 'b']);
+  assert.equal(wave2Seam(q, 's'), null);
+  assert.equal(wave2Seam(q, 'zzz'), null);
 });
