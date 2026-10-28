@@ -30,6 +30,7 @@ import { StarRating } from './StarRating';
 import { RECIPE_SEASONS } from '../utils/recipeSeason';
 import { getSuggestionSnapshot, subscribeSuggestionSnapshot, forecastSuggestion, describeForecast } from '../utils/suggestForecast';
 import styles from './RecipeDetail.module.css';
+import { parseQuantity } from '../utils/parseQuantity';
 
 const ADMIN_UID = import.meta.env.VITE_ADMIN_UID;
 
@@ -170,7 +171,7 @@ function displayMeasurement(measurement, ingredientName, qty) {
   if (isLiquid(ingredientName) && OZ_PATTERN.test(trimmed)) {
     return 'fl oz';
   }
-  const num = parseFloat(qty);
+  const num = parseQuantity(qty);
   const key = trimmed.toLowerCase().replace(/\(s\)$/i, '');
   if (key in PLURAL_UNITS) {
     if (!isNaN(num) && num > 1) {
@@ -201,7 +202,7 @@ function classifyUnit(measurement) {
 
 function getConversions(qty, measurement, dbGrams) {
   if (!measurement || !qty) return [];
-  const num = parseFloat(qty);
+  const num = parseQuantity(qty);
   if (isNaN(num) || num === 0) return [];
   const unit = normalizeUnit(measurement);
   const results = [];
@@ -247,7 +248,7 @@ function getConversions(qty, measurement, dbGrams) {
  */
 function getCrossConversion(qty, measurement, dbGrams, dbMeasurement) {
   if (!measurement || !qty) return { weight: '', volume: '' };
-  const num = parseFloat(qty);
+  const num = parseQuantity(qty);
   if (isNaN(num) || num === 0) return { weight: '', volume: '' };
   const unit = normalizeUnit(measurement);
   const dbUnit = normalizeUnit(dbMeasurement || '');
@@ -1182,7 +1183,7 @@ export function RecipeDetail({ recipe, allTags = [], onSave, onDelete, onBack, o
   // null if no conversion is possible.
   function ingredientGrams(row) {
     if (!row || !row.quantity || !row.measurement) return null;
-    const num = parseFloat(row.quantity);
+    const num = parseQuantity(row.quantity);
     if (!num || isNaN(num)) return null;
     const unit = normalizeUnit(row.measurement);
     if (WEIGHT_TO_G[unit]) return num * WEIGHT_TO_G[unit];
@@ -1218,9 +1219,9 @@ export function RecipeDetail({ recipe, allTags = [], onSave, onDelete, onBack, o
     } else {
       ingredientsMissing++;
       const reasons = [];
-      if (!row.quantity || isNaN(parseFloat(row.quantity))) reasons.push('quantity missing');
+      if (!row.quantity || isNaN(parseQuantity(row.quantity))) reasons.push('quantity missing');
       if (!row.measurement) reasons.push('unit missing');
-      else if (row.quantity && parseFloat(row.quantity) > 0) {
+      else if (row.quantity && parseQuantity(row.quantity) > 0) {
         reasons.push(`unit "${row.measurement}" can't be converted to grams (no DB match)`);
       }
       missingIngredientDetails.push({ name: row.ingredient, reasons });
@@ -3244,11 +3245,11 @@ export function RecipeDetail({ recipe, allTags = [], onSave, onDelete, onBack, o
                                 <button
                                   className={styles.typeBtn}
                                   type="button"
-                                  disabled={!parseFloat(row.quantity)}
-                                  title={!parseFloat(row.quantity) ? 'Quantity is 0' : 'Convert to grams'}
+                                  disabled={!parseQuantity(row.quantity)}
+                                  title={!parseQuantity(row.quantity) ? 'Quantity is 0' : 'Convert to grams'}
                                   onClick={() => {
                                     const ingName = (row.ingredient || '').trim();
-                                    const qty = parseFloat(row.quantity) || 1;
+                                    const qty = parseQuantity(row.quantity) || 1;
                                     const currentMeas = normalizeUnit(row.measurement || '');
                                     // Build size options from ingredient database
                                     const dbRows = getDbSizeRows(ingName);
@@ -3324,8 +3325,8 @@ export function RecipeDetail({ recipe, allTags = [], onSave, onDelete, onBack, o
                                 <button
                                   className={styles.typeBtn}
                                   type="button"
-                                  disabled={!parseFloat(row.quantity)}
-                                  title={!parseFloat(row.quantity) ? 'Quantity is 0' : 'Convert unit'}
+                                  disabled={!parseQuantity(row.quantity)}
+                                  title={!parseQuantity(row.quantity) ? 'Quantity is 0' : 'Convert unit'}
                                   onClick={() => {
                                     // Build volume options
                                     const volumeOptions = [];

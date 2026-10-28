@@ -9,6 +9,7 @@ import { fillMealGapsFromVisits } from '../utils/visitMealFill';
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, ReferenceLine, Legend, CartesianGrid, Area, ComposedChart } from 'recharts';
 import { RecipeDetail } from './RecipeDetail';
 import styles from './DailyTrackerPage.module.css';
+import { parseQuantity } from '../utils/parseQuantity';
 
 const DAILY_LOG_KEY = 'sunday-daily-log';
 const GOALS_KEY = 'sunday-nutrition-goals';
@@ -818,7 +819,7 @@ function AddEntrySection({ recipes, getRecipe, onAdd, weeklyPlan }) {
       const cw = parseFloat(customWeight);
       if (cw > 0) {
         const totalGrams = (recipe.ingredients || []).reduce((sum, ing) => {
-          const qty = parseFloat(ing.quantity) || 1;
+          const qty = parseQuantity(ing.quantity) || 1;
           const unit = (ing.measurement || '').trim().toLowerCase();
           const MEASUREMENT_TO_GRAMS = {
   g: 1, grams: 1, gram: 1, gm: 1,
@@ -886,7 +887,7 @@ function AddEntrySection({ recipes, getRecipe, onAdd, weeklyPlan }) {
         type: 'custom',
         ingredientName: ingredientName.trim(),
         ...(ingredientBrand.trim() ? { brand: ingredientBrand.trim() } : {}),
-        quantity: parseFloat(quantity) || 1,
+        quantity: parseQuantity(quantity) || 1,
         measurement,
         mealSlot,
         timestamp: new Date().toISOString(),
@@ -1277,7 +1278,7 @@ function SnackTrackerInline({ onAdd, onClose, recentSnacks }) {
       setItems(prev => [...prev, {
         id: uuid(),
         ingredientName: ingredientName.trim(),
-        quantity: parseFloat(quantity) || 1,
+        quantity: parseQuantity(quantity) || 1,
         measurement,
         nutrition: result.nutrients,
       }]);
@@ -1462,7 +1463,7 @@ function TrackIngredientInline({ onAdd, onBack }) {
         id: uuid(),
         type: 'custom',
         ingredientName: ingredientName.trim(),
-        quantity: parseFloat(quantity) || 1,
+        quantity: parseQuantity(quantity) || 1,
         measurement,
         mealSlot: 'snack',
         timestamp: new Date().toISOString(),
@@ -2320,7 +2321,7 @@ function AddRecipeQuick({ recipes, getRecipe, onAdd, onBack, weeklyPlan, inline,
         let bottomUpEstimate = 0;
         const bottomUpProblems = [];
         for (const ing of (recipe.ingredients || [])) {
-          const qty = parseFloat(ing.quantity);
+          const qty = parseQuantity(ing.quantity);
           const unitRaw = (ing.measurement || '').trim().toLowerCase();
           const unitKnown = unitRaw && Object.prototype.hasOwnProperty.call(MEASUREMENT_TO_GRAMS, unitRaw);
           const qtyLooksLikeGrams = !unitRaw && !isNaN(qty) && qty > 10;
@@ -2350,7 +2351,7 @@ function AddRecipeQuick({ recipes, getRecipe, onAdd, onBack, weeklyPlan, inline,
         const toppingIngData = perMealIngs.map(({ ing, idx }) => {
           const batchGrams = Math.round(estimateIngGrams(ing));
           const defaultGrams = ing.topping ? batchGrams : Math.round(batchGrams / recipeServings);
-          const origQty = parseFloat(ing.quantity);
+          const origQty = parseQuantity(ing.quantity);
           const defaultValue = !isNaN(origQty)
             ? (ing.topping ? origQty : parseFloat((origQty / recipeServings).toFixed(3)))
             : '';
@@ -2622,7 +2623,7 @@ const MEASUREMENT_TO_GRAMS = {
 };
 
 function estimateIngGrams(ing) {
-  const qty = parseFloat(ing.quantity) || 1;
+  const qty = parseQuantity(ing.quantity) || 1;
   const unit = (ing.measurement || '').trim().toLowerCase();
   // If no measurement but quantity looks like grams (>10), treat as grams
   if (!unit && qty > 10) return qty;
@@ -3004,7 +3005,7 @@ function EntryRow({ entry, onDelete, goalKeys, onEdit, onUpdateEntry, getRecipe 
                       if (!onUpdateEntry) return;
                       setSaving(true);
                       try {
-                        const newQty = parseFloat(editQty.quantity) || entry.quantity;
+                        const newQty = parseQuantity(editQty.quantity) || entry.quantity;
                         const newMeas = editQty.measurement || entry.measurement;
                         const scale = entry.quantity > 0 ? newQty / entry.quantity : 1;
                         const newNutrition = {};

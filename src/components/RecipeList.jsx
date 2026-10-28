@@ -28,6 +28,7 @@ import 'react-grid-layout/css/styles.css';
 import 'react-resizable/css/styles.css';
 const GridLayout = WidthProvider(GridLayoutLib);
 import styles from './RecipeList.module.css';
+import { parseQuantity } from '../utils/parseQuantity';
 
 /**
  * Does Joanne like this one? Her verdict rides on the recipe's tags, the same
@@ -1606,7 +1607,7 @@ export function RecipeList({
         if (!name) continue;
         const meas = (ing.measurement || '').toLowerCase().trim();
         const key = `${name}|||${meas}`;
-        const qty = (parseFloat(ing.quantity) || 0) * scale;
+        const qty = (parseQuantity(ing.quantity) || 0) * scale;
         if (map.has(key)) {
           const entry = map.get(key);
           entry.quantity += qty;
