@@ -1,5 +1,6 @@
 import { lookupFromSheet } from './sheetNutrition.js';
 import { pickUsdaFood } from './usdaScore.js';
+import { matchStrength } from './sheetMatch.js';
 import { NUTRIENTS } from './nutrients.js';
 import { computeFermentedServings, computeOmega3Servings } from './mealQualities.js';
 import { getSizeGrams } from './units.js';
@@ -258,6 +259,13 @@ function roundNutrient(value, decimals) {
 }
 
 async function fetchFromUSDA(ingredient, dataTypes = 'Foundation,SR%20Legacy') {
+  return (await searchUsdaFood(ingredient, dataTypes))?.item ?? null;
+}
+
+// The USDA food fetchFromUSDA picks, plus the scaled row it becomes. The raw
+// `food` (per-100g nutrients) is what "Use this" on a suggestion saves to My
+// Ingredients; it stays out of the cached rows, which are kept per recipe.
+async function searchUsdaFood(ingredient, dataTypes) {
   const { quantity, measurement, ingredient: name } = ingredient;
   if (!name.trim()) return null;
 
@@ -286,12 +294,30 @@ async function fetchFromUSDA(ingredient, dataTypes = 'Foundation,SR%20Legacy') {
 
   const sourceLabel = dataTypes.includes('Branded') ? 'usda-branded' : 'usda';
   return {
-    name: food.description,
-    matchedTo: name,
-    grams: Math.round(grams),
-    nutrients,
-    source: sourceLabel,
+    food,
+    item: {
+      name: food.description,
+      matchedTo: name,
+      grams: Math.round(grams),
+      nutrients,
+      source: sourceLabel,
+    },
   };
+}
+
+/**
+ * A better food for an ingredient whose lookup matched the wrong thing
+ * ("salt" → the sheet's "butter_salted"): USDA's pick for the name, when it
+ * actually shares the name's words. Null when USDA has nothing better.
+ * Returns { item, food } — `item` is the recipe row it would give, `food` the
+ * raw USDA food to save to My Ingredients.
+ */
+export async function suggestUsdaMatch(ingredient) {
+  for (const dataTypes of ['Foundation,SR%20Legacy', 'Branded,Survey%20(FNDDS)']) {
+    const hit = await searchUsdaFood(ingredient, dataTypes).catch(() => null);
+    if (hit && matchStrength(ingredient.ingredient, hit.item.name) !== 'weak') return hit;
+  }
+  return null;
 }
 
 // Open Food Facts name-based search (international coverage)

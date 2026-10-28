@@ -65,7 +65,9 @@ function isIngredientInSeason(name, seasonalSet) {
 // `addFor` — opened from a recipe's "Scan it in" (an ingredient that matched
 // the wrong food): the add menu starts open and whatever you add is named
 // `addFor`, so the recipe's next lookup finds it. `onAddForDone` clears it.
-export function IngredientsPage({ onClose, user, addFor = null, onAddForDone }) {
+// `addForFood` — the USDA food from the recipe's "Use this" suggestion: the
+// page opens straight on its review form instead of the add menu.
+export function IngredientsPage({ onClose, user, addFor = null, addForFood = null, onAddForDone }) {
   const isAdmin = user?.uid === ADMIN_UID;
 
   // Compute seasonal ingredients set
@@ -86,7 +88,7 @@ export function IngredientsPage({ onClose, user, addFor = null, onAddForDone }) 
   const [sortKey, setSortKey] = useState(null);
   const [sortAsc, setSortAsc] = useState(true);
   const [colWidths, setColWidths] = useState(loadColWidths);
-  const [showAddMenu, setShowAddMenu] = useState(!!addFor);
+  const [showAddMenu, setShowAddMenu] = useState(!!addFor && !addForFood);
   const [showBarcodeScanner, setShowBarcodeScanner] = useState(false);
   const [showPhotoUpload, setShowPhotoUpload] = useState(false);
   const [showUSDASearch, setShowUSDASearch] = useState(false);
@@ -346,6 +348,14 @@ export function IngredientsPage({ onClose, user, addFor = null, onAddForDone }) 
     setModalLoading(false);
   }
 
+  // Arrived from a recipe's "Use this": that USDA food, on the review form.
+  const pickedAddForFood = useRef(null);
+  useEffect(() => {
+    if (!addFor || !addForFood || pickedAddForFood.current === addForFood) return;
+    pickedAddForFood.current = addForFood;
+    handleUSDAPick(addForFood);
+  }, [addFor, addForFood]); // eslint-disable-line react-hooks/exhaustive-deps
+
   function handleUSDAPick(food) {
     // Extract per-100g nutrients
     const row = {};
@@ -558,7 +568,10 @@ export function IngredientsPage({ onClose, user, addFor = null, onAddForDone }) 
       {addFor && (
         <div className={styles.addForBanner} role="status">
           <span>
-            Adding <strong>“{addFor}”</strong> from your recipe. Scan the barcode or photo the nutrition label below.
+            Adding <strong>“{addFor}”</strong> from your recipe.{' '}
+            {addForFood
+              ? <>Check USDA’s <em>{addForFood.description}</em> below, then save.</>
+              : 'Scan the barcode or photo the nutrition label below.'}{' '}
             It’s saved as “{addFor}” so the recipe matches it next time.
           </span>
           <button type="button" className={styles.addForCancel} onClick={() => onAddForDone?.()}>Cancel</button>

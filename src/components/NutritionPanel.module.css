@@ -569,3 +569,36 @@
   font-weight: 600;
   color: #b45309;
 }
+
+/* USDA's better pick for a row that matched the wrong food. Takes a full
+   line under the "X was matched to Y" text. */
+.suggestion {
+  flex-basis: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  font-size: 0.78rem;
+  color: #14532d;
+  background: #f0fdf4;
+  border: 1px solid #86efac;
+  border-radius: 6px;
+  padding: 4px 8px;
+}
+
+.suggestionMeta {
+  color: #4b5563;
+  font-size: 0.72rem;
+}
+
+.suggestionUseBtn {
+  border: 1px solid #16a34a;
+  background: #16a34a;
+  color: #fff;
+  border-radius: 999px;
+  padding: 2px 12px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  cursor: pointer;
+}

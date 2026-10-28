@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
-import { fetchNutritionForRecipe, NUTRIENTS } from '../utils/nutrition';
+import { fetchNutritionForRecipe, suggestUsdaMatch, NUTRIENTS } from '../utils/nutrition';
 import { recipeNutritionVectors } from '../utils/recipeServingNutrition';
 import { ingredientsDbSignature } from '../utils/ingredientsStore';
 import { matchStrength } from '../utils/sheetMatch';
@@ -302,7 +302,47 @@ function matchedFoodName(item) {
   return (item.name || '').replace(/\s*\(from your sheet\)\s*$/i, '').trim();
 }
 
-function IngredientBreakdown({ items, totals, onAddIngredient }) {
+// USDA's pick for each weak row, keyed by the recipe's ingredient name:
+// absent while loading, then { item, food } or null (nothing better on USDA).
+function useSuggestions(weakIngredients) {
+  const [suggestions, setSuggestions] = useState({});
+  const key = weakIngredients.map(ing => ing.ingredient).join('|');
+  useEffect(() => {
+    if (!key) return;
+    let cancelled = false;
+    for (const ing of weakIngredients) {
+      suggestUsdaMatch(ing).then(hit => {
+        if (!cancelled) setSuggestions(prev => ({ ...prev, [ing.ingredient]: hit }));
+      });
+    }
+    return () => { cancelled = true; };
+  }, [key]); // eslint-disable-line react-hooks/exhaustive-deps
+  return suggestions;
+}
+
+function Suggestion({ name, suggestion, onAddIngredient }) {
+  if (suggestion === undefined) {
+    return <div className={styles.suggestion}>Looking for a better match…</div>;
+  }
+  if (!suggestion) {
+    return <div className={styles.suggestion}>No closer match on USDA — scan it in instead.</div>;
+  }
+  const { item, food } = suggestion;
+  return (
+    <div className={styles.suggestion}>
+      <span>
+        Suggested: <strong>{item.name}</strong> <span className={styles.suggestionMeta}>(USDA · {item.nutrients.calories} cal for {item.grams}g)</span>
+      </span>
+      {onAddIngredient && (
+        <button type="button" className={styles.suggestionUseBtn} onClick={() => onAddIngredient(name, food)}>
+          Use this
+        </button>
+      )}
+    </div>
+  );
+}
+
+function IngredientBreakdown({ items, totals, onAddIngredient, ingredients = [] }) {
   const [mode, setMode] = useState('nutrition'); // 'nutrition' | 'produce'
   const [selectedCols, setSelectedCols] = useState(() => {
     try {
@@ -329,6 +369,11 @@ function IngredientBreakdown({ items, totals, onAddIngredient }) {
   // (collapsed) table as well as a red row, and an offer to add the real one.
   const strengths = items.map(item => matchStrength(item.matchedTo, item.name));
   const weak = items.filter((_, i) => strengths[i] === 'weak');
+  // The recipe rows behind them (quantity + unit), for USDA's suggestion.
+  const weakIngredients = weak.map(item =>
+    ingredients.find(ing => (ing.ingredient || '').trim() === item.matchedTo)
+    || { ingredient: item.matchedTo, quantity: '', measurement: '' });
+  const suggestions = useSuggestions(weakIngredients);
 
   return (
     <>
@@ -348,12 +393,13 @@ function IngredientBreakdown({ items, totals, onAddIngredient }) {
                   Scan it in
                 </button>
               )}
+              <Suggestion name={item.matchedTo} suggestion={suggestions[item.matchedTo]} onAddIngredient={onAddIngredient} />
             </li>
           ))}
         </ul>
         {onAddIngredient && (
           <div className={styles.mismatchHint}>
-            Scan the barcode or photo the label and it’s saved to your ingredients under this name, so the recipe picks it up.
+            “Use this” or a scan saves the food to your ingredients under the recipe’s name, so the recipe picks it up.
           </div>
         )}
       </div>
@@ -497,7 +543,10 @@ export function NutritionPanel({ recipeId, ingredients, servings = 1, portionLab
     // fingerprints makes each one recompute once with utils/parseQuantity;
     // recipes without a fraction keep their cache.
     const fracTag = /\d\s*[/⁄]\s*\d|[¼½¾⅓⅔⅕⅖⅗⅘⅙⅚⅛⅜⅝⅞]/.test(rows) ? '@frac' : '';
-    return `${rows}@db:${dbSignature}${fracTag}`;
+    // Bumped when the matching itself changes, so every recipe recomputes once
+    // with it. m2: whole-word sheet + USDA matching ("salt" no longer lands on
+    // "butter_salted", "pumpkin pie spice" on "ice").
+    return `${rows}@db:${dbSignature}${fracTag}@m2`;
   }, [ingredients, dbSignature]);
 
   async function calculate() {
@@ -757,6 +806,7 @@ export function NutritionPanel({ recipeId, ingredients, servings = 1, portionLab
         }))}
         totals={totals}
         onAddIngredient={onAddIngredient}
+        ingredients={filteredIngredients}
       />
 
       <p className={styles.disclaimer}>
