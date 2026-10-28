@@ -1222,6 +1222,32 @@
 }
 
 /* ── Bulk preview ── */
+.bulkRowClickable {
+  cursor: pointer;
+}
+
+.bulkRowClickable:hover {
+  background: var(--color-surface-alt, #f8fafc);
+}
+
+.bulkTitleInput {
+  width: 100%;
+  max-width: 360px;
+  padding: 0.3rem 0.5rem;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-family: inherit;
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+}
+
+.bulkTitleInput:focus {
+  outline: none;
+  border-color: var(--color-accent);
+}
+
 .bulkPreviewName {
   background: none;
   border: none;
