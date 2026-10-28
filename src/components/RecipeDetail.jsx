@@ -527,7 +527,7 @@ function NextSuggestedLine({ recipeId }) {
   );
 }
 
-export function RecipeDetail({ recipe, allTags = [], onSave, onDelete, onBack, onAddToWeek, onRemoveFromWeek, weeklyPlan, user, ingredientsVersion, onViewSources, onPersistFields, collapseIngredients = false }) {
+export function RecipeDetail({ recipe, allTags = [], onSave, onDelete, onBack, onAddToWeek, onRemoveFromWeek, weeklyPlan, user, ingredientsVersion, onViewSources, onAddIngredient, onPersistFields, collapseIngredients = false }) {
   const [aiData, setAiData] = useState(null);
   // Meal-tag autocomplete: typed text + whether the suggestion dropdown is open.
   const [tagInput, setTagInput] = useState('');
@@ -2668,6 +2668,7 @@ export function RecipeDetail({ recipe, allTags = [], onSave, onDelete, onBack, o
           return null;
         })()}
         onViewSources={onViewSources}
+        onAddIngredient={onAddIngredient}
         onNutritionData={(d) => {
           setNutritionTotals(d?.totals || null);
           setNutritionPerServing(d?.perServing || null);

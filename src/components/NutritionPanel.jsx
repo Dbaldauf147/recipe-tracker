@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo, useRef } from 'react';
 import { fetchNutritionForRecipe, NUTRIENTS } from '../utils/nutrition';
 import { recipeNutritionVectors } from '../utils/recipeServingNutrition';
 import { ingredientsDbSignature } from '../utils/ingredientsStore';
+import { matchStrength } from '../utils/sheetMatch';
 import styles from './NutritionPanel.module.css';
 
 const GOALS_KEY = 'sunday-nutrition-goals';
@@ -295,7 +296,13 @@ const DEFAULT_BREAKDOWN_COLS = ['calories', 'protein', 'carbs', 'fat', 'fiber'];
 // Fixed fruit & veg columns for the "Fruit & Veg" per-ingredient subtab.
 const PRODUCE_KEYS = ['vegServings', 'fruitServings'];
 
-function IngredientBreakdown({ items, totals }) {
+// "pumpkin pie spice (from your sheet)" → the food it was matched to, without
+// the source tag, for the warning text.
+function matchedFoodName(item) {
+  return (item.name || '').replace(/\s*\(from your sheet\)\s*$/i, '').trim();
+}
+
+function IngredientBreakdown({ items, totals, onAddIngredient }) {
   const [mode, setMode] = useState('nutrition'); // 'nutrition' | 'produce'
   const [selectedCols, setSelectedCols] = useState(() => {
     try {
@@ -317,8 +324,41 @@ function IngredientBreakdown({ items, totals }) {
     ? NUTRIENTS.filter(n => PRODUCE_KEYS.includes(n.key))
     : NUTRIENTS.filter(n => selectedCols.includes(n.key));
 
+  // How far each row's matched food is from what the recipe asked for. Weak
+  // ones are almost certainly the wrong food, so they get a banner above the
+  // (collapsed) table as well as a red row, and an offer to add the real one.
+  const strengths = items.map(item => matchStrength(item.matchedTo, item.name));
+  const weak = items.filter((_, i) => strengths[i] === 'weak');
+
   return (
-    <details className={styles.details}>
+    <>
+    {weak.length > 0 && (
+      <div className={styles.mismatchBanner} role="alert">
+        <div className={styles.mismatchTitle}>
+          ⚠ {weak.length} ingredient{weak.length === 1 ? '' : 's'} matched to a different food — the nutrition below is probably wrong
+        </div>
+        <ul className={styles.mismatchList}>
+          {weak.map((item, i) => (
+            <li key={i}>
+              <span>
+                <strong>{item.matchedTo}</strong> was matched to <em>{matchedFoodName(item)}</em>
+              </span>
+              {onAddIngredient && (
+                <button type="button" className={styles.mismatchScanBtn} onClick={() => onAddIngredient(item.matchedTo)}>
+                  Scan it in
+                </button>
+              )}
+            </li>
+          ))}
+        </ul>
+        {onAddIngredient && (
+          <div className={styles.mismatchHint}>
+            Scan the barcode or photo the label and it’s saved to your ingredients under this name, so the recipe picks it up.
+          </div>
+        )}
+      </div>
+    )}
+    <details className={styles.details} open={weak.length > 0 || undefined}>
       <summary>Per-ingredient breakdown</summary>
       {/* Subtab: nutrition columns vs. per-ingredient fruit & veg servings. */}
       <div className={styles.servingsToggle}>
@@ -367,13 +407,28 @@ function IngredientBreakdown({ items, totals }) {
               const baseItems = items.map((item, i) => ({ item, i })).filter(({ item }) => !item.topping);
               const topItems = items.map((item, i) => ({ item, i })).filter(({ item }) => item.topping);
               const colSpan = 1 + visibleNutrients.length;
-              const renderItemRow = ({ item, i }) => (
-                <tr key={i}>
+              const renderItemRow = ({ item, i }) => {
+                const strength = strengths[i];
+                return (
+                <tr key={i} className={strength === 'weak' ? styles.rowMismatch : undefined}>
                   <td className={styles.ingredientCell}>
                     <span>{item.matchedTo}</span>
                     <span className={styles.matchNote}>
                       {item.name.toLowerCase()} ({item.grams}g)
                     </span>
+                    {strength === 'weak' && (
+                      <span className={styles.mismatchTag}>
+                        ⚠ Not a match
+                        {onAddIngredient && (
+                          <button type="button" className={styles.mismatchScanBtn} onClick={() => onAddIngredient(item.matchedTo)}>
+                            Scan it in
+                          </button>
+                        )}
+                      </span>
+                    )}
+                    {strength === 'partial' && (
+                      <span className={styles.partialTag} title="Only some of the words match — check this is the right food">⚠ Check match</span>
+                    )}
                   </td>
                   {visibleNutrients.map(n => (
                     <td key={n.key}>
@@ -381,7 +436,8 @@ function IngredientBreakdown({ items, totals }) {
                     </td>
                   ))}
                 </tr>
-              );
+                );
+              };
               return (
                 <>
                   {baseItems.length > 0 && (
@@ -411,10 +467,11 @@ function IngredientBreakdown({ items, totals }) {
         </table>
       </div>
     </details>
+    </>
   );
 }
 
-export function NutritionPanel({ recipeId, ingredients, servings = 1, portionLabel, onViewSources, onNutritionData, weighPortionContent }) {
+export function NutritionPanel({ recipeId, ingredients, servings = 1, portionLabel, onViewSources, onNutritionData, onAddIngredient, weighPortionContent }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -699,6 +756,7 @@ export function NutritionPanel({ recipeId, ingredients, servings = 1, portionLab
           topping: !!filteredIngredients[i]?.topping,
         }))}
         totals={totals}
+        onAddIngredient={onAddIngredient}
       />
 
       <p className={styles.disclaimer}>

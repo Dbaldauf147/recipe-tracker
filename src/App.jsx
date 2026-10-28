@@ -697,6 +697,15 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [settingsOpen]);
 
+  // "Scan it in" on a recipe's nutrition breakdown, for an ingredient that
+  // matched the wrong food: opens My Ingredients ready to add it under the
+  // recipe's own name, so the next lookup finds it.
+  const [ingredientAddFor, setIngredientAddFor] = useState(null);
+  function addIngredientFromRecipe(name) {
+    setIngredientAddFor(name);
+    navigateTo('ingredients');
+  }
+
   function navigateTo(nextView, nextSelectedId) {
     setViewHistory(prev => [...prev.slice(-19), { view, selectedId }]);
     if (nextSelectedId !== undefined) setSelectedId(nextSelectedId);
@@ -1368,7 +1377,7 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
             onClose={goBack}
           />
         ) : view === 'ingredients' ? (
-          <IngredientsPage onClose={goBack} user={user} />
+          <IngredientsPage onClose={() => { setIngredientAddFor(null); goBack(); }} user={user} addFor={ingredientAddFor} onAddForDone={() => setIngredientAddFor(null)} />
         ) : view === 'friends' ? (
           <FriendsPage
             onClose={() => {
@@ -1404,6 +1413,7 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
               user={user}
               ingredientsVersion={ingredientsVersion}
               onViewSources={() => navigateTo('sources')}
+              onAddIngredient={addIngredientFromRecipe}
               onPersistFields={transientViewRecipe || !selectedId
                 ? undefined
                 : (updates) => persistRecipeFields(selectedId, updates)}
@@ -1482,6 +1492,7 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
                 onRemoveFromWeek={() => handleRemoveFromWeek(viewRecipeId)}
                 weeklyPlan={weeklyPlan}
                 user={user}
+                onAddIngredient={(name) => { setViewRecipeId(null); addIngredientFromRecipe(name); }}
                 onPersistFields={(updates) => persistRecipeFields(viewRecipeId, updates)}
               />
             </div>
