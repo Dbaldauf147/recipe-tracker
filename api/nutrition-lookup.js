@@ -293,9 +293,11 @@ async function lookupFromUSDA(ingredient, grams, scaleFactor, quantity, unit, da
     // Exact match or starts-with bonus.
     if (desc === ingLower) s += 200;
     else if (desc.startsWith(ingLower + ',') || desc.startsWith(ingLower + ' ')) s += 80;
-    // Token-overlap bonus: how many input words appear in the description.
+    // Token-overlap bonus: how many input words appear in the description
+    // as WHOLE words — "salt" inside "salted" put butter ahead of table salt.
     const inputWords = ingLower.split(/\s+/).filter(w => w.length > 2);
-    const overlap = inputWords.filter(w => desc.includes(w)).length;
+    const descWords = new Set(desc.split(/[^a-z0-9%]+/).filter(Boolean));
+    const overlap = inputWords.filter(w => descWords.has(w) || descWords.has(w + 's') || (w.endsWith('s') && descWords.has(w.slice(0, -1)))).length;
     s += overlap * 10;
 
     // Prefer raw/fresh by default — but only penalize processed forms
