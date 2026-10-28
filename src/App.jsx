@@ -699,11 +699,18 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
 
   // "Scan it in" on a recipe's nutrition breakdown, for an ingredient that
   // matched the wrong food: opens My Ingredients ready to add it under the
-  // recipe's own name, so the next lookup finds it.
+  // recipe's own name, so the next lookup finds it. "Use this" on a USDA
+  // suggestion passes that food too, and the page opens on its review form.
   const [ingredientAddFor, setIngredientAddFor] = useState(null);
-  function addIngredientFromRecipe(name) {
+  const [ingredientAddFood, setIngredientAddFood] = useState(null);
+  function addIngredientFromRecipe(name, usdaFood = null) {
     setIngredientAddFor(name);
+    setIngredientAddFood(usdaFood);
     navigateTo('ingredients');
+  }
+  function clearIngredientAddFor() {
+    setIngredientAddFor(null);
+    setIngredientAddFood(null);
   }
 
   function navigateTo(nextView, nextSelectedId) {
@@ -1377,7 +1384,7 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
             onClose={goBack}
           />
         ) : view === 'ingredients' ? (
-          <IngredientsPage onClose={() => { setIngredientAddFor(null); goBack(); }} user={user} addFor={ingredientAddFor} onAddForDone={() => setIngredientAddFor(null)} />
+          <IngredientsPage onClose={() => { clearIngredientAddFor(); goBack(); }} user={user} addFor={ingredientAddFor} addForFood={ingredientAddFood} onAddForDone={clearIngredientAddFor} />
         ) : view === 'friends' ? (
           <FriendsPage
             onClose={() => {
@@ -1492,7 +1499,7 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
                 onRemoveFromWeek={() => handleRemoveFromWeek(viewRecipeId)}
                 weeklyPlan={weeklyPlan}
                 user={user}
-                onAddIngredient={(name) => { setViewRecipeId(null); addIngredientFromRecipe(name); }}
+                onAddIngredient={(name, usdaFood) => { setViewRecipeId(null); addIngredientFromRecipe(name, usdaFood); }}
                 onPersistFields={(updates) => persistRecipeFields(viewRecipeId, updates)}
               />
             </div>

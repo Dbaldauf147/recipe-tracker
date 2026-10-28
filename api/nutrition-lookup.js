@@ -2,6 +2,9 @@
 // with estimation for missing nutrients (leucine, omega-3, etc.)
 // Auto-routed at /api/nutrition-lookup
 
+import { getSearchTerm } from '../src/utils/usdaSearchTerm.js';
+import { scoreUsdaMatch } from '../src/utils/usdaScore.js';
+
 const USDA_API_KEY = process.env.VITE_USDA_API_KEY || process.env.USDA_API_KEY || 'DEMO_KEY';
 const USDA_SEARCH_URL = 'https://api.nal.usda.gov/fdc/v1/foods/search';
 
@@ -130,13 +133,21 @@ function estimateLeucine(protein, foodDescription) {
   return Math.round(protein * ratio * 1000) / 1000;
 }
 
+// The phone sends units spelled out ("0.125 teaspoon salt"); before these
+// were understood, "teaspoon salt" was searched as the food and weighed 100g.
+const LONG_UNITS = { gram: 'g', ounce: 'oz', tablespoon: 'tbsp', teaspoon: 'tsp', pound: 'lb' };
+function normalizeUnit(raw) {
+  const u = raw.toLowerCase().replace(/s$/, '');
+  return LONG_UNITS[u] || u;
+}
+
 function parsePortionFromText(text) {
   // Try to extract quantity, unit, and ingredient from text like "2 cups rice" or "50g chicken breast"
   const cleaned = text.trim();
 
   // Match patterns like "100g", "50 g", "2 cups", "1 slice", "a medium apple"
   const match = cleaned.match(
-    /^(?:(\d+(?:\.\d+)?)\s*(?:x\s*)?)?(?:(g|oz|cup|cups|tbsp|tsp|slice|slices|piece|pieces|can|cans|serving|servings|medium|large|small|lb|lbs|kg)\s+)?(?:of\s+)?(.+)$/i
+    /^(?:(\d+(?:\.\d+)?)\s*(?:x\s*)?)?(?:(g|grams?|oz|ounces?|cup|cups|tbsp|tablespoons?|tsp|teaspoons?|ml|slice|slices|piece|pieces|can|cans|serving|servings|medium|large|small|lb|lbs|pounds?|kg)\s+)?(?:of\s+)?(.+)$/i
   );
 
   // Also try "ingredient, Xg" format
@@ -152,7 +163,7 @@ function parsePortionFromText(text) {
 
   if (match) {
     const quantity = match[1] ? parseFloat(match[1]) : 1;
-    const unit = match[2] ? match[2].toLowerCase().replace(/s$/, '') : null;
+    const unit = match[2] ? normalizeUnit(match[2]) : null;
     const ingredient = match[3] ? match[3].trim() : cleaned;
     return { ingredient, quantity, unit };
   }
@@ -264,7 +275,10 @@ function buildRowFromUSDA(food, grams, scaleFactor, quantity, unit) {
 }
 
 async function lookupFromUSDA(ingredient, grams, scaleFactor, quantity, unit, dataTypes) {
-  const url = `${USDA_SEARCH_URL}?api_key=${USDA_API_KEY}&query=${encodeURIComponent(ingredient)}&pageSize=10&dataType=${dataTypes}`;
+  // Same search term (aliases: "salt" → "salt, table") and the same
+  // whole-word picker as the website's lookup, so the phone's numbers match.
+  const searchTerm = getSearchTerm(ingredient);
+  const url = `${USDA_SEARCH_URL}?api_key=${USDA_API_KEY}&query=${encodeURIComponent(searchTerm)}&pageSize=10&dataType=${dataTypes}`;
   const res = await fetch(url);
   if (!res.ok) return null;
   const data = await res.json();
@@ -272,9 +286,8 @@ async function lookupFromUSDA(ingredient, grams, scaleFactor, quantity, unit, da
 
   // USDA's first hit is often a heavily-processed variant (dried,
   // sweetened, juice, pickle...) which has wildly different nutrition
-  // from the fresh ingredient the user typed. Score every result and
-  // prefer raw/fresh forms unless the user explicitly asked for the
-  // processed form.
+  // from the fresh ingredient the user typed. On top of the shared picker,
+  // mark processed forms down unless the user explicitly asked for one.
   const ingLower = ingredient.toLowerCase();
   const userTokens = {
     dried: /\bdried\b/.test(ingLower),
@@ -284,27 +297,14 @@ async function lookupFromUSDA(ingredient, grams, scaleFactor, quantity, unit, da
     juice: /\bjuice\b/.test(ingLower),
     pickle: /\bpickled?\b/.test(ingLower),
     cooked: /\bcooked\b|\bboiled\b|\broasted\b|\bgrilled\b/.test(ingLower),
-    rawAsked: /\braw\b|\bfresh\b/.test(ingLower),
   };
 
-  function scoreFood(food) {
+  // Higher = more processed than asked for (subtracted, halved, from the
+  // picker's lower-is-better score).
+  function processedForm(food) {
     const desc = (food.description || '').toLowerCase();
     let s = 0;
-    // Exact match or starts-with bonus.
-    if (desc === ingLower) s += 200;
-    else if (desc.startsWith(ingLower + ',') || desc.startsWith(ingLower + ' ')) s += 80;
-    // Token-overlap bonus: how many input words appear in the description
-    // as WHOLE words — "salt" inside "salted" put butter ahead of table salt.
-    const inputWords = ingLower.split(/\s+/).filter(w => w.length > 2);
-    const descWords = new Set(desc.split(/[^a-z0-9%]+/).filter(Boolean));
-    const overlap = inputWords.filter(w => descWords.has(w) || descWords.has(w + 's') || (w.endsWith('s') && descWords.has(w.slice(0, -1)))).length;
-    s += overlap * 10;
-
-    // Prefer raw/fresh by default — but only penalize processed forms
-    // when the user didn't ask for them.
-    if (/\braw\b/.test(desc)) s += userTokens.rawAsked ? 40 : 25;
     if (/\bfresh\b/.test(desc)) s += 15;
-
     if (!userTokens.dried && /\bdried\b/.test(desc)) s -= 80;
     if (!userTokens.frozen && /\bfrozen\b/.test(desc)) s -= 25;
     if (!userTokens.canned && /\bcanned\b/.test(desc)) s -= 50;
@@ -312,15 +312,13 @@ async function lookupFromUSDA(ingredient, grams, scaleFactor, quantity, unit, da
     if (!userTokens.juice && /\bjuice\b/.test(desc)) s -= 60;
     if (!userTokens.pickle && /\bpickled?\b/.test(desc)) s -= 120;
     if (!userTokens.cooked && /\b(cooked|boiled|roasted|grilled|fried|baked|stewed)\b/.test(desc)) s -= 30;
-
-    // Foundation / SR Legacy data is more reliable than Branded.
-    if (food.dataType === 'Foundation' || food.dataType === 'SR Legacy') s += 15;
-
     return s;
   }
 
-  const ranked = data.foods.slice().sort((a, b) => scoreFood(b) - scoreFood(a));
-  return buildRowFromUSDA(ranked[0], grams, scaleFactor, quantity, unit);
+  const ranked = data.foods
+    .map((food, i) => ({ food, i, score: scoreUsdaMatch(food, searchTerm, i) - processedForm(food) / 2 }))
+    .sort((a, b) => a.score - b.score || a.i - b.i);
+  return buildRowFromUSDA(ranked[0].food, grams, scaleFactor, quantity, unit);
 }
 
 // Open Food Facts name-based search
