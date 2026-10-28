@@ -1,6 +1,7 @@
 import { computeFermentedServings, computeOmega3Servings } from './mealQualities.js';
 import { loadIngredients } from './ingredientsStore.js';
 import { getSizeGrams } from './units.js';
+import { parseQuantity } from './parseQuantity.js';
 
 // Gram equivalents for common measurements (used to convert between units)
 const UNIT_TO_GRAMS = {
@@ -234,7 +235,7 @@ export async function lookupFromSheet(ingredient) {
   const match = findMatch(rows, name);
   if (!match) return null;
 
-  const rawQty = parseFloat(quantity);
+  const rawQty = parseQuantity(quantity);
   const qty = isNaN(rawQty) ? 1 : rawQty;
 
   // Sheet nutrient values are stored per the row's listed measurement

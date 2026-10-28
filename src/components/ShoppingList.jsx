@@ -5,6 +5,7 @@ import { SIZE_GRAMS, WEIGHT_TO_G } from '../utils/units.js';
 import { unitWeightGrams, defaultUnitWeight, pluralizeUnit, normalizeUnitName, isAlreadyPlural, UNIT_SIZES } from '../utils/unitWeights.js';
 import { suggestIngredientNames } from '../utils/suggestIngredientName.js';
 import styles from './ShoppingList.module.css';
+import { parseQuantity } from '../utils/parseQuantity';
 
 // Human labels for every trackable ingredient field, keyed for O(1) lookup.
 const FIELD_LABEL = Object.fromEntries(INGREDIENT_FIELDS.map(f => [f.key, f.label]));
@@ -839,7 +840,7 @@ function normalizeShopUnit(unit) {
 
 function getConversions(qty, measurement) {
   if (!measurement || !qty) return [];
-  const num = parseFloat(qty);
+  const num = parseQuantity(qty);
   if (isNaN(num) || num === 0) return [];
   const unit = normalizeShopUnit(measurement);
   const results = [];
@@ -1449,7 +1450,7 @@ export function ShoppingList({ weeklyRecipes, weeklyServings = {}, extraItems = 
                             handful: 'handful', handfuls: 'handfuls',
                           };
                           const rawUnit = (item.measurement || '').toLowerCase().replace(/\.$/, '');
-                          const qty = parseFloat(item.quantity) || 0;
+                          const qty = parseQuantity(item.quantity) || 0;
                           let fullUnit = UNIT_FULL[rawUnit] || item.measurement;
                           // Pluralize if qty > 1 and the unit is a singular noun.
                           // Skipped for size words (a size is an adjective — "2
@@ -1515,7 +1516,7 @@ export function ShoppingList({ weeklyRecipes, weeklyServings = {}, extraItems = 
                                       if (!isWeight && !isVolume) {
                                         return <div className={styles.convertNoAvail}>Conversion not available for {item.measurement || 'this unit'}</div>;
                                       }
-                                      const num = parseFloat(item.quantity) || 0;
+                                      const num = parseQuantity(item.quantity) || 0;
                                       function calcConvert(targetUnit) {
                                         if (isWeight && WEIGHT_TO_G[targetUnit]) {
                                           return parseFloat((num * WEIGHT_TO_G[srcUnit] / WEIGHT_TO_G[targetUnit]).toFixed(2));

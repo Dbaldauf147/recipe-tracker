@@ -1,3 +1,4 @@
+import { parseQuantity } from '../utils/parseQuantity.js';
 /**
  * Greenhouse Gas (GHG) Emissions Data
  * Values in kg CO2e per kg of food product
@@ -585,7 +586,7 @@ const MEASUREMENT_TO_GRAMS = {
 };
 
 export function estimateGramsForGHG(quantity, measurement) {
-  const rawQty = parseFloat(quantity);
+  const rawQty = parseQuantity(quantity);
   const qty = isNaN(rawQty) ? 1 : rawQty;
   const unit = (measurement || '').trim().toLowerCase();
 

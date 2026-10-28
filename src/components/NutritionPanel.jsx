@@ -435,7 +435,12 @@ export function NutritionPanel({ recipeId, ingredients, servings = 1, portionLab
       .filter(row => (row.ingredient || '').trim())
       .map(row => `${row.quantity}|${row.measurement}|${row.ingredient}`)
       .join(';;');
-    return `${rows}@db:${dbSignature}`;
+    // "1/2" used to be read as 1 (parseFloat stops at the slash), so a recipe
+    // with a fraction cached nutrition for the wrong amount. Tagging those
+    // fingerprints makes each one recompute once with utils/parseQuantity;
+    // recipes without a fraction keep their cache.
+    const fracTag = /\d\s*[/⁄]\s*\d|[¼½¾⅓⅔⅕⅖⅗⅘⅙⅚⅛⅜⅝⅞]/.test(rows) ? '@frac' : '';
+    return `${rows}@db:${dbSignature}${fracTag}`;
   }, [ingredients, dbSignature]);
 
   async function calculate() {

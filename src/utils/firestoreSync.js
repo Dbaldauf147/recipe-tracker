@@ -3,6 +3,7 @@ import { db, auth } from '../firebase';
 import { writeWorkoutsMirror } from './workoutsMirror';
 import { activeUsersIn } from '../../lib/adminGrowth.js';
 import { ARCHIVE_COLLECTION, isMonthKey, parseArchiveDoc, flattenArchive, mergeArchiveUnder, omitArchivedDays } from './dailyLogArchive.js';
+import { parseQuantity } from './parseQuantity.js';
 
 // ── Data-safety layer (mirrors the mobile app) ──────────────────────────────
 // Every full-document overwrite of a big "blob" doc (dailyLog, recipes) goes
@@ -2841,7 +2842,7 @@ function enrichRecipeForShare(recipe, ingredientsDB) {
       i => (i.ingredient || '').toLowerCase().trim() === (ing.ingredient || '').toLowerCase().trim(),
     );
     if (dbRow) {
-      const qty = parseFloat(ing.quantity) || 1;
+      const qty = parseQuantity(ing.quantity) || 1;
       const ingNutrition = computeShareIngredientNutrition(dbRow, qty, ing.measurement || 'g');
       enrichedIngredients.push({ ...ing, nutrition: ingNutrition });
       for (const [k, v] of Object.entries(ingNutrition)) {

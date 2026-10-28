@@ -2,6 +2,7 @@ import { lookupFromSheet } from './sheetNutrition.js';
 import { NUTRIENTS } from './nutrients.js';
 import { computeFermentedServings, computeOmega3Servings } from './mealQualities.js';
 import { getSizeGrams } from './units.js';
+import { parseQuantity } from './parseQuantity.js';
 
 const API_KEY = import.meta.env.VITE_USDA_API_KEY || 'DEMO_KEY';
 const BASE_URL = 'https://api.nal.usda.gov/fdc/v1/foods/search';
@@ -237,7 +238,7 @@ const MEASUREMENT_TO_GRAMS = {
 };
 
 function estimateGrams(quantity, measurement, ingredientName) {
-  const rawQty = parseFloat(quantity);
+  const rawQty = parseQuantity(quantity);
   const qty = isNaN(rawQty) ? 1 : rawQty;
   const unit = (measurement || '').trim().toLowerCase();
 

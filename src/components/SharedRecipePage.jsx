@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { loadSharedRecipe, loadUserData, saveField } from '../utils/firestoreSync';
 import { OpenInAppBanner } from './OpenInAppBanner';
 import styles from './SharedRecipePage.module.css';
+import { parseQuantity } from '../utils/parseQuantity';
 
 const PENDING_SHARE_KEY = 'sunday-pending-shared-recipe';
 
@@ -57,7 +58,7 @@ function displayMeasurement(measurement, ingredientName, qty) {
     }
     if (liquid && OZ_PATTERN.test(trimmed)) return 'fl oz';
   }
-  const num = parseFloat(qty);
+  const num = parseQuantity(qty);
   const key = trimmed.toLowerCase().replace(/\(s\)$/i, '');
   if (key in PLURAL_UNITS) {
     if (!isNaN(num) && num > 1) return PLURAL_UNITS[key];
