@@ -371,6 +371,12 @@ export function ImportRecipePage({ onSave, onAddWithoutClose, onCancel, onGoToRe
     return (recipe.title || '').trim() || 'Untitled Recipe';
   }
 
+  // A screenshot often shows only the ingredients or the steps, with no title
+  // for the AI to read — so the found recipe's title is editable before adding.
+  function setBulkRecipeTitle(index, title) {
+    setBulkRecipes(prev => prev.map((r, i) => (i === index ? { ...r, title } : r)));
+  }
+
   function handleBulkAdd(index) {
     const recipe = bulkRecipes[index];
     if (!recipe) return;
@@ -2097,17 +2103,42 @@ export function ImportRecipePage({ onSave, onAddWithoutClose, onCancel, onGoToRe
                 </div>
                 {bulkRecipes.map((recipe, i) => (
                   <div key={i}>
-                    <div className={styles.sharedItem}>
+                    {/* Clicking anywhere on the row opens the recipe — except the
+                        title box and the buttons, which do their own thing. */}
+                    <div
+                      className={`${styles.sharedItem} ${styles.bulkRowClickable}`}
+                      onClick={e => { if (!e.target.closest('input, button')) setBulkPreview(i); }}
+                      title="Click to see the recipe"
+                    >
                       <div className={styles.sharedInfo}>
-                        <button
-                          className={styles.bulkPreviewName}
-                          onClick={() => setBulkPreview(i)}
-                        >
-                          {bulkTitle(recipe)}
-                        </button>
+                        {bulkAdded.has(i) ? (
+                          <button
+                            className={styles.bulkPreviewName}
+                            onClick={() => setBulkPreview(i)}
+                          >
+                            {bulkTitle(recipe)}
+                          </button>
+                        ) : (
+                          <input
+                            type="text"
+                            value={recipe.title || ''}
+                            onChange={e => setBulkRecipeTitle(i, e.target.value)}
+                            placeholder="Recipe title"
+                            aria-label="Recipe title"
+                            className={styles.bulkTitleInput}
+                          />
+                        )}
                         <span className={styles.sharedMeta}>
                           {recipe.ingredients.length} ingredient{recipe.ingredients.length !== 1 ? 's' : ''}
                           {recipe.sourceFile && ` · ${recipe.sourceFile}`}
+                          {' · '}
+                          <button
+                            type="button"
+                            className={styles.bulkPreviewName}
+                            onClick={() => setBulkPreview(i)}
+                          >
+                            View recipe
+                          </button>
                         </span>
                       </div>
                       {bulkAdded.has(i) ? (
@@ -2837,7 +2868,19 @@ export function ImportRecipePage({ onSave, onAddWithoutClose, onCancel, onGoToRe
         <div className={styles.overlay} style={{ zIndex: 1100 }} onClick={() => setBulkPreview(null)}>
           <div className={styles.multiRecipeModal} onClick={e => e.stopPropagation()}>
             <div className={styles.multiRecipeHeader}>
-              <h3 className={styles.multiRecipeTitle}>{bulkTitle(recipe)}</h3>
+              {bulkAdded.has(bulkPreview) ? (
+                <h3 className={styles.multiRecipeTitle}>{bulkTitle(recipe)}</h3>
+              ) : (
+                <input
+                  type="text"
+                  value={recipe.title || ''}
+                  onChange={e => setBulkRecipeTitle(bulkPreview, e.target.value)}
+                  placeholder="Recipe title"
+                  aria-label="Recipe title"
+                  className={styles.bulkTitleInput}
+                  style={{ fontSize: '1.05rem', fontWeight: 600, marginRight: '0.75rem' }}
+                />
+              )}
               <button className={styles.multiRecipeClose} onClick={() => setBulkPreview(null)}>&times;</button>
             </div>
             <div style={{ overflowY: 'auto', padding: '0.75rem 1.25rem 1.25rem' }}>
