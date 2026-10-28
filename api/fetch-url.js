@@ -3,6 +3,7 @@
 // Also handles Pinterest extraction: /api/fetch-url?url=...&pinterest=true
 
 import { blockedMessage } from '../lib/fetchErrors.js';
+import { fetchPageHtml } from '../lib/fetchPage.js';
 
 function extractPinterestSourceUrl(html) {
   let sourceUrl = null;
@@ -66,20 +67,13 @@ export default async function handler(req, res) {
   }
 
   try {
-    const response = await fetch(url, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-        'Accept-Language': 'en-US,en;q=0.5',
-      },
-      redirect: 'follow',
-    });
+    // Browser headers first, then a plain User-Agent if that hits a bot wall
+    // (see lib/fetchPage.js).
+    const { html, status } = await fetchPageHtml(url);
 
-    if (!response.ok) {
-      return res.status(502).json({ error: blockedMessage(response.status) });
+    if (!html) {
+      return res.status(502).json({ error: blockedMessage(status) });
     }
-
-    const html = await response.text();
 
     if (isPinterest) {
       const sourceUrl = extractPinterestSourceUrl(html);
