@@ -1,4 +1,5 @@
 import { lookupFromSheet } from './sheetNutrition.js';
+import { pickUsdaFood } from './usdaScore.js';
 import { NUTRIENTS } from './nutrients.js';
 import { computeFermentedServings, computeOmega3Servings } from './mealQualities.js';
 import { getSizeGrams } from './units.js';
@@ -124,6 +125,16 @@ const ALIASES = {
   'canola oil': 'oil, canola',
   'coconut oil': 'oil, coconut',
   'salt': 'salt, table',
+  // USDA has one salt; every variety's search otherwise ends on butter or pickles.
+  'sea salt': 'salt, table',
+  'kosher salt': 'salt, table',
+  'himalayan salt': 'salt, table',
+  'pink salt': 'salt, table',
+  'cinnamon': 'spices, cinnamon, ground',
+  'ground cinnamon': 'spices, cinnamon, ground',
+  'sweet potato': 'sweet potato, raw, unprepared',
+  'sweet potatoes': 'sweet potato, raw, unprepared',
+  'pumpkin puree': 'pumpkin, canned, without salt',
   'baking soda': 'leavening agents, baking soda',
   'baking powder': 'leavening agents, baking powder',
   'vanilla extract': 'vanilla extract',
@@ -180,12 +191,6 @@ const ALIASES = {
   'strawberries': 'strawberries, raw',
 };
 
-const PENALTY_WORDS = [
-  'cookie', 'cookies', 'cake', 'bread', 'muffin', 'pie', 'sauce',
-  'soup', 'stew', 'casserole', 'mix', 'prepared', 'frozen', 'canned',
-  'restaurant', 'fast food', 'infant', 'baby', 'formula',
-];
-
 function getSearchTerm(ingredientName) {
   // Clean: strip parenthetical notes, "or" alternatives, and special chars
   let cleaned = ingredientName.trim()
@@ -200,25 +205,6 @@ function getSearchTerm(ingredientName) {
   const singular = lower.endsWith('s') ? lower.slice(0, -1) : null;
   if (singular && ALIASES[singular]) return ALIASES[singular];
   return cleaned;
-}
-
-function scoreMatch(food, searchTerm) {
-  const desc = food.description.toLowerCase();
-  const search = searchTerm.toLowerCase();
-  const searchWords = search.split(/[\s,]+/).filter(Boolean);
-
-  let score = 0;
-  for (const word of searchWords) {
-    if (desc.includes(word)) score -= 10;
-  }
-  score += desc.length * 0.1;
-  if (food.dataType === 'Foundation') score -= 20;
-  if (food.dataType === 'SR Legacy') score -= 15;
-  for (const word of PENALTY_WORDS) {
-    if (desc.includes(word)) score += 25;
-  }
-  if (desc.includes('raw')) score -= 5;
-  return score;
 }
 
 const MEASUREMENT_TO_GRAMS = {
@@ -276,7 +262,7 @@ async function fetchFromUSDA(ingredient, dataTypes = 'Foundation,SR%20Legacy') {
   if (!name.trim()) return null;
 
   const searchTerm = getSearchTerm(name);
-  const url = `${BASE_URL}?api_key=${API_KEY}&query=${encodeURIComponent(searchTerm)}&pageSize=5&dataType=${dataTypes}`;
+  const url = `${BASE_URL}?api_key=${API_KEY}&query=${encodeURIComponent(searchTerm)}&pageSize=10&dataType=${dataTypes}`;
 
   const res = await fetch(url);
   if (!res.ok) throw new Error(`USDA API error: ${res.status}`);
@@ -284,11 +270,7 @@ async function fetchFromUSDA(ingredient, dataTypes = 'Foundation,SR%20Legacy') {
   const data = await res.json();
   if (!data.foods || data.foods.length === 0) return null;
 
-  const scored = data.foods
-    .map(food => ({ food, score: scoreMatch(food, searchTerm) }))
-    .sort((a, b) => a.score - b.score);
-
-  const food = scored[0].food;
+  const food = pickUsdaFood(data.foods, searchTerm);
   const per100g = extractNutrients(food.foodNutrients);
   const grams = estimateGrams(quantity, measurement, name);
   const scale = grams / 100;
