@@ -3543,12 +3543,13 @@ const CATEGORIZE_BATCH = 5;
 
 /** My own spots still missing a bucket or a cuisine, in list order. */
 // Only my own (there is no editing someone else's list, so a friend's spot
-// would ask a question with no answer) and not retired (hidden by default, so
-// asking would nag about places already decided against). The population and
+// would ask a question with no answer), not retired (hidden by default, so
+// asking would nag about places already decided against), and not Going Out
+// places. The population and
 // the "filed" test live in utils/categorizeCompletion.js, shared with the
 // completion % the prompt shows.
 function needsCategorizing(restaurants) {
-  return (restaurants || []).filter(r => inCategorizePopulation(r) && !isCategorized(r, bucketsOf));
+  return (restaurants || []).filter(r => inCategorizePopulation(r, bucketsOf) && !isCategorized(r, bucketsOf));
 }
 
 /**

@@ -68,3 +68,11 @@ test('categorizeGaps: no category flag for Coffee-only spots', () => {
   assert.equal(categorizeGaps({ buckets: ['coffee'], cuisines: [], status: 'want-to-try' }).has('cuisines'), false);
   assert.equal(categorizeGaps({ buckets: ['coffee', 'breakfast'], cuisines: [], status: 'want-to-try' }).has('cuisines'), true);
 });
+
+test('skips Going Out spots, even ones also in another bucket', () => {
+  assert.equal(inCategorizePopulation(mine({ buckets: ['going-out'] }), bucketsOf), false);
+  assert.equal(inCategorizePopulation(mine({ buckets: ['lunch-dinner', 'going-out'] }), bucketsOf), false);
+  assert.equal(inCategorizePopulation(mine({ buckets: ['lunch-dinner'] }), bucketsOf), true);
+  const list = [mine({ buckets: ['going-out'] }), mine({ buckets: ['coffee'] })];
+  assert.deepEqual(categorizeCompletion(list, bucketsOf), { done: 1, total: 1, pct: 100 });
+});
