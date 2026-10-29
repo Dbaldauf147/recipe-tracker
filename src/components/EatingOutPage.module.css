@@ -2766,3 +2766,24 @@
 .healthySinceDate {
   font-size: 0.72rem;
 }
+
+/* Recent tab: places you've been, newest first. Fixed columns, no resizers. */
+.recentTable {
+  width: 100%;
+  min-width: 720px;
+}
+.recentTable th:nth-child(1) { width: 26%; }
+.recentTable th:nth-child(2) { width: 16%; }
+.recentTable th:nth-child(3) { width: 13%; }
+.recentTable th:nth-child(4) { width: 13%; }
+.recentTable th:nth-child(5) { width: 8%; }
+.recentTable th:nth-child(6) { width: 10%; }
+.recentTh {
+  display: block;
+  padding: 0.55rem 0.7rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text-muted);
+}
