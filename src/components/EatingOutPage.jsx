@@ -2908,6 +2908,28 @@ function RestaurantCard({ r, ratingAgg, ratingHasOthers = false, distanceMiles, 
  */
 /** One placed row. Shared so the flat list and the per-cuisine groups can never
  *  drift into showing the same spot two different ways. */
+// One spot in List → By category. Same row as the Rankings boxes, minus the
+// rank and score: name, status, neighborhood.
+function CategoryListRow({ r, onSelect }) {
+  return (
+    <li>
+      <button type="button" className={`${styles.rankingRow} ${styles.listCategoryRow}`} onClick={() => onSelect(r)}>
+        <span className={styles.rankingName}>
+          {r.name}
+          {!r._isMine && r._ownerUsername && <span className={styles.rankingOwner}> @{r._ownerUsername}</span>}
+          {isNextSpot(r) && <span className={styles.tryNextPin}> ★ Next</span>}
+        </span>
+        <span className={styles.joanneTags}>
+          {r.status === 'want-to-try' && <span className={styles.wantBadge}>Want to try</span>}
+          {r.status === 'hold-off' && <span className={styles.holdBadge}>Hold off</span>}
+          {r.frequency === 'retired' && <span className={styles.retiredBadge}>Retired</span>}
+        </span>
+        <span className={styles.rankingVotes}>{(r.locations || [])[0] || ''}</span>
+      </button>
+    </li>
+  );
+}
+
 function RankingRow({ row, place, onSelect }) {
   return (
     <li>
@@ -6529,12 +6551,24 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
                         <div className={gridClass}>{next.map(r => renderCard(r, null, []))}</div>
                       </>
                     )}
-                    {sections.map(g => (
-                      <section key={g.key}>
-                        <div style={labelStyle}>{g.label} ({g.spots.length})</div>
-                        <div className={gridClass}>{g.spots.map(r => renderCard(r, null, []))}</div>
-                      </section>
-                    ))}
+                    {/* Laid out like Rankings → By category: one box per
+                        category, three across, a slim row per spot — the
+                        heading already names the category, so the rows don't. */}
+                    <div className={styles.listCategoryGroups}>
+                      {sections.map(g => (
+                        <section key={g.key} className={styles.rankingGroup}>
+                          <h3 className={styles.rankingGroupHead}>
+                            <span className={styles.rankingGroupName}>{g.label}</span>
+                            <span className={styles.rankingGroupCount}>{g.spots.length}</span>
+                          </h3>
+                          <ol className={styles.rankingList}>
+                            {g.spots.map(r => (
+                              <CategoryListRow key={`${r._ownerUid}:${r.id}`} r={r} onSelect={openSpot} />
+                            ))}
+                          </ol>
+                        </section>
+                      ))}
+                    </div>
                   </>
                 );
               }

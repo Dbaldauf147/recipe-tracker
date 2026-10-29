@@ -2787,3 +2787,21 @@
   letter-spacing: 0.04em;
   color: var(--color-text-muted);
 }
+
+/* List → By category: the Rankings boxes, fixed at three across on a wide
+   screen (these rows carry no score, so they fit narrower tracks). */
+.listCategoryGroups {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1.25rem 1.5rem;
+  align-items: start;
+}
+@media (max-width: 1100px) {
+  .listCategoryGroups { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 700px) {
+  .listCategoryGroups { grid-template-columns: minmax(0, 1fr); }
+}
+.rankingGroup .listCategoryRow {
+  grid-template-columns: minmax(0, 1fr) auto auto;
+}
