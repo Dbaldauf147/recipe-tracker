@@ -3325,7 +3325,30 @@ function HealthyPlacesView({ items, onSelect }) {
 
 // Places you've been, the most recent first (utils/recentPlaces.js). Your own
 // spots only — the visit counts come from Wealth Architect and are private.
-function RecentPlacesView({ items, statsFor, isMine, onSelect }) {
+// The group rating, exactly as the card badge shows it — hidden behind "?"
+// while the popup is (see RestaurantCard). The legacy single 5-star field is
+// only the fallback for a spot nobody has voted on.
+function RecentRatingCell({ r, docs, userUid }) {
+  const agg = aggregateSpotRatings(docs);
+  const hasOthers = docs.some(d => d.authorUid !== userUid && overallOfScores(d.scores) != null);
+  const { revealed } = useRatingReveal(r._ownerUid, r.id);
+  if (agg.voterCount > 0 && agg.overall != null) {
+    const votes = `${agg.voterCount} ${agg.voterCount === 1 ? 'vote' : 'votes'}`;
+    return hasOthers && !revealed ? (
+      <span className={`${styles.cardRatingBadge} ${styles.cardRatingBadgeHidden}`} title={`${votes} — open the spot and tap to reveal`}>
+        ★ ? · {agg.voterCount}
+      </span>
+    ) : (
+      <span className={styles.cardRatingBadge} title={`Group rating ${agg.overall.toFixed(1)}/5 · ${votes}`}>
+        ★ {agg.overall.toFixed(1)} · {agg.voterCount}
+      </span>
+    );
+  }
+  if (r.rating != null) return '★'.repeat(r.rating) + '☆'.repeat(5 - r.rating);
+  return r.ratingLabel || '';
+}
+
+function RecentPlacesView({ items, statsFor, isMine, ratingsBySpot, userUid, onSelect }) {
   const rows = useMemo(() => recentPlaces(items, { statsFor, isMine }), [items, statsFor, isMine]);
   const ago = d => (d === 0 ? 'Today' : d === 1 ? 'Yesterday' : d < 60 ? `${d} days ago` : `${Math.round(d / 30.4)} months ago`);
   if (rows.length === 0) {
@@ -3363,7 +3386,7 @@ function RecentPlacesView({ items, statsFor, isMine, onSelect }) {
                 <td>{formatDate(`${date}T12:00:00`)}</td>
                 <td>{days != null ? ago(days) : ''}</td>
                 <td title={visits ? 'Visits logged from Wealth Architect' : undefined}>{visits || ''}</td>
-                <td>{r.rating != null ? '★'.repeat(r.rating) + '☆'.repeat(5 - r.rating) : (r.ratingLabel || '')}</td>
+                <td><RecentRatingCell r={r} docs={ratingsBySpot[`${r._ownerUid}__${r.id}`] || []} userUid={userUid} /></td>
                 <td>{bucketsOf(r).map(bucketLabel).filter(Boolean).join(', ')}</td>
               </tr>
             ))}
@@ -6384,7 +6407,7 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
           ) : viewMode === 'joanne' ? (
             <JoanneByCategoryView items={visible} allItems={restaurants} onSelect={openSpot} />
           ) : viewMode === 'recent' ? (
-            <RecentPlacesView items={visible} statsFor={myVisitStats} isMine={isMySpot} onSelect={openSpot} />
+            <RecentPlacesView items={visible} statsFor={myVisitStats} isMine={isMySpot} ratingsBySpot={ratingsBySpot} userUid={user?.uid} onSelect={openSpot} />
           ) : viewMode === 'healthy' ? (
             <HealthyPlacesView items={visible} onSelect={openSpot} />
           ) : viewMode === 'rankings' ? (
