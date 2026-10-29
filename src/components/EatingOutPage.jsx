@@ -8,6 +8,7 @@ import { findDuplicateSpots, duplicateReason } from '../utils/duplicateSpots';
 import { saveOwnerRestaurants, saveOwnerEatingOutLists, saveField, subscribeRestaurants, subscribeSpotVisits } from '../utils/firestoreSync';
 import { visitStatsByPlace } from '../utils/spotVisits';
 import { healthyByLongestSince } from '../utils/healthyPlaces';
+import { recentPlaces } from '../utils/recentPlaces';
 import {
   splitTsv,
   detectHasHeader,
@@ -3322,6 +3323,57 @@ function HealthyPlacesView({ items, onSelect }) {
   );
 }
 
+// Places you've been, the most recent first (utils/recentPlaces.js). Your own
+// spots only — the visit counts come from Wealth Architect and are private.
+function RecentPlacesView({ items, statsFor, isMine, onSelect }) {
+  const rows = useMemo(() => recentPlaces(items, { statsFor, isMine }), [items, statsFor, isMine]);
+  const ago = d => (d === 0 ? 'Today' : d === 1 ? 'Yesterday' : d < 60 ? `${d} days ago` : `${Math.round(d / 30.4)} months ago`);
+  if (rows.length === 0) {
+    return (
+      <div className={styles.empty}>
+        <p className={styles.emptyText}>
+          No visits with a date in this filter. Set a Last visit on a place, or log one from Wealth Architect, and it will show up here.
+        </p>
+      </div>
+    );
+  }
+  return (
+    <div className={styles.tableWrap}>
+      <div className={styles.tableToolbar}>
+        <span className={styles.tableCount}>{rows.length} place{rows.length === 1 ? '' : 's'} — most recent first</span>
+      </div>
+      <div className={styles.tableScroll}>
+        <table className={`${styles.dataTable} ${styles.recentTable}`}>
+          <thead>
+            <tr>
+              <th><span className={styles.recentTh}>Place</span></th>
+              <th><span className={styles.recentTh}>Location</span></th>
+              <th><span className={styles.recentTh}>Last visit</span></th>
+              <th><span className={styles.recentTh}>When</span></th>
+              <th><span className={styles.recentTh}>Visits</span></th>
+              <th><span className={styles.recentTh}>Rating</span></th>
+              <th><span className={styles.recentTh}>Buckets</span></th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map(({ spot: r, date, days, visits }) => (
+              <tr key={r.id} className={styles.tableRow} onClick={() => onSelect(r)}>
+                <td title={r.name}><strong>{r.name}</strong></td>
+                <td>{(r.locations || [])[0] || ''}</td>
+                <td>{formatDate(`${date}T12:00:00`)}</td>
+                <td>{days != null ? ago(days) : ''}</td>
+                <td title={visits ? 'Visits logged from Wealth Architect' : undefined}>{visits || ''}</td>
+                <td>{r.rating != null ? '★'.repeat(r.rating) + '☆'.repeat(5 - r.rating) : (r.ratingLabel || '')}</td>
+                <td>{bucketsOf(r).map(bucketLabel).filter(Boolean).join(', ')}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 function JoanneByCategoryView({ items, allItems, onSelect }) {
   const { groups, total } = useMemo(() => joanneByCategory(items, allItems), [items, allItems]);
   // Keys of the COLLAPSED groups — everything starts expanded.
@@ -4885,7 +4937,11 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
   const [spotVisits, setSpotVisits] = useState({});
   useEffect(() => subscribeSpotVisits(user?.uid, setSpotVisits), [user?.uid]);
   const visitStats = useMemo(() => visitStatsByPlace(spotVisits), [spotVisits]);
-  const myVisitStats = (r) => (r && r._ownerUid === user?.uid ? visitStats.get(r.id) : undefined);
+  const myVisitStats = useCallback(
+    (r) => (r && r._ownerUid === user?.uid ? visitStats.get(r.id) : undefined),
+    [visitStats, user?.uid],
+  );
+  const isMySpot = useCallback((r) => r?._ownerUid === user?.uid, [user?.uid]);
   const [adding, setAdding] = useState(false);
   const [bulkOpen, setBulkOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -6194,6 +6250,14 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
               </button>
               <button
                 type="button"
+                className={`${styles.filterBtn} ${viewMode === 'recent' ? styles.filterBtnActive : ''}`}
+                onClick={() => setViewMode('recent')}
+                title="Places you've been, most recent first"
+              >
+                Recent
+              </button>
+              <button
+                type="button"
                 className={`${styles.filterBtn} ${viewMode === 'map' ? styles.filterBtnActive : ''}`}
                 onClick={() => setViewMode('map')}
               >
@@ -6290,6 +6354,8 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
             />
           ) : viewMode === 'joanne' ? (
             <JoanneByCategoryView items={visible} allItems={restaurants} onSelect={openSpot} />
+          ) : viewMode === 'recent' ? (
+            <RecentPlacesView items={visible} statsFor={myVisitStats} isMine={isMySpot} onSelect={openSpot} />
           ) : viewMode === 'healthy' ? (
             <HealthyPlacesView items={visible} onSelect={openSpot} />
           ) : viewMode === 'rankings' ? (
