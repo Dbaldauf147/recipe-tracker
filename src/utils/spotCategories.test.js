@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { spotCategories, withMergedCategories, mergeCategoryLists } from './spotCategories.js';
+import { spotCategories, withMergedCategories, mergeCategoryLists, groupSpotsByCategory } from './spotCategories.js';
 
 test('spotCategories puts cuisines first, then old categories', () => {
   assert.deepEqual(spotCategories({ cuisines: ['Thai', 'Noodles'], categories: ['Date night'] }), ['Thai', 'Noodles', 'Date night']);
@@ -34,4 +34,22 @@ test('mergeCategoryLists dedupes two master lists', () => {
   assert.deepEqual(mergeCategoryLists(['Thai', 'Pizza'], ['pizza', 'Brunch', '']), ['Thai', 'Pizza', 'Brunch']);
   assert.deepEqual(mergeCategoryLists(null, ['Bar']), ['Bar']);
   assert.deepEqual(mergeCategoryLists(undefined, undefined), []);
+});
+
+test('groupSpotsByCategory puts a spot under each of its categories, biggest group first', () => {
+  const a = { id: 'a', cuisines: ['Italian', 'Pizza'] };
+  const b = { id: 'b', cuisines: ['pizza'] };
+  const c = { id: 'c', cuisines: [] };
+  const { groups, uncategorized } = groupSpotsByCategory([a, b, c]);
+  assert.deepEqual(groups.map(g => [g.label, g.spots.map(s => s.id)]), [['Pizza', ['a', 'b']], ['Italian', ['a']]]);
+  assert.deepEqual(uncategorized.map(s => s.id), ['c']);
+});
+
+test('groupSpotsByCategory keeps input order inside a group and honours namesOf/labelOf', () => {
+  const spots = [{ id: 'x', cuisines: ['drinking', 'Bar'] }, { id: 'y', cuisines: ['lunch-dinner'] }];
+  const namesOf = r => r.cuisines.filter(c => c !== 'lunch-dinner');
+  const labelOf = n => (n === 'drinking' ? 'Drinking' : n);
+  const { groups, uncategorized } = groupSpotsByCategory(spots, namesOf, labelOf);
+  assert.deepEqual(groups.map(g => g.label), ['Bar', 'Drinking']);
+  assert.deepEqual(uncategorized.map(s => s.id), ['y']);
 });

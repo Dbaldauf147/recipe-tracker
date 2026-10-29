@@ -49,3 +49,35 @@ export function withMergedCategories(r) {
 export function mergeCategoryLists(a, b) {
   return dedupeTags([...asArray(a), ...asArray(b)]);
 }
+
+/**
+ * The List tab's "By category" cut: one group per category, each holding the
+ * spots tagged with it, in the order the spots came in. A spot tagged Italian +
+ * Pizza sits under both, the same as the Rankings tab's By category view.
+ *
+ * `namesOf(r)` says which categories a spot counts under and `labelOf(name)` how
+ * a group is spelled — passed in so the page can drop bucket words that leaked
+ * into the cuisine list. Names fold case-insensitively, first spelling wins.
+ * Biggest group first, then A–Z. Spots with no category come back separately
+ * rather than as a category called "Other".
+ */
+export function groupSpotsByCategory(spots, namesOf = spotCategories, labelOf = n => n) {
+  const byKey = new Map();
+  const uncategorized = [];
+  for (const r of spots || []) {
+    const seen = new Set();
+    for (const raw of namesOf(r) || []) {
+      const name = String(raw || '').trim();
+      const key = name.toLowerCase();
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      if (!byKey.has(key)) byKey.set(key, { key, label: labelOf(name), spots: [] });
+      byKey.get(key).spots.push(r);
+    }
+    if (seen.size === 0) uncategorized.push(r);
+  }
+  const groups = [...byKey.values()].sort((a, b) => (
+    b.spots.length - a.spots.length || a.label.localeCompare(b.label)
+  ));
+  return { groups, uncategorized };
+}

@@ -19,7 +19,7 @@ import {
   IMPORT_FIELDS,
 } from '../utils/restaurantImport';
 import { downloadRestaurantsCsv } from '../utils/restaurantExport';
-import { spotCategories, withMergedCategories, mergeCategoryLists } from '../utils/spotCategories';
+import { spotCategories, withMergedCategories, mergeCategoryLists, groupSpotsByCategory } from '../utils/spotCategories';
 import { categorizePatch } from '../utils/categorizePatch';
 import { categoriesForBuckets } from '../utils/bucketCategorySuggestions';
 import { frequencyExempt, frequencyOptionsFor, allowedFrequency } from '../utils/spotFrequency';
@@ -4990,6 +4990,16 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
     setListDensity(d);
     try { localStorage.setItem('sunday-eating-out-density', d); } catch { /* ignore */ }
   }, []);
+  // List grouping: 'category' cuts the list into one section per category (like
+  // Rankings → By category), 'all' is the single Want / Ranked / Hold list.
+  const [listGrouping, setListGroupingState] = useState(() => {
+    try { return localStorage.getItem('sunday-eating-out-list-grouping') === 'all' ? 'all' : 'category'; }
+    catch { return 'category'; }
+  });
+  const setListGrouping = useCallback((g) => {
+    setListGroupingState(g);
+    try { localStorage.setItem('sunday-eating-out-list-grouping', g); } catch { /* ignore */ }
+  }, []);
   const [geocodingProgress, setGeocodingProgress] = useState(null);
   const cancelGeocodeRef = useRef(false);
   // Live collaborative ratings for every visible owner's spots, keyed
@@ -6316,6 +6326,24 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
                 </button>
               </div>
             )}
+            {viewMode === 'list' && (
+              <div className={styles.filterRow} style={{ marginLeft: 8 }}>
+                <button
+                  type="button"
+                  className={`${styles.filterBtn} ${listGrouping === 'all' ? styles.filterBtnActive : ''}`}
+                  onClick={() => setListGrouping('all')}
+                >
+                  All spots
+                </button>
+                <button
+                  type="button"
+                  className={`${styles.filterBtn} ${listGrouping === 'category' ? styles.filterBtnActive : ''}`}
+                  onClick={() => setListGrouping('category')}
+                >
+                  By category
+                </button>
+              </div>
+            )}
           </div>
 
           {activeCuisine && (
@@ -6453,6 +6481,40 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
                   />
                 );
               };
+              if (listGrouping === 'category') {
+                // The ★ Next spot leads the page on its own, then one section per
+                // category. Inside a section: Want to try, then Visited in your
+                // ranked order, then Hold off — the same order as All spots.
+                // Unnumbered: a rank only means something in the one full list.
+                const statusOrder = r => (r.status === 'want-to-try' ? 0 : r.status === 'hold-off' ? 2 : 1);
+                // Proximity mode keeps nearest-first instead.
+                const ordered = !showRank ? visible : visible
+                  .map((r, i) => ({ r, i }))
+                  .sort((a, b) => statusOrder(a.r) - statusOrder(b.r) || a.i - b.i)
+                  .map(x => x.r);
+                const next = ordered.filter(isNextSpot);
+                const { groups, uncategorized } = groupSpotsByCategory(ordered, realCuisines, cuisineDisplayName);
+                const sections = uncategorized.length > 0
+                  ? [...groups, { key: '__none', label: 'No category', spots: uncategorized }]
+                  : groups;
+                return (
+                  <>
+                    {unfiledNotice(unfiled, setFilingQueue)}
+                    {next.length > 0 && (
+                      <>
+                        <div style={labelStyle}>★ Next spot</div>
+                        <div className={gridClass}>{next.map(r => renderCard(r, null, []))}</div>
+                      </>
+                    )}
+                    {sections.map(g => (
+                      <section key={g.key}>
+                        <div style={labelStyle}>{g.label} ({g.spots.length})</div>
+                        <div className={gridClass}>{g.spots.map(r => renderCard(r, null, []))}</div>
+                      </section>
+                    ))}
+                  </>
+                );
+              }
               if (!showRank) {
                 return (
                   <>
