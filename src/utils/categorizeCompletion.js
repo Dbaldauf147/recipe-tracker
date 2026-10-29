@@ -2,7 +2,8 @@
 // prompt on the Eating Out page asks, one place at a time.
 //
 // Population: MY OWN spots that aren't retired (a friend's spot can't be edited
-// from here, and retired ones are hidden by default). A spot counts as filed
+// from here, and retired ones are hidden by default) and aren't Going Out
+// places (2026-10-29: the user doesn't want those in the prompt). A spot counts as filed
 // when it has BOTH a bucket and a category — except Coffee-only spots, which
 // need just the bucket (categoryExempt).
 //
@@ -10,9 +11,17 @@
 // (it reads the user-editable bucket config and migrates the old `mealType`),
 // and this module stays pure so `node --test` can load it.
 
-/** A spot the categorize prompt asks about at all. */
-export function inCategorizePopulation(r) {
-  return !!r && !!r._isMine && r.frequency !== 'retired';
+/** Buckets whose spots the categorize prompt never asks about. */
+export const SKIP_CATEGORIZE_BUCKETS = new Set(['going-out']);
+
+/**
+ * A spot the categorize prompt asks about at all. `bucketsOf` is optional so a
+ * caller without the bucket config still gets the mine / not-retired test.
+ */
+export function inCategorizePopulation(r, bucketsOf) {
+  if (!r || !r._isMine || r.frequency === 'retired') return false;
+  if (bucketsOf && bucketsOf(r).some(k => SKIP_CATEGORIZE_BUCKETS.has(k))) return false;
+  return true;
 }
 
 /** Buckets whose spots don't need a category (2026-10-14: "a coffee place is a coffee place"). */
@@ -42,7 +51,7 @@ export function categorizeCompletion(restaurants, bucketsOf) {
   let total = 0;
   let done = 0;
   for (const r of restaurants || []) {
-    if (!inCategorizePopulation(r)) continue;
+    if (!inCategorizePopulation(r, bucketsOf)) continue;
     total++;
     if (isCategorized(r, bucketsOf)) done++;
   }
