@@ -2434,12 +2434,6 @@ export function RecipeList({
                           </tr>
                         </tbody>
                       </table>
-                      {showTargets && (
-                        <div className={styles.targetBars}>
-                          <MealTargetBar label="Breakfast" meals={bServings} target={weeklyGoals.breakfast} />
-                          <MealTargetBar label="Lunch & Dinner" meals={ldServings} target={weeklyGoals.lunchDinner} />
-                        </div>
-                      )}
                     </>);
                   })()}
                 </div>
@@ -2453,7 +2447,7 @@ export function RecipeList({
                       localStorage.setItem('sunday-show-targets', String(next));
                     }}
                   />
-                  Show progress toward targets
+                  Colour the meal counts against the targets
                 </label>
                 <label className={styles.suggestGearLabel}>
                   <input
@@ -2599,6 +2593,30 @@ export function RecipeList({
               </div>
             )}
           </div>
+          {/* Progress toward the weekly targets, beside the meal cards — the
+              same two bars as the phone's This Week's Meals. Always shown;
+              clicking one opens the gear, where the targets are set. */}
+          <aside className={styles.weekTargetSide} aria-label="Progress toward weekly meal targets">
+            {(() => {
+              const bServings = filteredWeeklyRecipes
+                .filter(r => r.category === 'breakfast')
+                .reduce((sum, r) => sum + getPlannedServings(r), 0);
+              const ldServings = filteredWeeklyRecipes
+                .filter(r => r.category === 'lunch-dinner')
+                .reduce((sum, r) => sum + getPlannedServings(r), 0);
+              return (
+                <button
+                  type="button"
+                  className={styles.weekTargetSideBtn}
+                  onClick={() => setWeekGearOpen(true)}
+                  title="Change the targets"
+                >
+                  <MealTargetBar label="Breakfast" meals={bServings} target={weeklyGoals.breakfast} />
+                  <MealTargetBar label="Lunch & Dinner" meals={ldServings} target={weeklyGoals.lunchDinner} />
+                </button>
+              );
+            })()}
+          </aside>
         </div>
         )}
       </div>
