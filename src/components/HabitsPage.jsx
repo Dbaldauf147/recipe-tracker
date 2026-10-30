@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { loadField, loadHabitAutoStatus, subscribeToUserFields } from '../utils/firestoreSync';
 import {
   loadHabitLog, loadHabitLogAuto, subscribeToHabitLog, subscribeToHabitLogAuto,
@@ -11,6 +11,9 @@ import { normalizePtoRanges, ptoCellsToStamp, activePtoRange } from '../utils/ha
 import { nextMarkInCycle } from '../utils/habitMarkCycle';
 import { HabitStatusHistory } from './HabitStatusHistory';
 import { HabitStatusList } from './HabitStatusList';
+import { StatusSelect } from './HabitStatusSelect';
+import { HabitStatusContext } from './habitStatusContext';
+import { effectiveStatusOptions, sanitizeStatusOptions, habitsByStatus, renameStatusOnHabits } from '../utils/habitStatusOptions';
 import { canonStatus, habitsWithStatus } from '../utils/habitStatusHistory';
 import { REFRESH_DAYS, advanceAutoRefresh, stampAutoStatusChanges, isRefreshRotation, refreshReturnKey, nextRefreshCandidate } from '../utils/habitAutoRefresh';
 import { startQueue, dropInQueue, missingSetup, moveToNext, isWave2, wave2Seam } from '../utils/habitStartQueue';
@@ -1475,6 +1478,8 @@ export function HabitsPage({ onBack, user }) {
   // PTO mode: date ranges over which every due habit is auto-stamped Skip.
   // Stored on the user doc as `habitPto` and shared with the mobile app.
   const [ptoRanges, setPtoRanges] = useState([]);
+  // Saved status-menu options (users/{uid}.habitStatusOptions); empty = the built-ins.
+  const [statusOptionsSaved, setStatusOptionsSaved] = useState([]);
   const [ptoOpen, setPtoOpen] = useState(false);
   const [ptoDraft, setPtoDraft] = useState({ start: '', end: '', label: '' });
   // All-time completions + streaks, computed once per (habits, log) change —
@@ -1625,6 +1630,13 @@ export function HabitsPage({ onBack, user }) {
         ]);
         if (cancelled) return;
         setPtoRanges(normalizePtoRanges(remotePto));
+        // Not part of the offline cache or the Promise.all above: a failed
+        // read just leaves the built-in options, which is what it shows anyway.
+        if (user?.uid) {
+          loadField(user.uid, 'habitStatusOptions')
+            .then(v => { if (!cancelled) setStatusOptionsSaved(sanitizeStatusOptions(v)); })
+            .catch(() => {});
+        }
         // Cache the server's answer, then replay anything still queued on top
         // of it — otherwise a load landing while edits are unsynced would paint
         // the older server copy over them and marks would appear to un-log.
@@ -1787,6 +1799,15 @@ export function HabitsPage({ onBack, user }) {
   function persistAutomations(next) {
     setAutomations(next);
     if (user?.uid) queueFieldWrite(user.uid, 'habitAutomations', next);
+  }
+  function persistStatusOptions(nextOptions, renames = []) {
+    const clean = sanitizeStatusOptions(nextOptions);
+    setStatusOptionsSaved(clean);
+    if (user?.uid) queueFieldWrite(user.uid, 'habitStatusOptions', clean);
+    // Renaming a status you added moves the habits on it along with it.
+    let next = habits;
+    for (const [from, to] of renames) next = renameStatusOnHabits(next, from, to);
+    if (next !== habits) persist(next);
   }
   function persistPto(next) {
     const clean = normalizePtoRanges(next);
@@ -2267,8 +2288,17 @@ export function HabitsPage({ onBack, user }) {
     );
   }
 
+  const statusContext = {
+    options: effectiveStatusOptions(statusOptionsSaved, STATUS_OPTIONS),
+    builtIns: STATUS_OPTIONS,
+    byStatus: habitsByStatus(habits),
+    colorOf: statusColor,
+    onSave: persistStatusOptions,
+  };
+
   return (
-    // The whole Habits page fills the full content width (less grey on the sides).
+    <HabitStatusContext.Provider value={statusContext}>
+    {/* The whole Habits page fills the full content width (less grey on the sides). */}
     <div style={{ maxWidth: '100%', margin: '0 auto', padding: '0 0.5rem 3rem' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', margin: '0.5rem 0 0.25rem' }}>
         <button onClick={onBack} style={backBtn}>&larr; Back</button>
@@ -2809,6 +2839,7 @@ export function HabitsPage({ onBack, user }) {
         </div>
       )}
     </div>
+    </HabitStatusContext.Provider>
   );
 }
 
@@ -3168,29 +3199,6 @@ function Kpi({ label, value, hint, title }) {
         <div style={{ fontSize: '0.7rem', color: 'var(--color-text-secondary, #475569)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{hint}</div>
       )}
     </div>
-  );
-}
-
-// Editable status dropdown. Includes the habit's current value even if it's a
-// legacy status no longer in STATUS_OPTIONS, so editing never silently drops it.
-function StatusSelect({ value, muted, onChange }) {
-  const v = (value || '').trim();
-  const opts = STATUS_OPTIONS.includes(v) || !v ? STATUS_OPTIONS : [v, ...STATUS_OPTIONS];
-  return (
-    <select
-      value={v}
-      onChange={e => onChange(e.target.value)}
-      style={{
-        fontSize: '0.78rem', fontWeight: 600, padding: '3px 6px', borderRadius: 6,
-        border: '1px solid var(--color-border, #e2e8f0)',
-        background: muted ? 'transparent' : 'var(--color-surface, #fff)',
-        color: muted ? '#94a3b8' : 'var(--color-text, #1e293b)',
-        cursor: 'pointer',
-      }}
-    >
-      {!v && <option value="">—</option>}
-      {opts.map(s => <option key={s} value={s}>{s}</option>)}
-    </select>
   );
 }
 
@@ -6678,6 +6686,7 @@ function BadHabitsView({ habits, habitLog, onCycleMark, onOpen, onUpdate, onAdd 
 }
 
 function HabitsTable({ habits, onUpdate, onDelete, onOpen, onBulkUpdate, onBulkDelete }) {
+  const statusMenu = useContext(HabitStatusContext).options;
   const [visibleCols, setVisibleCols] = useState(() => {
     try { const raw = localStorage.getItem('sunday-habits-cols'); if (raw) return new Set(JSON.parse(raw)); } catch { /* default below */ }
     return new Set(HABIT_FIELDS.map(f => f.key));
@@ -6835,7 +6844,7 @@ function HabitsTable({ habits, onUpdate, onDelete, onOpen, onBulkUpdate, onBulkD
       return (
         <select value={bulkValue} onChange={e => setBulkValue(e.target.value)} style={bulkCtrl}>
           <option value="">— (clear)</option>
-          {STATUS_OPTIONS.map(s => <option key={s} value={s}>{s}</option>)}
+          {statusMenu.map(s => <option key={s} value={s}>{s}</option>)}
         </select>
       );
     }
@@ -6926,7 +6935,7 @@ function HabitsTable({ habits, onUpdate, onDelete, onOpen, onBulkUpdate, onBulkD
       )}
 
       <div style={{ overflowX: 'auto', border: '1px solid var(--color-border, #e2e8f0)', borderRadius: 10 }}>
-        <datalist id="habit-status-options">{STATUS_OPTIONS.map(s => <option key={s} value={s} />)}</datalist>
+        <datalist id="habit-status-options">{statusMenu.map(s => <option key={s} value={s} />)}</datalist>
         <datalist id="habit-routine-options">{routineOptions.map(s => <option key={s} value={s} />)}</datalist>
         <table style={{ borderCollapse: 'collapse', tableLayout: 'fixed', width: totalWidth, minWidth: totalWidth }}>
           <colgroup>
