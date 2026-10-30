@@ -662,6 +662,31 @@
   flex-direction: column;
 }
 
+.weekTargetSide {
+  width: 280px;
+  flex-shrink: 0;
+  align-self: flex-start;
+}
+
+.weekTargetSideBtn {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  width: 100%;
+  padding: 0.75rem;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  background: var(--color-surface-alt, #f9f9f9);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.weekTargetSideBtn:hover {
+  border-color: var(--color-accent);
+}
+
 .weekGearPopup {
   white-space: normal;
   width: 300px;
@@ -2829,7 +2854,8 @@
     flex-direction: column;
   }
 
-  .weekServings {
+  .weekServings,
+  .weekTargetSide {
     width: 100%;
   }
 
