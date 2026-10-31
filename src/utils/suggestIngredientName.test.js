@@ -70,3 +70,9 @@ test('no DB name of the same kind falls back to the cleaned line', () => {
   assert.deepEqual(suggestIngredientNames('2 cups arborio rice', ['Rice vinegar']), ['Arborio rice']);
   assert.deepEqual(suggestIngredientNames('Saffron', PANTRY), []);
 });
+
+test('renameIngredientLines takes a change of case alone, and skips a no-op', () => {
+  const ings = [{ ingredient: 'Greek Yogurt', quantity: '1', measurement: 'cup' }];
+  assert.equal(renameIngredientLines(ings, 'Greek Yogurt', 'greek yogurt')[0].ingredient, 'greek yogurt');
+  assert.equal(renameIngredientLines(ings, 'greek yogurt', 'Greek Yogurt'), null);
+});

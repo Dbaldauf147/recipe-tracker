@@ -1131,8 +1131,11 @@ export function ShoppingList({ weeklyRecipes, weeklyServings = {}, extraItems = 
     const newName = (typeof nameOverride === 'string' ? nameOverride : popupName || '').trim();
     const newKey = newName.toLowerCase();
     persistIngredientEdits();
-    if (onRenameIngredient && newName && newKey !== oldKey) {
-      onRenameIngredient(itemPopup, newName);
+    // Compared as typed, not lowercased: "Greek Yogurt" → "greek yogurt" is a
+    // rename too. It just keeps the same row key, so nothing below has to move.
+    const renamed = !!onRenameIngredient && !!newName && newName !== itemPopup.trim();
+    if (renamed) onRenameIngredient(itemPopup, newName);
+    if (renamed && newKey !== oldKey) {
       // The row is about to re-key to the new name, so its section pin and
       // link move with it. If the new name is already a row of its own, keep
       // that row's pin/link unless the user changed them here.
@@ -1635,7 +1638,7 @@ export function ShoppingList({ weeklyRecipes, weeklyServings = {}, extraItems = 
               // white rice, not rice vinegar (see suggestIngredientNames).
               const suggestions = suggestIngredientNames(itemPopup, Object.values(ingredientRecords).map(r => r.ingredient))
                 .filter(x => x.toLowerCase() !== popupName.trim().toLowerCase());
-              const changed = popupName.trim() && popupName.trim().toLowerCase() !== itemPopup.toLowerCase().trim();
+              const changed = popupName.trim() && popupName.trim() !== itemPopup.trim();
               return (
                 <div style={{ margin: '0 0 0.85rem' }}>
                   <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: '#555', marginBottom: '0.25rem' }}>Name in your meals</label>

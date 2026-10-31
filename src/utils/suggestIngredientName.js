@@ -163,7 +163,7 @@ export function renameIngredientLines(ingredients, oldName, newName) {
   if (!key || !to || !Array.isArray(ingredients)) return null;
   let hit = false;
   const next = ingredients.map(ing => {
-    if ((ing?.ingredient || '').toLowerCase().trim() !== key) return ing;
+    if ((ing?.ingredient || '').toLowerCase().trim() !== key || ing.ingredient === to) return ing;
     hit = true;
     return { ...ing, ingredient: to };
   });
