@@ -1123,10 +1123,12 @@ export function ShoppingList({ weeklyRecipes, weeklyServings = {}, extraItems = 
     setPopupFields(seed);
     setPopupRecExisted(!!rec);
   }
-  function saveItemPopup() {
+  // `nameOverride` is a suggested name that was just tapped: picking one saves
+  // straight away, no Save press. (Buttons pass their click event — ignored.)
+  function saveItemPopup(nameOverride) {
     if (!itemPopup) return;
     const oldKey = itemPopup.toLowerCase().trim();
-    const newName = (popupName || '').trim();
+    const newName = (typeof nameOverride === 'string' ? nameOverride : popupName || '').trim();
     const newKey = newName.toLowerCase();
     persistIngredientEdits();
     if (onRenameIngredient && newName && newKey !== oldKey) {
@@ -1650,8 +1652,8 @@ export function ShoppingList({ weeklyRecipes, weeklyServings = {}, extraItems = 
                         <button
                           key={sug}
                           type="button"
-                          onClick={() => setPopupName(sug)}
-                          title="Use this name"
+                          onClick={() => { setPopupName(sug); saveItemPopup(sug); }}
+                          title="Rename to this and save"
                           style={{ padding: '0.25rem 0.65rem', borderRadius: 999, border: '1px solid #c7d0f5', background: '#eef1ff', color: '#3b4b8a', fontSize: '0.78rem', fontWeight: 600, cursor: 'pointer' }}
                         >
                           {sug}
@@ -1661,7 +1663,7 @@ export function ShoppingList({ weeklyRecipes, weeklyServings = {}, extraItems = 
                   )}
                   {changed && (
                     <p style={{ margin: '0.4rem 0 0', fontSize: '0.75rem', color: '#888', lineHeight: 1.4 }}>
-                      Save renames this ingredient in this week's meals.
+                      Save (or Enter) renames this ingredient in this week's meals. Tapping a suggestion saves right away.
                     </p>
                   )}
                 </div>
