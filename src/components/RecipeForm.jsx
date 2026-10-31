@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { BarcodeScanner } from './BarcodeScanner';
 import { loadIngredients, loadIngredientsFromFirestore } from '../utils/ingredientsStore';
 import { ingredientMatchScore } from '../utils/ingredientMatch';
+import { untrackedRows, matchCandidates } from '../utils/untrackedIngredients';
 import { classifyMealType } from '../utils/classifyMealType';
 import { parseIngredientLine } from '../utils/parseRecipeText';
 import { parsePastedSteps, splitClipboardRows } from '../utils/pastedSteps';
@@ -112,7 +113,7 @@ function applyColumnMap(text, map, hasHeader) {
 // and left stray quote characters on the ends.
 const parsePastedInstructions = parsePastedSteps;
 
-export function RecipeForm({ recipe, onSave, onCancel, saveLabel, cancelLabel, headerAction, titleOverride }) {
+export function RecipeForm({ recipe, onSave, onCancel, saveLabel, cancelLabel, headerAction, titleOverride, checkNutrition = false }) {
   const [title, setTitle] = useState('');
   const [category, setCategory] = useState('lunch-dinner');
   const [frequency, setFrequency] = useState('common');
@@ -135,6 +136,9 @@ export function RecipeForm({ recipe, onSave, onCancel, saveLabel, cancelLabel, h
   const [hasHeader, setHasHeader] = useState(false);
   const [imageProcessing, setImageProcessing] = useState(false);
   const [imageError, setImageError] = useState('');
+  // The untracked ingredient whose Match picker is open (row index), and its search.
+  const [matchingRow, setMatchingRow] = useState(null);
+  const [matchQuery, setMatchQuery] = useState('');
 
   useEffect(() => {
     async function loadNames() {
@@ -196,6 +200,22 @@ export function RecipeForm({ recipe, onSave, onCancel, saveLabel, cancelLabel, h
       setInstructions(cleanedInstructions);
     }
   }, [recipe]);
+
+  // Imports only: rows nothing in My Ingredients covers, so their nutrition
+  // would come from a guess (or nowhere).
+  const untracked = checkNutrition ? untrackedRows(ingredients, ingredientNames) : [];
+  const untrackedSet = new Set(untracked);
+
+  function openMatch(i) {
+    setMatchingRow(prev => (prev === i ? null : i));
+    setMatchQuery('');
+  }
+
+  function applyMatch(i, name) {
+    updateIngredient(i, 'ingredient', name);
+    setMatchingRow(null);
+    setMatchQuery('');
+  }
 
   function updateIngredient(index, field, value) {
     setIngredients(prev =>
@@ -518,7 +538,8 @@ export function RecipeForm({ recipe, onSave, onCancel, saveLabel, cancelLabel, h
                     {field === 'ingredient' ? (
                       <div className={styles.autocompleteWrap}>
                         <input
-                          className={styles.tableInput}
+                          className={`${styles.tableInput} ${untrackedSet.has(i) ? styles.tableInputUntracked : ''}`}
+                          title={untrackedSet.has(i) ? 'Not tracked for nutrition — nothing in My Ingredients matches' : undefined}
                           type="text"
                           value={row[field]}
                           onChange={e => {
@@ -573,6 +594,60 @@ export function RecipeForm({ recipe, onSave, onCancel, saveLabel, cancelLabel, h
             })}
           </tbody>
         </table>
+        {untracked.length > 0 && (
+          <div className={styles.untrackedNote}>
+            <div className={styles.untrackedTitle}>
+              ⚠ {untracked.length} ingredient{untracked.length === 1 ? ' isn’t' : 's aren’t'} tracked for nutrition
+            </div>
+            <ul className={styles.untrackedList}>
+              {untracked.map(i => {
+                const name = ingredients[i].ingredient.trim();
+                const open = matchingRow === i;
+                const options = open ? matchCandidates(name, ingredientNames, matchQuery) : [];
+                return (
+                  <li key={i}>
+                    <div className={styles.untrackedRow}>
+                      <span className={styles.untrackedName}>{name}</span>
+                      <button type="button" className={styles.untrackedMatchBtn} onClick={() => openMatch(i)}>
+                        {open ? 'Close' : 'Match'}
+                      </button>
+                    </div>
+                    {open && (
+                      <div className={styles.matchPicker}>
+                        <input
+                          className={styles.matchSearch}
+                          type="text"
+                          value={matchQuery}
+                          onChange={e => setMatchQuery(e.target.value)}
+                          onKeyDown={e => {
+                            if (e.key === 'Escape') setMatchingRow(null);
+                            // Don't let Enter submit the whole recipe form.
+                            if (e.key === 'Enter') e.preventDefault();
+                          }}
+                          placeholder="Search your ingredients"
+                          autoFocus
+                        />
+                        {options.length > 0 ? (
+                          <div className={styles.matchOptions}>
+                            {options.map(opt => (
+                              <button key={opt} type="button" className={styles.matchOption} onClick={() => applyMatch(i, opt)}>
+                                {opt}
+                              </button>
+                            ))}
+                          </div>
+                        ) : (
+                          <div className={styles.matchEmpty}>
+                            {matchQuery.trim() ? 'No ingredient by that name.' : 'Nothing similar in My Ingredients — search above.'}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        )}
         <div className={styles.ingredientBtns}>
           <button className={styles.addRowBtn} type="button" onClick={addRow}>
             + Add ingredient

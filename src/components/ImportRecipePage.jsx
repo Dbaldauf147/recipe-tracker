@@ -1257,6 +1257,7 @@ export function ImportRecipePage({ onSave, onAddWithoutClose, onCancel, onGoToRe
           recipe={parsedRecipe}
           onSave={handleSave}
           onCancel={onCancel}
+          checkNutrition
         />
       </div>
     );

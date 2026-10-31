@@ -581,3 +581,119 @@
 .colMapHeaderToggle input {
   cursor: pointer;
 }
+
+/* Import review: ingredients nothing in My Ingredients covers. */
+.tableInputUntracked {
+  border-color: var(--color-gold);
+}
+
+.untrackedNote {
+  margin: 0.25rem 0 0.75rem;
+  padding: 0.6rem 0.8rem;
+  border: 1px solid #FDE68A;
+  border-left: 3px solid var(--color-gold);
+  border-radius: var(--radius-sm);
+  background: var(--color-gold-light);
+  font-size: 0.84rem;
+  color: #713F12;
+}
+
+.untrackedTitle {
+  font-weight: 700;
+  margin-bottom: 0.35rem;
+}
+
+.untrackedList {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.untrackedRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+}
+
+.untrackedName {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.untrackedMatchBtn {
+  flex-shrink: 0;
+  border: 1px solid var(--color-gold);
+  background: var(--color-surface);
+  color: #854D0E;
+  border-radius: 999px;
+  padding: 2px 12px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.untrackedMatchBtn:hover {
+  background: var(--color-gold);
+  color: #fff;
+}
+
+.matchPicker {
+  margin: 0.35rem 0 0.25rem;
+  padding: 0.5rem;
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+}
+
+.matchSearch {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0.35rem 0.55rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  font-size: 0.85rem;
+  font-family: inherit;
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+
+.matchSearch:focus {
+  outline: none;
+  border-color: var(--color-accent);
+}
+
+.matchOptions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-top: 0.45rem;
+}
+
+.matchOption {
+  border: 1px solid var(--color-border);
+  background: var(--color-surface-alt);
+  color: var(--color-text);
+  border-radius: 999px;
+  padding: 3px 10px;
+  font-size: 0.8rem;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.matchOption:hover {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+
+.matchEmpty {
+  margin-top: 0.4rem;
+  font-size: 0.78rem;
+  color: var(--color-text-muted);
+}
