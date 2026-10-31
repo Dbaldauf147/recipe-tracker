@@ -22,7 +22,7 @@
   background: var(--color-surface);
   color: var(--color-text);
   outline: none;
-  width: 240px;
+  width: 300px;
   transition: border-color var(--transition-normal), box-shadow var(--transition-normal);
 }
 
@@ -41,7 +41,7 @@
   top: calc(100% + 0.35rem);
   left: 0;
   z-index: 100;
-  width: 240px;
+  width: 300px;
   max-width: 80vw;
   margin: 0;
   padding: 0.25rem;
@@ -650,18 +650,6 @@
   min-width: 0;
 }
 
-.weekServings {
-  width: 300px;
-  flex-shrink: 0;
-  background: var(--color-surface-alt, #f9f9f9);
-  border-radius: var(--radius-md);
-  padding: 0.75rem;
-  overflow: hidden;
-  border: 1px solid var(--color-border);
-  display: flex;
-  flex-direction: column;
-}
-
 .weekTargetSide {
   width: 280px;
   flex-shrink: 0;
@@ -693,56 +681,11 @@
   max-width: calc(100vw - 2rem);
 }
 
-.weekGearPopup .weekServings {
-  width: auto;
-  margin-bottom: 0.25rem;
-}
-
-.mealsTable {
-  width: 100%;
-  border-collapse: collapse;
+.weekGearTitle {
   font-size: 0.8rem;
-}
-
-.mealsTable th,
-.mealsTable td {
-  padding: 0.3rem 0.3rem;
-  text-align: center;
-  white-space: nowrap;
-}
-
-.mealsTable th:first-child,
-.mealsTable td:first-child {
-  text-align: left;
-  padding-left: 0;
-}
-
-.mealsColHeader {
-  font-size: 0.7rem;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--color-text-muted);
-  padding-bottom: 0.4rem;
-}
-
-.servingLabel {
-  font-size: 0.78rem;
-  color: var(--color-text);
-}
-
-.servingCount {
-  font-size: 0.85rem;
   font-weight: 700;
   color: var(--color-text);
-}
-
-.servingMet {
-  color: #22c55e;
-}
-
-.servingUnder {
-  color: #ef4444;
+  margin-bottom: 0.25rem;
 }
 
 .goalInput {
@@ -2854,7 +2797,6 @@
     flex-direction: column;
   }
 
-  .weekServings,
   .weekTargetSide {
     width: 100%;
   }
