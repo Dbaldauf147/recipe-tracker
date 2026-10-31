@@ -1306,9 +1306,6 @@ export function RecipeList({
   });
   const [editingGoals, setEditingGoals] = useState(false);
   const [weekGearOpen, setWeekGearOpen] = useState(false);
-  const [showTargets, setShowTargets] = useState(() => {
-    try { return localStorage.getItem('sunday-show-targets') === 'true'; } catch { return false; }
-  });
   const [shopSelection, setShopSelection] = useState(() => {
     try {
       const data = localStorage.getItem(SHOP_KEY);
@@ -2389,66 +2386,18 @@ export function RecipeList({
               Clear all
             </button>
           </>)}
-          {/* The meal counts, targets and progress bars live behind this gear
-              rather than beside the meal cards, so the cards get the width. */}
+          {/* The weekly meal targets are set behind this gear; the progress
+              bars beside the meal cards open it too. */}
           <div className={styles.suggestGearWrap}>
             <button
               className={styles.suggestGearBtn}
               onClick={() => setWeekGearOpen(p => !p)}
-              aria-label="Meal counts and targets"
-              title="Meal counts and targets"
+              aria-label="Weekly meal targets"
+              title="Weekly meal targets"
             >⚙</button>
             {weekGearOpen && (
               <div className={`${styles.suggestGearPopup} ${styles.weekGearPopup}`}>
-                <div className={styles.weekServings}>
-                  {(() => {
-                    const bRecipes = filteredWeeklyRecipes.filter(r => r.category === 'breakfast');
-                    const ldRecipes = filteredWeeklyRecipes.filter(r => r.category === 'lunch-dinner');
-                    const bRecipeCount = bRecipes.length;
-                    const bServings = bRecipes.reduce((sum, r) => sum + getPlannedServings(r), 0);
-                    const ldRecipeCount = ldRecipes.length;
-                    const ldServings = ldRecipes.reduce((sum, r) => sum + getPlannedServings(r), 0);
-                    return (<>
-                      <table className={styles.mealsTable}>
-                        <thead>
-                          <tr>
-                            <th></th>
-                            <th className={styles.mealsColHeader}>Recipes</th>
-                            <th className={styles.mealsColHeader}>Meals</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          <tr>
-                            <td className={styles.servingLabel}>Breakfast</td>
-                            <td className={styles.servingCount}>{bRecipeCount}</td>
-                            <td className={`${styles.servingCount} ${showTargets && bServings >= weeklyGoals.breakfast ? styles.servingMet : showTargets && bServings < weeklyGoals.breakfast ? styles.servingUnder : ''}`}>
-                              {bServings}
-                            </td>
-                          </tr>
-                          <tr>
-                            <td className={styles.servingLabel}>Lunch & Dinner</td>
-                            <td className={styles.servingCount}>{ldRecipeCount}</td>
-                            <td className={`${styles.servingCount} ${showTargets && ldServings >= weeklyGoals.lunchDinner ? styles.servingMet : showTargets && ldServings < weeklyGoals.lunchDinner ? styles.servingUnder : ''}`}>
-                              {ldServings}
-                            </td>
-                          </tr>
-                        </tbody>
-                      </table>
-                    </>);
-                  })()}
-                </div>
-                <label className={styles.suggestGearLabel}>
-                  <input
-                    type="checkbox"
-                    checked={showTargets}
-                    onChange={() => {
-                      const next = !showTargets;
-                      setShowTargets(next);
-                      localStorage.setItem('sunday-show-targets', String(next));
-                    }}
-                  />
-                  Colour the meal counts against the targets
-                </label>
+                <div className={styles.weekGearTitle}>Weekly meal targets</div>
                 <label className={styles.suggestGearLabel}>
                   <input
                     className={styles.goalInput}
