@@ -23,6 +23,7 @@ import { getGHGEmissions, getGHGRating, computeRecipeGHG } from '../data/ghgEmis
 import { OWNER_EMAIL } from '../utils/pageAccess';
 import { parsePastedSteps, splitClipboardRows, isSpreadsheetHtml } from '../utils/pastedSteps';
 import { pastedImageFile } from '../utils/clipboardImage';
+import { RecipePhotoImportModal } from './RecipePhotoImportModal';
 import { RECIPE_STAGES } from '../utils/recipeStage';
 import { loadMealGoals, activeProfile } from '../utils/mealGoals';
 import { rateMeal, perServingForRecipe, readNutritionCache, ratingSummary } from '../utils/mealRating';
@@ -842,6 +843,7 @@ export function RecipeDetail({ recipe, allTags = [], onSave, onDelete, onBack, o
   const [pasteText, setPasteText] = useState('');
   const [showStepPaste, setShowStepPaste] = useState(false);
   const [stepPasteText, setStepPasteText] = useState('');
+  const [photoImport, setPhotoImport] = useState(null); // 'ingredients' | 'steps' | null
   const addMenuRef = useRef(null);
   const [convertPopup, setConvertPopup] = useState(null); // { rowIdx, options: [{ qty, unit, label }] }
   const convertPopupRef = useRef(null);
@@ -1613,6 +1615,25 @@ export function RecipeDetail({ recipe, allTags = [], onSave, onDelete, onBack, o
     setStepVersion(v => v + 1);
     setStepPasteText('');
     setShowStepPaste(false);
+  }
+
+  function applyPhotoImport(items, mode) {
+    if (photoImport === 'steps') {
+      setFields(prev => (mode === 'replace'
+        ? { ...prev, steps: items, stepIngredients: {}, stepSections: {}, stepTitles: {} }
+        : { ...prev, steps: [...(prev.steps || []).filter(s => (s || '').trim()), ...items] }));
+      setStepVersion(v => v + 1);
+    } else {
+      const rows = items.map(r => ({ ...emptyRow, ...r }));
+      setFields(prev => {
+        if (mode === 'replace') return { ...prev, ingredients: rows, stepIngredients: {} };
+        const existing = (prev.ingredients || []).filter(r =>
+          (r.ingredient || '').trim() !== '' || (r.quantity || '').trim() !== ''
+        );
+        return { ...prev, ingredients: [...existing, ...rows] };
+      });
+    }
+    setPhotoImport(null);
   }
 
   function updateStep(index, value) {
@@ -3550,6 +3571,9 @@ export function RecipeDetail({ recipe, allTags = [], onSave, onDelete, onBack, o
                     <button className={styles.addMenuOption} onClick={() => { setShowPasteBox(true); setShowAddMenu(false); }}>
                       Paste from spreadsheet
                     </button>
+                    <button className={styles.addMenuOption} onClick={() => { setPhotoImport('ingredients'); setShowAddMenu(false); }}>
+                      📷 From a photo / screenshot
+                    </button>
                   </div>
                 )}
               </div>
@@ -4251,6 +4275,9 @@ export function RecipeDetail({ recipe, allTags = [], onSave, onDelete, onBack, o
                 <button className={styles.addRowBtn} type="button" onClick={() => setShowStepPaste(true)}>
                   📋 Paste from Sheets/Excel
                 </button>
+                <button className={styles.addRowBtn} type="button" onClick={() => setPhotoImport('steps')}>
+                  📷 From a photo
+                </button>
               </>
             )}
             {(() => {
@@ -4384,6 +4411,9 @@ export function RecipeDetail({ recipe, allTags = [], onSave, onDelete, onBack, o
             <button className={styles.addRowBtn} type="button" onClick={() => setShowStepPaste(true)}>
               📋 Paste from Sheets/Excel
             </button>
+            <button className={styles.addRowBtn} type="button" onClick={() => setPhotoImport('steps')}>
+              📷 From a photo
+            </button>
           </>
         ) : (
           <ol className={styles.stepsListReadonly}>
@@ -4444,6 +4474,14 @@ export function RecipeDetail({ recipe, allTags = [], onSave, onDelete, onBack, o
           showUSDALookup
           onAdd={saveNewDbIngredient}
           onClose={() => setAddToDb(null)}
+        />
+      )}
+
+      {photoImport && (
+        <RecipePhotoImportModal
+          kind={photoImport}
+          onApply={applyPhotoImport}
+          onClose={() => setPhotoImport(null)}
         />
       )}
 
