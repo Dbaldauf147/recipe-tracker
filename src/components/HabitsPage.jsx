@@ -247,6 +247,9 @@ const REVIEW_KINDS = [
     confirmField: 'autoConfirmedMonth',
     revisitField: 'autoRevisitMonth',
     completedField: 'autoReviewCompletedMonth',
+    // false → no monthly check-in for this bucket: no confirm boxes, no red
+    // badge, never holds up a review habit. On Hold is the one (2026-11).
+    monthly: true,
     // Names a review habit for THIS bucket, e.g. "Review Automatic Habits".
     reviewName: /\bautomatic|\bauto\b/,
     heading: 'Monthly automatic check-in',
@@ -265,9 +268,11 @@ const REVIEW_KINDS = [
     confirmField: 'onHoldConfirmedMonth',
     revisitField: 'onHoldRevisitMonth',
     completedField: 'onHoldReviewCompletedMonth',
+    // Parked habits stay parked until you bring one back — no monthly re-ask.
+    monthly: false,
     reviewName: /on[\s-]?hold/,
-    heading: 'Monthly on-hold check-in',
-    instructions: 'Once a month, go through each one: tick the box if it should stay paused, or “Resume” to bring it back. The boxes reset at the start of every month.',
+    heading: 'On hold',
+    instructions: 'Habits you’ve paused. They stay here until you click “Resume” to bring one back.',
     confirmTitle: 'Confirm it stays on hold',
     confirmVerb: 'to confirm',
     actionLabel: 'Resume',
@@ -283,6 +288,7 @@ const REVIEW_KINDS = [
     confirmField: 'notStartedConfirmedMonth',
     revisitField: 'notStartedRevisitMonth',
     completedField: 'notStartedReviewCompletedMonth',
+    monthly: true,
     reviewName: /not[\s-]?started|have?n.?t[\s-]?started/,
     heading: 'Monthly not-started check-in',
     instructions: 'Once a month, go through each one: tick the box if it’s still something for later, or “Start it” to make it a Current habit you’re working on now. The boxes reset at the start of every month.',
@@ -2192,7 +2198,10 @@ export function HabitsPage({ onBack, user }) {
     // A bucket is clear when every habit in it carries this month's
     // confirmation. An EMPTY bucket counts as clear — there was nothing to
     // review — but if all three are empty there's no review to have completed.
-    const buckets = REVIEW_KINDS.map(k => ({ k, list: habits.filter(h => k.matches(h)) }));
+    // Buckets without a monthly check-in (On Hold) have nothing to finish: they
+    // never hold up the overall review, and a review habit naming one is never
+    // auto-completed.
+    const buckets = REVIEW_KINDS.filter(k => k.monthly).map(k => ({ k, list: habits.filter(h => k.matches(h)) }));
     if (buckets.every(b => b.list.length === 0)) return;
     const clearOf = new Map(
       buckets.map(b => [b.k.id, b.list.every(h => (h[b.k.confirmField] || '') === currentMonth)]),
@@ -2206,7 +2215,7 @@ export function HabitsPage({ onBack, user }) {
       if (!isReviewHabit(h)) continue;
       const kind = reviewKindFor(h);
       const field = kind ? kind.completedField : 'autoReviewCompletedMonth';
-      const ready = kind ? clearOf.get(kind.id) : allClear;
+      const ready = kind ? !!clearOf.get(kind.id) : allClear;
       if (ready && (h[field] || '') !== currentMonth) due.push({ h, field });
     }
     if (due.length === 0) return;
@@ -2255,7 +2264,7 @@ export function HabitsPage({ onBack, user }) {
         }
       }
       for (const k of REVIEW_KINDS) {
-        if (k.matches(h) && (h[k.confirmField] || '') !== currentMonth) reviewPending[k.id]++;
+        if (k.monthly && k.matches(h) && (h[k.confirmField] || '') !== currentMonth) reviewPending[k.id]++;
       }
     }
     // One more on the Not Started tab when the #1 habit up next has no cadence
@@ -5129,7 +5138,7 @@ function MonthlyStatusReview({ kind, habits, onUpdate, onReorderStart, onMakeNex
   const isAuto = kind.id === 'autoreview';
   const outRefreshing = isAuto ? habits.find(isRefreshRotation) : null;
   const nextUpId = isAuto ? nextRefreshCandidate(habits, dayKey(new Date()))?.id : null;
-  const pending = groups.reduce((n, [, list]) => n + list.filter(h => (h[kind.confirmField] || '') !== currentMonth).length, 0);
+  const pending = kind.monthly ? groups.reduce((n, [, list]) => n + list.filter(h => (h[kind.confirmField] || '') !== currentMonth).length, 0) : 0;
   const flaggedCount = groups.reduce((n, [, list]) => n + list.filter(h => (h[kind.revisitField] || '').trim()).length, 0);
 
   if (bucketCount === 0) {
@@ -5164,14 +5173,16 @@ function MonthlyStatusReview({ kind, habits, onUpdate, onReorderStart, onMakeNex
       <div style={{ background: ACCENT + '0d', border: `1px solid ${ACCENT}33`, borderRadius: 10, padding: '0.75rem 1rem', marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
         <span style={{ fontSize: '1.05rem' }}>🔁</span>
         <div style={{ flex: 1, minWidth: 220 }}>
-          <div style={{ fontWeight: 700, fontSize: '0.95rem' }}>{kind.heading} · {monthLabel}</div>
+          <div style={{ fontWeight: 700, fontSize: '0.95rem' }}>{kind.monthly ? `${kind.heading} · ${monthLabel}` : kind.heading}</div>
           <div style={{ fontSize: '0.82rem', color: 'var(--color-text-muted)', lineHeight: 1.45 }}>
             {kind.instructions}
           </div>
         </div>
+        {kind.monthly && (
         <span style={{ fontSize: '0.72rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.4, color: pending === 0 ? '#166534' : '#b45309', background: pending === 0 ? '#dcfce7' : '#fef3c7', border: `1px solid ${pending === 0 ? '#bbf7d0' : '#fde68a'}`, borderRadius: 999, padding: '3px 10px', whiteSpace: 'nowrap' }}>
           {pending === 0 ? 'All confirmed ✓' : `${pending} ${kind.confirmVerb}`}
         </span>
+        )}
         {flaggedCount > 0 && (
           <span title="Flagged to revisit — the flag stays put until you clear it" style={{ fontSize: '0.72rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.4, color: '#9a3412', background: '#ffedd5', border: '1px solid #fed7aa', borderRadius: 999, padding: '3px 10px', whiteSpace: 'nowrap' }}>
             ⚑ {flaggedCount} to revisit
@@ -5206,7 +5217,7 @@ function MonthlyStatusReview({ kind, habits, onUpdate, onReorderStart, onMakeNex
             <h4 style={{ fontSize: '0.78rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: '#94a3b8', margin: '0 0 0.4rem' }}>{routine}</h4>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
               {list.map((h, idx) => {
-                const confirmed = (h[kind.confirmField] || '') === currentMonth;
+                const confirmed = kind.monthly && (h[kind.confirmField] || '') === currentMonth;
                 const missing = isQueue ? missingSetup(h) : null;
                 const canDrag = isQueue && !h.nextUp;
                 // #1 in the queue is the next habit to start — drawn as a card
@@ -5260,7 +5271,7 @@ function MonthlyStatusReview({ kind, habits, onUpdate, onReorderStart, onMakeNex
                         </span>
                       </span>
                     )}
-                    <input type="checkbox" checked={confirmed} onChange={() => toggle(h)} title={kind.confirmTitle} style={{ width: 17, height: 17, cursor: 'pointer', accentColor: ACCENT, flexShrink: 0 }} />
+                    {kind.monthly && <input type="checkbox" checked={confirmed} onChange={() => toggle(h)} title={kind.confirmTitle} style={{ width: 17, height: 17, cursor: 'pointer', accentColor: ACCENT, flexShrink: 0 }} />}
                     <button
                       type="button"
                       onClick={() => onOpen(h.id)}
@@ -5309,7 +5320,7 @@ function MonthlyStatusReview({ kind, habits, onUpdate, onReorderStart, onMakeNex
                       title={`Move it to “${kind.actionStatus}”`}
                       style={{ border: '1px solid var(--color-border, #e2e8f0)', background: 'none', borderRadius: 999, padding: '2px 9px', fontSize: '0.7rem', fontWeight: 600, color: 'var(--color-text-muted, #64748b)', cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap' }}
                     >{kind.actionLabel}</button>
-                    {confirmed
+                    {!kind.monthly ? null : confirmed
                       ? <span style={{ fontSize: '0.72rem', fontWeight: 600, color: '#16a34a', whiteSpace: 'nowrap' }}>Confirmed</span>
                       : <span style={{ fontSize: '0.72rem', fontWeight: 600, color: '#b45309', whiteSpace: 'nowrap' }}>Needs check</span>}
                   </div>
