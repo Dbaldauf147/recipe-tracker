@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   lastCompleteWeek, previousWeek, summarizeWeek, isEmptyWeek, renderWeeklySummary, TREND_WEEKS,
-  TREND_MONTHS, trendMonthWeeks, shiftMonthsKey,
+  TREND_MONTHS, trendMonthWeeks, shiftMonthsKey, goalDirection,
 } from '../../lib/weeklySummary.js';
 import { DEFAULT_SAUNA_GOAL } from './saunaPlan.js';
 
@@ -471,16 +471,42 @@ test('a user with no history gets no 10-month rate rather than 0%', () => {
   assert.equal(goalNamed(g, 'Weights').trendMonths, null);
 });
 
-test('the goals table carries the 10-month column on the far right', () => {
+test('the goals table carries the 10-month column after the 10-week one', () => {
   const workouts = [...weightsWeek(0, 3), ...weightsWeek(20, 3), ...weightsWeek(30, 1)];
   const stats = summarizeWeek({ ...emptyData(), workouts }, WEEK, { goalsConfig: GOALS_CONFIG });
   const prior = summarizeWeek(emptyData(), previousWeek(WEEK));
   const { html, text } = renderWeeklySummary({ stats, priorStats: prior });
-  // Header order: … 10 wks, then 10 mos last.
-  assert.match(html, /10 wks<\/th><th[^>]*>10 mos<\/th><\/tr>/);
-  assert.match(html, />67%<\/span><br><span[^>]*>2\/3<\/span><\/td><\/tr>/); // Weights row ends with it
+  // Header order: … 10 wks, 10 mos, then Trend last.
+  assert.match(html, /10 wks<\/th><th[^>]*>10 mos<\/th><th[^>]*>Trend<\/th><\/tr>/);
+  assert.match(html, />67%<\/span><br><span[^>]*>2\/3<\/span><\/td><td[^>]*>/); // Weights 10-mo cell, Trend follows
   assert.match(html, /out of the 3 logged weeks in the past 10 months/);
   assert.match(text, /10mo 67% \(2\/3\)/);
+  assert.doesNotMatch(html, /NaN|undefined/);
+  assert.doesNotMatch(text, /NaN|undefined/);
+});
+
+// ─────────────────────────────────────────────── better / worse direction
+
+test('goalDirection compares the 10-week rate to the 10-month one', () => {
+  const t = pct => ({ met: 0, weeks: 1, pct });
+  assert.equal(goalDirection({ trend: t(60), trendMonths: t(30) }).dir, 'better');
+  assert.equal(goalDirection({ trend: t(50), trendMonths: t(74) }).dir, 'worse');
+  assert.equal(goalDirection({ trend: t(100), trendMonths: t(98) }).dir, 'steady');
+  assert.equal(goalDirection({ trend: t(0), trendMonths: t(0) }).dir, 'steady');
+  assert.equal(goalDirection({ trend: null, trendMonths: t(30) }), null);
+  assert.equal(goalDirection({ trend: t(30), trendMonths: null }), null);
+});
+
+test('the goals table ends with a better / worse trend column', () => {
+  // Weights: met this week, missed 20 and 30 weeks ago → 100% recent vs 33% long-run.
+  const workouts = [...weightsWeek(0, 3), ...weightsWeek(20, 1), ...weightsWeek(30, 1)];
+  const stats = summarizeWeek({ ...emptyData(), workouts }, WEEK, { goalsConfig: GOALS_CONFIG });
+  const prior = summarizeWeek(emptyData(), previousWeek(WEEK));
+  const { html, text } = renderWeeklySummary({ stats, priorStats: prior });
+  assert.match(html, /<th[^>]*>Trend<\/th><\/tr><\/thead>/);
+  assert.match(html, />1\/3<\/span><\/td><td[^>]*><span title="better"[^>]*>▲<\/span><\/td><\/tr>/);
+  assert.match(html, /Trend compares the two/);
+  assert.match(text, /10mo 33% \(1\/3\)\s+▲ better/);
   assert.doesNotMatch(html, /NaN|undefined/);
   assert.doesNotMatch(text, /NaN|undefined/);
 });
