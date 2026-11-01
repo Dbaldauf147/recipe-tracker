@@ -288,10 +288,12 @@ const REVIEW_KINDS = [
     confirmField: 'notStartedConfirmedMonth',
     revisitField: 'notStartedRevisitMonth',
     completedField: 'notStartedReviewCompletedMonth',
-    monthly: true,
+    // No monthly re-ask (2026-11): the queue says what's next; "Start it" when
+    // you're ready. The missing-setup nudge on #1 is separate and stays.
+    monthly: false,
     reviewName: /not[\s-]?started|have?n.?t[\s-]?started/,
-    heading: 'Monthly not-started check-in',
-    instructions: 'Once a month, go through each one: tick the box if it’s still something for later, or “Start it” to make it a Current habit you’re working on now. The boxes reset at the start of every month.',
+    heading: 'Not started',
+    instructions: 'Habits lined up to start, in order — #1 is next. Click “Start it” to make one a Current habit you’re working on now.',
     confirmTitle: 'Confirm it’s still for later',
     confirmVerb: 'to confirm',
     actionLabel: 'Start it',
@@ -299,7 +301,7 @@ const REVIEW_KINDS = [
     // now" group — not dropping it into the routines as Most Days.
     actionStatus: CURRENT_STATUS,
     actionPrompt: name => `Start “${name}” now?\n\nIt moves to “${CURRENT_STATUS}” — on the Current tab and in your routines to log.`,
-    empty: 'Nothing waiting to start. Set a habit’s status to “Not Started” and it will show up here for a monthly check-in.',
+    empty: 'Nothing waiting to start. Set a habit’s status to “Not Started” and it will show up here.',
     showStatusSelect: true,
   },
 ];
@@ -2198,7 +2200,7 @@ export function HabitsPage({ onBack, user }) {
     // A bucket is clear when every habit in it carries this month's
     // confirmation. An EMPTY bucket counts as clear — there was nothing to
     // review — but if all three are empty there's no review to have completed.
-    // Buckets without a monthly check-in (On Hold) have nothing to finish: they
+    // Buckets without a monthly check-in (On Hold, Not Started) have nothing to finish: they
     // never hold up the overall review, and a review habit naming one is never
     // auto-completed.
     const buckets = REVIEW_KINDS.filter(k => k.monthly).map(k => ({ k, list: habits.filter(h => k.matches(h)) }));
