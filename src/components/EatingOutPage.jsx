@@ -9,6 +9,7 @@ import { saveOwnerRestaurants, saveOwnerEatingOutLists, saveField, subscribeRest
 import { visitStatsByPlace } from '../utils/spotVisits';
 import { healthyByLongestSince } from '../utils/healthyPlaces';
 import { recentPlaces } from '../utils/recentPlaces';
+import { isSteakhouse, guysNightPatch, guysNightSections } from '../utils/guysNight';
 import {
   splitTsv,
   detectHasHeader,
@@ -1906,6 +1907,10 @@ function EditModal({ initial, onSave, onClose, onDelete, cuisineSuggestions, loc
   // yet. Its own true-or-absent field (joanneHoldOff) rather than a new value
   // of takenJoanne, which Rally and older builds read as a plain boolean.
   const [joanneHoldOff, setJoanneHoldOff] = useState(!initial.takenJoanne && !!initial.joanneHoldOff);
+  // Guys Night Out (utils/guysNight.js): done there with the guys, or ruled
+  // out for it. Same true-or-absent pair as the Joanne fields.
+  const [guysNightDone, setGuysNightDone] = useState(!!initial.guysNightDone);
+  const [guysNightSkip, setGuysNightSkip] = useState(!initial.guysNightDone && !!initial.guysNightSkip);
   const [buckets, setBuckets] = useState(() => bucketsOf(initial));
   // Photo doc ids, in display order. The pictures are written as they're added;
   // this index rides along with the rest of the form and lands on save.
@@ -2082,6 +2087,8 @@ function EditModal({ initial, onSave, onClose, onDelete, cuisineSuggestions, loc
       lastVisit: lastVisit ? new Date(lastVisit + 'T12:00:00').toISOString() : undefined,
       takenJoanne: takenJoanne || undefined,
       joanneHoldOff: (!takenJoanne && joanneHoldOff) || undefined,
+      guysNightDone: guysNightDone || undefined,
+      guysNightSkip: (!guysNightDone && guysNightSkip) || undefined,
       // Health is written to both the new field and the legacy array, so CSV
       // export and the importer keep agreeing with the picker.
       dietTags: syncDietTags(initial.dietTags, health),
@@ -2338,6 +2345,27 @@ function EditModal({ initial, onSave, onClose, onDelete, cuisineSuggestions, loc
             />
             Hold off on taking Joanne
           </label>
+          {/* Steakhouses only (or a spot already marked) — the Guys Night tab. */}
+          {(isSteakhouse({ cuisines }) || guysNightDone || guysNightSkip) && (
+            <>
+              <label className={styles.fieldLabel} style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', textTransform: 'none', letterSpacing: 0, fontSize: '0.9rem', color: 'var(--color-text)', fontWeight: 600 }}>
+                <input
+                  type="checkbox"
+                  checked={guysNightDone}
+                  onChange={e => { setGuysNightDone(e.target.checked); if (e.target.checked) setGuysNightSkip(false); }}
+                />
+                🥩 Done for Guys Night Out
+              </label>
+              <label className={styles.fieldLabel} style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', textTransform: 'none', letterSpacing: 0, fontSize: '0.9rem', color: 'var(--color-text)', fontWeight: 600 }}>
+                <input
+                  type="checkbox"
+                  checked={guysNightSkip}
+                  onChange={e => { setGuysNightSkip(e.target.checked); if (e.target.checked) setGuysNightDone(false); }}
+                />
+                Not for Guys Night Out
+              </label>
+            </>
+          )}
 
           {/* The single 5-star rating is gone from this form — the per-category
               Ratings table is where a spot gets scored. The label below still
@@ -3415,6 +3443,90 @@ function RecentPlacesView({ items, statsFor, isMine, ratingsBySpot, userUid, onS
           </tbody>
         </table>
       </div>
+    </div>
+  );
+}
+
+// ── Guys Night Out ───────────────────────────────────────────────────────────
+// Every steakhouse in the current filter, split into not done yet / done /
+// not for guys night (utils/guysNight.js). The checkbox marks it done in
+// place; the name opens the spot. ⚠️ Mirrored on mobile.
+function GuysNightView({ items, onSelect, onSetState }) {
+  const { todo, done, skip, total } = useMemo(() => guysNightSections(items), [items]);
+  const [showSkip, setShowSkip] = useState(false);
+  const row = (r, state) => (
+    <li key={`${r._ownerUid}:${r.id}`}>
+      <div className={`${styles.rankingRow} ${styles.guysRow} ${state === 'done' ? styles.guysDone : ''}`}>
+        {state === 'skip' ? <span aria-hidden="true" /> : (
+          <input
+            type="checkbox"
+            className={styles.guysCheck}
+            checked={state === 'done'}
+            onChange={e => onSetState(r, e.target.checked ? 'done' : 'todo')}
+            aria-label={`Done ${r.name} for guys night`}
+            title={state === 'done' ? 'Done for guys night — untick to undo' : 'Mark done for guys night'}
+          />
+        )}
+        <button type="button" className={styles.guysName} onClick={() => onSelect(r)}>
+          {r.name}
+          {r._ownerUsername && <span className={styles.rankingOwner}> @{r._ownerUsername}</span>}
+          {isNextSpot(r) && <span className={styles.tryNextPin}> ★ Next</span>}
+        </button>
+        <span className={styles.joanneTags}>
+          <JoanneStatusPill spot={r} />
+          <span className={styles.rankingVotes}>{(r.locations || [])[0] || ''}</span>
+        </span>
+        {state === 'todo' && (
+          <button type="button" className={styles.guysAction} onClick={() => onSetState(r, 'skip')} title="Not a guys-night place — move it out of this list">
+            Not for guys night
+          </button>
+        )}
+        {state === 'skip' && (
+          <button type="button" className={styles.guysAction} onClick={() => onSetState(r, 'todo')}>
+            Put back
+          </button>
+        )}
+        {state === 'done' && <span aria-hidden="true" />}
+      </div>
+    </li>
+  );
+  const section = (key, label, list) => (
+    <section className={styles.rankingGroup} data-group={key}>
+      <h3 className={styles.rankingGroupHead}>
+        <span className={styles.rankingGroupName}>{label}</span>
+        <span className={styles.rankingGroupCount}>{list.length}</span>
+      </h3>
+      {list.length === 0
+        ? <p className={styles.rankingEmpty}>{key === 'todo' ? 'Every steakhouse here is done or ruled out. 🎉' : 'None yet.'}</p>
+        : <ol className={styles.rankingList}>{list.map(r => row(r, key))}</ol>}
+    </section>
+  );
+  const counted = todo.length + done.length;
+  return (
+    <div className={styles.rankingsView}>
+      <p className={styles.tryNextIntro}>
+        🥩 Guys Night Out — {done.length} of {counted} steakhouse{counted === 1 ? '' : 's'} done
+      </p>
+      {total === 0 ? (
+        <p className={styles.rankingEmpty}>No steakhouses in this filter. Give a spot the Steakhouse category and it shows up here.</p>
+      ) : (
+        <div className={styles.rankingGroups} style={{ gridTemplateColumns: 'minmax(0, 1fr)' }}>
+          {section('todo', 'Not done yet', todo)}
+          {section('done', 'Done ✓', done)}
+          {skip.length > 0 && (
+            <section className={styles.rankingGroup} data-group="skip">
+              <h3 className={styles.rankingGroupHead}>
+                <button type="button" className={styles.joanneGroupToggle} aria-expanded={showSkip} onClick={() => setShowSkip(v => !v)}>
+                  <span className={styles.joanneGroupCaret} aria-hidden="true">{showSkip ? '▾' : '▸'}</span>
+                  <span className={styles.rankingGroupName}>Not for guys night</span>
+                  <span className={styles.rankingGroupCount}>{skip.length}</span>
+                </button>
+              </h3>
+              {showSkip && <ol className={styles.rankingList}>{skip.map(r => row(r, 'skip'))}</ol>}
+            </section>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -5631,6 +5743,21 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
     }
   }, [user?.uid, user?.displayName, ownerData]);
 
+  // Guys Night checkbox / "Not for guys night" from the tab. My own spot goes
+  // through applyFiling (whole-list write); a friend's through the one-spot
+  // transaction, built from the owner's stored copy so view-only fields like
+  // `_distance` never get written.
+  const setGuysNight = useCallback((spot, state) => {
+    const ownerUid = spot._ownerUid || user?.uid;
+    if (!ownerUid) return;
+    const patch = { ...guysNightPatch(state), updatedAt: new Date().toISOString() };
+    if (ownerUid === user?.uid) { applyFiling(spot, patch); return; }
+    const stored = (ownerData[ownerUid]?.restaurants || []).find(x => x.id === spot.id);
+    if (!stored) return;
+    const { _ownerUid, _ownerUsername, _isMine, ...clean } = stored;
+    writeFriendSpot(ownerUid, { ...clean, ...patch });
+  }, [user?.uid, ownerData, applyFiling, writeFriendSpot]);
+
   function handleSave(restaurant) {
     // Adds default to MY list; edits go to the original owner's list.
     const ownerUid = restaurant._ownerUid || user?.uid;
@@ -6346,6 +6473,14 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
               </button>
               <button
                 type="button"
+                className={`${styles.filterBtn} ${viewMode === 'guys-night' ? styles.filterBtnActive : ''}`}
+                onClick={() => setViewMode('guys-night')}
+                title="Steakhouses: which ones you've done for guys night out"
+              >
+                🥩 Guys Night
+              </button>
+              <button
+                type="button"
                 className={`${styles.filterBtn} ${viewMode === 'healthy' ? styles.filterBtnActive : ''}`}
                 onClick={() => setViewMode('healthy')}
                 title="Places tagged Healthy, longest since you ate there first"
@@ -6428,6 +6563,8 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
             />
           ) : viewMode === 'joanne' ? (
             <JoanneByCategoryView items={visible} allItems={restaurants} onSelect={openSpot} />
+          ) : viewMode === 'guys-night' ? (
+            <GuysNightView items={visible} onSelect={openSpot} onSetState={setGuysNight} />
           ) : viewMode === 'recent' ? (
             <RecentPlacesView items={visible} statsFor={myVisitStats} isMine={isMySpot} ratingsBySpot={ratingsBySpot} userUid={user?.uid} onSelect={openSpot} />
           ) : viewMode === 'healthy' ? (

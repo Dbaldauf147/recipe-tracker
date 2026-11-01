@@ -2805,3 +2805,48 @@
 .rankingGroup .listCategoryRow {
   grid-template-columns: minmax(0, 1fr) auto auto;
 }
+
+/* ── Guys Night tab ──
+   A div row, not a button: it holds a checkbox and a "Not for guys night"
+   button of its own. Scoped like the other .rankingGroup variants so the
+   5-column ranking grid doesn't win. */
+.rankingGroup .guysRow {
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  cursor: default;
+}
+.guysCheck {
+  width: 18px;
+  height: 18px;
+  cursor: pointer;
+  accent-color: #16a34a;
+  margin: 0;
+}
+.guysName {
+  min-width: 0;
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  font-weight: 600;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.guysName:hover { text-decoration: underline; }
+.guysDone .guysName { color: var(--color-text-muted); }
+.guysAction {
+  font: inherit;
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  background: none;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  padding: 0.1rem 0.55rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.guysAction:hover { border-color: var(--color-accent); color: var(--color-text); }
