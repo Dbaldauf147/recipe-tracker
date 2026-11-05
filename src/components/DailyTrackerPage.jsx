@@ -11,6 +11,8 @@ import { RecipeDetail } from './RecipeDetail';
 import styles from './DailyTrackerPage.module.css';
 import { parseQuantity } from '../utils/parseQuantity';
 
+import { setEventTag, eventTagOf, suggestedEventNames } from '../utils/specialMeals';
+
 const DAILY_LOG_KEY = 'sunday-daily-log';
 const GOALS_KEY = 'sunday-nutrition-goals';
 const NUTRITION_CACHE_KEY = 'sunday-nutrition-cache';
@@ -4345,6 +4347,7 @@ function WeeklyView({ dailyLog, date, recipes, onDayClick, onMoveEntry, onAddToS
                           {item.name}
                           {item.entry?.brand && <span className={styles.entryBrand}>{item.entry.brand}</span>}
                           {item.entry?.autoSuggested && <span className={styles.suggestedTag}>auto</span>}
+                          {eventTagOf(item.entry) && <span title={`Special meal: ${eventTagOf(item.entry)}`} aria-label={`Special meal: ${eventTagOf(item.entry)}`}> 🎉</span>}
                         </span>
                         {item.nutrition && item.nutrition.calories > 0 && (
                           <span className={styles.weeklyColMealNutrition}>
@@ -4503,7 +4506,11 @@ function WeeklyView({ dailyLog, date, recipes, onDayClick, onMoveEntry, onAddToS
 const WEEKLY_PLAN_KEY = 'sunday-weekly-plan';
 
 /* ── Edit Estimated Meal Modal ── */
-function EditEstimateModal({ entry, user, onSave, onClose, getRecipe }) {
+function EditEstimateModal({ entry, user, onSave, onClose, getRecipe, onTag, eventSuggestions = [] }) {
+  // The holiday / event tag saves on its own (onTag), never through Save:
+  // Save re-looks-up the nutrition, and tagging must not change a logged meal.
+  const [eventName, setEventName] = useState(() => eventTagOf(entry));
+  const savedTag = eventTagOf(entry);
   // Friend-share state. friendsList is lazy-loaded on first Share click so
   // we don't pay the round-trip for every edit-modal open.
   const [showShareDropdown, setShowShareDropdown] = useState(false);
@@ -4764,6 +4771,29 @@ function EditEstimateModal({ entry, user, onSave, onClose, getRecipe }) {
         {shareMsg && (
           <div style={{ padding: '0.4rem 0.7rem', marginBottom: '0.5rem', borderRadius: '6px', background: shareMsg.startsWith('Failed') ? '#FEF2F2' : '#ECFDF5', color: shareMsg.startsWith('Failed') ? '#B91C1C' : '#047857', fontSize: '0.78rem', fontWeight: 600 }}>
             {shareMsg}
+          </div>
+        )}
+
+        {onTag && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap', margin: '0 0 0.75rem', padding: '0.5rem 0.65rem', background: '#f5f3ff', border: '1px solid #ddd6fe', borderRadius: 8 }}>
+            <span style={{ fontSize: '0.78rem', fontWeight: 700, color: '#6d28d9', whiteSpace: 'nowrap' }}>🎉 Holiday / event</span>
+            <input
+              type="text"
+              list="edit-entry-events"
+              value={eventName}
+              placeholder="e.g. Thanksgiving"
+              onChange={e => setEventName(e.target.value)}
+              style={{ flex: 1, minWidth: 140, border: '1px solid #ddd6fe', borderRadius: 6, padding: '0.3rem 0.5rem', fontSize: '0.84rem', fontFamily: 'inherit' }}
+            />
+            <datalist id="edit-entry-events">
+              {eventSuggestions.map(s => <option key={s} value={s} />)}
+            </datalist>
+            <button
+              type="button"
+              disabled={eventName.trim() === savedTag}
+              onClick={() => onTag(eventName)}
+              style={{ border: 'none', background: '#7c3aed', color: '#fff', borderRadius: 6, padding: '0.3rem 0.7rem', fontSize: '0.78rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', opacity: eventName.trim() === savedTag ? 0.5 : 1 }}
+            >{eventName.trim() ? (savedTag ? 'Update tag' : 'Tag') : 'Remove tag'}</button>
           </div>
         )}
 
@@ -6028,6 +6058,14 @@ export function DailyTrackerPage({ recipes, getRecipe, onClose, user, weeklyPlan
             onSave={(updates) => {
               updateEntry(editModal.entryId, editModal.dateStr, updates);
               setEditModal(null);
+            }}
+            eventSuggestions={suggestedEventNames(dailyLog, editModal.dateStr)}
+            onTag={(name) => {
+              setDailyLog(prev => {
+                const next = setEventTag(prev, editModal.dateStr, [editModal.entryId], name);
+                if (next !== prev) saveDailyLog(next, user);
+                return next;
+              });
             }}
             onClose={() => setEditModal(null)}
           />

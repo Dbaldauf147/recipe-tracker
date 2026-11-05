@@ -25,6 +25,7 @@ import { loadIngredientsFromFirestore } from './utils/ingredientsStore';
 import { FriendsPage } from './components/FriendsPage';
 import { ShoppingListPage } from './components/ShoppingListPage';
 import { HistoryPage } from './components/HistoryPage';
+import { SpecialMealsPage } from './components/SpecialMealsPage';
 import { KeyIngredientsPage } from './components/KeyIngredientsPage';
 import { ImportRecipePage } from './components/ImportRecipePage';
 import { LoginPage } from './components/LoginPage';
@@ -1121,6 +1122,7 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
                   <button className={styles.settingsMenuItem} onClick={() => { navigateTo('admin'); setSettingsOpen(false); }}>Admin Dashboard</button>
                 )}
                 {canView('history') && <button className={styles.settingsMenuItem} onClick={() => { navigateTo('history'); setSettingsOpen(false); }}>Meal History</button>}
+                {canView('special-meals') && <button className={styles.settingsMenuItem} onClick={() => { navigateTo('special-meals'); setSettingsOpen(false); }}>Special Meals</button>}
                 {canView('whoop') && <button className={styles.settingsMenuItem} onClick={() => { navigateTo('whoop'); setSettingsOpen(false); }}>Whoop</button>}
                 {canView('seasonal-guide') && <button className={styles.settingsMenuItem} onClick={() => { navigateTo('seasonal-guide'); setSettingsOpen(false); }}>Seasonal Guide</button>}
                 {canView('sources') && <button className={styles.settingsMenuItem} onClick={() => { navigateTo('sources'); setSettingsOpen(false); }}>Sources</button>}
@@ -1383,6 +1385,8 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
             onPurgeDeleted={purgeDeletedRecipe}
             onClose={goBack}
           />
+        ) : view === 'special-meals' ? (
+          <SpecialMealsPage user={user} onClose={goBack} />
         ) : view === 'ingredients' ? (
           <IngredientsPage onClose={() => { clearIngredientAddFor(); goBack(); }} user={user} addFor={ingredientAddFor} addForFood={ingredientAddFood} onAddForDone={clearIngredientAddFor} />
         ) : view === 'friends' ? (
