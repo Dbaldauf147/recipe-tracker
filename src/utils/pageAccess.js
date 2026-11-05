@@ -52,6 +52,8 @@ export const TOGGLEABLE_PAGES = [
   // Off for other accounts until the owner switches it on: Meal History is a
   // full read-out of what you logged, so it opts IN rather than out.
   { key: 'history', label: 'Meal History', defaultShared: false },
+  // Reads the same meal log as Meal History, so it opts in the same way.
+  { key: 'special-meals', label: 'Special Meals', defaultShared: false },
   { key: 'whoop', label: 'Whoop' },
   { key: 'seasonal-guide', label: 'Seasonal Guide' },
   { key: 'sources', label: 'Sources' },
