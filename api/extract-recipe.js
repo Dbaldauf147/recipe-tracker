@@ -10,6 +10,7 @@
 import * as cheerio from 'cheerio';
 import { blockedMessage } from '../lib/fetchErrors.js';
 import { fetchPageHtml } from '../lib/fetchPage.js';
+import { readRecipeFromVideo, hasRecipeAmounts } from '../lib/videoRecipe.js';
 
 // ── Fraction normalization (same as web app) ──
 
@@ -277,36 +278,6 @@ async function fetchSocialData(url) {
   return { caption, author, thumbnailUrl, videoDownloadUrl };
 }
 
-async function transcribeVideo(videoUrl) {
-  const apiKey = process.env.ASSEMBLYAI_API_KEY;
-  if (!apiKey || !videoUrl) return null;
-
-  try {
-    // Submit transcription
-    const submitRes = await fetch('https://api.assemblyai.com/v2/transcript', {
-      method: 'POST',
-      headers: { 'Authorization': apiKey, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ audio_url: videoUrl, language_detection: true }),
-    });
-    if (!submitRes.ok) return null;
-    const { id } = await submitRes.json();
-
-    // Poll for completion (max 45 seconds)
-    const start = Date.now();
-    while (Date.now() - start < 45000) {
-      const pollRes = await fetch(`https://api.assemblyai.com/v2/transcript/${id}`, {
-        headers: { 'Authorization': apiKey },
-      });
-      if (!pollRes.ok) return null;
-      const result = await pollRes.json();
-      if (result.status === 'completed') return result.text;
-      if (result.status === 'error') return null;
-      await new Promise(r => setTimeout(r, 2500));
-    }
-  } catch {}
-  return null;
-}
-
 async function parseRecipeWithAI(text, sourceUrl, images) {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey || (!text && (!images || images.length === 0))) return null;
@@ -469,33 +440,52 @@ export default async function handler(req, res) {
   }
 
   try {
-    // Social media URLs: fetch caption + transcribe audio + AI parse
+    // Social media URLs: caption first; if it lacks the recipe, read the video (on-screen text + audio)
     if (isSocialMediaUrl(url)) {
       const social = await fetchSocialData(url);
       if (social) {
-        // Transcribe video audio if we have a download URL
-        let transcript = '';
-        if (social.videoDownloadUrl) {
-          transcript = await transcribeVideo(social.videoDownloadUrl) || '';
+        const caption = social.caption || '';
+        // Does the caption itself carry the recipe (real amounts), or is it
+        // just hashtags and a hook? Most recipe TikToks put the recipe on
+        // screen or say it aloud, not in the caption.
+        const captionHasRecipe = hasRecipeAmounts(caption);
+
+        // Caption doesn't have it: watch the video — on-screen text + audio.
+        let video = { recipe: null, watched: false, error: '' };
+        if (!captionHasRecipe && social.videoDownloadUrl) {
+          video = await readRecipeFromVideo(social.videoDownloadUrl, { caption, author: social.author });
+        }
+        const vr = video.recipe;
+        if (vr && vr.ingredients.length > 0) {
+          return res.status(200).json({
+            title: vr.title,
+            description: caption.slice(0, 500),
+            estimated: !vr.amountsFromVideo,
+            category: 'lunch-dinner',
+            frequency: 'common',
+            mealType: '',
+            servings: vr.servings || '1',
+            prepTime: vr.prepTime,
+            cookTime: vr.cookTime,
+            sourceUrl: url,
+            videoUrl: url,
+            ingredients: vr.ingredients,
+            instructions: vr.instructions,
+            socialCaption: caption,
+            transcript: vr.spoken,
+            author: social.author || '',
+            readFromVideo: true,
+            titleSource: vr.titleSource,
+          });
         }
 
-        // Combine caption + transcript for the richest context
-        const combinedText = [
-          social.caption ? `Video caption: ${social.caption}` : '',
-          transcript ? `Video audio transcript: ${transcript}` : '',
-        ].filter(Boolean).join('\n\n');
-
-        // Check if the source text actually contains recipe details or just a description
-        const sourceText = combinedText || social.caption || '';
-        const hasRecipeText = /\d+\s*(cup|tbsp|tsp|oz|lb|g|tablespoon|teaspoon|ounce|pound|gram|clove|pinch|slice|can)/i.test(sourceText);
-
-        // Send to Claude AI
-        const aiRecipe = await parseRecipeWithAI(sourceText, url, null);
+        // Caption has the recipe, or the video couldn't be read: parse the caption.
+        const aiRecipe = await parseRecipeWithAI(caption, url, null);
         if (aiRecipe) {
           return res.status(200).json({
             title: aiRecipe.title || '',
             description: (social.caption || '').slice(0, 500),
-            estimated: !hasRecipeText,
+            estimated: !captionHasRecipe,
             category: 'lunch-dinner',
             frequency: 'common',
             mealType: '',
@@ -510,9 +500,10 @@ export default async function handler(req, res) {
               ingredient: ing.ingredient || '',
             })),
             instructions: aiRecipe.instructions || '',
-            socialCaption: social.caption || '',
-            transcript: transcript || '',
+            socialCaption: caption,
             author: social.author || '',
+            // Why the video wasn't used, when it wasn't — '' if the caption sufficed.
+            videoReadError: captionHasRecipe ? '' : (video.error || (social.videoDownloadUrl ? '' : 'no video URL')),
           });
         }
         // AI couldn't parse — return caption + transcript as raw text
