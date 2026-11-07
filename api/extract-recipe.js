@@ -10,7 +10,7 @@
 import * as cheerio from 'cheerio';
 import { blockedMessage } from '../lib/fetchErrors.js';
 import { fetchPageHtml } from '../lib/fetchPage.js';
-import { readRecipeFromVideo, hasRecipeAmounts } from '../lib/videoRecipe.js';
+import { readRecipeFromVideo, readRecipeFromImages, hasRecipeAmounts, tiktokMedia } from '../lib/videoRecipe.js';
 
 // ── Fraction normalization (same as web app) ──
 
@@ -212,6 +212,7 @@ async function fetchSocialData(url) {
   let author = '';
   let thumbnailUrl = '';
   let videoDownloadUrl = '';
+  let imageUrls = [];
 
   // Instagram: pull the caption from the public embed endpoint.
   // The normal page is login-walled and would return only "Instagram"
@@ -234,13 +235,17 @@ async function fetchSocialData(url) {
       }
     } catch {}
 
-    // Get direct video URL via tikwm
+    // Get direct media via tikwm: the video, or for a photo post the slides.
     try {
       const tikwmRes = await fetch(`https://tikwm.com/api/?url=${encodeURIComponent(url)}`);
       if (tikwmRes.ok) {
-        const tikwmData = await tikwmRes.json();
-        if (tikwmData.data?.play) videoDownloadUrl = tikwmData.data.play;
-        if (!thumbnailUrl && tikwmData.data?.cover) thumbnailUrl = tikwmData.data.cover;
+        const media = tiktokMedia(await tikwmRes.json());
+        videoDownloadUrl = media.videoUrl;
+        imageUrls = media.imageUrls;
+        if (!thumbnailUrl) thumbnailUrl = media.coverUrl;
+        // oEmbed can come back empty for photo posts; tikwm carries the caption too.
+        if (!caption) caption = media.caption;
+        if (!author) author = media.author;
       }
     } catch {}
   }
@@ -274,8 +279,8 @@ async function fetchSocialData(url) {
     }
   } catch {}
 
-  if (!caption && !thumbnailUrl && !videoDownloadUrl) return null;
-  return { caption, author, thumbnailUrl, videoDownloadUrl };
+  if (!caption && !thumbnailUrl && !videoDownloadUrl && !imageUrls.length) return null;
+  return { caption, author, thumbnailUrl, videoDownloadUrl, imageUrls };
 }
 
 async function parseRecipeWithAI(text, sourceUrl, images) {
@@ -450,9 +455,13 @@ export default async function handler(req, res) {
         // screen or say it aloud, not in the caption.
         const captionHasRecipe = hasRecipeAmounts(caption);
 
-        // Caption doesn't have it: watch the video — on-screen text + audio.
+        // Caption doesn't have it: read the post itself — the slides of a
+        // photo post, otherwise the video (on-screen text + audio).
         let video = { recipe: null, watched: false, error: '' };
-        if (!captionHasRecipe && social.videoDownloadUrl) {
+        const slides = social.imageUrls || [];
+        if (!captionHasRecipe && slides.length) {
+          video = await readRecipeFromImages(slides, { caption, author: social.author });
+        } else if (!captionHasRecipe && social.videoDownloadUrl) {
           video = await readRecipeFromVideo(social.videoDownloadUrl, { caption, author: social.author });
         }
         const vr = video.recipe;
@@ -475,6 +484,7 @@ export default async function handler(req, res) {
             transcript: vr.spoken,
             author: social.author || '',
             readFromVideo: true,
+            readFromSlides: slides.length > 0,
             titleSource: vr.titleSource,
           });
         }
@@ -503,7 +513,7 @@ export default async function handler(req, res) {
             socialCaption: caption,
             author: social.author || '',
             // Why the video wasn't used, when it wasn't — '' if the caption sufficed.
-            videoReadError: captionHasRecipe ? '' : (video.error || (social.videoDownloadUrl ? '' : 'no video URL')),
+            videoReadError: captionHasRecipe ? '' : (video.error || (social.videoDownloadUrl || slides.length ? '' : 'no video URL')),
           });
         }
         // AI couldn't parse — return caption + transcript as raw text
