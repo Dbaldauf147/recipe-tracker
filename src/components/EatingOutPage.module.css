@@ -2788,6 +2788,19 @@
   color: var(--color-text-muted);
 }
 
+/* Try Next / Recent → By category rows: name, then one small trailing column.
+   Scoped like `.rankingGroup .rankingRow`, which would otherwise win and put the
+   name in its narrow rank-number column (that hid every Try Next name). */
+.rankingGroup .tryNextRow,
+.rankingGroup .recentCatRow {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+.recentCatWhen {
+  font-size: 0.8rem;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+
 /* List → By category: the Rankings boxes, fixed at three across on a wide
    screen (these rows carry no score, so they fit narrower tracks). */
 .listCategoryGroups {

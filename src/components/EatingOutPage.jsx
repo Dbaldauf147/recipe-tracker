@@ -2993,11 +2993,9 @@ function TryNextView({
   buckets = [], activeBucket = null, onBucketChange = () => {}, bucketCounts = {},
 }) {
   const [expanded, setExpanded] = useState(() => new Set());
-  // Table by default: the interesting read here is a comparison down a column
-  // ("what have I gone longest without"), which a grid of cards makes you
-  // reconstruct line by line. Cards stay one click away — they carry the pin
-  // and the location more comfortably on a narrow screen.
-  const [layout, setLayout] = useState('table');
+  // By category (one box per category) by default, like Rankings and List.
+  // The table stays one click away for the down-the-column comparison.
+  const [layout, setLayout] = useState('cards');
   const { groups, noCuisine, topN } = useMemo(
     () => tryNextByCuisine(items, allItems),
     [items, allItems],
@@ -3015,15 +3013,15 @@ function TryNextView({
 
   const row = r => (
     <li key={`${r._ownerUid}:${r.id}`}>
-      <button type="button" className={styles.rankingRow} onClick={() => onSelect(r)}>
+      {/* tryNextRow: no rank column. Under the shared `.rankingGroup .rankingRow`
+          grid the name fell into the narrow rank-number track and vanished.
+          No location either — nearly every spot is in the same neighbourhood. */}
+      <button type="button" className={`${styles.rankingRow} ${styles.tryNextRow}`} onClick={() => onSelect(r)}>
         <span className={styles.rankingName}>
           {r.name}
           {r._ownerUsername && <span className={styles.rankingOwner}> @{r._ownerUsername}</span>}
         </span>
-        {isNextSpot(r) && <span className={styles.tryNextPin}>★ Next</span>}
-        {(r.locations || []).length > 0 && (
-          <span className={styles.rankingVotes}>{(r.locations || [])[0]}</span>
-        )}
+        {isNextSpot(r) ? <span className={styles.tryNextPin}>★ Next</span> : <span />}
       </button>
     </li>
   );
@@ -3102,17 +3100,17 @@ function TryNextView({
       <div className={styles.filterRow} style={{ alignSelf: 'flex-start' }}>
         <button
           type="button"
+          className={`${styles.filterBtn} ${layout === 'cards' ? styles.filterBtnActive : ''}`}
+          onClick={() => setLayout('cards')}
+        >
+          By category
+        </button>
+        <button
+          type="button"
           className={`${styles.filterBtn} ${layout === 'table' ? styles.filterBtnActive : ''}`}
           onClick={() => setLayout('table')}
         >
           Table
-        </button>
-        <button
-          type="button"
-          className={`${styles.filterBtn} ${layout === 'cards' ? styles.filterBtnActive : ''}`}
-          onClick={() => setLayout('cards')}
-        >
-          Cards
         </button>
       </div>
 
@@ -3401,6 +3399,23 @@ function RecentRatingCell({ r, docs, userUid }) {
 function RecentPlacesView({ items, statsFor, isMine, ratingsBySpot, userUid, onSelect }) {
   const rows = useMemo(() => recentPlaces(items, { statsFor, isMine }), [items, statsFor, isMine]);
   const ago = d => (d === 0 ? 'Today' : d === 1 ? 'Yesterday' : d < 60 ? `${d} days ago` : `${Math.round(d / 30.4)} months ago`);
+  // By category (default) or the full table. Remembered per browser.
+  const [layout, setLayoutState] = useState(() => {
+    try { return localStorage.getItem('sunday-eating-out-recent-layout') === 'table' ? 'table' : 'category'; }
+    catch { return 'category'; }
+  });
+  const setLayout = l => {
+    setLayoutState(l);
+    try { localStorage.setItem('sunday-eating-out-recent-layout', l); } catch { /* ignore */ }
+  };
+  // Rows arrive newest first, and grouping keeps their order, so each box is
+  // that category's own most-recent-first list.
+  const sections = useMemo(() => {
+    const { groups, uncategorized } = groupSpotsByCategory(rows, row => realCuisines(row.spot), cuisineDisplayName);
+    return uncategorized.length > 0
+      ? [...groups, { key: '__none', label: 'No category', spots: uncategorized }]
+      : groups;
+  }, [rows]);
   if (rows.length === 0) {
     return (
       <div className={styles.empty}>
@@ -3414,7 +3429,47 @@ function RecentPlacesView({ items, statsFor, isMine, ratingsBySpot, userUid, onS
     <div className={styles.tableWrap}>
       <div className={styles.tableToolbar}>
         <span className={styles.tableCount}>{rows.length} place{rows.length === 1 ? '' : 's'} — most recent first</span>
+        <div className={styles.filterRow}>
+          <button
+            type="button"
+            className={`${styles.filterBtn} ${layout === 'category' ? styles.filterBtnActive : ''}`}
+            onClick={() => setLayout('category')}
+          >
+            By category
+          </button>
+          <button
+            type="button"
+            className={`${styles.filterBtn} ${layout === 'table' ? styles.filterBtnActive : ''}`}
+            onClick={() => setLayout('table')}
+          >
+            Table
+          </button>
+        </div>
       </div>
+      {layout === 'category' ? (
+        <div className={styles.listCategoryGroups}>
+          {sections.map(g => (
+            <section key={g.key} className={styles.rankingGroup}>
+              <h3 className={styles.rankingGroupHead}>
+                <span className={styles.rankingGroupName}>{g.label}</span>
+                <span className={styles.rankingGroupCount}>{g.spots.length}</span>
+              </h3>
+              <ol className={styles.rankingList}>
+                {g.spots.map(({ spot: r, date, days }) => (
+                  <li key={r.id}>
+                    <button type="button" className={`${styles.rankingRow} ${styles.recentCatRow}`} onClick={() => onSelect(r)}>
+                      <span className={styles.rankingName}>{r.name}</span>
+                      <span className={styles.recentCatWhen} title={formatDate(`${date}T12:00:00`)}>
+                        {days != null ? ago(days) : formatDate(`${date}T12:00:00`)}
+                      </span>
+                    </button>
+                  </li>
+                ))}
+              </ol>
+            </section>
+          ))}
+        </div>
+      ) : (
       <div className={styles.tableScroll}>
         <table className={`${styles.dataTable} ${styles.recentTable}`}>
           <thead>
@@ -3443,6 +3498,7 @@ function RecentPlacesView({ items, statsFor, isMine, ratingsBySpot, userUid, onS
           </tbody>
         </table>
       </div>
+      )}
     </div>
   );
 }
@@ -5125,7 +5181,7 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
   // Rankings tab: one flat list, or the same ranking cut per cuisine. Lifted
   // beside rankMetric so switching tabs (or opening a group pop-out) does not
   // silently drop back to the flat list.
-  const [rankGrouped, setRankGrouped] = useState(false);
+  const [rankGrouped, setRankGrouped] = useState(true);
   // Label of the group whose ranking is popped out over the page, or null.
   // Filtering to a location/bucket already narrows `visible`, so the pop-out
   // just ranks that — no separate scoping to keep in step.
