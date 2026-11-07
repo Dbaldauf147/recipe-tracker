@@ -322,12 +322,20 @@ function betterAirFryerMatch(a, b) {
   return String(a.row.name).localeCompare(String(b.row.name), undefined, { sensitivity: 'base' }) < 0;
 }
 
-/** "9–11 min", "30 min", or '' for nothing. */
+/** Minutes to the nearest half: 7 → "7", 7.5 → "7½", 0.5 → "½". */
+function halfMin(n) {
+  const h = Math.round(Math.max(0, n) * 2) / 2;
+  const whole = Math.floor(h);
+  if (h === whole) return String(whole);
+  return whole ? `${whole}½` : '½';
+}
+
+/** "9–11 min", "30 min", "5–7½ min", or '' for nothing. */
 function legTime(lo, hi) {
-  const a = Math.max(0, Math.round(lo));
-  const b = Math.max(0, Math.round(hi));
-  if (!a && !b) return '';
-  if (!b || a === b) return `${a} min`;
+  const a = halfMin(lo);
+  const b = halfMin(hi);
+  if (a === '0' && b === '0') return '';
+  if (b === '0' || a === b) return `${a} min`;
   return `${a}–${b} min`;
 }
 
@@ -347,8 +355,10 @@ function legTime(lo, hi) {
  *   at N min            the row names the moment outright
  *   No flip             nothing to do, so there's one leg and no second
  *
- * Rounding is per-end, so 7–9 minutes halves into 4–5 then 3–4 rather than
- * pretending to a precision the range never had.
+ * A halfway stop splits into two IDENTICAL legs, using ½ where the total is
+ * odd: 10–15 min is "5–7½ min, Flip, 5–7½ min". It used to round each end, so
+ * 10–15 showed as 5–8 then 5–7, which looked like it didn't match the total in
+ * the popup. Thirds (a "twice" stop) still round to whole minutes.
  *
  * Returns { first, action, second }; `second` is '' when nothing interrupts.
  */
@@ -392,19 +402,14 @@ export function cookLegs(row) {
     const a = min / 3;
     const b = max / 3;
     return {
-      first: legTime(a, b),
+      first: legTime(Math.round(a), Math.round(b)),
       action: `${cap || stop} ×2`,
       second: legTime(min - Math.round(a), max - Math.round(b)),
     };
   }
 
-  const a = min / 2;
-  const b = max / 2;
-  return {
-    first: legTime(a, b),
-    action: cap || stop,
-    second: legTime(min - Math.round(a), max - Math.round(b)),
-  };
+  const half = legTime(min / 2, max / 2);
+  return { first: half, action: cap || stop, second: half };
 }
 
 /**

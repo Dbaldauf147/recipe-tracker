@@ -356,9 +356,11 @@ test('halfway splits down the middle', () => {
     { first: '9–11 min', action: 'Flip', second: '9–11 min' });
 });
 
-test('an odd range halves per end rather than faking precision', () => {
+test('an odd range halves into two identical legs with ½', () => {
   assert.deepEqual(cookLegs({ min: 7, max: 9, stop: 'Shake halfway' }),
-    { first: '4–5 min', action: 'Shake', second: '3–4 min' });
+    { first: '3½–4½ min', action: 'Shake', second: '3½–4½ min' });
+  assert.deepEqual(cookLegs({ min: 10, max: 15, stop: 'Flip halfway' }),
+    { first: '5–7½ min', action: 'Flip', second: '5–7½ min' });
 });
 
 test('once is a single stop in the middle, same as halfway', () => {
@@ -404,7 +406,7 @@ test('every built-in row splits into legs that add back up to its time', () => {
     // An "every N" row repeats, so its two legs deliberately don't cover the
     // whole cook; every other shape must add up to the row's own range.
     if (/every/i.test(row.stop) || !second) continue;
-    const ends = s => s.replace(' min', '').split('–').map(Number);
+    const ends = s => s.replace(' min', '').split('–').map(x => Number(x.replace('½', '.5').replace(/^\./, '0.')));
     const [f1, f2 = f1] = ends(first);
     const [s1, s2 = s1] = ends(second);
     if (f1 + s1 !== row.min || f2 + s2 !== row.max) {

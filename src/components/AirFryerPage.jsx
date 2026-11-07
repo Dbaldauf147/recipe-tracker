@@ -1186,6 +1186,11 @@ export function AirFryerPage({ onClose, user, recipes = [], weeklyRecipeIds = []
                 <div className={styles.detailMeta}>
                   <span>{row.tempF}°F · {toCelsius(row.tempF)}°C</span>
                   <span>{formatTime(row)} total</span>
+                  {/* The same split the row shows, so the two read alike. */}
+                  {(() => {
+                    const l = cookLegs(row);
+                    return l.second ? <span>{l.first} · {l.action} · {l.second}</span> : null;
+                  })()}
                   {!!row.doneF && <span className={styles.doneTemp}>Done at {row.doneF}°F internal</span>}
                   {row.source === 'mine' && <span className={styles.tag}>yours</span>}
                   {row.source === 'edited' && <span className={styles.tag}>edited</span>}
