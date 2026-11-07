@@ -71,39 +71,66 @@ function VideoEmbed({ url }) {
     );
   }
 
-  // TikTok
+  // TikTok / Instagram: click to load. Their embeds are rate-limited per
+  // browser — open a few recipes and TikTok answers the iframe with a bare
+  // "ratelimit triggered" inside a 580px box. A cross-origin iframe can't be
+  // inspected, so we can't detect that; instead the player loads only when
+  // asked, and "Open on TikTok" always works.
   const ttMatch = trimmed.match(/tiktok\.com\/@[^/]+\/video\/(\d+)/);
   if (ttMatch) {
     return (
-      <div className={styles.videoEmbed}>
-        <iframe
-          src={`https://www.tiktok.com/embed/v2/${ttMatch[1]}`}
-          title="Recipe video"
-          allowFullScreen
-          className={styles.videoIframe}
-          style={{ maxWidth: 325, height: 580 }}
-        />
-      </div>
+      <SocialEmbed
+        key={trimmed}
+        platform="TikTok"
+        openUrl={trimmed.startsWith('http') ? trimmed : `https://${trimmed}`}
+        embedUrl={`https://www.tiktok.com/embed/v2/${ttMatch[1]}`}
+        size={{ maxWidth: 325, height: 580 }}
+      />
     );
   }
 
-  // Instagram
   const igMatch = trimmed.match(/instagram\.com\/(p|reel|reels)\/([a-zA-Z0-9_-]+)/);
   if (igMatch) {
     return (
-      <div className={styles.videoEmbed}>
-        <iframe
-          src={`https://www.instagram.com/${igMatch[1]}/${igMatch[2]}/embed`}
-          title="Recipe video"
-          allowFullScreen
-          className={styles.videoIframe}
-          style={{ maxWidth: 400, height: 480 }}
-        />
-      </div>
+      <SocialEmbed
+        key={trimmed}
+        platform="Instagram"
+        openUrl={trimmed.startsWith('http') ? trimmed : `https://${trimmed}`}
+        embedUrl={`https://www.instagram.com/${igMatch[1]}/${igMatch[2]}/embed`}
+        size={{ maxWidth: 400, height: 480 }}
+      />
     );
   }
 
   return null;
+}
+
+function SocialEmbed({ platform, openUrl, embedUrl, size }) {
+  const [show, setShow] = useState(false);
+  const openLink = (
+    <a href={openUrl} target="_blank" rel="noopener noreferrer" className={styles.videoOpenLink}>
+      Open on {platform}
+    </a>
+  );
+  if (!show) {
+    return (
+      <div className={styles.videoPrompt} data-testid="video-prompt">
+        <button type="button" className={styles.videoPlayBtn} onClick={() => setShow(true)}>
+          ▶ Watch {platform} video
+        </button>
+        {openLink}
+      </div>
+    );
+  }
+  return (
+    <div className={styles.videoEmbed}>
+      <iframe src={embedUrl} title="Recipe video" allowFullScreen className={styles.videoIframe} style={size} />
+      <div className={styles.videoPrompt}>
+        <span className={styles.videoHint}>Not loading?</span>
+        {openLink}
+      </div>
+    </div>
+  );
 }
 
 function parseFraction(str) {

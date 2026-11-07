@@ -541,6 +541,39 @@
   border-radius: var(--radius-md);
 }
 
+.videoPrompt {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  margin: 0.75rem 0;
+}
+
+.videoPlayBtn {
+  padding: 0.4rem 0.9rem;
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--color-accent);
+  background: var(--color-accent-light);
+  border: none;
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.videoPlayBtn:hover {
+  filter: brightness(0.96);
+}
+
+.videoOpenLink {
+  font-size: var(--font-size-sm);
+  color: var(--color-accent);
+}
+
+.videoHint {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
+
 .servingSave {
   padding: 0.2rem 0.5rem;
   font-size: 0.75rem;
