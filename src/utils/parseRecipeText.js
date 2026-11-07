@@ -41,7 +41,11 @@ const PROMO_PATTERN = /\b(comment\s+["'"].+["'"]|i['']ll\s+dm\s+you|dm\s+(me|you
 const QTY_PATTERN = /^(\d+\s*\/\s*\d+|\d+(?:\.\d+)?(?:\s*[-–]\s*\d+(?:\.\d+)?)?(?:\s+\d+\s*\/\s*\d+)?)\s*/;
 const MEAS_PATTERN = new RegExp(`^(${MEASUREMENTS.join('|')})\\b\\.?\\s*`, 'i');
 
-const HASHTAG_LINE = /^\s*#\w/;
+// A line that is a run of hashtags. `#40 Figgy Christmas` is NOT one: a "#"
+// followed by a number and a space is a creator's series number in front of
+// the title (TikTok / Reels "drink #40"), so it stays and becomes the title.
+const HASHTAG_LINE = /^\s*#(?!\d+\s+\S)\w/;
+const SERIES_NUMBER = /^#\d+\s+/;
 const URL_LINE = /^\s*https?:\/\//i;
 const DECORATIVE_LINE = /^[-=_*~]{3,}\s*$/;
 
@@ -66,7 +70,7 @@ const FOOD_WORDS = new Set([
 ]);
 
 // Cooking verbs that signal instruction lines
-const COOKING_VERBS = /^(preheat|heat|boil|simmer|sauté|saute|fry|bake|roast|grill|broil|steam|cook|stir|mix|combine|whisk|blend|fold|chop|dice|mince|slice|drain|rinse|season|add|pour|spread|place|set|let|allow|serve|garnish|top|toss|marinate|brush|coat|transfer|remove|flip|turn|cover|uncover|reduce|bring|cut|arrange|layer|stuff|roll|wrap|shape|form|knead|rest|cool|chill|freeze|thaw|melt|dissolve|soak|squeeze)\b/i;
+const COOKING_VERBS = /^(preheat|heat|boil|simmer|sauté|saute|fry|bake|roast|grill|broil|steam|cook|stir|mix|combine|whisk|blend|fold|chop|dice|mince|slice|drain|rinse|season|add|pour|spread|place|set|let|allow|serve|garnish|shake|strain|muddle|rim|fill|sprinkle|drizzle|top|toss|marinate|brush|coat|transfer|remove|flip|turn|cover|uncover|reduce|bring|cut|arrange|layer|stuff|roll|wrap|shape|form|knead|rest|cool|chill|freeze|thaw|melt|dissolve|soak|squeeze)\b/i;
 
 // Numbered step pattern: "1." or "1)" or "Step 1:" etc.
 const NUMBERED_STEP = /^(?:step\s*)?\d+[\.\):\-]\s*/i;
@@ -331,6 +335,7 @@ export function parseRecipeText(rawText) {
       break;
     }
     if (!title) title = titleFallback;
+    title = title.replace(SERIES_NUMBER, '');
 
     // Ingredients: lines between ingredients heading and next section
     if (ingredientsStart !== -1) {
@@ -441,7 +446,7 @@ export function parseRecipeText(rawText) {
       // Skip social media commentary lines
       if (COMMENTARY_PATTERN.test(cleaned) && cleaned.length > 30) continue;
       // Accept first short, non-sentence line as title
-      title = trimmed.replace(/^[-•*▪▸►🔸🔹]\s*/, '');
+      title = trimmed.replace(/^[-•*▪▸►🔸🔹]\s*/, '').replace(SERIES_NUMBER, '');
       titleIndex = item.i;
       break;
     }
