@@ -32,6 +32,7 @@ import { RECIPE_SEASONS } from '../utils/recipeSeason';
 import { getSuggestionSnapshot, subscribeSuggestionSnapshot, forecastSuggestion, describeForecast } from '../utils/suggestForecast';
 import styles from './RecipeDetail.module.css';
 import { parseQuantity } from '../utils/parseQuantity';
+import { formatDateAdded } from '../utils/recipeDateAdded';
 
 const ADMIN_UID = import.meta.env.VITE_ADMIN_UID;
 
@@ -2510,6 +2511,9 @@ export function RecipeDetail({ recipe, allTags = [], onSave, onDelete, onBack, o
                 <span className={styles.sourceInfo}>
                   <span className={styles.sourceTag}>Recipe Source: {recipe.source === 'shared' && recipe.sharedFrom ? `Shared by @${recipe.sharedFrom}` : (SOURCE_LABELS[recipe.source] || 'Unknown')}</span>
                 </span>
+                {formatDateAdded(recipe.createdAt) && (
+                  <span className={styles.metaValue} data-testid="recipe-date-added">{formatDateAdded(recipe.createdAt)}</span>
+                )}
               </div>
               <div className={styles.metaRow}>
                 <label className={styles.metaLabel} style={{ flex: 1 }}>
@@ -2614,6 +2618,12 @@ export function RecipeDetail({ recipe, allTags = [], onSave, onDelete, onBack, o
                   >
                     View source
                   </a>
+                )}
+                {formatDateAdded(recipe.createdAt) && (
+                  <>
+                    <span className={styles.metaDot}>&middot;</span>
+                    <span className={styles.metaValue} data-testid="recipe-date-added">{formatDateAdded(recipe.createdAt)}</span>
+                  </>
                 )}
               </div>
             </>
