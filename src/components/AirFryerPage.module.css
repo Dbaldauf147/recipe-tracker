@@ -869,21 +869,22 @@
   text-align: right;
 }
 .headTemp { flex: 1 1 auto; }
-.headLeg { width: 5.6rem; }
+.headLeg { width: 6.6rem; }
 .headAction { width: 6.6rem; }
 /* Cell padding eats into the fixed widths, so the time cells get wider (a
    "18–23 min" ran over its line) and the notes column gives up the room.
    
-   24.5rem, not 23: the four cells inside are 391px of fixed widths (temp can't
+   26.5rem (was 24.5, and 23 before that; widened again 2026-11-07 when a
+   halfway leg became e.g. "17½–22½ min"): the four cells inside are 423px of fixed widths (temp can't
    shrink below "400°F"), and at 23rem/368px they overflowed by 23px. Because
    the button is justify-content: flex-end, that overflow spilled LEFT — the
    temperature drew on top of whatever column came before it, which used to be
    spices and is now oils. Widening the column is the fix; letting the cells
    shrink instead would ellipsis the numbers, and the numbers are the answer
    this whole page exists to give. */
-.headNums, .rowNumsBtn { width: 24.5rem; }
+.headNums, .rowNumsBtn { width: 26.5rem; }
 .headNotes, .rowNotes, .rowNotesEmpty { width: 16rem; }
-.legTime { width: 5.6rem; }
+.legTime { width: 6.6rem; }
 
 .rowTop { align-items: stretch; }
 .rowMain { gap: 0; padding: 0; align-items: stretch; }
@@ -975,11 +976,11 @@
    (where the notes column is hidden). The phone keeps its own stacked layout. */
 .tableScroll { overflow-x: auto; }
 .tableHead,
-.list { min-width: 70.5rem; }
+.list { min-width: 72.5rem; }
 .rowName { min-width: 0; overflow-wrap: anywhere; }
 @media (max-width: 900px) {
   .tableHead,
-  .list { min-width: 53rem; }
+  .list { min-width: 55rem; }
 }
 @media (max-width: 520px) {
   .tableHead,
