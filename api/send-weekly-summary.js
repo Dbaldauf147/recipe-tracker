@@ -248,7 +248,11 @@ async function buildEmail(uid, userData, todayKey, { force = false } = {}) {
     saunaGoal: userData.saunaGoal,
     nutritionGoals: userData.nutritionGoals || null,
   };
-  const stats = summarizeWeek(data, week, { withProgress: true, goalsConfig });
+  // The habit countdown runs from today (New York), as a Date whose local
+  // fields are that day, which is how habitAutoPromote reads dates.
+  const [ty, tm, td] = String(todayKey).split('-').map(Number);
+  const asOf = new Date(ty, tm - 1, td, 12);
+  const stats = summarizeWeek(data, week, { withProgress: true, goalsConfig, asOf });
   if (!force && isEmptyWeek(stats)) return null;
   const priorStats = summarizeWeek(data, prior);
   // Gated on the ACCOUNT, not the recipient list: the owner can add a second
