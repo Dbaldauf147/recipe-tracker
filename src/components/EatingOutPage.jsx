@@ -9,7 +9,10 @@ import { saveOwnerRestaurants, saveOwnerEatingOutLists, saveField, subscribeRest
 import { visitStatsByPlace } from '../utils/spotVisits';
 import { healthyByLongestSince } from '../utils/healthyPlaces';
 import { recentPlaces } from '../utils/recentPlaces';
-import { isSteakhouse, guysNightPatch, guysNightSections } from '../utils/guysNight';
+import {
+  isSteakhouse, guysNightPatch, guysNightSections,
+  guysNightDates, addGuysNightDatePatch, removeGuysNightDatePatch, formatGuysNightDate,
+} from '../utils/guysNight';
 import {
   splitTsv,
   detectHasHeader,
@@ -2089,6 +2092,9 @@ function EditModal({ initial, onSave, onClose, onDelete, cuisineSuggestions, loc
       joanneHoldOff: (!takenJoanne && joanneHoldOff) || undefined,
       guysNightDone: guysNightDone || undefined,
       guysNightSkip: (!guysNightDone && guysNightSkip) || undefined,
+      // Edited on the Guys Night tab, not here — carried through so a save
+      // from this form doesn't drop them.
+      guysNightDates: initial.guysNightDates,
       // Health is written to both the new field and the legacy array, so CSV
       // export and the importer keep agreeing with the picker.
       dietTags: syncDietTags(initial.dietTags, health),
@@ -3507,9 +3513,62 @@ function RecentPlacesView({ items, statsFor, isMine, ratingsBySpot, userUid, onS
 // Every steakhouse in the current filter, split into not done yet / done /
 // not for guys night (utils/guysNight.js). The checkbox marks it done in
 // place; the name opens the spot. ⚠️ Mirrored on mobile.
-function GuysNightView({ items, onSelect, onSetState }) {
+function GuysNightView({ items, onSelect, onSetState, onPatch }) {
   const { todo, done, skip, total } = useMemo(() => guysNightSections(items), [items]);
   const [showSkip, setShowSkip] = useState(false);
+  // The row whose date picker is open (owner:id), or null.
+  const [picking, setPicking] = useState(null);
+  const todayKey = (() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  })();
+  // The days you went: a chip per visit (✕ removes it) and "+ Date", which
+  // opens a date picker — choosing a day records it and marks the spot done.
+  const datesCell = (r, key, state) => {
+    if (state === 'skip') return <span aria-hidden="true" />;
+    const days = guysNightDates(r);
+    return (
+      <span className={styles.guysDates}>
+        {days.map(day => (
+          <span key={day} className={styles.guysDate}>
+            {formatGuysNightDate(day)}
+            <button
+              type="button"
+              className={styles.guysDateRemove}
+              onClick={() => onPatch(r, removeGuysNightDatePatch(r, day))}
+              aria-label={`Remove ${formatGuysNightDate(day)}`}
+              title="Remove this date"
+            >✕</button>
+          </span>
+        ))}
+        {picking === key ? (
+          <input
+            type="date"
+            className={styles.guysDateInput}
+            max={todayKey}
+            autoFocus
+            ref={el => { try { el?.showPicker?.(); } catch { /* needs a user gesture in some browsers */ } }}
+            onChange={e => {
+              const patch = addGuysNightDatePatch(r, e.target.value);
+              if (patch) { onPatch(r, patch); setPicking(null); }
+            }}
+            onBlur={() => setPicking(null)}
+            onKeyDown={e => { if (e.key === 'Escape') setPicking(null); }}
+            aria-label={`Date you went to ${r.name}`}
+          />
+        ) : (
+          <button
+            type="button"
+            className={styles.guysAction}
+            onClick={() => setPicking(key)}
+            title="Add the date you went for guys night"
+          >
+            + Date
+          </button>
+        )}
+      </span>
+    );
+  };
   const row = (r, state) => (
     <li key={`${r._ownerUid}:${r.id}`}>
       <div className={`${styles.rankingRow} ${styles.guysRow} ${state === 'done' ? styles.guysDone : ''}`}>
@@ -3532,6 +3591,7 @@ function GuysNightView({ items, onSelect, onSetState }) {
           <JoanneStatusPill spot={r} />
           <span className={styles.rankingVotes}>{(r.locations || [])[0] || ''}</span>
         </span>
+        {datesCell(r, `${r._ownerUid}:${r.id}`, state)}
         {state === 'todo' && (
           <button type="button" className={styles.guysAction} onClick={() => onSetState(r, 'skip')} title="Not a guys-night place — move it out of this list">
             Not for guys night
@@ -5803,16 +5863,19 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
   // through applyFiling (whole-list write); a friend's through the one-spot
   // transaction, built from the owner's stored copy so view-only fields like
   // `_distance` never get written.
-  const setGuysNight = useCallback((spot, state) => {
+  const patchGuysNight = useCallback((spot, fields) => {
     const ownerUid = spot._ownerUid || user?.uid;
-    if (!ownerUid) return;
-    const patch = { ...guysNightPatch(state), updatedAt: new Date().toISOString() };
+    if (!ownerUid || !fields) return;
+    const patch = { ...fields, updatedAt: new Date().toISOString() };
     if (ownerUid === user?.uid) { applyFiling(spot, patch); return; }
     const stored = (ownerData[ownerUid]?.restaurants || []).find(x => x.id === spot.id);
     if (!stored) return;
     const { _ownerUid, _ownerUsername, _isMine, ...clean } = stored;
     writeFriendSpot(ownerUid, { ...clean, ...patch });
   }, [user?.uid, ownerData, applyFiling, writeFriendSpot]);
+  const setGuysNight = useCallback((spot, state) => {
+    patchGuysNight(spot, guysNightPatch(state));
+  }, [patchGuysNight]);
 
   function handleSave(restaurant) {
     // Adds default to MY list; edits go to the original owner's list.
@@ -6620,7 +6683,7 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
           ) : viewMode === 'joanne' ? (
             <JoanneByCategoryView items={visible} allItems={restaurants} onSelect={openSpot} />
           ) : viewMode === 'guys-night' ? (
-            <GuysNightView items={visible} onSelect={openSpot} onSetState={setGuysNight} />
+            <GuysNightView items={visible} onSelect={openSpot} onSetState={setGuysNight} onPatch={patchGuysNight} />
           ) : viewMode === 'recent' ? (
             <RecentPlacesView items={visible} statsFor={myVisitStats} isMine={isMySpot} ratingsBySpot={ratingsBySpot} userUid={user?.uid} onSelect={openSpot} />
           ) : viewMode === 'healthy' ? (

@@ -1,6 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { isSteakhouse, guysNightState, guysNightPatch, guysNightSections } from './guysNight.js';
+import {
+  isSteakhouse, guysNightState, guysNightPatch, guysNightSections,
+  guysNightDates, addGuysNightDatePatch, removeGuysNightDatePatch,
+} from './guysNight.js';
 
 test('steakhouse = any category mentioning steak, either category field', () => {
   assert.ok(isSteakhouse({ cuisines: ['Steakhouse'] }));
@@ -38,4 +41,23 @@ test('sections: steakhouses only, marks kept even without the category', () => {
 test('the same spot listed twice (e.g. a shared list) shows once', () => {
   const r = { id: '1', _ownerUid: 'u', name: 'Keens', cuisines: ['Steakhouse'] };
   assert.equal(guysNightSections([r, { ...r }]).todo.length, 1);
+});
+
+test('visit dates: add marks it done, dedupes, keeps newest first; bad days are ignored', () => {
+  const r = { guysNightSkip: true, guysNightDates: ['2026-03-01', 'junk', '2026-03-01'] };
+  assert.deepEqual(guysNightDates(r), ['2026-03-01']);
+  const p = addGuysNightDatePatch(r, '2026-11-07');
+  assert.deepEqual(p, { guysNightDone: true, guysNightSkip: undefined, guysNightDates: ['2026-11-07', '2026-03-01'] });
+  assert.equal(addGuysNightDatePatch(r, '11/07/2026'), null);
+  assert.deepEqual(removeGuysNightDatePatch({ guysNightDates: ['2026-11-07'] }, '2026-11-07'), { guysNightDates: undefined });
+  assert.deepEqual(removeGuysNightDatePatch(p, '2026-03-01'), { guysNightDates: ['2026-11-07'] });
+});
+
+test('done sorts by most recent visit, undated spots last', () => {
+  const { done } = guysNightSections([
+    { id: '1', name: 'Alpha', cuisines: ['Steakhouse'], guysNightDone: true },
+    { id: '2', name: 'Beta', cuisines: ['Steakhouse'], guysNightDone: true, guysNightDates: ['2025-01-01'] },
+    { id: '3', name: 'Gamma', cuisines: ['Steakhouse'], guysNightDone: true, guysNightDates: ['2026-05-01', '2024-01-01'] },
+  ]);
+  assert.deepEqual(done.map(r => r.name), ['Gamma', 'Beta', 'Alpha']);
 });
