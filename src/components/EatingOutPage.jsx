@@ -32,6 +32,7 @@ import { saveSpotForOwner, saveEatingOutOrder, subscribeSpotComments, addSpotCom
 // JPEG budget, so a spot photo can't push its doc near Firestore's 1 MB cap.
 import { compressImage, rotateDataUrl } from '../utils/exerciseImages';
 import { EatingOutFriendsPanel } from './EatingOutFriendsPanel';
+import { isDrinkingSpot } from '../utils/drinkingSpots';
 import styles from './EatingOutPage.module.css';
 
 const VISITED_COLOR = '#10b981';
@@ -211,6 +212,7 @@ const DEFAULT_BUCKETS = [
 // config loads or is edited — always from a snapshot/event callback (which is
 // then followed by a state update to re-render), never during render itself.
 let BUCKETS = DEFAULT_BUCKETS.slice();
+const DRINK_HIDING_VIEWS = new Set(['list', 'recent', 'rankings', 'try-next', 'joanne', 'healthy']);
 let BUCKET_KEYS = new Set(BUCKETS.map(b => b.key));
 const bucketLabel = (key) => BUCKETS.find(b => b.key === key)?.label || '';
 
@@ -5213,6 +5215,16 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
     setListGroupingState(g);
     try { localStorage.setItem('sunday-eating-out-list-grouping', g); } catch { /* ignore */ }
   }, []);
+  // Hide bars / breweries / clubs on the "where do we eat" views. On by
+  // default; the choice sticks per browser.
+  const [hideDrinks, setHideDrinksState] = useState(() => {
+    try { return localStorage.getItem('sunday-eating-out-hide-drinks') !== '0'; }
+    catch { return true; }
+  });
+  const setHideDrinks = useCallback((v) => {
+    setHideDrinksState(v);
+    try { localStorage.setItem('sunday-eating-out-hide-drinks', v ? '1' : '0'); } catch { /* ignore */ }
+  }, []);
   const [geocodingProgress, setGeocodingProgress] = useState(null);
   const cancelGeocodeRef = useRef(false);
   // Live collaborative ratings for every visible owner's spots, keyed
@@ -5539,6 +5551,21 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
     // The individual filter values moved into passesFilters, which carries them
     // in its own dependency list — depending on it here keeps the two in step.
   }, [restaurants, passesFilters, proximityCenter]);
+
+  // The views that hide drinking spots (Table, Map and Guys Night show all).
+  // Picking the Drinking bucket is an explicit ask for them, so it wins.
+  const drinksHideable = DRINK_HIDING_VIEWS.has(viewMode) && activeBucket !== 'drinking';
+  const drinkingIds = useMemo(() => {
+    const ids = new Set();
+    for (const r of visible) {
+      if (isDrinkingSpot({ buckets: bucketsOf(r), categories: spotCategories(r) })) ids.add(r);
+    }
+    return ids;
+  }, [visible]);
+  const shown = useMemo(
+    () => (hideDrinks && drinksHideable && drinkingIds.size ? visible.filter(r => !drinkingIds.has(r)) : visible),
+    [visible, hideDrinks, drinksHideable, drinkingIds],
+  );
 
   // Per-owner sequence of currently-visible ids, so a card knows whether it can
   // move up/down (i.e. has a visible same-owner neighbor in that direction).
@@ -6470,7 +6497,7 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
           )}
           <div className={styles.toolbar}>
             <span className={styles.resultCount}>
-              {visible.length} spot{visible.length === 1 ? '' : 's'}
+              {shown.length} spot{shown.length === 1 ? '' : 's'}
             </span>
             <div className={styles.filterRow}>
               <button
@@ -6544,6 +6571,19 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
                 🥗 Healthy
               </button>
             </div>
+            {drinksHideable && drinkingIds.size > 0 && (
+              <div className={styles.filterRow} style={{ marginLeft: 8 }}>
+                <button
+                  type="button"
+                  className={`${styles.filterBtn} ${hideDrinks ? styles.filterBtnActive : ''}`}
+                  onClick={() => setHideDrinks(!hideDrinks)}
+                  title="Bars, breweries and clubs — spots with no food category"
+                  data-testid="hide-drinks"
+                >
+                  🍸 {hideDrinks ? `Drinks hidden (${drinkingIds.size})` : 'Hide drinks'}
+                </button>
+              </div>
+            )}
             {viewMode === 'list' && (
               <div className={styles.filterRow} style={{ marginLeft: 8 }}>
                 <button
@@ -6609,7 +6649,7 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
             <RestaurantMapView items={visible} allItems={restaurants} onSelect={openSpot} />
           ) : viewMode === 'try-next' ? (
             <TryNextView
-              items={visible}
+              items={shown}
               allItems={restaurants}
               onSelect={openSpot}
               buckets={BUCKETS}
@@ -6618,16 +6658,16 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
               bucketCounts={tryNextBucketCounts}
             />
           ) : viewMode === 'joanne' ? (
-            <JoanneByCategoryView items={visible} allItems={restaurants} onSelect={openSpot} />
+            <JoanneByCategoryView items={shown} allItems={restaurants} onSelect={openSpot} />
           ) : viewMode === 'guys-night' ? (
             <GuysNightView items={visible} onSelect={openSpot} onSetState={setGuysNight} />
           ) : viewMode === 'recent' ? (
-            <RecentPlacesView items={visible} statsFor={myVisitStats} isMine={isMySpot} ratingsBySpot={ratingsBySpot} userUid={user?.uid} onSelect={openSpot} />
+            <RecentPlacesView items={shown} statsFor={myVisitStats} isMine={isMySpot} ratingsBySpot={ratingsBySpot} userUid={user?.uid} onSelect={openSpot} />
           ) : viewMode === 'healthy' ? (
-            <HealthyPlacesView items={visible} onSelect={openSpot} />
+            <HealthyPlacesView items={shown} onSelect={openSpot} />
           ) : viewMode === 'rankings' ? (
             <RestaurantRankings
-              items={visible}
+              items={shown}
               ratingsBySpot={ratingsBySpot}
               metric={rankMetric}
               onMetricChange={setRankMetric}
@@ -6652,7 +6692,7 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
                 onMove: handleRankMove,
               } : null}
             />
-          ) : visible.length === 0 ? (
+          ) : shown.length === 0 ? (
             <div className={styles.empty}>
               {restaurants.length === 0 ? (
                 <>
@@ -6726,7 +6766,7 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
                 // Unnumbered: a rank only means something in the one full list.
                 const statusOrder = r => (r.status === 'want-to-try' ? 0 : r.status === 'hold-off' ? 2 : 1);
                 // Proximity mode keeps nearest-first instead.
-                const ordered = !showRank ? visible : visible
+                const ordered = !showRank ? shown : shown
                   .map((r, i) => ({ r, i }))
                   .sort((a, b) => statusOrder(a.r) - statusOrder(b.r) || a.i - b.i)
                   .map(x => x.r);
@@ -6769,15 +6809,15 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
                 return (
                   <>
                     {unfiledNotice(unfiled, setFilingQueue)}
-                    <div className={gridClass}>{visible.map(r => renderCard(r, null, []))}</div>
+                    <div className={gridClass}>{shown.map(r => renderCard(r, null, []))}</div>
                   </>
                 );
               }
               // Want-to-try floats above, unnumbered; the numbered ranking below
               // is just the spots I've ranked (Visited).
-              const wantGroup = visible.filter(r => r.status === 'want-to-try');
-              const rankedGroup = visible.filter(r => r.status !== 'want-to-try' && r.status !== 'hold-off');
-              const holdGroup = visible.filter(r => r.status === 'hold-off');
+              const wantGroup = shown.filter(r => r.status === 'want-to-try');
+              const rankedGroup = shown.filter(r => r.status !== 'want-to-try' && r.status !== 'hold-off');
+              const holdGroup = shown.filter(r => r.status === 'hold-off');
               const rankedSeqByOwner = {};
               for (const r of rankedGroup) (rankedSeqByOwner[r._ownerUid] = rankedSeqByOwner[r._ownerUid] || []).push(r.id);
               return (
