@@ -2864,6 +2864,8 @@
   opacity: 0.6;
 }
 .guysDateRemove:hover { opacity: 1; }
+.guysDatePick { display: inline-flex; align-items: center; gap: 0.25rem; }
+.guysAction:disabled { opacity: 0.45; cursor: default; }
 .guysDateInput {
   font: inherit;
   font-size: 0.75rem;
