@@ -2823,8 +2823,8 @@
 }
 
 /* ── Guys Night tab ──
-   A div row, not a button: it holds a checkbox and a "Not for guys night"
-   button of its own. Scoped like the other .rankingGroup variants so the
+   A div row, not a button: it holds a checkbox and its own ★ Next / Y-N
+   controls. Scoped like the other .rankingGroup variants so the
    5-column ranking grid doesn't win. */
 .rankingGroup .guysRow {
   grid-template-columns: auto minmax(0, 1fr) auto auto auto;
@@ -2911,6 +2911,26 @@
   white-space: nowrap;
 }
 .guysAction:hover { border-color: var(--color-accent); color: var(--color-text); }
+/* Not-done rows: ★ Next pick + "available this year?" Y / N. */
+.guysControls { display: inline-flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; justify-content: flex-end; }
+.guysActionOn { background: #fef3c7; border-color: #f59e0b; color: #92400e; }
+.guysActionOn:hover { color: #92400e; }
+.guysAvail { display: inline-flex; align-items: center; gap: 0.15rem; }
+.guysAvailLabel { font-size: 0.7rem; color: var(--color-text-muted); margin-right: 0.1rem; }
+.guysAvailBtn {
+  font: inherit;
+  font-size: 0.7rem;
+  font-weight: 700;
+  width: 1.6rem;
+  padding: 0.1rem 0;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: none;
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+.guysAvailYes { background: #dcfce7; border-color: #16a34a; color: #166534; }
+.guysAvailNo { background: #fee2e2; border-color: #dc2626; color: #991b1b; }
 
 /* Add form: the place being added is already on the list. Amber like .dupeFlag
    — a heads-up, not an error; saving anyway is allowed. */

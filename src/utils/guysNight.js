@@ -7,6 +7,10 @@
 // They are mutually exclusive; done wins if both ever end up set.
 //
 // Plus `guysNightDates` — the YYYY-MM-DD days you went, kept newest first.
+// Plus `guysNightNext` — true on the ONE steakhouse picked as the next guys
+// night (true-or-absent; picking one clears it everywhere else).
+// Plus `guysNightAvailable` — { year, yes } — whether it's on the table THIS
+// year. A mark from an earlier year reads as unanswered, so it resets itself.
 // Web only for now: mobile carries the field through its editor but has no UI
 // for it, and its mirror below has no date helpers.
 
@@ -61,6 +65,41 @@ export function formatGuysNightDate(day) {
   return new Date(y, m - 1, d).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
+/** Is this spot the one picked as the next guys night? */
+export function isGuysNightNext(r) {
+  return !!r?.guysNightNext;
+}
+
+/**
+ * The patches that make `target` the next guys night — or un-pick it when it
+ * already is. Every other spot carrying the mark gets it cleared, so there's
+ * only ever one. Returns [{ spot, patch }], only for spots that change.
+ */
+export function guysNightNextChanges(items, target) {
+  const key = r => `${r?._ownerUid || ''}:${r?.id}`;
+  const turningOn = !isGuysNightNext(target);
+  const out = [{ spot: target, patch: { guysNightNext: turningOn ? true : undefined } }];
+  if (turningOn) {
+    for (const r of items || []) {
+      if (r && isGuysNightNext(r) && key(r) !== key(target)) out.push({ spot: r, patch: { guysNightNext: undefined } });
+    }
+  }
+  return out;
+}
+
+/** 'yes' | 'no' | null for `year` (default: this year). An older year's mark is null. */
+export function guysNightAvailability(r, year = new Date().getFullYear()) {
+  const a = r?.guysNightAvailable;
+  if (!a || typeof a !== 'object' || Number(a.year) !== year) return null;
+  return a.yes ? 'yes' : 'no';
+}
+
+/** Patch setting this year's availability: 'yes' | 'no', or null to clear. */
+export function guysNightAvailabilityPatch(value, year = new Date().getFullYear()) {
+  if (value !== 'yes' && value !== 'no') return { guysNightAvailable: undefined };
+  return { guysNightAvailable: { year, yes: value === 'yes' } };
+}
+
 const byName = (a, b) => String(a.name || '').localeCompare(String(b.name || ''));
 const wantFirst = r => (r.status === 'want-to-try' && !r.lastVisit ? 0 : 1);
 
@@ -68,12 +107,13 @@ const wantFirst = r => (r.status === 'want-to-try' && !r.lastVisit ? 0 : 1);
  * Steakhouses split three ways for the Guys Night tab. A spot already marked
  * done or skipped stays listed even if its Steakhouse category is later
  * removed, so a mark is never lost from view.
- *   todo — not done and not ruled out: ★ Next first, then want-to-try spots
- *          you've never been to, then the rest, each A–Z
+ *   todo — not done and not ruled out: the guys-night ★ Next first, then
+ *          the rest, with spots marked unavailable this year sinking last;
+ *          within that, want-to-try spots you've never been to first, A–Z
  *   done — most recent visit first; spots with no date after, A–Z
  *   skip — A–Z
  */
-export function guysNightSections(items) {
+export function guysNightSections(items, year = new Date().getFullYear()) {
   const todo = [], done = [], skip = [];
   const seen = new Set();
   for (const r of items || []) {
@@ -85,7 +125,9 @@ export function guysNightSections(items) {
     seen.add(key);
     (state === 'done' ? done : state === 'skip' ? skip : todo).push(r);
   }
-  todo.sort((a, b) => (b.nextSpot ? 1 : 0) - (a.nextSpot ? 1 : 0) || wantFirst(a) - wantFirst(b) || byName(a, b));
+  const unavailable = r => (guysNightAvailability(r, year) === 'no' ? 1 : 0);
+  todo.sort((a, b) => (isGuysNightNext(b) ? 1 : 0) - (isGuysNightNext(a) ? 1 : 0)
+    || unavailable(a) - unavailable(b) || wantFirst(a) - wantFirst(b) || byName(a, b));
   const latest = r => guysNightDates(r)[0] || '';
   done.sort((a, b) => latest(b).localeCompare(latest(a)) || byName(a, b));
   skip.sort(byName);

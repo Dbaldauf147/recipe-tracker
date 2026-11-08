@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   isSteakhouse, guysNightState, guysNightPatch, guysNightSections,
   guysNightDates, addGuysNightDatePatch, removeGuysNightDatePatch,
+  guysNightNextChanges, guysNightAvailability, guysNightAvailabilityPatch,
 } from './guysNight.js';
 
 test('steakhouse = any category mentioning steak, either category field', () => {
@@ -30,7 +31,7 @@ test('sections: steakhouses only, marks kept even without the category', () => {
     { id: '4', name: 'Old Homestead', cuisines: ['Steakhouse'], guysNightDone: true },
     { id: '5', name: 'Gallaghers', cuisines: ['Steakhouse'], guysNightSkip: true },
     { id: '6', name: 'Was a steakhouse', cuisines: ['Bar'], guysNightDone: true },
-    { id: '7', name: 'Bowery Meat', cuisines: ['Steakhouse'], status: 'want-to-try', nextSpot: true },
+    { id: '7', name: 'Bowery Meat', cuisines: ['Steakhouse'], status: 'want-to-try', guysNightNext: true },
   ]);
   assert.deepEqual(s.todo.map(r => r.name), ['Bowery Meat', 'Keens', 'Peter Luger']);
   assert.deepEqual(s.done.map(r => r.name), ['Old Homestead', 'Was a steakhouse']);
@@ -60,4 +61,32 @@ test('done sorts by most recent visit, undated spots last', () => {
     { id: '3', name: 'Gamma', cuisines: ['Steakhouse'], guysNightDone: true, guysNightDates: ['2026-05-01', '2024-01-01'] },
   ]);
   assert.deepEqual(done.map(r => r.name), ['Gamma', 'Beta', 'Alpha']);
+});
+
+test('next guys night: one pick, picking another clears it, picking it again un-picks', () => {
+  const a = { id: 'a', _ownerUid: 'u', name: 'Keens', guysNightNext: true };
+  const b = { id: 'b', _ownerUid: 'u', name: 'Luger' };
+  assert.deepEqual(guysNightNextChanges([a, b], b).map(c => [c.spot.id, c.patch.guysNightNext]), [['b', true], ['a', undefined]]);
+  assert.deepEqual(guysNightNextChanges([a, b], a).map(c => [c.spot.id, c.patch.guysNightNext]), [['a', undefined]]);
+  // The general ★ Next spot no longer counts for guys night.
+  const s = guysNightSections([
+    { id: '1', name: 'Alpha', cuisines: ['Steakhouse'], nextSpot: true },
+    { id: '2', name: 'Zeta', cuisines: ['Steakhouse'], guysNightNext: true },
+  ]);
+  assert.deepEqual(s.todo.map(r => r.name), ['Zeta', 'Alpha']);
+});
+
+test('available this year: only this year counts; no sinks to the bottom', () => {
+  assert.equal(guysNightAvailability({ guysNightAvailable: { year: 2026, yes: true } }, 2026), 'yes');
+  assert.equal(guysNightAvailability({ guysNightAvailable: { year: 2026, yes: false } }, 2026), 'no');
+  assert.equal(guysNightAvailability({ guysNightAvailable: { year: 2025, yes: true } }, 2026), null);
+  assert.equal(guysNightAvailability({}, 2026), null);
+  assert.deepEqual(guysNightAvailabilityPatch('no', 2026), { guysNightAvailable: { year: 2026, yes: false } });
+  assert.deepEqual(guysNightAvailabilityPatch(null, 2026), { guysNightAvailable: undefined });
+  const s = guysNightSections([
+    { id: '1', name: 'Alpha', cuisines: ['Steakhouse'], guysNightAvailable: { year: 2026, yes: false } },
+    { id: '2', name: 'Beta', cuisines: ['Steakhouse'] },
+    { id: '3', name: 'Gamma', cuisines: ['Steakhouse'], guysNightAvailable: { year: 2025, yes: false } },
+  ], 2026);
+  assert.deepEqual(s.todo.map(r => r.name), ['Beta', 'Gamma', 'Alpha']);
 });
