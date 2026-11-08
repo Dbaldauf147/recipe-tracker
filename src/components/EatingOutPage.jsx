@@ -3534,8 +3534,24 @@ function RecentPlacesView({ items, statsFor, isMine, ratingsBySpot, userUid, onS
 function GuysNightView({ items, onSelect, onSetState, onPatch }) {
   const { todo, done, skip, total } = useMemo(() => guysNightSections(items), [items]);
   const [showSkip, setShowSkip] = useState(false);
-  // The row whose date picker is open (owner:id), or null.
+  // The row whose date picker is open (owner:id), or null, and the day being
+  // typed into it.
   const [picking, setPicking] = useState(null);
+  const [draft, setDraft] = useState('');
+  const closePicker = () => { setPicking(null); setDraft(''); };
+  // A year between 1950 and next year: rules out the half-typed 0002 / 0020 /
+  // 0202 a date box reports while you are still typing 2026.
+  const isPlausibleDay = day => {
+    const y = Number(String(day || '').slice(0, 4));
+    return /^\d{4}-\d{2}-\d{2}$/.test(String(day || '')) && y >= 1950 && y <= new Date().getFullYear() + 1;
+  };
+  const commitDate = r => {
+    if (isPlausibleDay(draft)) {
+      const patch = addGuysNightDatePatch(r, draft);
+      if (patch) onPatch(r, patch);
+    }
+    closePicker();
+  };
   const todayKey = (() => {
     const d = new Date();
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -3560,25 +3576,46 @@ function GuysNightView({ items, onSelect, onSetState, onPatch }) {
           </span>
         ))}
         {picking === key ? (
-          <input
-            type="date"
-            className={styles.guysDateInput}
-            max={todayKey}
-            autoFocus
-            ref={el => { try { el?.showPicker?.(); } catch { /* needs a user gesture in some browsers */ } }}
-            onChange={e => {
-              const patch = addGuysNightDatePatch(r, e.target.value);
-              if (patch) { onPatch(r, patch); setPicking(null); }
-            }}
-            onBlur={() => setPicking(null)}
-            onKeyDown={e => { if (e.key === 'Escape') setPicking(null); }}
-            aria-label={`Date you went to ${r.name}`}
-          />
+          <span className={styles.guysDatePick}>
+            {/* Typing a date fires onChange as soon as the year's FIRST digit
+                is in (year 0002), so nothing saves on change: the day is held
+                as a draft and saved on Enter, Add, or clicking away, and only
+                once the year is a real one. The calendar isn't opened
+                automatically: while it's open, typed digits go to it rather
+                than the box. The box's own calendar icon still opens it. */}
+            <input
+              type="date"
+              className={styles.guysDateInput}
+              max={todayKey}
+              autoFocus
+              value={draft}
+              onChange={e => setDraft(e.target.value)}
+              onBlur={e => {
+                // Clicking Add blurs the input first; let its click do the save.
+                if (e.relatedTarget?.dataset?.guysAdd) return;
+                commitDate(r);
+              }}
+              onKeyDown={e => {
+                if (e.key === 'Enter') { e.preventDefault(); commitDate(r); }
+                if (e.key === 'Escape') closePicker();
+              }}
+              aria-label={`Date you went to ${r.name}`}
+            />
+            <button
+              type="button"
+              data-guys-add="1"
+              className={styles.guysAction}
+              disabled={!isPlausibleDay(draft)}
+              onClick={() => commitDate(r)}
+            >
+              Add
+            </button>
+          </span>
         ) : (
           <button
             type="button"
             className={styles.guysAction}
-            onClick={() => setPicking(key)}
+            onClick={() => { setDraft(''); setPicking(key); }}
             title="Add the date you went for guys night"
           >
             + Date
