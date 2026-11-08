@@ -1304,6 +1304,9 @@
 
 /* Card additions */
 .cardRetired { opacity: 0.65; }
+/* A drinking spot greyed out by the 🍸 toggle — still there, still clickable. */
+.cardDimmed { opacity: 0.4; filter: grayscale(1); }
+.cardDimmed:hover { opacity: 0.75; }
 
 .retiredBadge {
   background: var(--color-surface-alt);
