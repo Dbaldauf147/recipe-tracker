@@ -12,6 +12,7 @@ import { recentPlaces } from '../utils/recentPlaces';
 import {
   isSteakhouse, guysNightPatch, guysNightSections,
   guysNightDates, addGuysNightDatePatch, removeGuysNightDatePatch, formatGuysNightDate,
+  isGuysNightNext, guysNightNextChanges, guysNightAvailability, guysNightAvailabilityPatch,
 } from '../utils/guysNight';
 import {
   splitTsv,
@@ -2139,6 +2140,8 @@ function EditModal({ initial, onSave, onClose, onDelete, cuisineSuggestions, loc
       // Edited on the Guys Night tab, not here — carried through so a save
       // from this form doesn't drop them.
       guysNightDates: initial.guysNightDates,
+      guysNightNext: initial.guysNightNext,
+      guysNightAvailable: initial.guysNightAvailable,
       // Health is written to both the new field and the legacy array, so CSV
       // export and the importer keep agreeing with the picker.
       dietTags: syncDietTags(initial.dietTags, health),
@@ -3567,7 +3570,8 @@ function RecentPlacesView({ items, statsFor, isMine, ratingsBySpot, userUid, onS
 // Every steakhouse in the current filter, split into not done yet / done /
 // not for guys night (utils/guysNight.js). The checkbox marks it done in
 // place; the name opens the spot. ⚠️ Mirrored on mobile.
-function GuysNightView({ items, onSelect, onSetState, onPatch }) {
+function GuysNightView({ items, onSelect, onSetState, onPatch, onPickNext }) {
+  const thisYear = new Date().getFullYear();
   const { todo, done, skip, total } = useMemo(() => guysNightSections(items), [items]);
   const [showSkip, setShowSkip] = useState(false);
   // The row whose date picker is open (owner:id), or null, and the day being
@@ -3676,18 +3680,47 @@ function GuysNightView({ items, onSelect, onSetState, onPatch }) {
         <button type="button" className={styles.guysName} onClick={() => onSelect(r)}>
           {r.name}
           {r._ownerUsername && <span className={styles.rankingOwner}> @{r._ownerUsername}</span>}
-          {isNextSpot(r) && <span className={styles.tryNextPin}> ★ Next</span>}
+          {isGuysNightNext(r) && <span className={styles.tryNextPin}> ★ Next</span>}
         </button>
         <span className={styles.joanneTags}>
           <JoanneStatusPill spot={r} />
           <span className={styles.rankingVotes}>{(r.locations || [])[0] || ''}</span>
         </span>
         {datesCell(r, `${r._ownerUid}:${r.id}`, state)}
-        {state === 'todo' && (
-          <button type="button" className={styles.guysAction} onClick={() => onSetState(r, 'skip')} title="Not a guys-night place — move it out of this list">
-            Not for guys night
-          </button>
-        )}
+        {state === 'todo' && (() => {
+          const avail = guysNightAvailability(r, thisYear);
+          const setAvail = v => onPatch(r, guysNightAvailabilityPatch(avail === v ? null : v, thisYear));
+          return (
+            <span className={styles.guysControls}>
+              <button
+                type="button"
+                className={`${styles.guysAction} ${isGuysNightNext(r) ? styles.guysActionOn : ''}`}
+                onClick={() => onPickNext(r)}
+                aria-pressed={isGuysNightNext(r)}
+                title={isGuysNightNext(r) ? 'The next guys night — click to un-pick' : 'Make this the next guys night'}
+              >
+                ★ Next
+              </button>
+              <span className={styles.guysAvail} role="group" aria-label={`Available in ${thisYear}?`}>
+                <span className={styles.guysAvailLabel}>{thisYear}?</span>
+                <button
+                  type="button"
+                  className={`${styles.guysAvailBtn} ${avail === 'yes' ? styles.guysAvailYes : ''}`}
+                  onClick={() => setAvail('yes')}
+                  aria-pressed={avail === 'yes'}
+                  title={`Available for guys night in ${thisYear}`}
+                >Y</button>
+                <button
+                  type="button"
+                  className={`${styles.guysAvailBtn} ${avail === 'no' ? styles.guysAvailNo : ''}`}
+                  onClick={() => setAvail('no')}
+                  aria-pressed={avail === 'no'}
+                  title={`Not available for guys night in ${thisYear}`}
+                >N</button>
+              </span>
+            </span>
+          );
+        })()}
         {state === 'skip' && (
           <button type="button" className={styles.guysAction} onClick={() => onSetState(r, 'todo')}>
             Put back
@@ -5992,6 +6025,33 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
   const setGuysNight = useCallback((spot, state) => {
     patchGuysNight(spot, guysNightPatch(state));
   }, [patchGuysNight]);
+  // Pick the next guys night: marks this one and clears the mark everywhere
+  // else in ONE write per owner — applyFiling twice in a row would build the
+  // second list from the stale copy and undo the first.
+  const pickGuysNightNext = useCallback((spot) => {
+    const changes = guysNightNextChanges(restaurants, spot);
+    const stamp = new Date().toISOString();
+    const byOwner = new Map();
+    for (const { spot: s, patch } of changes) {
+      const ownerUid = s._ownerUid || user?.uid;
+      if (!ownerUid) continue;
+      if (!byOwner.has(ownerUid)) byOwner.set(ownerUid, new Map());
+      byOwner.get(ownerUid).set(s.id, { ...patch, updatedAt: stamp });
+    }
+    for (const [ownerUid, patches] of byOwner) {
+      const list = ownerData[ownerUid]?.restaurants || [];
+      if (ownerUid === user?.uid) {
+        persistOwner(ownerUid, list.map(r => (patches.has(r.id) ? { ...r, ...patches.get(r.id) } : r)));
+      } else {
+        for (const [id, patch] of patches) {
+          const stored = list.find(x => x.id === id);
+          if (!stored) continue;
+          const { _ownerUid, _ownerUsername, _isMine, ...clean } = stored;
+          writeFriendSpot(ownerUid, { ...clean, ...patch });
+        }
+      }
+    }
+  }, [restaurants, user?.uid, ownerData, persistOwner, writeFriendSpot]);
 
   function handleSave(restaurant) {
     // Adds default to MY list; edits go to the original owner's list.
@@ -6813,7 +6873,7 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
           ) : viewMode === 'joanne' ? (
             <JoanneByCategoryView items={shown} allItems={restaurants} onSelect={openSpot} />
           ) : viewMode === 'guys-night' ? (
-            <GuysNightView items={visible} onSelect={openSpot} onSetState={setGuysNight} onPatch={patchGuysNight} />
+            <GuysNightView items={visible} onSelect={openSpot} onSetState={setGuysNight} onPatch={patchGuysNight} onPickNext={pickGuysNightNext} />
           ) : viewMode === 'recent' ? (
             <RecentPlacesView items={shown} statsFor={myVisitStats} isMine={isMySpot} ratingsBySpot={ratingsBySpot} userUid={user?.uid} onSelect={openSpot} />
           ) : viewMode === 'healthy' ? (
