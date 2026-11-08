@@ -3567,12 +3567,23 @@ function RecentPlacesView({ items, statsFor, isMine, ratingsBySpot, userUid, onS
 }
 
 // ── Guys Night Out ───────────────────────────────────────────────────────────
-// Every steakhouse in the current filter, split into not done yet / done /
+// Every steakhouse (outside the filters = greyed), split into not done yet / done /
 // not for guys night (utils/guysNight.js). The checkbox marks it done in
 // place; the name opens the spot. ⚠️ Mirrored on mobile.
-function GuysNightView({ items, onSelect, onSetState, onPatch, onPickNext }) {
+function GuysNightView({ items, inFilter = null, onSelect, onSetState, onPatch, onPickNext }) {
   const thisYear = new Date().getFullYear();
-  const { todo, done, skip, total } = useMemo(() => guysNightSections(items), [items]);
+  // Greyed (filtered-out) spots sink below the ones in your filters within
+  // each section; the ★ Next pick stays on top either way.
+  const { todo, done, skip, total, greyed } = useMemo(() => {
+    const sec = guysNightSections(items);
+    const out = r => (!!inFilter && !inFilter.has(dimKey(r)) && !isGuysNightNext(r) ? 1 : 0);
+    const sink = list => list.map((r, i) => [r, i]).sort((a, b) => out(a[0]) - out(b[0]) || a[1] - b[1]).map(([r]) => r);
+    const all = [...sec.todo, ...sec.done, ...sec.skip];
+    return {
+      ...sec, todo: sink(sec.todo), done: sink(sec.done), skip: sink(sec.skip),
+      greyed: inFilter ? all.filter(r => !inFilter.has(dimKey(r))).length : 0,
+    };
+  }, [items, inFilter]);
   const [showSkip, setShowSkip] = useState(false);
   // The row whose date picker is open (owner:id), or null, and the day being
   // typed into it.
@@ -3664,9 +3675,15 @@ function GuysNightView({ items, onSelect, onSetState, onPatch, onPickNext }) {
       </span>
     );
   };
+  // Outside the page's filters: still listed, greyed (cardDimmed, like greyed
+  // drinks elsewhere) and still clickable.
+  const outside = r => !!inFilter && !inFilter.has(dimKey(r));
   const row = (r, state) => (
     <li key={`${r._ownerUid}:${r.id}`}>
-      <div className={`${styles.rankingRow} ${styles.guysRow} ${state === 'done' ? styles.guysDone : ''}`}>
+      <div
+        className={`${styles.rankingRow} ${styles.guysRow} ${state === 'done' ? styles.guysDone : ''} ${outside(r) ? styles.cardDimmed : ''}`}
+        title={outside(r) ? 'Outside your current filters' : undefined}
+      >
         {state === 'skip' ? <span aria-hidden="true" /> : (
           <input
             type="checkbox"
@@ -3747,8 +3764,9 @@ function GuysNightView({ items, onSelect, onSetState, onPatch, onPickNext }) {
       <p className={styles.tryNextIntro}>
         🥩 Guys Night Out — {done.length} of {counted} steakhouse{counted === 1 ? '' : 's'} done
       </p>
+      {greyed > 0 && <p style={{ margin: '-0.25rem 0 0.5rem', fontSize: '0.78rem', color: 'var(--color-text-muted)' }}>{greyed} greyed — outside your current filters</p>}
       {total === 0 ? (
-        <p className={styles.rankingEmpty}>No steakhouses in this filter. Give a spot the Steakhouse category and it shows up here.</p>
+        <p className={styles.rankingEmpty}>No steakhouses yet. Give a spot the Steakhouse category and it shows up here.</p>
       ) : (
         <div className={styles.rankingGroups} style={{ gridTemplateColumns: 'minmax(0, 1fr)' }}>
           {section('todo', 'Not done yet', todo)}
@@ -5748,6 +5766,14 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
   // Greyed, not removed: the spot stays where it is, just faded.
   const dimmedSpots = hideDrinks && drinksHideable && drinkingIds.size ? drinkingIds : null;
   const shown = visible;
+  // Guys Night lists EVERY steakhouse, not just the filtered ones: spots the
+  // filters would hide stay on the tab, greyed, so the full tally is always in
+  // view. Retired spots still need "Show retired".
+  const guysNightInFilter = useMemo(() => new Set(visible.map(dimKey)), [visible]);
+  const guysNightItems = useMemo(() => [
+    ...visible,
+    ...restaurants.filter(r => !guysNightInFilter.has(dimKey(r)) && (showRetired || r.frequency !== 'retired')),
+  ], [visible, restaurants, guysNightInFilter, showRetired]);
 
   // Per-owner sequence of currently-visible ids, so a card knows whether it can
   // move up/down (i.e. has a visible same-owner neighbor in that direction).
@@ -6873,7 +6899,7 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
           ) : viewMode === 'joanne' ? (
             <JoanneByCategoryView items={shown} allItems={restaurants} onSelect={openSpot} />
           ) : viewMode === 'guys-night' ? (
-            <GuysNightView items={visible} onSelect={openSpot} onSetState={setGuysNight} onPatch={patchGuysNight} onPickNext={pickGuysNightNext} />
+            <GuysNightView items={guysNightItems} inFilter={guysNightInFilter} onSelect={openSpot} onSetState={setGuysNight} onPatch={patchGuysNight} onPickNext={pickGuysNightNext} />
           ) : viewMode === 'recent' ? (
             <RecentPlacesView items={shown} statsFor={myVisitStats} isMine={isMySpot} ratingsBySpot={ratingsBySpot} userUid={user?.uid} onSelect={openSpot} />
           ) : viewMode === 'healthy' ? (
