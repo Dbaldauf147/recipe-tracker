@@ -135,3 +135,35 @@ export function duplicateReason(entry) {
   if (!parts.length) return '';
   return `Possible duplicate — ${parts.join('; ')}`;
 }
+
+/** A link reduced for comparison: no scheme, www, query, hash or trailing slash. */
+function normalizeSpotUrl(url) {
+  const s = String(url || '').trim().toLowerCase();
+  if (!s) return '';
+  return s.replace(/^https?:\/\//, '').replace(/^www\./, '').replace(/[?#].*$/, '').replace(/\/+$/, '');
+}
+
+/**
+ * Spots already on the list that look like the place being added — for the
+ * warning on the Add form after an import. Same conservative rules as
+ * findDuplicateSpots (normalised exact name or address), plus the same link.
+ *
+ * @param {{ name?: string, address?: string, url?: string, id?: string }} candidate
+ * @param {object[]} rows  the whole list (the candidate's own id is skipped)
+ * @returns {{ spot: object, by: ('name'|'address'|'link')[] }[]}
+ */
+export function findExistingMatches(candidate = {}, rows = []) {
+  const n = normalizeSpotName(candidate.name);
+  const a = normalizeSpotAddress(candidate.address);
+  const u = normalizeSpotUrl(candidate.url);
+  const out = [];
+  for (const r of rows) {
+    if (!r || (candidate.id != null && r.id === candidate.id)) continue;
+    const by = [];
+    if (n && normalizeSpotName(r.name) === n) by.push('name');
+    if (a && normalizeSpotAddress(r.address) === a) by.push('address');
+    if (u && u.length > 12 && normalizeSpotUrl(r.url) === u) by.push('link');
+    if (by.length) out.push({ spot: r, by });
+  }
+  return out;
+}
