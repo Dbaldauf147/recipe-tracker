@@ -2909,3 +2909,30 @@
   white-space: nowrap;
 }
 .guysAction:hover { border-color: var(--color-accent); color: var(--color-text); }
+
+/* Add form: the place being added is already on the list. Amber like .dupeFlag
+   — a heads-up, not an error; saving anyway is allowed. */
+.alreadyOnList {
+  margin: 6px 0 4px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid #f0c36d;
+  background: #fff7e0;
+  color: #7a5200;
+  font-size: 0.85rem;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.alreadyOnListRow { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.alreadyOnListWhy { opacity: 0.75; }
+.alreadyOnListOpen {
+  flex-shrink: 0;
+  border: 1px solid #e0a83a;
+  background: #fff;
+  color: #7a5200;
+  border-radius: 6px;
+  padding: 2px 8px;
+  font-size: 0.8rem;
+  cursor: pointer;
+}

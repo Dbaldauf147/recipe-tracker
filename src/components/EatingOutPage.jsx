@@ -4,7 +4,7 @@ import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { db } from '../firebase';
-import { findDuplicateSpots, duplicateReason } from '../utils/duplicateSpots';
+import { findDuplicateSpots, duplicateReason, findExistingMatches } from '../utils/duplicateSpots';
 import { saveOwnerRestaurants, saveOwnerEatingOutLists, saveField, subscribeRestaurants, subscribeSpotVisits } from '../utils/firestoreSync';
 import { visitStatsByPlace } from '../utils/spotVisits';
 import { healthyByLongestSince } from '../utils/healthyPlaces';
@@ -1903,7 +1903,32 @@ function SpotDetailModal({ spot, user, onClose, onEdit, visitStats }) {
   );
 }
 
-function EditModal({ initial, onSave, onClose, onDelete, cuisineSuggestions, locationSuggestions, user, visitStats, suggestCategories }) {
+/** Amber notice on the Add form: this place looks like one you already have. */
+function AlreadyOnListWarning({ matches, onOpen }) {
+  if (!matches || matches.length === 0) return null;
+  const why = by => (by.includes('link') ? 'same link' : by.includes('name') && by.includes('address') ? 'same name and address'
+    : by.includes('name') ? 'same name' : 'same address');
+  return (
+    <div className={styles.alreadyOnList} role="alert" data-testid="already-on-list">
+      <strong>⚠ Already on your list</strong>
+      {matches.slice(0, 3).map(({ spot, by }) => (
+        <div key={`${spot._ownerUid || ''}:${spot.id}`} className={styles.alreadyOnListRow}>
+          <span>
+            {spot.name || 'Untitled'}
+            {(spot.locations || [])[0] ? ` · ${spot.locations[0]}` : ''}
+            {' · '}{spot.status === 'visited' ? 'Visited' : spot.status === 'hold-off' ? 'Hold off' : 'Want to try'}
+            <span className={styles.alreadyOnListWhy}> ({why(by)})</span>
+          </span>
+          {onOpen && (
+            <button type="button" className={styles.alreadyOnListOpen} onClick={() => onOpen(spot)}>Open it</button>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function EditModal({ initial, onSave, onClose, onDelete, cuisineSuggestions, locationSuggestions, user, visitStats, suggestCategories, existingSpots = null, onOpenExisting = null }) {
   const [name, setName] = useState(initial.name || '');
   const [url, setUrl] = useState(initial.url || '');
   const [imageUrl, setImageUrl] = useState(initial.imageUrl || '');
@@ -1968,6 +1993,13 @@ function EditModal({ initial, onSave, onClose, onDelete, cuisineSuggestions, loc
       /* the spot saves fine without a neighborhood */
     }
   }
+
+  // Adding a place that's already on the list (usually an import of a spot you
+  // saved before). Only on Add — an edit is the existing row itself.
+  const alreadyOnList = useMemo(
+    () => (!initial.id && existingSpots ? findExistingMatches({ name, address, url }, existingSpots) : []),
+    [initial.id, existingSpots, name, address, url],
+  );
 
   async function handleExtract() {
     const trimmed = (url || '').trim();
@@ -2170,6 +2202,10 @@ function EditModal({ initial, onSave, onClose, onDelete, cuisineSuggestions, loc
             value={name}
             onChange={e => setName(e.target.value)}
             placeholder="Restaurant name"
+          />
+          <AlreadyOnListWarning
+            matches={alreadyOnList}
+            onOpen={onOpenExisting}
           />
           {/* Built from what's typed in the form, not the saved spot, so it works
               while adding a new place too. New tab, so the popup stays put. */}
@@ -6931,6 +6967,8 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
       {adding && (
         <EditModal
           initial={{ status: 'want-to-try', cuisines: [], locations: [], rating: null }}
+          existingSpots={restaurants}
+          onOpenExisting={(r) => { setAdding(false); openSpot(r); }}
           cuisineSuggestions={cuisineSuggestions}
           suggestCategories={suggestCategories}
           locationSuggestions={locationSuggestions}
