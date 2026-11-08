@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  summarizeHabitStatus,
   lastCompleteWeek, previousWeek, summarizeWeek, isEmptyWeek, renderWeeklySummary, TREND_WEEKS,
   TREND_MONTHS, trendMonthWeeks, shiftMonthsKey, goalDirection,
 } from '../../lib/weeklySummary.js';
@@ -1071,3 +1072,63 @@ test('lifts hidden or snoozed on the Progress tab stay out of "lifts to watch"',
   }), ['Calf raise']);
 });
 
+
+// ── habit status breakdown ─────────────────────────────────────────────────
+// The Habits section lists where habits stand now (working on / refreshing,
+// days to Automatic) and the Not Started queue's next habits, instead of the
+// week's completion stats.
+
+function dailyLogFor(id, days, mark, asOf) {
+  const log = {};
+  for (let i = 0; i < days; i++) {
+    const d = new Date(asOf.getFullYear(), asOf.getMonth(), asOf.getDate() - 1 - i);
+    const k = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    log[k] = { ...(log[k] || {}), [id]: mark };
+  }
+  return log;
+}
+
+test('habit status: groups, days to Automatic and the up-next queue', () => {
+  const asOf = new Date(2026, 7, 2, 12);
+  const habits = [
+    { id: 'a', name: 'Floss', cadence: 'Daily', status: 'Current', routine: 'Night' },
+    { id: 'b', name: 'Stretch', cadence: 'Daily', status: 'Refreshing' },
+    { id: 'c', name: 'Weekly review', cadence: 'Weekly', status: 'Current' },
+    { id: 'd', name: 'Read', cadence: 'Daily', status: 'Current' },
+    { id: 'n1', name: 'Journal', status: 'Not Started', wave2: true, startOrder: 2 },
+    { id: 'n2', name: 'Meditate', status: 'Not Started', nextUp: true },
+    { id: 'n3', name: 'Later thing', status: 'Not Started' },
+    { id: 'x', name: 'Doomscroll', cadence: 'Daily', status: 'Current', habitType: 'bad' },
+  ];
+  const habitLog = { ...dailyLogFor('a', 10, 'done', asOf), ...{} };
+  Object.assign(habitLog, Object.fromEntries(Object.entries(dailyLogFor('d', 60, 'done', asOf))
+    .map(([k, v]) => [k, { ...(habitLog[k] || {}), ...v }])));
+  const s = summarizeHabitStatus(habits, habitLog, asOf);
+  const [now, refreshing] = s.groups;
+  assert.equal(now.title, 'Working on now');
+  assert.deepEqual(now.habits.map(h => h.name), ['Floss', 'Read', 'Weekly review']);
+  assert.deepEqual(now.habits[0].auto, { kind: 'days', days: 50 });
+  assert.deepEqual(now.habits[1].auto, { kind: 'ready' });
+  assert.deepEqual(now.habits[2].auto, { kind: 'notDaily' });
+  assert.deepEqual(refreshing.habits.map(h => [h.name, h.auto.days]), [['Stretch', 60]]);
+  // Starred first, then Wave 2; "Later" is left off once something is lined up.
+  assert.deepEqual(s.upNext, [{ name: 'Meditate', starred: true }, { name: 'Journal', starred: false }]);
+});
+
+test('habit status renders in place of the completion stats', () => {
+  const asOf = new Date(2026, 7, 2, 12);
+  const habits = [
+    { id: 'a', name: 'Floss', cadence: 'Daily', status: 'Current' },
+    { id: 'n', name: 'Meditate', status: 'Not Started', nextUp: true },
+  ];
+  const stats = summarizeWeek(emptyData({ habits }), WEEK, { asOf });
+  const prior = summarizeWeek(emptyData({ habits }), previousWeek(WEEK), { asOf });
+  const { html, text } = renderWeeklySummary({ stats, priorStats: prior });
+  assert.match(html, /Working on now/);
+  assert.match(html, /Floss <span[^>]*>· 60 days to Automatic/);
+  assert.match(html, /1\. ★ Meditate/);
+  assert.doesNotMatch(html, /Perfect week|Needs attention|above &amp; beyond/);
+  assert.match(text, /Working on now:\n {4}Floss · 60 days to Automatic/);
+  assert.match(text, /Refreshing: none/);
+  assert.match(text, /Up next:\n {4}1\. ★ Meditate/);
+});
