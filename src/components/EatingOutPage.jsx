@@ -1570,6 +1570,16 @@ function overallOfScores(scores) {
  */
 const RatingRevealContext = createContext(null);
 
+// Drinking spots the current view greys out (see hideDrinks in the page), as
+// `${ownerUid}__${id}` keys. A context rather than a flag on the spot object,
+// so nothing can save the flag back to Firestore.
+const DimmedSpotsContext = createContext(null);
+const dimKey = r => `${r?._ownerUid || ''}__${r?.id}`;
+function useDimClass() {
+  const dimmed = useContext(DimmedSpotsContext);
+  return r => (dimmed && r && dimmed.has(dimKey(r)) ? ` ${styles.cardDimmed}` : '');
+}
+
 function useRatingReveal(ownerUid, spotId) {
   const ctx = useContext(RatingRevealContext);
   const key = `${ownerUid}__${spotId}`;
@@ -2725,6 +2735,7 @@ function BulkImportModal({ onClose, onImport, existing }) {
 }
 
 function RestaurantCard({ r, ratingAgg, ratingHasOthers = false, distanceMiles, rank, canMoveUp, canMoveDown, onMoveUp, onMoveDown, onClick, compact, drag, visitStats }) {
+  const dimClass = useDimClass();
   // Same reveal state the spot's own ratings table reads, so the badge and the
   // popup never disagree. A spot only YOU have rated has nothing to hide, so
   // its average shows as it always did.
@@ -2754,7 +2765,7 @@ function RestaurantCard({ r, ratingAgg, ratingHasOthers = false, distanceMiles, 
   // ranked list dense so many places fit on screen at once; tap to open details.
   if (compact) {
     return (
-      <button type="button" {...dragHandlers} style={dragStyle} className={`${styles.cardCompact} ${isRetired ? styles.cardRetired : ''}`} onClick={onClick}>
+      <button type="button" {...dragHandlers} style={dragStyle} className={`${styles.cardCompact} ${isRetired ? styles.cardRetired : ''}${dimClass(r)}`} onClick={onClick}>
         {rank != null && <span className={styles.compactRank}>{rank}</span>}
         <span className={styles.compactName}>{r.name}</span>
         {/* Cuisine right beside the name: scanning this list is almost always
@@ -2804,7 +2815,7 @@ function RestaurantCard({ r, ratingAgg, ratingHasOthers = false, distanceMiles, 
   }
 
   return (
-    <button type="button" {...dragHandlers} style={dragStyle} className={`${styles.card} ${isRetired ? styles.cardRetired : ''}`} onClick={onClick}>
+    <button type="button" {...dragHandlers} style={dragStyle} className={`${styles.card} ${isRetired ? styles.cardRetired : ''}${dimClass(r)}`} onClick={onClick}>
       {r.imageUrl
         ? <img src={r.imageUrl} alt="" className={styles.cardImage} />
         : <div className={`${styles.cardImage} ${styles.cardImagePlaceholder}`}>🍽️</div>}
@@ -2947,9 +2958,10 @@ function RestaurantCard({ r, ratingAgg, ratingHasOthers = false, distanceMiles, 
 // One spot in List → By category. Same row as the Rankings boxes, minus the
 // rank and score: name, status, neighborhood.
 function CategoryListRow({ r, onSelect }) {
+  const dimClass = useDimClass();
   return (
     <li>
-      <button type="button" className={`${styles.rankingRow} ${styles.listCategoryRow}`} onClick={() => onSelect(r)}>
+      <button type="button" className={`${styles.rankingRow} ${styles.listCategoryRow}${dimClass(r)}`} onClick={() => onSelect(r)}>
         <span className={styles.rankingName}>
           {r.name}
           {!r._isMine && r._ownerUsername && <span className={styles.rankingOwner}> @{r._ownerUsername}</span>}
@@ -2967,9 +2979,10 @@ function CategoryListRow({ r, onSelect }) {
 }
 
 function RankingRow({ row, place, onSelect }) {
+  const dimClass = useDimClass();
   return (
     <li>
-      <button type="button" className={styles.rankingRow} onClick={() => onSelect(row.r)}>
+      <button type="button" className={`${styles.rankingRow}${dimClass(row.r)}`} onClick={() => onSelect(row.r)}>
         <span className={styles.rankingPlace}>{RANKING_MEDAL[place] || place}</span>
         <span className={styles.rankingName}>
           {row.r.name}
@@ -3000,6 +3013,7 @@ function TryNextView({
   items, allItems, onSelect,
   buckets = [], activeBucket = null, onBucketChange = () => {}, bucketCounts = {},
 }) {
+  const dimClass = useDimClass();
   const [expanded, setExpanded] = useState(() => new Set());
   // By category (one box per category) by default, like Rankings and List.
   // The table stays one click away for the down-the-column comparison.
@@ -3024,7 +3038,7 @@ function TryNextView({
       {/* tryNextRow: no rank column. Under the shared `.rankingGroup .rankingRow`
           grid the name fell into the narrow rank-number track and vanished.
           No location either — nearly every spot is in the same neighbourhood. */}
-      <button type="button" className={`${styles.rankingRow} ${styles.tryNextRow}`} onClick={() => onSelect(r)}>
+      <button type="button" className={`${styles.rankingRow} ${styles.tryNextRow}${dimClass(r)}`} onClick={() => onSelect(r)}>
         <span className={styles.rankingName}>
           {r.name}
           {r._ownerUsername && <span className={styles.rankingOwner}> @{r._ownerUsername}</span>}
@@ -3163,7 +3177,7 @@ function TryNextView({
                 ) : (
                   <tr
                     key={row.key}
-                    className={styles.tableRow}
+                    className={`${styles.tableRow}${dimClass(row.r)}`}
                     onClick={() => onSelect(row.r)}
                   >
                     <td className={row.head ? styles.tryNextCellHead : undefined}>
@@ -3324,6 +3338,7 @@ function JoanneStatusPill({ spot }) {
 // (utils/healthyPlaces.js). Never-been and no-date spots trail in their own
 // groups — they have no "time since" to rank by.
 function HealthyPlacesView({ items, onSelect }) {
+  const dimClass = useDimClass();
   const { dated, undated, never, total } = useMemo(
     () => healthyByLongestSince(items, r => healthOf(r) === 'healthy'),
     [items],
@@ -3331,7 +3346,7 @@ function HealthyPlacesView({ items, onSelect }) {
   const ago = d => (d === 0 ? 'today' : d === 1 ? '1 day ago' : d < 60 ? `${d} days ago` : `${Math.round(d / 30.4)} months ago`);
   const row = ({ spot: r, days }) => (
     <li key={`${r._ownerUid}:${r.id}`}>
-      <button type="button" className={`${styles.rankingRow} ${styles.healthyRow}`} onClick={() => onSelect(r)}>
+      <button type="button" className={`${styles.rankingRow} ${styles.healthyRow}${dimClass(r)}`} onClick={() => onSelect(r)}>
         <span className={styles.rankingName}>
           {r.name}
           {r._ownerUsername && <span className={styles.rankingOwner}> @{r._ownerUsername}</span>}
@@ -3405,6 +3420,7 @@ function RecentRatingCell({ r, docs, userUid }) {
 }
 
 function RecentPlacesView({ items, statsFor, isMine, ratingsBySpot, userUid, onSelect }) {
+  const dimClass = useDimClass();
   const rows = useMemo(() => recentPlaces(items, { statsFor, isMine }), [items, statsFor, isMine]);
   const ago = d => (d === 0 ? 'Today' : d === 1 ? 'Yesterday' : d < 60 ? `${d} days ago` : `${Math.round(d / 30.4)} months ago`);
   // By category (default) or the full table. Remembered per browser.
@@ -3465,7 +3481,7 @@ function RecentPlacesView({ items, statsFor, isMine, ratingsBySpot, userUid, onS
               <ol className={styles.rankingList}>
                 {g.spots.map(({ spot: r, date, days }) => (
                   <li key={r.id}>
-                    <button type="button" className={`${styles.rankingRow} ${styles.recentCatRow}`} onClick={() => onSelect(r)}>
+                    <button type="button" className={`${styles.rankingRow} ${styles.recentCatRow}${dimClass(r)}`} onClick={() => onSelect(r)}>
                       <span className={styles.rankingName}>{r.name}</span>
                       <span className={styles.recentCatWhen} title={formatDate(`${date}T12:00:00`)}>
                         {days != null ? ago(days) : formatDate(`${date}T12:00:00`)}
@@ -3493,7 +3509,7 @@ function RecentPlacesView({ items, statsFor, isMine, ratingsBySpot, userUid, onS
           </thead>
           <tbody>
             {rows.map(({ spot: r, date, days, visits }) => (
-              <tr key={r.id} className={styles.tableRow} onClick={() => onSelect(r)}>
+              <tr key={r.id} className={`${styles.tableRow}${dimClass(r)}`} onClick={() => onSelect(r)}>
                 <td title={r.name}><strong>{r.name}</strong></td>
                 <td>{(r.locations || [])[0] || ''}</td>
                 <td>{formatDate(`${date}T12:00:00`)}</td>
@@ -3650,6 +3666,7 @@ function GuysNightView({ items, onSelect, onSetState, onPatch }) {
 }
 
 function JoanneByCategoryView({ items, allItems, onSelect }) {
+  const dimClass = useDimClass();
   const { groups, total } = useMemo(() => joanneByCategory(items, allItems), [items, allItems]);
   // Keys of the COLLAPSED groups — everything starts expanded.
   const [collapsed, setCollapsed] = useState(() => new Set());
@@ -3702,7 +3719,7 @@ function JoanneByCategoryView({ items, allItems, onSelect }) {
                             {subLabel}
                           </div>
                         )}
-                        <button type="button" className={`${styles.rankingRow} ${styles.joanneRow}`} onClick={() => onSelect(r)}>
+                        <button type="button" className={`${styles.rankingRow} ${styles.joanneRow}${dimClass(r)}`} onClick={() => onSelect(r)}>
                           <span className={styles.rankingName}>
                             {r.name}
                             {r._ownerUsername && <span className={styles.rankingOwner}> @{r._ownerUsername}</span>}
@@ -5618,14 +5635,13 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
   const drinkingIds = useMemo(() => {
     const ids = new Set();
     for (const r of visible) {
-      if (isDrinkingSpot({ buckets: bucketsOf(r), categories: spotCategories(r) })) ids.add(r);
+      if (isDrinkingSpot({ buckets: bucketsOf(r), categories: spotCategories(r) })) ids.add(dimKey(r));
     }
     return ids;
   }, [visible]);
-  const shown = useMemo(
-    () => (hideDrinks && drinksHideable && drinkingIds.size ? visible.filter(r => !drinkingIds.has(r)) : visible),
-    [visible, hideDrinks, drinksHideable, drinkingIds],
-  );
+  // Greyed, not removed: the spot stays where it is, just faded.
+  const dimmedSpots = hideDrinks && drinksHideable && drinkingIds.size ? drinkingIds : null;
+  const shown = visible;
 
   // Per-owner sequence of currently-visible ids, so a card knows whether it can
   // move up/down (i.e. has a visible same-owner neighbor in that direction).
@@ -6249,6 +6265,7 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
 
   return (
     <RatingRevealContext.Provider value={ratingReveal}>
+    <DimmedSpotsContext.Provider value={dimmedSpots}>
     <div className={styles.page}>
       <div className={styles.header}>
         <h1 className={styles.title}>Eating Out</h1>
@@ -6643,7 +6660,7 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
                   title="Bars, breweries and clubs — spots with no food category"
                   data-testid="hide-drinks"
                 >
-                  🍸 {hideDrinks ? `Drinks hidden (${drinkingIds.size})` : 'Hide drinks'}
+                  🍸 {hideDrinks ? `Drinks greyed (${drinkingIds.size})` : 'Grey out drinks'}
                 </button>
               </div>
             )}
@@ -7012,6 +7029,7 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
         />
       )}
     </div>
+    </DimmedSpotsContext.Provider>
     </RatingRevealContext.Provider>
   );
 }
