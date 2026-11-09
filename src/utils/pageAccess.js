@@ -54,6 +54,7 @@ export const TOGGLEABLE_PAGES = [
   { key: 'history', label: 'Meal History', defaultShared: false },
   // Reads the same meal log as Meal History, so it opts in the same way.
   { key: 'special-meals', label: 'Special Meals', defaultShared: false },
+  { key: 'nutrient-search', label: 'Nutrient Search' },
   { key: 'whoop', label: 'Whoop' },
   { key: 'seasonal-guide', label: 'Seasonal Guide' },
   { key: 'sources', label: 'Sources' },
