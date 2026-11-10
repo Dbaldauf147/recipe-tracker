@@ -4,6 +4,7 @@ import {
   guideTerms, ingredientMatchesTerms, indexRecipesByGuide,
   rankIngredientsForGuide, bestIngredientForGuide, CONFIDENT_MATCH_SCORE,
   airFryerForIngredient, airFryerStepText, mergeAirFryerGuide, cookLegs,
+  splitMinutes, normalizeRounds, hasMidCookStop,
   recentShoppingLists,
 } from './airFryerRecipes.js';
 import GUIDE from '../data/airFryerGuide.js';
@@ -414,4 +415,38 @@ test('every built-in row splits into legs that add back up to its time', () => {
     }
   }
   assert.deepEqual(bad, []);
+});
+
+// ── Your own round times ─────────────────────────────────────────────────────
+
+test('rounds you typed override the derived split', () => {
+  const row = { min: 15, max: 18, stop: 'Shake halfway',
+    rounds: { firstMin: 10, firstMax: 12, secondMin: 5, secondMax: 6 } };
+  assert.deepEqual(cookLegs(row), { first: '10–12 min', action: 'Shake', second: '5–6 min' });
+});
+
+test('rounds are ignored when there is no stop', () => {
+  const row = { min: 15, max: 18, stop: 'No flip',
+    rounds: { firstMin: 10, firstMax: 12, secondMin: 5, secondMax: 6 } };
+  assert.deepEqual(cookLegs(row), { first: '15–18 min', action: 'No flip', second: '' });
+});
+
+test('splitMinutes derives the same split cookLegs always showed', () => {
+  assert.deepEqual(splitMinutes({ min: 15, max: 18, stop: 'Shake halfway' }),
+    { firstMin: 7.5, firstMax: 9, secondMin: 7.5, secondMax: 9 });
+  assert.deepEqual(splitMinutes({ min: 12, max: 15, stop: 'Shake twice' }),
+    { firstMin: 4, firstMax: 5, secondMin: 8, secondMax: 10 });
+});
+
+test('normalizeRounds fills a missing max and rejects an empty round', () => {
+  assert.deepEqual(normalizeRounds({ firstMin: '8', firstMax: '', secondMin: 4, secondMax: 5 }),
+    { firstMin: 8, firstMax: 8, secondMin: 4, secondMax: 5 });
+  assert.equal(normalizeRounds({ firstMin: 8, secondMin: 0 }), null);
+  assert.equal(normalizeRounds(null), null);
+});
+
+test('hasMidCookStop: blank and "No …" mean no pause', () => {
+  assert.equal(hasMidCookStop(''), false);
+  assert.equal(hasMidCookStop('No flip'), false);
+  assert.equal(hasMidCookStop('Flip halfway'), true);
 });

@@ -343,7 +343,8 @@ function legTime(lo, hi) {
  * The cook as a sequence: a stretch of time, the thing you stop to do, another
  * stretch of time. Ten minutes, flip, another fifteen.
  *
- * The legs are DERIVED from `stop` rather than stored, because the row already
+ * Unless you've typed your own round times into the editor (`row.rounds`, see
+ * splitMinutes), the legs are DERIVED from `stop` rather than stored, because the row already
  * says where the interruption falls and storing it twice is how the two drift
  * apart — a time edited from 18–22 to 24–28 would leave a hand-written "9–11
  * min" first leg behind, silently wrong. The vocabulary `stop` is written in is
@@ -363,53 +364,98 @@ function legTime(lo, hi) {
  * Returns { first, action, second }; `second` is '' when nothing interrupts.
  */
 export function cookLegs(row) {
+  const stop = String(row?.stop || '').trim();
+
+  // Nothing to do: the whole cook is one leg, and saying so is the point.
+  if (!hasMidCookStop(stop)) {
+    const min = Number(row?.min) || 0;
+    const max = Number(row?.max) || min;
+    return { first: legTime(min, max), action: stop || 'No flip', second: '' };
+  }
+
+  const split = splitMinutes(row);
+  return {
+    first: legTime(split.firstMin, split.firstMax),
+    action: stopAction(stop),
+    second: legTime(split.secondMin, split.secondMax),
+  };
+}
+
+/** Whether `stop` means you pause the cook part-way: '' and "No flip" don't. */
+export function hasMidCookStop(stop) {
+  const s = String(stop || '').trim();
+  return !!s && !/^no\b/i.test(s);
+}
+
+/** The short word the TIME column shows for a stop: "Flip", "Shake ×2"… */
+function stopAction(stop) {
+  const verb = (stop.match(/^(flip|shake|turn)/i) || [])[1] || '';
+  const cap = verb ? verb[0].toUpperCase() + verb.slice(1).toLowerCase() : '';
+  const every = stop.match(/every\s+(\d+)\s*min/i);
+  if (every) return `${cap} every ${Number(every[1])} min`;
+  if (/twice|×\s*2|x2/i.test(stop)) return `${cap || stop} ×2`;
+  return cap || stop;
+}
+
+/**
+ * A row's own round times, as { firstMin, firstMax, secondMin, secondMax }, or
+ * null when it has none (or they're unusable). A missing max is its min, and a
+ * round has to have some time in it — a 0–0 first round is a typo, not a cook.
+ */
+export function normalizeRounds(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  const n = (v) => {
+    const x = Number(v);
+    return Number.isFinite(x) && x > 0 ? Math.round(x * 2) / 2 : 0;
+  };
+  const firstMin = n(raw.firstMin);
+  const secondMin = n(raw.secondMin);
+  if (!firstMin || !secondMin) return null;
+  return {
+    firstMin,
+    firstMax: Math.max(n(raw.firstMax), firstMin),
+    secondMin,
+    secondMax: Math.max(n(raw.secondMax), secondMin),
+  };
+}
+
+/**
+ * The two rounds a paused cook splits into, in minutes:
+ * { firstMin, firstMax, secondMin, secondMax }.
+ *
+ * Rounds you typed in the editor (`row.rounds`) win. Otherwise they're derived
+ * from `stop` and the total, per the cases above. Stored rounds can't drift
+ * from the total the way a hand-written leg once could, because the editor
+ * saves the total AS the sum of the rounds — there is no second number to fall
+ * out of step with.
+ */
+export function splitMinutes(row) {
+  const own = normalizeRounds(row?.rounds);
+  if (own) return own;
+
   const min = Number(row?.min) || 0;
   const max = Number(row?.max) || min;
   const stop = String(row?.stop || '').trim();
-  const whole = legTime(min, max);
-  const verb = (stop.match(/^(flip|shake|turn)/i) || [])[1] || '';
-  const cap = verb ? verb[0].toUpperCase() + verb.slice(1).toLowerCase() : '';
-
-  // Nothing to do: the whole cook is one leg, and saying so is the point.
-  if (!stop || /^no\b/i.test(stop)) {
-    return { first: whole, action: stop || 'No flip', second: '' };
-  }
+  const rest = (n) => ({
+    firstMin: n, firstMax: n,
+    secondMin: Math.max(min - n, 0), secondMax: Math.max(max - n, 0),
+  });
 
   const every = stop.match(/every\s+(\d+)\s*min/i);
-  if (every) {
-    const n = Number(every[1]);
-    return {
-      first: legTime(n, n),
-      action: `${cap} every ${n} min`,
-      second: legTime(Math.max(min - n, 0), Math.max(max - n, 0)),
-    };
-  }
-
+  if (every) return rest(Number(every[1]));
   const at = stop.match(/\bat\s+(\d+)\s*min/i);
-  if (at) {
-    const n = Number(at[1]);
-    return {
-      first: legTime(n, n),
-      action: cap || stop,
-      second: legTime(Math.max(min - n, 0), Math.max(max - n, 0)),
-    };
-  }
+  if (at) return rest(Number(at[1]));
 
   // Two stops fall on the thirds, so the first leg is a third and the second
   // covers the rest — the middle stop lives in the action's "×2", because a
   // third column can't hold a third leg.
   if (/twice|×\s*2|x2/i.test(stop)) {
-    const a = min / 3;
-    const b = max / 3;
-    return {
-      first: legTime(Math.round(a), Math.round(b)),
-      action: `${cap || stop} ×2`,
-      second: legTime(min - Math.round(a), max - Math.round(b)),
-    };
+    const a = Math.round(min / 3);
+    const b = Math.round(max / 3);
+    return { firstMin: a, firstMax: b, secondMin: min - a, secondMax: max - b };
   }
 
-  const half = legTime(min / 2, max / 2);
-  return { first: half, action: cap || stop, second: half };
+  return { firstMin: min / 2, firstMax: max / 2, secondMin: min / 2, secondMax: max / 2 };
 }
 
 /**
