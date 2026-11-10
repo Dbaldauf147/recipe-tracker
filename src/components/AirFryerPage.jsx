@@ -6,7 +6,7 @@ import {
   loadField, saveField,
   createAirFryerShareLink, getAirFryerShareToken, revokeAirFryerShareLink,
 } from '../utils/firestoreSync';
-import { indexRecipesByGuide, indexExtrasByGuide, rankIngredientsForGuide, bestIngredientForGuide, mergeAirFryerGuide, cookLegs, recentShoppingLists } from '../utils/airFryerRecipes';
+import { indexRecipesByGuide, indexExtrasByGuide, rankIngredientsForGuide, bestIngredientForGuide, mergeAirFryerGuide, cookLegs, recentShoppingLists, hasMidCookStop, splitMinutes, normalizeRounds } from '../utils/airFryerRecipes';
 import { findTopSince, buildIngredientEatenMap } from '../utils/pantryAutoAdd';
 import { lastShoppingListExtras } from '../utils/shoppingHistory';
 import { loadIngredients, ingredientRowByName } from '../utils/ingredientsStore';
@@ -89,7 +89,31 @@ const TIME_NOTES_CACHE = 'sunday-air-fryer-time-notes';
 const PLAN_HISTORY_KEY = 'sunday-plan-history';
 const RECENT_LIST_DAYS = 14;
 
-const BLANK = { name: '', cat: 'Vegetables', tempF: '', min: '', max: '', doneF: '', stop: '', note: '' };
+const BLANK = { name: '', cat: 'Vegetables', tempF: '', min: '', max: '', doneF: '', stop: '', note: '', pause: false, rounds: null };
+
+// What "Stop mid-cook: Yes" writes when there's no stop text to keep.
+const DEFAULT_STOP = 'Flip halfway';
+
+/** Rounds as the editor's input strings: 7.5 → "7.5", 0 → "". */
+function roundsDraft(split) {
+  const f = (n) => (n ? String(n) : '');
+  return {
+    firstMin: f(split.firstMin), firstMax: f(split.firstMax),
+    secondMin: f(split.secondMin), secondMax: f(split.secondMax),
+  };
+}
+
+/** The total the two rounds add up to, as input strings for Min / Max. */
+function roundsTotal(rounds) {
+  const r = normalizeRounds(rounds);
+  if (!r) return null;
+  return { min: String(r.firstMin + r.secondMin), max: String(r.firstMax + r.secondMax) };
+}
+
+function sameRounds(a, b) {
+  return !!a && !!b && a.firstMin === b.firstMin && a.firstMax === b.firstMax
+    && a.secondMin === b.secondMin && a.secondMax === b.secondMax;
+}
 
 function readTimeNotesCache() {
   try {
@@ -711,7 +735,11 @@ export function AirFryerPage({ onClose, user, recipes = [], weeklyRecipeIds = []
 
   const startEdit = useCallback((row) => {
     setEditing(row
-      ? { ...BLANK, ...row, tempF: row.tempF ?? '', min: row.min ?? '', max: row.max ?? '', doneF: row.doneF ?? '', stop: row.stop ?? '', original: row.name }
+      ? {
+        ...BLANK, ...row, tempF: row.tempF ?? '', min: row.min ?? '', max: row.max ?? '', doneF: row.doneF ?? '', stop: row.stop ?? '', original: row.name,
+        pause: hasMidCookStop(row.stop),
+        rounds: hasMidCookStop(row.stop) ? roundsDraft(splitMinutes(row)) : null,
+      }
       : { ...BLANK });
   }, []);
 
@@ -724,15 +752,32 @@ export function AirFryerPage({ onClose, user, recipes = [], weeklyRecipeIds = []
   // The draft as a stored entry, so it can be compared with the row and saved.
   const draftEntry = useMemo(() => {
     if (!editing) return null;
+    let stop = String(editing.stop || '').trim();
+    let min = Number(editing.min) || 0;
+    let max = Number(editing.max) || 0;
+    let rounds = null;
+    if (editing.pause) {
+      if (!hasMidCookStop(stop)) stop = DEFAULT_STOP;
+      rounds = normalizeRounds(editing.rounds);
+      if (rounds) {
+        // The total IS the two rounds, so they can't disagree.
+        min = rounds.firstMin + rounds.secondMin;
+        max = rounds.firstMax + rounds.secondMax;
+        // Rounds that are just what the stop would split into anyway aren't
+        // stored — opening a row and saving it untouched mustn't pin its split.
+        if (sameRounds(rounds, splitMinutes({ stop, min, max }))) rounds = null;
+      }
+    }
     const entry = {
       name: editing.name.trim(),
       cat: editing.cat,
       tempF: Number(editing.tempF) || 0,
-      min: Number(editing.min) || 0,
-      max: Number(editing.max) || 0,
-      stop: String(editing.stop || '').trim(),
+      min,
+      max,
+      stop,
       note: String(editing.note || '').trim(),
     };
+    if (rounds) entry.rounds = rounds;
     // Absent, not zero: a 0 here would render as a real "0°F" reading.
     if (Number(editing.doneF)) entry.doneF = Number(editing.doneF);
     return entry;
@@ -745,14 +790,17 @@ export function AirFryerPage({ onClose, user, recipes = [], weeklyRecipeIds = []
     if (!draftEntry) return false;
     if (!editingRow) return true;
     const r = editingRow;
+    const ownRounds = draftEntry.rounds || null;
+    const rowRounds = normalizeRounds(r.rounds);
     return draftEntry.name !== r.name
       || draftEntry.cat !== r.cat
       || draftEntry.tempF !== (Number(r.tempF) || 0)
       || draftEntry.min !== (Number(r.min) || 0)
-      || draftEntry.max !== (Number(r.max) || 0)
+      || (draftEntry.max || draftEntry.min) !== (Number(r.max) || Number(r.min) || 0)
       || (draftEntry.doneF || 0) !== (Number(r.doneF) || 0)
       || draftEntry.stop !== String(r.stop || '').trim()
-      || draftEntry.note !== String(r.note || '').trim();
+      || draftEntry.note !== String(r.note || '').trim()
+      || ((ownRounds || rowRounds) ? !sameRounds(ownRounds, rowRounds) : false);
   }, [draftEntry, editingRow]);
 
   const saveEdit = useCallback(() => {
@@ -1237,6 +1285,28 @@ export function AirFryerPage({ onClose, user, recipes = [], weeklyRecipeIds = []
     );
   };
 
+  // Turning the stop on splits the current total into rounds (halves, or what
+  // the stop text says); turning it off keeps the total and drops the rounds.
+  const setPause = (yes) => {
+    if (yes === editing.pause) return;
+    if (yes) {
+      const stop = hasMidCookStop(editing.stop) ? editing.stop
+        : hasMidCookStop(editingRow?.stop) ? editingRow.stop : DEFAULT_STOP;
+      const rounds = roundsDraft(splitMinutes({ stop, min: editing.min, max: editing.max }));
+      setEditing({ ...editing, pause: true, stop, rounds, ...(roundsTotal(rounds) || {}) });
+    } else {
+      // Back to what the row said if it never paused, so Yes → No on a
+      // "No flip" row isn't an edit.
+      const stop = editingRow && !hasMidCookStop(editingRow.stop) ? (editingRow.stop ?? '') : 'No flip';
+      setEditing({ ...editing, pause: false, stop, rounds: null });
+    }
+  };
+
+  const setRound = (field, value) => {
+    const rounds = { ...(editing.rounds || {}), [field]: value };
+    setEditing({ ...editing, rounds, ...(roundsTotal(rounds) || {}) });
+  };
+
   // The temp/time/category fields, inside the popup.
   const renderFields = () => (
       <div className={styles.popupFields}>
@@ -1266,12 +1336,14 @@ export function AirFryerPage({ onClose, user, recipes = [], weeklyRecipeIds = []
           </div>
           <div>
             <label className={styles.label}>Min</label>
-            <input className={styles.input} type="number" inputMode="numeric" value={editing.min}
+            <input className={styles.input} type="number" inputMode="decimal" step="0.5" value={editing.min}
+              readOnly={editing.pause} title={editing.pause ? 'The two rounds below add up to this' : undefined}
               onChange={e => setEditing({ ...editing, min: e.target.value })} placeholder="10" />
           </div>
           <div>
             <label className={styles.label}>Max</label>
-            <input className={styles.input} type="number" inputMode="numeric" value={editing.max}
+            <input className={styles.input} type="number" inputMode="decimal" step="0.5" value={editing.max}
+              readOnly={editing.pause} title={editing.pause ? 'The two rounds below add up to this' : undefined}
               onChange={e => setEditing({ ...editing, max: e.target.value })} placeholder="12" />
           </div>
           <div>
@@ -1281,16 +1353,62 @@ export function AirFryerPage({ onClose, user, recipes = [], weeklyRecipeIds = []
           </div>
         </div>
 
-        {/* Short on purpose — it has to read at a glance from across the
-            kitchen, in a column sized for about "Shake every 8 min". */}
-        <label className={styles.label}>Stop to flip / shake</label>
-        <input
-          className={styles.input}
-          value={editing.stop}
-          onChange={e => setEditing({ ...editing, stop: e.target.value })}
-          placeholder="Flip halfway"
-          maxLength={18}
-        />
+        {/* Yes / No first, because whether you stop at all is the question;
+            what you do and when only matter once the answer is yes. */}
+        <label className={styles.label} id="af-pause-label">Stop mid-cook?</label>
+        <div className={styles.pauseToggle} role="radiogroup" aria-labelledby="af-pause-label">
+          {[['Yes', true], ['No', false]].map(([label, yes]) => (
+            <button
+              key={label}
+              type="button"
+              role="radio"
+              aria-checked={editing.pause === yes}
+              className={`${styles.pauseBtn} ${editing.pause === yes ? styles.pauseBtnOn : ''}`}
+              onClick={() => setPause(yes)}
+            >{label}</button>
+          ))}
+        </div>
+
+        {editing.pause && (
+          <>
+            {/* Short on purpose — it has to read at a glance from across the
+                kitchen, in a column sized for about "Shake every 8 min". */}
+            <label className={styles.label}>Stop to flip / shake</label>
+            <input
+              className={styles.input}
+              value={editing.stop}
+              onChange={e => setEditing({ ...editing, stop: e.target.value })}
+              placeholder={DEFAULT_STOP}
+              maxLength={18}
+            />
+
+            {/* The two rounds either side of the stop. Min / Max above are
+                their sum, so the total and the split can't disagree. */}
+            <div className={styles.roundsGrid}>
+              {[['first', 'First round'], ['second', 'Second round']].map(([which, title]) => (
+                <div key={which} className={styles.roundBox}>
+                  <div className={styles.roundTitle}>{title}</div>
+                  <div className={styles.roundInputs}>
+                    <div>
+                      <label className={styles.label}>Min</label>
+                      <input className={styles.input} type="number" inputMode="decimal" step="0.5" min="0"
+                        aria-label={`${title} min`}
+                        value={editing.rounds?.[`${which}Min`] ?? ''}
+                        onChange={e => setRound(`${which}Min`, e.target.value)} placeholder="5" />
+                    </div>
+                    <div>
+                      <label className={styles.label}>Max</label>
+                      <input className={styles.input} type="number" inputMode="decimal" step="0.5" min="0"
+                        aria-label={`${title} max`}
+                        value={editing.rounds?.[`${which}Max`] ?? ''}
+                        onChange={e => setRound(`${which}Max`, e.target.value)} placeholder="6" />
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
 
         <label className={styles.label}>Note</label>
         <textarea

@@ -81,7 +81,19 @@ function rowList(raw) {
     doneF: Number(r?.doneF) || undefined,
     stop: r?.stop === undefined ? undefined : String(r.stop || '').slice(0, 120),
     note: String(r?.note || '').slice(0, 600),
+    rounds: roundsOf(r?.rounds),
   })).filter(r => r.name);
+}
+
+// The owner's own first/second round times, numbers only, or undefined.
+function roundsOf(raw) {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const n = (v) => (Number.isFinite(Number(v)) && Number(v) > 0 ? Number(v) : 0);
+  const out = {
+    firstMin: n(raw.firstMin), firstMax: n(raw.firstMax),
+    secondMin: n(raw.secondMin), secondMax: n(raw.secondMax),
+  };
+  return out.firstMin && out.secondMin ? out : undefined;
 }
 
 export default async function handler(req, res) {
