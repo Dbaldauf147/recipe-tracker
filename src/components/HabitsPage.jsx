@@ -9,6 +9,7 @@ import { AUTO_PROMOTE_DAYS, AUTO_PROMOTE_PCT, autoPromoteNumbers, autoPromoteEta
 import { yesterdayDate, yesterdayDayKey, yesterdayUnloggedHabits, isBadHabit, habitMonthEvery, monthlyDueIn, habitPeriodKey, habitDueNow } from '../utils/habitOutstanding';
 import { normalizePtoRanges, ptoCellsToStamp, activePtoRange } from '../utils/habitPto';
 import { nextMarkInCycle } from '../utils/habitMarkCycle';
+import { cueFields, cuesOf } from '../utils/habitCues';
 import { HabitStatusHistory } from './HabitStatusHistory';
 import { HabitStatusList } from './HabitStatusList';
 import { StatusSelect } from './HabitStatusSelect';
@@ -5673,9 +5674,9 @@ function DailyView({ habits, habitLogAuto, markOf, onMark, onReorder }) {
                         {h.name}
                         {isAutoMark(habitLogAuto, todayKey, h.id, markOf(h)) && <AutoBadge />}
                       </div>
-                      {(h.cue || h.response || h.reward) && (
+                      {(cuesOf(h).length > 0 || h.response || h.reward) && (
                         <div style={{ fontSize: '0.78rem', color: 'var(--color-text-muted)', marginTop: 2, lineHeight: 1.4 }}>
-                          {h.cue && <><strong>Cue:</strong> {h.cue}. </>}
+                          {cuesOf(h).length > 0 && <><strong>{cuesOf(h).length > 1 ? 'Cues' : 'Cue'}:</strong> {cuesOf(h).join('; ')}. </>}
                           {h.response && <><strong>Do:</strong> {h.response}. </>}
                           {h.reward && <><strong>Reward:</strong> {h.reward}.</>}
                         </div>
@@ -7267,6 +7268,73 @@ function HabitCalendar({ habit, habitLog }) {
   );
 }
 
+// The popup's cue list — as many cues as you like, mirroring the phone app.
+// Each row edits in place and commits on blur / Enter (so typing isn't trimmed
+// mid-word); clearing a row's text removes it. Writes go through cueFields so
+// `cue` / `cue2` stay in step for the Habits table and paste import.
+function HabitCuesSection({ habit: h, onUpdate }) {
+  const cues = cuesOf(h);
+  const [draft, setDraft] = useState('');
+  const addRef = useRef(null);
+  const write = (list) => onUpdate(h.id, cueFields(list));
+  const add = () => {
+    const text = draft.trim();
+    if (!text) return;
+    write([...cues, text]);
+    setDraft('');
+    addRef.current?.focus();
+  };
+  const commit = (i, text) => {
+    if ((text || '').trim() === cues[i]) return;
+    write(cues.map((c, j) => (j === i ? text : c)));
+  };
+  const remove = (i) => write(cues.filter((_, j) => j !== i));
+  return (
+    <div style={fieldWrap}>
+      <span style={fieldLabel}>Cues{cues.length > 0 ? ` · ${cues.length}` : ''}</span>
+      {cues.map((c, i) => (
+        <CueRow key={`${i}-${c}`} text={c} index={i} onCommit={t => commit(i, t)} onRemove={() => remove(i)} />
+      ))}
+      <div style={{ display: 'flex', gap: 6 }}>
+        <input
+          ref={addRef}
+          value={draft}
+          onChange={e => setDraft(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); add(); } }}
+          placeholder={cues.length ? 'Add another cue' : 'Add a cue (what kicks it off?)'}
+          aria-label="Add a cue"
+          style={{ ...fieldInput, flex: 1 }}
+        />
+        <button type="button" onClick={add} disabled={!draft.trim()} style={{ ...primaryBtn, padding: '0.35rem 0.8rem', opacity: draft.trim() ? 1 : 0.5 }}>Add</button>
+      </div>
+    </div>
+  );
+}
+
+function CueRow({ text, index, onCommit, onRemove }) {
+  const [value, setValue] = useState(text);
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+      <span aria-hidden style={{ flex: '0 0 auto', fontSize: '0.72rem', fontWeight: 700, color: 'var(--color-text-muted, #64748b)', minWidth: 14, textAlign: 'right' }}>{index + 1}.</span>
+      <input
+        value={value}
+        onChange={e => setValue(e.target.value)}
+        onBlur={() => onCommit(value)}
+        onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur(); }}
+        aria-label={`Cue ${index + 1}`}
+        style={{ ...fieldInput, flex: 1 }}
+      />
+      <button
+        type="button"
+        onClick={onRemove}
+        title="Remove cue"
+        aria-label={`Remove cue ${text}`}
+        style={{ flex: '0 0 auto', border: 'none', background: 'none', color: '#94a3b8', cursor: 'pointer', fontSize: '0.8rem', padding: '2px 4px', lineHeight: 1 }}
+      >✕</button>
+    </div>
+  );
+}
+
 function HabitDetailModal({ habit, streak: streakProp, habitLog = {}, autoTracked = false, onMakeAutomatic, onUpdate, checklistPeriod, currentMark, onSetMark, onDelete, onClose, autoSkipOn = false, onToggleAutoSkip, isNew = false, routineOptions = [] }) {
   const h = habit;
   const cadence = (h.cadence || '').trim();
@@ -7618,9 +7686,9 @@ function HabitDetailModal({ habit, streak: streakProp, habitLog = {}, autoTracke
           {field('kpi', 'KPI')}
         </div>
 
-        {/* Atomic Habits breakdown */}
-        {field('cue', 'Cue / Trigger', { textarea: true })}
-        {field('cue2', '2nd Cue', { textarea: true })}
+        {/* Atomic Habits breakdown. Cues are a list (same as the phone's
+            popup); the first two stay mirrored into cue / cue2 for the table. */}
+        <HabitCuesSection key={`cues-${h.id}`} habit={h} onUpdate={onUpdate} />
         {field('craving', 'Craving', { textarea: true })}
         {field('response', 'Response', { textarea: true })}
         {field('reward', 'Reward', { textarea: true })}
