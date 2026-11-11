@@ -6,6 +6,7 @@ import { loadFriends, shareRecipe, getUsername, createShareLink, loadField } fro
 import AIR_FRYER_GUIDE from '../data/airFryerGuide.js';
 import { airFryerForIngredient, airFryerStepText, mergeAirFryerGuide } from '../utils/airFryerRecipes';
 import { insertStep, insertPointForIngredient } from '../utils/recipeSteps';
+import { moveStepIngredient } from '../utils/stepIngredientOrder';
 import { loadIngredients, saveIngredientsToFirestore, setIngredientUnitWeight } from '../utils/ingredientsStore';
 import { ManualIngredientModal } from './ManualIngredientModal.jsx';
 import {
@@ -1849,6 +1850,74 @@ export function RecipeDetail({ recipe, allTags = [], onSave, onDelete, onBack, o
   function handleStepDragEnd() {
     setStepDragIdx(null);
     setStepDragOverIdx(null);
+  }
+
+  // Dragging an ingredient row beside a step (Standard View). `pos` is the
+  // row's position in that step's stepIngredients list; dropping on a row
+  // takes its place, dropping elsewhere on a step appends to that step.
+  const [ingDrag, setIngDrag] = useState(null); // { si, pos }
+  const [ingDragOver, setIngDragOver] = useState(null); // { si, pos, end? }
+
+  function markIngDragOver(si, pos, end = false) {
+    setIngDragOver(cur => (cur && cur.si === si && cur.pos === pos && !!cur.end === end ? cur : { si, pos, end }));
+  }
+
+  function clearIngDrag() {
+    setIngDrag(null);
+    setIngDragOver(null);
+  }
+
+  function dropStepIngredient(e, si, pos) {
+    e.preventDefault();
+    e.stopPropagation();
+    const from = ingDrag;
+    clearIngDrag();
+    if (!from) return;
+    setFields(prev => ({
+      ...prev,
+      stepIngredients: moveStepIngredient(prev.stepIngredients || {}, from.si, from.pos, si, pos),
+    }));
+  }
+
+  // Drop target props for the cells of one ingredient row.
+  function stepIngDropProps(si, pos) {
+    if (!editing) return {};
+    return {
+      onDragOver: e => {
+        if (!ingDrag) return;
+        e.preventDefault();
+        e.stopPropagation();
+        e.dataTransfer.dropEffect = 'move';
+        markIngDragOver(si, pos);
+      },
+      onDrop: e => { if (ingDrag) dropStepIngredient(e, si, pos); },
+    };
+  }
+
+  // Line above or below the hovered row, matching where the item will land.
+  function stepIngDropClass(si, pos) {
+    if (!ingDrag) return '';
+    if (ingDrag.si === si && ingDrag.pos === pos) return styles.draggingRow;
+    if (!ingDragOver || ingDragOver.end || ingDragOver.si !== si || ingDragOver.pos !== pos) return '';
+    return ingDrag.si === si && pos > ingDrag.pos ? styles.cookModeDropBelow : styles.cookModeDropAbove;
+  }
+
+  function stepIngDragHandle(si, pos) {
+    if (!editing) return null;
+    return (
+      <span
+        className={styles.cookModeIngHandle}
+        draggable
+        onDragStart={e => {
+          e.stopPropagation();
+          e.dataTransfer.effectAllowed = 'move';
+          e.dataTransfer.setData('text/plain', '');
+          setIngDrag({ si, pos });
+        }}
+        onDragEnd={clearIngDrag}
+        title="Drag to reorder"
+      >&#x2630;</span>
+    );
   }
 
   function handleSave() {
@@ -4072,9 +4141,17 @@ export function RecipeDetail({ recipe, allTags = [], onSave, onDelete, onBack, o
                   return (
                     <div
                       key={si}
-                      className={`${styles.cookModeStepGroup} ${stepDragIdx === si ? styles.draggingRow : ''} ${stepDragOverIdx === si ? styles.dragOverRow : ''}`}
-                      onDragOver={e => { if (editing) { e.preventDefault(); handleStepDragOver(e, si); } }}
-                      onDrop={e => editing && handleStepDrop(e, si)}
+                      className={`${styles.cookModeStepGroup} ${stepDragIdx === si ? styles.draggingRow : ''} ${stepDragOverIdx === si || (ingDrag && ingDragOver?.end && ingDragOver.si === si) ? styles.dragOverRow : ''}`}
+                      onDragOver={e => {
+                        if (!editing) return;
+                        if (ingDrag) { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; markIngDragOver(si, assignedIndices.length, true); return; }
+                        e.preventDefault(); handleStepDragOver(e, si);
+                      }}
+                      onDrop={e => {
+                        if (!editing) return;
+                        if (ingDrag) { dropStepIngredient(e, si, assignedIndices.length); return; }
+                        handleStepDrop(e, si);
+                      }}
                       onDragEnd={() => { setStepDragIdx(null); setStepDragOverIdx(null); }}
                     >
                     {(fields.stepSections || {})[si] && (
@@ -4131,8 +4208,8 @@ export function RecipeDetail({ recipe, allTags = [], onSave, onDelete, onBack, o
                         </td>
                         {assignedIngs.length > 0 ? (
                           <>
-                            <td className={styles.cookModeQty}>{assignedIngs[0].quantity}</td>
-                            <td className={styles.cookModeMeas} style={{ position: 'relative', cursor: 'pointer', textDecoration: 'underline', textDecorationStyle: 'dotted' }} onClick={() => {
+                            <td className={`${styles.cookModeQty} ${stepIngDropClass(si, 0)}`} {...stepIngDropProps(si, 0)}>{stepIngDragHandle(si, 0)}{assignedIngs[0].quantity}</td>
+                            <td className={`${styles.cookModeMeas} ${stepIngDropClass(si, 0)}`} {...stepIngDropProps(si, 0)} style={{ position: 'relative', cursor: 'pointer', textDecoration: 'underline', textDecorationStyle: 'dotted' }} onClick={() => {
                               const ing = assignedIngs[0];
                               const dbGrams = getDbGrams(ing.ingredient);
                               const dbMeas = getDbMeasurement(ing.ingredient);
@@ -4173,7 +4250,7 @@ export function RecipeDetail({ recipe, allTags = [], onSave, onDelete, onBack, o
                                 </div>
                               )}
                             </td>
-                            <td className={styles.cookModeIng}>
+                            <td className={`${styles.cookModeIng} ${stepIngDropClass(si, 0)}`} {...stepIngDropProps(si, 0)}>
                               <div className={styles.cookModeIngRow}>
                                 {renameIngName(assignedIndices[0], assignedIngs[0].ingredient)}
                                 {editing && <button className={styles.cookModeRemove} onClick={() => {
@@ -4229,8 +4306,8 @@ export function RecipeDetail({ recipe, allTags = [], onSave, onDelete, onBack, o
                       </tr>
                       {assignedIngs.slice(1).map((ing, ii) => (
                         <tr key={`${si}-${ii + 1}`}>
-                          <td className={styles.cookModeQty}>{ing.quantity}</td>
-                          <td className={styles.cookModeMeas} style={{ position: 'relative', cursor: 'pointer', textDecoration: 'underline', textDecorationStyle: 'dotted' }} onClick={() => {
+                          <td className={`${styles.cookModeQty} ${stepIngDropClass(si, ii + 1)}`} {...stepIngDropProps(si, ii + 1)}>{stepIngDragHandle(si, ii + 1)}{ing.quantity}</td>
+                          <td className={`${styles.cookModeMeas} ${stepIngDropClass(si, ii + 1)}`} {...stepIngDropProps(si, ii + 1)} style={{ position: 'relative', cursor: 'pointer', textDecoration: 'underline', textDecorationStyle: 'dotted' }} onClick={() => {
                             const dbGrams = getDbGrams(ing.ingredient);
                             const dbMeas = getDbMeasurement(ing.ingredient);
                             const convs = getConversions(ing.quantity, ing.measurement, dbGrams);
@@ -4270,7 +4347,7 @@ export function RecipeDetail({ recipe, allTags = [], onSave, onDelete, onBack, o
                               </div>
                             )}
                           </td>
-                          <td className={styles.cookModeIng}>
+                          <td className={`${styles.cookModeIng} ${stepIngDropClass(si, ii + 1)}`} {...stepIngDropProps(si, ii + 1)}>
                             <div className={styles.cookModeIngRow}>
                               {renameIngName(assignedIndices[ii + 1], ing.ingredient)}
                               {editing && <button className={styles.cookModeRemove} onClick={() => {
