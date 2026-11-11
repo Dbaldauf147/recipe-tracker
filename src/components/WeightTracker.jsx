@@ -577,7 +577,7 @@ export function WeightTracker({ onClose, user, isOnboarding = false }) {
     // We also never delete a saved goalWeight here — that's user input,
     // not contamination, and deleting it forces the setup modal to pop
     // back up on every mount.
-    if (user?.uid !== ADMIN_UID_WT && existing.length > 0) {
+    if (!(ADMIN_UID_WT && user?.uid === ADMIN_UID_WT) && existing.length > 0) {
       let hasConfigured = false;
       try {
         const stats = JSON.parse(localStorage.getItem('sunday-body-stats') || '{}');
@@ -597,7 +597,7 @@ export function WeightTracker({ onClose, user, isOnboarding = false }) {
     }
 
     // Only merge seed data for admin user
-    if (user?.uid === ADMIN_UID_WT) {
+    if (!!ADMIN_UID_WT && user?.uid === ADMIN_UID_WT) {
       const dateSet = new Set(existing.map(e => e.date));
       const merged = [...existing];
       for (const entry of SEED_DATA) {
@@ -639,7 +639,7 @@ export function WeightTracker({ onClose, user, isOnboarding = false }) {
     // Show setup popup when: no weight entries AND no goal weight configured
     // The log initializer above already cleared contaminated data, so if log
     // is empty here, the user genuinely has no weight data.
-    if (user?.uid === ADMIN_UID_WT) return false;
+    if (!!ADMIN_UID_WT && user?.uid === ADMIN_UID_WT) return false;
     if (log.length > 0) return false;
     try {
       const stats = JSON.parse(localStorage.getItem('sunday-body-stats') || '{}');

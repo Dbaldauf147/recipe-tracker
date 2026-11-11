@@ -2187,7 +2187,7 @@ export function RecipeDetail({ recipe, allTags = [], onSave, onDelete, onBack, o
           )}
         </div>
         <div className={styles.headerActions}>
-          {user?.uid === ADMIN_UID && (
+          {(!!ADMIN_UID && user?.uid === ADMIN_UID) && (
             <label style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', cursor: 'pointer', fontSize: '0.8rem', color: 'var(--color-text-muted)', whiteSpace: 'nowrap' }}>
               <input type="checkbox" checked={fields.starterRecipe} onChange={e => setField('starterRecipe', e.target.checked)} />
               Starter

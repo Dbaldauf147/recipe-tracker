@@ -1119,7 +1119,7 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
                   </button>
                 )}
                 <div className={styles.settingsDivider} />
-                {user?.uid === ADMIN_UID && (
+                {(!!ADMIN_UID && user?.uid === ADMIN_UID) && (
                   <button className={styles.settingsMenuItem} onClick={() => { navigateTo('admin'); setSettingsOpen(false); }}>Admin Dashboard</button>
                 )}
                 {canView('history') && <button className={styles.settingsMenuItem} onClick={() => { navigateTo('history'); setSettingsOpen(false); }}>Meal History</button>}

@@ -68,7 +68,7 @@ function isIngredientInSeason(name, seasonalSet) {
 // `addForFood` — the USDA food from the recipe's "Use this" suggestion: the
 // page opens straight on its review form instead of the add menu.
 export function IngredientsPage({ onClose, user, addFor = null, addForFood = null, onAddForDone }) {
-  const isAdmin = user?.uid === ADMIN_UID;
+  const isAdmin = !!ADMIN_UID && user?.uid === ADMIN_UID;
 
   // Compute seasonal ingredients set
   const seasonalSet = (() => {
