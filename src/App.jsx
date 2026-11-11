@@ -54,6 +54,9 @@ import { FeaturesPage } from './components/FeaturesPage';
 import { EatingOutPage } from './components/EatingOutPage';
 import { UpdatePill } from './components/UpdatePill';
 import { NutritionOnboarding } from './components/NutritionOnboarding';
+import { EditorialNav } from './components/EditorialNav';
+import { EditorialHome } from './components/EditorialHome';
+import { HOME_VIEW, LAYOUT_KEY, isEditorialEnabled, setEditorialEnabled, initialView, groupNavItems } from './utils/editorialLayout';
 import React from 'react';
 import styles from './App.module.css';
 
@@ -318,12 +321,26 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
     recordStageSnapshot(recipes, user.uid);
   }, [recipes, user]);
 
-  const [view, setView] = useState(() => {
-    const hash = window.location.hash.replace('#', '');
-    if (!hash) return 'list';
-    const [v] = hash.split('/');
-    return v || 'list';
-  });
+  // The optional Editorial layout (icon rail + Home dashboard). Off unless this
+  // browser opted in from Settings; when off, nothing below changes behaviour.
+  const [editorial, setEditorial] = useState(() => isEditorialEnabled());
+  const [view, setView] = useState(() => initialView(window.location.hash, isEditorialEnabled()));
+  // Home only exists in the Editorial layout. If it's switched off (here or in
+  // another tab) while Home is showing, or Back lands on it, fall to Recipes.
+  useEffect(() => {
+    if (!editorial && view === HOME_VIEW) {
+      setView('list');
+      window.history.replaceState(null, '', '#list');
+    }
+  }, [editorial, view]);
+  // Keep other open tabs of the app on the same layout.
+  useEffect(() => {
+    function handleLayoutStorage(e) {
+      if (e.key === LAYOUT_KEY) setEditorial(isEditorialEnabled());
+    }
+    window.addEventListener('storage', handleLayoutStorage);
+    return () => window.removeEventListener('storage', handleLayoutStorage);
+  }, []);
   const [selectedId, setSelectedId] = useState(() => {
     const hash = window.location.hash.replace('#', '');
     if (!hash) return null;
@@ -882,6 +899,15 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
     return acc;
   }, []);
 
+  function toggleEditorialLayout() {
+    const next = !editorial;
+    setEditorialEnabled(next);
+    setEditorial(next);
+    setSettingsOpen(false);
+    setSidebarOpen(false);
+    if (next) navigateTo(HOME_VIEW);
+  }
+
   function handleNavClick(item) {
     if (item.action === 'features') {
       navigateTo('features');
@@ -1028,6 +1054,93 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
     } catch {}
   }
 
+  // Settings + signed-in user. One block, shown at the foot of whichever
+  // navigation is on screen, so the two layouts can't drift apart.
+  const accountBlock = (
+    <>
+    <div className={styles.settingsWrapper} ref={settingsRef}>
+      <button
+        className={styles.settingsBtn}
+        onClick={() => setSettingsOpen(prev => !prev)}
+        aria-label="Settings"
+      >
+        <span className={`material-symbols-outlined ${styles.sidebarIcon}`}>settings</span>
+        Settings
+        {pendingCount > 0 && (
+          <span className={styles.badge}>{pendingCount}</span>
+        )}
+      </button>
+      {settingsOpen && (
+        <div className={`${styles.settingsDropdown}${editorial ? ` ${styles.settingsDropdownEditorial}` : ''}`}>
+          <div className={styles.settingsUserRow}>
+            {user?.photoURL && (
+              <img className={styles.avatar} src={user.photoURL} alt="" referrerPolicy="no-referrer" />
+            )}
+            <div className={styles.settingsUserInfo}>
+              <span>{user?.displayName || 'Guest'}</span>
+              {myUsername && <span className={styles.settingsUserHandle}>@{myUsername}</span>}
+            </div>
+          </div>
+          <button className={styles.settingsMenuItem} onClick={() => { navigateTo('profile'); setSettingsOpen(false); }}>My Profile</button>
+          <button className={styles.settingsMenuItem} onClick={() => { navigateTo('account-settings'); setSettingsOpen(false); }}>Account Settings</button>
+          <button className={styles.settingsMenuItem} onClick={toggleEditorialLayout} data-testid="layout-toggle">
+            {editorial ? 'Switch to classic layout' : 'Try the new layout'}
+            {!editorial && <span className={styles.menuBetaTag}>Beta</span>}
+          </button>
+          {canView('friends') && (
+            <button className={styles.settingsMenuItem} onClick={() => { navigateTo('friends'); setSettingsOpen(false); }}>
+              Friends
+              {pendingCount > 0 && <span className={styles.menuBadge}>{pendingCount}</span>}
+            </button>
+          )}
+          <div className={styles.settingsDivider} />
+          {(!!ADMIN_UID && user?.uid === ADMIN_UID) && (
+            <button className={styles.settingsMenuItem} onClick={() => { navigateTo('admin'); setSettingsOpen(false); }}>Admin Dashboard</button>
+          )}
+          {canView('history') && <button className={styles.settingsMenuItem} onClick={() => { navigateTo('history'); setSettingsOpen(false); }}>Meal History</button>}
+          {canView('special-meals') && <button className={styles.settingsMenuItem} onClick={() => { navigateTo('special-meals'); setSettingsOpen(false); }}>Special Meals</button>}
+          {canView('nutrient-search') && <button className={styles.settingsMenuItem} onClick={() => { navigateTo('nutrient-search'); setSettingsOpen(false); }}>Nutrient Search</button>}
+          {canView('whoop') && <button className={styles.settingsMenuItem} onClick={() => { navigateTo('whoop'); setSettingsOpen(false); }}>Whoop</button>}
+          {canView('seasonal-guide') && <button className={styles.settingsMenuItem} onClick={() => { navigateTo('seasonal-guide'); setSettingsOpen(false); }}>Seasonal Guide</button>}
+          {canView('sources') && <button className={styles.settingsMenuItem} onClick={() => { navigateTo('sources'); setSettingsOpen(false); }}>Sources</button>}
+          {canView('features') && <button className={styles.settingsMenuItem} onClick={() => { navigateTo('features'); setSettingsOpen(false); }}>Features</button>}
+          <div className={styles.settingsDivider} />
+          {canView('ingredients') && <button className={styles.settingsMenuItem} onClick={() => { navigateTo('ingredients'); setSettingsOpen(false); }}>Ingredients</button>}
+          <button className={styles.settingsMenuItem} onClick={() => { restartOnboarding(); setSettingsOpen(false); }}>Setup</button>
+          <div className={styles.settingsDivider} />
+          <button className={styles.settingsMenuItem} onClick={() => { logOut(); setSettingsOpen(false); }}>Sign Out</button>
+          <div className={styles.settingsDivider} />
+          {/* Which build this tab is actually running, and a way out when
+              it isn't the deployed one. Without this, "I deployed that"
+              vs "I don't see it" can only be settled by guessing. */}
+          <div className={styles.settingsBuildRow}>
+            <span className={styles.settingsBuild}>Build {BUILD_LABEL}</span>
+            <button
+              className={styles.settingsBuildBtn}
+              onClick={() => { setSettingsOpen(false); forceAppUpdate(); }}
+              title="Clear this app's cached copy and reload the newest deployed build"
+            >
+              Check for updates
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+
+    <div className={styles.sidebarUser}>
+      {user?.photoURL ? (
+        <img className={styles.sidebarAvatar} src={user.photoURL} alt="" referrerPolicy="no-referrer" />
+      ) : (
+        <div className={styles.sidebarAvatarPlaceholder}>{(user?.displayName || 'G')[0]}</div>
+      )}
+      <div className={styles.sidebarUserInfo}>
+        <span className={styles.sidebarUserName}>{user?.displayName || 'Guest'}</span>
+        <span className={styles.sidebarUserRole}>Home Chef</span>
+      </div>
+    </div>
+    </>
+  );
+
   return (
     <div className={styles.app}>
       {/* Mobile sidebar toggle */}
@@ -1036,6 +1149,21 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
       </button>
 
       {/* Sidebar Navigation */}
+      {editorial ? (
+        <EditorialNav
+          groups={groupNavItems(NAV_ITEMS)}
+          view={view}
+          homeActive={view === HOME_VIEW}
+          onHome={() => { if (view !== HOME_VIEW) navigateTo(HOME_VIEW); setSidebarOpen(false); }}
+          onNav={item => { handleNavClick(item); setSidebarOpen(false); }}
+          badges={{ habits: habitsOutstanding }}
+          open={sidebarOpen}
+          pinned={settingsOpen}
+          bottomAlert={pendingCount > 0}
+        >
+          {accountBlock}
+        </EditorialNav>
+      ) : (
       <aside className={`${styles.sidebar}${sidebarOpen ? ` ${styles.sidebarOpen}` : ''}`}>
         <div className={styles.sidebarLogo} onClick={() => { setView('list'); setSelectedId(null); setViewHistory([]); setSidebarOpen(false); }}>
           <div className={styles.sidebarLogoText}>Prep Day</div>
@@ -1087,86 +1215,12 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
         </nav>
 
         <div className={styles.sidebarBottom}>
-          <div className={styles.settingsWrapper} ref={settingsRef}>
-            <button
-              className={styles.settingsBtn}
-              onClick={() => setSettingsOpen(prev => !prev)}
-              aria-label="Settings"
-            >
-              <span className={`material-symbols-outlined ${styles.sidebarIcon}`}>settings</span>
-              Settings
-              {pendingCount > 0 && (
-                <span className={styles.badge}>{pendingCount}</span>
-              )}
-            </button>
-            {settingsOpen && (
-              <div className={styles.settingsDropdown}>
-                <div className={styles.settingsUserRow}>
-                  {user?.photoURL && (
-                    <img className={styles.avatar} src={user.photoURL} alt="" referrerPolicy="no-referrer" />
-                  )}
-                  <div className={styles.settingsUserInfo}>
-                    <span>{user?.displayName || 'Guest'}</span>
-                    {myUsername && <span className={styles.settingsUserHandle}>@{myUsername}</span>}
-                  </div>
-                </div>
-                <button className={styles.settingsMenuItem} onClick={() => { navigateTo('profile'); setSettingsOpen(false); }}>My Profile</button>
-                <button className={styles.settingsMenuItem} onClick={() => { navigateTo('account-settings'); setSettingsOpen(false); }}>Account Settings</button>
-                {canView('friends') && (
-                  <button className={styles.settingsMenuItem} onClick={() => { navigateTo('friends'); setSettingsOpen(false); }}>
-                    Friends
-                    {pendingCount > 0 && <span className={styles.menuBadge}>{pendingCount}</span>}
-                  </button>
-                )}
-                <div className={styles.settingsDivider} />
-                {(!!ADMIN_UID && user?.uid === ADMIN_UID) && (
-                  <button className={styles.settingsMenuItem} onClick={() => { navigateTo('admin'); setSettingsOpen(false); }}>Admin Dashboard</button>
-                )}
-                {canView('history') && <button className={styles.settingsMenuItem} onClick={() => { navigateTo('history'); setSettingsOpen(false); }}>Meal History</button>}
-                {canView('special-meals') && <button className={styles.settingsMenuItem} onClick={() => { navigateTo('special-meals'); setSettingsOpen(false); }}>Special Meals</button>}
-                {canView('nutrient-search') && <button className={styles.settingsMenuItem} onClick={() => { navigateTo('nutrient-search'); setSettingsOpen(false); }}>Nutrient Search</button>}
-                {canView('whoop') && <button className={styles.settingsMenuItem} onClick={() => { navigateTo('whoop'); setSettingsOpen(false); }}>Whoop</button>}
-                {canView('seasonal-guide') && <button className={styles.settingsMenuItem} onClick={() => { navigateTo('seasonal-guide'); setSettingsOpen(false); }}>Seasonal Guide</button>}
-                {canView('sources') && <button className={styles.settingsMenuItem} onClick={() => { navigateTo('sources'); setSettingsOpen(false); }}>Sources</button>}
-                {canView('features') && <button className={styles.settingsMenuItem} onClick={() => { navigateTo('features'); setSettingsOpen(false); }}>Features</button>}
-                <div className={styles.settingsDivider} />
-                {canView('ingredients') && <button className={styles.settingsMenuItem} onClick={() => { navigateTo('ingredients'); setSettingsOpen(false); }}>Ingredients</button>}
-                <button className={styles.settingsMenuItem} onClick={() => { restartOnboarding(); setSettingsOpen(false); }}>Setup</button>
-                <div className={styles.settingsDivider} />
-                <button className={styles.settingsMenuItem} onClick={() => { logOut(); setSettingsOpen(false); }}>Sign Out</button>
-                <div className={styles.settingsDivider} />
-                {/* Which build this tab is actually running, and a way out when
-                    it isn't the deployed one. Without this, "I deployed that"
-                    vs "I don't see it" can only be settled by guessing. */}
-                <div className={styles.settingsBuildRow}>
-                  <span className={styles.settingsBuild}>Build {BUILD_LABEL}</span>
-                  <button
-                    className={styles.settingsBuildBtn}
-                    onClick={() => { setSettingsOpen(false); forceAppUpdate(); }}
-                    title="Clear this app's cached copy and reload the newest deployed build"
-                  >
-                    Check for updates
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
-
-          <div className={styles.sidebarUser}>
-            {user?.photoURL ? (
-              <img className={styles.sidebarAvatar} src={user.photoURL} alt="" referrerPolicy="no-referrer" />
-            ) : (
-              <div className={styles.sidebarAvatarPlaceholder}>{(user?.displayName || 'G')[0]}</div>
-            )}
-            <div className={styles.sidebarUserInfo}>
-              <span className={styles.sidebarUserName}>{user?.displayName || 'Guest'}</span>
-              <span className={styles.sidebarUserRole}>Home Chef</span>
-            </div>
-          </div>
+          {accountBlock}
         </div>
       </aside>
+      )}
 
-      <main className={styles.main}>
+      <main className={`${styles.main}${editorial ? ` ${styles.mainEditorial}` : ''}`}>
         {/* Per-doc storage warning. Renders only if any Firestore doc is
             within ~25% of the 1 MB hard limit; otherwise null. */}
         <StorageBanner user={user} />
@@ -1235,6 +1289,18 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
             <p className={styles.pageBlockedText}>This page isn't shared with your account right now.</p>
             <button className={styles.pageBlockedBtn} onClick={() => navigateTo('list')}>Back to Recipes</button>
           </div>
+        ) : view === HOME_VIEW && editorial ? (
+          <EditorialHome
+            user={user}
+            getRecipe={getRecipe}
+            weeklyPlan={weeklyPlan}
+            weekMealPlan={weekMealPlan}
+            showNutrition={showNutrition}
+            canView={canView}
+            onOpen={navigateTo}
+            onOpenRecipe={id => navigateTo('detail', id)}
+            onOpenGoals={() => handleNavClick({ action: 'nutrition-goals' })}
+          />
         ) : view === 'barcode-scanner' ? (
           <BarcodeScannerPage onClose={goBack} user={user} />
         ) : view === 'daily-tracker' ? (

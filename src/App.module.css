@@ -228,6 +228,44 @@
   max-width: 100%;
 }
 
+/* ── Optional Editorial layout ──
+   Applied only while that layout is switched on (Settings → Try the new
+   layout). The classic rules above are untouched. */
+.main.mainEditorial {
+  margin-left: 72px;
+  width: calc(100% - 72px);
+}
+
+@media (max-width: 768px) {
+  .main.mainEditorial {
+    margin-left: 0;
+    width: 100%;
+  }
+}
+
+/* The rail clips its contents, so the Settings menu is pinned to the rail
+   itself instead of hanging off the button (the rail's backdrop-filter makes it
+   the containing block for this fixed box). */
+.settingsDropdown.settingsDropdownEditorial {
+  position: fixed;
+  left: var(--space-3);
+  bottom: 76px;
+  max-height: calc(100vh - 96px);
+  overflow-y: auto;
+}
+
+.menuBetaTag {
+  margin-left: auto;
+  padding: 2px 7px;
+  border-radius: var(--radius-full);
+  background: var(--color-secondary-container);
+  color: #1A2F4A;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
 /* ── Settings (now in sidebar bottom) ── */
 .settingsWrapper {
   position: relative;
