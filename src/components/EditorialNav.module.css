@@ -1,0 +1,334 @@
+/* Navigation rail for the optional Editorial layout. Nothing in this file is
+   loaded into the classic layout's markup — every class here is local to
+   EditorialNav — so it cannot restyle the sidebar it replaces. */
+
+.rail {
+  --rail-w: 72px;
+  --panel-w: 264px;
+  position: fixed;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: var(--rail-w);
+  z-index: 100;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.82);
+  backdrop-filter: blur(24px) saturate(1.2);
+  -webkit-backdrop-filter: blur(24px) saturate(1.2);
+  border-right: 1px solid var(--color-border-light);
+  /* A short delay before opening so sweeping the pointer across the edge of
+     the page doesn't flap the menu open; closing is immediate. */
+  transition: width 0.26s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.26s ease, background 0.26s ease;
+}
+
+.rail:hover,
+.rail:focus-within,
+.pinned {
+  width: var(--panel-w);
+  /* Near-opaque once open: it sits over page content, and labels have to stay
+     readable against whatever is underneath. */
+  background: rgba(255, 255, 255, 0.95);
+  box-shadow: 16px 0 48px rgba(26, 47, 74, 0.14);
+}
+
+.rail:hover {
+  transition-delay: 0.09s;
+}
+
+/* Fixed-width content the rail's edge wipes across, so labels never reflow
+   mid-animation. */
+.inner {
+  width: var(--panel-w);
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  padding: var(--space-5) var(--space-3) var(--space-4);
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-width: none;
+}
+
+.inner::-webkit-scrollbar {
+  display: none;
+}
+
+/* ── Brand ── */
+.brand {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: 0 var(--space-1);
+  margin-bottom: var(--space-6);
+  background: none;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  border-radius: var(--radius-md);
+}
+
+.mark {
+  flex-shrink: 0;
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  display: grid;
+  place-items: center;
+  background: #1A2F4A;
+  color: #fff;
+  font-family: var(--font-family-serif);
+  font-weight: 900;
+  font-size: 1.35rem;
+  line-height: 1;
+  box-shadow: inset 0 -3px 0 var(--color-secondary-container);
+}
+
+.brandText {
+  display: flex;
+  flex-direction: column;
+  white-space: nowrap;
+}
+
+.wordmark {
+  font-family: var(--font-family-serif);
+  font-size: 1.35rem;
+  font-weight: 900;
+  letter-spacing: -0.03em;
+  line-height: 1.05;
+  color: #1A2F4A;
+}
+
+.tagline {
+  font-size: 0.56rem;
+  text-transform: uppercase;
+  letter-spacing: 0.2em;
+  color: var(--color-text-muted);
+  margin-top: 3px;
+}
+
+/* ── Items ── */
+.nav {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.groupLabel {
+  height: 30px;
+  display: flex;
+  align-items: flex-end;
+  padding: 0 var(--space-3) 6px;
+  margin-top: var(--space-2);
+  border-top: 1px solid var(--color-border-light);
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+
+.item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+  min-height: 44px;
+  padding: 0 var(--space-3);
+  border: none;
+  border-radius: var(--radius-md);
+  background: none;
+  color: var(--color-text-secondary);
+  font-family: var(--font-family-serif);
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  cursor: pointer;
+  transition: background var(--transition-normal), color var(--transition-normal), width 0.26s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* Collapsed, each entry is a square pill around its icon, so the active
+   highlight reads as a complete shape instead of being cut off by the rail. */
+.rail:not(:hover):not(:focus-within):not(.pinned) .item {
+  width: 48px;
+}
+
+.item:hover {
+  background: rgba(26, 47, 74, 0.06);
+  color: var(--color-text);
+}
+
+.itemActive,
+.itemActive:hover {
+  background: var(--color-accent);
+  color: #fff;
+  font-weight: 700;
+  box-shadow: 0 6px 16px rgba(59, 107, 156, 0.28);
+}
+
+.icon {
+  flex-shrink: 0;
+  width: 24px;
+  /* Until the icon font arrives the ligature is plain text; keep it boxed. */
+  overflow: hidden;
+  font-size: 1.3rem;
+  text-align: center;
+}
+
+.badge {
+  margin-left: auto;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: var(--radius-full);
+  background: var(--color-danger);
+  color: #fff;
+  font-family: var(--font-family);
+  font-size: 0.68rem;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Collapsed: keep an outstanding count visible as a dot on the icon. */
+.rail:not(:hover):not(:focus-within):not(.pinned) .badge {
+  position: absolute;
+  left: 30px;
+  top: 6px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  font-size: 0.6rem;
+}
+
+/* Text fades with the wipe so half-clipped words don't show at the rail edge. */
+.label,
+.brandText,
+.groupLabel span {
+  opacity: 0;
+  transition: opacity 0.16s ease;
+}
+
+.rail:hover .label,
+.rail:hover .brandText,
+.rail:hover .groupLabel span,
+.rail:focus-within .label,
+.rail:focus-within .brandText,
+.rail:focus-within .groupLabel span,
+.pinned .label,
+.pinned .brandText,
+.pinned .groupLabel span {
+  opacity: 1;
+  transition-delay: 0.1s;
+}
+
+.bottom {
+  position: relative;
+  /* Collapsed, show just the Settings icon and the avatar — the block's own
+     labels would otherwise peek out at the rail's edge. */
+  max-width: 48px;
+  overflow: hidden;
+  margin-top: var(--space-4);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--color-border-light);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  white-space: nowrap;
+}
+
+.rail:hover .bottom,
+.rail:focus-within .bottom,
+.pinned .bottom {
+  max-width: none;
+  overflow: visible;
+}
+
+/* Something is waiting under Settings (e.g. a friend request) while the count
+   itself is clipped. */
+.bottomDot {
+  position: absolute;
+  top: 20px;
+  left: 32px;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--color-accent);
+  border: 2px solid #fff;
+}
+
+.rail:hover .bottomDot,
+.rail:focus-within .bottomDot,
+.pinned .bottomDot {
+  display: none;
+}
+
+/* ── Phone: the same slide-in drawer as the classic sidebar ── */
+@media (max-width: 768px) {
+  .rail,
+  .rail:hover,
+  .rail:focus-within {
+    width: min(var(--panel-w), 86vw);
+    transform: translateX(-100%);
+    transition: transform var(--transition-slow);
+    box-shadow: none;
+  }
+
+  .rail.open {
+    transform: translateX(0);
+    background: rgba(255, 255, 255, 0.95);
+    box-shadow: 16px 0 48px rgba(26, 47, 74, 0.18);
+  }
+
+  .inner {
+    padding-top: var(--space-16);
+  }
+
+  .label,
+  .brandText,
+  .groupLabel span {
+    opacity: 1;
+  }
+
+  .rail:not(:hover):not(:focus-within):not(.pinned) .item {
+    width: 100%;
+  }
+
+  .bottom {
+    max-width: none;
+    overflow: visible;
+  }
+
+  .bottomDot {
+    display: none;
+  }
+
+  .rail:not(:hover):not(:focus-within):not(.pinned) .badge {
+    position: static;
+    min-width: 20px;
+    height: 20px;
+    padding: 0 6px;
+    font-size: 0.68rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rail,
+  .label,
+  .brandText,
+  .groupLabel span,
+  .item {
+    transition: none;
+  }
+}
