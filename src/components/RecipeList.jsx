@@ -1089,7 +1089,7 @@ export function RecipeList({
     if (user) {
       saveField(user.uid, 'catLayout', clean);
     }
-    if (user?.uid === ADMIN_UID) {
+    if (!!ADMIN_UID && user?.uid === ADMIN_UID) {
       saveAppDefault(user.uid, 'catLayout', clean);
     }
   };
