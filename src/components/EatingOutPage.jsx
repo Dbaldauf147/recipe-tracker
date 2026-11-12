@@ -9,6 +9,7 @@ import { saveOwnerRestaurants, saveOwnerEatingOutLists, saveField, subscribeRest
 import { visitStatsByPlace } from '../utils/spotVisits';
 import { healthyByLongestSince } from '../utils/healthyPlaces';
 import { recentPlaces } from '../utils/recentPlaces';
+import { lastVisitDays, shortAgo, rowRatings } from '../utils/listRowSummary';
 import {
   isSteakhouse, guysNightPatch, guysNightSections,
   guysNightDates, addGuysNightDatePatch, removeGuysNightDatePatch, formatGuysNightDate,
@@ -2995,9 +2996,20 @@ function RestaurantCard({ r, ratingAgg, ratingHasOthers = false, distanceMiles, 
 /** One placed row. Shared so the flat list and the per-cuisine groups can never
  *  drift into showing the same spot two different ways. */
 // One spot in List → By category. Same row as the Rankings boxes, minus the
-// rank and score: name, status, neighborhood.
-function CategoryListRow({ r, onSelect }) {
+// rank and score: name, status, neighborhood — and, on a second line, how long
+// since you were last there and the ratings (yours, then everyone else's).
+function CategoryListRow({ r, onSelect, days = null, ratingDocs, userUid }) {
   const dimClass = useDimClass();
+  const isMine = r._ownerUid === userUid;
+  const { mine, others } = useMemo(
+    () => rowRatings(ratingDocs, userUid, isMine ? r.rating : null),
+    [ratingDocs, userUid, isMine, r.rating],
+  );
+  // Other people's scores stay covered until you reveal them in the spot —
+  // the same curtain the popup and the card badge use.
+  const { revealed } = useRatingReveal(r._ownerUid, r.id);
+  const hideOthers = others.length > 0 && !revealed;
+  const hasMeta = days != null || mine != null || others.length > 0;
   return (
     <li>
       <button type="button" className={`${styles.rankingRow} ${styles.listCategoryRow}${dimClass(r)}`} onClick={() => onSelect(r)}>
@@ -3012,6 +3024,31 @@ function CategoryListRow({ r, onSelect }) {
           {r.frequency === 'retired' && <span className={styles.retiredBadge}>Retired</span>}
         </span>
         <span className={styles.rankingVotes}>{(r.locations || [])[0] || ''}</span>
+        {hasMeta && (
+          <span className={styles.listRowMeta}>
+            {days != null && (
+              <span className={styles.listRowAgo} title={`Last visit ${days === 0 ? 'today' : `${days} day${days === 1 ? '' : 's'} ago`}`}>
+                {shortAgo(days)}
+              </span>
+            )}
+            {mine != null && (
+              <span className={styles.listRowRating} title={`Your rating ${mine.toFixed(1)}/5`}>
+                You ★ {mine.toFixed(1)}
+              </span>
+            )}
+            {others.map(o => (
+              <span
+                key={o.uid}
+                className={`${styles.listRowRating} ${hideOthers ? styles.listRowRatingHidden : ''}`}
+                title={hideOthers
+                  ? `${o.name ? `@${o.name}` : 'A friend'} rated it — open the spot and tap to reveal`
+                  : `${o.name ? `@${o.name}` : 'Friend'} rated it ${o.overall.toFixed(1)}/5`}
+              >
+                {o.name ? `@${o.name}` : 'Friend'} ★ {hideOthers ? '?' : o.overall.toFixed(1)}
+              </span>
+            ))}
+          </span>
+        )}
       </button>
     </li>
   );
@@ -7035,7 +7072,14 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
                           </h3>
                           <ol className={styles.rankingList}>
                             {g.spots.map(r => (
-                              <CategoryListRow key={`${r._ownerUid}:${r.id}`} r={r} onSelect={openSpot} />
+                              <CategoryListRow
+                                key={`${r._ownerUid}:${r.id}`}
+                                r={r}
+                                onSelect={openSpot}
+                                days={lastVisitDays(r, { stats: myVisitStats(r), isMine: isMySpot(r) })}
+                                ratingDocs={ratingsBySpot[`${r._ownerUid}__${r.id}`]}
+                                userUid={user?.uid}
+                              />
                             ))}
                           </ol>
                         </section>
