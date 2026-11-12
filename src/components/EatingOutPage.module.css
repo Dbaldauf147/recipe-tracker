@@ -1512,6 +1512,19 @@
   cursor: pointer;
 }
 .fileNavBtn:disabled { opacity: 0.4; cursor: default; }
+/* The filing card's Skip + Remove pair, kept together on the left of Next. */
+.fileNavLeft { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+.fileRemoveBtn {
+  padding: 0.4rem 0.8rem;
+  border: 1px solid #fecaca;
+  border-radius: 8px;
+  background: #fff5f5;
+  color: #b91c1c;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.fileRemoveBtn:hover { background: #fee2e2; }
 .unfiledWhy { color: #a16207; font-size: 0.74rem; }
 
 /* A visited spot with no health or frequency set. Amber, not red: nothing is
