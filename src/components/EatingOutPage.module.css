@@ -2821,6 +2821,31 @@
 .rankingGroup .listCategoryRow {
   grid-template-columns: minmax(0, 1fr) auto auto;
 }
+/* Second line of a List → By category row: days since you were last there,
+   then the ratings. Spans the whole row so the name line keeps its width. */
+.listRowMeta {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.3rem 0.6rem;
+  margin-top: -0.15rem;
+  font-size: 0.76rem;
+  color: var(--color-text-muted);
+}
+.listRowAgo {
+  font-variant-numeric: tabular-nums;
+}
+.listRowRating {
+  font-weight: 600;
+  color: #b45309;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.listRowRatingHidden {
+  color: var(--color-text-muted);
+  font-weight: 500;
+}
 
 /* ── Guys Night tab ──
    A div row, not a button: it holds a checkbox and its own ★ Next / Y-N
