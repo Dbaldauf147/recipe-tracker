@@ -4090,7 +4090,7 @@ function CompletionMeter({ completion }) {
   );
 }
 
-function CategorizePrompt({ queue, cuisineSuggestions, onSave, onClose, completion, suggestCategories }) {
+function CategorizePrompt({ queue, cuisineSuggestions, onSave, onRemove, onClose, completion, suggestCategories }) {
   const [i, setI] = useState(0);
   // Only the keys actually touched on the CURRENT spot. Reset on advance, which
   // is what lets commit tell "said Not yet" apart from "never answered".
@@ -4195,6 +4195,16 @@ function CategorizePrompt({ queue, cuisineSuggestions, onSave, onClose, completi
   }
 
   const answeredSomething = Object.keys(draft).length > 0;
+
+  // Take the place off the list entirely, then carry on to the next card.
+  // Nothing answered on this card is saved — the place is gone. The queue is
+  // a snapshot, so removing one doesn't renumber the rest.
+  function removeSpot() {
+    if (!onRemove) return;
+    if (!window.confirm(`Remove ${spot.name || 'this place'} from your places?`)) return;
+    onRemove(spot);
+    advance(false);
+  }
 
   return (
     <div className={styles.fileBackdrop} onClick={onClose}>
@@ -4310,9 +4320,21 @@ function CategorizePrompt({ queue, cuisineSuggestions, onSave, onClose, completi
         </div>
 
         <div className={styles.fileNav}>
-          <button type="button" className={styles.fileNavBtn} onClick={() => advance(false)}>
-            Skip this one
-          </button>
+          <div className={styles.fileNavLeft}>
+            <button type="button" className={styles.fileNavBtn} onClick={() => advance(false)}>
+              Skip this one
+            </button>
+            {onRemove && (
+              <button
+                type="button"
+                className={styles.fileRemoveBtn}
+                onClick={removeSpot}
+                title="Delete this place from your list"
+              >
+                🗑 Remove
+              </button>
+            )}
+          </div>
           <button type="button" className={styles.primaryBtn} onClick={() => advance(true)}>
             {answeredSomething
               ? (i + 1 >= queue.length ? 'Save · done' : 'Save · next')
@@ -7158,6 +7180,7 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
           cuisineSuggestions={cuisineSuggestions}
           suggestCategories={suggestCategories}
           onSave={applyCategorize}
+          onRemove={(spot) => handleDelete({ ...spot, _ownerUid: spot._ownerUid || user?.uid })}
           onClose={() => setCategorizeQueue(null)}
           completion={categorizeCompletionStats}
         />
