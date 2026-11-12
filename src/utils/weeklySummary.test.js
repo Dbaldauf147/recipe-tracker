@@ -1132,3 +1132,28 @@ test('habit status renders in place of the completion stats', () => {
   assert.match(text, /Refreshing: none/);
   assert.match(text, /Up next:\n {4}1\. ★ Meditate/);
 });
+
+// ---- Adjustments to make (owner) ------------------------------------------
+
+test('lists work-in-progress meals still awaiting adjustments, html and text', () => {
+  const stats = summarizeWeek(emptyData(), WEEK);
+  const prior = summarizeWeek(emptyData(), previousWeek(WEEK));
+  const { html, text } = renderWeeklySummary({
+    stats, priorStats: prior, adjustmentsDue: [{ title: 'Turkey & Eggs Bowl' }, { title: 'Miso <Salmon>' }],
+  });
+  assert.match(html, /Adjustments to make/);
+  assert.match(html, /Turkey &amp; Eggs Bowl/);
+  assert.match(html, /Miso &lt;Salmon&gt;/);
+  assert.match(text, /ADJUSTMENTS TO MAKE .*\(2\)/);
+  assert.match(text, /  - Turkey & Eggs Bowl/);
+});
+
+test('no adjustments section when nothing is waiting', () => {
+  const stats = summarizeWeek(emptyData(), WEEK);
+  const prior = summarizeWeek(emptyData(), previousWeek(WEEK));
+  for (const adjustmentsDue of [null, [], [{ title: '  ' }]]) {
+    const { html, text } = renderWeeklySummary({ stats, priorStats: prior, adjustmentsDue });
+    assert.doesNotMatch(html, /Adjustments to make/);
+    assert.doesNotMatch(text, /ADJUSTMENTS TO MAKE/);
+  }
+});

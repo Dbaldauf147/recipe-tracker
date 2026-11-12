@@ -30,6 +30,7 @@ import { WINDOW_DAYS } from '../src/utils/exerciseProgress.js';
 import { summarizeUserGrowth, monthYear, activeUserListIn } from '../lib/adminGrowth.js';
 import { OWNER_EMAIL } from '../src/utils/pageAccess.js';
 import { countCommonByCategory, weeklyCommonStages } from '../src/utils/recipeStageHistory.js';
+import { weekNeedingAdjustments } from '../src/utils/recipeStage.js';
 
 if (getApps().length === 0) {
   const serviceAccount = process.env.FIREBASE_SERVICE_ACCOUNT
@@ -178,17 +179,37 @@ async function loadAdminGrowth() {
   }
 }
 
+/** The owner's recipes, or null when the read failed (never fails the email). */
+async function loadOwnerRecipes(uid) {
+  try {
+    const snap = await db.doc(`users/${uid}/data/recipes`).get();
+    return snap.exists ? (snap.data().recipes || []) : [];
+  } catch (err) {
+    console.error('[send-weekly-summary] recipes read failed', err);
+    return null;
+  }
+}
+
+/**
+ * The Work-in-progress meals on This Week's Meals (`weeklyPlan`, as it stands
+ * when the email goes out) whose "Adjustments made" box isn't ticked. Null —
+ * no section — when the recipes couldn't be read or nothing is waiting.
+ */
+function adjustmentsDueFrom(recipes, userData) {
+  if (!Array.isArray(recipes) || recipes.length === 0) return null;
+  const list = weekNeedingAdjustments(recipes, userData.weeklyPlan).map(r => ({ title: r.title || 'Untitled recipe' }));
+  return list.length > 0 ? list : null;
+}
+
 /**
  * Monthly common-recipe stage counts for the owner's email. Past months come
  * from the recorded weekly history (recipeStageHistory on the user doc); this
  * month is counted live from the recipes doc, so the last column is current
- * even in a week the app wasn't opened. Best-effort: a failed read drops the
- * section, never the email.
+ * even in a week the app wasn't opened. Best-effort: without the recipes it falls
+ * back to the history alone, and an error drops the section, never the email.
  */
-async function loadRecipeStages(uid, userData) {
+async function loadRecipeStages(uid, userData, recipes) {
   try {
-    const snap = await db.doc(`users/${uid}/data/recipes`).get();
-    const recipes = snap.exists ? (snap.data().recipes || []) : [];
     // An empty list is a missing read, not a deleted collection — don't draw a
     // zero for it; fall back to what the history recorded.
     const live = Array.isArray(recipes) && recipes.length > 0 ? countCommonByCategory(recipes) : null;
@@ -261,6 +282,7 @@ async function buildEmail(uid, userData, todayKey, { force = false } = {}) {
   // inbox.
   const isOwner = String(userData.email || '').trim().toLowerCase() === OWNER_EMAIL;
   const growth = isOwner ? await loadAdminGrowth() : null;
+  const ownerRecipes = isOwner ? await loadOwnerRecipes(uid) : null;
   const email = renderWeeklySummary({
     rasterize: await loadRasterizer(),
     stats,
@@ -270,7 +292,8 @@ async function buildEmail(uid, userData, todayKey, { force = false } = {}) {
     name: userData.displayName || '',
     adminGrowth: growth?.series || null,
     adminActiveUsers: growth?.activeUsers || null,
-    recipeStages: isOwner ? await loadRecipeStages(uid, userData) : null,
+    recipeStages: isOwner ? await loadRecipeStages(uid, userData, ownerRecipes) : null,
+    adjustmentsDue: isOwner ? adjustmentsDueFrom(ownerRecipes, userData) : null,
   });
   return { ...email, week };
 }

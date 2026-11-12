@@ -675,6 +675,18 @@ export function RecipeDetail({ recipe, allTags = [], onSave, onDelete, onBack, o
     setDevStage(value);
     if (onPersistFields) onPersistFields({ devStage: value || undefined });
   }
+  // "Adjustments made" — shown beside a Work-in-progress stage. Unticked again
+  // each time the recipe is added to the week (App.handleAddToWeek), so the
+  // tick follows the saved recipe rather than only this popup's first read.
+  const [adjustmentsMade, setAdjustmentsMade] = useState(() => recipe.adjustmentsMade === true);
+  useEffect(() => { setAdjustmentsMade(recipe.adjustmentsMade === true); }, [recipe.adjustmentsMade]);
+  // A stage set elsewhere (logging a meal moves it to Work in progress) shows
+  // here too.
+  useEffect(() => { setDevStage(recipe.devStage || ''); }, [recipe.devStage]);
+  function changeAdjustmentsMade(value) {
+    setAdjustmentsMade(value);
+    if (onPersistFields) onPersistFields({ adjustmentsMade: value });
+  }
   const [cookMode, setCookMode] = useState(() => {
     try { return localStorage.getItem('sunday-cook-mode') === 'true'; } catch { return false; }
   });
@@ -2380,6 +2392,20 @@ export function RecipeDetail({ recipe, allTags = [], onSave, onDelete, onBack, o
                   ))}
                 </select>
                 <span className={styles.joanneChipCaret} aria-hidden="true">▾</span>
+              </label>
+            )}
+            {showDevStage && devStage === 'wip' && (
+              <label
+                className={[styles.joanneChip, styles.adjustChip, adjustmentsMade ? styles.adjustChipDone : ''].filter(Boolean).join(' ')}
+                title="Unticks itself each time this recipe is added to This Week's Meals. Unticked Work-in-progress meals on the week are listed in the weekly email."
+              >
+                <input
+                  type="checkbox"
+                  className={styles.adjustChipBox}
+                  checked={adjustmentsMade}
+                  onChange={e => changeAdjustmentsMade(e.target.checked)}
+                />
+                Adjustments made
               </label>
             )}
           </div>
