@@ -58,6 +58,7 @@ import { EditorialNav } from './components/EditorialNav';
 import { EditorialHome } from './components/EditorialHome';
 import { HOME_VIEW, LAYOUT_KEY, isEditorialEnabled, setEditorialEnabled, initialView, groupNavItems } from './utils/editorialLayout';
 import React from 'react';
+import { adjustmentsOnAddToWeek, recipesToStartFromLog } from './utils/recipeStage';
 import styles from './App.module.css';
 
 function HelpBubble({ user, currentView }) {
@@ -320,6 +321,33 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
     if (!recipes.length) return;
     recordStageSnapshot(recipes, user.uid);
   }, [recipes, user]);
+
+  // Logging a meal moves a recipe with no stage, or New, to Work in progress
+  // (utils/recipeStage.recipesToStartFromLog). Read from the daily log rather
+  // than hooked into each place that logs, so a meal logged on the phone, by
+  // the auto-log cron or from any page here all count — this runs on load and
+  // whenever a sync or a local log edit fires `firestore-sync`. Owner-only,
+  // like devStage itself.
+  const isStageOwner = !!user?.uid && user.email?.toLowerCase() === OWNER_EMAIL;
+  const [logTick, setLogTick] = useState(0);
+  const updateRecipeRef = useRef(updateRecipe);
+  updateRecipeRef.current = updateRecipe;
+  useEffect(() => {
+    if (!isStageOwner) return undefined;
+    const bump = () => setLogTick(t => t + 1);
+    window.addEventListener('firestore-sync', bump);
+    window.addEventListener('storage', bump);
+    return () => {
+      window.removeEventListener('firestore-sync', bump);
+      window.removeEventListener('storage', bump);
+    };
+  }, [isStageOwner]);
+  useEffect(() => {
+    if (!isStageOwner || !recipes.length) return;
+    let log = {};
+    try { log = JSON.parse(localStorage.getItem('sunday-daily-log') || '{}') || {}; } catch { return; }
+    for (const id of recipesToStartFromLog(recipes, log)) updateRecipeRef.current(id, { devStage: 'wip' });
+  }, [isStageOwner, recipes, logTick]);
 
   // The optional Editorial layout (icon rail + Home dashboard). Off unless this
   // browser opted in from Settings; when off, nothing below changes behaviour.
@@ -999,6 +1027,12 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
   }
 
   function handleAddToWeek(id) {
+    // Another cook is coming, so a Work-in-progress recipe's "Adjustments
+    // made" tick starts over (utils/recipeStage). Only on a real add.
+    if (!weeklyPlanRef.current.includes(id)) {
+      const reset = adjustmentsOnAddToWeek(getRecipe(id));
+      if (reset) updateRecipe(id, reset);
+    }
     setWeeklyPlan(prev => {
       const next = prev.includes(id) ? prev : [...prev, id];
       saveWeek(next, prev);

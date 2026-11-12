@@ -3960,3 +3960,24 @@
   color: #dc2626;
   font-size: 0.85rem;
 }
+
+/* "Adjustments made" — beside a Work-in-progress Stage chip. Amber like the
+   chip while it's still to do, green once ticked. */
+.adjustChip {
+  cursor: pointer;
+  background: #FFFBEB;
+  border-color: #FCD34D;
+  color: #92400E;
+}
+.adjustChipDone {
+  background: var(--color-success-light);
+  border-color: #B7DEC7;
+  color: var(--color-success);
+}
+.adjustChipBox {
+  margin: 0;
+  width: 0.9rem;
+  height: 0.9rem;
+  accent-color: currentColor;
+  cursor: pointer;
+}
