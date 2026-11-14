@@ -2040,6 +2040,11 @@ export function RecipeList({
           availableFrom,
           waiting,
           planned: weekSet.has(recipe.id),
+          // For the meal vote email's "why it's suggested" column
+          // (utils/mealVote.js); the forecast itself doesn't read these.
+          seasonal: getRecipeSeasonalIngredients(recipe, seasonalSet),
+          goalFit: (macroMatchMap[recipe.id] || 0) * weightFor(suggestWeights, 'macro') > 0,
+          boosted: boostedIds.has(recipe.id),
         };
       }),
     };

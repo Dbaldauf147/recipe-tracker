@@ -4,6 +4,7 @@ import {
   normalizeMealVoteSettings, mealVoteDue, voteWeekOf, weekLabel,
   buildMealVoteSnapshot, applyLogToSnapshot, rankForVote,
   sanitizePicks, voterForToken, tallyBallot, latestBallot, weeksToPrune,
+  joanneVerdict, fillOptionDetails,
 } from './mealVote.js';
 
 const cand = (id, category, lastCooked, extra = {}) => ({
@@ -88,7 +89,7 @@ test('rank: longest since eaten first, never-eaten on top, five per column', () 
   const r = rankForVote(snapOf(list), '2026-11-13');
   assert.deepEqual(r.breakfast.map(o => o.id), ['b3', 'b2', 'b1']);
   assert.deepEqual(r['lunch-dinner'].map(o => o.id), ['l1', 'l2', 'l3', 'l4', 'l5']);
-  assert.deepEqual(r.breakfast[0], { id: 'b3', title: 'Meal b3' });
+  assert.deepEqual(r.breakfast[0], { id: 'b3', title: 'Meal b3', why: 'never cooked' });
 });
 
 test('rank: key ingredients, fixed points and skips all count', () => {
@@ -201,4 +202,60 @@ test('weeks: newest is shown, oldest beyond the limit are pruned', () => {
   assert.equal(latestBallot({}), null);
   assert.deepEqual(weeksToPrune(weeks, 2), ['2026-11-01']);
   assert.deepEqual(weeksToPrune(weeks, 12), []);
+});
+
+test('joanne: the recipe field wins, then the tags, and "Not Joanne" is a no', () => {
+  assert.equal(joanneVerdict({ joanneLikes: 'yes', tags: ['Not Joanne'] }), 'yes');
+  assert.equal(joanneVerdict({ joanneLikes: 'no', customTags: ['Joanne'] }), 'no');
+  assert.equal(joanneVerdict({ customTags: ['Joanne'] }), 'yes');
+  assert.equal(joanneVerdict({ tags: ['quick', 'Joanne approved'] }), 'yes');
+  assert.equal(joanneVerdict({ tags: ['Joanne'], customTags: ['Not Joanne'] }), 'no');
+  assert.equal(joanneVerdict({ tags: ['quick'] }), '');
+  assert.equal(joanneVerdict(null), '');
+});
+
+test('snapshot + rank: each meal carries Joanne\'s verdict and why it is suggested', () => {
+  const forecast = {
+    today: '2026-11-10',
+    weights: { staleness: 1, ingredients: 1 },
+    ingredientDates: { kale: '2026-10-01', wild_salmon: '2026-11-08' },
+    candidates: [
+      cand('a', 'breakfast', '2026-10-20', { ingredients: ['kale', 'wild_salmon'], seasonal: ['squash', 'apple', 'pear'], goalFit: true }),
+      cand('b', 'breakfast', '2026-11-11', { boosted: true }),
+      cand('c', 'breakfast', '2026-11-12'),
+      cand('d', 'breakfast', null),
+    ],
+  };
+  const snap = buildMealVoteSnapshot(forecast, [
+    { id: 'a', title: 'A', joanneLikes: 'yes' }, { id: 'b', title: 'B', tags: ['Not Joanne'] },
+    { id: 'c', title: 'C' }, { id: 'd', title: 'D' },
+  ]);
+  // Nothing undefined goes to Firestore.
+  assert.equal('joanne' in snap.candidates[2], false);
+  assert.equal('seasonal' in snap.candidates[2], false);
+  const byId = Object.fromEntries(rankForVote(snap, '2026-11-13').breakfast.map(o => [o.id, o]));
+  assert.deepEqual(byId.a, {
+    id: 'a', title: 'A', joanne: 'yes',
+    why: 'not cooked in 24 days · has kale · in season: squash, apple · fits your goals',
+  });
+  assert.deepEqual(byId.b, { id: 'b', title: 'B', joanne: 'no', why: 'boosted' });
+  assert.deepEqual(byId.c, { id: 'c', title: 'C', why: 'good variety pick' });
+  assert.equal(byId.d.why, 'never cooked');
+});
+
+test('fill: an older ballot gains the columns without its meals moving', () => {
+  const snap = buildMealVoteSnapshot({
+    today: '2026-11-10', weights: {}, ingredientDates: {},
+    candidates: [cand('a', 'breakfast', '2026-10-20'), cand('p', 'breakfast', '2026-11-01', { planned: true }), cand('z', 'breakfast', null)],
+  }, [{ id: 'a', title: 'A', joanneLikes: 'no' }, { id: 'p', title: 'P' }, { id: 'z', title: 'Z' }]);
+  const options = { breakfast: [{ id: 'p', title: 'P' }, { id: 'a', title: 'A' }, { id: 'gone', title: 'Gone' }], 'lunch-dinner': [] };
+  const filled = fillOptionDetails(options, snap, '2026-11-13');
+  assert.deepEqual(filled.breakfast, [
+    { id: 'p', title: 'P', why: 'not cooked in 12 days' },
+    { id: 'a', title: 'A', joanne: 'no', why: 'not cooked in 24 days' },
+    { id: 'gone', title: 'Gone' },
+  ]);
+  // Already described: handed back untouched.
+  const done = { breakfast: [{ id: 'a', title: 'A', why: 'x' }], 'lunch-dinner': [] };
+  assert.equal(fillOptionDetails(done, snap, '2026-11-13'), done);
 });
