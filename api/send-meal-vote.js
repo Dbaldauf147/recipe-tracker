@@ -6,6 +6,9 @@
 //   • POST with the account's Firebase ID token — "Send now" on the Recipes
 //     page: the same email immediately, whatever the day.
 //
+// People vote by replying to the email with the numbers of the meals they
+// want; api/collect-meal-vote.js reads the replies.
+//
 // One ballot per week. Sending again — by hand, or the cron after a "Send
 // now" — reuses the ballot that is there, so nobody's votes are lost and the
 // meals don't change under them. The cron claims the week (`cronSent`) in the
@@ -20,12 +23,13 @@ import { randomBytes } from 'node:crypto';
 import { initializeApp, cert, getApps } from 'firebase-admin/app';
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 import { getAuth } from 'firebase-admin/auth';
-import { sendMail } from '../lib/mailer.js';
+import { sendMail, senderAddress } from '../lib/mailer.js';
 import { renderMealVoteEmail } from '../lib/mealVoteEmail.js';
 import {
   normalizeMealVoteSettings, mealVoteDue, voteWeekOf, rankForVote,
   applyLogToSnapshot, ballotOptions, weeksToPrune,
 } from '../src/utils/mealVote.js';
+import { VOTE_MAIL_HEADER, replyAddress } from '../src/utils/mealVoteReply.js';
 
 if (getApps().length === 0) {
   const serviceAccount = process.env.FIREBASE_SERVICE_ACCOUNT
@@ -129,7 +133,13 @@ export async function sendMealVote(db, uid, rawSettings, { now = new Date(), byC
     if (!current.has(v.email)) continue;
     try {
       const mail = renderMealVoteEmail({ base: siteBase(), uid, ballot, voter: { id, ...v } });
-      await send({ to: v.email, ...mail });
+      // Replies come back to the sending mailbox, tagged with this voter's
+      // token so api/collect-meal-vote.js knows whose vote it is.
+      await send({
+        to: v.email, ...mail,
+        replyTo: `Prep Day <${replyAddress(senderAddress(), v.token)}>`,
+        headers: { [VOTE_MAIL_HEADER]: 'meal-vote' },
+      });
       sentTo.push(v.email);
     } catch (err) {
       console.error('send-meal-vote: mail failed', uid, err?.message || err);

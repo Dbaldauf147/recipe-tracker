@@ -11,7 +11,8 @@
     "api/parse-nutrition-label.js": { "maxDuration": 60 },
     "api/extract-recipe.js": { "maxDuration": 60 },
     "api/extract-restaurant.js": { "maxDuration": 60 },
-    "api/backup-user-data.js": { "maxDuration": 60 }
+    "api/backup-user-data.js": { "maxDuration": 60 },
+    "api/collect-meal-vote.js": { "maxDuration": 60 }
   },
   "crons": [
     { "path": "/api/send-meal-prompt", "schedule": "0 * * * *" },
@@ -22,6 +23,7 @@
     { "path": "/api/run-habit-automations", "schedule": "15 * * * *" },
     { "path": "/api/sync-workout-calendar", "schedule": "30 * * * *" },
     { "path": "/api/send-meal-vote", "schedule": "40 * * * *" },
+    { "path": "/api/collect-meal-vote", "schedule": "*/10 * * * *" },
     { "path": "/api/snapshot-admin-metrics", "schedule": "45 7 * * *" }
   ]
 }
