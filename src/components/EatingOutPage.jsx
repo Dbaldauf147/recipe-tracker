@@ -9,7 +9,7 @@ import { findDuplicateSpots, duplicateReason, findExistingMatches } from '../uti
 import { saveOwnerRestaurants, saveOwnerEatingOutLists, saveField, loadField, subscribeRestaurants, subscribeSpotVisits } from '../utils/firestoreSync';
 import {
   subItemGroupKey, sanitizeSubItemLists, addSubItem, removeSubItem, cleanSubScores,
-  subScoreSummary, subItemRows, applySubScore,
+  subScoreSummary, subItemRows, applySubScore, setSubItemLevels, levelLabel, LEVEL_COUNT,
 } from '../utils/ratingSubItems';
 import { visitStatsByPlace } from '../utils/spotVisits';
 import { healthyByLongestSince } from '../utils/healthyPlaces';
@@ -1795,11 +1795,13 @@ function SpotRatings({ ownerUid, spotId, spot, user }) {
                     title={`Rate ${c.label} item by item`}
                   >
                     {c.label}{c.preserved ? ' *' : ''}
-                    <span className={styles.ratingCatBtnHint}>
-                      {subScoreSummary(mySubScores[c.key]).count > 0
-                        ? `${subScoreSummary(mySubScores[c.key]).count} rated ›`
-                        : 'items ›'}
-                    </span>
+                    {/* Only once items are rated: says the stars are their
+                        average. An unrated category is just its name. */}
+                    {subScoreSummary(mySubScores[c.key]).count > 0 && (
+                      <span className={styles.ratingCatBtnHint}>
+                        {subScoreSummary(mySubScores[c.key]).count} rated
+                      </span>
+                    )}
                   </button>
                 </th>
                 <td className={styles.ratingTableYou}>
@@ -1840,6 +1842,7 @@ function SpotRatings({ ownerUid, spotId, spot, user }) {
       <p className={styles.ratingTableHint}>
         Tap your stars to rate — saves as you go. Tap the same star again to clear it.
         {' '}Tap a category&rsquo;s name to rate it item by item; its stars become the average.
+        {' '}An item can use five levels you name instead of stars.
         {' '}{bucketNames
           ? `Categories come from the ${bucketNames} bucket${bucketsOf(spot || {}).length > 1 ? 's' : ''} — change them under ✎ Edit buckets.`
           : 'Put this spot in a bucket to rate it on that bucket’s categories.'}
@@ -1876,6 +1879,9 @@ function SpotRatings({ ownerUid, spotId, spot, user }) {
 function RatingSubItemsPopup({ category, spotName, lists, subScores, categoryScore, onRate, onListsChange, onClose }) {
   const [draft, setDraft] = useState('');
   const [error, setError] = useState('');
+  // The item whose five level names are being typed, and the draft names.
+  const [naming, setNaming] = useState(null);
+  const [levelDraft, setLevelDraft] = useState([]);
   const group = subItemGroupKey(category.label);
   const rows = subItemRows(lists, group, subScores);
   const summary = subScoreSummary(subScores);
@@ -1919,24 +1925,96 @@ function RatingSubItemsPopup({ category, spotName, lists, subScores, categorySco
           </p>
         ) : (
           <ul className={styles.subItemsList}>
-            {rows.map(row => (
-              <li key={row.key} className={styles.subItemsRow}>
-                <span className={styles.subItemsName}>
-                  {row.label}
-                  {row.removed && <span className={styles.subItemsRemovedTag}>no longer on your list</span>}
-                </span>
-                <StarRating value={subScores?.[row.key] ?? null} onChange={v => onRate(row.key, v)} size={20} />
-                {!row.removed && (
-                  <button
-                    type="button"
-                    className={styles.subItemsRemove}
-                    onClick={() => onListsChange(removeSubItem(lists, group, row.key))}
-                    aria-label={`Remove ${row.label} from your standard list`}
-                    title="Remove from your standard list (ratings already given are kept)"
-                  >×</button>
-                )}
-              </li>
-            ))}
+            {rows.map(row => {
+              const value = subScores?.[row.key] ?? null;
+              const steps = Array.from({ length: LEVEL_COUNT }, (_, i) => i + 1);
+              return (
+                <li key={row.key} className={styles.subItemsRow}>
+                  <span className={styles.subItemsName}>
+                    {row.label}
+                    {row.removed && <span className={styles.subItemsRemovedTag}>no longer on your list</span>}
+                  </span>
+                  {row.levels ? (
+                    // Named levels: pick a name instead of a star count. The
+                    // first is 1 and the fifth is 5, so it averages like stars.
+                    <div className={styles.subItemsLevels} role="group" aria-label={`${row.label} level`}>
+                      {steps.map(n => (
+                        <button
+                          key={n}
+                          type="button"
+                          aria-pressed={value === n}
+                          className={`${styles.subItemsLevel}${value === n ? ` ${styles.subItemsLevelOn}` : ''}`}
+                          onClick={() => onRate(row.key, value === n ? null : n)}
+                          title={`Counts as ${n} of ${LEVEL_COUNT}`}
+                        >{levelLabel(row, n)}</button>
+                      ))}
+                    </div>
+                  ) : (
+                    <StarRating value={value} onChange={v => onRate(row.key, v)} size={20} />
+                  )}
+                  {!row.removed && (
+                    <>
+                      <button
+                        type="button"
+                        className={styles.subItemsNameLevels}
+                        onClick={() => {
+                          if (naming === row.key) { setNaming(null); return; }
+                          setNaming(row.key);
+                          setLevelDraft(steps.map(n => row.levels?.[n - 1] || ''));
+                        }}
+                        aria-expanded={naming === row.key}
+                        title="Type a name for each of the five levels instead of using stars"
+                      >{row.levels ? 'Edit levels' : 'Name levels'}</button>
+                      <button
+                        type="button"
+                        className={styles.subItemsRemove}
+                        onClick={() => onListsChange(removeSubItem(lists, group, row.key))}
+                        aria-label={`Remove ${row.label} from your standard list`}
+                        title="Remove from your standard list (ratings already given are kept)"
+                      >×</button>
+                    </>
+                  )}
+                  {naming === row.key && (
+                    <form
+                      className={styles.subItemsLevelForm}
+                      onSubmit={e => {
+                        e.preventDefault();
+                        onListsChange(setSubItemLevels(lists, group, row.key, levelDraft));
+                        setNaming(null);
+                      }}
+                    >
+                      <p className={styles.subItemsLevelHelp}>
+                        Name each level, lowest to highest. You&rsquo;ll pick one instead of stars, and it
+                        counts 1 to 5 toward {category.label}. Leave them all blank to go back to stars.
+                      </p>
+                      {steps.map(n => (
+                        <label key={n} className={styles.subItemsLevelField}>
+                          <span className={styles.subItemsLevelNum}>{n}</span>
+                          <input
+                            className={styles.subItemsInput}
+                            value={levelDraft[n - 1] || ''}
+                            onChange={e => setLevelDraft(prev => steps.map(i => (i === n ? e.target.value : (prev[i - 1] || ''))))}
+                            aria-label={`${row.label} level ${n}`}
+                            maxLength={24}
+                          />
+                        </label>
+                      ))}
+                      <div className={styles.subItemsLevelActions}>
+                        {row.levels && (
+                          <button
+                            type="button"
+                            className={styles.subItemsAddBtn}
+                            onClick={() => { onListsChange(setSubItemLevels(lists, group, row.key, [])); setNaming(null); }}
+                          >Use stars</button>
+                        )}
+                        <button type="button" className={styles.subItemsAddBtn} onClick={() => setNaming(null)}>Cancel</button>
+                        <button type="submit" className={styles.subItemsDone}>Save levels</button>
+                      </div>
+                    </form>
+                  )}
+                </li>
+              );
+            })}
           </ul>
         )}
 

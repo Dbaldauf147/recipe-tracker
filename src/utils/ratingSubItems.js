@@ -8,7 +8,7 @@
 // as before.
 //
 // Two things are stored:
-//   users/{uid}.eatingOutRatingSubItems   { [group]: [{ key, label }] }
+//   users/{uid}.eatingOutRatingSubItems   { [group]: [{ key, label, levels? }] }
 //     Your STANDARD sub-items: defined once, offered on every spot. Grouped by
 //     the category's label rather than its key, because the `food` key is
 //     relabelled per bucket (Food / Dessert / Drinks / Coffee) and "Espresso"
@@ -17,13 +17,39 @@
 //   eatingOutRatings/{…}.subScores        { [categoryKey]: { [subKey]: 1–5 } }
 //     What you gave each sub-item at this spot, next to the `scores` it drives.
 //
+//
+// A sub-item is rated with stars unless it has `levels`: five names you typed,
+// one per step ("8 oz" … "24 oz" for Cup size). You then pick a name instead of
+// a star count. It is still a 1–5 score underneath — the first name is 1, the
+// fifth is 5 — so it averages into the category exactly as stars do.
+//
 // Pure: no Firestore, no React.
 
 export const MAX_SUB_ITEMS = 20;
 const MAX_LABEL = 40;
+export const LEVEL_COUNT = 5;
+const MAX_LEVEL_LABEL = 24;
 
 const slug = (s) => String(s || '').toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
 const validScore = (v) => typeof v === 'number' && v >= 1 && v <= 5;
+
+/**
+ * Five level names, or null when none is filled in (the item uses stars).
+ * A step left blank is allowed: it shows as its number.
+ */
+export function sanitizeLevels(raw) {
+  if (!Array.isArray(raw)) return null;
+  const out = [];
+  for (let i = 0; i < LEVEL_COUNT; i++) {
+    out.push(typeof raw[i] === 'string' ? raw[i].trim().replace(/\s+/g, ' ').slice(0, MAX_LEVEL_LABEL) : '');
+  }
+  return out.some(Boolean) ? out : null;
+}
+
+/** What step `n` (1–5) of an item is called: its level name, else the number. */
+export function levelLabel(item, n) {
+  return sanitizeLevels(item?.levels)?.[n - 1] || String(n);
+}
 
 /** Which standard list a category uses: its label, slugged. */
 export function subItemGroupKey(label) {
@@ -39,7 +65,8 @@ function sanitizeList(list) {
     const label = typeof it?.label === 'string' ? it.label.trim().slice(0, MAX_LABEL) : '';
     if (!key || !label || seen.has(key)) continue;
     seen.add(key);
-    out.push({ key, label });
+    const levels = sanitizeLevels(it.levels);
+    out.push(levels ? { key, label, levels } : { key, label });
     if (out.length >= MAX_SUB_ITEMS) break;
   }
   return out;
@@ -78,6 +105,23 @@ export function removeSubItem(lists, group, key) {
   const out = { ...clean };
   if (next.length) out[group] = next; else delete out[group];
   return out;
+}
+
+/**
+ * Give a standard item five level names, or (with nothing filled in) put it
+ * back on stars. Scores already given keep their 1–5 value either way.
+ */
+export function setSubItemLevels(lists, group, key, levels) {
+  const clean = sanitizeSubItemLists(lists);
+  if (!(clean[group] || []).some(it => it.key === key)) return clean;
+  const next = sanitizeLevels(levels);
+  return {
+    ...clean,
+    [group]: clean[group].map(it => {
+      if (it.key !== key) return it;
+      return next ? { key: it.key, label: it.label, levels: next } : { key: it.key, label: it.label };
+    }),
+  };
 }
 
 /** One category's sub-scores, keeping only real 1–5 values. */

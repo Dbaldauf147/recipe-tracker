@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {
   MAX_SUB_ITEMS, subItemGroupKey, sanitizeSubItemLists, addSubItem, removeSubItem,
   cleanSubScores, deriveCategoryScore, subScoreSummary, subItemRows,
-  applySubScore,
+  applySubScore, sanitizeLevels, levelLabel, setSubItemLevels,
 } from './ratingSubItems.js';
 
 test('group: a category is grouped by its label', () => {
@@ -85,4 +85,44 @@ test('apply: a sub-item drives its category and leaves the others alone', () => 
   // clearing the last one clears the category
   s = applySubScore(s.scores, s.subScores, 'food', 'fries', null);
   assert.deepEqual(s, { scores: { food: null, service: 5 }, subScores: {} });
+});
+
+test('levels: five names, blanks allowed, none at all means stars', () => {
+  assert.deepEqual(sanitizeLevels([' 8 oz ', '12  oz', '', '20 oz', '24 oz', 'extra']), ['8 oz', '12 oz', '', '20 oz', '24 oz']);
+  assert.deepEqual(sanitizeLevels(['Small']), ['Small', '', '', '', '']);
+  assert.equal(sanitizeLevels(['', ' ', '', '', '']), null);
+  assert.equal(sanitizeLevels(undefined), null);
+  assert.equal(sanitizeLevels('8 oz'), null);
+  assert.equal(sanitizeLevels([1, 2, 3, 4, 5]), null);
+  assert.equal(sanitizeLevels(['x'.repeat(60)])[0].length, 24);
+});
+
+test('levels: a step is called by its name, else its number', () => {
+  const item = { key: 'cup', label: 'Cup size', levels: ['8 oz', '12 oz', '', '20 oz', '24 oz'] };
+  assert.equal(levelLabel(item, 1), '8 oz');
+  assert.equal(levelLabel(item, 3), '3');
+  assert.equal(levelLabel(item, 5), '24 oz');
+  assert.equal(levelLabel({ key: 'a', label: 'A' }, 4), '4');
+});
+
+test('levels: set on one item, kept through sanitising, cleared back to stars', () => {
+  const lists = { coffee: [{ key: 'cup-size', label: 'Cup size' }, { key: 'crema', label: 'Crema' }] };
+  const named = setSubItemLevels(lists, 'coffee', 'cup-size', ['8 oz', '12 oz', '16 oz', '20 oz', '24 oz']);
+  assert.deepEqual(named.coffee, [
+    { key: 'cup-size', label: 'Cup size', levels: ['8 oz', '12 oz', '16 oz', '20 oz', '24 oz'] },
+    { key: 'crema', label: 'Crema' },
+  ]);
+  assert.deepEqual(sanitizeSubItemLists(named), named);
+  assert.deepEqual(subItemRows(named, 'coffee', {})[0].levels, ['8 oz', '12 oz', '16 oz', '20 oz', '24 oz']);
+  // adding and removing other items leaves the names alone
+  const more = addSubItem(named, 'coffee', 'Foam').lists;
+  assert.equal(more.coffee[0].levels[1], '12 oz');
+  assert.equal(removeSubItem(more, 'coffee', 'crema').coffee[0].levels[4], '24 oz');
+  // nothing filled in → stars again
+  assert.deepEqual(setSubItemLevels(named, 'coffee', 'cup-size', ['', '', '', '', '']), lists);
+  // an unknown item or group changes nothing
+  assert.deepEqual(setSubItemLevels(lists, 'coffee', 'nope', ['a']), lists);
+  assert.deepEqual(setSubItemLevels(lists, 'tea', 'cup-size', ['a']), lists);
+  // a named level is still a 1–5 score: picking the 2nd of 5 counts as 2
+  assert.deepEqual(applySubScore({}, {}, 'food', 'cup-size', 2), { scores: { food: 2 }, subScores: { food: { 'cup-size': 2 } } });
 });
