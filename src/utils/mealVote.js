@@ -12,7 +12,8 @@
 // Everything here is pure and shared by the page (src/) and the routes (api/).
 //
 // Where it lives in Firestore:
-//   users/{uid}.mealVoteSettings        { enabled, voters, sendDay, sendHour }
+//   users/{uid}.mealVoteSettings        { enabled, voters, sendDay, sendHour,
+//                                         interactive }
 //   users/{uid}/data/mealVoteSnapshot   what buildMealVoteSnapshot returns
 //   users/{uid}/data/mealVote           { weeks: { [weekOf]: ballot } }
 // A ballot:
@@ -63,6 +64,9 @@ export function normalizeMealVoteSettings(raw) {
     voters,
     sendDay: intInRange(raw?.sendDay, 0, 6, 5),
     sendHour: intInRange(raw?.sendHour, 0, 23, 8),
+    // Tick boxes inside the email, for Gmail. On unless switched off, so
+    // settings saved before the option existed get it.
+    interactive: raw?.interactive !== false,
   };
 }
 
