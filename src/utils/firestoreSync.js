@@ -4,7 +4,7 @@ import { writeWorkoutsMirror } from './workoutsMirror';
 import { activeUsersIn } from '../../lib/adminGrowth.js';
 import { ARCHIVE_COLLECTION, isMonthKey, parseArchiveDoc, flattenArchive, mergeArchiveUnder, omitArchivedDays } from './dailyLogArchive.js';
 import { parseQuantity } from './parseQuantity.js';
-import { cleanSubScores } from './ratingSubItems.js';
+import { cleanSubScores, sanitizeSubItemLists } from './ratingSubItems.js';
 
 // ── Data-safety layer (mirrors the mobile app) ──────────────────────────────
 // Every full-document overwrite of a big "blob" doc (dailyLog, recipes) goes
@@ -2651,6 +2651,19 @@ export async function setEatingOutRating(ownerUid, spotId, { authorUid, authorUs
       ...Object.keys(clean).map(k => new FieldPath('scores', k)),
     ],
   });
+}
+
+/**
+ * Save my standard rating sub-items (utils/ratingSubItems.js).
+ *
+ * updateDoc, not saveField: saveField merges, and a merge of a map only adds
+ * and overwrites keys — so taking the last item out of a category, which drops
+ * that category's key, left the old list in Firestore and brought it back on
+ * the next load. updateDoc replaces the whole field.
+ */
+export async function saveRatingSubItemLists(uid, lists) {
+  if (!uid) return;
+  await updateDoc(doc(db, 'users', uid), { eatingOutRatingSubItems: sanitizeSubItemLists(lists) });
 }
 
 export async function deleteEatingOutRating(ownerUid, spotId, authorUid) {

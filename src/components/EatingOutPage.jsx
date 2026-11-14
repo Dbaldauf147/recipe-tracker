@@ -37,7 +37,7 @@ import { frequencyExempt, frequencyOptionsFor, allowedFrequency } from '../utils
 import { categorizeCompletion, inCategorizePopulation, isCategorized, categorizeGaps } from '../utils/categorizeCompletion';
 import { locationsFromGeocode, mergeLocations } from '../utils/spotLocations';
 import { readMapColors, writeMapColors } from '../utils/mapColors';
-import { saveSpotForOwner, saveEatingOutOrder, subscribeSpotComments, addSpotComment, deleteSpotComment, subscribeSpotRatings, subscribeEatingOutRatings, setEatingOutRating, spotPhotoDocId, loadSpotImageAt, saveSpotImageAt, deleteSpotImageAt } from '../utils/firestoreSync';
+import { saveSpotForOwner, saveEatingOutOrder, subscribeSpotComments, addSpotComment, deleteSpotComment, subscribeSpotRatings, subscribeEatingOutRatings, setEatingOutRating, saveRatingSubItemLists, spotPhotoDocId, loadSpotImageAt, saveSpotImageAt, deleteSpotImageAt } from '../utils/firestoreSync';
 // Canvas resize helper shared with the exercise-photo uploader — same ≤800px
 // JPEG budget, so a spot photo can't push its doc near Firestore's 1 MB cap.
 import { compressImage, rotateDataUrl } from '../utils/exerciseImages';
@@ -1676,7 +1676,7 @@ function SpotRatings({ ownerUid, spotId, spot, user }) {
 
   const saveSubItemLists = next => {
     setSubItemLists(next); // optimistic
-    saveField(user.uid, 'eatingOutRatingSubItems', next).catch(err => {
+    saveRatingSubItemLists(user.uid, next).catch(err => {
       alert(`Couldn't save your list of items — ${err?.message || 'try again'}.`);
     });
   };
