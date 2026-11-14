@@ -5647,10 +5647,11 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
   // silently drop back to the flat list.
   const [rankGrouped, setRankGrouped] = useState(true);
   // Label of the group whose ranking is popped out over the page, or null.
-  // Filtering to a location/bucket already narrows `visible`, so the pop-out
-  // just ranks that — no separate scoping to keep in step.
+  // Filtering to a location already narrows `visible`, so the pop-out just
+  // ranks that — no separate scoping to keep in step.
   const [rankingPopout, setRankingPopout] = useState(null);
-  // A neighbourhood or bucket chip pops its ranking only from the plain list.
+  // A neighbourhood chip pops its ranking only from the plain list. (Bucket
+  // chips never do — they just filter.)
   // On the map, table, Try Next or Rankings views the chip is there to FILTER
   // what you're looking at — a modal over the map is the opposite of that, and
   // the Rankings view already is the ranking. Clearing (null) always closes it.
@@ -6869,10 +6870,11 @@ export function EatingOutPage({ user, sharedFromFriends = [], votesFromFriends =
                   type="button"
                   aria-pressed={on}
                   className={`${styles.facetRow} ${on ? styles.facetRowActive : ''}`}
-                  onClick={() => {
-                    setActiveBucket(on ? null : b.key);
-                    popRanking(on ? null : b.label);
-                  }}
+                  // A bucket only filters. It used to pop that bucket's
+                  // ranking over the list as well, which got in the way of
+                  // the thing the click was for — the Rankings tab is where
+                  // the ranking lives, already narrowed to this bucket.
+                  onClick={() => setActiveBucket(on ? null : b.key)}
                 >
                   <span className={styles.facetName}>{b.icon} {b.label}</span>
                   <span className={styles.facetCount}>{facetCounts.buckets[b.key] || 0}</span>
