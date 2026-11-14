@@ -26,6 +26,23 @@ export function MealVotePanel({
   useEffect(() => subscribeMealVote(uid, setWeeks), [uid]);
 
   const ballot = useMemo(() => latestBallot(weeks), [weeks]);
+
+  // People vote by replying to the email, and a cron reads the replies every
+  // ten minutes. Opening the page asks for a read now, so a vote sent a moment
+  // ago is here without the wait; it arrives through the subscription above.
+  const ballotWeek = ballot?.weekOf;
+  useEffect(() => {
+    if (!uid || !ballotWeek) return;
+    (async () => {
+      try {
+        const token = await auth.currentUser?.getIdToken();
+        if (!token) return;
+        await fetch('/api/collect-meal-vote', { method: 'POST', headers: { Authorization: `Bearer ${token}` } });
+      } catch {
+        // The cron will pick the replies up.
+      }
+    })();
+  }, [uid, ballotWeek]);
   const tally = useMemo(() => (ballot ? tallyBallot(ballot) : null), [ballot]);
   const inWeek = useMemo(() => new Set(weeklyPlan || []), [weeklyPlan]);
   const clean = normalizeMealVoteSettings(settings);
@@ -181,7 +198,8 @@ function MealVoteSettings({ user, settings, onSaved, onClose }) {
         <h3 className={styles.dialogTitle}>Weekly meal vote email</h3>
         <p className={styles.dialogNote}>
           Once a week, each voter is emailed the top 5 breakfasts and top 5 lunch &amp; dinner meals from
-          Suggested Meals and ticks the ones they want. The votes show on this page.
+          Suggested Meals, numbered. They vote by replying to the email with the numbers they want —
+          nothing to open — and the votes show on this page within a few minutes.
         </p>
         <label className={styles.check}>
           <input type="checkbox" checked={enabled} onChange={e => setEnabled(e.target.checked)} />

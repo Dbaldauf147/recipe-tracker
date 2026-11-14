@@ -19,7 +19,10 @@
 //   { weekOf, createdAt, lastSentAt, cronSent,
 //     options: { breakfast: [{id,title}], 'lunch-dinner': [{id,title}] },
 //     voters:  { [voterId]: { name, email, token } },
-//     votes:   { [voterId]: { picks: [recipeId], at } } }
+//     votes:   { [voterId]: { picks: [recipeId], at } },
+//     mail:    { [voterId]: { seenAt } } }   newest email reply handled
+// People vote by replying to the email with meal numbers (mealVoteReply.js)
+// or on the ballot page its one link opens.
 
 import { NEVER_DAYS, SUGGEST_CATEGORIES, addDaysKey, daysBetweenKeys } from './suggestForecast.js';
 
