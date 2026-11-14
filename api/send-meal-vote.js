@@ -27,7 +27,7 @@ import { sendMail, senderAddress } from '../lib/mailer.js';
 import { renderMealVoteEmail } from '../lib/mealVoteEmail.js';
 import {
   normalizeMealVoteSettings, mealVoteDue, voteWeekOf, rankForVote,
-  applyLogToSnapshot, ballotOptions, weeksToPrune,
+  applyLogToSnapshot, ballotOptions, weeksToPrune, fillOptionDetails,
 } from '../src/utils/mealVote.js';
 import { VOTE_MAIL_HEADER, replyAddress } from '../src/utils/mealVoteReply.js';
 
@@ -87,6 +87,9 @@ export async function claimBallot(db, uid, { settings, dateKey, byCron, nowIso }
     let ballot;
     if (existing) {
       ballot = { ...existing, voters: { ...(existing.voters || {}) } };
+      // A ballot from before the email had its "Joanne" and "why" columns
+      // gets them now; the meals and their numbers don't change.
+      if (snapshot) ballot.options = fillOptionDetails(existing.options, applyLogToSnapshot(snapshot, dailyLog), dateKey);
     } else {
       if (!snapshot) return { skipped: 'no-suggestions-saved' };
       const options = rankForVote(applyLogToSnapshot(snapshot, dailyLog), dateKey);

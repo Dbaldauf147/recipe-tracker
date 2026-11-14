@@ -17,7 +17,8 @@
 //   users/{uid}/data/mealVote           { weeks: { [weekOf]: ballot } }
 // A ballot:
 //   { weekOf, createdAt, lastSentAt, cronSent,
-//     options: { breakfast: [{id,title}], 'lunch-dinner': [{id,title}] },
+//     options: { breakfast: [option], 'lunch-dinner': [option] },
+//              option = { id, title, joanne?: 'yes'|'no', why?: string }
 //     voters:  { [voterId]: { name, email, token } },
 //     votes:   { [voterId]: { picks: [recipeId], at } },
 //     mail:    { [voterId]: { seenAt } } }   newest email reply handled
@@ -33,6 +34,9 @@ export const MEAL_VOTE_MAX_VOTERS = 4;
 export const MEAL_VOTE_KEEP_WEEKS = 12;
 export const MEAL_VOTE_COLUMN_LABEL = { breakfast: 'Breakfast', 'lunch-dinner': 'Lunch & Dinner' };
 export const MEAL_VOTE_DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+/** Days without a key ingredient before it counts as a reason (as the page). */
+export const MEAL_VOTE_OVERDUE_DAYS = 14;
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const DATE_KEY_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -93,6 +97,24 @@ export function weekLabel(weekOf) {
 }
 
 /**
+ * Does Joanne like this recipe? 'yes', 'no' or '' (nobody has said).
+ * The recipe's own `joanneLikes` field (set on the recipe pop-up and in the
+ * mobile app) wins; failing that, its tags — "Joanne" is a yes and
+ * "Not Joanne" a no, the same reading the Recipes list badge uses.
+ */
+export function joanneVerdict(recipe) {
+  if (recipe?.joanneLikes === 'yes' || recipe?.joanneLikes === 'no') return recipe.joanneLikes;
+  let verdict = '';
+  for (const t of [...(recipe?.customTags || []), ...(recipe?.tags || [])]) {
+    const s = String(t || '').trim();
+    if (!/joanne/i.test(s)) continue;
+    if (/^not\b/i.test(s)) return 'no';
+    verdict = 'yes';
+  }
+  return verdict;
+}
+
+/**
  * What the Recipes page publishes for the cron: the ranking's inputs for the
  * two columns Suggested Meals has, plus titles so the email needs nothing
  * else. `forecastSnapshot` is the object RecipeList builds for
@@ -101,6 +123,7 @@ export function weekLabel(weekOf) {
 export function buildMealVoteSnapshot(forecastSnapshot, recipes) {
   if (!forecastSnapshot?.today || !Array.isArray(forecastSnapshot.candidates)) return null;
   const titleById = new Map((recipes || []).map(r => [r.id, String(r.title || '').trim()]));
+  const recipeById = new Map((recipes || []).map(r => [r.id, r]));
   const candidates = [];
   const titles = {};
   for (const c of forecastSnapshot.candidates) {
@@ -108,7 +131,14 @@ export function buildMealVoteSnapshot(forecastSnapshot, recipes) {
     const title = titleById.get(c.id);
     if (!title) continue;
     titles[c.id] = title;
+    const likes = joanneVerdict(recipeById.get(c.id));
+    const seasonal = (Array.isArray(c.seasonal) ? c.seasonal : []).map(x => String(x || '').trim()).filter(Boolean).slice(0, 6);
     candidates.push({
+      // Only set when there is something to say — Firestore refuses undefined.
+      ...(likes ? { joanne: likes } : {}),
+      ...(seasonal.length ? { seasonal } : {}),
+      ...(c.goalFit ? { goalFit: true } : {}),
+      ...(c.boosted ? { boosted: true } : {}),
       id: c.id,
       category: c.category,
       lastCooked: c.lastCooked || null,
@@ -169,7 +199,7 @@ export function applyLogToSnapshot(snap, dailyLog) {
  * is how the page treats them. After that they count as eaten on the snapshot
  * day, along with their key ingredients.
  */
-export function rankForVote(snap, dateKey, { perColumn = MEAL_VOTE_PER_COLUMN } = {}) {
+export function rankForVote(snap, dateKey, { perColumn = MEAL_VOTE_PER_COLUMN, includePlanned = false } = {}) {
   const out = Object.fromEntries(SUGGEST_CATEGORIES.map(c => [c, []]));
   if (!snap?.today || !Array.isArray(snap.candidates) || !DATE_KEY_RE.test(String(dateKey || ''))) return out;
   const wS = snap.weights?.staleness ?? 1;
@@ -180,7 +210,11 @@ export function rankForVote(snap, dateKey, { perColumn = MEAL_VOTE_PER_COLUMN } 
   const state = [];
   snap.candidates.forEach((c, order) => {
     if (!c.planned) { state.push({ ...c, order }); return; }
-    if (planStillCurrent) return;
+    if (planStillCurrent) {
+      // (`includePlanned` is for describing meals already on a ballot.)
+      if (includePlanned) state.push({ ...c, order });
+      return;
+    }
     for (const k of c.ingredients || []) ing[k] = later(ing[k], snap.today);
     state.push({ ...c, order, lastCooked: later(c.lastCooked, snap.today) });
   });
@@ -191,13 +225,33 @@ export function rankForVote(snap, dateKey, { perColumn = MEAL_VOTE_PER_COLUMN } 
     if (wI) for (const k of c.ingredients || []) s += wI * days(later(ing[k], c.ingredientFloor));
     return s;
   };
+  // The same reasons the Suggested Meals cards give, in the same words.
+  const describe = (c) => {
+    const parts = [];
+    if (c.boosted) parts.push('boosted');
+    const since = days(c.lastCooked);
+    if (since === NEVER_DAYS) parts.push('never cooked');
+    else if (since >= 7) parts.push(`not cooked in ${since} days`);
+    const overdue = wI
+      ? (c.ingredients || []).filter(k => days(later(ing[k], c.ingredientFloor)) >= MEAL_VOTE_OVERDUE_DAYS)
+      : [];
+    if (overdue.length) parts.push(`has ${overdue.slice(0, 3).map(k => String(k).replace(/_/g, ' ')).join(', ')}`);
+    if (c.seasonal?.length) parts.push(`in season: ${c.seasonal.slice(0, 2).join(', ')}`);
+    if (c.goalFit) parts.push('fits your goals');
+    return {
+      id: c.id,
+      title: snap.titles[c.id],
+      ...(c.joanne ? { joanne: c.joanne } : {}),
+      why: parts.join(' · ') || 'good variety pick',
+    };
+  };
   for (const cat of SUGGEST_CATEGORIES) {
     out[cat] = state
       .filter(c => c.category === cat && (!c.availableFrom || c.availableFrom <= dateKey) && snap.titles?.[c.id])
       .map(c => ({ c, s: scoreOf(c) }))
       .sort((a, b) => b.s - a.s || a.c.order - b.c.order)
       .slice(0, perColumn)
-      .map(({ c }) => ({ id: c.id, title: snap.titles[c.id] }));
+      .map(({ c }) => describe(c));
   }
   return out;
 }
@@ -263,4 +317,27 @@ export function latestBallot(weeks) {
 export function weeksToPrune(weeks, keep = MEAL_VOTE_KEEP_WEEKS) {
   const keys = Object.keys(weeks || {}).filter(k => DATE_KEY_RE.test(k)).sort();
   return keys.slice(0, Math.max(0, keys.length - keep));
+}
+
+/**
+ * A ballot made before the email had its "Joanne" and "why" columns, given
+ * them from today's ranking. Meals stay exactly as they are — same ids, same
+ * order, so the numbers people have already replied with still mean the same
+ * meals. Returns the same options object when there is nothing to add.
+ */
+export function fillOptionDetails(options, snap, dateKey) {
+  const all = SUGGEST_CATEGORIES.flatMap(cat => options?.[cat] || []);
+  if (all.length === 0 || all.every(o => o.why)) return options;
+  const fresh = new Map();
+  const ranked = rankForVote(snap, dateKey, { perColumn: Infinity, includePlanned: true });
+  for (const cat of SUGGEST_CATEGORIES) for (const o of ranked[cat]) fresh.set(o.id, o);
+  const out = { ...options };
+  for (const cat of SUGGEST_CATEGORIES) {
+    out[cat] = (options?.[cat] || []).map(o => {
+      const f = fresh.get(o.id);
+      if (o.why || !f) return o;
+      return { ...o, ...(f.joanne ? { joanne: f.joanne } : {}), why: f.why };
+    });
+  }
+  return out;
 }
