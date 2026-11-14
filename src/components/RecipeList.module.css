@@ -1105,6 +1105,20 @@
   cursor: pointer;
 }
 
+.suggestGearLink {
+  align-self: flex-start;
+  padding: 0;
+  border: 0;
+  background: none;
+  font-size: var(--font-size-sm);
+  color: var(--color-accent);
+  cursor: pointer;
+}
+
+.suggestGearLink:hover {
+  text-decoration: underline;
+}
+
 .suggestGearLabel input[type="checkbox"] {
   accent-color: var(--color-accent);
 }
