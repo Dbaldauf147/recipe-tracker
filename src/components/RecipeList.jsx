@@ -18,6 +18,9 @@ import {
 import {
   publishSuggestionSnapshot, suggestPaceFromLog, nextInSeasonKey, forecastSuggestion,
 } from '../utils/suggestForecast';
+import { buildMealVoteSnapshot, normalizeMealVoteSettings } from '../utils/mealVote';
+import { publishMealVoteSnapshot } from '../utils/mealVoteStore';
+import { MealVotePanel } from './MealVotePanel';
 import { ALL_TAGS, TAG_CATEGORIES, recipeMatchesTags } from '../utils/ingredientTags';
 import { detectCuisine, getRecipeMinShelfDays } from '../utils/detectCuisine';
 import { loadMealGoals, activeProfile, goalAttainment } from '../utils/mealGoals';
@@ -945,6 +948,7 @@ export function RecipeList({
       // Skips are cross-device (the phone's long-press writes them too).
       setSuggestSkips(normalizeSuggestSkips(data?.suggestSkips));
       setSuggestRequeues(normalizeSuggestRequeues(data?.suggestRequeues));
+      setMealVoteSettings(normalizeMealVoteSettings(data?.mealVoteSettings));
       if (data?.catLayout) {
         setCatLayout(data.catLayout);
         localStorage.setItem('sunday-cat-layout', JSON.stringify(data.catLayout));
@@ -959,6 +963,10 @@ export function RecipeList({
   // sunday-plan-history and sunday-daily-log refresh, instead of holding
   // a stale snapshot from first render.
   const [historyTick, setHistoryTick] = useState(0);
+  // The weekly meal vote email (utils/mealVote.js): its settings, and whether
+  // the settings dialog is open.
+  const [mealVoteSettings, setMealVoteSettings] = useState(() => normalizeMealVoteSettings(null));
+  const [mealVoteSettingsOpen, setMealVoteSettingsOpen] = useState(false);
   // The suggestion whose scoring is being shown ("why is this suggested?").
   const [whySuggested, setWhySuggested] = useState(null);
   // Suggested Meals skipped for a week or a month, synced as `suggestSkips` with the
@@ -2139,6 +2147,30 @@ export function RecipeList({
     publishSuggestionSnapshot(suggestions.forecastSnapshot || null);
   }, [suggestions]);
 
+  // The meal vote email is built by a cron, which can't rank anything itself —
+  // this ranking lives in the browser. So while the vote is on, save its
+  // inputs for the cron to re-score on send day.
+  //
+  // Only the page's standing view is saved: a cuisine filter or "show Rare"
+  // ticked for a moment narrows Suggested Meals on screen, and must not narrow
+  // next week's email. Waits a few seconds so a burst of re-renders is one
+  // write, and publishMealVoteSnapshot skips a ranking it already saved.
+  const mealVoteOn = mealVoteSettings.enabled;
+  const standingView = showCommon && !showRare && !showToTry && !showRetired
+    && checkedTypes.size === 0 && checkedCategories.size === 0 && checkedCuisines.size === 0
+    && checkedTags.size === 0 && checkedSources.size === 0;
+  useEffect(() => {
+    if (!user?.uid || !mealVoteOn || !standingView) return undefined;
+    const snap = buildMealVoteSnapshot(suggestions.forecastSnapshot, recipes);
+    if (!snap) return undefined;
+    const timer = setTimeout(() => {
+      publishMealVoteSnapshot(user.uid, snap).catch(err => console.warn('[mealVote] snapshot not saved', err?.code || err));
+    }, 3000);
+    return () => clearTimeout(timer);
+  }, [user?.uid, mealVoteOn, standingView, suggestions, recipes]);
+
+  const recipeIdSet = useMemo(() => new Set(recipes.map(r => r.id)), [recipes]);
+
   return (
     <>
     <div className={styles.container}>
@@ -2613,7 +2645,22 @@ export function RecipeList({
       )}
 
       {/* 2. Suggested Meals + Discover Recipes row */}
-      <div data-widget="suggestedMeals"><div className={styles.suggestDiscoverRow}>
+      <div data-widget="suggestedMeals">
+        {user && (
+          <MealVotePanel
+            user={user}
+            settings={mealVoteSettings}
+            onSettingsChange={setMealVoteSettings}
+            settingsOpen={mealVoteSettingsOpen}
+            onOpenSettings={() => setMealVoteSettingsOpen(true)}
+            onCloseSettings={() => setMealVoteSettingsOpen(false)}
+            weeklyPlan={weeklyPlan}
+            recipeIds={recipeIdSet}
+            onSelect={onSelect}
+            onAddToWeek={handleAddToWeekWithPulse}
+          />
+        )}
+        <div className={styles.suggestDiscoverRow}>
         <div className={styles.suggestBox} role="region" aria-label="Suggested Meals">
           <div className={styles.suggestHeadingRow}>
             <button className={styles.collapseToggle} onClick={() => setSuggestOpen(p => !p)}>
@@ -2678,6 +2725,14 @@ export function RecipeList({
                   <p className={styles.suggestGearNote}>
                     Columns only. To change how meals are ranked, open <strong>why?</strong> next to Breakfast or Lunch &amp; Dinner.
                   </p>
+                  {user && (
+                    <button
+                      className={styles.suggestGearLink}
+                      onClick={() => { setSuggestColsOpen(false); setMealVoteSettingsOpen(true); }}
+                    >
+                      ✉ Weekly meal vote email…
+                    </button>
+                  )}
                 </div>
               )}
             </div>
