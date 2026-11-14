@@ -125,10 +125,11 @@ function MealVoteSettings({ user, settings, onSaved, onClose }) {
   ));
   const [sendDay, setSendDay] = useState(settings.sendDay);
   const [sendHour, setSendHour] = useState(settings.sendHour);
+  const [interactive, setInteractive] = useState(settings.interactive);
   const [busy, setBusy] = useState('');
   const [message, setMessage] = useState(null);
 
-  const draft = { enabled, voters, sendDay, sendHour };
+  const draft = { enabled, voters, sendDay, sendHour, interactive };
   const valid = normalizeMealVoteSettings(draft).voters;
   const typed = voters.filter(v => v.email.trim()).length;
 
@@ -245,6 +246,18 @@ function MealVoteSettings({ user, settings, onSaved, onClose }) {
           </select>
           <span className={styles.tz}>Eastern</span>
         </div>
+
+        <div className={styles.fieldLabel}>Gmail</div>
+        <label className={styles.check}>
+          <input type="checkbox" checked={interactive} onChange={e => setInteractive(e.target.checked)} />
+          Tick boxes inside the email (Gmail only)
+        </label>
+        <p className={styles.dialogNote}>
+          Gmail shows checkboxes and a Save button in the message itself. Each voter allows it once, in their own
+          Gmail on a computer: Settings → See all settings → General → Dynamic email → Developer settings, then add
+          the address the vote email comes from. Until then, and in every other mail app, the email is the
+          reply-with-numbers one.
+        </p>
 
         {message && <p className={message.bad ? styles.msgBad : styles.msgOk} role="status">{message.text}</p>}
 

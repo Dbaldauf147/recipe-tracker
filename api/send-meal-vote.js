@@ -24,7 +24,7 @@ import { initializeApp, cert, getApps } from 'firebase-admin/app';
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 import { getAuth } from 'firebase-admin/auth';
 import { sendMail, senderAddress } from '../lib/mailer.js';
-import { renderMealVoteEmail } from '../lib/mealVoteEmail.js';
+import { renderMealVoteEmail, renderMealVoteAmp } from '../lib/mealVoteEmail.js';
 import {
   normalizeMealVoteSettings, mealVoteDue, voteWeekOf, rankForVote,
   applyLogToSnapshot, ballotOptions, weeksToPrune, fillOptionDetails,
@@ -138,8 +138,14 @@ export async function sendMealVote(db, uid, rawSettings, { now = new Date(), byC
       const mail = renderMealVoteEmail({ base: siteBase(), uid, ballot, voter: { id, ...v } });
       // Replies come back to the sending mailbox, tagged with this voter's
       // token so api/collect-meal-vote.js knows whose vote it is.
+      // The tick-box version for Gmail rides along as a third part; anything
+      // that can't show it shows the HTML above instead.
+      const amp = settings.interactive
+        ? renderMealVoteAmp({ base: siteBase(), uid, ballot, voter: { id, ...v } })
+        : null;
       await send({
         to: v.email, ...mail,
+        ...(amp ? { amp } : {}),
         replyTo: `Prep Day <${replyAddress(senderAddress(), v.token)}>`,
         headers: { [VOTE_MAIL_HEADER]: 'meal-vote' },
       });

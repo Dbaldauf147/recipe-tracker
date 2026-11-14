@@ -35,7 +35,9 @@ test('settings: defaults to Friday 8am, drops bad and duplicate addresses', () =
     voters: [{ name: 'Dan', email: 'dan@example.com' }, { name: 'jo', email: 'jo@example.com' }],
     sendDay: 5,
     sendHour: 8,
+    interactive: true,
   });
+  assert.equal(normalizeMealVoteSettings({ interactive: false }).interactive, false);
   assert.equal(normalizeMealVoteSettings(null).enabled, false);
   assert.equal(normalizeMealVoteSettings({ sendDay: 9, sendHour: -1 }).sendDay, 5);
 });
