@@ -1,11 +1,16 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef, createContext, useContext } from 'react';
+import { createPortal } from 'react-dom';
 import { doc, onSnapshot } from 'firebase/firestore';
 import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { db } from '../firebase';
 import { findDuplicateSpots, duplicateReason, findExistingMatches } from '../utils/duplicateSpots';
-import { saveOwnerRestaurants, saveOwnerEatingOutLists, saveField, subscribeRestaurants, subscribeSpotVisits } from '../utils/firestoreSync';
+import { saveOwnerRestaurants, saveOwnerEatingOutLists, saveField, loadField, subscribeRestaurants, subscribeSpotVisits } from '../utils/firestoreSync';
+import {
+  subItemGroupKey, sanitizeSubItemLists, addSubItem, removeSubItem, cleanSubScores,
+  subScoreSummary, subItemRows, applySubScore,
+} from '../utils/ratingSubItems';
 import { visitStatsByPlace } from '../utils/spotVisits';
 import { healthyByLongestSince } from '../utils/healthyPlaces';
 import { recentPlaces } from '../utils/recentPlaces';
@@ -1595,6 +1600,12 @@ function SpotRatings({ ownerUid, spotId, spot, user }) {
   const [docs, setDocs] = useState([]);
   // Local copy of MY scores for instant feedback; re-synced from the live doc.
   const [myScores, setMyScores] = useState({});
+  // Item-by-item ratings behind a category's stars (utils/ratingSubItems.js):
+  // what I gave each sub-item here, my standard sub-item lists, and the
+  // category whose pop-up is open.
+  const [mySubScores, setMySubScores] = useState({});
+  const [subItemLists, setSubItemLists] = useState({});
+  const [openCategory, setOpenCategory] = useState(null);
   // Other people's scores stay behind a curtain until you ask for them — see
   // the note above the curtain itself, and RatingRevealContext for why the
   // answer is remembered by the page rather than by this component.
@@ -1607,7 +1618,22 @@ function SpotRatings({ ownerUid, spotId, spot, user }) {
   }, [ownerUid, spotId]);
 
   const myDoc = useMemo(() => docs.find(d => d.authorUid === user?.uid), [docs, user?.uid]);
-  useEffect(() => { setMyScores(myDoc?.scores || {}); }, [myDoc]);
+  useEffect(() => {
+    setMyScores(myDoc?.scores || {});
+    setMySubScores(cleanSubScores(myDoc?.subScores));
+  }, [myDoc]);
+
+  // My standard sub-items are mine, not the list owner's: they live on my own
+  // user document, so they follow me onto a list someone shared with me.
+  useEffect(() => {
+    const uid = user?.uid;
+    if (!uid) return undefined;
+    let cancelled = false;
+    loadField(uid, 'eatingOutRatingSubItems')
+      .then(v => { if (!cancelled) setSubItemLists(sanitizeSubItemLists(v)); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [user?.uid]);
 
   const agg = useMemo(() => aggregateSpotRatings(docs), [docs]);
   const categories = useMemo(() => ratingCategoriesForSpot(spot, docs), [spot, docs]);
@@ -1630,6 +1656,30 @@ function SpotRatings({ ownerUid, spotId, spot, user }) {
   const hasOthers = friends.length > 0;
   const hidden = hasOthers && !revealed;
   const shownFriends = hidden ? [] : friends;
+
+  const saveError = err => {
+    alert(`Couldn't save your rating — ${err?.message || 'try again'}.\n\nIf this keeps failing, the eatingOutRatings Firestore rules may not be in place yet.`);
+  };
+
+  // One sub-item's stars: re-derives its category, saves both together.
+  const setSubItem = (categoryKey, subKey, value) => {
+    const next = applySubScore(myScores, mySubScores, categoryKey, subKey, value);
+    setMyScores(next.scores); // optimistic
+    setMySubScores(next.subScores);
+    setEatingOutRating(ownerUid, spotId, {
+      authorUid: user.uid,
+      authorUsername: user.displayName || '',
+      scores: next.scores,
+      subScores: next.subScores,
+    }).catch(saveError);
+  };
+
+  const saveSubItemLists = next => {
+    setSubItemLists(next); // optimistic
+    saveField(user.uid, 'eatingOutRatingSubItems', next).catch(err => {
+      alert(`Couldn't save your list of items — ${err?.message || 'try again'}.`);
+    });
+  };
 
   const setCategory = (key, value) => {
     const next = { ...myScores, [key]: value };
@@ -1736,10 +1786,31 @@ function SpotRatings({ ownerUid, spotId, spot, user }) {
                   className={styles.ratingTableCat}
                   title={c.preserved ? 'Rated before this spot’s buckets changed — kept so the vote isn’t lost' : undefined}
                 >
-                  {c.label}{c.preserved ? ' *' : ''}
+                  {/* The name opens the item-by-item pop-up for this category. */}
+                  <button
+                    type="button"
+                    className={styles.ratingCatBtn}
+                    onClick={() => setOpenCategory(c)}
+                    aria-haspopup="dialog"
+                    title={`Rate ${c.label} item by item`}
+                  >
+                    {c.label}{c.preserved ? ' *' : ''}
+                    <span className={styles.ratingCatBtnHint}>
+                      {subScoreSummary(mySubScores[c.key]).count > 0
+                        ? `${subScoreSummary(mySubScores[c.key]).count} rated ›`
+                        : 'items ›'}
+                    </span>
+                  </button>
                 </th>
                 <td className={styles.ratingTableYou}>
-                  <StarRating value={myScores[c.key] ?? null} onChange={v => setCategory(c.key, v)} size={18} />
+                  {/* Stars that come from sub-items are changed through the
+                      items: a tap here opens them instead of overwriting the
+                      average they add up to. */}
+                  <StarRating
+                    value={myScores[c.key] ?? null}
+                    onChange={v => (subScoreSummary(mySubScores[c.key]).count > 0 ? setOpenCategory(c) : setCategory(c.key, v))}
+                    size={18}
+                  />
                 </td>
                 {shownFriends.map(f => {
                   const v = f.scores?.[c.key];
@@ -1768,12 +1839,143 @@ function SpotRatings({ ownerUid, spotId, spot, user }) {
       </div>
       <p className={styles.ratingTableHint}>
         Tap your stars to rate — saves as you go. Tap the same star again to clear it.
+        {' '}Tap a category&rsquo;s name to rate it item by item; its stars become the average.
         {' '}{bucketNames
           ? `Categories come from the ${bucketNames} bucket${bucketsOf(spot || {}).length > 1 ? 's' : ''} — change them under ✎ Edit buckets.`
           : 'Put this spot in a bucket to rate it on that bucket’s categories.'}
         {categories.some(c => c.preserved) && ' Rows marked * were rated under a different bucket and are kept for the record.'}
       </p>
+      {openCategory && (
+        <RatingSubItemsPopup
+          category={openCategory}
+          spotName={spot?.name || ''}
+          lists={subItemLists}
+          subScores={mySubScores[openCategory.key]}
+          categoryScore={myScores[openCategory.key] ?? null}
+          onRate={(subKey, value) => setSubItem(openCategory.key, subKey, value)}
+          onListsChange={saveSubItemLists}
+          onClose={() => setOpenCategory(null)}
+        />
+      )}
     </div>
+  );
+}
+
+/**
+ * Rate one category item by item (utils/ratingSubItems.js).
+ *
+ * The items are your STANDARD list for that category — added here once,
+ * offered on every spot — each with its own stars for this spot. The category
+ * gets their average.
+ *
+ * Portalled to <body> because it opens from inside the spot's own modal, whose
+ * scroll area would clip it. React still bubbles events through a portal to
+ * the component tree, so every click is stopped here: otherwise a tap in this
+ * pop-up would reach the spot modal's backdrop handler and close the spot.
+ */
+function RatingSubItemsPopup({ category, spotName, lists, subScores, categoryScore, onRate, onListsChange, onClose }) {
+  const [draft, setDraft] = useState('');
+  const [error, setError] = useState('');
+  const group = subItemGroupKey(category.label);
+  const rows = subItemRows(lists, group, subScores);
+  const summary = subScoreSummary(subScores);
+
+  useEffect(() => {
+    const onKey = e => { if (e.key === 'Escape') { e.stopPropagation(); onClose(); } };
+    document.addEventListener('keydown', onKey, true);
+    return () => document.removeEventListener('keydown', onKey, true);
+  }, [onClose]);
+
+  const add = e => {
+    e.preventDefault();
+    const res = addSubItem(lists, group, draft);
+    if (res.error) { setError(res.error); return; }
+    setError('');
+    setDraft('');
+    onListsChange(res.lists);
+  };
+
+  return createPortal(
+    <div className={styles.subItemsOverlay} onClick={e => { e.stopPropagation(); onClose(); }}>
+      <div
+        className={styles.subItemsDialog}
+        role="dialog"
+        aria-modal="true"
+        aria-label={`Rate ${category.label} item by item`}
+        onClick={e => e.stopPropagation()}
+      >
+        <div className={styles.subItemsHeader}>
+          <div>
+            <h3 className={styles.subItemsTitle}>{category.label}</h3>
+            {spotName && <div className={styles.subItemsSpot}>{spotName}</div>}
+          </div>
+          <button type="button" className={styles.subItemsClose} onClick={onClose} aria-label="Close">×</button>
+        </div>
+
+        {rows.length === 0 ? (
+          <p className={styles.subItemsEmpty}>
+            No items yet. Add the things you judge {category.label} on — they become your standard list,
+            ready to rate on every spot.
+          </p>
+        ) : (
+          <ul className={styles.subItemsList}>
+            {rows.map(row => (
+              <li key={row.key} className={styles.subItemsRow}>
+                <span className={styles.subItemsName}>
+                  {row.label}
+                  {row.removed && <span className={styles.subItemsRemovedTag}>no longer on your list</span>}
+                </span>
+                <StarRating value={subScores?.[row.key] ?? null} onChange={v => onRate(row.key, v)} size={20} />
+                {!row.removed && (
+                  <button
+                    type="button"
+                    className={styles.subItemsRemove}
+                    onClick={() => onListsChange(removeSubItem(lists, group, row.key))}
+                    aria-label={`Remove ${row.label} from your standard list`}
+                    title="Remove from your standard list (ratings already given are kept)"
+                  >×</button>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+
+        <form className={styles.subItemsAdd} onSubmit={add}>
+          <input
+            className={styles.subItemsInput}
+            value={draft}
+            onChange={e => { setDraft(e.target.value); setError(''); }}
+            placeholder="Add an item"
+            aria-label={`New ${category.label} item`}
+            maxLength={40}
+          />
+          <button type="submit" className={styles.subItemsAddBtn}>Add</button>
+        </form>
+        {error && <p className={styles.subItemsError} role="alert">{error}</p>}
+
+        <div className={styles.subItemsFooter}>
+          <div className={styles.subItemsResult} aria-live="polite">
+            {summary.count > 0 ? (
+              <>
+                <StarsStatic value={categoryScore} size={18} />
+                <span>
+                  <strong>{categoryScore ?? '–'}</strong> for {category.label}
+                  {' '}· average {summary.average.toFixed(1)} of {summary.count} item{summary.count === 1 ? '' : 's'}
+                </span>
+              </>
+            ) : (
+              <span className={styles.subItemsMuted}>
+                {categoryScore != null
+                  ? `${category.label} is ${categoryScore} from its own stars. Rate an item and the average takes over.`
+                  : 'Rate an item and its average becomes the category’s stars.'}
+              </span>
+            )}
+          </div>
+          <button type="button" className={styles.subItemsDone} onClick={onClose}>Done</button>
+        </div>
+      </div>
+    </div>,
+    document.body,
   );
 }
 

@@ -1,9 +1,10 @@
-import { doc, getDoc, setDoc, addDoc, deleteDoc, updateDoc, deleteField, collection, query, where, getDocs, arrayUnion, arrayRemove, increment, onSnapshot, writeBatch, runTransaction } from 'firebase/firestore';
+import { doc, getDoc, setDoc, addDoc, deleteDoc, updateDoc, deleteField, FieldPath, collection, query, where, getDocs, arrayUnion, arrayRemove, increment, onSnapshot, writeBatch, runTransaction } from 'firebase/firestore';
 import { db, auth } from '../firebase';
 import { writeWorkoutsMirror } from './workoutsMirror';
 import { activeUsersIn } from '../../lib/adminGrowth.js';
 import { ARCHIVE_COLLECTION, isMonthKey, parseArchiveDoc, flattenArchive, mergeArchiveUnder, omitArchivedDays } from './dailyLogArchive.js';
 import { parseQuantity } from './parseQuantity.js';
+import { cleanSubScores } from './ratingSubItems.js';
 
 // ── Data-safety layer (mirrors the mobile app) ──────────────────────────────
 // Every full-document overwrite of a big "blob" doc (dailyLog, recipes) goes
@@ -2611,23 +2612,45 @@ export function subscribeEatingOutRatings(ownerUids, cb) {
 
 // Upsert the current user's scores for a place. `scores` is a map of
 // category → (1–5 | null). When every category is empty the doc is removed.
-export async function setEatingOutRating(ownerUid, spotId, { authorUid, authorUsername, scores }) {
+//
+// Any category key is stored, not a fixed four: categories are per bucket
+// (Coffee, Music & Crowd, ones you add yourself), and this used to keep only
+// food/service/atmosphere/price — so a rating on any other row vanished on
+// save. Matches the phone app's writer. A key the caller omits is left alone
+// by the merge.
+//
+// `subScores` ({ [category]: { [subItem]: 1–5 } }, see utils/ratingSubItems.js)
+// is optional. When given it REPLACES the stored map, so a cleared sub-item is
+// really gone; when omitted, whatever is stored stays.
+export async function setEatingOutRating(ownerUid, spotId, { authorUid, authorUsername, scores, subScores }) {
   if (!ownerUid || !spotId || !authorUid) return;
   const clean = {};
-  for (const k of ['food', 'service', 'atmosphere', 'price']) {
-    const v = scores?.[k];
+  for (const [k, v] of Object.entries(scores || {})) {
+    if (!k) continue;
     clean[k] = (typeof v === 'number' && v >= 1 && v <= 5) ? Math.round(v) : null;
   }
   const ref = doc(db, 'eatingOutRatings', ratingDocId(ownerUid, spotId, authorUid));
   if (Object.values(clean).every(v => v == null)) { await deleteDoc(ref); return; }
-  await setDoc(ref, {
+  const data = {
     ownerUid,
     spotId,
     authorUid,
     authorUsername: authorUsername || '',
     scores: clean,
     updatedAt: new Date().toISOString(),
-  }, { merge: true });
+  };
+  if (subScores === undefined) {
+    await setDoc(ref, data, { merge: true });
+    return;
+  }
+  // mergeFields rather than merge: naming `subScores` replaces that whole map,
+  // while each score is still merged key by key.
+  await setDoc(ref, { ...data, subScores: cleanSubScores(subScores) }, {
+    mergeFields: [
+      'ownerUid', 'spotId', 'authorUid', 'authorUsername', 'updatedAt', 'subScores',
+      ...Object.keys(clean).map(k => new FieldPath('scores', k)),
+    ],
+  });
 }
 
 export async function deleteEatingOutRating(ownerUid, spotId, authorUid) {
