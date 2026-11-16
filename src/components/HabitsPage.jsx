@@ -1487,6 +1487,11 @@ export function HabitsPage({ onBack, user }) {
   // PTO mode: date ranges over which every due habit is auto-stamped Skip.
   // Stored on the user doc as `habitPto` and shared with the mobile app.
   const [ptoRanges, setPtoRanges] = useState([]);
+  // Hand-set order of the routine groups on the Routines tab, per cadence:
+  // { Daily: ['Morning', 'Lunch', ''], Weekly: [...] } ('' = No routine).
+  // Stored on the user doc as `habitRoutineOrder`. Routines not listed keep
+  // the built-in order, after the listed ones.
+  const [routineOrder, setRoutineOrder] = useState({});
   // Saved status-menu options (users/{uid}.habitStatusOptions); empty = the built-ins.
   const [statusOptionsSaved, setStatusOptionsSaved] = useState([]);
   const [ptoOpen, setPtoOpen] = useState(false);
@@ -1642,6 +1647,9 @@ export function HabitsPage({ onBack, user }) {
         // Not part of the offline cache or the Promise.all above: a failed
         // read just leaves the built-in options, which is what it shows anyway.
         if (user?.uid) {
+          loadField(user.uid, 'habitRoutineOrder')
+            .then(v => { if (!cancelled && v && typeof v === 'object' && !Array.isArray(v)) setRoutineOrder(v); })
+            .catch(() => {});
           loadField(user.uid, 'habitStatusOptions')
             .then(v => { if (!cancelled) setStatusOptionsSaved(sanitizeStatusOptions(v)); })
             .catch(() => {});
@@ -1732,7 +1740,7 @@ export function HabitsPage({ onBack, user }) {
     });
     const unsubFields = subscribeToUserFields(
       user.uid,
-      ['habits', 'habitAutomations', 'habitNextLog', 'habitPto'],
+      ['habits', 'habitAutomations', 'habitNextLog', 'habitPto', 'habitRoutineOrder'],
       (fields) => {
         // Replay the queue over the snapshot for the same reason the load
         // effect does: unsynced edits outrank the server's older answer.
@@ -1749,6 +1757,9 @@ export function HabitsPage({ onBack, user }) {
           setHabitNextLog(merged.habitNextLog);
         }
         if (Array.isArray(fields.habitPto)) setPtoRanges(normalizePtoRanges(fields.habitPto));
+        if (fields.habitRoutineOrder && typeof fields.habitRoutineOrder === 'object' && !Array.isArray(fields.habitRoutineOrder)) {
+          setRoutineOrder(fields.habitRoutineOrder);
+        }
       },
     );
     return () => { unsubLog(); unsubAuto(); unsubFields(); };
@@ -2071,10 +2082,20 @@ export function HabitsPage({ onBack, user }) {
       return rest;
     }));
   }
-  // Move a habit to another routine ('' = No routine). Clears its order so it
-  // lands at the bottom of the destination group until dragged.
-  function setHabitRoutine(id, routine) {
-    persist(habits.map(h => (h.id === id ? { ...h, routine, order: '' } : h)));
+  // A routine group was dragged on the Routines tab: save that cadence's order.
+  function reorderRoutines(cadence, names) {
+    const next = { ...routineOrder, [cadence]: names };
+    setRoutineOrder(next);
+    if (user?.uid) queueFieldWrite(user.uid, 'habitRoutineOrder', next);
+  }
+  // A habit was dragged INTO another routine group: retag it and renumber the
+  // destination group around where it was dropped, in one write.
+  function moveHabitToRoutine(id, routine, orderedIds) {
+    const pos = new Map(orderedIds.map((x, i) => [x, String(i)]));
+    persist(habits.map(h => {
+      if (!pos.has(h.id)) return h;
+      return h.id === id ? { ...h, routine, order: pos.get(h.id) } : { ...h, order: pos.get(h.id) };
+    }));
   }
   // Opens the habit popup to fill in, rather than dropping a blank row into the
   // Habits table for you to find and edit inline. The row is still written
@@ -2564,7 +2585,7 @@ export function HabitsPage({ onBack, user }) {
       )}
 
       {tab === 'kpi' && <KpiView habits={goodHabits} habitLog={habitLog} streaks={streaks} onOpen={setOpenHabitId} />}
-      {tab === 'routines' && <RoutinesView habits={goodHabits} habitLog={habitLog} habitLogAuto={habitLogAuto} streaks={streaks} autoTrackedIds={autoTrackedIds} autoStatusFor={autoStatusFor} nextLogMap={habitNextLog} onSetNextLog={setNextLogDate} onUpdate={updateHabit} openMenu={(habitId, key, label) => setDayMenu({ habitId, key, label })} onCycleMark={setMarkForKey} onMove={setMoveHabitId} onReorder={reorderHabits} onSetRoutine={setHabitRoutine} onRenameRoutine={renameRoutine} onDeleteRoutine={setDeleteRoutineName} onBulkMark={setMarksForCells} onOpen={setOpenHabitId} onMakeAutomatic={id => resolveAutoPromotes([id], true)} />}
+      {tab === 'routines' && <RoutinesView habits={goodHabits} habitLog={habitLog} habitLogAuto={habitLogAuto} streaks={streaks} autoTrackedIds={autoTrackedIds} autoStatusFor={autoStatusFor} nextLogMap={habitNextLog} onSetNextLog={setNextLogDate} onUpdate={updateHabit} openMenu={(habitId, key, label) => setDayMenu({ habitId, key, label })} onCycleMark={setMarkForKey} onMove={setMoveHabitId} onReorder={reorderHabits} routineOrder={routineOrder} onReorderRoutines={reorderRoutines} onMoveToRoutine={moveHabitToRoutine} onRenameRoutine={renameRoutine} onDeleteRoutine={setDeleteRoutineName} onBulkMark={setMarksForCells} onOpen={setOpenHabitId} onMakeAutomatic={id => resolveAutoPromotes([id], true)} />}
       {tab === 'current' && <CurrentView habits={goodHabits} habitLog={habitLog} onUpdate={updateHabit} onCycleMark={setMarkForKey} onOpen={setOpenHabitId} onMakeAutomatic={id => resolveAutoPromotes([id], true)} />}
       {tab === 'automatic' && <AutomaticView habits={goodHabits} automations={automations} habitLog={habitLog} habitLogAuto={habitLogAuto} onChange={persistAutomations} />}
       {REVIEW_KINDS.some(k => k.id === tab) && (
@@ -3214,14 +3235,11 @@ function Kpi({ label, value, hint, title }) {
   );
 }
 
-function RoutinesView({ habits, habitLog, habitLogAuto, streaks, autoTrackedIds = new Set(), autoStatusFor = () => '', nextLogMap, onSetNextLog, onUpdate, openMenu, onCycleMark, onMove, onReorder, onSetRoutine, onRenameRoutine, onDeleteRoutine, onBulkMark, onOpen, onMakeAutomatic }) {
+function RoutinesView({ habits, habitLog, habitLogAuto, streaks, autoTrackedIds = new Set(), autoStatusFor = () => '', nextLogMap, onSetNextLog, onUpdate, openMenu, onCycleMark, onMove, onReorder, routineOrder = {}, onReorderRoutines, onMoveToRoutine, onRenameRoutine, onDeleteRoutine, onBulkMark, onOpen, onMakeAutomatic }) {
   // Habits parked on `status:'Automatically'` are established — tracked for you,
   // never yours to log — so they're hidden from the routine groups by default
   // and revealed by the toggle below. Mirrors the mobile Routines tab.
   const [showAutoStatus, setShowAutoStatus] = useState(false);
-  // All routine names the user has, in the canonical routine order, for the
-  // per-habit routine dropdown.
-  const routineOptions = useMemo(() => routineNamesFrom(habits), [habits]);
   // Group by the habit's tracking FREQUENCY (cadence), so setting a habit to
   // Weekly makes it show up under the Weekly section. Sections are ordered
   // Daily → Weekly → Monthly → Annually. Within a section, habits stay clustered
@@ -3493,7 +3511,7 @@ function RoutinesView({ habits, habitLog, habitLogAuto, streaks, autoTrackedIds 
       ) : (
         <div ref={sectionsRef} style={{ display: 'flex', flexDirection: 'column', gap: '1.4rem' }}>
           {visibleGroups.map(([cadenceName, list]) => (
-            <RoutineSection key={cadenceName} cadenceName={cadenceName} list={list} habitLog={habitLog} habitLogAuto={habitLogAuto} streaks={streaks} autoTrackedIds={autoTrackedIds} autoStatusFor={autoStatusFor} nextLogOverride={(nextLogMap || {})[cadenceName] || ''} onSetNextLog={onSetNextLog} onUpdate={onUpdate} openMenu={openMenu} onCycleMark={onCycleMark} routineOptions={routineOptions} onReorder={onReorder} onSetRoutine={onSetRoutine} onBulkMark={onBulkMark} onOpen={onOpen} onMakeAutomatic={onMakeAutomatic} showAutoStatus={showAutoStatus} />
+            <RoutineSection key={cadenceName} cadenceName={cadenceName} list={list} habitLog={habitLog} habitLogAuto={habitLogAuto} streaks={streaks} autoTrackedIds={autoTrackedIds} autoStatusFor={autoStatusFor} nextLogOverride={(nextLogMap || {})[cadenceName] || ''} onSetNextLog={onSetNextLog} onUpdate={onUpdate} openMenu={openMenu} onCycleMark={onCycleMark} onReorder={onReorder} routineOrder={routineOrder[cadenceName]} onReorderRoutines={onReorderRoutines} onMoveToRoutine={onMoveToRoutine} onBulkMark={onBulkMark} onOpen={onOpen} onMakeAutomatic={onMakeAutomatic} showAutoStatus={showAutoStatus} />
           ))}
         </div>
       )}
@@ -3947,8 +3965,10 @@ function AutoProgressModal({ habit, habitLog, autoTracked, onMakeAutomatic, onCl
 // One cadence section (Daily / Weekly / …). Inside it, habits are split into
 // their named routine (or "No routine"), and can be dragged to reorder within
 // a routine. Grab the ⠿ handle to drag; each row has a routine dropdown.
-function RoutineSection({ cadenceName, list, habitLog, habitLogAuto, streaks, autoTrackedIds = new Set(), autoStatusFor = () => '', nextLogOverride, onSetNextLog, onUpdate, openMenu, onCycleMark, routineOptions, onReorder, onSetRoutine, onBulkMark, onOpen, onMakeAutomatic, showAutoStatus = false }) {
-  const [drag, setDrag] = useState(null); // { id, groupKey }
+function RoutineSection({ cadenceName, list, habitLog, habitLogAuto, streaks, autoTrackedIds = new Set(), autoStatusFor = () => '', nextLogOverride, onSetNextLog, onUpdate, openMenu, onCycleMark, onReorder, routineOrder, onReorderRoutines, onMoveToRoutine, onBulkMark, onOpen, onMakeAutomatic, showAutoStatus = false }) {
+  // What's being dragged: a habit row { id, groupKey }, or a whole routine
+  // group { routine } (grabbed by its heading).
+  const [drag, setDrag] = useState(null);
   const [editingNext, setEditingNext] = useState(false);
   // Press-and-hold a habit name → how close it is to the Automatically status.
   // Kept here rather than on the page: `list` already holds the habit and
@@ -3973,21 +3993,22 @@ function RoutineSection({ cadenceName, list, habitLog, habitLogAuto, streaks, au
     ? Math.max(...weeklyRec.weekDays.map(d => WD_NAMES.indexOf(d))) // WD_NAMES[0]=sunday
     : 0;
   const weekCols = periodStripCols(cadenceCanon(cadenceName), weekLogOffset);
-  // Resizable columns (Habit, %, then one per period). Widths persist in
+  // Resizable columns (Habit, one per period, then %). Widths persist in
   // localStorage, keyed by column count so cadences with different strip lengths
   // don't overwrite each other's saved widths.
-  // Column order: Habit, one per period, then % and the routine dropdown on the
-  // far right. Storage key is bumped to v2 because that order changed.
-  const colStorageKey = `habitWeeklyColWidths-v2-${3 + weekCols.length}`;
+  // Column order: Habit, one per period, then %. Storage key is bumped to v3
+  // because the routine-dropdown column was removed (a habit's routine is the
+  // group it sits in — drag it to another group, or edit it in the habit popup).
+  const colStorageKey = `habitWeeklyColWidths-v3-${2 + weekCols.length}`;
   // Weekly columns carry a full date span ("Jul 12 – 18") so they need more room
   // than a single day/month/year label.
   const periodColW = cadenceCanon(cadenceName) === 'Weekly' ? 72 : 46;
   const [colWidths, setColWidths] = useState(() => {
     try {
       const s = JSON.parse(localStorage.getItem(colStorageKey));
-      if (Array.isArray(s) && s.length === 3 + weekCols.length && s.every(n => typeof n === 'number')) return s;
+      if (Array.isArray(s) && s.length === 2 + weekCols.length && s.every(n => typeof n === 'number')) return s;
     } catch { /* ignore */ }
-    return [220, ...Array(weekCols.length).fill(periodColW), 46, 130];
+    return [220, ...Array(weekCols.length).fill(periodColW), 46];
   });
   const isAuto = h => (h.status || '').trim() === 'Automatically';
   // Three buckets, mirroring the mobile Routines tab:
@@ -4052,28 +4073,49 @@ function RoutineSection({ cadenceName, list, habitLog, habitLogAuto, streaks, au
       if (!map.has(key)) map.set(key, []);
       map.get(key).push(h);
     }
-    return [...map.entries()];
-  }, [shownList]);
+    // A hand-dragged routine order wins; routines it doesn't mention keep
+    // the built-in order below the ones it does.
+    const saved = Array.isArray(routineOrder) ? routineOrder : [];
+    const rank = key => { const i = saved.indexOf(key); return i < 0 ? Infinity : i; };
+    return [...map.entries()]
+      .map((g, i) => ({ g, i, r: rank(g[0]) }))
+      .sort((a, b) => (a.r === b.r ? a.i - b.i : a.r - b.r))
+      .map(x => x.g);
+  }, [shownList, routineOrder]);
 
+  // Drop on a habit row (targetId) or on a routine heading (targetId null).
   function handleDrop(targetId, groupKey, groupItems) {
     const d = drag;
     setDrag(null);
-    if (!d || d.groupKey !== groupKey || d.id === targetId) return;
+    if (!d) return;
+    // A routine group dropped on another group: take that group's place.
+    if (d.routine !== undefined) {
+      if (d.routine === groupKey) return;
+      const keys = subGroups.map(([k]) => k);
+      const from = keys.indexOf(d.routine);
+      const to = keys.indexOf(groupKey);
+      if (from < 0 || to < 0) return;
+      keys.splice(to, 0, keys.splice(from, 1)[0]);
+      onReorderRoutines?.(cadenceCanon(cadenceName), keys);
+      return;
+    }
+    if (d.id === targetId) return;
     const ids = groupItems.map(x => x.id);
+    if (d.groupKey !== groupKey) {
+      // A habit dropped into another routine: it joins that routine where it
+      // landed (at the end when dropped on the heading).
+      const to = targetId == null ? ids.length : ids.indexOf(targetId);
+      if (to < 0) return;
+      ids.splice(to, 0, d.id);
+      onMoveToRoutine?.(d.id, groupKey, ids);
+      return;
+    }
+    if (targetId == null) return;
     const from = ids.indexOf(d.id);
     const to = ids.indexOf(targetId);
     if (from < 0 || to < 0) return;
     ids.splice(to, 0, ids.splice(from, 1)[0]);
     onReorder(ids);
-  }
-
-  function chooseRoutine(id, val) {
-    if (val === '__new__') {
-      const name = window.prompt('New routine name:');
-      if (name && name.trim()) onSetRoutine(id, name.trim());
-      return;
-    }
-    onSetRoutine(id, val);
   }
 
   // ---- Weekly table + bulk-edit helpers ----------------------------------
@@ -4159,7 +4201,7 @@ function RoutineSection({ cadenceName, list, habitLog, habitLogAuto, streaks, au
     return (
       <tr
         key={h.id}
-        onDragOver={!canDrag ? undefined : (e) => { if (drag && drag.groupKey === groupKey) e.preventDefault(); }}
+        onDragOver={!canDrag ? undefined : (e) => { if (drag) e.preventDefault(); }}
         onDrop={!canDrag ? undefined : (e) => { e.preventDefault(); handleDrop(h.id, groupKey, groupItems); }}
         style={{ background: dragging ? ACCENT + '0f' : undefined, opacity: dragging ? 0.5 : 1 }}
       >
@@ -4170,7 +4212,7 @@ function RoutineSection({ cadenceName, list, habitLog, habitLogAuto, streaks, au
                 draggable
                 onDragStart={(e) => { setDrag({ id: h.id, groupKey }); e.dataTransfer.effectAllowed = 'move'; }}
                 onDragEnd={() => setDrag(null)}
-                title="Drag to reorder within this routine"
+                title="Drag to reorder, or onto another routine to move it there"
                 style={{ cursor: 'grab', color: '#cbd5e1', fontSize: '0.9rem', userSelect: 'none', lineHeight: 1 }}
               >⠿</span>
             )}
@@ -4234,24 +4276,15 @@ function RoutineSection({ cadenceName, list, habitLog, habitLogAuto, streaks, au
                 style={{ flexShrink: 0, fontSize: '0.62rem', fontWeight: 700, color: ACCENT, background: ACCENT + '14', border: `1px solid ${ACCENT}33`, borderRadius: 5, padding: '1px 5px', lineHeight: 1.4 }}
               >{habitWeekDayLabel(h)}</span>
             )}
-            {/* Per-row next-log date. The section header only has room for the
-                soonest one, which hides the fact that a pinned habit is on a
-                different day from the rest of the section. */}
-            {cadenceCanon(cadenceName) === 'Weekly' && !muted && (() => {
-              const s = weeklyHabitSchedule(h, weeklyRec, habitLog);
-              return (
-                <span
-                  title={s.dueNow
-                    ? `Its ${capWord(habitWeekDays(h)[0])} has arrived and this week is still blank`
-                    : `Next log: ${s.date.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })}`}
-                  style={{ flexShrink: 0, fontSize: '0.62rem', fontWeight: s.dueNow ? 700 : 600, color: s.dueNow ? '#dc2626' : 'var(--color-text-muted, #94a3b8)', whiteSpace: 'nowrap' }}
-                >
-                  {s.dueNow
-                    ? 'Due today'
-                    : `Next: ${s.date.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}`}
-                </span>
-              );
-            })()}
+            {/* "Due today" for a pinned Weekly habit whose day has arrived. The
+                "Next: <date>" label that used to sit here on every other row
+                was removed as clutter — the section header carries the date. */}
+            {cadenceCanon(cadenceName) === 'Weekly' && !muted && weeklyHabitSchedule(h, weeklyRec, habitLog).dueNow && (
+              <span
+                title={`Its ${capWord(habitWeekDays(h)[0])} has arrived and this week is still blank`}
+                style={{ flexShrink: 0, fontSize: '0.62rem', fontWeight: 700, color: '#dc2626', whiteSpace: 'nowrap' }}
+              >Due today</span>
+            )}
             {autoTrackedIds.has(h.id) && <AutoNameBadge />}
             {/* Status "Automatically" rows sit inline with the rest now, so the
                 badge is what tells them apart (the old "Automatic" heading did). */}
@@ -4366,22 +4399,8 @@ function RoutineSection({ cadenceName, list, habitLog, habitLogAuto, streaks, au
             </td>
           );
         })}
-        {/* % completion + routine dropdown live on the far right. */}
+        {/* % completion lives on the far right. */}
         <td title={`${habitKpiTooltip(h, habitLog)}\n\n${habitStreakTooltip(h, streak)}`} style={{ ...tdBase, borderLeft: `1px solid ${borderCol}`, textAlign: 'center', fontSize: '0.78rem', color: muted ? '#cbd5e1' : 'var(--color-text-muted)', cursor: 'help' }}>{pct != null ? `${pct}%` : ''}</td>
-        <td style={{ ...tdBase, borderLeft: `1px solid ${borderCol}`, textAlign: 'center' }}>
-          {!bulkMode && (
-            <select
-              value={groupKey}
-              onChange={e => chooseRoutine(h.id, e.target.value)}
-              title="Routine"
-              style={{ fontSize: '0.7rem', padding: '2px 4px', borderRadius: 6, border: `1px solid ${borderCol}`, background: 'var(--color-surface, #fff)', color: 'var(--color-text-muted, #64748b)', maxWidth: '100%' }}
-            >
-              <option value="">No routine</option>
-              {routineOptions.map(r => <option key={r} value={r}>{r}</option>)}
-              <option value="__new__">＋ New routine…</option>
-            </select>
-          )}
-        </td>
       </tr>
     );
   };
@@ -4544,19 +4563,33 @@ function RoutineSection({ cadenceName, list, habitLog, habitLogAuto, streaks, au
                   <th style={{ ...thBase, position: 'relative', textAlign: 'center', borderLeft: `1px solid ${borderCol}`, fontSize: '0.66rem', fontWeight: 700, color: 'var(--color-text-muted, #64748b)' }} title={`Completion over ${habitWindowLabel(canon)}`}>
                     %{colResizeHandle(1 + weekCols.length)}
                   </th>
-                  <th style={{ ...thBase, position: 'relative', textAlign: 'center', borderLeft: `1px solid ${borderCol}`, fontSize: '0.66rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--color-text-muted, #64748b)' }}>
-                    Routine{colResizeHandle(2 + weekCols.length)}
-                  </th>
                 </tr>
               </thead>
               {subGroups.map(([routineKey, items]) => (
                 <tbody key={routineKey || '__none__'}>
-                  <tr>
+                  {/* Routine heading: drag its handle onto another routine to
+                      reorder the groups; drop a habit on it to move the habit
+                      into this routine. */}
+                  <tr
+                    onDragOver={(e) => { if (drag) e.preventDefault(); }}
+                    onDrop={(e) => { e.preventDefault(); handleDrop(null, routineKey, items); }}
+                    style={{ opacity: drag?.routine === routineKey ? 0.5 : 1 }}
+                  >
                     <td
-                      colSpan={3 + weekCols.length}
+                      colSpan={2 + weekCols.length}
                       onClick={bulkMode ? () => toggleGroup(items) : undefined}
                       style={{ padding: '0.4rem 6px 0.15rem', fontSize: '0.68rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: routineKey ? ACCENT : '#94a3b8', cursor: bulkMode ? 'pointer' : 'default' }}
                     >
+                      {!bulkMode && subGroups.length > 1 && (
+                        <span
+                          draggable
+                          data-routine-handle={routineKey || 'No routine'}
+                          onDragStart={(e) => { setDrag({ routine: routineKey }); e.dataTransfer.effectAllowed = 'move'; }}
+                          onDragEnd={() => setDrag(null)}
+                          title="Drag to reorder routines"
+                          style={{ cursor: 'grab', color: '#cbd5e1', fontSize: '0.9rem', userSelect: 'none', lineHeight: 1, marginRight: 6 }}
+                        >⠿</span>
+                      )}
                       {routineKey || 'No routine'}{bulkMode && <span style={{ color: '#cbd5e1', fontWeight: 600, textTransform: 'none', letterSpacing: 0 }}> · select group</span>}
                     </td>
                   </tr>
@@ -4566,7 +4599,7 @@ function RoutineSection({ cadenceName, list, habitLog, habitLogAuto, streaks, au
               {showAutoStatus && statusAutoList.length > 0 && (
                 <tbody>
                   <tr>
-                    <td colSpan={3 + weekCols.length} style={{ padding: '0.55rem 6px 0.15rem', fontSize: '0.7rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: '#94a3b8' }}>Automatically (status)</td>
+                    <td colSpan={2 + weekCols.length} style={{ padding: '0.55rem 6px 0.15rem', fontSize: '0.7rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: '#94a3b8' }}>Automatically (status)</td>
                   </tr>
                   {statusAutoList.map(h => weeklyRow(h, true, (h.routine || '').trim(), statusAutoList))}
                 </tbody>
