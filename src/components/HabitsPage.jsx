@@ -3411,7 +3411,11 @@ function RoutinesView({ habits, habitLog, habitLogAuto, streaks, autoTrackedIds 
     // get a jump in the opposite direction. Its heuristics are also why the
     // jump survives today: native anchoring gives up when the element it picked
     // is the one that got removed, which is exactly the past-due banner's case.
-    <div style={{ overflowAnchor: 'none' }}>
+    //
+    // paddingRight leaves an empty gutter down the right-hand side of the
+    // Routines tab. It is zero up to a 900px-wide window (no room to spare on a
+    // phone or a narrow one), then grows with the window to at most 12rem.
+    <div style={{ overflowAnchor: 'none', paddingRight: 'clamp(0px, calc((100vw - 900px) * 0.25), 12rem)' }}>
       {searchBar}
       {/* Daily / Weekly / Monthly view switch */}
       <div style={{ display: 'flex', gap: 4, marginBottom: '0.85rem', background: '#f1f5f9', borderRadius: 10, padding: 3, width: 'fit-content' }}>
