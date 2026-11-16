@@ -687,9 +687,6 @@ export function RecipeDetail({ recipe, allTags = [], onSave, onDelete, onBack, o
     setAdjustmentsMade(value);
     if (onPersistFields) onPersistFields({ adjustmentsMade: value });
   }
-  const [cookMode, setCookMode] = useState(() => {
-    try { return localStorage.getItem('sunday-cook-mode') === 'true'; } catch { return false; }
-  });
 
   // "Keep screen on" — holds a Screen Wake Lock for a user-chosen number of
   // minutes (e.g. while cooking) then auto-releases. Uses the Web Wake Lock API
@@ -760,11 +757,12 @@ export function RecipeDetail({ recipe, allTags = [], onSave, onDelete, onBack, o
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [keepAwakeRemaining]);
 
-  // Auto-enable the lock (at the chosen duration) whenever Cook Mode turns on.
+  // Auto-enable the lock (at the chosen duration) when a recipe opens: the
+  // step-by-step view is the only one, so opening a recipe is starting to cook.
   useEffect(() => {
-    if (cookMode && wakeLockSupported) startKeepAwake();
+    if (wakeLockSupported) startKeepAwake();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cookMode]);
+  }, []);
 
   const editingIngredients = editing;
 
@@ -1864,7 +1862,7 @@ export function RecipeDetail({ recipe, allTags = [], onSave, onDelete, onBack, o
     setStepDragOverIdx(null);
   }
 
-  // Dragging an ingredient row beside a step (Standard View). `pos` is the
+  // Dragging an ingredient row beside a step (the step-by-step view). `pos` is the
   // row's position in that step's stepIngredients list; dropping on a row
   // takes its place, dropping elsewhere on a step appends to that step.
   const [ingDrag, setIngDrag] = useState(null); // { si, pos }
@@ -4095,36 +4093,6 @@ export function RecipeDetail({ recipe, allTags = [], onSave, onDelete, onBack, o
               </div>
             )}
           </div>
-          <button className={cookMode ? styles.cookModeBtnActive : styles.cookModeBtn} onClick={() => {
-            setCookMode(prev => {
-              const next = !prev;
-              localStorage.setItem('sunday-cook-mode', String(next));
-              // Auto-populate stepIngredients if entering cook mode and none assigned
-              if (next && Object.keys(fields.stepIngredients || {}).length === 0) {
-                const newMap = {};
-                fields.steps.forEach((stepText, si) => {
-                  const stepLower = (stepText || '').replace(/<[^>]*>/g, '').toLowerCase();
-                  const matched = [];
-                  fields.ingredients.forEach((ing, ii) => {
-                    const name = (ing.ingredient || '').trim().toLowerCase();
-                    if (!name) return;
-                    // Match ingredient name or first word in step text
-                    const words = name.split(/\s+/);
-                    if (stepLower.includes(name) || words.some(w => w.length > 3 && stepLower.includes(w))) {
-                      matched.push(ii);
-                    }
-                  });
-                  if (matched.length > 0) newMap[si] = matched;
-                });
-                if (Object.keys(newMap).length > 0) {
-                  setFields(prev => ({ ...prev, stepIngredients: newMap }));
-                }
-              }
-              return next;
-            });
-          }}>
-            {cookMode ? 'Standard View' : 'Cook Mode'}
-          </button>
           {wakeLockSupported && (
             <>
               <button
@@ -4152,7 +4120,6 @@ export function RecipeDetail({ recipe, allTags = [], onSave, onDelete, onBack, o
         </div>
 
         {renameIng && renameIngPopover()}
-        {cookMode ? (
           <div className={styles.cookModeView}>
                 {(editing ? fields.steps : fields.steps.filter(s => s.trim())).map((step, si) => {
                   const assignedIndices = fields.stepIngredients[si] || [];
@@ -4178,9 +4145,36 @@ export function RecipeDetail({ recipe, allTags = [], onSave, onDelete, onBack, o
                         if (ingDrag) { dropStepIngredient(e, si, assignedIndices.length); return; }
                         handleStepDrop(e, si);
                       }}
-                      onDragEnd={() => { setStepDragIdx(null); setStepDragOverIdx(null); }}
+                      onDragEnd={handleStepDragEnd}
                     >
-                    {(fields.stepSections || {})[si] && (
+                    {editing ? (
+                      (fields.stepSections || {})[si] !== undefined && (
+                        <div className={styles.stepSectionRow}>
+                          <input
+                            className={styles.stepSectionInput}
+                            type="text"
+                            value={(fields.stepSections || {})[si] || ''}
+                            onChange={e => {
+                              const val = e.target.value;
+                              setFields(prev => ({ ...prev, stepSections: { ...prev.stepSections, [si]: val } }));
+                            }}
+                            placeholder="Section title (e.g. Sauce, Rice, Assembly...)"
+                          />
+                          <button
+                            className={styles.stepSectionRemove}
+                            type="button"
+                            title="Remove section title"
+                            onClick={() => {
+                              setFields(prev => {
+                                const next = { ...prev.stepSections };
+                                delete next[si];
+                                return { ...prev, stepSections: next };
+                              });
+                            }}
+                          >&times;</button>
+                        </div>
+                      )
+                    ) : (fields.stepSections || {})[si] && (
                       <div className={styles.cookModeSectionTitle}>{fields.stepSections[si]}</div>
                     )}
                     <table className={styles.cookModeTable}>
@@ -4190,7 +4184,32 @@ export function RecipeDetail({ recipe, allTags = [], onSave, onDelete, onBack, o
                         <td className={styles.cookModeStep} rowSpan={Math.max(1, assignedIngs.length)}>
                           <div className={styles.cookModeStepHeader}>
                             {editing && <span className={styles.cookModeDragHandle} draggable onDragStart={e => handleStepDragStart(e, si)} title="Drag to reorder">&#x2630;</span>}
-                            <span className={styles.cookModeStepNum}>{(fields.stepTitles || {})[si] || `Step ${si + 1}`}</span>
+                            {editing ? (
+                              <>
+                                <input
+                                  className={styles.stepLabelInput}
+                                  type="text"
+                                  value={(fields.stepTitles || {})[si] || ''}
+                                  onChange={e => {
+                                    const val = e.target.value;
+                                    setFields(prev => ({ ...prev, stepTitles: { ...prev.stepTitles, [si]: val } }));
+                                  }}
+                                  placeholder={`Step ${si + 1}`}
+                                />
+                                {(fields.stepSections || {})[si] === undefined && (
+                                  <button
+                                    className={styles.stepSectionAddBtn}
+                                    type="button"
+                                    title="Add section title above this step"
+                                    onClick={() => {
+                                      setFields(prev => ({ ...prev, stepSections: { ...prev.stepSections, [si]: '' } }));
+                                    }}
+                                  >+ Section</button>
+                                )}
+                              </>
+                            ) : (
+                              <span className={styles.cookModeStepNum}>{(fields.stepTitles || {})[si] || `Step ${si + 1}`}</span>
+                            )}
                             {editing && fields.steps.filter(s => s.trim()).length > 1 && (
                               <button className={styles.cookModeStepDelete} onClick={() => {
                                 const realIdx = fields.steps.indexOf(step);
@@ -4407,6 +4426,9 @@ export function RecipeDetail({ recipe, allTags = [], onSave, onDelete, onBack, o
                     </div>
                   );
                 })}
+            {!editing && fields.steps.filter(s => s.trim()).length === 0 && (
+              <p className={styles.emptyText}>No instructions yet</p>
+            )}
             {editing && (
               <>
                 <button className={styles.addRowBtn} type="button" onClick={addStep}>
@@ -4438,145 +4460,6 @@ export function RecipeDetail({ recipe, allTags = [], onSave, onDelete, onBack, o
               );
             })()}
           </div>
-        ) : (
-        <>
-        {editing ? (
-          <>
-            <ol className={styles.stepsList}>
-              {fields.steps.map((step, i) => (
-                <li
-                  key={i}
-                  className={`${styles.stepRow} ${stepDragIdx === i ? styles.draggingRow : ''} ${stepDragOverIdx === i ? styles.dragOverRow : ''}`}
-                  draggable
-                  onDragStart={e => handleStepDragStart(e, i)}
-                  onDragOver={e => handleStepDragOver(e, i)}
-                  onDrop={e => handleStepDrop(e, i)}
-                  onDragEnd={handleStepDragEnd}
-                >
-                  {(fields.stepSections || {})[i] !== undefined && (
-                    <div className={styles.stepSectionRow}>
-                      <input
-                        className={styles.stepSectionInput}
-                        type="text"
-                        value={(fields.stepSections || {})[i] || ''}
-                        onChange={e => {
-                          const val = e.target.value;
-                          setFields(prev => ({ ...prev, stepSections: { ...prev.stepSections, [i]: val } }));
-                        }}
-                        placeholder="Section title (e.g. Sauce, Rice, Assembly...)"
-                      />
-                      <button
-                        className={styles.stepSectionRemove}
-                        type="button"
-                        title="Remove section title"
-                        onClick={() => {
-                          setFields(prev => {
-                            const next = { ...prev.stepSections };
-                            delete next[i];
-                            return { ...prev, stepSections: next };
-                          });
-                        }}
-                      >&times;</button>
-                    </div>
-                  )}
-                  <div className={styles.stepHeader}>
-                    <span className={styles.dragHandle} title="Drag to reorder">≡</span>
-                    <input
-                      className={styles.stepLabelInput}
-                      type="text"
-                      value={(fields.stepTitles || {})[i] || ''}
-                      onChange={e => {
-                        const val = e.target.value;
-                        setFields(prev => ({ ...prev, stepTitles: { ...prev.stepTitles, [i]: val } }));
-                      }}
-                      placeholder={`Step ${i + 1}`}
-                    />
-                    {(fields.stepSections || {})[i] === undefined && (
-                      <button
-                        className={styles.stepSectionAddBtn}
-                        type="button"
-                        title="Add section title above this step"
-                        onClick={() => {
-                          setFields(prev => ({ ...prev, stepSections: { ...prev.stepSections, [i]: '' } }));
-                        }}
-                      >+ Section</button>
-                    )}
-                  </div>
-                  <div className={styles.stepInputWrap}>
-                    <div
-                      key={`std-${i}-v${stepVersion}`}
-                      className={styles.stepInput}
-                      contentEditable
-                      suppressContentEditableWarning
-                      ref={el => { if (el && !el.dataset.init) { el.innerHTML = step || ''; el.dataset.init = '1'; } }}
-                      onInput={e => {
-                        if (autoSaveRef.current) clearTimeout(autoSaveRef.current);
-                        const target = e.currentTarget;
-                        if (!target) return;
-                        const html = target.innerHTML;
-                        const idx = i;
-                        autoSaveRef.current = setTimeout(() => {
-                          updateStep(idx, html);
-                        }, 2000);
-                      }}
-                      onBlur={e => {
-                        if (autoSaveRef.current) clearTimeout(autoSaveRef.current);
-                        const target = e.currentTarget;
-                        if (!target) return;
-                        updateStep(i, target.innerHTML);
-                      }}
-                      onKeyDown={e => {
-                        if (e.key === 'b' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); applyFormat('bold'); }
-                        if (e.key === 'i' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); applyFormat('italic'); }
-                        if (e.key === 'u' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); applyFormat('underline'); }
-                      }}
-                      data-placeholder={`Step ${i + 1}...`}
-                    />
-                    {fields.steps.length > 1 && (
-                      <button
-                        className={styles.removeBtn}
-                        type="button"
-                        onClick={() => removeStep(i)}
-                      >
-                        &times;
-                      </button>
-                    )}
-                  </div>
-                </li>
-              ))}
-            </ol>
-            <button className={styles.addRowBtn} type="button" onClick={addStep}>
-              + Add step
-            </button>
-            <button className={styles.addRowBtn} type="button" onClick={() => setShowStepPaste(true)}>
-              📋 Paste from Sheets/Excel
-            </button>
-            <button className={styles.addRowBtn} type="button" onClick={() => setPhotoImport('steps')}>
-              📷 From a photo
-            </button>
-          </>
-        ) : (
-          <ol className={styles.stepsListReadonly}>
-            {fields.steps.map((step, origIdx) => ({ step, origIdx })).filter(({ step }) => step.trim()).map(({ step, origIdx }, i) => (
-              <React.Fragment key={i}>
-                {(fields.stepSections || {})[origIdx] && (
-                  <li className={styles.stepSectionTitle}>{fields.stepSections[origIdx]}</li>
-                )}
-                <li className={styles.stepReadonly}>
-                  {(fields.stepTitles || {})[origIdx] && (
-                    <span className={styles.stepReadonlyTitle}>{fields.stepTitles[origIdx]}: </span>
-                  )}
-                  {renderFormattedText(step)}
-                </li>
-              </React.Fragment>
-            ))}
-            {fields.steps.filter(s => s.trim()).length === 0 && (
-              <p className={styles.emptyText}>No instructions yet</p>
-            )}
-          </ol>
-        )}
-        </>
-        )}
       </div>
 
       {editing && (
