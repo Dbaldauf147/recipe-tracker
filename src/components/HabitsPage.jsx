@@ -3286,7 +3286,7 @@ function RoutinesView({ habits, habitLog, habitLogAuto, streaks, autoTrackedIds 
 
   // How many hidden `status:'Automatically'` habits the toggle would reveal.
   // Scoped to the sections on screen (and excluding rule-automated habits, which
-  // have their own "Automatic" block) so the number matches what actually appears.
+  // are always shown, in among the manual rows) so the number matches what actually appears.
   const autoStatusCount = useMemo(
     () => visibleGroups.reduce(
       (n, [, list]) => n + list.filter(h => !autoTrackedIds.has(h.id) && (h.status || '').trim() === 'Automatically').length,
@@ -3992,7 +3992,11 @@ function RoutineSection({ cadenceName, list, habitLog, habitLogAuto, streaks, au
   const isAuto = h => (h.status || '').trim() === 'Automatically';
   // Three buckets, mirroring the mobile Routines tab:
   //   activeList     — what you actually log by hand; the only rows shown by default
-  //   autoList       — an enabled rule logs these on its own ("Automatic" block)
+  //   rule-automated — an enabled rule logs these on its own. They sit IN the
+  //                    routine groups beside the hand-logged rows (greyed, with
+  //                    the A badge) so they can be dragged to any position —
+  //                    between manual habits included. They used to be fenced
+  //                    off in an "Automatic" block at the bottom.
   //   statusAutoList — the manual `status:'Automatically'` opt-out: established
   //                    habits you no longer track. HIDDEN by default (they aren't
   //                    yours to log, so they just pad the list), revealed by the
@@ -4014,15 +4018,17 @@ function RoutineSection({ cadenceName, list, habitLog, habitLogAuto, streaks, au
   // is a property of the SCHEDULE alone — nothing in it can move because of a
   // mark. The badges beside each row still read the real next-due date; it is
   // only the row order that had no business depending on it.
-  const activeList = (() => {
-    const base = list.filter(h => !autoTrackedIds.has(h.id) && !isAuto(h));
+  // Everything on screen by default, in display order: hand-logged and
+  // rule-automated habits together.
+  const shownList = (() => {
+    const base = list.filter(h => autoTrackedIds.has(h.id) || !isAuto(h));
     if (cadenceCanon(cadenceName) !== 'Weekly' || !base.some(h => habitWeekDays(h))) return base;
     return base
       .map((h, i) => ({ h, i, d: weeklyDueOffset(h) ?? weekLogOffset }))
       .sort((a, b) => a.d - b.d || a.i - b.i)
       .map(x => x.h);
   })();
-  const autoList = list.filter(h => autoTrackedIds.has(h.id));
+  const activeList = shownList.filter(h => !autoTrackedIds.has(h.id));
   const statusAutoList = list.filter(h => !autoTrackedIds.has(h.id) && isAuto(h));
   // Red count of trackable habits whose current period is still unlogged
   // (daily habits that are off today don't count as needing a mark).
@@ -4036,18 +4042,18 @@ function RoutineSection({ cadenceName, list, habitLog, habitLogAuto, streaks, au
     return tracksDate(h);
   }).length;
 
-  // Sub-group active habits by routine. activeList is already sorted
+  // Sub-group the shown habits by routine. shownList is already sorted
   // (routine rank → manual order → name), so groups emerge in routine order and
   // rows within a group in their drag order.
   const subGroups = useMemo(() => {
     const map = new Map();
-    for (const h of activeList) {
+    for (const h of shownList) {
       const key = (h.routine || '').trim();
       if (!map.has(key)) map.set(key, []);
       map.get(key).push(h);
     }
     return [...map.entries()];
-  }, [activeList]);
+  }, [shownList]);
 
   function handleDrop(targetId, groupKey, groupItems) {
     const d = drag;
@@ -4087,7 +4093,7 @@ function RoutineSection({ cadenceName, list, habitLog, habitLogAuto, streaks, au
   const toggleMany = (ids) => { const allOn = ids.length > 0 && ids.every(id => selected.has(id)); setCells(ids, !allOn); };
   const toggleColumn = (key) => toggleMany(activeList.map(h => cellId(h.id, key)));
   const toggleRow = (habitId) => toggleMany(weekCols.map(w => cellId(habitId, w.key)));
-  const toggleGroup = (items) => toggleMany(items.flatMap(h => weekCols.map(w => cellId(h.id, w.key))));
+  const toggleGroup = (items) => toggleMany(items.filter(h => !autoTrackedIds.has(h.id)).flatMap(h => weekCols.map(w => cellId(h.id, w.key))));
   const clearSel = () => setSelected(new Set());
   const applyBulk = (mark) => {
     const cells = [...selected].map(id => { const i = id.lastIndexOf('|'); return { habitId: id.slice(0, i), key: id.slice(i + 1) }; });
@@ -4128,13 +4134,16 @@ function RoutineSection({ cadenceName, list, habitLog, habitLogAuto, streaks, au
   // One <tr> in the table: name (+ drag / routine), status, %, then a
   // mark cell per week. In bulk mode, cells/name toggle selection instead of
   // opening the single-cell menu. Automatic (muted) habits are greyed and stay
-  // out of drag/bulk/past-due, but their CELLS are still clickable — the engine
+  // out of bulk/past-due (rule-automated ones can still be dragged to reorder),
+  // but their CELLS are still clickable — the engine
   // only ever guesses, so you can always overrule it by hand (and a mark you set
   // yourself is never overwritten; see api/run-habit-automations.js).
   const weeklyRow = (h, muted, groupKey, groupItems) => {
     const pct = habitKpi(h, habitLog);
     const streak = streakOf(streaks, h);
     const dragging = drag?.id === h.id;
+    // Rule-automated rows are muted but still take part in the manual order.
+    const canDrag = !muted || autoTrackedIds.has(h.id);
     // Scheduled occurrence already gone by, still empty (same helper the top-of-
     // page banner uses). Automatic habits aren't the user's to log, so skip them.
     const pastDue = (muted || isAuto(h)) ? null : habitPastDue(h, habitLog, {
@@ -4150,13 +4159,13 @@ function RoutineSection({ cadenceName, list, habitLog, habitLogAuto, streaks, au
     return (
       <tr
         key={h.id}
-        onDragOver={muted ? undefined : (e) => { if (drag && drag.groupKey === groupKey) e.preventDefault(); }}
-        onDrop={muted ? undefined : (e) => { e.preventDefault(); handleDrop(h.id, groupKey, groupItems); }}
+        onDragOver={!canDrag ? undefined : (e) => { if (drag && drag.groupKey === groupKey) e.preventDefault(); }}
+        onDrop={!canDrag ? undefined : (e) => { e.preventDefault(); handleDrop(h.id, groupKey, groupItems); }}
         style={{ background: dragging ? ACCENT + '0f' : undefined, opacity: dragging ? 0.5 : 1 }}
       >
         <td style={{ ...tdBase, minWidth: 150 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            {!muted && !bulkMode && (
+            {canDrag && !bulkMode && (
               <span
                 draggable
                 onDragStart={(e) => { setDrag({ id: h.id, groupKey }); e.dataTransfer.effectAllowed = 'move'; }}
@@ -4442,7 +4451,7 @@ function RoutineSection({ cadenceName, list, habitLog, habitLogAuto, streaks, au
           </span>
         )}
       </div>
-      {activeList.length > 0 && (
+      {shownList.length > 0 && (
         <div style={{ margin: '-0.25rem 0 0.7rem 0.1rem' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
             <span style={{ fontSize: '0.75rem', fontWeight: 600, color: nextLog.dueNow ? '#dc2626' : 'var(--color-text-muted, #64748b)' }}>
@@ -4551,17 +4560,9 @@ function RoutineSection({ cadenceName, list, habitLog, habitLogAuto, streaks, au
                       {routineKey || 'No routine'}{bulkMode && <span style={{ color: '#cbd5e1', fontWeight: 600, textTransform: 'none', letterSpacing: 0 }}> · select group</span>}
                     </td>
                   </tr>
-                  {items.map(h => weeklyRow(h, false, routineKey, items))}
+                  {items.map(h => weeklyRow(h, autoTrackedIds.has(h.id), routineKey, items))}
                 </tbody>
               ))}
-              {autoList.length > 0 && (
-                <tbody>
-                  <tr>
-                    <td colSpan={3 + weekCols.length} style={{ padding: '0.55rem 6px 0.15rem', fontSize: '0.7rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: '#94a3b8' }}>Automatic</td>
-                  </tr>
-                  {autoList.map(h => weeklyRow(h, true, (h.routine || '').trim(), autoList))}
-                </tbody>
-              )}
               {showAutoStatus && statusAutoList.length > 0 && (
                 <tbody>
                   <tr>
