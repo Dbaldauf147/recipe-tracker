@@ -3217,11 +3217,24 @@ function Kpi({ label, value, hint, title }) {
   );
 }
 
+const NAME_COL_KEY = 'habitRoutinesNameColW';
+const NAME_COL_DEFAULT = 380;
+
 function RoutinesView({ habits, habitLog, habitLogAuto, streaks, autoTrackedIds = new Set(), autoStatusFor = () => '', nextLogMap, onSetNextLog, onUpdate, openMenu, onCycleMark, onMove, onReorder, routineOrder = {}, onReorderRoutines, onMoveToRoutine, onRenameRoutine, onDeleteRoutine, onBulkMark, onOpen, onMakeAutomatic }) {
   // Habits parked on `status:'Automatically'` are established — tracked for you,
   // never yours to log — so they're hidden from the routine groups by default
   // and revealed by the toggle below. Mirrors the mobile Routines tab.
   const [showAutoStatus, setShowAutoStatus] = useState(false);
+  // Width of the Habit (name) column — ONE value for every cadence section, so
+  // the log grids all start at the same x however many period columns each
+  // section has. Resizing it in any section resizes it in all of them.
+  const [nameColW, setNameColW] = useState(() => {
+    try {
+      const n = parseFloat(localStorage.getItem(NAME_COL_KEY));
+      if (Number.isFinite(n) && n >= 120) return n;
+    } catch { /* ignore */ }
+    return NAME_COL_DEFAULT;
+  });
   // Group by the habit's tracking FREQUENCY (cadence), so setting a habit to
   // Weekly makes it show up under the Weekly section. Sections are ordered
   // Daily → Weekly → Monthly → Annually. Within a section, habits stay clustered
@@ -3493,7 +3506,7 @@ function RoutinesView({ habits, habitLog, habitLogAuto, streaks, autoTrackedIds 
       ) : (
         <div ref={sectionsRef} style={{ display: 'flex', flexDirection: 'column', gap: '1.4rem' }}>
           {visibleGroups.map(([cadenceName, list]) => (
-            <RoutineSection key={cadenceName} cadenceName={cadenceName} list={list} habitLog={habitLog} habitLogAuto={habitLogAuto} streaks={streaks} autoTrackedIds={autoTrackedIds} autoStatusFor={autoStatusFor} nextLogOverride={(nextLogMap || {})[cadenceName] || ''} onSetNextLog={onSetNextLog} onUpdate={onUpdate} openMenu={openMenu} onCycleMark={onCycleMark} onReorder={onReorder} routineOrder={routineOrder[cadenceName]} onReorderRoutines={onReorderRoutines} onMoveToRoutine={onMoveToRoutine} onBulkMark={onBulkMark} onOpen={onOpen} onMakeAutomatic={onMakeAutomatic} showAutoStatus={showAutoStatus} />
+            <RoutineSection key={cadenceName} cadenceName={cadenceName} list={list} habitLog={habitLog} habitLogAuto={habitLogAuto} streaks={streaks} autoTrackedIds={autoTrackedIds} autoStatusFor={autoStatusFor} nextLogOverride={(nextLogMap || {})[cadenceName] || ''} onSetNextLog={onSetNextLog} onUpdate={onUpdate} openMenu={openMenu} onCycleMark={onCycleMark} nameColW={nameColW} onNameColW={setNameColW} onReorder={onReorder} routineOrder={routineOrder[cadenceName]} onReorderRoutines={onReorderRoutines} onMoveToRoutine={onMoveToRoutine} onBulkMark={onBulkMark} onOpen={onOpen} onMakeAutomatic={onMakeAutomatic} showAutoStatus={showAutoStatus} />
           ))}
         </div>
       )}
@@ -3947,7 +3960,7 @@ function AutoProgressModal({ habit, habitLog, autoTracked, onMakeAutomatic, onCl
 // One cadence section (Daily / Weekly / …). Inside it, habits are split into
 // their named routine (or "No routine"), and can be dragged to reorder within
 // a routine. Grab the ⠿ handle to drag; each row has a routine dropdown.
-function RoutineSection({ cadenceName, list, habitLog, habitLogAuto, streaks, autoTrackedIds = new Set(), autoStatusFor = () => '', nextLogOverride, onSetNextLog, onUpdate, openMenu, onCycleMark, onReorder, routineOrder, onReorderRoutines, onMoveToRoutine, onBulkMark, onOpen, onMakeAutomatic, showAutoStatus = false }) {
+function RoutineSection({ cadenceName, list, habitLog, habitLogAuto, streaks, autoTrackedIds = new Set(), autoStatusFor = () => '', nextLogOverride, onSetNextLog, onUpdate, openMenu, onCycleMark, nameColW = NAME_COL_DEFAULT, onNameColW, onReorder, routineOrder, onReorderRoutines, onMoveToRoutine, onBulkMark, onOpen, onMakeAutomatic, showAutoStatus = false }) {
   // What's being dragged: a habit row { id, groupKey }, or a whole routine
   // group { routine } (grabbed by its heading).
   const [drag, setDrag] = useState(null);
@@ -4124,18 +4137,23 @@ function RoutineSection({ cadenceName, list, habitLog, habitLogAuto, streaks, au
     onBulkMark?.(cells, mark);
     clearSel();
   };
-  const totalTableWidth = colWidths.reduce((a, b) => a + b, 0);
+  // colWidths[0] is superseded by the shared nameColW (see RoutinesView).
+  const totalTableWidth = nameColW + colWidths.slice(1).reduce((a, b) => a + b, 0);
   const startColResize = (idx, e) => {
     e.preventDefault(); e.stopPropagation();
     const startX = e.clientX;
-    const startW = colWidths[idx];
+    const startW = idx === 0 ? nameColW : colWidths[idx];
+    let lastW = startW;
     const onMove = (ev) => {
-      const w = Math.max(30, startW + (ev.clientX - startX));
-      setColWidths(prev => { const n = [...prev]; n[idx] = w; return n; });
+      const w = Math.max(idx === 0 ? 120 : 30, startW + (ev.clientX - startX));
+      lastW = w;
+      if (idx === 0) onNameColW?.(w);
+      else setColWidths(prev => { const n = [...prev]; n[idx] = w; return n; });
     };
     const onUp = () => {
       window.removeEventListener('mousemove', onMove);
       window.removeEventListener('mouseup', onUp);
+      if (idx === 0) { try { localStorage.setItem(NAME_COL_KEY, String(lastW)); } catch { /* ignore */ } return; }
       setColWidths(prev => { try { localStorage.setItem(colStorageKey, JSON.stringify(prev)); } catch { /* ignore */ } return prev; });
     };
     window.addEventListener('mousemove', onMove);
@@ -4522,7 +4540,15 @@ function RoutineSection({ cadenceName, list, habitLog, habitLogAuto, streaks, au
           <div style={{ overflowX: 'auto' }}>
             <table style={{ borderCollapse: 'collapse', tableLayout: 'fixed', width: '100%', minWidth: totalTableWidth, fontSize: '0.8rem' }}>
               <colgroup>
-                {colWidths.map((w, i) => <col key={i} style={{ width: w }} />)}
+                {/* The Habit and % columns are fixed; the period columns carry
+                    no width, so they share whatever is left equally. That
+                    keeps the Habit column the same width in every section
+                    (a stretched fixed-layout table would otherwise scale it
+                    with the others). Their saved widths still set the
+                    table's minimum, i.e. when it starts to scroll. */}
+                {colWidths.map((w, i) => (
+                  <col key={i} style={i === 0 ? { width: nameColW } : i === colWidths.length - 1 ? { width: w } : undefined} />
+                ))}
               </colgroup>
               <thead>
                 <tr>
