@@ -1112,7 +1112,9 @@ test('habit status: groups, days to Automatic and the up-next queue', () => {
   assert.deepEqual(now.habits[2].auto, { kind: 'notDaily' });
   assert.deepEqual(refreshing.habits.map(h => [h.name, h.auto.days]), [['Stretch', 60]]);
   // Starred first, then Wave 2; "Later" is left off once something is lined up.
-  assert.deepEqual(s.upNext, [{ name: 'Meditate', starred: true }, { name: 'Journal', starred: false }]);
+  assert.deepEqual(s.upNext, [{ name: 'Meditate', starred: true, routine: '' }, { name: 'Journal', starred: false, routine: '' }]);
+  // Split by routine, the ones without one last.
+  assert.deepEqual(now.routines.map(r => [r.routine, r.habits.map(h => h.name)]), [['Night', ['Floss']], ['', ['Read', 'Weekly review']]]);
 });
 
 test('habit status renders in place of the completion stats', () => {
@@ -1131,6 +1133,43 @@ test('habit status renders in place of the completion stats', () => {
   assert.match(text, /Working on now:\n {4}Floss · 60 days to Automatic/);
   assert.match(text, /Refreshing: none/);
   assert.match(text, /Up next:\n {4}1\. ★ Meditate/);
+});
+
+test('habit status groups each section by routine, in the page\'s routine order', () => {
+  const asOf = new Date(2026, 7, 2, 12);
+  const habits = [
+    { id: 'a', name: 'Weekly mouth guard soak', cadence: 'Weekly', status: 'Current', routine: 'Sunday Reset' },
+    { id: 'b', name: 'Lunch walk', cadence: 'Daily', status: 'Current', routine: 'Lunch' },
+    { id: 'c', name: 'Morning mouthguard wash', cadence: 'Daily', status: 'Current', routine: 'Morning' },
+    { id: 'd', name: '9:15 apartment clean', cadence: 'Daily', status: 'Current', routine: 'Morning' },
+    { id: 'e', name: 'Relationship check in', cadence: 'Weekly', status: 'Current' },
+    { id: 'f', name: 'No Snoozing', cadence: 'Daily', status: 'Refreshing', routine: 'Morning' },
+    { id: 'n', name: 'Chair stretches', status: 'Not Started', nextUp: true, routine: 'Afternoon' },
+    { id: 'm', name: '<b>Odd</b>', status: 'Not Started', wave2: true },
+  ];
+  const s = summarizeHabitStatus(habits, {}, asOf);
+  // Morning before Lunch (the day's order), the weekly routine after the daily
+  // ones, no routine last; alphabetical inside a routine.
+  assert.deepEqual(s.groups[0].routines.map(r => [r.routine, r.habits.map(h => h.name)]), [
+    ['Morning', ['9:15 apartment clean', 'Morning mouthguard wash']],
+    ['Lunch', ['Lunch walk']],
+    ['Sunday Reset', ['Weekly mouth guard soak']],
+    ['', ['Relationship check in']],
+  ]);
+  // The flat list is still there, alphabetical, for anything that wants it.
+  assert.equal(s.groups[0].habits.length, 5);
+
+  const stats = summarizeWeek(emptyData({ habits }), WEEK, { asOf });
+  const prior = summarizeWeek(emptyData({ habits }), previousWeek(WEEK), { asOf });
+  const { html, text } = renderWeeklySummary({ stats, priorStats: prior });
+  // Each routine is a heading over its own habits, in order.
+  assert.match(html, />Morning<\/div>.*9:15 apartment clean.*Morning mouthguard wash.*>Lunch<\/div>.*Lunch walk.*>Sunday Reset<\/div>.*Weekly mouth guard soak.*>No routine<\/div>.*Relationship check in/s);
+  assert.match(html, /1\. ★ Chair stretches <span[^>]*>· Afternoon<\/span>/);
+  assert.match(html, /2\. &lt;b&gt;Odd&lt;\/b&gt;(?! <span)/);
+  assert.match(text, /Working on now:\n {4}Morning:\n {6}9:15 apartment clean · 60 days to Automatic\n {6}Morning mouthguard wash · 60 days to Automatic\n {4}Lunch:\n {6}Lunch walk/);
+  assert.match(text, /No routine:\n {6}Relationship check in · Daily habits only/);
+  assert.match(text, /Refreshing:\n {4}Morning:\n {6}No Snoozing/);
+  assert.match(text, /1\. ★ Chair stretches · Afternoon\n {4}2\. <b>Odd<\/b>\n/);
 });
 
 // ---- Adjustments to make (owner) ------------------------------------------
