@@ -1,5 +1,6 @@
 import { Fragment, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { loadField, loadHabitAutoStatus, subscribeToUserFields } from '../utils/firestoreSync';
+import { DAILY_ROUTINES, routineType, routineRank, groupByRoutine } from '../utils/habitRoutineRank';
 import {
   loadHabitLog, loadHabitLogAuto, subscribeToHabitLog, subscribeToHabitLogAuto,
 } from '../utils/habitLogYears';
@@ -89,7 +90,6 @@ function isLoggableHabit(h) {
   return !NOT_IN_LOGGING_LISTS.includes((h?.status || '').trim());
 }
 
-const DAILY_ROUTINES = ['Morning', 'Lunch', 'Afternoon', 'After Work', 'Bedtime'];
 // "What I'm focused on" statuses, gathered on the Current tab. All three are
 // ordinary active habits everywhere else — in the routines, logged, counted.
 //   Current     a habit you are actively building right now
@@ -336,15 +336,6 @@ const ACCENT = '#3B6B9C';
 // was dismissed for. Mirrors the mobile app's AsyncStorage key.
 const Y_DISMISS_KEY = 'prepday-habits-yesterday-dismissed';
 
-function routineType(routine) {
-  const r = (routine || '').trim();
-  if (DAILY_ROUTINES.includes(r)) return 'daily';
-  if (/^sunday/i.test(r)) return 'weekly';
-  if (/^monthly/i.test(r)) return 'monthly';
-  if (!r || r === '-') return 'unsorted';
-  return 'other';
-}
-
 // Parse a KPI cell to a 0-100 completion % when it looks like one.
 function pctOf(kpi) {
   const s = String(kpi || '').trim();
@@ -353,15 +344,6 @@ function pctOf(kpi) {
   return null;
 }
 
-// Default table sort: routine type (daily → weekly → monthly → other →
-// unsorted), then daily block order / trailing routine number, then Daily #.
-function routineRank(routine) {
-  const r = (routine || '').trim();
-  const typeOrder = { daily: 0, weekly: 1, monthly: 2, other: 3, unsorted: 4 }[routineType(r)];
-  const dailyIdx = DAILY_ROUTINES.indexOf(r);
-  const numMatch = r.match(/(\d+)\s*$/);
-  return { typeOrder, dailyIdx: dailyIdx < 0 ? 50 : dailyIdx, num: numMatch ? parseInt(numMatch[1], 10) : 9999 };
-}
 // Manual drag-order within a routine group. Missing → Infinity so unordered
 // habits sink below explicitly-ordered ones. Shared with the mobile app.
 function habitOrderNum(h) {
@@ -6524,17 +6506,7 @@ function RefreshCountdown({ habit }) {
 // routine at once is how both of them stall, so a routine holding two or more
 // gets a warning above its habits.
 function currentRoutineGroups(habits) {
-  const map = new Map();
-  for (const h of habits) {
-    const key = (h.routine || '').trim();
-    if (!map.has(key)) map.set(key, []);
-    map.get(key).push(h);
-  }
-  return [...map.entries()].sort((a, b) => {
-    if (!a[0] !== !b[0]) return a[0] ? -1 : 1;   // "No routine" last
-    const ra = routineRank(a[0]), rb = routineRank(b[0]);
-    return ra.typeOrder - rb.typeOrder || ra.dailyIdx - rb.dailyIdx || ra.num - rb.num || a[0].localeCompare(b[0]);
-  });
+  return groupByRoutine(habits);
 }
 
 function CurrentByRoutine({ habits, renderList }) {
