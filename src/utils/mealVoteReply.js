@@ -153,14 +153,21 @@ export function parseReply(ballot, text) {
   const picked = new Set();
   let understood = false;
 
-  const rest = typed.replace(/(?<![\d:/.])(\d{1,2})\s*(?:-|–|to)\s*(\d{1,2})(?![\d:/])/g, (all, a, b) => {
+  // Links and addresses are where a signature hides its digits — an Outlook
+  // "book a meeting" URL is a run of hex like …b9e46f08ce… — so they go before
+  // anything is read as a meal number. So does any number glued to a letter or
+  // a '+' (an ID, "2nd", a phone's "+1"): a vote is a number standing alone.
+  const numbers = typed
+    .replace(/<?\b(?:https?:\/\/|mailto:|www\.)[^\s>]*>?/gi, ' ')
+    .replace(/[^\s<>()@]+@[^\s<>()@]+/g, ' ');
+  const rest = numbers.replace(/(?<![\p{L}\d:/.+])(\d{1,2})\s*(?:-|–|to)\s*(\d{1,2})(?![\p{L}\d:/])/gu, (all, a, b) => {
     const from = Number(a);
     const to = Number(b);
     if (from < 1 || to > options.length || from >= to) return all;
     for (let n = from; n <= to; n++) picked.add(options[n - 1].id);
     return ' ';
   });
-  for (const m of rest.matchAll(/(?<![\d:/.])(\d{1,2})(?![\d:/]|\.\d)/g)) {
+  for (const m of rest.matchAll(/(?<![\p{L}\d:/.+])(\d{1,2})(?![\p{L}\d:/]|\.\d)/gu)) {
     const n = Number(m[1]);
     if (n >= 1 && n <= options.length) picked.add(options[n - 1].id);
   }

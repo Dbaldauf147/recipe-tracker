@@ -116,3 +116,38 @@ test('parse: a reply that quotes the whole ballot votes only for what was typed'
   assert.equal(empty.understood, false);
   assert.equal(empty.typed, '');
 });
+
+test('parse: an Outlook signature with a booking link adds no votes', () => {
+  // Ten meals, as the real email has, so stray 2s, 8s and 9s would land.
+  const b = {
+    ...ballot(),
+    options: {
+      breakfast: Array.from({ length: 5 }, (_, i) => ({ id: `b${i + 1}`, title: `Breakfast ${i + 1}` })),
+      'lunch-dinner': Array.from({ length: 5 }, (_, i) => ({ id: `d${i + 1}`, title: `Dinner ${i + 1}` })),
+    },
+  };
+  // What mailparser makes of an Outlook reply: no "-- " before the signature,
+  // the link written out in <…>, then Outlook's quoted header.
+  const reply = [
+    '1, 6, 7',
+    '',
+    'Pat Example',
+    'Senior Manager',
+    'C  +1 (555) 010 0199',
+    'E  pat@example.com<mailto:pat@example.com>',
+    '42 Example Street',
+    'Springfield, ST',
+    '10001 USA',
+    '     Here is a link<https://outlook.office.com/bookwithme/user/4a6302b21b9e46f08ce1a4@example.com/meetingtype/SVRwCe7HMxi68g2?anonymous&ep=mlink> to schedule a meeting on my calendar',
+    '',
+    'General',
+    'From: Prep Day <prepday@gmail.com>',
+    'Sent: Wednesday, November 18, 2026 11:34 AM',
+    '',
+    `Hi Pat,Reply to this email with the numbers of the meals you want — for example: 1, 5, 10Breakfast#Meal1Breakfast 1`,
+  ].join('\n');
+  assert.deepEqual(parseReply(b, reply).picks, ['b1', 'd1', 'd2']);
+  // Digits glued to letters or a '+' are never meal numbers on their own.
+  assert.deepEqual(parseReply(b, 'id x9e and 2nd floor, +1 555').picks, []);
+  assert.deepEqual(parseReply(b, 'see www.example.com/a8b or https://x.co/g2 — 3').picks, ['b3']);
+});
