@@ -1483,6 +1483,11 @@ td.logPerCell.manuallyEdited {
   cursor: pointer;
 }
 .pickerExerciseBtn:hover { background: #EEF2FF; border-color: #C7D2FE; color: #4338CA; }
+.pickerExerciseGroup {
+  margin-left: 0.5rem;
+  font-size: 0.75rem;
+  color: var(--color-text-muted, #6b7280);
+}
 .pickerEmpty {
   padding: 0.5rem 0.75rem;
   color: var(--color-text-muted, #6b7280);

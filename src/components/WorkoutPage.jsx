@@ -2237,9 +2237,20 @@ function GroupExercisePicker({
   }, [group, type, adding, query, onClose]);
 
   const options = group ? exercisesForGroup(group, type) : [];
-  const filtered = query
-    ? options.filter(o => o.toLowerCase().includes(query.toLowerCase()))
+  const q = query.trim().toLowerCase();
+  const filtered = q
+    ? options.filter(o => o.toLowerCase().includes(q))
     : options;
+  // On the muscle-group step the search runs across every group of this
+  // discipline, so an exercise can be found by name without knowing where it
+  // lives. Each hit carries its group, since picking it sets both.
+  const groups = type && !group ? groupsForType(type) : [];
+  const groupHits = q ? groups.filter(g => g.toLowerCase().includes(q)) : groups;
+  const exerciseHits = q && !group
+    ? groups.flatMap(g => exercisesForGroup(g, type)
+      .filter(ex => ex.toLowerCase().includes(q))
+      .map(ex => ({ group: g, exercise: ex })))
+    : [];
 
   function pickExercise(name) {
     onPick(group, name);
@@ -2281,25 +2292,60 @@ function GroupExercisePicker({
                 key={t}
                 type="button"
                 className={`${styles.pickerGroupBtn} ${styles.pickerTypeBtn}`}
-                onClick={() => setType(t)}
+                onClick={() => { setType(t); setQuery(''); }}
               >
                 {t}
               </button>
             ))}
           </div>
         ) : !group ? (
-          <div className={styles.pickerGroupGrid}>
-            {groupsForType(type).map(g => (
-              <button
-                key={g}
-                type="button"
-                className={styles.pickerGroupBtn}
-                onClick={() => setGroup(g)}
-              >
-                {g}
-              </button>
-            ))}
-          </div>
+          <>
+            <input
+              autoFocus
+              type="text"
+              className={styles.pickerSearch}
+              placeholder={`Search ${type.toLowerCase()} exercises…`}
+              value={query}
+              onChange={e => setQuery(e.target.value)}
+            />
+            {groupHits.length > 0 && (
+              <div className={styles.pickerGroupGrid}>
+                {groupHits.map(g => (
+                  <button
+                    key={g}
+                    type="button"
+                    className={styles.pickerGroupBtn}
+                    onClick={() => { setGroup(g); setQuery(''); }}
+                  >
+                    {g}
+                  </button>
+                ))}
+              </div>
+            )}
+            {q && (
+              <div className={styles.pickerExerciseList}>
+                {exerciseHits.length === 0 ? (
+                  groupHits.length === 0 && (
+                    <div className={styles.pickerEmpty}>
+                      No {type.toLowerCase()} exercises matching "{query.trim()}" yet.
+                    </div>
+                  )
+                ) : (
+                  exerciseHits.map(({ group: g, exercise: ex }) => (
+                    <button
+                      key={`${g}|${ex}`}
+                      type="button"
+                      className={styles.pickerExerciseBtn}
+                      onClick={() => onPick(g, ex)}
+                    >
+                      {ex}
+                      <span className={styles.pickerExerciseGroup}>{g}</span>
+                    </button>
+                  ))
+                )}
+              </div>
+            )}
+          </>
         ) : (
           <>
             <input
