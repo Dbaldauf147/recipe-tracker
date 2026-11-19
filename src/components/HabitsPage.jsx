@@ -6332,7 +6332,7 @@ const BULK_FIELDS = [
 // as an achievement.
 const BAD_MARK = 'done';        // the value stored — "the habit occurred"
 const BAD_COLOR = '#dc2626';
-const STRIP_DAYS = 14;
+const STRIP_DAYS = 60;
 
 function BadHabitRow({ habit, habitLog, stripKeys, todayKey, onCycleMark, onOpen, onUpdate, expanded, onToggle }) {
   const stats = useMemo(
@@ -6388,7 +6388,7 @@ function BadHabitRow({ habit, habitLog, stripKeys, todayKey, onCycleMark, onOpen
         </div>
       </div>
 
-      {/* The last fortnight. Click any day to log or unlog it — a slip is often
+      {/* The last 60 days. Click any day to log or unlog it — a slip is often
           remembered later in the evening, or the next morning. */}
       <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
         {stripKeys.map(key => {
