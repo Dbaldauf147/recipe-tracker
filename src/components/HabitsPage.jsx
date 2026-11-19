@@ -19,7 +19,7 @@ import { effectiveStatusOptions, sanitizeStatusOptions, habitsByStatus, renameSt
 import { canonStatus, habitsWithStatus } from '../utils/habitStatusHistory';
 import { REFRESH_DAYS, advanceAutoRefresh, stampAutoStatusChanges, isRefreshRotation, refreshReturnKey, nextRefreshCandidate } from '../utils/habitAutoRefresh';
 import { startQueue, dropInQueue, missingSetup, moveToNext, isWave2, wave2Seam } from '../utils/habitStartQueue';
-import { badHabitStats, recentDayKeys, cleanLabel, dayKeyOf, dateOfDayKey } from '../utils/badHabits';
+import { badHabitStats, badLongestStreak, recentDayKeys, cleanLabel, dayKeyOf, dateOfDayKey } from '../utils/badHabits';
 import { BadHabitDetail } from './BadHabitDetail';
 import {
   checklistItems, hasChecklist, tickedIds, checklistProgress, toggleItem, addItem, renameItem, removeItem, markActionAfter,
@@ -6339,6 +6339,10 @@ function BadHabitRow({ habit, habitLog, stripKeys, todayKey, onCycleMark, onOpen
     () => badHabitStats(habit.id, habitLog, dateOfDayKey(todayKey) || new Date()),
     [habit.id, habitLog, todayKey],
   );
+  const longest = useMemo(
+    () => badLongestStreak(habit.id, habitLog, dateOfDayKey(todayKey) || new Date(), habit.startDate),
+    [habit.id, habitLog, todayKey, habit.startDate],
+  );
   // Only the slip mark counts — other machinery (a PTO range stamping Skip)
   // writes to these same cells, and those days are not slips.
   const marked = (key) => (habitLog[key] || {})[habit.id] === BAD_MARK;
@@ -6424,6 +6428,9 @@ function BadHabitRow({ habit, habitLog, stripKeys, todayKey, onCycleMark, onOpen
         <span><strong style={{ color: 'var(--color-text, #0f172a)' }}>{stats.thisMonth}</strong> this month</span>
         <span><strong style={{ color: 'var(--color-text, #0f172a)' }}>{stats.last30}</strong> in 30 days</span>
         <span><strong style={{ color: 'var(--color-text, #0f172a)' }}>{stats.total}</strong> all time</span>
+        {longest !== null && (
+          <span><strong style={{ color: 'var(--color-text, #0f172a)' }}>{longest}</strong> {longest === 1 ? 'day' : 'days'} longest streak</span>
+        )}
       </div>
 
       {expanded && (

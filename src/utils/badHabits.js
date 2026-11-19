@@ -111,6 +111,29 @@ export function badHabitStats(habitId, habitLog, today = new Date()) {
   };
 }
 
+/**
+ * The longest run of slip-free days ever, for the row on the Bad tab. The run
+ * before the first slip counts from the habit's `startDate` when it has one
+ * (without it there is no knowing when tracking began, so that stretch is left
+ * out). The current run counts up to today, the same way "N days clean" does.
+ * Returns null when there is nothing to measure yet (no slips, no start date).
+ *
+ * ⚠️ MIRRORED in the mobile app's src/utils/badHabitTrend.ts (badLongestStreak).
+ */
+export function badLongestStreak(habitId, habitLog, today = new Date(), startKey = null) {
+  const slips = occurrenceDays(habitId, habitLog);
+  const todayKey = dayKeyOf(today);
+  const start = dateOfDayKey(startKey) && startKey <= todayKey ? startKey : null;
+  if (!slips.length) return start ? daysBetween(start, todayKey) + 1 : null;
+  let longest = 0;
+  // Slip-free days before the first slip: start through the day before it.
+  if (start && start < slips[0]) longest = daysBetween(start, slips[0]);
+  for (let i = 1; i < slips.length; i++) longest = Math.max(longest, daysBetween(slips[i - 1], slips[i]) - 1);
+  const last = slips[slips.length - 1];
+  if (last < todayKey) longest = Math.max(longest, daysBetween(last, todayKey));
+  return longest;
+}
+
 /** The last `n` day keys ending today, oldest first — the strip on each row. */
 export function recentDayKeys(n = 14, today = new Date()) {
   const out = [];

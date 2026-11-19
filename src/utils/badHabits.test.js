@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  badHabitStats, occurrenceDays, recentDayKeys, cleanLabel,
+  badHabitStats, badLongestStreak, occurrenceDays, recentDayKeys, cleanLabel,
   daysBetween, dateOfDayKey, dayKeyOf,
 } from './badHabits.js';
 
@@ -130,4 +130,25 @@ test('only the slip mark counts, whatever else lands on the cell', () => {
     assert.equal(s.daysClean, null);
   }
   assert.equal(badHabitStats('b1', { '2026-09-02': { b1: 'done' } }, NOW).total, 1);
+});
+
+// Same cases as the app's badHabitTrend.test.ts. Tue 27 Oct 2026.
+const OCT27 = new Date(2026, 9, 27, 15, 0, 0);
+const slipLog = (...keys) => Object.fromEntries(keys.map(k => [k, { h: 'done' }]));
+
+test('longest streak: the biggest slip-free run ever, current run included', () => {
+  // Gaps: Oct 2–9 (8), Oct 11–19 (9), then Oct 21–27 so far (7).
+  assert.equal(badLongestStreak('h', slipLog('2026-10-01', '2026-10-10', '2026-10-20'), OCT27), 9);
+  assert.equal(badLongestStreak('h', slipLog('2026-10-01', '2026-10-10'), OCT27), 17); // Oct 11–27
+  assert.equal(badLongestStreak('h', slipLog('2026-10-20', '2026-10-27'), OCT27), 6);  // slipped today
+  // PTO Skips and week buckets are not slips.
+  assert.equal(badLongestStreak('h', { ...slipLog('2026-10-25'), '2026-10-26': { h: 'skip' }, '2026-W43': { h: 'done' } }, OCT27), 2);
+});
+
+test('longest streak: the run before the first slip counts from the start date', () => {
+  assert.equal(badLongestStreak('h', slipLog('2026-10-25'), OCT27, '2026-10-01'), 24);
+  assert.equal(badLongestStreak('h', slipLog('2026-10-25'), OCT27), 2);
+  assert.equal(badLongestStreak('h', {}, OCT27, '2026-10-20'), 8);
+  assert.equal(badLongestStreak('h', {}, OCT27), null);
+  assert.equal(badLongestStreak('h', {}, OCT27, 'garbage'), null);
 });
