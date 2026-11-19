@@ -112,11 +112,15 @@ export function badHabitStats(habitId, habitLog, today = new Date()) {
 }
 
 /**
- * The longest run of slip-free days ever, for the row on the Bad tab. The run
- * before the first slip counts from the habit's `startDate` when it has one
- * (without it there is no knowing when tracking began, so that stretch is left
- * out). The current run counts up to today, the same way "N days clean" does.
- * Returns null when there is nothing to measure yet (no slips, no start date).
+ * The longest run of slip-free days ever, for the row on the Bad tab, and when
+ * it was: `{ days, fromKey, toKey }` (both ends inclusive), or null when there
+ * is nothing to measure yet (no slips and no start date).
+ *
+ * The run before the first slip counts from the habit's `startDate` when it has
+ * one (without it there is no knowing when tracking began, so that stretch is
+ * left out). The current run counts up to today, the same way "N days clean"
+ * does, so `toKey === today` means the record is still going. On a tie the
+ * most recent run wins.
  *
  * ⚠️ MIRRORED in the mobile app's src/utils/badHabitTrend.ts (badLongestStreak).
  */
@@ -124,14 +128,40 @@ export function badLongestStreak(habitId, habitLog, today = new Date(), startKey
   const slips = occurrenceDays(habitId, habitLog);
   const todayKey = dayKeyOf(today);
   const start = dateOfDayKey(startKey) && startKey <= todayKey ? startKey : null;
-  if (!slips.length) return start ? daysBetween(start, todayKey) + 1 : null;
-  let longest = 0;
+  const shift = (key, n) => {
+    const d = dateOfDayKey(key);
+    return dayKeyOf(new Date(d.getFullYear(), d.getMonth(), d.getDate() + n));
+  };
+  if (!slips.length) return start ? { days: daysBetween(start, todayKey) + 1, fromKey: start, toKey: todayKey } : null;
+  const runs = [];
   // Slip-free days before the first slip: start through the day before it.
-  if (start && start < slips[0]) longest = daysBetween(start, slips[0]);
-  for (let i = 1; i < slips.length; i++) longest = Math.max(longest, daysBetween(slips[i - 1], slips[i]) - 1);
+  if (start && start < slips[0]) runs.push([start, shift(slips[0], -1)]);
+  for (let i = 1; i < slips.length; i++) {
+    if (daysBetween(slips[i - 1], slips[i]) > 1) runs.push([shift(slips[i - 1], 1), shift(slips[i], -1)]);
+  }
   const last = slips[slips.length - 1];
-  if (last < todayKey) longest = Math.max(longest, daysBetween(last, todayKey));
-  return longest;
+  if (last < todayKey) runs.push([shift(last, 1), todayKey]);
+  let best = { days: 0, fromKey: null, toKey: null };
+  for (const [fromKey, toKey] of runs) {
+    const days = daysBetween(fromKey, toKey) + 1;
+    if (days >= best.days) best = { days, fromKey, toKey };
+  }
+  return best;
+}
+
+/** "Sep 3 – Sep 20", "Sep 3 – now" while it is still running; the year is added when it isn't this year's. */
+export function streakRangeLabel(run, todayKey) {
+  if (!run || !run.fromKey) return '';
+  const thisYear = (todayKey || '').slice(0, 4);
+  const fmt = (key) => {
+    const d = dateOfDayKey(key);
+    if (!d) return key;
+    const opts = { month: 'short', day: 'numeric' };
+    if (key.slice(0, 4) !== thisYear) opts.year = 'numeric';
+    return d.toLocaleDateString('en-US', opts);
+  };
+  if (run.fromKey === run.toKey) return run.toKey === todayKey ? 'today' : fmt(run.fromKey);
+  return `${fmt(run.fromKey)} – ${run.toKey === todayKey ? 'now' : fmt(run.toKey)}`;
 }
 
 /** The last `n` day keys ending today, oldest first — the strip on each row. */
