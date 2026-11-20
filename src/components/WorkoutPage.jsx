@@ -10,6 +10,7 @@ import { exportWorkoutHistoryToCSV } from '../utils/exportData';
 import { parseSetValue, formatSeconds, computeSetStats } from '../utils/setValue';
 import { ExerciseLibrary, effectiveMuscleGroup, videoSourceLabel } from './ExerciseLibrary';
 import { AddExerciseModal } from './AddExerciseModal';
+import { searchExercises, hasExactExercise } from '../utils/exerciseSearch';
 import { EXERCISE_TYPES, DEFAULT_EXERCISE_TYPE, effectiveExerciseType, normalizeExerciseType, inferExerciseType } from '../utils/exerciseTypes';
 import {
   entryBestE1rmLb, offsiteMarker, makeBodyweightLookupStrict, isBodyweightExercise,
@@ -2222,11 +2223,14 @@ function GroupExercisePicker({
   // picker's Backspace shortcut from stepping back while you type in the form.
   const [adding, setAdding] = useState(false);
   const [query, setQuery] = useState('');
+  // The same, for adding from step 1's search, where no type or group has been
+  // chosen yet: the form asks for both.
+  const [addingAny, setAddingAny] = useState(false);
 
   useEffect(() => {
     function onKey(e) {
       if (e.key === 'Escape') onClose();
-      else if (e.key === 'Backspace' && !adding && !query) {
+      else if (e.key === 'Backspace' && !adding && !addingAny && !query) {
         // Quick back-step up one level when nothing's typed.
         if (group) setGroup('');
         else if (type) setType('');
@@ -2234,7 +2238,7 @@ function GroupExercisePicker({
     }
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
-  }, [group, type, adding, query, onClose]);
+  }, [group, type, adding, addingAny, query, onClose]);
 
   const options = group ? exercisesForGroup(group, type) : [];
   const q = query.trim().toLowerCase();
@@ -2246,6 +2250,22 @@ function GroupExercisePicker({
   // lives. Each hit carries its group, since picking it sets both.
   const groups = type && !group ? groupsForType(type) : [];
   const groupHits = q ? groups.filter(g => g.toLowerCase().includes(q)) : groups;
+  // Step 1 searches everything: every type, every group. Picking a hit fills
+  // in the row's group and exercise; the type lives on the exercise itself.
+  const catalog = useMemo(() => {
+    if (type) return [];
+    return EXERCISE_TYPES.flatMap(t => groupsForType(t).flatMap(g => exercisesForGroup(g, t)
+      .map(name => ({ name, group: g, exType: t }))));
+  }, [type, groupsForType, exercisesForGroup]);
+  const allHits = !type && q ? searchExercises(catalog, query) : [];
+  const allExact = !type && q ? hasExactExercise(catalog, query) : false;
+  function saveNewAny(row) {
+    const g = String(row.muscleGroup || '').trim();
+    if (!g) return 'Pick a muscle group so the exercise lands in the picker.';
+    if (addExerciseToLibrary(row.exercise, g, row.exerciseType, row)) onPick(g, row.exercise);
+    return undefined;
+  }
+
   const exerciseHits = q && !group
     ? groups.flatMap(g => exercisesForGroup(g, type)
       .filter(ex => ex.toLowerCase().includes(q))
@@ -2286,18 +2306,70 @@ function GroupExercisePicker({
         </div>
 
         {!type ? (
-          <div className={styles.pickerGroupGrid}>
-            {EXERCISE_TYPES.map(t => (
-              <button
-                key={t}
-                type="button"
-                className={`${styles.pickerGroupBtn} ${styles.pickerTypeBtn}`}
-                onClick={() => { setType(t); setQuery(''); }}
-              >
-                {t}
-              </button>
-            ))}
-          </div>
+          <>
+            <input
+              autoFocus
+              type="text"
+              className={styles.pickerSearch}
+              placeholder="Search all exercises by name…"
+              value={query}
+              onChange={e => setQuery(e.target.value)}
+              onKeyDown={e => {
+                // Enter takes the top hit, or adds the name when nothing matches.
+                if (e.key !== 'Enter' || !q) return;
+                e.preventDefault();
+                if (allHits.length > 0) onPick(allHits[0].group, allHits[0].name);
+                else setAddingAny(true);
+              }}
+            />
+            {!q ? (
+              <>
+                <div className={styles.pickerHint}>Or browse by type</div>
+                <div className={styles.pickerGroupGrid}>
+                  {EXERCISE_TYPES.map(t => (
+                    <button
+                      key={t}
+                      type="button"
+                      className={`${styles.pickerGroupBtn} ${styles.pickerTypeBtn}`}
+                      onClick={() => { setType(t); setQuery(''); }}
+                    >
+                      {t}
+                    </button>
+                  ))}
+                </div>
+              </>
+            ) : (
+              <div className={styles.pickerExerciseList}>
+                {!allExact && (
+                  <button type="button" className={styles.pickerAddNew} style={{ margin: '0 0 0.25rem' }} onClick={() => setAddingAny(true)}>
+                    + Add “{query.trim()}” as a new exercise
+                  </button>
+                )}
+                {allHits.length === 0 ? (
+                  <div className={styles.pickerEmpty}>No exercises matching "{query.trim()}".</div>
+                ) : allHits.map(h => (
+                  <button
+                    key={`${h.group}|${h.exType}|${h.name}`}
+                    type="button"
+                    className={styles.pickerExerciseBtn}
+                    onClick={() => onPick(h.group, h.name)}
+                  >
+                    {h.name}
+                    <span className={styles.pickerExerciseGroup}>{h.group} · {h.exType}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+            {addingAny && (
+              <AddExerciseModal
+                initial={{ exercise: query.trim() }}
+                muscleGroups={groupsForType('')}
+                existingNames={existingNames}
+                onSave={saveNewAny}
+                onClose={() => setAddingAny(false)}
+              />
+            )}
+          </>
         ) : !group ? (
           <>
             <input
