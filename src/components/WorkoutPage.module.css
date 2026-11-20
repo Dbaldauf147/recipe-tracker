@@ -1463,6 +1463,14 @@ td.logPerCell.manuallyEdited {
   font-size: 0.9rem;
   font-family: inherit;
 }
+.pickerHint {
+  margin: 0.25rem 1rem 0;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-text-muted, #6b7280);
+}
 .pickerExerciseList {
   flex: 1;
   overflow-y: auto;
