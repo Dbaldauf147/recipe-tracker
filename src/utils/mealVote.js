@@ -20,9 +20,13 @@
 //   { weekOf, createdAt, lastSentAt, cronSent,
 //     options: { breakfast: [option], 'lunch-dinner': [option] },
 //              option = { id, title, joanne?: 'yes'|'no', why?: string }
+//     more:    [ { breakfast: [option], 'lunch-dinner': [option] } ]
+//              further rounds, added when someone replies with the
+//              "more meals" number; numbered after everything before them
 //     voters:  { [voterId]: { name, email, token } },
 //     votes:   { [voterId]: { picks: [recipeId], at } },
-//     mail:    { [voterId]: { seenAt } } }   newest email reply handled
+//     mail:    { [voterId]: { seenAt, moreAt? } } }  newest email reply
+//              handled, and when that voter last asked for more meals
 // People vote by replying to the email with meal numbers (mealVoteReply.js)
 // or on the ballot page its one link opens.
 
@@ -31,6 +35,12 @@ import { NEVER_DAYS, SUGGEST_CATEGORIES, addDaysKey, daysBetweenKeys } from './s
 /** Meals offered per column in the email. */
 export const MEAL_VOTE_PER_COLUMN = 5;
 export const MEAL_VOTE_MAX_VOTERS = 4;
+/**
+ * The number to reply with for the next round of meals. Zero, because every
+ * meal number is 1 or more and rounds keep adding to the end, so it never
+ * collides and never moves.
+ */
+export const MEAL_VOTE_MORE_NUMBER = 0;
 /** Ballots kept on the doc; older ones are dropped when a new one is added. */
 export const MEAL_VOTE_KEEP_WEEKS = 12;
 export const MEAL_VOTE_COLUMN_LABEL = { breakfast: 'Breakfast', 'lunch-dinner': 'Lunch & Dinner' };
@@ -260,13 +270,50 @@ export function rankForVote(snap, dateKey, { perColumn = MEAL_VOTE_PER_COLUMN, i
   return out;
 }
 
-/** Every meal on a ballot, in column order. */
+/**
+ * A ballot's rounds of meals: the first email's, then each "more meals" round,
+ * every one shaped { breakfast: [option], 'lunch-dinner': [option] }.
+ */
+export function ballotRounds(ballot) {
+  const more = Array.isArray(ballot?.more) ? ballot.more : [];
+  return [ballot?.options || {}, ...more.map(r => r || {})];
+}
+
+/**
+ * Every meal on a ballot, numbered as the emails number them: round by round,
+ * and within a round breakfast then lunch & dinner. A later round only ever
+ * adds to the end, so a number keeps meaning the same meal.
+ */
 export function ballotOptions(ballot) {
   const out = [];
-  for (const cat of SUGGEST_CATEGORIES) {
-    for (const o of (ballot?.options?.[cat] || [])) if (o?.id) out.push({ ...o, category: cat });
-  }
+  ballotRounds(ballot).forEach((round, r) => {
+    for (const cat of SUGGEST_CATEGORIES) {
+      for (const o of (round[cat] || [])) if (o?.id) out.push({ ...o, category: cat, round: r });
+    }
+  });
   return out;
+}
+
+/** One column's meals across every round, in ballot order. */
+export function columnOptions(ballot, cat) {
+  return ballotRounds(ballot).flatMap(round => round[cat] || []).filter(o => o?.id);
+}
+
+/**
+ * The next round for a ballot: the next `perColumn` meals of each column, by
+ * the same ranking, leaving out every meal already offered. Null when there
+ * are none left to offer.
+ */
+export function nextRound(ballot, snap, dateKey, { perColumn = MEAL_VOTE_PER_COLUMN } = {}) {
+  const offered = new Set(ballotOptions(ballot).map(o => o.id));
+  const ranked = rankForVote(snap, dateKey, { perColumn: Infinity });
+  const round = {};
+  let any = false;
+  for (const cat of SUGGEST_CATEGORIES) {
+    round[cat] = (ranked[cat] || []).filter(o => !offered.has(o.id)).slice(0, perColumn);
+    if (round[cat].length) any = true;
+  }
+  return any ? round : null;
 }
 
 /** A submitted set of picks, cut down to meals that are really on the ballot. */
@@ -297,7 +344,7 @@ export function tallyBallot(ballot) {
     .map(([id, v]) => ({ id, name: v?.name || 'Someone', voted: !!ballot?.votes?.[id] }));
   const columns = {};
   for (const cat of SUGGEST_CATEGORIES) {
-    columns[cat] = (ballot?.options?.[cat] || [])
+    columns[cat] = columnOptions(ballot, cat)
       .map((o, order) => ({
         id: o.id,
         title: o.title,

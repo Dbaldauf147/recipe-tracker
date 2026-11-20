@@ -101,7 +101,7 @@ test('parse: numbers in any punctuation, ranges, names, all and none', () => {
   assert.deepEqual(picks('1 to 3'), ['b1', 'b2', 'b3']);
   assert.deepEqual(picks('the turkey chili and 1'), ['b1', 'd1']);
   assert.deepEqual(picks('All of them'), ['b1', 'b2', 'b3', 'd1', 'd2']);
-  assert.deepEqual(parseReply(b, 'None this week'), { understood: true, picks: [], typed: 'None this week' });
+  assert.deepEqual(parseReply(b, 'None this week'), { understood: true, picks: [], typed: 'None this week', more: false, none: true });
   // Numbers that are off the ballot, or part of a time or date, are not votes.
   assert.deepEqual(picks('1, 9, 12'), ['b1']);
   assert.equal(parseReply(b, 'back at 5:30 on 11/15').understood, false);
@@ -150,4 +150,17 @@ test('parse: an Outlook signature with a booking link adds no votes', () => {
   // Digits glued to letters or a '+' are never meal numbers on their own.
   assert.deepEqual(parseReply(b, 'id x9e and 2nd floor, +1 555').picks, []);
   assert.deepEqual(parseReply(b, 'see www.example.com/a8b or https://x.co/g2 — 3').picks, ['b3']);
+});
+
+test('parse: 0 asks for more meals, alone or with picks', () => {
+  const b = ballot();
+  assert.deepEqual(parseReply(b, '0'), { understood: true, picks: [], typed: '0', more: true, none: false });
+  const both = parseReply(b, '1, 4, 0');
+  assert.deepEqual([both.picks, both.more], [['b1', 'd1'], true]);
+  assert.equal(parseReply(b, 'more please').more, true);
+  // A 0 inside another number, a time or a decimal is not a request.
+  for (const t of ['10', 'at 10:00', '1.0', '2 and 3']) assert.equal(parseReply(b, t).more, false, t);
+  // Numbers past the first round mean the meals added after it.
+  const two = { ...b, more: [{ breakfast: [{ id: 'b9', title: 'Waffles' }], 'lunch-dinner': [{ id: 'd9', title: 'Tacos' }] }] };
+  assert.deepEqual(parseReply(two, '6 7').picks, ['b9', 'd9']);
 });

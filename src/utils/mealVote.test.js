@@ -5,6 +5,7 @@ import {
   buildMealVoteSnapshot, applyLogToSnapshot, rankForVote,
   sanitizePicks, voterForToken, tallyBallot, latestBallot, weeksToPrune,
   joanneVerdict, fillOptionDetails,
+  ballotOptions, columnOptions, nextRound,
 } from './mealVote.js';
 
 const cand = (id, category, lastCooked, extra = {}) => ({
@@ -260,4 +261,31 @@ test('fill: an older ballot gains the columns without its meals moving', () => {
   // Already described: handed back untouched.
   const done = { breakfast: [{ id: 'a', title: 'A', why: 'x' }], 'lunch-dinner': [] };
   assert.equal(fillOptionDetails(done, snap, '2026-11-13'), done);
+});
+
+test('rounds: numbered after the first, columns and tally take every round', () => {
+  const two = { ...ballot, more: [{ breakfast: [{ id: 'b3', title: 'Waffles' }], 'lunch-dinner': [{ id: 'l3', title: 'Tacos' }] }] };
+  assert.deepEqual(ballotOptions(two).map(o => [o.id, o.round]), [['b1', 0], ['b2', 0], ['l1', 0], ['l2', 0], ['b3', 1], ['l3', 1]]);
+  assert.deepEqual(columnOptions(two, 'breakfast').map(o => o.id), ['b1', 'b2', 'b3']);
+  assert.deepEqual(tallyBallot(two).columns['lunch-dinner'].map(r => r.id), ['l1', 'l2', 'l3']);
+  assert.deepEqual(sanitizePicks(two, ['l3']), ['l3']);
+});
+
+test('next round: the next best meals not already offered, null when none are left', () => {
+  const snap = {
+    today: '2026-11-01', weights: { staleness: 1, ingredients: 0 }, ingredientDates: {},
+    titles: { a: 'A', b: 'B', c: 'C', d: 'D' },
+    candidates: [
+      { id: 'a', category: 'breakfast', lastCooked: '2026-10-01', ingredients: [] },
+      { id: 'b', category: 'breakfast', lastCooked: '2026-09-01', ingredients: [] },
+      { id: 'c', category: 'breakfast', lastCooked: '2026-08-01', ingredients: [] },
+      { id: 'd', category: 'lunch-dinner', lastCooked: '2026-10-01', ingredients: [] },
+    ],
+  };
+  const first = { options: { breakfast: [{ id: 'c', title: 'C' }], 'lunch-dinner': [{ id: 'd', title: 'D' }] } };
+  const r = nextRound(first, snap, '2026-11-13', { perColumn: 1 });
+  assert.deepEqual(r.breakfast.map(o => o.id), ['b']);
+  assert.deepEqual(r['lunch-dinner'], []);
+  const all = { ...first, more: [{ breakfast: [{ id: 'b' }, { id: 'a' }] }] };
+  assert.equal(nextRound(all, snap, '2026-11-13'), null);
 });
