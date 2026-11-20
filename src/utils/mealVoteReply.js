@@ -11,7 +11,7 @@
 //   • failing that — a mail client that ignored Reply-To — the sender's
 //     address and the "week of …" in the subject.
 
-import { ballotOptions, weekLabel } from './mealVote.js';
+import { MEAL_VOTE_MORE_NUMBER, ballotOptions, weekLabel } from './mealVote.js';
 
 /** Hex characters of the voter token carried in the Reply-To tag. */
 export const REPLY_TAG_LENGTH = 24;
@@ -141,8 +141,10 @@ export function typedText(text) {
 
 /**
  * The meals a reply votes for.
- * Returns { understood, picks, typed }: `understood` is false when nothing in
- * the reply named a meal, and the vote should be left as it was.
+ * Returns { understood, picks, typed, more, none }: `understood` is false when
+ * nothing in the reply named a meal or asked for more, and the vote should be
+ * left as it was. `more` is the reply asking for the next round of meals (the
+ * MEAL_VOTE_MORE_NUMBER, or just "more"); `none` is an explicit "none".
  *
  * Accepts the numbers in any punctuation ("1, 4 and 7", "#2 #9"), a range
  * ("6-8"), a meal's name, "all" and "none".
@@ -167,10 +169,13 @@ export function parseReply(ballot, text) {
     for (let n = from; n <= to; n++) picked.add(options[n - 1].id);
     return ' ';
   });
+  let more = false;
   for (const m of rest.matchAll(/(?<![\p{L}\d:/.+])(\d{1,2})(?![\p{L}\d:/]|\.\d)/gu)) {
     const n = Number(m[1]);
-    if (n >= 1 && n <= options.length) picked.add(options[n - 1].id);
+    if (m[1] === String(MEAL_VOTE_MORE_NUMBER)) more = true;
+    else if (n >= 1 && n <= options.length) picked.add(options[n - 1].id);
   }
+  if (/^more\b/i.test(typed)) more = true;
 
   const flat = typed.toLowerCase().replace(/\s+/g, ' ');
   for (const o of options) {
@@ -178,12 +183,13 @@ export function parseReply(ballot, text) {
     if (title.length >= 4 && flat.includes(title)) picked.add(o.id);
   }
 
-  if (picked.size > 0) understood = true;
-  else if (/^(none|nothing|no thanks|skip)\b/i.test(typed)) understood = true;
+  let none = false;
+  if (picked.size > 0 || more) understood = true;
+  else if (/^(none|nothing|no thanks|skip)\b/i.test(typed)) understood = none = true;
   else if (/^(all|everything|any)\b/i.test(typed)) {
     understood = true;
     for (const o of options) picked.add(o.id);
   }
   // Ballot order, so a receipt lists meals the way the email did.
-  return { understood, picks: options.filter(o => picked.has(o.id)).map(o => o.id), typed };
+  return { understood, picks: options.filter(o => picked.has(o.id)).map(o => o.id), typed, more, none };
 }

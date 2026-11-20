@@ -15,16 +15,26 @@
 // there — someone who replied and then changed their mind on the ballot page
 // keeps what they saved on the page.
 //
+// A reply with the "more meals" number (0) also gets the next round of
+// Suggested Meals: they are added to the end of the ballot (`more`), so every
+// number already sent keeps its meaning, and emailed back in the thread
+// instead of a receipt. Asking for more keeps what was picked: the numbers in
+// that reply, and in the next one, are added to the vote rather than
+// replacing it (`mail.{voterId}.moreAt` marks the vote that asked, so a later
+// save on the ballot page ends it). "none" still clears everything.
+//
 // Auth for GET: `Authorization: Bearer <CRON_SECRET>` (or ?secret=), as the
 // other crons.
 
 import { initializeApp, cert, getApps } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
 import { getAuth } from 'firebase-admin/auth';
-import { sendMail } from '../lib/mailer.js';
+import { sendMail, senderAddress } from '../lib/mailer.js';
 import { fetchVoteReplies } from '../lib/mealVoteInbox.js';
-import { renderVoteReceipt } from '../lib/mealVoteEmail.js';
-import { VOTE_MAIL_HEADER, matchReply, parseReply } from '../src/utils/mealVoteReply.js';
+import { renderVoteReceipt, renderMealVoteEmail } from '../lib/mealVoteEmail.js';
+import { VOTE_MAIL_HEADER, matchReply, parseReply, replyAddress } from '../src/utils/mealVoteReply.js';
+import { applyLogToSnapshot, ballotOptions, nextRound } from '../src/utils/mealVote.js';
+import { eastern } from './send-meal-vote.js';
 
 if (getApps().length === 0) {
   const serviceAccount = process.env.FIREBASE_SERVICE_ACCOUNT
@@ -38,6 +48,15 @@ if (getApps().length === 0) {
 export const REPLY_WINDOW_DAYS = 9;
 
 const voteRef = (db, uid) => db.collection('users').doc(uid).collection('data').doc('mealVote');
+const siteBase = () => (process.env.PUBLIC_SITE_URL || 'https://prep-day.com').trim();
+
+/** The ranking inputs for a further round of meals, brought up to date. */
+async function loadVoteSnapshot(db, uid) {
+  const dataCol = db.collection('users').doc(uid).collection('data');
+  const [snapDoc, logDoc] = await Promise.all([dataCol.doc('mealVoteSnapshot').get(), dataCol.doc('dailyLog').get()]);
+  if (!snapDoc.exists) return null;
+  return applyLogToSnapshot(snapDoc.data(), logDoc.exists ? (logDoc.data().log || {}) : {});
+}
 
 /** [{ uid, weeks }] for one account, or for every account with the vote on. */
 export async function loadAccounts(db, onlyUid) {
@@ -64,11 +83,13 @@ export function anyOpenBallot(accounts, now = new Date()) {
 
 /**
  * Apply a batch of replies (oldest first) to the ballots in `accounts`.
- * `send` is injectable for tests. Returns a summary; a failed receipt never
- * undoes a saved vote.
+ * `send` and `loadSnapshot` are injectable for tests. Returns a summary; a
+ * failed email never undoes a saved vote.
  */
-export async function applyReplies(db, accounts, replies, { send = sendMail } = {}) {
-  const summary = { read: replies.length, recorded: 0, unclear: 0, ignored: 0, errors: [] };
+export async function applyReplies(db, accounts, replies, {
+  send = sendMail, loadSnapshot = (uid) => loadVoteSnapshot(db, uid), now = new Date(),
+} = {}) {
+  const summary = { read: replies.length, recorded: 0, unclear: 0, ignored: 0, more: 0, errors: [] };
   for (const msg of replies) {
     if (msg.ours || msg.automatic || !msg.date) { summary.ignored++; continue; }
     const hit = matchReply(accounts, msg);
@@ -77,13 +98,40 @@ export async function applyReplies(db, accounts, replies, { send = sendMail } = 
     const seenAt = ballot.mail?.[voter.id]?.seenAt || '';
     if (msg.date <= seenAt) continue;
 
-    const { understood, picks, typed } = parseReply(ballot, msg.text);
-    const newer = msg.date > String(ballot.votes?.[voter.id]?.at || '');
+    const parsed = parseReply(ballot, msg.text);
+    const { understood, typed, more, none } = parsed;
+    const prev = ballot.votes?.[voter.id];
+    const moreAt = ballot.mail?.[voter.id]?.moreAt || '';
+    // Adding to the vote rather than replacing it: this reply asks for more,
+    // or answers the more-meals email (the vote is still the one that asked).
+    const adding = !none && (more || (!!moreAt && prev?.at === moreAt));
+    const keep = new Set(adding ? (prev?.picks || []) : []);
+    const picks = ballotOptions(ballot).map(o => o.id).filter(id => keep.has(id) || parsed.picks.includes(id));
+    const newer = msg.date > String(prev?.at || '');
     const record = understood && newer;
-    const patch = { mail: { [voter.id]: { seenAt: msg.date } } };
+    const mailEntry = { seenAt: msg.date, ...(record && more ? { moreAt: msg.date } : {}) };
+    const patch = { mail: { [voter.id]: mailEntry } };
     if (record) patch.votes = { [voter.id]: { picks, at: msg.date } };
+
+    // The next round of meals, when asked for.
+    let round = null;
+    let outOfMeals = false;
+    if (record && more) {
+      let r = null;
+      try {
+        const snap = await loadSnapshot(uid);
+        r = snap ? nextRound(ballot, snap, eastern(now).dateKey) : null;
+      } catch (err) {
+        console.error('collect-meal-vote: next round failed', uid, err?.message || err);
+      }
+      if (r) {
+        patch.more = [...(Array.isArray(ballot.more) ? ballot.more : []), r];
+        round = patch.more.length;
+      } else outOfMeals = true;
+    }
     try {
-      // A merge that names only this voter's entries, as the ballot page does.
+      // A merge that names only this voter's entries, as the ballot page does
+      // (and the whole `more` list, which only ever grows).
       await voteRef(db, uid).set({ weeks: { [weekOf]: patch } }, { merge: true });
     } catch (err) {
       console.error('collect-meal-vote: save failed', uid, err?.message || err);
@@ -91,8 +139,9 @@ export async function applyReplies(db, accounts, replies, { send = sendMail } = 
       continue;
     }
     // Keep the copy in hand in step, for a second reply in the same batch.
-    ballot.mail = { ...(ballot.mail || {}), [voter.id]: { seenAt: msg.date } };
+    ballot.mail = { ...(ballot.mail || {}), [voter.id]: { ...(ballot.mail?.[voter.id] || {}), ...mailEntry } };
     if (record) ballot.votes = { ...(ballot.votes || {}), [voter.id]: { picks, at: msg.date } };
+    if (patch.more) ballot.more = patch.more;
 
     if (record) summary.recorded++;
     else if (!understood) summary.unclear++;
@@ -101,15 +150,30 @@ export async function applyReplies(db, accounts, replies, { send = sendMail } = 
     // Nothing typed at all (an empty reply, or only a quote) gets no answer:
     // there is no person waiting for one, and it is how a mail loop looks.
     if (!understood && !typed) continue;
+    const thread = msg.messageId ? { inReplyTo: msg.messageId, references: [...(msg.references || []), msg.messageId] } : {};
     try {
-      const mail = renderVoteReceipt({ ballot: { ...ballot, weekOf }, voter, picks, understood });
-      await send({
-        to: voter.email, ...mail,
-        headers: { [VOTE_MAIL_HEADER]: 'meal-vote-receipt', 'Auto-Submitted': 'auto-replied' },
-        ...(msg.messageId ? { inReplyTo: msg.messageId, references: [...(msg.references || []), msg.messageId] } : {}),
-      });
+      if (round != null) {
+        const v = ballot.voters?.[voter.id] || {};
+        const mail = renderMealVoteEmail({
+          base: siteBase(), uid, ballot: { ...ballot, weekOf }, voter: { id: voter.id, ...v }, round, picked: picks,
+        });
+        await send({
+          to: voter.email, ...mail,
+          replyTo: `Prep Day <${replyAddress(senderAddress(), v.token)}>`,
+          headers: { [VOTE_MAIL_HEADER]: 'meal-vote-more', 'Auto-Submitted': 'auto-replied' },
+          ...thread,
+        });
+        summary.more++;
+      } else {
+        const mail = renderVoteReceipt({ ballot: { ...ballot, weekOf }, voter, picks, understood, outOfMeals });
+        await send({
+          to: voter.email, ...mail,
+          headers: { [VOTE_MAIL_HEADER]: 'meal-vote-receipt', 'Auto-Submitted': 'auto-replied' },
+          ...thread,
+        });
+      }
     } catch (err) {
-      console.error('collect-meal-vote: receipt failed', uid, err?.message || err);
+      console.error('collect-meal-vote: reply mail failed', uid, err?.message || err);
       summary.errors.push({ uid, error: `receipt: ${err?.message || 'send failed'}` });
     }
   }
@@ -119,9 +183,9 @@ export async function applyReplies(db, accounts, replies, { send = sendMail } = 
 /** The whole run: skip the mailbox entirely when no ballot is waiting. */
 export async function collectMealVotes(db, { onlyUid, now = new Date(), fetch = fetchVoteReplies, send = sendMail } = {}) {
   const accounts = await loadAccounts(db, onlyUid);
-  if (!anyOpenBallot(accounts, now)) return { read: 0, recorded: 0, unclear: 0, ignored: 0, errors: [], idle: true };
+  if (!anyOpenBallot(accounts, now)) return { read: 0, recorded: 0, unclear: 0, ignored: 0, more: 0, errors: [], idle: true };
   const replies = await fetch({ sinceDays: REPLY_WINDOW_DAYS, now });
-  return applyReplies(db, accounts, replies, { send });
+  return applyReplies(db, accounts, replies, { send, now });
 }
 
 export default async function handler(req, res) {
