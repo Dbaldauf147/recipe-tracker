@@ -326,3 +326,49 @@ export function badHabitTrend(habitId, habitLog, range, today = new Date()) {
     buckets,
   };
 }
+
+/* ── The card's history picker and month layout ─────────────────────────
+   How far back each bad habit's card reaches, picked once for the tab and
+   remembered per browser. From BAD_MONTHLY_FROM_DAYS up the history is drawn
+   as calendar months rather than one long strip of days.
+
+   ⚠️ MIRRORS the phone's HabitsScreen.tsx (BAD_STRIP_CHOICES) and
+   utils/badHabitTrend.ts (badHistoryMonths). Keep the choices and layout the same. */
+export const BAD_STRIP_CHOICES = [
+  { days: 30, label: '30D' },
+  { days: 60, label: '60D' },
+  { days: 90, label: '90D' },
+  { days: 182, label: '6M' },
+  { days: 365, label: '1Y' },
+  { days: 730, label: '2Y' },
+];
+export const BAD_STRIP_DEFAULT_DAYS = 60;
+export const BAD_MONTHLY_FROM_DAYS = 90;
+
+/**
+ * The window from startKey to endKey as calendar months, newest month first,
+ * each as Sunday-first weeks of seven day keys. Days outside the window are
+ * null, so the first and current months keep their weekday columns.
+ */
+export function badHistoryMonths(startKey, endKey) {
+  const start = dateOfDayKey(startKey);
+  const end = dateOfDayKey(endKey);
+  if (!start || !end || start > end) return [];
+  const out = [];
+  for (let y = end.getFullYear(), m = end.getMonth();
+    y > start.getFullYear() || (y === start.getFullYear() && m >= start.getMonth());
+    m === 0 ? (y--, m = 11) : m--) {
+    const first = new Date(y, m, 1);
+    const count = new Date(y, m + 1, 0).getDate();
+    const cells = Array(first.getDay()).fill(null);
+    for (let d = 1; d <= count; d++) {
+      const key = dayKeyOf(new Date(y, m, d));
+      cells.push(key >= startKey && key <= endKey ? key : null);
+    }
+    while (cells.length % 7) cells.push(null);
+    const weeks = [];
+    for (let i = 0; i < cells.length; i += 7) weeks.push(cells.slice(i, i + 7));
+    out.push({ key: `${y}-${pad2(m + 1)}`, label: `${MONTHS[m]} ${y}`, weeks });
+  }
+  return out;
+}

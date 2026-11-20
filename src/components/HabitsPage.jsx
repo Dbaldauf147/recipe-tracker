@@ -19,7 +19,10 @@ import { effectiveStatusOptions, sanitizeStatusOptions, habitsByStatus, renameSt
 import { canonStatus, habitsWithStatus } from '../utils/habitStatusHistory';
 import { REFRESH_DAYS, advanceAutoRefresh, stampAutoStatusChanges, isRefreshRotation, refreshReturnKey, nextRefreshCandidate } from '../utils/habitAutoRefresh';
 import { startQueue, dropInQueue, missingSetup, moveToNext, isWave2, wave2Seam } from '../utils/habitStartQueue';
-import { badHabitStats, badLongestStreak, streakRangeLabel, recentDayKeys, cleanLabel, dayKeyOf, dateOfDayKey } from '../utils/badHabits';
+import {
+  badHabitStats, badLongestStreak, streakRangeLabel, recentDayKeys, cleanLabel, dayKeyOf, dateOfDayKey,
+  BAD_STRIP_CHOICES, BAD_STRIP_DEFAULT_DAYS, BAD_MONTHLY_FROM_DAYS, badHistoryMonths,
+} from '../utils/badHabits';
 import { BadHabitDetail } from './BadHabitDetail';
 import {
   checklistItems, hasChecklist, tickedIds, checklistProgress, toggleItem, addItem, renameItem, removeItem, markActionAfter,
@@ -6332,9 +6335,60 @@ const BULK_FIELDS = [
 // as an achievement.
 const BAD_MARK = 'done';        // the value stored — "the habit occurred"
 const BAD_COLOR = '#dc2626';
-const STRIP_DAYS = 60;
+const BAD_STRIP_STORAGE_KEY = 'sunday-bad-habits-strip-days';
 
-function BadHabitRow({ habit, habitLog, stripKeys, todayKey, onCycleMark, onOpen, onUpdate, expanded, onToggle }) {
+const WEEKDAY_INITIALS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
+
+/* A bad habit's history as calendar months, newest first, with how many times
+   it happened in each. Every day in the window is still a click to log or
+   unlog. ⚠️ MIRRORS the phone's BadMonthGrid in HabitsScreen.tsx. */
+function BadMonthGrid({ months, isOn, todayKey, onToggle }) {
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(210px, 1fr))', gap: '0.9rem 1.2rem' }}>
+      {months.map(mo => {
+        const slips = mo.weeks.flat().filter(k => k && isOn(k)).length;
+        return (
+          <div key={mo.key} data-month={mo.key}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 4 }}>
+              <span style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--color-text, #0f172a)' }}>{mo.label}</span>
+              <span style={{ fontSize: '0.72rem', fontWeight: 700, color: slips ? BAD_COLOR : '#15803d' }}>
+                {slips === 0 ? 'clean' : `${slips} ${slips === 1 ? 'time' : 'times'}`}
+              </span>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 3 }}>
+              {WEEKDAY_INITIALS.map((d, i) => (
+                <span key={i} style={{ textAlign: 'center', fontSize: '0.58rem', fontWeight: 600, color: 'var(--color-text-muted, #94a3b8)' }}>{d}</span>
+              ))}
+              {mo.weeks.flat().map((key, i) => {
+                if (!key) return <span key={i} />;
+                const on = isOn(key);
+                const d = dateOfDayKey(key);
+                const isToday = key === todayKey;
+                return (
+                  <button
+                    key={key}
+                    type="button"
+                    title={`${d ? d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' }) : key}${on ? ' — logged' : ''}`}
+                    onClick={() => onToggle(key, on)}
+                    style={{
+                      height: 26, borderRadius: 6, cursor: 'pointer', padding: 0,
+                      border: isToday ? `2px solid ${on ? BAD_COLOR : 'var(--color-text-muted, #94a3b8)'}` : '1px solid var(--color-border, #e2e8f0)',
+                      background: on ? BAD_COLOR : 'var(--color-surface, #fff)',
+                      color: on ? '#fff' : 'var(--color-text-muted, #94a3b8)',
+                      fontSize: '0.66rem', fontWeight: 700,
+                    }}
+                  >{d ? d.getDate() : '?'}</button>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function BadHabitRow({ habit, habitLog, stripKeys, historyMonths, todayKey, onCycleMark, onOpen, onUpdate, expanded, onToggle }) {
   const stats = useMemo(
     () => badHabitStats(habit.id, habitLog, dateOfDayKey(todayKey) || new Date()),
     [habit.id, habitLog, todayKey],
@@ -6392,36 +6446,46 @@ function BadHabitRow({ habit, habitLog, stripKeys, todayKey, onCycleMark, onOpen
         </div>
       </div>
 
-      {/* The last 60 days. Click any day to log or unlog it — a slip is often
-          remembered later in the evening, or the next morning. */}
-      <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-        {stripKeys.map(key => {
-          const on = marked(key);
-          const d = dateOfDayKey(key);
-          const isToday = key === todayKey;
-          return (
-            <button
-              key={key}
-              type="button"
-              title={`${d ? d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' }) : key}${on ? ' — logged' : ''}`}
-              onClick={() => onCycleMark(habit.id, key, on ? null : BAD_MARK)}
-              style={{
-                width: 34, height: 40, borderRadius: 8, cursor: 'pointer',
-                display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 1,
-                border: isToday ? `2px solid ${on ? BAD_COLOR : 'var(--color-text-muted, #94a3b8)'}` : '1px solid var(--color-border, #e2e8f0)',
-                background: on ? BAD_COLOR : 'var(--color-surface, #fff)',
-                color: on ? '#fff' : 'var(--color-text-muted, #94a3b8)',
-                fontSize: '0.7rem', fontWeight: 700,
-              }}
-            >
-              <span style={{ fontSize: '0.58rem', fontWeight: 600, opacity: 0.85 }}>
-                {d ? ['S', 'M', 'T', 'W', 'T', 'F', 'S'][d.getDay()] : ''}
-              </span>
-              <span>{d ? d.getDate() : '?'}</span>
-            </button>
-          );
-        })}
-      </div>
+      {/* The chosen history. Click any day to log or unlog it — a slip is often
+          remembered later in the evening, or the next morning. 90 days and up
+          is drawn as months; anything shorter as one strip. */}
+      {historyMonths ? (
+        <BadMonthGrid
+          months={historyMonths}
+          isOn={marked}
+          todayKey={todayKey}
+          onToggle={(key, on) => onCycleMark(habit.id, key, on ? null : BAD_MARK)}
+        />
+      ) : (
+        <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+          {stripKeys.map(key => {
+            const on = marked(key);
+            const d = dateOfDayKey(key);
+            const isToday = key === todayKey;
+            return (
+              <button
+                key={key}
+                type="button"
+                title={`${d ? d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' }) : key}${on ? ' — logged' : ''}`}
+                onClick={() => onCycleMark(habit.id, key, on ? null : BAD_MARK)}
+                style={{
+                  width: 34, height: 40, borderRadius: 8, cursor: 'pointer',
+                  display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 1,
+                  border: isToday ? `2px solid ${on ? BAD_COLOR : 'var(--color-text-muted, #94a3b8)'}` : '1px solid var(--color-border, #e2e8f0)',
+                  background: on ? BAD_COLOR : 'var(--color-surface, #fff)',
+                  color: on ? '#fff' : 'var(--color-text-muted, #94a3b8)',
+                  fontSize: '0.7rem', fontWeight: 700,
+                }}
+              >
+                <span style={{ fontSize: '0.58rem', fontWeight: 600, opacity: 0.85 }}>
+                  {d ? ['S', 'M', 'T', 'W', 'T', 'F', 'S'][d.getDay()] : ''}
+                </span>
+                <span>{d ? d.getDate() : '?'}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
 
       <div style={{ marginTop: '0.6rem', fontSize: '0.76rem', color: 'var(--color-text-muted, #64748b)', display: 'flex', gap: '0.9rem', flexWrap: 'wrap' }}>
         <span><strong style={{ color: 'var(--color-text, #0f172a)' }}>{stats.thisWeek}</strong> this week</span>
@@ -6706,7 +6770,23 @@ function BadHabitsView({ habits, habitLog, onCycleMark, onOpen, onUpdate, onAdd 
     try { localStorage.setItem('sunday-bad-habits-open', JSON.stringify([...next])); } catch { /* per-browser nicety only */ }
     return next;
   });
-  const stripKeys = useMemo(() => recentDayKeys(STRIP_DAYS, dateOfDayKey(todayKey) || new Date()), [todayKey]);
+  // How far back each card's history reaches — one choice for the tab, kept
+  // per browser (a way of looking, not habit data, so it isn't synced).
+  const [stripDays, setStripDays] = useState(() => {
+    try {
+      const n = Number(localStorage.getItem(BAD_STRIP_STORAGE_KEY));
+      return BAD_STRIP_CHOICES.some(c => c.days === n) ? n : BAD_STRIP_DEFAULT_DAYS;
+    } catch { return BAD_STRIP_DEFAULT_DAYS; }
+  });
+  const pickStripDays = (n) => {
+    setStripDays(n);
+    try { localStorage.setItem(BAD_STRIP_STORAGE_KEY, String(n)); } catch { /* per-browser nicety only */ }
+  };
+  const stripKeys = useMemo(() => recentDayKeys(stripDays, dateOfDayKey(todayKey) || new Date()), [stripDays, todayKey]);
+  const historyMonths = useMemo(
+    () => (stripDays >= BAD_MONTHLY_FROM_DAYS ? badHistoryMonths(stripKeys[0], todayKey) : null),
+    [stripDays, stripKeys, todayKey],
+  );
 
   return (
     <div>
@@ -6720,6 +6800,29 @@ function BadHabitsView({ habits, habitLog, onCycleMark, onOpen, onUpdate, onAdd 
         <button type="button" onClick={onAdd} style={{ ...primaryBtn, marginLeft: 'auto' }}>+ Add bad habit</button>
       </div>
 
+      {habits.length > 0 && (
+        <div role="group" aria-label="History range" style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginBottom: '0.75rem' }}>
+          <span style={{ fontSize: '0.78rem', color: 'var(--color-text-muted, #64748b)', marginRight: 2 }}>History</span>
+          {BAD_STRIP_CHOICES.map(c => {
+            const on = stripDays === c.days;
+            return (
+              <button
+                key={c.days}
+                type="button"
+                aria-pressed={on}
+                onClick={() => pickStripDays(c.days)}
+                style={{
+                  border: `1px solid ${on ? '#111' : 'var(--color-border, #e2e8f0)'}`,
+                  background: on ? '#111' : 'var(--color-surface, #fff)',
+                  color: on ? '#fff' : 'var(--color-text, #0f172a)',
+                  borderRadius: 999, padding: '0.2rem 0.65rem', cursor: 'pointer', fontSize: '0.75rem', fontWeight: 600,
+                }}
+              >{c.label}</button>
+            );
+          })}
+        </div>
+      )}
+
       {habits.length === 0 ? (
         <div style={{ border: '1px dashed var(--color-border, #e2e8f0)', borderRadius: 12, padding: '1.5rem', textAlign: 'center', color: 'var(--color-text-muted, #64748b)', fontSize: '0.88rem' }}>
           No bad habits yet.<br />
@@ -6732,6 +6835,7 @@ function BadHabitsView({ habits, habitLog, onCycleMark, onOpen, onUpdate, onAdd 
             habit={h}
             habitLog={habitLog}
             stripKeys={stripKeys}
+            historyMonths={historyMonths}
             todayKey={todayKey}
             onCycleMark={onCycleMark}
             onOpen={onOpen}
