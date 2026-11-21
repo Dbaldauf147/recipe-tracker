@@ -56,7 +56,7 @@ import ExerciseProgressTracker from './ExerciseProgressTracker';
 import RelativeStrength from './RelativeStrength';
 import WeeklyOverload from './WeeklyOverload';
 import styles from './WorkoutPage.module.css';
-import { workoutCalendarCategory, CAL_ICON } from '../utils/workoutCategory';
+import { workoutCalendarCategory, CAL_ICON, CAL_LABEL } from '../utils/workoutCategory';
 import { pastedImageFile } from '../utils/clipboardImage';
 
 const CHART_METRICS = {
@@ -448,10 +448,10 @@ function saveWorkoutTypes(data, uid) {
 
 // Explicit category per workout type name, so the calendar buckets a type by
 // the user's choice rather than guessing from the name. Shape:
-// { [typeName]: 'weights' | 'cardio' | 'yoga' }. Synced to the user doc and
+// { [typeName]: 'weights' | 'cardio' | 'yoga' | 'pt' }. Synced to the user doc and
 // shared with the mobile app via users/{uid}.workoutTypeCategories.
 const WORKOUT_TYPE_CATEGORIES_KEY = 'sunday-workout-type-categories';
-const WORKOUT_CATEGORIES = ['weights', 'cardio', 'yoga'];
+const WORKOUT_CATEGORIES = ['weights', 'cardio', 'yoga', 'pt'];
 
 // Best-effort category from a type's name; used to seed the explicit category
 // when a new type is added (the user can still override it). Delegates to the
@@ -2476,10 +2476,11 @@ const CAL_CATS = [
   { key: 'weights', icon: CAL_ICON.weights, label: 'Weights' },
   { key: 'cardio', icon: CAL_ICON.cardio, label: 'Cardio' },
   { key: 'yoga', icon: CAL_ICON.yoga, label: 'Yoga' },
+  { key: 'pt', icon: CAL_ICON.pt, label: 'PT' },
   { key: 'rest', icon: CAL_ICON.rest, label: 'Rest' },
 ];
 const CAL_GOALS_KEY = 'sunday-workout-weekly-goals';
-const CAL_DEFAULT_GOALS = { weights: 3, cardio: 1, yoga: 1, rest: 2 };
+const CAL_DEFAULT_GOALS = { weights: 3, cardio: 1, yoga: 1, pt: 0, rest: 2 };
 
 // Month-grid calendar of training days, split into weights / cardio / yoga, with
 // per-week goal progress and a REST DAY marker on days with no logged workout.
@@ -2553,13 +2554,14 @@ function WorkoutCalendarView({ workouts, user, typeCategories, stretchRoutineNam
 
   // Tally weights/cardio/yoga/rest across a set of ISO dates.
   const tally = (isos) => {
-    const out = { weights: 0, cardio: 0, yoga: 0, rest: 0 };
+    const out = { weights: 0, cardio: 0, yoga: 0, pt: 0, rest: 0 };
     for (const iso of isos) {
       if (byDate[iso]?.items?.length) {
         const cats = catsOn(iso);
         if (cats.has('weights')) out.weights += 1;
         if (cats.has('cardio')) out.cardio += 1;
         if (cats.has('yoga')) out.yoga += 1;
+        if (cats.has('pt')) out.pt += 1;
       } else if (iso <= todayIso) {
         out.rest += 1;
       }
@@ -2716,8 +2718,8 @@ function WorkoutCalendarView({ workouts, user, typeCategories, stretchRoutineNam
       </div>
 
       <p style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', marginTop: '0.85rem' }}>
-        {CAL_ICON.weights} weights · {CAL_ICON.cardio} cardio · {CAL_ICON.yoga} yoga · {CAL_ICON.rest} rest. A day is categorized by its workout type
-        (yoga: yoga/pilates/stretch…; cardio: run/cycle/swim/HIIT…; everything else is weights). Days with no logged workout up to today show
+        {CAL_ICON.weights} weights · {CAL_ICON.cardio} cardio · {CAL_ICON.yoga} yoga · {CAL_ICON.pt} PT · {CAL_ICON.rest} rest. A day is categorized by its workout type
+        (PT: PT/physio/rehab…; yoga: yoga/pilates/stretch…; cardio: run/cycle/swim/HIIT…; everything else is weights). Days with no logged workout up to today show
         <strong> REST DAY</strong>. Per-week progress (under each week) is Sunday–Saturday; faded days are from neighboring months.
       </p>
     </div>
@@ -7527,9 +7529,9 @@ export function WorkoutPage({ onBack, user }) {
                       <button
                         type="button"
                         onClick={() => cycleWorkoutTypeCategory(t)}
-                        title={`Counts on the calendar as ${cat} — click to change`}
+                        title={`Counts on the calendar as ${CAL_LABEL[cat] || cat} — click to change`}
                         style={rowBtn}
-                      >{CAL_ICON[cat]} {cat}</button>
+                      >{CAL_ICON[cat]} {CAL_LABEL[cat] || cat}</button>
                       <button
                         type="button"
                         onClick={() => toggleWorkoutTypePause(t)}
