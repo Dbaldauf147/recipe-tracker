@@ -40,6 +40,16 @@
 // correction runs for today/yesterday in the main loop and, for days already
 // past, in the workout backfill over the last WORKOUT_BACKFILL_DAYS.
 //
+// PT DAYS: a workout whose type is categorised PT (physical therapy — the
+// user's choice in `workoutTypeCategories`, or a type named PT / Physio /
+// Rehab) is not the workout a workout habit is asking about either, so it never
+// fires the trigger. But it isn't a missed day: a day whose ONLY sessions are PT
+// is marked Skip, the same day it is logged, whatever the rule's elseMark says.
+// It also breaks a "two days in a row" run — a rest day after a PT day is one
+// day off, not a gap. Any non-PT workout on the same day still wins with the ✓.
+// The backfill applies the same rule to the last WORKOUT_BACKFILL_DAYS, so a PT
+// day this engine had already ticked ✓ is corrected to Skip.
+//
 // SOURCES:
 //   - 'prepday'   → evaluated here (reads dailyLog / weightLog / workouts).
 //   - 'rally'     → evaluated here by calling the Rally reach-out bridge
@@ -94,6 +104,7 @@ import {
 } from './_data/habitLogYears.js';
 import { sundayWeekKeyFromYMD, weekKeyOfDate, periodKeyFor } from './_data/habitPeriods.js';
 import { mealStatsForDays, mealsTrackedGoalOf, sundayWeekDates } from '../src/utils/mealsTracked.js';
+import { isPtWorkout } from '../src/utils/workoutCategory.js';
 
 if (getApps().length === 0) {
   const serviceAccount = process.env.FIREBASE_SERVICE_ACCOUNT
@@ -390,6 +401,13 @@ export default async function handler(req, res) {
       // The window is widened to WORKOUT_BACKFILL_DAYS so the backfill below can
       // repair older days whose rest-day skip a workout has since disproved.
       const workoutsByDate = {};
+      // Dates with a PT session. Kept apart from workoutsByDate so PT never
+      // fires a workout trigger; a date here with nothing in workoutsByDate is
+      // a PT-only day (see PT DAYS above).
+      const ptDates = new Set();
+      const isPtOnlyDay = (dk) => ptDates.has(dk) && !(workoutsByDate[dk] || []).length;
+      const typeCategories = (data.workoutTypeCategories && typeof data.workoutTypeCategories === 'object')
+        ? data.workoutTypeCategories : {};
       if (rules.some(isWorkoutTrigger)) {
         // Routine names, for stretch sessions logged before the `source` tag
         // existed — the player writes the routine name into every entry's
@@ -431,6 +449,8 @@ export default async function handler(req, res) {
             // row already leaves these out for exactly this reason. Without
             // this, playing a routine ticked the workout habit for the day.
             if (isStretchWorkout(w)) continue;
+            // PT is tracked on its own: a Skip for the day, not a ✓.
+            if (isPtWorkout(w, typeCategories)) { ptDates.add(w.date); continue; }
             (workoutsByDate[w.date] = workoutsByDate[w.date] || []).push(w);
           }
         } catch { /* leave empty → workout rules see no workouts */ }
@@ -539,6 +559,11 @@ export default async function handler(req, res) {
           // today included, rather than waiting for the day to be over.
           const plannedRest = isWorkoutTrigger(rule)
             && plannedRestDates.has(dayCtx.dateKey);
+          // Nothing but PT was logged this day → Skip, decided the moment the
+          // session is saved. `prevPtDay` keeps the day after it from reading
+          // as day 2 of a gap.
+          const ptDay = isWorkoutTrigger(rule) && isPtOnlyDay(dayCtx.dateKey);
+          const prevPtDay = isWorkoutTrigger(rule) && isPtOnlyDay(prevDay.dateKey);
 
           // ?dryRun=1 returns a per-evaluation breakdown so it's possible to see
           // exactly which guard a rule hit without writing anything.
@@ -548,7 +573,7 @@ export default async function handler(req, res) {
             cadence: habit.cadence || '(daily)', habitStatus: habit.status || '',
             source: rule.source, trigger: rule.trigger,
             mark: rule.mark, elseMark: rule.elseMark ?? null, streakMark: streakMarkFor(rule),
-            day: dayCtx.dateKey, isDaily, dayIsOver, plannedRest,
+            day: dayCtx.dateKey, isDaily, dayIsOver, plannedRest, ptDay,
             // The PERSISTED cell as loaded, not the in-flight clone: what the
             // log says vs what the engine remembers writing. The pair is what
             // distinguishes a hand-erase from a mark that went missing —
@@ -595,12 +620,18 @@ export default async function handler(req, res) {
           // a workout rule) applies instead — even when no elseMark is set.
           let mark;
           let isStreak = false;
+          let isPt = false;
           if (fired) {
             summary.triggersFired++;
             mark = VALID_MARKS.has(rule.mark) ? rule.mark : 'done';
+          } else if (isDaily && ptDay) {
+            mark = 'skipped';
+            isPt = true;
+            summary.ptSkipsApplied = (summary.ptSkipsApplied || 0) + 1;
           } else {
             const streak = (isDaily && dayIsOver && rule.source === 'prepday'
               && streakMarkFor(rule)
+              && !prevPtDay
               && evalPrepdayTrigger(rule.trigger, prevCtx, habit, rule) === false)
               ? streakMarkFor(rule) : null;
             if (streak) {
@@ -623,7 +654,9 @@ export default async function handler(req, res) {
 
           const isElse = !fired;
           const restNote = !isElse ? '' : isStreak ? ' (2 days in a row)' : plannedRest ? ' (planned rest day)' : ' (rest day)';
-          const elseReason = isStreak
+          const elseReason = isPt
+            ? `Only a PT session was logged → ${markLabel(mark)} (PT day)`
+            : isStreak
             ? `${phr.neg} the day before either → ${markLabel(mark)}${restNote}`
             : `${isElse ? phr.neg : phr.pos} → ${markLabel(mark)}${restNote}`;
           const bucket = { ...(nextLog[key] || {}) };
@@ -643,13 +676,18 @@ export default async function handler(req, res) {
             //     must replace it with the ✓ — the plan said rest, the day says
             //     otherwise, and what happened wins.
             const canPromote = fired && untouched;
-            if (!canEscalate && !canPromote) {
+            // (3) The day turned out to be PT only. Whatever we guessed before —
+            //     a ✓ from before the type was categorised PT, or a ✕ written
+            //     before the session was logged — the Skip is the right answer.
+            const canPtCorrect = isPt && untouched;
+            if (!canEscalate && !canPromote && !canPtCorrect) {
               summary.cellsAlreadySet++;
               recordStatus(wasAuto ? elseReason : 'You recorded this yourself');
               emit(`cell-already-set:${JSON.stringify(current)}${wasAuto ? ' (auto)' : ' (manual)'}`);
               continue;
             }
             if (canPromote) summary.promotions = (summary.promotions || 0) + 1;
+            else if (canPtCorrect) summary.ptCorrections = (summary.ptCorrections || 0) + 1;
             else summary.streakEscalations = (summary.streakEscalations || 0) + 1;
           } else if (habitLogAuto[key]?.[rule.habitId] !== undefined) {
             // Respect a manual erase: an empty cell that the engine previously
@@ -713,19 +751,23 @@ export default async function handler(req, res) {
         if (['weekly', 'monthly', 'annually'].includes((habit.cadence || '').trim().toLowerCase())) continue;
         const mark = VALID_MARKS.has(rule.mark) ? rule.mark : 'done';
         for (const dk of backfillDateKeys(when)) {
-          if (!(workoutsByDate[dk] || []).length) continue; // no workout that day
+          // A PT-only day is a Skip (see PT DAYS above); any other workout day
+          // gets the rule's mark; a day with neither is left to the main loop.
+          const ptOnly = isPtOnlyDay(dk);
+          if (!ptOnly && !(workoutsByDate[dk] || []).length) continue; // no workout that day
+          const want = ptOnly ? 'skipped' : mark;
           const bucket = { ...(nextLog[dk] || {}) };
           const current = bucket[rule.habitId];
-          if (current === mark) continue;                                  // already right
+          if (current === want) continue;                                  // already right
           const autoMark = habitLogAuto[dk]?.[rule.habitId];
           if (current === undefined) {
             if (autoMark !== undefined) continue;   // you cleared it — leave it empty
           } else if (autoMark === undefined || autoMark !== current) {
             continue;                               // your mark, or one you edited — never touch
           }
-          bucket[rule.habitId] = mark;
+          bucket[rule.habitId] = want;
           nextLog[dk] = bucket;
-          nextAuto[dk] = { ...(nextAuto[dk] || {}), [rule.habitId]: mark };
+          nextAuto[dk] = { ...(nextAuto[dk] || {}), [rule.habitId]: want };
           summary.workoutBackfills = (summary.workoutBackfills || 0) + 1;
           changed++;
         }
