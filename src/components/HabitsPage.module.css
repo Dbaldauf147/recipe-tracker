@@ -1,0 +1,45 @@
+/* Routines tab: the habit row under the pointer lifts slightly and picks up a
+   thin accent outline, so it's obvious which habit a mark cell belongs to
+   across a wide grid.
+
+   Everything is drawn with box-shadow on the cells, on purpose:
+   - the cells set their own background inline (off days, the current period),
+     which a class background could not layer over — an inset shadow tints on
+     top of whatever is there;
+   - the table is border-collapse: collapse, where a real border on the row
+     would shift the layout and border-radius is ignored.
+   Gated on (hover: hover) so a tap on a touch screen doesn't leave a row stuck
+   highlighted. */
+.habitRow > td {
+  transition: box-shadow 0.12s ease;
+}
+
+@media (hover: hover) {
+  .habitRow:hover {
+    position: relative;
+    box-shadow: 0 2px 8px rgba(15, 23, 42, 0.12);
+  }
+
+  .habitRow:hover > td {
+    box-shadow:
+      inset 0 0 0 999px rgba(59, 107, 156, 0.05),
+      inset 0 1px 0 rgba(59, 107, 156, 0.4),
+      inset 0 -1px 0 rgba(59, 107, 156, 0.4);
+  }
+
+  .habitRow:hover > td:first-child {
+    box-shadow:
+      inset 0 0 0 999px rgba(59, 107, 156, 0.05),
+      inset 0 1px 0 rgba(59, 107, 156, 0.4),
+      inset 0 -1px 0 rgba(59, 107, 156, 0.4),
+      inset 1px 0 0 rgba(59, 107, 156, 0.4);
+  }
+
+  .habitRow:hover > td:last-child {
+    box-shadow:
+      inset 0 0 0 999px rgba(59, 107, 156, 0.05),
+      inset 0 1px 0 rgba(59, 107, 156, 0.4),
+      inset 0 -1px 0 rgba(59, 107, 156, 0.4),
+      inset -1px 0 0 rgba(59, 107, 156, 0.4);
+  }
+}
