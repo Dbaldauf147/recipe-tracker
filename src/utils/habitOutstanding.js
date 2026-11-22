@@ -92,18 +92,75 @@ export function monthlyDueIn(h, monthKey) {
   return (((k - a) % n) + n) % n === 0;
 }
 
+// A WEEKLY habit can repeat every N weeks (`weekEvery`, 1 = every week) counted
+// from `weekAnchor` (a Sunday-anchored 'YYYY-Www' week key). Weeks in between
+// are OFF — nothing new comes due in them — but a cycle left blank stays owed
+// through them (see habitPeriodKey). The weekly twin of `monthEvery` above.
+// ⚠️ MIRRORS PrepDay/src/utils/habitTracking.ts `habitWeekEvery` /
+// `weeklyDueIn` / `weekKeyStart` — keep the two identical.
+export function habitWeekEvery(h) {
+  if (cadenceCanon(h?.cadence) !== 'Weekly') return 1;
+  const n = Math.floor(Number(h?.weekEvery) || 1);
+  return n > 1 ? n : 1;
+}
+const WEEK_MS = 7 * 86400000;
+// UTC timestamp of the MONDAY inside the Sun–Sat week a key names. (The key is
+// the ISO week of the day after its Sunday, so that Monday is the ISO week's own.)
+function weekKeyMonday(key) {
+  const m = /^(\d{4})-W(\d{2})$/.exec(key || '');
+  if (!m) return null;
+  const jan4 = Date.UTC(Number(m[1]), 0, 4);
+  const jan4Day = new Date(jan4).getUTCDay() || 7;
+  return jan4 - (jan4Day - 1) * 86400000 + (Number(m[2]) - 1) * WEEK_MS;
+}
+// A running count of weeks, so two keys can be subtracted across a year
+// boundary (ISO years have 52 or 53 weeks, so the key's own number can't be).
+function weekIndex(key) {
+  const mon = weekKeyMonday(key);
+  return mon == null ? null : Math.floor(mon / WEEK_MS);
+}
+function weekKeyOfIndex(i) {
+  // Every UTC Monday sits 4 days into its 7-day slot counted from the epoch.
+  const mon = new Date(i * WEEK_MS + 4 * 86400000);
+  return isoWeekKey(new Date(mon.getUTCFullYear(), mon.getUTCMonth(), mon.getUTCDate()));
+}
+/** The local Sunday that starts the week a 'YYYY-Www' key names; null if it isn't one. */
+export function weekKeyStart(key) {
+  const mon = weekKeyMonday(key);
+  if (mon == null) return null;
+  const d = new Date(mon);
+  return new Date(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() - 1);
+}
+/** Is `key` ('YYYY-Www') one of this habit's due weeks? Always true for every-week. */
+export function weeklyDueIn(h, key) {
+  const n = habitWeekEvery(h);
+  if (n <= 1) return true;
+  const a = weekIndex(h?.weekAnchor);
+  const k = weekIndex(key);
+  if (a == null || k == null) return true;
+  return (((k - a) % n) + n) % n === 0;
+}
+
 /**
  * The habitLog key a habit is marked against right now. Same as periodKey for
- * everything except an every-N-months habit, whose period is the whole N-month
- * CYCLE, keyed by the cycle's due month: in October, a habit due every 2 months
- * from September still owes September's mark — the off month doesn't wipe the
- * slate. Logging it late fills September's cell; November starts a new cycle.
- * Before the anchor, or with no anchor, this is just the current month.
+ * everything except an every-N-months / every-N-weeks habit, whose period is
+ * the whole N-period CYCLE, keyed by the cycle's due month (or week): in
+ * October, a habit due every 2 months from September still owes September's
+ * mark — the off month doesn't wipe the slate. Logging it late fills
+ * September's cell; November starts a new cycle.
+ * Before the anchor, or with no anchor, this is just the current period.
  *
  * ⚠️ MIRRORS PrepDay/src/utils/habitTracking.ts `habitPeriodKey`.
  */
 export function habitPeriodKey(h, date = new Date()) {
   const cur = periodKey(h?.cadence, date);
+  const wn = habitWeekEvery(h);
+  if (wn > 1) {
+    const a = weekIndex(h?.weekAnchor);
+    const k = weekIndex(cur);
+    if (a == null || k == null || k < a) return cur;
+    return weekKeyOfIndex(k - ((k - a) % wn));
+  }
   const n = habitMonthEvery(h);
   if (n <= 1) return cur;
   const a = monthIndex(h?.monthAnchor);
@@ -115,15 +172,20 @@ export function habitPeriodKey(h, date = new Date()) {
 
 /**
  * Is this habit's current period one it has to log? A Daily off-day, an
- * unreached pinned Weekly day, and an every-N-months off month BEFORE the
- * anchor are not; an off month inside an unlogged cycle is (it still owes the
+ * unreached pinned Weekly day, and an every-N off month / off week BEFORE the
+ * anchor are not; an off period inside an unlogged cycle is (it still owes the
  * cycle — pair with habitPeriodKey for the "already logged" check).
  * ⚠️ MIRRORS PrepDay/src/utils/habitTracking.ts `habitDueNow` (minus its
  * bad-habit check, which callers here do themselves).
  */
 export function habitDueNow(h, date = new Date()) {
   const canon = cadenceCanon(h?.cadence);
-  if (canon === 'Weekly') return weeklyDueYet(h, date);
+  if (canon === 'Weekly') {
+    const pk = habitPeriodKey(h, date);
+    if (!weeklyDueIn(h, pk)) return false;
+    if (pk !== periodKey('Weekly', date)) return true;
+    return weeklyDueYet(h, date);
+  }
   if (canon === 'Monthly') return monthlyDueIn(h, habitPeriodKey(h, date));
   return tracksDate(h, date);
 }
