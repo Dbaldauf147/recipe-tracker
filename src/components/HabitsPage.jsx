@@ -11,6 +11,7 @@ import { yesterdayDate, yesterdayDayKey, yesterdayUnloggedHabits, isBadHabit, ha
 import { normalizePtoRanges, ptoCellsToStamp, activePtoRange } from '../utils/habitPto';
 import { nextMarkInCycle } from '../utils/habitMarkCycle';
 import { cueFields, cuesOf } from '../utils/habitCues';
+import styles from './HabitsPage.module.css';
 import { HabitStatusHistory } from './HabitStatusHistory';
 import { HabitStatusList } from './HabitStatusList';
 import { StatusSelect } from './HabitStatusSelect';
@@ -4208,6 +4209,7 @@ function RoutineSection({ cadenceName, list, habitLog, habitLogAuto, streaks, au
     return (
       <tr
         key={h.id}
+        className={styles.habitRow}
         onDragOver={!canDrag ? undefined : (e) => { if (drag) e.preventDefault(); }}
         onDrop={!canDrag ? undefined : (e) => { e.preventDefault(); handleDrop(h.id, groupKey, groupItems); }}
         style={{ background: dragging ? ACCENT + '0f' : undefined, opacity: dragging ? 0.5 : 1 }}
