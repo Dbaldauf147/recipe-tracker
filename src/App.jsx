@@ -58,7 +58,7 @@ import { EditorialNav } from './components/EditorialNav';
 import { EditorialHome } from './components/EditorialHome';
 import { HOME_VIEW, LAYOUT_KEY, isEditorialEnabled, setEditorialEnabled, initialView, groupNavItems } from './utils/editorialLayout';
 import React from 'react';
-import { adjustmentsOnAddToWeek, recipesToStartFromLog } from './utils/recipeStage';
+import { adjustmentsOnAddToWeek, recipesToStartFromLog, stageFromLogSince } from './utils/recipeStage';
 import styles from './App.module.css';
 
 function HelpBubble({ user, currentView }) {
@@ -313,8 +313,9 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
    * would leave months of holes. The snapshot is a no-op unless the counts
    * actually moved, so this costs nothing on an ordinary recipe edit.
    *
-   * Owner-only, matching `devStage` itself — for anyone else every recipe is
-   * unstaged and the row would say nothing.
+   * Owner-only: the stage history chart (Meal History → Stages, and the weekly
+   * email's Recipes chart) is the owner's, even though every account can set
+   * stages now.
    */
   useEffect(() => {
     if (!user?.uid || user.email?.toLowerCase() !== OWNER_EMAIL) return;
@@ -326,14 +327,14 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
   // (utils/recipeStage.recipesToStartFromLog). Read from the daily log rather
   // than hooked into each place that logs, so a meal logged on the phone, by
   // the auto-log cron or from any page here all count — this runs on load and
-  // whenever a sync or a local log edit fires `firestore-sync`. Owner-only,
-  // like devStage itself.
-  const isStageOwner = !!user?.uid && user.email?.toLowerCase() === OWNER_EMAIL;
+  // whenever a sync or a local log edit fires `firestore-sync`. Every account
+  // (a guest's log stays local); the start day depends on the account
+  // (stageFromLogSince).
+  const stageSince = stageFromLogSince(user?.email);
   const [logTick, setLogTick] = useState(0);
   const updateRecipeRef = useRef(updateRecipe);
   updateRecipeRef.current = updateRecipe;
   useEffect(() => {
-    if (!isStageOwner) return undefined;
     const bump = () => setLogTick(t => t + 1);
     window.addEventListener('firestore-sync', bump);
     window.addEventListener('storage', bump);
@@ -341,13 +342,13 @@ function AppContent({ user, logOut, isNewUser, restartOnboarding, showGoalsModal
       window.removeEventListener('firestore-sync', bump);
       window.removeEventListener('storage', bump);
     };
-  }, [isStageOwner]);
+  }, []);
   useEffect(() => {
-    if (!isStageOwner || !recipes.length) return;
+    if (!recipes.length) return;
     let log = {};
     try { log = JSON.parse(localStorage.getItem('sunday-daily-log') || '{}') || {}; } catch { return; }
-    for (const id of recipesToStartFromLog(recipes, log)) updateRecipeRef.current(id, { devStage: 'wip' });
-  }, [isStageOwner, recipes, logTick]);
+    for (const id of recipesToStartFromLog(recipes, log, stageSince)) updateRecipeRef.current(id, { devStage: 'wip' });
+  }, [stageSince, recipes, logTick]);
 
   // The optional Editorial layout (icon rail + Home dashboard). Off unless this
   // browser opted in from Settings; when off, nothing below changes behaviour.

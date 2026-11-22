@@ -667,10 +667,10 @@ export function RecipeDetail({ recipe, allTags = [], onSave, onDelete, onBack, o
   }
 
   // How settled the recipe is: still an experiment, being tuned, or finished.
-  // Same gating as Joanne above and for the same two reasons — owner-only, and
-  // only where there's somewhere to persist the answer to.
+  // Every account, but only where there's somewhere to persist the answer to
+  // (same reason as Joanne above).
   const [devStage, setDevStage] = useState(() => recipe.devStage || '');
-  const showDevStage = showJoanne;
+  const showDevStage = !!onPersistFields;
   function changeDevStage(value) {
     setDevStage(value);
     if (onPersistFields) onPersistFields({ devStage: value || undefined });
@@ -2395,7 +2395,7 @@ export function RecipeDetail({ recipe, allTags = [], onSave, onDelete, onBack, o
             {showDevStage && devStage === 'wip' && (
               <label
                 className={[styles.joanneChip, styles.adjustChip, adjustmentsMade ? styles.adjustChipDone : ''].filter(Boolean).join(' ')}
-                title="Unticks itself each time this recipe is added to This Week's Meals. Unticked Work-in-progress meals on the week are listed in the weekly email."
+                title="Unticks itself each time this recipe is added to This Week's Meals. Work-in-progress meals you eat with this unticked are listed in the weekly email."
               >
                 <input
                   type="checkbox"

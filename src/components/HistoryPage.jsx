@@ -425,8 +425,8 @@ export function HistoryPage({ getRecipe, recipes, deletedRecipes = [], onRestore
   // 'stages' = the weekly count of recipes at each development stage,
   // 'shopping' = every list saved by Reset Shopping List, ingredient by ingredient.
   const [tab, setTab] = useState('weeks');
-  // `devStage` is owner-only (same gate as the chip that sets it and the pill
-  // on the cards), so a tab that only ever charts zeroes stays hidden.
+  // The stage history is only recorded for the owner (App.recordStageSnapshot),
+  // so for anyone else this tab would only ever chart zeroes — keep it hidden.
   const showStages = (auth.currentUser?.email || '').toLowerCase() === OWNER_EMAIL;
   const [editingDate, setEditingDate] = useState(null);
   const [editingCell, setEditingCell] = useState(null); // { timestamp, index }
