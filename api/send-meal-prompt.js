@@ -17,7 +17,7 @@ import { sendExpoPush, deadTokensFrom } from '../lib/expoPush.js';
 import { habitsPinnedToday, weekKeyOfDate } from './_data/habitPeriods.js';
 import { loadHabitLogAdmin } from './_data/habitLogYears.js';
 // Same count the web left-nav badge uses, so the icon and the site agree.
-import { countOutstandingHabits } from '../src/utils/habitOutstanding.js';
+import { countOutstandingHabits, weeklyDueIn } from '../src/utils/habitOutstanding.js';
 
 if (getApps().length === 0) {
   const serviceAccount = process.env.FIREBASE_SERVICE_ACCOUNT
@@ -281,10 +281,12 @@ const HABIT_REMINDER_HOUR = 8;
  * one shared module.
  */
 async function pendingPinnedHabits(data, dateKey, dayOfWeek, loadLog) {
-  const pinned = habitsPinnedToday(data.habits, dayOfWeek);
+  // An every-N-weeks habit (`weekEvery`) stays silent in its off weeks.
+  const week = weekKeyOfDate(dateKey);
+  const pinned = habitsPinnedToday(data.habits, dayOfWeek).filter(h => weeklyDueIn(h, week));
   if (pinned.length === 0) return [];
   const log = await loadLog();
-  const bucket = log?.[weekKeyOfDate(dateKey)] || {};
+  const bucket = log?.[week] || {};
   return pinned.filter(h => {
     const mark = bucket[h.id];
     return mark == null || mark === '';

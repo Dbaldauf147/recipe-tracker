@@ -7,7 +7,7 @@ import {
 import { HABIT_FIELDS, seedHabits, makeHabitId } from '../data/habitsSeed';
 import { CALENDAR_DAYS, calendarCounts, habitCalendar } from '../utils/habitCalendar';
 import { AUTO_PROMOTE_DAYS, AUTO_PROMOTE_PCT, autoPromoteNumbers, autoPromoteEta, autoPromoteAnswerExpired } from '../utils/habitAutoPromote';
-import { yesterdayDate, yesterdayDayKey, yesterdayUnloggedHabits, isBadHabit, habitMonthEvery, monthlyDueIn, habitPeriodKey, habitDueNow } from '../utils/habitOutstanding';
+import { yesterdayDate, yesterdayDayKey, yesterdayUnloggedHabits, isBadHabit, habitMonthEvery, monthlyDueIn, habitPeriodKey, habitDueNow, habitWeekEvery, weeklyDueIn, weekKeyStart } from '../utils/habitOutstanding';
 import { normalizePtoRanges, ptoCellsToStamp, activePtoRange } from '../utils/habitPto';
 import { nextMarkInCycle } from '../utils/habitMarkCycle';
 import { cueFields, cuesOf } from '../utils/habitCues';
@@ -980,6 +980,15 @@ function habitWeekDayLabel(h) {
   const idx = WD_NAMES.indexOf(own[0]);
   return idx >= 0 ? WEEKDAY_SHORT[idx] : '';
 }
+// The Sunday of the next week (this one included) an every-N-weeks habit is due in.
+function nextDueWeek(h, from = new Date()) {
+  const sun = sundayOf(from);
+  for (let i = 0; i < 60; i++) {
+    const d = addDaysLocal(sun, i * 7);
+    if (weeklyDueIn(h, periodKey('Weekly', d))) return d;
+  }
+  return sun;
+}
 // When a Weekly habit is next due: its own pinned day if it has one, otherwise
 // the section's shared recurrence. This is what lets a habit pinned to Friday
 // sort and read AHEAD of the ones on the section's shared Sunday — Fri Aug 14
@@ -996,6 +1005,27 @@ function weeklyHabitSchedule(h, sectionRec, habitLog) {
   const loggedThisWeek = (log[periodKey('Weekly')] || {})[h.id] !== undefined;
   const own = habitWeekDays(h);
   const pinned = !!own;
+  // Every-N-weeks (`weekEvery`): the habit's own interval decides which WEEK,
+  // the pin (or the section's shared day) only which day inside it. An earlier
+  // due week left blank is still owed, so that reads as due now too.
+  // ⚠️ MIRRORS PrepDay HabitsScreen.tsx weeklyHabitSchedule.
+  const wn = habitWeekEvery(h);
+  if (wn > 1) {
+    const today = startOfDayLocal(new Date());
+    const curKey = periodKey('Weekly');
+    const cycleKey = habitPeriodKey(h);
+    const cycleLogged = (log[cycleKey] || {})[h.id] !== undefined;
+    const dueWeek = weeklyDueIn(h, cycleKey);
+    if (dueWeek && !cycleLogged && (cycleKey !== curKey || (pinned && weeklyDueYet(h)))) {
+      return { date: today, dueNow: true, pinned };
+    }
+    const sectionDays = Array.isArray(sectionRec?.weekDays) ? sectionRec.weekDays : [];
+    const off = weeklyDueOffset(h) ?? Math.max(0, ...sectionDays.map(d => WD_NAMES.indexOf(d)));
+    let start = nextDueWeek(h);
+    // This cycle is done → the one after it.
+    if (cycleLogged && dueWeek) start = addDaysLocal(weekKeyStart(cycleKey) || sundayOf(today), 7 * wn);
+    return { date: addDaysLocal(start, off), dueNow: false, pinned };
+  }
   if (pinned && !loggedThisWeek && weeklyDueYet(h)) {
     return { date: startOfDayLocal(new Date()), dueNow: true, pinned };
   }
@@ -1065,6 +1095,15 @@ function habitPastDue(h, habitLog, nextLogMap, today = new Date()) {
   if (canon === 'Monthly' && cycleKey !== periodKey('Monthly', today)) {
     if (!monthlyDueIn(h, cycleKey)) return null; // before the anchor
     return { count: 1, label: `${MONTH_ABBR[Number(cycleKey.slice(5, 7)) - 1]} left empty` };
+  }
+  // Same for an every-N-weeks habit: an off week inside a blank cycle owes the
+  // cycle's due week; an off week before the anchor owes nothing.
+  if (canon === 'Weekly' && habitWeekEvery(h) > 1) {
+    if (!weeklyDueIn(h, cycleKey)) return null;
+    if (cycleKey !== periodKey('Weekly', today)) {
+      const sun = weekKeyStart(cycleKey);
+      return { count: 1, label: sun ? `Week of ${MONTH_ABBR[sun.getMonth()]} ${sun.getDate()} left empty` : 'Week left empty' };
+    }
   }
   const rec = (nextLogMap && nextLogMap[canon]) || defaultRec(canon);
   if ((Number(rec.repeatEvery) || 1) > 1) return null; // every-N interval → skip
@@ -1222,6 +1261,18 @@ function habitWindowKeys(cadence, trackDays, dailyDays = 30, base = new Date()) 
 // An every-N-months habit's off months were never due — out of the window,
 // unless you logged one anyway.
 function dueWindowKeys(h, habitLog) {
+  // Same for every-N-weeks — and the window stretches to 4 CYCLES rather than
+  // 4 weeks, or an every-4-weeks habit would be scored on a single mark.
+  const wn = habitWeekEvery(h);
+  if (wn > 1) {
+    const sun = sundayOf(new Date());
+    const out = [];
+    for (let i = 0; i < 4 * wn; i++) {
+      const k = weekKey(addDaysLocal(sun, -7 * i));
+      if (weeklyDueIn(h, k) || habitLog?.[k]?.[h.id] !== undefined) out.push(k);
+    }
+    return out;
+  }
   const keys = habitWindowKeys(h.cadence, h.trackDays);
   if (habitMonthEvery(h) <= 1) return keys;
   return keys.filter(k => monthlyDueIn(h, k) || habitLog?.[k]?.[h.id] !== undefined);
@@ -2256,7 +2307,7 @@ export function HabitsPage({ onBack, user }) {
     const needsMark = (h) => {
       // A daily habit that isn't tracked today (e.g. weekends off) isn't due.
       // An every-N-months habit also owes a blank cycle through its off months.
-      if (!(cadenceCanon(h.cadence) === 'Monthly' ? habitDueNow(h) : tracksDate(h))) return false;
+      if (!((cadenceCanon(h.cadence) === 'Monthly' || habitWeekEvery(h) > 1) ? habitDueNow(h) : tracksDate(h))) return false;
       const bucket = habitLog[habitPeriodKey(h)];
       return !(bucket && bucket[h.id]);
     };
@@ -3326,7 +3377,7 @@ function RoutinesView({ habits, habitLog, habitLogAuto, streaks, autoTrackedIds 
         if ((habitLog[habitPeriodKey(h)] || {})[h.id] !== undefined) continue; // logged
         const canon = cadenceCanon(h.cadence);
         // An every-N-months habit also owes a blank cycle through its off months.
-        const due = canon === 'Weekly' ? weeklyDueYet(h) : canon === 'Monthly' ? habitDueNow(h) : tracksDate(h);
+        const due = (canon === 'Weekly' || canon === 'Monthly') ? habitDueNow(h) : tracksDate(h);
         if (!due) continue;
         if (autoTrackedIds.has(h.id)) auto[cadence]++;
         else manual[cadence]++;
@@ -4061,7 +4112,7 @@ function RoutineSection({ cadenceName, list, habitLog, habitLogAuto, streaks, au
     if ((habitLog[habitPeriodKey(h)] || {})[h.id] !== undefined) return false; // already logged
     // A pinned Weekly habit isn't "due" until its day of the week arrives; an
     // every-N-months habit still owes a blank cycle through its off months.
-    if (cadenceCanon(h.cadence) === 'Weekly') return weeklyDueYet(h);
+    if (cadenceCanon(h.cadence) === 'Weekly') return habitDueNow(h); // also every-N-weeks
     if (cadenceCanon(h.cadence) === 'Monthly') return habitDueNow(h);
     return tracksDate(h);
   }).length;
@@ -4351,7 +4402,9 @@ function RoutineSection({ cadenceName, list, habitLog, habitLogAuto, streaks, au
           // A Monthly habit's in-between months (repeats every N) are off too,
           // but stay CLICKABLE: a mark logged before N changed must remain
           // correctable, and mobile lets you tap any month.
-          const monthOff = cadenceCanon(h.cadence) === 'Monthly' && !monthlyDueIn(h, w.key);
+          // Likewise an every-N-weeks habit's off weeks.
+          const weekOff = cadenceCanon(h.cadence) === 'Weekly' && !weeklyDueIn(h, w.key);
+          const monthOff = (cadenceCanon(h.cadence) === 'Monthly' && !monthlyDueIn(h, w.key)) || weekOff;
           const off = dailyOff || monthOff;
           const disabled = dailyOff;
           // Off cells without a mark show a derived Skip (⏭) — not stored.
@@ -4367,6 +4420,7 @@ function RoutineSection({ cadenceName, list, habitLog, habitLogAuto, streaks, au
           // Automatic rows are muted but NOT read-only: the engine's guess is
           // yours to correct, and a mark you set here is never overwritten by it.
           const baseTip = dailyOff ? 'Off day — counts as a skip'
+            : weekOff ? `Off week — due every ${habitWeekEvery(h)} weeks — ${actionTip}`
             : monthOff ? `Off month — due every ${habitMonthEvery(h)} months — ${actionTip}`
             : actionTip;
           // Empty, tracked, and already arrived: this is the box to click. It
@@ -4433,8 +4487,8 @@ function RoutineSection({ cadenceName, list, habitLog, habitLogAuto, streaks, au
       // pinned or not) because it speaks for the section as a whole.
       let soonest = null, anyDueNow = false;
       for (const h of activeList) {
-        const loggedThisWeek = (habitLog[periodKey('Weekly')] || {})[h.id] !== undefined;
-        if (!loggedThisWeek && weeklyDueYet(h, today)) anyDueNow = true;
+        const loggedThisWeek = (habitLog[habitPeriodKey(h)] || {})[h.id] !== undefined;
+        if (!loggedThisWeek && habitDueNow(h, today)) anyDueNow = true;
         const { date } = weeklyHabitSchedule(h, rec, habitLog);
         if (!soonest || date < soonest) soonest = date;
       }
@@ -7219,7 +7273,8 @@ function HabitChecklistSection({ habit: h, period, currentMark, onUpdate, onSetM
   const addRef = useRef(null);
   const periodWord = periodHint(h.cadence).toLowerCase(); // "this month" / "today"
   const bad = isBadHabit(h);
-  const offMonth = cadenceCanon(h.cadence) === 'Monthly' && !monthlyDueIn(h, period);
+  const offWeek = cadenceCanon(h.cadence) === 'Weekly' && !weeklyDueIn(h, period);
+  const offMonth = (cadenceCanon(h.cadence) === 'Monthly' && !monthlyDueIn(h, period)) || offWeek;
 
   const applyMark = (after, change) => {
     const act = markActionAfter(after, period, currentMark, change);
@@ -7325,7 +7380,7 @@ function HabitChecklistSection({ habit: h, period, currentMark, onUpdate, onSetM
           : complete && (currentMark === 'done' || currentMark === 'exceeded')
             ? `All done — logged for ${periodWord}.`
             : `Tick everything and it's marked Did it for ${periodWord}. Ticks reset each ${periodNoun(h.cadence)}.`}
-        {offMonth && !bad && ' (This is an off month for this habit — finishing still logs it.)'}
+        {offMonth && !bad && ` (This is an off ${offWeek ? 'week' : 'month'} for this habit — finishing still logs it.)`}
       </div>
     </div>
   );
@@ -7708,6 +7763,40 @@ function HabitDetailModal({ habit, streak: streakProp, habitLog = {}, autoTracke
             PTO normally marks habits Skip. With this on, every PTO day logs this one as Done instead.
           </div>
         </div>
+
+        {/* Repeats every N weeks — Weekly habits. Same rules as the Monthly
+            stepper below: the count restarts from the last week you logged it
+            (else this week). */}
+        {cadenceCanon(cadence) === 'Weekly' && (() => {
+          const n = habitWeekEvery(h);
+          const setN = v => {
+            let anchor = null;
+            for (const k in (habitLog || {})) {
+              // YYYY-Www sorts chronologically as a plain string.
+              if (/^\d{4}-W\d{2}$/.test(k) && habitLog[k]?.[h.id] !== undefined && (anchor === null || k > anchor)) anchor = k;
+            }
+            onUpdate(h.id, { weekEvery: v, weekAnchor: anchor || periodKey('Weekly') });
+          };
+          const next = nextDueWeek(h);
+          const stepBtn = { width: 32, height: 32, borderRadius: 999, border: '1px solid var(--color-border, #e2e8f0)', background: 'var(--color-surface, #fff)', cursor: 'pointer', fontSize: '1rem', fontWeight: 700 };
+          return (
+            <div style={{ marginBottom: '1.1rem' }}>
+              <div style={{ ...fieldLabel, marginBottom: 6 }}>Repeats</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <span style={{ fontSize: '0.85rem', fontWeight: 600 }}>Every</span>
+                <button type="button" aria-label="Fewer weeks" style={{ ...stepBtn, opacity: n <= 1 ? 0.4 : 1 }} disabled={n <= 1} onClick={() => setN(n - 1)}>−</button>
+                <span data-testid="week-every-value" style={{ fontSize: '0.95rem', fontWeight: 800, minWidth: 18, textAlign: 'center' }}>{n}</span>
+                <button type="button" aria-label="More weeks" style={{ ...stepBtn, opacity: n >= 12 ? 0.4 : 1 }} disabled={n >= 12} onClick={() => setN(n + 1)}>+</button>
+                <span style={{ fontSize: '0.85rem', fontWeight: 600 }}>{n === 1 ? 'week' : 'weeks'}</span>
+              </div>
+              {n > 1 && (
+                <div style={{ fontSize: '0.72rem', color: 'var(--color-text-muted)', marginTop: 6, lineHeight: 1.4 }}>
+                  Next due the week of {next.toLocaleDateString(undefined, { month: 'long', day: 'numeric' })}. The weeks in between aren't due, show greyed out, and don't count against completion.
+                </div>
+              )}
+            </div>
+          );
+        })()}
 
         {/* Repeats every N months — only for Monthly habits. The count restarts
             from the last month you logged it (else this month), so changing it
