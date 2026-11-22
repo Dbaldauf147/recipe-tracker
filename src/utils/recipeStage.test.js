@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 
 import {
   needsAdjustments, adjustmentsOnAddToWeek, recipesToStartFromLog, weekNeedingAdjustments,
+  stageFromLogSince, STAGE_FROM_LOG_SINCE, STAGE_FROM_LOG_SINCE_EVERYONE,
 } from './recipeStage.js';
 
 test('needsAdjustments: only Work in progress without the tick', () => {
@@ -54,4 +55,12 @@ test('the week list: WIP meals logged this week awaiting adjustments, in log ord
   assert.deepEqual(weekNeedingAdjustments(recipes, log, days).map(r => r.title), ['D', 'A']);
   assert.deepEqual(weekNeedingAdjustments(recipes, null, days), []);
   assert.deepEqual(weekNeedingAdjustments(recipes, log, null), []);
+});
+
+test('the owner keeps the original start day; everyone else starts later', () => {
+  assert.equal(stageFromLogSince('baldaufdan@gmail.com'), STAGE_FROM_LOG_SINCE);
+  assert.equal(stageFromLogSince('  BaldaufDan@Gmail.com '), STAGE_FROM_LOG_SINCE);
+  assert.equal(stageFromLogSince('someone@example.com'), STAGE_FROM_LOG_SINCE_EVERYONE);
+  assert.equal(stageFromLogSince(null), STAGE_FROM_LOG_SINCE_EVERYONE);
+  assert.ok(STAGE_FROM_LOG_SINCE_EVERYONE > STAGE_FROM_LOG_SINCE);
 });

@@ -179,8 +179,8 @@ async function loadAdminGrowth() {
   }
 }
 
-/** The owner's recipes, or null when the read failed (never fails the email). */
-async function loadOwnerRecipes(uid) {
+/** The user's recipes, or null when the read failed (never fails the email). */
+async function loadRecipes(uid) {
   try {
     const snap = await db.doc(`users/${uid}/data/recipes`).get();
     return snap.exists ? (snap.data().recipes || []) : [];
@@ -282,7 +282,9 @@ async function buildEmail(uid, userData, todayKey, { force = false } = {}) {
   // inbox.
   const isOwner = String(userData.email || '').trim().toLowerCase() === OWNER_EMAIL;
   const growth = isOwner ? await loadAdminGrowth() : null;
-  const ownerRecipes = isOwner ? await loadOwnerRecipes(uid) : null;
+  // Every account: the Adjustments callout is the user's own recipes. The
+  // stage chart below stays owner-only.
+  const recipes = await loadRecipes(uid);
   const email = renderWeeklySummary({
     rasterize: await loadRasterizer(),
     stats,
@@ -292,8 +294,8 @@ async function buildEmail(uid, userData, todayKey, { force = false } = {}) {
     name: userData.displayName || '',
     adminGrowth: growth?.series || null,
     adminActiveUsers: growth?.activeUsers || null,
-    recipeStages: isOwner ? await loadRecipeStages(uid, userData, ownerRecipes) : null,
-    adjustmentsDue: isOwner ? adjustmentsDueFrom(ownerRecipes, data.dailyLog, week) : null,
+    recipeStages: isOwner ? await loadRecipeStages(uid, userData, recipes) : null,
+    adjustmentsDue: adjustmentsDueFrom(recipes, data.dailyLog, week),
   });
   return { ...email, week };
 }

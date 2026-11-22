@@ -7,7 +7,6 @@ import { exportToCSV, importFromCSV, exportFullJSON } from '../utils/exportData'
 import { locationToRegion, getSeasonalIngredients, getRecipeSeasonalIngredients } from '../utils/seasonal';
 import { recipeInSeason } from '../utils/recipeSeason';
 import { useAuth } from '../contexts/AuthContext';
-import { OWNER_EMAIL } from '../utils/pageAccess';
 import { loadUserData, saveField, loadAppDefaults, saveAppDefault, loadFriends, loadFriendRecipes, getPendingSharedRecipes, shareRecipe, getUsername, loadDailyLogFromFirestore } from '../utils/firestoreSync';
 import { copyMealImage, loadAdminMealImages, generateMealImage, getCachedMealImage, getMealImageSyncReport } from '../utils/generateMealImage';
 import { recipeStage } from '../utils/recipeStage';
@@ -885,9 +884,6 @@ export function RecipeList({
   onSeasonalGuide,
 }) {
   const { user } = useAuth();
-  // The recipe Stage pill is owner-only, matching the chip on the popup that
-  // sets it. Gate here rather than in RecipeCard so the card stays auth-free.
-  const isOwner = (user?.email || '').toLowerCase() === OWNER_EMAIL;
   const [importing, setImporting] = useState(false);
   const [importResult, setImportResult] = useState(null);
   const [dragOverTarget, setDragOverTarget] = useState(null);
@@ -2484,11 +2480,11 @@ export function RecipeList({
                   const planned = getPlannedServings(recipe);
                   const mealImage = getCachedMealImage(recipe.id);
                   // Same border language as the recipe cards below, so a pill
-                  // and its card read as the same recipe. `devStage` is
-                  // owner-only, hence the isOwner gate the cards use too; the
+                  // and its card read as the same recipe. Your own
+                  // recipes always carry it, as the cards do; the
                   // friends' pills further down deliberately never get one,
                   // since their stage isn't yours to see.
-                  const stage = isOwner ? recipeStage(recipe) : null;
+                  const stage = recipeStage(recipe);
                   return (
                     <div
                       key={recipe.id}
@@ -3059,7 +3055,7 @@ export function RecipeList({
                               onDelete={onDelete}
                               showTags={false}
                               dimmed={dimmedIds.has(recipe.id)}
-                              showStage={isOwner}
+                              showStage
                               goalRating={goalRatings[recipe.id]}
                             />
                           </div>
@@ -3117,7 +3113,7 @@ export function RecipeList({
                               onDelete={onDelete}
                               showTags={false}
                               dimmed={dimmedIds.has(recipe.id)}
-                              showStage={isOwner}
+                              showStage
                               goalRating={goalRatings[recipe.id]}
                             />
                           </div>

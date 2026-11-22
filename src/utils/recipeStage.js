@@ -1,5 +1,5 @@
 /**
- * How settled a recipe is — the owner-only `devStage` field.
+ * How settled a recipe is — the `devStage` field (every account).
  *
  * Set from the Stage chip on the recipe popup (RecipeDetail) and shown as an
  * outlined pill on the recipe cards (RecipeCard). The definitions live here
@@ -26,8 +26,7 @@ export function recipeStage(recipe) {
 
 /* ── "Adjustments made" — the follow-up on a Work-in-progress recipe ──
  *
- * A Work-in-progress recipe carries an `adjustmentsMade` tick (owner-only, like
- * devStage): did the tweaks from the last cook get written into the recipe?
+ * A Work-in-progress recipe carries an `adjustmentsMade` tick: did the tweaks from the last cook get written into the recipe?
  * Adding the recipe to This Week's Meals unticks it — another cook is coming,
  * so there'll be something new to adjust — and the weekly email lists the
  * Work-in-progress meals cooked/eaten that week (logged on one of its days)
@@ -48,15 +47,27 @@ export function adjustmentsOnAddToWeek(recipe) {
 
 /**
  * Logging a meal moves a recipe with no stage, or New, to Work in progress —
- * once you've cooked it, it's being worked on. Only logs on or after
- * STAGE_FROM_LOG_SINCE count, so turning this on didn't re-stage every recipe
- * ever logged. Nailed-down and Work-in-progress recipes are left alone.
+ * once you've cooked it, it's being worked on. Only logs on or after the
+ * account's start day count (stageFromLogSince), so turning this on didn't
+ * re-stage every recipe ever logged. Nailed-down and Work-in-progress recipes are left alone.
  *
  * `dailyLog` is the app's { [YYYY-MM-DD]: { entries: [...] } } map; a logged
  * recipe is an entry with type 'recipe' and its recipeId (website and phone
  * write the same shape). Returns the ids to move.
  */
 export const STAGE_FROM_LOG_SINCE = '2026-11-12';
+
+/** The account the rule was first turned on for, on STAGE_FROM_LOG_SINCE. */
+export const STAGE_OWNER_EMAIL = 'baldaufdan@gmail.com';
+/** Everyone else got stages later; their earlier logs don't re-stage anything. */
+export const STAGE_FROM_LOG_SINCE_EVERYONE = '2026-11-23';
+
+/** The first log day that counts for this account's email. */
+export function stageFromLogSince(email) {
+  return String(email || '').trim().toLowerCase() === STAGE_OWNER_EMAIL
+    ? STAGE_FROM_LOG_SINCE
+    : STAGE_FROM_LOG_SINCE_EVERYONE;
+}
 export function recipesToStartFromLog(recipes, dailyLog, since = STAGE_FROM_LOG_SINCE) {
   const logged = new Set();
   for (const [date, day] of Object.entries(dailyLog || {})) {
