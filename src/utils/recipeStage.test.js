@@ -34,12 +34,24 @@ test('a logged recipe with no stage or New moves to Work in progress', () => {
   assert.deepEqual(recipesToStartFromLog(recipes, null), []);
 });
 
-test('the week list: WIP meals still awaiting adjustments, in plan order, once', () => {
+test('the week list: WIP meals logged this week awaiting adjustments, in log order, once', () => {
   const recipes = [
     { id: '1', title: 'A', devStage: 'wip' },
     { id: '2', title: 'B', devStage: 'wip', adjustmentsMade: true },
     { id: '3', title: 'C', devStage: 'new' },
     { id: '4', title: 'D', devStage: 'wip', adjustmentsMade: false },
+    { id: '5', title: 'E', devStage: 'wip' }, // eaten, but outside the week
+    { id: '6', title: 'F', devStage: 'wip' }, // only a custom_meal entry
   ];
-  assert.deepEqual(weekNeedingAdjustments(recipes, ['4', '2', '3', '1', '4', 'gone']).map(r => r.title), ['D', 'A']);
+  const days = ['2026-11-16', '2026-11-17', '2026-11-18'];
+  const log = {
+    '2026-11-15': { entries: [{ type: 'recipe', recipeId: '5' }] },
+    '2026-11-16': { entries: [{ type: 'recipe', recipeId: '4' }, { type: 'recipe', recipeId: '2' }, { type: 'custom_meal', recipeId: '6' }] },
+    '2026-11-17': { entries: [{ type: 'recipe', recipeId: '3' }, { type: 'recipe', recipeId: '1' }, { type: 'recipe', recipeId: 'gone' }] },
+    '2026-11-18': { entries: [{ type: 'recipe', recipeId: '4' }] },
+    '2026-11-19': { entries: [{ type: 'recipe', recipeId: '5' }] },
+  };
+  assert.deepEqual(weekNeedingAdjustments(recipes, log, days).map(r => r.title), ['D', 'A']);
+  assert.deepEqual(weekNeedingAdjustments(recipes, null, days), []);
+  assert.deepEqual(weekNeedingAdjustments(recipes, log, null), []);
 });
