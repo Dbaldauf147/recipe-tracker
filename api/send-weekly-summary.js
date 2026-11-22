@@ -191,13 +191,13 @@ async function loadOwnerRecipes(uid) {
 }
 
 /**
- * The Work-in-progress meals on This Week's Meals (`weeklyPlan`, as it stands
- * when the email goes out) whose "Adjustments made" box isn't ticked. Null —
+ * The Work-in-progress meals cooked/eaten during the summarized week (logged as
+ * a recipe on one of its days) whose "Adjustments made" box isn't ticked. Null —
  * no section — when the recipes couldn't be read or nothing is waiting.
  */
-function adjustmentsDueFrom(recipes, userData) {
+function adjustmentsDueFrom(recipes, dailyLog, week) {
   if (!Array.isArray(recipes) || recipes.length === 0) return null;
-  const list = weekNeedingAdjustments(recipes, userData.weeklyPlan).map(r => ({ title: r.title || 'Untitled recipe' }));
+  const list = weekNeedingAdjustments(recipes, dailyLog, week.days).map(r => ({ title: r.title || 'Untitled recipe' }));
   return list.length > 0 ? list : null;
 }
 
@@ -293,7 +293,7 @@ async function buildEmail(uid, userData, todayKey, { force = false } = {}) {
     adminGrowth: growth?.series || null,
     adminActiveUsers: growth?.activeUsers || null,
     recipeStages: isOwner ? await loadRecipeStages(uid, userData, ownerRecipes) : null,
-    adjustmentsDue: isOwner ? adjustmentsDueFrom(ownerRecipes, userData) : null,
+    adjustmentsDue: isOwner ? adjustmentsDueFrom(ownerRecipes, data.dailyLog, week) : null,
   });
   return { ...email, week };
 }

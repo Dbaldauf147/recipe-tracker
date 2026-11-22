@@ -30,7 +30,8 @@ export function recipeStage(recipe) {
  * devStage): did the tweaks from the last cook get written into the recipe?
  * Adding the recipe to This Week's Meals unticks it — another cook is coming,
  * so there'll be something new to adjust — and the weekly email lists the
- * Work-in-progress meals on the week whose box is still unticked.
+ * Work-in-progress meals cooked/eaten that week (logged on one of its days)
+ * whose box is still unticked.
  *
  * ⚠️ Shared data: the PrepDay phone app reads and writes the same field and the
  * same rules (prepday src/utils/recipeAdjustments.ts). Keep the two in step. */
@@ -69,16 +70,26 @@ export function recipesToStartFromLog(recipes, dailyLog, since = STAGE_FROM_LOG_
     .map(r => r.id);
 }
 
-/** The Work-in-progress meals on this week's list still awaiting adjustments. */
-export function weekNeedingAdjustments(recipes, weeklyPlan) {
+/**
+ * The Work-in-progress meals cooked/eaten this week — logged as a recipe on any
+ * of `days` (the week's date keys) — still awaiting adjustments. In the order
+ * they were first logged, each once. What's on This Week's Meals doesn't count:
+ * a meal planned but not eaten has nothing to adjust yet.
+ */
+export function weekNeedingAdjustments(recipes, dailyLog, days) {
   const byId = new Map((recipes || []).filter(Boolean).map(r => [String(r.id), r]));
   const seen = new Set();
   const out = [];
-  for (const id of Array.isArray(weeklyPlan) ? weeklyPlan : []) {
-    const r = byId.get(String(id));
-    if (!r || seen.has(r.id) || !needsAdjustments(r)) continue;
-    seen.add(r.id);
-    out.push(r);
+  for (const date of [...(Array.isArray(days) ? days : [])].sort()) {
+    const entries = dailyLog?.[date]?.entries;
+    if (!Array.isArray(entries)) continue;
+    for (const e of entries) {
+      if (!e || e.type !== 'recipe' || !e.recipeId) continue;
+      const r = byId.get(String(e.recipeId));
+      if (!r || seen.has(r.id) || !needsAdjustments(r)) continue;
+      seen.add(r.id);
+      out.push(r);
+    }
   }
   return out;
 }
