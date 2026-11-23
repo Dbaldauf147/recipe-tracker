@@ -149,6 +149,20 @@ export function badLongestStreak(habitId, habitLog, today = new Date(), startKey
   return best;
 }
 
+/**
+ * Is this day part of the record run? The Bad tab paints those days gold, so
+ * the personal best is something you can see on the calendar and not only a
+ * number under it. Slip days are never inside a run, so a gold day is always a
+ * clean one.
+ *
+ * ⚠️ MIRRORED in the mobile app's src/utils/badHabitTrend.ts (inStreakRun, BAD_GOLD).
+ */
+export const BAD_GOLD = { background: '#fde68a', border: '#f59e0b', color: '#92400e' };
+
+export function inStreakRun(run, key) {
+  return !!(run && run.fromKey && run.toKey && key >= run.fromKey && key <= run.toKey);
+}
+
 /** "Sep 3 – Sep 20", "Sep 3 – now" while it is still running; the year is added when it isn't this year's. */
 export function streakRangeLabel(run, todayKey) {
   if (!run || !run.fromKey) return '';

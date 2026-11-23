@@ -11,7 +11,7 @@ import { useMemo, useState } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import {
   BAD_HABIT_MARK, BAD_RANGE_PRESETS, BAD_GRID_MAX_DAYS, badHabitTrend, badRangeLabel,
-  normalizeBadRange, dateOfDayKey, dayKeyOf,
+  normalizeBadRange, dateOfDayKey, dayKeyOf, badLongestStreak, inStreakRun, BAD_GOLD,
 } from '../utils/badHabits';
 
 // Recharts colours must be literal hex — a CSS var doesn't resolve on an SVG attribute.
@@ -80,6 +80,11 @@ export function BadHabitDetail({ habit, habitLog, todayKey, onCycleMark, onSaveR
       dayKeyOf(new Date(start.getFullYear(), start.getMonth(), start.getDate() + i)));
   }, [trend.startKey, trend.spanDays]);
   const marked = (key) => (habitLog[key] || {})[habit.id] === BAD_HABIT_MARK;
+  // The record run is all-time, not the window's — the same gold days as the card above.
+  const record = useMemo(
+    () => badLongestStreak(habit.id, habitLog, dateOfDayKey(todayKey) || new Date(), habit.startDate),
+    [habit.id, habitLog, todayKey, habit.startDate],
+  );
   const startDate = dateOfDayKey(trend.startKey);
 
   return (
@@ -148,20 +153,22 @@ export function BadHabitDetail({ habit, habitLog, todayKey, onCycleMark, onSaveR
           <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
             {gridKeys.map((key, i) => {
               const on = marked(key);
+              const gold = !on && inStreakRun(record, key);
               const d = dateOfDayKey(key);
               const isToday = key === todayKey;
               return (
                 <button
                   key={key}
                   type="button"
-                  title={`${d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}${on ? ' — logged' : ''}`}
+                  data-record={gold ? 'true' : undefined}
+                  title={`${d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}${on ? ' — logged' : gold ? ' — longest streak' : ''}`}
                   onClick={() => onCycleMark(habit.id, key, on ? null : BAD_HABIT_MARK)}
                   style={{
                     width: 30, height: 34, borderRadius: 6, cursor: 'pointer', padding: 0,
                     display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-                    border: isToday ? `2px solid ${on ? BAR_RED : '#94a3b8'}` : '1px solid var(--color-border, #e2e8f0)',
-                    background: on ? BAR_RED : 'var(--color-surface, #fff)',
-                    color: on ? '#fff' : 'var(--color-text-muted, #94a3b8)',
+                    border: isToday ? `2px solid ${on ? BAR_RED : gold ? BAD_GOLD.border : '#94a3b8'}` : `1px solid ${gold ? BAD_GOLD.border : 'var(--color-border, #e2e8f0)'}`,
+                    background: on ? BAR_RED : gold ? BAD_GOLD.background : 'var(--color-surface, #fff)',
+                    color: on ? '#fff' : gold ? BAD_GOLD.color : 'var(--color-text-muted, #94a3b8)',
                     fontSize: '0.66rem', fontWeight: 700, lineHeight: 1.05,
                   }}
                 >
