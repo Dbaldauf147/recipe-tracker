@@ -21,7 +21,7 @@ import { canonStatus, habitsWithStatus } from '../utils/habitStatusHistory';
 import { REFRESH_DAYS, advanceAutoRefresh, stampAutoStatusChanges, isRefreshRotation, refreshReturnKey, nextRefreshCandidate } from '../utils/habitAutoRefresh';
 import { startQueue, dropInQueue, missingSetup, moveToNext, isWave2, wave2Seam } from '../utils/habitStartQueue';
 import {
-  badHabitStats, badLongestStreak, streakRangeLabel, recentDayKeys, cleanLabel, dayKeyOf, dateOfDayKey,
+  badHabitStats, badLongestStreak, inStreakRun, BAD_GOLD, streakRangeLabel, recentDayKeys, cleanLabel, dayKeyOf, dateOfDayKey,
   BAD_STRIP_CHOICES, BAD_STRIP_DEFAULT_DAYS, BAD_MONTHLY_FROM_DAYS, badHistoryMonths,
 } from '../utils/badHabits';
 import { BadHabitDetail } from './BadHabitDetail';
@@ -6398,7 +6398,7 @@ const WEEKDAY_INITIALS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
 /* A bad habit's history as calendar months, newest first, with how many times
    it happened in each. Every day in the window is still a click to log or
    unlog. ⚠️ MIRRORS the phone's BadMonthGrid in HabitsScreen.tsx. */
-function BadMonthGrid({ months, isOn, todayKey, onToggle }) {
+function BadMonthGrid({ months, isOn, isRecord, todayKey, onToggle }) {
   return (
     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(210px, 1fr))', gap: '0.9rem 1.2rem' }}>
       {months.map(mo => {
@@ -6418,19 +6418,21 @@ function BadMonthGrid({ months, isOn, todayKey, onToggle }) {
               {mo.weeks.flat().map((key, i) => {
                 if (!key) return <span key={i} />;
                 const on = isOn(key);
+                const gold = !on && !!isRecord && isRecord(key);
                 const d = dateOfDayKey(key);
                 const isToday = key === todayKey;
                 return (
                   <button
                     key={key}
                     type="button"
-                    title={`${d ? d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' }) : key}${on ? ' — logged' : ''}`}
+                    data-record={gold ? 'true' : undefined}
+                    title={`${d ? d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' }) : key}${on ? ' — logged' : gold ? ' — longest streak' : ''}`}
                     onClick={() => onToggle(key, on)}
                     style={{
                       height: 26, borderRadius: 6, cursor: 'pointer', padding: 0,
-                      border: isToday ? `2px solid ${on ? BAD_COLOR : 'var(--color-text-muted, #94a3b8)'}` : '1px solid var(--color-border, #e2e8f0)',
-                      background: on ? BAD_COLOR : 'var(--color-surface, #fff)',
-                      color: on ? '#fff' : 'var(--color-text-muted, #94a3b8)',
+                      border: isToday ? `2px solid ${on ? BAD_COLOR : gold ? BAD_GOLD.border : 'var(--color-text-muted, #94a3b8)'}` : `1px solid ${gold ? BAD_GOLD.border : 'var(--color-border, #e2e8f0)'}`,
+                      background: on ? BAD_COLOR : gold ? BAD_GOLD.background : 'var(--color-surface, #fff)',
+                      color: on ? '#fff' : gold ? BAD_GOLD.color : 'var(--color-text-muted, #94a3b8)',
                       fontSize: '0.66rem', fontWeight: 700,
                     }}
                   >{d ? d.getDate() : '?'}</button>
@@ -6509,6 +6511,7 @@ function BadHabitRow({ habit, habitLog, stripKeys, historyMonths, todayKey, onCy
         <BadMonthGrid
           months={historyMonths}
           isOn={marked}
+          isRecord={key => inStreakRun(longest, key)}
           todayKey={todayKey}
           onToggle={(key, on) => onCycleMark(habit.id, key, on ? null : BAD_MARK)}
         />
@@ -6516,20 +6519,22 @@ function BadHabitRow({ habit, habitLog, stripKeys, historyMonths, todayKey, onCy
         <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
           {stripKeys.map(key => {
             const on = marked(key);
+            const gold = !on && inStreakRun(longest, key);
             const d = dateOfDayKey(key);
             const isToday = key === todayKey;
             return (
               <button
                 key={key}
                 type="button"
-                title={`${d ? d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' }) : key}${on ? ' — logged' : ''}`}
+                data-record={gold ? 'true' : undefined}
+                title={`${d ? d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' }) : key}${on ? ' — logged' : gold ? ' — longest streak' : ''}`}
                 onClick={() => onCycleMark(habit.id, key, on ? null : BAD_MARK)}
                 style={{
                   width: 34, height: 40, borderRadius: 8, cursor: 'pointer',
                   display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 1,
-                  border: isToday ? `2px solid ${on ? BAD_COLOR : 'var(--color-text-muted, #94a3b8)'}` : '1px solid var(--color-border, #e2e8f0)',
-                  background: on ? BAD_COLOR : 'var(--color-surface, #fff)',
-                  color: on ? '#fff' : 'var(--color-text-muted, #94a3b8)',
+                  border: isToday ? `2px solid ${on ? BAD_COLOR : gold ? BAD_GOLD.border : 'var(--color-text-muted, #94a3b8)'}` : `1px solid ${gold ? BAD_GOLD.border : 'var(--color-border, #e2e8f0)'}`,
+                  background: on ? BAD_COLOR : gold ? BAD_GOLD.background : 'var(--color-surface, #fff)',
+                  color: on ? '#fff' : gold ? BAD_GOLD.color : 'var(--color-text-muted, #94a3b8)',
                   fontSize: '0.7rem', fontWeight: 700,
                 }}
               >
@@ -6549,7 +6554,10 @@ function BadHabitRow({ habit, habitLog, stripKeys, historyMonths, todayKey, onCy
         <span><strong style={{ color: 'var(--color-text, #0f172a)' }}>{stats.last30}</strong> in 30 days</span>
         <span><strong style={{ color: 'var(--color-text, #0f172a)' }}>{stats.total}</strong> all time</span>
         {longest !== null && (
-          <span title={longest.fromKey ? `${longest.fromKey} to ${longest.toKey}` : undefined}>
+          <span title={longest.fromKey ? `${longest.fromKey} to ${longest.toKey} — shown in gold` : undefined}>
+            {longest.fromKey && (
+              <span aria-hidden="true" style={{ display: 'inline-block', width: 10, height: 10, borderRadius: 3, marginRight: 5, verticalAlign: '-1px', background: BAD_GOLD.background, border: `1px solid ${BAD_GOLD.border}` }} />
+            )}
             <strong style={{ color: 'var(--color-text, #0f172a)' }}>{longest.days}</strong> {longest.days === 1 ? 'day' : 'days'} longest streak
             {longest.fromKey ? ` (${streakRangeLabel(longest, todayKey)})` : ''}
           </span>

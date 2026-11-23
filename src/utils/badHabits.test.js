@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  badHabitStats, badLongestStreak, streakRangeLabel, occurrenceDays, recentDayKeys, cleanLabel,
+  badHabitStats, badLongestStreak, inStreakRun, streakRangeLabel, occurrenceDays, recentDayKeys, cleanLabel,
   daysBetween, dateOfDayKey, dayKeyOf,
 } from './badHabits.js';
 
@@ -169,4 +169,16 @@ test('streak range label: dates, "now" while running, year only when not this ye
   assert.equal(streakRangeLabel({ days: 30, fromKey: '2025-12-10', toKey: '2026-01-08' }, '2026-10-27'), 'Dec 10, 2025 – Jan 8');
   assert.equal(streakRangeLabel({ days: 1, fromKey: '2026-10-05', toKey: '2026-10-05' }, '2026-10-27'), 'Oct 5');
   assert.equal(streakRangeLabel({ days: 0, fromKey: null, toKey: null }, '2026-10-27'), '');
+});
+
+test('record run: only the days inside the longest streak are gold', () => {
+  const run = badLongestStreak('h', slipLog('2026-10-01', '2026-10-10', '2026-10-20'), OCT27); // Oct 11–19
+  assert.equal(inStreakRun(run, '2026-10-10'), false); // the slip before it
+  assert.equal(inStreakRun(run, '2026-10-11'), true);
+  assert.equal(inStreakRun(run, '2026-10-19'), true);
+  assert.equal(inStreakRun(run, '2026-10-20'), false); // the slip that ended it
+  assert.equal(inStreakRun(run, '2026-10-27'), false); // the current, shorter run
+  // Nothing to measure, or no run at all: no gold anywhere.
+  assert.equal(inStreakRun(null, '2026-10-11'), false);
+  assert.equal(inStreakRun({ days: 0, fromKey: null, toKey: null }, '2026-10-11'), false);
 });
