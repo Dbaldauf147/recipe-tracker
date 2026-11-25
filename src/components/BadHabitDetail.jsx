@@ -11,7 +11,7 @@ import { useMemo, useState } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import {
   BAD_HABIT_MARK, BAD_RANGE_PRESETS, BAD_GRID_MAX_DAYS, badHabitTrend, badRangeLabel,
-  normalizeBadRange, dateOfDayKey, dayKeyOf, badLongestStreak, inStreakRun, BAD_GOLD,
+  normalizeBadRange, dateOfDayKey, dayKeyOf, badLongestStreak, badSecondStreak, streakCellLook,
 } from '../utils/badHabits';
 
 // Recharts colours must be literal hex — a CSS var doesn't resolve on an SVG attribute.
@@ -57,6 +57,26 @@ function TrendTooltip({ active, payload, unit }) {
   );
 }
 
+/**
+ * Slips per bucket as bars. Used by the panel below and by the Bad tab's
+ * "Bar chart" view, which draws one per card over the tab's History window.
+ */
+export function BadTrendChart({ trend, height = 190 }) {
+  return (
+    <div style={{ width: '100%', height }} data-bad-chart={trend.unit}>
+      <ResponsiveContainer>
+        <BarChart data={trend.buckets} margin={{ top: 6, right: 8, bottom: 0, left: -18 }}>
+          <CartesianGrid stroke={GRID_LINE} vertical={false} />
+          <XAxis dataKey="label" tick={{ fontSize: 11, fill: AXIS_TEXT }} interval="preserveStartEnd" minTickGap={14} />
+          <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: AXIS_TEXT }} width={40} />
+          <Tooltip content={<TrendTooltip unit={trend.unit} />} cursor={{ fill: '#fee2e2' }} />
+          <Bar dataKey="count" fill={BAR_RED} radius={[3, 3, 0, 0]} maxBarSize={36} isAnimationActive={false} />
+        </BarChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
 export function BadHabitDetail({ habit, habitLog, todayKey, onCycleMark, onSaveRange }) {
   const [range, setRange] = useState(() => normalizeBadRange(habit.badRange));
   // The number box keeps its own text, so clearing it to type "12" doesn't snap to 1.
@@ -80,9 +100,14 @@ export function BadHabitDetail({ habit, habitLog, todayKey, onCycleMark, onSaveR
       dayKeyOf(new Date(start.getFullYear(), start.getMonth(), start.getDate() + i)));
   }, [trend.startKey, trend.spanDays]);
   const marked = (key) => (habitLog[key] || {})[habit.id] === BAD_HABIT_MARK;
-  // The record run is all-time, not the window's — the same gold days as the card above.
+  // The record and runner-up runs are all-time, not the window's — the same
+  // gold and silver days as the card above.
   const record = useMemo(
     () => badLongestStreak(habit.id, habitLog, dateOfDayKey(todayKey) || new Date(), habit.startDate),
+    [habit.id, habitLog, todayKey, habit.startDate],
+  );
+  const second = useMemo(
+    () => badSecondStreak(habit.id, habitLog, dateOfDayKey(todayKey) || new Date(), habit.startDate),
     [habit.id, habitLog, todayKey, habit.startDate],
   );
   const startDate = dateOfDayKey(trend.startKey);
@@ -135,17 +160,7 @@ export function BadHabitDetail({ habit, habitLog, todayKey, onCycleMark, onSaveR
       </div>
 
       <div style={subhead}>{BUCKET_NOUN[trend.unit]} trend</div>
-      <div style={{ width: '100%', height: 190 }}>
-        <ResponsiveContainer>
-          <BarChart data={trend.buckets} margin={{ top: 6, right: 8, bottom: 0, left: -18 }}>
-            <CartesianGrid stroke={GRID_LINE} vertical={false} />
-            <XAxis dataKey="label" tick={{ fontSize: 11, fill: AXIS_TEXT }} interval="preserveStartEnd" minTickGap={14} />
-            <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: AXIS_TEXT }} width={40} />
-            <Tooltip content={<TrendTooltip unit={trend.unit} />} cursor={{ fill: '#fee2e2' }} />
-            <Bar dataKey="count" fill={BAR_RED} radius={[3, 3, 0, 0]} maxBarSize={36} isAnimationActive={false} />
-          </BarChart>
-        </ResponsiveContainer>
-      </div>
+      <BadTrendChart trend={trend} />
 
       {gridKeys && (
         <>
@@ -153,22 +168,23 @@ export function BadHabitDetail({ habit, habitLog, todayKey, onCycleMark, onSaveR
           <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
             {gridKeys.map((key, i) => {
               const on = marked(key);
-              const gold = !on && inStreakRun(record, key);
+              const look = on ? null : streakCellLook(record, second, key);
               const d = dateOfDayKey(key);
               const isToday = key === todayKey;
               return (
                 <button
                   key={key}
                   type="button"
-                  data-record={gold ? 'true' : undefined}
-                  title={`${d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}${on ? ' — logged' : gold ? ' — longest streak' : ''}`}
+                  data-record={look?.kind === 'record' ? 'true' : undefined}
+                  data-second={look?.kind === 'second' ? 'true' : undefined}
+                  title={`${d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}${on ? ' — logged' : look ? look.title : ''}`}
                   onClick={() => onCycleMark(habit.id, key, on ? null : BAD_HABIT_MARK)}
                   style={{
                     width: 30, height: 34, borderRadius: 6, cursor: 'pointer', padding: 0,
                     display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-                    border: isToday ? `2px solid ${on ? BAR_RED : gold ? BAD_GOLD.border : '#94a3b8'}` : `1px solid ${gold ? BAD_GOLD.border : 'var(--color-border, #e2e8f0)'}`,
-                    background: on ? BAR_RED : gold ? BAD_GOLD.background : 'var(--color-surface, #fff)',
-                    color: on ? '#fff' : gold ? BAD_GOLD.color : 'var(--color-text-muted, #94a3b8)',
+                    border: isToday ? `2px ${look?.borderStyle || 'solid'} ${on ? BAR_RED : look ? look.border : '#94a3b8'}` : `1px ${look?.borderStyle || 'solid'} ${look ? look.border : 'var(--color-border, #e2e8f0)'}`,
+                    background: on ? BAR_RED : look ? look.background : 'var(--color-surface, #fff)',
+                    color: on ? '#fff' : look ? look.color : 'var(--color-text-muted, #94a3b8)',
                     fontSize: '0.66rem', fontWeight: 700, lineHeight: 1.05,
                   }}
                 >

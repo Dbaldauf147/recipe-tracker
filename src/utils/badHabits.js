@@ -125,6 +125,29 @@ export function badHabitStats(habitId, habitLog, today = new Date()) {
  * ⚠️ MIRRORED in the mobile app's src/utils/badHabitTrend.ts (badLongestStreak).
  */
 export function badLongestStreak(habitId, habitLog, today = new Date(), startKey = null) {
+  const runs = badStreakRuns(habitId, habitLog, today, startKey);
+  if (runs === null) return null;
+  return runs[0] || { days: 0, fromKey: null, toKey: null };
+}
+
+/**
+ * The runner-up: the longest slip-free run other than the record, shown in
+ * silver beside the gold one so the next-best stretch is visible too. Same
+ * rules as badLongestStreak (start date, current run up to today, ties to the
+ * most recent run); null when there isn't a second run yet.
+ *
+ * ⚠️ MIRRORED in the mobile app's src/utils/badHabitTrend.ts (badSecondStreak).
+ */
+export function badSecondStreak(habitId, habitLog, today = new Date(), startKey = null) {
+  const runs = badStreakRuns(habitId, habitLog, today, startKey);
+  return runs && runs[1] ? runs[1] : null;
+}
+
+/**
+ * Every slip-free run, best first: longest, and on a tie the most recent.
+ * null when there is nothing to measure yet (no slips and no start date).
+ */
+export function badStreakRuns(habitId, habitLog, today = new Date(), startKey = null) {
   const slips = occurrenceDays(habitId, habitLog);
   const todayKey = dayKeyOf(today);
   const start = dateOfDayKey(startKey) && startKey <= todayKey ? startKey : null;
@@ -132,21 +155,18 @@ export function badLongestStreak(habitId, habitLog, today = new Date(), startKey
     const d = dateOfDayKey(key);
     return dayKeyOf(new Date(d.getFullYear(), d.getMonth(), d.getDate() + n));
   };
-  if (!slips.length) return start ? { days: daysBetween(start, todayKey) + 1, fromKey: start, toKey: todayKey } : null;
-  const runs = [];
+  if (!slips.length) return start ? [{ days: daysBetween(start, todayKey) + 1, fromKey: start, toKey: todayKey }] : null;
+  const spans = [];
   // Slip-free days before the first slip: start through the day before it.
-  if (start && start < slips[0]) runs.push([start, shift(slips[0], -1)]);
+  if (start && start < slips[0]) spans.push([start, shift(slips[0], -1)]);
   for (let i = 1; i < slips.length; i++) {
-    if (daysBetween(slips[i - 1], slips[i]) > 1) runs.push([shift(slips[i - 1], 1), shift(slips[i], -1)]);
+    if (daysBetween(slips[i - 1], slips[i]) > 1) spans.push([shift(slips[i - 1], 1), shift(slips[i], -1)]);
   }
   const last = slips[slips.length - 1];
-  if (last < todayKey) runs.push([shift(last, 1), todayKey]);
-  let best = { days: 0, fromKey: null, toKey: null };
-  for (const [fromKey, toKey] of runs) {
-    const days = daysBetween(fromKey, toKey) + 1;
-    if (days >= best.days) best = { days, fromKey, toKey };
-  }
-  return best;
+  if (last < todayKey) spans.push([shift(last, 1), todayKey]);
+  return spans
+    .map(([fromKey, toKey]) => ({ days: daysBetween(fromKey, toKey) + 1, fromKey, toKey }))
+    .sort((a, b) => (b.days - a.days) || (a.fromKey < b.fromKey ? 1 : -1));
 }
 
 /**
@@ -158,9 +178,21 @@ export function badLongestStreak(habitId, habitLog, today = new Date(), startKey
  * ⚠️ MIRRORED in the mobile app's src/utils/badHabitTrend.ts (inStreakRun, BAD_GOLD).
  */
 export const BAD_GOLD = { background: '#fde68a', border: '#f59e0b', color: '#92400e' };
+/** The second-best run: silver, with a dashed edge so it never reads as gold. */
+export const BAD_SILVER = { background: '#e2e8f0', border: '#64748b', color: '#334155' };
 
 export function inStreakRun(run, key) {
   return !!(run && run.fromKey && run.toKey && key >= run.fromKey && key <= run.toKey);
+}
+
+/**
+ * How a clean day inside the record (gold) or runner-up (silver, dashed) run
+ * looks — shared by every day grid on the Bad tab. null for an ordinary day.
+ */
+export function streakCellLook(record, second, key) {
+  if (inStreakRun(record, key)) return { ...BAD_GOLD, borderStyle: 'solid', kind: 'record', title: ' — longest streak' };
+  if (inStreakRun(second, key)) return { ...BAD_SILVER, borderStyle: 'dashed', kind: 'second', title: ' — 2nd best streak' };
+  return null;
 }
 
 /** "Sep 3 – Sep 20", "Sep 3 – now" while it is still running; the year is added when it isn't this year's. */
