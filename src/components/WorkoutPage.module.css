@@ -554,6 +554,16 @@ td.logPerCell.manuallyEdited {
   border-color: #16a34a;
   color: #fff;
 }
+.setDoneBtnStarted {
+  background: #facc15;
+  border-color: #ca8a04;
+  color: #713f12;
+}
+.setDoneBtnStarted:hover {
+  background: #eab308;
+  border-color: #a16207;
+  color: #713f12;
+}
 .setDoneBtnOn:hover {
   background: #15803d;
   border-color: #15803d;
@@ -578,6 +588,20 @@ td.logPerCell.manuallyEdited {
 }
 .logSetCellDone .logSetInput {
   color: #166534;
+  font-weight: 700;
+}
+/* First click: on this set now, not done yet (utils/setTapCycle). */
+.logSetCellStarted {
+  position: relative;
+  cursor: pointer;
+  background-color: rgba(250, 204, 21, 0.35);
+  transition: background-color 0.12s ease;
+}
+.logSetCellStarted:hover {
+  background-color: rgba(250, 204, 21, 0.5);
+}
+.logSetCellStarted .logSetInput {
+  color: #713f12;
   font-weight: 700;
 }
 /* A set that hurt, done or not: a red outline over the cell's usual colour
@@ -609,6 +633,7 @@ td.logPerCell.manuallyEdited {
   transition: opacity 0.12s ease;
 }
 .logSetCell:hover .setPainBtn,
+.logSetCellStarted:hover .setPainBtn,
 .logSetCellDone:hover .setPainBtn {
   opacity: 0.8;
 }

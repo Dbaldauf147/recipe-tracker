@@ -58,6 +58,7 @@ import WeeklyOverload from './WeeklyOverload';
 import styles from './WorkoutPage.module.css';
 import { workoutCalendarCategory, CAL_ICON, CAL_LABEL } from '../utils/workoutCategory';
 import { pastedImageFile } from '../utils/clipboardImage';
+import { cycleEntrySet } from '../utils/setTapCycle';
 
 const CHART_METRICS = {
   avgReps: { label: 'Avg Reps', field: 'avgReps' },
@@ -4150,8 +4151,8 @@ export function WorkoutPage({ onBack, user }) {
     });
     commitWorkouts(next);
   }
-  function setCellClass(done, pain) {
-    const base = done ? styles.logSetCellDone : styles.logSetCell;
+  function setCellClass(done, pain, started = false) {
+    const base = done ? styles.logSetCellDone : started ? styles.logSetCellStarted : styles.logSetCell;
     return pain ? `${base} ${styles.logSetCellPain}` : base;
   }
   function painButton(target, setIdx, pain, exercise) {
@@ -4173,20 +4174,18 @@ export function WorkoutPage({ onBack, user }) {
     );
   }
 
-  // Click a set cell's checkmark to mark that set as completed — turns the
-  // cell green so you can glance at the row and see what's left to do mid
-  // workout. The flag persists with the workout when saved.
+  // Click a set cell (or its checkmark) to step it blank → yellow → green →
+  // blank (utils/setTapCycle): yellow = on this set now, green = done, so you
+  // can glance at the row and see what's left mid workout. Green persists with
+  // the workout as `setDone`; yellow (`setStarted`) is stripped on save.
   function toggleSetDone(entryIdx, setIdx) {
     setEntries(prev => prev.map((e, i) => {
       if (i !== entryIdx) return e;
-      const setDone = Array.isArray(e.setDone) ? [...e.setDone] : [false, false, false, false];
-      while (setDone.length < 4) setDone.push(false);
-      setDone[setIdx] = !setDone[setIdx];
-      const next = { ...e, setDone };
+      const next = cycleEntrySet(e, setIdx);
       // Greening the LAST set of a row is the moment the lift is finished, so
       // it's the moment to check for a record. `workouts` is history only — the
       // session being logged isn't in it yet — so there's nothing to exclude.
-      maybeCelebratePr(next);
+      if (next.setDone[setIdx]) maybeCelebratePr(next);
       return next;
     }));
   }
@@ -4324,7 +4323,12 @@ export function WorkoutPage({ onBack, user }) {
     const anyGreen = validEntries.some(hasGreen);
     const loggedEntries = anyGreen ? validEntries.filter(hasGreen) : validEntries;
 
-    const enriched = applyBodyweightToEntries(loggedEntries, sessionBodyweightLb).map(enrichEntry);
+    // Yellow (started) is live-logging state only — never saved.
+    const enriched = applyBodyweightToEntries(loggedEntries, sessionBodyweightLb)
+      .map(e => {
+        const { setStarted: _st, ...rest } = e;
+        return enrichEntry(rest);
+      });
 
     // Preserve the existing workout id for this date so the per-day
     // Firestore writer updates that doc in place rather than treating it
@@ -4348,7 +4352,7 @@ export function WorkoutPage({ onBack, user }) {
     // suggesting the skipped ones. Strip UI-only + green flags.
     if (anyGreen && loggedEntries.length < validEntries.length) {
       workout.suggestedEntries = validEntries.map(e => {
-        const { editedFields: _ef, setDone: _sd, setPain: _sp, ...rest } = e;
+        const { editedFields: _ef, setDone: _sd, setStarted: _st, setPain: _sp, ...rest } = e;
         return rest;
       });
     }
@@ -5795,13 +5799,15 @@ export function WorkoutPage({ onBack, user }) {
                       </td>
                       {entry.sets.map((s, si) => {
                         const done = !!(entry.setDone || [])[si];
+                        const started = !done && !!(entry.setStarted || [])[si];
                         const pain = setPainFor(entry, si);
+                        const tip = done ? 'Click to clear this set' : started ? 'Click to mark this set complete' : 'Click to start this set';
                         return (
                           <td
                             key={si}
-                            className={setCellClass(done, pain)}
+                            className={setCellClass(done, pain, started)}
                             onClick={() => toggleSetDone(i, si)}
-                            title={done ? 'Click to un-mark this set' : 'Click to mark this set complete'}
+                            title={tip}
                           >
                             {/* The reps input fills the cell, so the <td> click
                                 above is only reachable via a sliver of padding.
@@ -5819,11 +5825,11 @@ export function WorkoutPage({ onBack, user }) {
                               />
                               <button
                                 type="button"
-                                className={`${styles.setDoneBtn} ${done ? styles.setDoneBtnOn : ''}`}
+                                className={`${styles.setDoneBtn} ${done ? styles.setDoneBtnOn : started ? styles.setDoneBtnStarted : ''}`}
                                 onClick={e => { e.stopPropagation(); toggleSetDone(i, si); }}
-                                aria-pressed={done}
+                                aria-pressed={done ? true : started ? 'mixed' : false}
                                 aria-label={`Set ${si + 1} complete`}
-                                title={done ? 'Mark this set not done' : 'Mark this set complete'}
+                                title={tip}
                               >✓</button>
                               {painButton({ entryIdx: i }, si, pain, entry.exercise)}
                             </div>
