@@ -21,10 +21,10 @@ import { canonStatus, habitsWithStatus } from '../utils/habitStatusHistory';
 import { REFRESH_DAYS, advanceAutoRefresh, stampAutoStatusChanges, isRefreshRotation, refreshReturnKey, nextRefreshCandidate } from '../utils/habitAutoRefresh';
 import { startQueue, dropInQueue, missingSetup, moveToNext, isWave2, wave2Seam } from '../utils/habitStartQueue';
 import {
-  badHabitStats, badLongestStreak, inStreakRun, BAD_GOLD, streakRangeLabel, recentDayKeys, cleanLabel, dayKeyOf, dateOfDayKey,
+  badHabitStats, badLongestStreak, badSecondStreak, badHabitTrend, streakCellLook, BAD_SILVER, BAD_GOLD, streakRangeLabel, recentDayKeys, cleanLabel, dayKeyOf, dateOfDayKey,
   BAD_STRIP_CHOICES, BAD_STRIP_DEFAULT_DAYS, BAD_MONTHLY_FROM_DAYS, badHistoryMonths,
 } from '../utils/badHabits';
-import { BadHabitDetail } from './BadHabitDetail';
+import { BadHabitDetail, BadTrendChart } from './BadHabitDetail';
 import {
   checklistItems, hasChecklist, tickedIds, checklistProgress, toggleItem, addItem, renameItem, removeItem, markActionAfter,
 } from '../utils/habitChecklist';
@@ -6392,13 +6392,15 @@ const BULK_FIELDS = [
 const BAD_MARK = 'done';        // the value stored — "the habit occurred"
 const BAD_COLOR = '#dc2626';
 const BAD_STRIP_STORAGE_KEY = 'sunday-bad-habits-strip-days';
+// Calendar (every day) or Bar chart (slips per day/week/month) — per browser.
+const BAD_VIEW_STORAGE_KEY = 'sunday-bad-habits-view';
 
 const WEEKDAY_INITIALS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
 
 /* A bad habit's history as calendar months, newest first, with how many times
    it happened in each. Every day in the window is still a click to log or
    unlog. ⚠️ MIRRORS the phone's BadMonthGrid in HabitsScreen.tsx. */
-function BadMonthGrid({ months, isOn, isRecord, todayKey, onToggle }) {
+function BadMonthGrid({ months, isOn, lookOf, todayKey, onToggle }) {
   return (
     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(210px, 1fr))', gap: '0.9rem 1.2rem' }}>
       {months.map(mo => {
@@ -6418,21 +6420,22 @@ function BadMonthGrid({ months, isOn, isRecord, todayKey, onToggle }) {
               {mo.weeks.flat().map((key, i) => {
                 if (!key) return <span key={i} />;
                 const on = isOn(key);
-                const gold = !on && !!isRecord && isRecord(key);
+                const look = on || !lookOf ? null : lookOf(key);
                 const d = dateOfDayKey(key);
                 const isToday = key === todayKey;
                 return (
                   <button
                     key={key}
                     type="button"
-                    data-record={gold ? 'true' : undefined}
-                    title={`${d ? d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' }) : key}${on ? ' — logged' : gold ? ' — longest streak' : ''}`}
+                    data-record={look?.kind === 'record' ? 'true' : undefined}
+                    data-second={look?.kind === 'second' ? 'true' : undefined}
+                    title={`${d ? d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' }) : key}${on ? ' — logged' : look ? look.title : ''}`}
                     onClick={() => onToggle(key, on)}
                     style={{
                       height: 26, borderRadius: 6, cursor: 'pointer', padding: 0,
-                      border: isToday ? `2px solid ${on ? BAD_COLOR : gold ? BAD_GOLD.border : 'var(--color-text-muted, #94a3b8)'}` : `1px solid ${gold ? BAD_GOLD.border : 'var(--color-border, #e2e8f0)'}`,
-                      background: on ? BAD_COLOR : gold ? BAD_GOLD.background : 'var(--color-surface, #fff)',
-                      color: on ? '#fff' : gold ? BAD_GOLD.color : 'var(--color-text-muted, #94a3b8)',
+                      border: isToday ? `2px ${look?.borderStyle || 'solid'} ${on ? BAD_COLOR : look ? look.border : 'var(--color-text-muted, #94a3b8)'}` : `1px ${look?.borderStyle || 'solid'} ${look ? look.border : 'var(--color-border, #e2e8f0)'}`,
+                      background: on ? BAD_COLOR : look ? look.background : 'var(--color-surface, #fff)',
+                      color: on ? '#fff' : look ? look.color : 'var(--color-text-muted, #94a3b8)',
                       fontSize: '0.66rem', fontWeight: 700,
                     }}
                   >{d ? d.getDate() : '?'}</button>
@@ -6446,7 +6449,7 @@ function BadMonthGrid({ months, isOn, isRecord, todayKey, onToggle }) {
   );
 }
 
-function BadHabitRow({ habit, habitLog, stripKeys, historyMonths, todayKey, onCycleMark, onOpen, onUpdate, expanded, onToggle }) {
+function BadHabitRow({ habit, habitLog, stripKeys, stripDays, historyMonths, view, todayKey, onCycleMark, onOpen, onUpdate, expanded, onToggle }) {
   const stats = useMemo(
     () => badHabitStats(habit.id, habitLog, dateOfDayKey(todayKey) || new Date()),
     [habit.id, habitLog, todayKey],
@@ -6454,6 +6457,20 @@ function BadHabitRow({ habit, habitLog, stripKeys, historyMonths, todayKey, onCy
   const longest = useMemo(
     () => badLongestStreak(habit.id, habitLog, dateOfDayKey(todayKey) || new Date(), habit.startDate),
     [habit.id, habitLog, todayKey, habit.startDate],
+  );
+  // The runner-up run, drawn silver and dashed beside the gold record.
+  const second = useMemo(
+    () => badSecondStreak(habit.id, habitLog, dateOfDayKey(todayKey) || new Date(), habit.startDate),
+    [habit.id, habitLog, todayKey, habit.startDate],
+  );
+  const lookOf = (key) => streakCellLook(longest, second, key);
+  // Bar chart view: slips over the tab's History window, bucketed the same
+  // way as the trend in the panel below (daily → weekly → monthly).
+  const barTrend = useMemo(
+    () => (view === 'bars'
+      ? badHabitTrend(habit.id, habitLog, { n: stripDays, unit: 'days' }, dateOfDayKey(todayKey) || new Date())
+      : null),
+    [view, habit.id, habitLog, stripDays, todayKey],
   );
   // Only the slip mark counts — other machinery (a PTO range stamping Skip)
   // writes to these same cells, and those days are not slips.
@@ -6507,11 +6524,19 @@ function BadHabitRow({ habit, habitLog, stripKeys, historyMonths, todayKey, onCy
       {/* The chosen history. Click any day to log or unlog it — a slip is often
           remembered later in the evening, or the next morning. 90 days and up
           is drawn as months; anything shorter as one strip. */}
-      {historyMonths ? (
+      {barTrend ? (
+        <div>
+          <div style={{ fontSize: '0.74rem', color: 'var(--color-text-muted, #64748b)', marginBottom: 4 }}>
+            {{ day: 'Per day', week: 'Per week', month: 'Per month', year: 'Per year' }[barTrend.unit]}
+            {' · '}<strong style={{ color: 'var(--color-text, #0f172a)' }}>{barTrend.total}</strong> {barTrend.total === 1 ? 'time' : 'times'} in this range
+          </div>
+          <BadTrendChart trend={barTrend} height={150} />
+        </div>
+      ) : historyMonths ? (
         <BadMonthGrid
           months={historyMonths}
           isOn={marked}
-          isRecord={key => inStreakRun(longest, key)}
+          lookOf={lookOf}
           todayKey={todayKey}
           onToggle={(key, on) => onCycleMark(habit.id, key, on ? null : BAD_MARK)}
         />
@@ -6519,22 +6544,23 @@ function BadHabitRow({ habit, habitLog, stripKeys, historyMonths, todayKey, onCy
         <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
           {stripKeys.map(key => {
             const on = marked(key);
-            const gold = !on && inStreakRun(longest, key);
+            const look = on ? null : lookOf(key);
             const d = dateOfDayKey(key);
             const isToday = key === todayKey;
             return (
               <button
                 key={key}
                 type="button"
-                data-record={gold ? 'true' : undefined}
-                title={`${d ? d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' }) : key}${on ? ' — logged' : gold ? ' — longest streak' : ''}`}
+                data-record={look?.kind === 'record' ? 'true' : undefined}
+                data-second={look?.kind === 'second' ? 'true' : undefined}
+                title={`${d ? d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' }) : key}${on ? ' — logged' : look ? look.title : ''}`}
                 onClick={() => onCycleMark(habit.id, key, on ? null : BAD_MARK)}
                 style={{
                   width: 34, height: 40, borderRadius: 8, cursor: 'pointer',
                   display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 1,
-                  border: isToday ? `2px solid ${on ? BAD_COLOR : gold ? BAD_GOLD.border : 'var(--color-text-muted, #94a3b8)'}` : `1px solid ${gold ? BAD_GOLD.border : 'var(--color-border, #e2e8f0)'}`,
-                  background: on ? BAD_COLOR : gold ? BAD_GOLD.background : 'var(--color-surface, #fff)',
-                  color: on ? '#fff' : gold ? BAD_GOLD.color : 'var(--color-text-muted, #94a3b8)',
+                  border: isToday ? `2px ${look?.borderStyle || 'solid'} ${on ? BAD_COLOR : look ? look.border : 'var(--color-text-muted, #94a3b8)'}` : `1px ${look?.borderStyle || 'solid'} ${look ? look.border : 'var(--color-border, #e2e8f0)'}`,
+                  background: on ? BAD_COLOR : look ? look.background : 'var(--color-surface, #fff)',
+                  color: on ? '#fff' : look ? look.color : 'var(--color-text-muted, #94a3b8)',
                   fontSize: '0.7rem', fontWeight: 700,
                 }}
               >
@@ -6560,6 +6586,13 @@ function BadHabitRow({ habit, habitLog, stripKeys, historyMonths, todayKey, onCy
             )}
             <strong style={{ color: 'var(--color-text, #0f172a)' }}>{longest.days}</strong> {longest.days === 1 ? 'day' : 'days'} longest streak
             {longest.fromKey ? ` (${streakRangeLabel(longest, todayKey)})` : ''}
+          </span>
+        )}
+        {second && (
+          <span data-second-stat="true" title={`${second.fromKey} to ${second.toKey} — shown in silver`} style={{ fontStyle: 'italic' }}>
+            <span aria-hidden="true" style={{ display: 'inline-block', width: 10, height: 10, borderRadius: 3, marginRight: 5, verticalAlign: '-1px', background: BAD_SILVER.background, border: `1px dashed ${BAD_SILVER.border}` }} />
+            <strong style={{ color: BAD_SILVER.color }}>{second.days}</strong> {second.days === 1 ? 'day' : 'days'} 2nd best streak
+            {` (${streakRangeLabel(second, todayKey)})`}
           </span>
         )}
       </div>
@@ -6846,6 +6879,14 @@ function BadHabitsView({ habits, habitLog, onCycleMark, onOpen, onUpdate, onAdd 
     setStripDays(n);
     try { localStorage.setItem(BAD_STRIP_STORAGE_KEY, String(n)); } catch { /* per-browser nicety only */ }
   };
+  // Calendar or bar chart, for every card at once — per browser, like the range.
+  const [view, setView] = useState(() => {
+    try { return localStorage.getItem(BAD_VIEW_STORAGE_KEY) === 'bars' ? 'bars' : 'calendar'; } catch { return 'calendar'; }
+  });
+  const pickView = (v) => {
+    setView(v);
+    try { localStorage.setItem(BAD_VIEW_STORAGE_KEY, v); } catch { /* per-browser nicety only */ }
+  };
   const stripKeys = useMemo(() => recentDayKeys(stripDays, dateOfDayKey(todayKey) || new Date()), [stripDays, todayKey]);
   const historyMonths = useMemo(
     () => (stripDays >= BAD_MONTHLY_FROM_DAYS ? badHistoryMonths(stripKeys[0], todayKey) : null),
@@ -6884,6 +6925,23 @@ function BadHabitsView({ habits, habitLog, onCycleMark, onOpen, onUpdate, onAdd 
               >{c.label}</button>
             );
           })}
+          <span role="group" aria-label="View" style={{ display: 'inline-flex', marginLeft: 'auto', border: '1px solid var(--color-border, #e2e8f0)', borderRadius: 999, overflow: 'hidden' }}>
+            {[['calendar', 'Calendar'], ['bars', 'Bar chart']].map(([v, label]) => {
+              const on = view === v;
+              return (
+                <button
+                  key={v}
+                  type="button"
+                  aria-pressed={on}
+                  onClick={() => pickView(v)}
+                  style={{
+                    border: 'none', background: on ? '#111' : 'var(--color-surface, #fff)', color: on ? '#fff' : 'var(--color-text, #0f172a)',
+                    padding: '0.2rem 0.75rem', cursor: 'pointer', fontSize: '0.75rem', fontWeight: 600,
+                  }}
+                >{label}</button>
+              );
+            })}
+          </span>
         </div>
       )}
 
@@ -6899,7 +6957,9 @@ function BadHabitsView({ habits, habitLog, onCycleMark, onOpen, onUpdate, onAdd 
             habit={h}
             habitLog={habitLog}
             stripKeys={stripKeys}
+            stripDays={stripDays}
             historyMonths={historyMonths}
+            view={view}
             todayKey={todayKey}
             onCycleMark={onCycleMark}
             onOpen={onOpen}

@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  badHabitStats, badLongestStreak, inStreakRun, streakRangeLabel, occurrenceDays, recentDayKeys, cleanLabel,
+  badHabitStats, badLongestStreak, badSecondStreak, streakCellLook, inStreakRun, streakRangeLabel, occurrenceDays, recentDayKeys, cleanLabel,
   daysBetween, dateOfDayKey, dayKeyOf,
 } from './badHabits.js';
 
@@ -181,4 +181,37 @@ test('record run: only the days inside the longest streak are gold', () => {
   // Nothing to measure, or no run at all: no gold anywhere.
   assert.equal(inStreakRun(null, '2026-10-11'), false);
   assert.equal(inStreakRun({ days: 0, fromKey: null, toKey: null }, '2026-10-11'), false);
+});
+
+test('second-best streak: the runner-up run, never the record itself', () => {
+  // Gaps: Oct 2–9 (8), Oct 11–19 (9), then Oct 21–27 so far (7).
+  const log = slipLog('2026-10-01', '2026-10-10', '2026-10-20');
+  assert.deepEqual(badSecondStreak('h', log, OCT27), { days: 8, fromKey: '2026-10-02', toKey: '2026-10-09' });
+  // The record is unchanged by the refactor.
+  assert.deepEqual(badLongestStreak('h', log, OCT27), { days: 9, fromKey: '2026-10-11', toKey: '2026-10-19' });
+  // A tie: the later run is the record, the earlier one is second.
+  const tie = slipLog('2026-10-01', '2026-10-05', '2026-10-09');
+  assert.deepEqual(badLongestStreak('h', tie, OCT27), { days: 18, fromKey: '2026-10-10', toKey: '2026-10-27' });
+  assert.deepEqual(badSecondStreak('h', tie, OCT27), { days: 3, fromKey: '2026-10-06', toKey: '2026-10-08' });
+  assert.deepEqual(badSecondStreak('h', slipLog('2026-10-01', '2026-10-05', '2026-10-09', '2026-10-20'), OCT27),
+    { days: 7, fromKey: '2026-10-21', toKey: '2026-10-27' });
+  // Only one run (or none) means no second.
+  assert.equal(badSecondStreak('h', slipLog('2026-10-25'), OCT27), null);
+  assert.equal(badSecondStreak('h', {}, OCT27, '2026-10-20'), null);
+  assert.equal(badSecondStreak('h', {}, OCT27), null);
+  // The start date adds the run before the first slip.
+  assert.deepEqual(badSecondStreak('h', slipLog('2026-10-25'), OCT27, '2026-10-01'),
+    { days: 2, fromKey: '2026-10-26', toKey: '2026-10-27' });
+});
+
+test('cell look: gold for the record, dashed silver for the runner-up, nothing otherwise', () => {
+  const log = slipLog('2026-10-01', '2026-10-10', '2026-10-20');
+  const rec = badLongestStreak('h', log, OCT27);   // Oct 11–19
+  const sec = badSecondStreak('h', log, OCT27);    // Oct 2–9
+  assert.equal(streakCellLook(rec, sec, '2026-10-15').kind, 'record');
+  assert.equal(streakCellLook(rec, sec, '2026-10-15').borderStyle, 'solid');
+  assert.equal(streakCellLook(rec, sec, '2026-10-05').kind, 'second');
+  assert.equal(streakCellLook(rec, sec, '2026-10-05').borderStyle, 'dashed');
+  assert.equal(streakCellLook(rec, sec, '2026-10-25'), null);   // third-best run
+  assert.equal(streakCellLook(rec, null, '2026-10-05'), null);
 });
