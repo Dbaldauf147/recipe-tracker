@@ -1,8 +1,9 @@
-import { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { fetchNutritionForRecipe, suggestUsdaMatch, NUTRIENTS } from '../utils/nutrition';
 import { recipeNutritionVectors } from '../utils/recipeServingNutrition';
 import { ingredientsDbSignature } from '../utils/ingredientsStore';
 import { matchStrength } from '../utils/sheetMatch';
+import { unmatchedIngredients, breakdownNameSuggestions } from '../utils/breakdownRows';
 import styles from './NutritionPanel.module.css';
 
 const GOALS_KEY = 'sunday-nutrition-goals';
@@ -342,7 +343,97 @@ function Suggestion({ name, suggestion, onAddIngredient }) {
   );
 }
 
-function IngredientBreakdown({ items, totals, onAddIngredient, ingredients = [] }) {
+const SOURCE_LABELS = { sheet: 'your ingredients', usda: 'USDA', off: 'Open Food Facts', cnf: 'Canadian Nutrient File' };
+
+// The panel under a clicked ingredient: rename it (with suggestions from the
+// user's ingredient list, and USDA's pick when the match is poor or missing),
+// and every nutrient it contributes — not just the columns picked above.
+function IngredientDetail({ name, item, strength, suggestion, ingredientNames, onRename, onAddIngredient, onClose }) {
+  const [draft, setDraft] = useState(name);
+  const [showZero, setShowZero] = useState(false);
+  const suggestions = useMemo(() => breakdownNameSuggestions(name, ingredientNames), [name, ingredientNames]);
+  const trimmed = draft.trim();
+  const canSave = !!onRename && !!trimmed && trimmed !== name.trim();
+  const save = (next) => {
+    const value = (next ?? draft).trim();
+    if (!onRename || !value || value === name.trim()) return;
+    onRename(name, value);
+    onClose();
+  };
+  const nutrients = item
+    ? NUTRIENTS.filter(n => showZero || Number(item.nutrients[n.key]) || ['calories', 'protein', 'carbs', 'fat'].includes(n.key))
+    : [];
+  const hiddenZero = item ? NUTRIENTS.length - NUTRIENTS.filter(n => Number(item.nutrients[n.key]) || ['calories', 'protein', 'carbs', 'fat'].includes(n.key)).length : 0;
+  const poor = !item || strength === 'weak' || strength === 'partial';
+  return (
+    <div className={styles.ingDetail}>
+      {onRename && (
+        <div className={styles.ingDetailSection}>
+          <div className={styles.ingDetailLabel}>Ingredient name</div>
+          <div className={styles.ingRenameRow}>
+            <input
+              className={styles.ingRenameInput}
+              value={draft}
+              aria-label="Ingredient name"
+              autoFocus
+              onChange={e => setDraft(e.target.value)}
+              onKeyDown={e => {
+                if (e.key === 'Enter') save();
+                if (e.key === 'Escape') onClose();
+              }}
+            />
+            <button type="button" className={styles.ingRenameSave} disabled={!canSave} onClick={() => save()}>Save</button>
+            <button type="button" className={styles.ingRenameCancel} onClick={onClose}>Close</button>
+          </div>
+          {suggestions.length > 0 ? (
+            <>
+              <div className={styles.ingDetailLabel}>{item ? 'Suggested from your ingredients' : 'Not found — did you mean'}</div>
+              <div className={styles.ingSuggestChips}>
+                {suggestions.map(n => (
+                  <button key={n} type="button" className={styles.ingSuggestChip} title={`Rename to "${n}"`} onClick={() => save(n)}>{n}</button>
+                ))}
+              </div>
+            </>
+          ) : (
+            !item && <div className={styles.ingDetailHint}>Nothing close in your ingredients list — try a simpler name (e.g. “bone broth”).</div>
+          )}
+          {poor && <Suggestion name={name} suggestion={suggestion} onAddIngredient={onAddIngredient} />}
+        </div>
+      )}
+      <div className={styles.ingDetailSection}>
+        <div className={styles.ingDetailLabel}>
+          Nutrition breakdown
+          {item && (
+            <span className={styles.ingDetailMeta}>
+              {' '}· {item.grams}g of {matchedFoodName(item)}{SOURCE_LABELS[item.source] ? ` (${SOURCE_LABELS[item.source]})` : ''}
+            </span>
+          )}
+        </div>
+        {item ? (
+          <>
+            <div className={styles.ingNutrientGrid}>
+              {nutrients.map(n => (
+                <div key={n.key} className={styles.ingNutrient}>
+                  <span className={styles.ingNutrientLabel}>{n.label}</span>
+                  <span className={styles.ingNutrientValue}>{item.nutrients[n.key] ?? 0}{n.unit}</span>
+                </div>
+              ))}
+            </div>
+            {hiddenZero > 0 && (
+              <button type="button" className={styles.ingShowZero} onClick={() => setShowZero(v => !v)}>
+                {showZero ? 'Hide zero values' : `Show ${hiddenZero} zero values`}
+              </button>
+            )}
+          </>
+        ) : (
+          <div className={styles.ingDetailHint}>No nutrition data was found for this name, so it adds nothing to the totals.</div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function IngredientBreakdown({ items, totals, onAddIngredient, onRenameIngredient, ingredientNames = [], ingredients = [] }) {
   const [mode, setMode] = useState('nutrition'); // 'nutrition' | 'produce'
   const [selectedCols, setSelectedCols] = useState(() => {
     try {
@@ -351,6 +442,8 @@ function IngredientBreakdown({ items, totals, onAddIngredient, ingredients = [] 
     } catch { return DEFAULT_BREAKDOWN_COLS; }
   });
   const [showPicker, setShowPicker] = useState(false);
+  // Which ingredient's detail row is open, by its recipe text.
+  const [openName, setOpenName] = useState(null);
 
   function toggleCol(key) {
     setSelectedCols(prev => {
@@ -373,7 +466,12 @@ function IngredientBreakdown({ items, totals, onAddIngredient, ingredients = [] 
   const weakIngredients = weak.map(item =>
     ingredients.find(ing => (ing.ingredient || '').trim() === item.matchedTo)
     || { ingredient: item.matchedTo, quantity: '', measurement: '' });
-  const suggestions = useSuggestions(weakIngredients);
+  // Recipe rows the lookup found nothing for — listed so they can be renamed.
+  const missing = unmatchedIngredients(items, ingredients);
+  const suggestions = useSuggestions([
+    ...weakIngredients,
+    ...missing.map(row => ({ ...row, ingredient: row.ingredient.trim() })),
+  ]);
 
   return (
     <>
@@ -455,10 +553,18 @@ function IngredientBreakdown({ items, totals, onAddIngredient, ingredients = [] 
               const colSpan = 1 + visibleNutrients.length;
               const renderItemRow = ({ item, i }) => {
                 const strength = strengths[i];
+                const isOpen = openName === item.matchedTo;
                 return (
-                <tr key={i} className={strength === 'weak' ? styles.rowMismatch : undefined}>
+                <React.Fragment key={i}>
+                <tr className={`${strength === 'weak' ? styles.rowMismatch : ''} ${isOpen ? styles.rowOpen : ''}`.trim() || undefined}>
                   <td className={styles.ingredientCell}>
-                    <span>{item.matchedTo}</span>
+                    <button
+                      type="button"
+                      className={styles.ingNameBtn}
+                      aria-expanded={isOpen}
+                      title={onRenameIngredient ? 'Edit name & see nutrition' : 'See nutrition'}
+                      onClick={() => setOpenName(isOpen ? null : item.matchedTo)}
+                    >{item.matchedTo}</button>
                     <span className={styles.matchNote}>
                       {item.name.toLowerCase()} ({item.grams}g)
                     </span>
@@ -482,22 +588,67 @@ function IngredientBreakdown({ items, totals, onAddIngredient, ingredients = [] 
                     </td>
                   ))}
                 </tr>
+                {isOpen && renderDetailRow(item.matchedTo, item, strength)}
+                </React.Fragment>
                 );
               };
+              const renderDetailRow = (name, item, strength) => (
+                <tr className={styles.detailRow}>
+                  <td colSpan={colSpan}>
+                    <IngredientDetail
+                      key={name}
+                      name={name}
+                      item={item}
+                      strength={strength}
+                      suggestion={suggestions[name]}
+                      ingredientNames={ingredientNames}
+                      onRename={onRenameIngredient}
+                      onAddIngredient={onAddIngredient}
+                      onClose={() => setOpenName(null)}
+                    />
+                  </td>
+                </tr>
+              );
+              const renderMissingRow = (row) => {
+                const name = (row.ingredient || '').trim();
+                const isOpen = openName === name;
+                return (
+                  <React.Fragment key={`missing:${name}`}>
+                    <tr className={`${styles.rowMissing} ${isOpen ? styles.rowOpen : ''}`}>
+                      <td className={styles.ingredientCell}>
+                        <button
+                          type="button"
+                          className={styles.ingNameBtn}
+                          aria-expanded={isOpen}
+                          title={onRenameIngredient ? 'Edit name' : undefined}
+                          onClick={() => setOpenName(isOpen ? null : name)}
+                        >{name}</button>
+                        <span className={styles.missingTag}>⚠ Not found — click to rename</span>
+                      </td>
+                      {visibleNutrients.map(n => <td key={n.key} className={styles.missingCell}>—</td>)}
+                    </tr>
+                    {isOpen && renderDetailRow(name, null, null)}
+                  </React.Fragment>
+                );
+              };
+              const baseMissing = missing.filter(row => !row.topping);
+              const topMissing = missing.filter(row => row.topping);
               return (
                 <>
-                  {baseItems.length > 0 && (
+                  {baseItems.length + baseMissing.length > 0 && (
                     <tr className={styles.sectionDivider}>
                       <td colSpan={colSpan}>Base Ingredients</td>
                     </tr>
                   )}
                   {baseItems.map(renderItemRow)}
-                  {topItems.length > 0 && (
+                  {baseMissing.map(renderMissingRow)}
+                  {topItems.length + topMissing.length > 0 && (
                     <tr className={styles.sectionDivider}>
                       <td colSpan={colSpan}>Per Meal Toppings</td>
                     </tr>
                   )}
                   {topItems.map(renderItemRow)}
+                  {topMissing.map(renderMissingRow)}
                 </>
               );
             })()}
@@ -517,7 +668,7 @@ function IngredientBreakdown({ items, totals, onAddIngredient, ingredients = [] 
   );
 }
 
-export function NutritionPanel({ recipeId, ingredients, servings = 1, portionLabel, onViewSources, onNutritionData, onAddIngredient, weighPortionContent }) {
+export function NutritionPanel({ recipeId, ingredients, servings = 1, portionLabel, onViewSources, onNutritionData, onAddIngredient, onRenameIngredient, ingredientNames, weighPortionContent }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -806,6 +957,8 @@ export function NutritionPanel({ recipeId, ingredients, servings = 1, portionLab
         }))}
         totals={totals}
         onAddIngredient={onAddIngredient}
+        onRenameIngredient={onRenameIngredient}
+        ingredientNames={ingredientNames}
         ingredients={filteredIngredients}
       />
 
