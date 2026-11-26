@@ -14,6 +14,7 @@ import {
 } from '../utils/unitWeights';
 import { ingredientMatchScore } from '../utils/ingredientMatch';
 import { suggestIngredientNames } from '../utils/ingredientNameSuggest';
+import { ingredientIndexByName } from '../utils/breakdownRows';
 import { VOLUME_TO_ML, WEIGHT_TO_G, SIZE_GRAMS, getSizeGrams } from '../utils/units';
 import { volumeGrams } from '../utils/volumeGrams';
 import { classifyMealType } from '../utils/classifyMealType';
@@ -2820,6 +2821,13 @@ export function RecipeDetail({ recipe, allTags = [], onSave, onDelete, onBack, o
         })()}
         onViewSources={onViewSources}
         onAddIngredient={onAddIngredient}
+        ingredientNames={dbNamesList}
+        // Rename a recipe line from its row in the per-ingredient breakdown.
+        // Linked-from-friend recipes never save, so they get no editor there.
+        onRenameIngredient={recipe?.source === 'shared-link' ? undefined : (oldName, newName) => {
+          const idx = ingredientIndexByName(fields.ingredients, oldName);
+          if (idx !== -1) updateIngredient(idx, 'ingredient', newName);
+        }}
         onNutritionData={(d) => {
           setNutritionTotals(d?.totals || null);
           setNutritionPerServing(d?.perServing || null);

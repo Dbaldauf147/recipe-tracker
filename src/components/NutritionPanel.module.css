@@ -602,3 +602,187 @@
   font-weight: 700;
   cursor: pointer;
 }
+
+/* ── Clickable ingredient names + their detail row ── */
+.ingNameBtn {
+  all: unset;
+  cursor: pointer;
+  color: var(--color-text);
+  border-bottom: 1px dashed var(--color-border);
+  align-self: flex-start;
+}
+
+.ingNameBtn:hover,
+.ingNameBtn:focus-visible {
+  color: var(--color-accent);
+  border-bottom-color: var(--color-accent);
+}
+
+.rowOpen td {
+  background: var(--color-accent-subtle, #eef3f9);
+  border-bottom-color: transparent;
+}
+
+.rowMissing td {
+  background: #fffbeb;
+}
+
+.rowMissing td:first-child {
+  box-shadow: inset 3px 0 0 #d97706;
+}
+
+.missingTag {
+  margin-top: 0.2rem;
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: #b45309;
+}
+
+.missingCell {
+  color: var(--color-text-muted);
+}
+
+.detailRow > td {
+  background: var(--color-accent-subtle, #eef3f9);
+  white-space: normal;
+  padding: 0.25rem 0.6rem 0.75rem;
+}
+
+.ingDetail {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  max-width: 640px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  padding: 0.7rem 0.8rem;
+}
+
+.ingDetailSection {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.ingDetailLabel {
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text-muted);
+}
+
+.ingDetailMeta {
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: 500;
+}
+
+.ingDetailHint {
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+}
+
+.ingRenameRow {
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+
+.ingRenameInput {
+  flex: 1 1 200px;
+  min-width: 0;
+  padding: 0.4rem 0.55rem;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: inherit;
+  font-size: 0.82rem;
+}
+
+.ingRenameInput:focus {
+  outline: none;
+  border-color: var(--color-accent);
+}
+
+.ingRenameSave,
+.ingRenameCancel {
+  padding: 0.35rem 0.85rem;
+  border-radius: 6px;
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.ingRenameSave {
+  border: 1px solid var(--color-accent);
+  background: var(--color-accent);
+  color: #fff;
+}
+
+.ingRenameSave:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.ingRenameCancel {
+  border: 1px solid var(--color-border);
+  background: transparent;
+  color: var(--color-text-secondary, var(--color-text-muted));
+}
+
+.ingSuggestChips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.ingSuggestChip {
+  padding: 0.2rem 0.65rem;
+  border: 1px solid var(--color-accent);
+  border-radius: 999px;
+  background: var(--color-accent-subtle, #eef3f9);
+  color: var(--color-accent);
+  font: inherit;
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+
+.ingSuggestChip:hover {
+  background: var(--color-accent-light, #dbe6f3);
+}
+
+.ingNutrientGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 0.15rem 1rem;
+}
+
+.ingNutrient {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+  font-size: 0.78rem;
+  padding: 0.15rem 0;
+  border-bottom: 1px solid var(--color-border-light);
+}
+
+.ingNutrientLabel {
+  color: var(--color-text-muted);
+}
+
+.ingNutrientValue {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.ingShowZero {
+  all: unset;
+  cursor: pointer;
+  font-size: 0.72rem;
+  color: var(--color-accent);
+  align-self: flex-start;
+}
