@@ -8,7 +8,7 @@ import { HABIT_FIELDS, seedHabits, makeHabitId } from '../data/habitsSeed';
 import { CALENDAR_DAYS, calendarCounts, habitCalendar } from '../utils/habitCalendar';
 import { AUTO_PROMOTE_DAYS, AUTO_PROMOTE_PCT, autoPromoteNumbers, autoPromoteEta, autoPromoteAnswerExpired } from '../utils/habitAutoPromote';
 import { yesterdayDate, yesterdayDayKey, yesterdayUnloggedHabits, isBadHabit, habitMonthEvery, monthlyDueIn, habitPeriodKey, habitDueNow, habitWeekEvery, weeklyDueIn, weekKeyStart } from '../utils/habitOutstanding';
-import { normalizePtoRanges, ptoCellsToStamp, activePtoRange } from '../utils/habitPto';
+import { normalizePtoRanges, ptoCellsToStamp, activePtoRange, ptoNotifyCandidates } from '../utils/habitPto';
 import { nextMarkInCycle } from '../utils/habitMarkCycle';
 import { cueFields, cuesOf } from '../utils/habitCues';
 import styles from './HabitsPage.module.css';
@@ -1996,6 +1996,8 @@ export function HabitsPage({ onBack, user }) {
     });
   }
   const activePto = useMemo(() => activePtoRange(ptoRanges), [ptoRanges]);
+  // Habits that can be linked to the PTO-day notification: not bad, not parked.
+  const ptoCandidates = useMemo(() => ptoNotifyCandidates(habits), [habits]);
 
   // PTO: stamp Skip on every cell a range covers that doesn't have a mark yet.
   //
@@ -2848,6 +2850,31 @@ export function HabitsPage({ onBack, user }) {
                 Add
               </button>
             </div>
+
+            {ptoCandidates.length > 0 && (
+              <div data-testid="pto-notify" style={{ marginTop: '1rem', paddingTop: '0.75rem', borderTop: '1px solid var(--color-border)' }}>
+                <div style={{ fontSize: '0.9rem', fontWeight: 700, marginBottom: 4 }}>Notify me on PTO days</div>
+                <p style={{ fontSize: '0.78rem', color: 'var(--color-text-muted)', margin: '0 0 0.5rem', lineHeight: 1.45 }}>
+                  Pick the habits you still want to keep up while you're away. Each PTO morning at 8am the Prep Day app
+                  sends a notification listing the ones still due, and they stay open all day for a real Done — they're
+                  only marked Skip once the day is over.
+                </p>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 220, overflowY: 'auto' }}>
+                  {ptoCandidates.map(ph => (
+                    <label key={ph.id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.85rem', cursor: ph.ptoDone ? 'default' : 'pointer', opacity: ph.ptoDone ? 0.5 : 1 }}>
+                      <input
+                        type="checkbox"
+                        disabled={ph.ptoDone === true}
+                        checked={ph.ptoDone !== true && ph.ptoNotify === true}
+                        onChange={e => updateHabit(ph.id, 'ptoNotify', e.target.checked)}
+                      />
+                      <span style={{ flex: 1 }}>{ph.name || 'Habit'}</span>
+                      {ph.ptoDone && <span style={{ fontSize: '0.72rem', color: 'var(--color-text-muted)' }}>Logged Done on PTO</span>}
+                    </label>
+                  ))}
+                </div>
+              </div>
+            )}
 
             <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '1rem' }}>
               <button onClick={() => setPtoOpen(false)} style={ghostBtn}>Done</button>
@@ -7830,6 +7857,21 @@ function HabitDetailModal({ habit, streak: streakProp, habitLog = {}, autoTracke
           <div style={{ fontSize: '0.72rem', color: 'var(--color-text-muted)', marginTop: 6, lineHeight: 1.4 }}>
             PTO normally marks habits Skip. With this on, every PTO day logs this one as Done instead.
           </div>
+          {h.ptoDone !== true && (
+            <>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: '0.85rem', fontWeight: 600, marginTop: 10 }}>
+                <input
+                  type="checkbox"
+                  checked={h.ptoNotify === true}
+                  onChange={e => onUpdate(h.id, 'ptoNotify', e.target.checked)}
+                />
+                Notify me on PTO days
+              </label>
+              <div style={{ fontSize: '0.72rem', color: 'var(--color-text-muted)', marginTop: 6, lineHeight: 1.4 }}>
+                The Prep Day app sends a morning notification on each PTO day while this is still due. It stays open all day instead of being marked Skip, and is only skipped once the day is over.
+              </div>
+            </>
+          )}
         </div>
 
         {/* Repeats every N weeks — Weekly habits. Same rules as the Monthly
