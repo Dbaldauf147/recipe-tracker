@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { ptoCellsToStamp, ptoMarkFor } from './habitPto.js';
+import { ptoCellsToStamp, ptoMarkFor, ptoNotifyCandidates } from './habitPto.js';
 
 // Wed 19 Aug 2026; PTO Sat 15th → Sat 22nd, so only the 15th–19th can stamp.
 const TODAY = new Date(2026, 7, 19);
@@ -40,4 +40,23 @@ test('a ptoDone habit is stamped even when automatic, but not when parked', () =
   const ruled = { id: 'h1', cadence: 'Daily', ptoDone: true };
   assert.equal(marks([ruled], {}, [{ habitId: 'h1', enabled: true }]).length, 5);
   assert.deepEqual(marks([{ id: 'h1', cadence: 'Daily', status: 'On Hold', ptoDone: true }]), []);
+});
+
+test('a habit linked to the PTO-day notification keeps today open', () => {
+  const keys = ptoCellsToStamp([{ id: 'h1', name: 'D', cadence: 'Daily', ptoNotify: true }], {}, [], RANGE, TODAY)
+    .map(c => c.key).sort();
+  assert.deepEqual(keys, ['2026-08-15', '2026-08-16', '2026-08-17', '2026-08-18']);
+});
+
+test('ptoNotify is moot for a ptoDone habit — today still logs Done', () => {
+  const cells = ptoCellsToStamp([{ id: 'h1', name: 'D', cadence: 'Daily', ptoNotify: true, ptoDone: true }], {}, [], RANGE, TODAY);
+  assert.ok(cells.some(c => c.key === '2026-08-19' && c.mark === 'done'));
+});
+
+test('ptoNotifyCandidates drops bad and parked habits, keeps automatic ones', () => {
+  const names = ptoNotifyCandidates([
+    { id: 'a', name: 'Zed' }, { id: 'b', name: 'Bad', habitType: 'bad' },
+    { id: 'c', name: 'Held', status: 'On Hold' }, { id: 'd', name: 'Auto', status: 'Automatically' },
+  ]).map(h => h.name);
+  assert.deepEqual(names, ['Auto', 'Zed']);
 });
