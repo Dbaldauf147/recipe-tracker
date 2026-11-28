@@ -853,7 +853,7 @@ function HoldButton({ onClick, onHold, children, ...rest }) {
 const AUTO_SOURCES = [
   { id: 'prepday', label: 'Prep Day entry', icon: '🍽️', blurb: 'Reacts to things already logged in Prep Day (workouts, meals, weigh-ins).' },
   { id: 'rally', label: 'Rally', icon: '📞', blurb: 'Reacts to activity in your Rally app — e.g. how many people you reached out to today.' },
-  { id: 'gratitude', label: 'Gratitude', icon: '🙏', blurb: 'Reacts to your Gratitude app — e.g. logging all 3 of today\'s gratitudes.' },
+  { id: 'gratitude', label: 'Gratitude', icon: '🙏', blurb: 'Reacts to your Gratitude app — e.g. logging all 3 of today\'s gratitudes, or finishing a meditation.' },
   { id: 'healthkit', label: 'Apple Health', icon: '❤️', blurb: 'Reads HealthKit metrics from the iOS app (steps, workouts, sleep, mindfulness). Only the workout trigger runs server-side today — it falls back to your Prep Day workout history; the metric ones wait on the HealthKit→Firestore bridge.' },
   { id: 'external', label: 'External / webhook', icon: '🔗', blurb: 'Another tool POSTs an event to Prep Day to mark the habit.' },
 ];
@@ -893,6 +893,8 @@ const AUTO_TRIGGERS = {
   ],
   gratitude: [
     { id: 'gratitude_goal', label: 'Logged at least', numeric: true, unit: 'gratitudes (default 3)' },
+    // A meditation counts once its audio plays to the end in the Gratitude app.
+    { id: 'meditation_done', label: 'Completed at least', numeric: true, unit: 'meditations (default 1)' },
     { id: 'custom', label: 'Custom — describe in Logic' },
   ],
   healthkit: [

@@ -57,7 +57,9 @@
 //                   count to the rule threshold.
 //   - 'gratitude' → evaluated here by calling the Gratitude bridge
 //                   (/api/gratitude-today) once per run and comparing today's
-//                   logged-gratitude count to the rule threshold.
+//                   logged-gratitude count to the rule threshold. The same
+//                   call carries how many meditations were played to the end
+//                   that day, which is what 'meditation_done' compares.
 //   - 'healthkit' → mostly NOT evaluated: HealthKit data lives on the iOS
 //                   device and isn't in Firestore yet. Needs the mobile
 //                   HK→Firestore bridge before this cron can see it. Counted as
@@ -139,6 +141,7 @@ function triggerPhrasing(rule) {
     case 'hk_workout': return { pos: 'A workout was logged in Prep Day', neg: 'No workout was logged in Prep Day', noun: 'workouts' };
     case 'reach_out_goal': return { pos: 'Reach-out goal met', neg: "Reach-out goal wasn't met", noun: 'reach-outs' };
     case 'gratitude_goal': return { pos: 'Gratitude goal met', neg: "Gratitude goal wasn't met", noun: 'gratitude entries' };
+    case 'meditation_done': return { pos: 'A meditation was completed', neg: 'No meditation was completed', noun: 'meditations' };
     case 'meals_tracked_goal': return { pos: 'Meals-tracked goal met', neg: "Meals-tracked goal wasn't met", noun: 'meal tracking' };
     default: return { pos: 'Trigger met', neg: 'Trigger not met', noun: 'this' };
   }
@@ -279,6 +282,7 @@ function evalPrepdayTrigger(trigger, ctx, habit, rule) {
 // Default goals — mirror REACH_OUT_GOAL / GRATITUDE_GOAL on the Habits page.
 const REACH_OUT_GOAL = 2;
 const GRATITUDE_GOAL = 3;
+const MEDITATION_GOAL = 1;
 
 // Evaluate a Rally-source trigger. `reach` is { count } from Rally (or null if
 // Rally couldn't be reached — caller treats that as unsupported, not "false").
@@ -290,12 +294,20 @@ function evalRallyTrigger(rule, reach) {
   return null; // 'custom' / unknown → not machine-evaluable
 }
 
-// Evaluate a Gratitude-source trigger. `grat` is { count } from Gratitude (or
-// null if unreachable — caller treats that as unsupported, not "false").
-function evalGratitudeTrigger(rule, grat) {
+// Evaluate a Gratitude-source trigger. `grat` is { count, meditations } from
+// Gratitude (or null if unreachable — caller treats that as unsupported, not
+// "false"). Either number is null when Gratitude answered without it (e.g. its
+// meditation table isn't readable), which is likewise "unknown", never a miss.
+export function evalGratitudeTrigger(rule, grat) {
   if (rule.trigger === 'gratitude_goal') {
+    if (typeof grat.count !== 'number') return null;
     const threshold = Number(rule.threshold) > 0 ? Number(rule.threshold) : GRATITUDE_GOAL;
     return grat.count >= threshold;
+  }
+  if (rule.trigger === 'meditation_done') {
+    if (typeof grat.meditations !== 'number') return null;
+    const threshold = Number(rule.threshold) > 0 ? Number(rule.threshold) : MEDITATION_GOAL;
+    return grat.meditations >= threshold;
   }
   return null; // 'custom' / unknown → not machine-evaluable
 }
@@ -359,7 +371,9 @@ export default async function handler(req, res) {
         const params = new URLSearchParams({ key, date: dateKey });
         const r = await fetch(`${base}/api/gratitude-today?${params}`);
         const d = await r.json().catch(() => ({}));
-        if (r.ok && typeof d.loggedCount === 'number') result = { count: d.loggedCount };
+        const count = typeof d.loggedCount === 'number' ? d.loggedCount : null;
+        const meditations = typeof d.meditationsCompleted === 'number' ? d.meditationsCompleted : null;
+        if (r.ok && (count !== null || meditations !== null)) result = { count, meditations };
       } catch { /* leave null → gratitude rules counted as unsupported for this date */ }
     }
     _gratitude.set(dateKey, result);
