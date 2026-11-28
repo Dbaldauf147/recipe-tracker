@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { ptoCellsToStamp, ptoMarkFor, ptoNotifyCandidates } from './habitPto.js';
+import { ptoCellsToStamp, ptoMarkFor, ptoNotifyCandidates, effectivePtoRanges, samePtoRanges } from './habitPto.js';
 
 // Wed 19 Aug 2026; PTO Sat 15th → Sat 22nd, so only the 15th–19th can stamp.
 const TODAY = new Date(2026, 7, 19);
@@ -59,4 +59,23 @@ test('ptoNotifyCandidates drops bad and parked habits, keeps automatic ones', ()
     { id: 'c', name: 'Held', status: 'On Hold' }, { id: 'd', name: 'Auto', status: 'Automatically' },
   ]).map(h => h.name);
   assert.deepEqual(names, ['Auto', 'Zed']);
+});
+
+test('effectivePtoRanges merges Rally ranges in, tagged read-only', () => {
+  const all = effectivePtoRanges(
+    [{ id: 'm', start: '2026-12-20', end: '2026-12-22', label: 'Home' }],
+    [{ id: 'rally_x', start: '2026-12-01', end: '2026-12-03', label: 'Ski' }, { start: 'junk' }],
+  );
+  assert.deepEqual(all.map(r => [r.id, r.source || '']), [['rally_x', 'rally'], ['m', '']]);
+});
+
+test('a Rally range feeds the PTO stamp like a booked one', () => {
+  const cells = ptoCellsToStamp([{ id: 'h1', name: 'D', cadence: 'Daily' }], {}, [], effectivePtoRanges([], RANGE), TODAY);
+  assert.ok(cells.length > 0);
+});
+
+test('samePtoRanges ignores order and ids, not dates', () => {
+  const a = [{ id: '1', start: '2026-12-01', end: '2026-12-02', label: '' }, { id: '2', start: '2026-12-05', end: '2026-12-05', label: '' }];
+  assert.ok(samePtoRanges(a, [...a].reverse().map(r => ({ ...r, id: 'x' + r.id }))));
+  assert.ok(!samePtoRanges(a, [a[0]]));
 });
