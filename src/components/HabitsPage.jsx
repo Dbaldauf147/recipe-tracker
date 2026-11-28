@@ -8,7 +8,7 @@ import { HABIT_FIELDS, seedHabits, makeHabitId } from '../data/habitsSeed';
 import { CALENDAR_DAYS, calendarCounts, habitCalendar } from '../utils/habitCalendar';
 import { AUTO_PROMOTE_DAYS, AUTO_PROMOTE_PCT, autoPromoteNumbers, autoPromoteEta, autoPromoteAnswerExpired } from '../utils/habitAutoPromote';
 import { yesterdayDate, yesterdayDayKey, yesterdayUnloggedHabits, isBadHabit, habitMonthEvery, monthlyDueIn, habitPeriodKey, habitDueNow, habitWeekEvery, weeklyDueIn, weekKeyStart } from '../utils/habitOutstanding';
-import { normalizePtoRanges, ptoCellsToStamp, activePtoRange, ptoNotifyCandidates } from '../utils/habitPto';
+import { normalizePtoRanges, ptoCellsToStamp, activePtoRange, ptoNotifyCandidates, effectivePtoRanges } from '../utils/habitPto';
 import { nextMarkInCycle } from '../utils/habitMarkCycle';
 import { cueFields, cuesOf } from '../utils/habitCues';
 import styles from './HabitsPage.module.css';
@@ -1524,6 +1524,9 @@ export function HabitsPage({ onBack, user }) {
   // PTO mode: date ranges over which every due habit is auto-stamped Skip.
   // Stored on the user doc as `habitPto` and shared with the mobile app.
   const [ptoRanges, setPtoRanges] = useState([]);
+  // PTO days from the Rally PTO page (`habitPtoRally`, synced hourly by
+  // api/sync-rally-pto.js). Read-only here; merged into `allPto` below.
+  const [ptoRally, setPtoRally] = useState([]);
   // Hand-set order of the routine groups on the Routines tab, per cadence:
   // { Daily: ['Morning', 'Lunch', ''], Weekly: [...] } ('' = No routine).
   // Stored on the user doc as `habitRoutineOrder`. Routines not listed keep
@@ -1679,6 +1682,11 @@ export function HabitsPage({ onBack, user }) {
           user?.uid ? loadHabitAutoStatus(user.uid) : null,
           user?.uid ? loadField(user.uid, 'habitPto') : null,
         ]);
+        if (user?.uid) {
+          loadField(user.uid, 'habitPtoRally')
+            .then(v => { if (!cancelled) setPtoRally(normalizePtoRanges(v)); })
+            .catch(() => {});
+        }
         if (cancelled) return;
         setPtoRanges(normalizePtoRanges(remotePto));
         // Not part of the offline cache or the Promise.all above: a failed
@@ -1777,7 +1785,7 @@ export function HabitsPage({ onBack, user }) {
     });
     const unsubFields = subscribeToUserFields(
       user.uid,
-      ['habits', 'habitAutomations', 'habitNextLog', 'habitPto', 'habitRoutineOrder'],
+      ['habits', 'habitAutomations', 'habitNextLog', 'habitPto', 'habitPtoRally', 'habitRoutineOrder'],
       (fields) => {
         // Replay the queue over the snapshot for the same reason the load
         // effect does: unsynced edits outrank the server's older answer.
@@ -1794,6 +1802,7 @@ export function HabitsPage({ onBack, user }) {
           setHabitNextLog(merged.habitNextLog);
         }
         if (Array.isArray(fields.habitPto)) setPtoRanges(normalizePtoRanges(fields.habitPto));
+        if (Array.isArray(fields.habitPtoRally)) setPtoRally(normalizePtoRanges(fields.habitPtoRally));
         if (fields.habitRoutineOrder && typeof fields.habitRoutineOrder === 'object' && !Array.isArray(fields.habitRoutineOrder)) {
           setRoutineOrder(fields.habitRoutineOrder);
         }
@@ -1995,7 +2004,9 @@ export function HabitsPage({ onBack, user }) {
       return next;
     });
   }
-  const activePto = useMemo(() => activePtoRange(ptoRanges), [ptoRanges]);
+  // Booked here + synced from Rally: everything PTO mode runs on.
+  const allPto = useMemo(() => effectivePtoRanges(ptoRanges, ptoRally), [ptoRanges, ptoRally]);
+  const activePto = useMemo(() => activePtoRange(allPto), [allPto]);
   // Habits that can be linked to the PTO-day notification: not bad, not parked.
   const ptoCandidates = useMemo(() => ptoNotifyCandidates(habits), [habits]);
 
@@ -2011,7 +2022,7 @@ export function HabitsPage({ onBack, user }) {
   // stamp against a half-loaded log and overwrite nothing it should.
   useEffect(() => {
     if (loading || !user?.uid) return;
-    const cells = ptoCellsToStamp(habits, habitLog, automations, ptoRanges);
+    const cells = ptoCellsToStamp(habits, habitLog, automations, allPto);
     // Mostly Skip; a habit set to "Log as Done on PTO days" gets Done.
     for (const mark of ['skipped', 'done']) {
       const group = cells.filter(c => c.mark === mark);
@@ -2020,7 +2031,7 @@ export function HabitsPage({ onBack, user }) {
     // setMarksForCells is stable enough for this — it only reads state through
     // the functional updater.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loading, user?.uid, habits, habitLog, automations, ptoRanges]);
+  }, [loading, user?.uid, habits, habitLog, automations, allPto]);
 
   // Bulk set (or erase, when mark is null) many cells at once — used by the
   // weekly table's bulk-edit mode. `cells` is [{ habitId, key }, …]. One state
@@ -2799,21 +2810,30 @@ export function HabitsPage({ onBack, user }) {
               Days in a range are marked <strong>Skip</strong> for every habit due on them, so nothing shows as missed
               while you're away. Anything you log yourself on those days is left alone, and past days fill in as soon as
               you open the page — you don't have to be here each morning. Weekly and monthly habits are only skipped when
-              the range covers the whole period they're due in.
+              the range covers the whole period they're due in. PTO on your Rally PTO page shows up here on its own
+              (synced hourly) — change those days in Rally.
             </p>
 
-            {ptoRanges.length === 0 ? (
+            {allPto.length === 0 ? (
               <p style={{ fontSize: '0.85rem', color: 'var(--color-text-muted)', fontStyle: 'italic', margin: '0 0 0.75rem' }}>
                 No PTO booked.
               </p>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6, margin: '0 0 0.75rem' }}>
-                {ptoRanges.map(r => (
+                {allPto.map(r => (
                   <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 8, border: '1px solid var(--color-border)', borderRadius: 8, padding: '0.4rem 0.6rem' }}>
                     <span style={{ flex: 1, fontSize: '0.85rem' }}>
                       <strong>{r.start}</strong> → <strong>{r.end}</strong>
                       {r.label ? <span style={{ color: 'var(--color-text-muted)' }}>{`  ·  ${r.label}`}</span> : null}
                     </span>
+                    {r.source === 'rally' ? (
+                      <span
+                        title="Synced from your Rally PTO page. Change or remove it there; Prep Day picks it up within the hour."
+                        style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--color-text-muted)', whiteSpace: 'nowrap' }}
+                      >
+                        From Rally
+                      </span>
+                    ) : (
                     <button
                       onClick={() => persistPto(ptoRanges.filter(x => x.id !== r.id))}
                       title="Remove this range. Marks it already wrote stay — erase them from the day menu if you want them gone."
@@ -2821,6 +2841,7 @@ export function HabitsPage({ onBack, user }) {
                     >
                       Remove
                     </button>
+                    )}
                   </div>
                 ))}
               </div>
