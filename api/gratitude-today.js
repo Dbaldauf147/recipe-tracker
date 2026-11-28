@@ -2,7 +2,9 @@
 // page (Automatic tab tile + the gratitude auto-log source). Like the Rally
 // proxies, the shared secret (GRATITUDE_EXPORT_KEY) is attached server-side so it
 // never reaches the browser. The caller passes its LOCAL day (?date=YYYY-MM-DD).
-// Returns { loggedCount, goal, date } — loggedCount is null if unavailable.
+// Returns { loggedCount, goal, date, meditationsCompleted } — loggedCount is null
+// if unavailable; meditationsCompleted (meditations played to the end that day)
+// is null if the Gratitude app didn't report it.
 const GRATITUDE_BASE_URL = process.env.GRATITUDE_BASE_URL || 'https://gratitude-website.vercel.app';
 
 export default async function handler(req, res) {
@@ -25,6 +27,7 @@ export default async function handler(req, res) {
       loggedCount: typeof data.loggedCount === 'number' ? data.loggedCount : null,
       goal: typeof data.goal === 'number' ? data.goal : 3,
       date: data.date || date,
+      meditationsCompleted: typeof data.meditationsCompleted === 'number' ? data.meditationsCompleted : null,
     });
   } catch (err) {
     return res.status(200).json({ loggedCount: null, goal: 3, reason: err.message });
